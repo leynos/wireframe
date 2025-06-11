@@ -330,7 +330,9 @@ handling to be managed and customized independently.
   payload of incoming frames into strongly-typed Rust data structures (messages)
   and serializes outgoing Rust messages into byte payloads for outgoing frames.
   This is the primary role intended for `wire-rs` 6 or an alternative like
-  `bincode` 11 or `postcard`.12
+  `bincode` 11 or `postcard`.12 A minimal wrapper trait in the library
+  currently exposes these derives under a convenient `Message` trait,
+  providing `to_bytes` and `from_bytes` helpers.
 - **Routing Engine**: After a message is deserialized (or at least a header
   containing an identifier is processed), the routing engine inspects it to
   determine which user-defined handler function is responsible for processing
