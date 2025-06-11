@@ -13,6 +13,13 @@ after formatting. Line numbers below refer to that file.
   329-333).
 - [ ] Build the Actix-inspired API around `WireframeApp` and `WireframeServer`
   as described in lines 586-676.
+  - [ ] Implement `WireframeApp` builder to register routes, services,
+    middleware, and shared state.
+  - [ ] Implement `WireframeServer` to spawn per-worker apps, bind to an
+    address, and run.
+  - [ ] Create supporting types like the `FrameProcessor` trait, state
+    extractors, and middleware trait.
+  - [ ] Provide example code mirroring the design document usage snippet.
 
 ## 2. Middleware and Extractors
 
