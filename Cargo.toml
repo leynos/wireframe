@@ -1,0 +1,9 @@
+[package]
+name = "wireframe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[lints.clippy]
+pedantic = "warn"
