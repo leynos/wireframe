@@ -9,7 +9,7 @@ after formatting. Line numbers below refer to that file.
 - [ ] Lines 316-345 outline the layered architecture comprising the Transport
   Layer Adapter, Framing Layer, Serialization engine, Routing engine, Handler
   invocation, and Middleware chain.
-- [ ] Implement derive macros or wrappers for message serialization (lines
+- [x] Implement derive macros or wrappers for message serialization (lines
   329-333).
 - [ ] Build the Actix-inspired API around `WireframeApp` and `WireframeServer`
   as described in lines 586-676.
