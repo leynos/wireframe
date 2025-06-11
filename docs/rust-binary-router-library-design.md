@@ -37,17 +37,17 @@ The design of the "wireframe" library is predicated on a multi-faceted approach:
    as protocol frameworks like `protocol` and `tarpc`. The Tokio ecosystem, a
    foundational element for asynchronous networking in Rust, was also
    considered.
-1. **API Analysis**: The Application Programming Interface (API) of Actix Web
+2. **API Analysis**: The Application Programming Interface (API) of Actix Web
    was studied in detail, focusing on its mechanisms for routing, request data
    extraction, middleware, and application state management. The objective was
    to identify design principles that contribute to its developer-friendliness
    and could be effectively translated to the context of binary protocols.
-1. **Comparative Synthesis**: Learnings from the literature survey and API
+3. **Comparative Synthesis**: Learnings from the literature survey and API
    analysis were synthesized to inform the core design decisions for
    "wireframe". This involved identifying common strategies for complexity
    reduction in Rust, such as the use of derive macros and trait-based
    abstractions, and evaluating how Actix Web's patterns could be adapted.
-1. **Iterative Design**: Based on these findings, a conceptual design for
+4. **Iterative Design**: Based on these findings, a conceptual design for
    "wireframe" was developed, outlining its architecture, core components, and
    API. This design prioritizes the user query's central goal: reducing source
    code complexity for arbitrary frame-based binary protocols.
@@ -225,14 +225,14 @@ of "wireframe":
    (de)serialization, derive macros are paramount for reducing boilerplate and
    improving developer experience, as seen in `bin-proto`, `protocol`,
    `bincode`, and `postcard`.
-1. **Robust (De)serialization Strategy**: The choice of `wire-rs` is contingent
+2. **Robust (De)serialization Strategy**: The choice of `wire-rs` is contingent
    on its ability to support derivable `Encode`/`Decode` traits. If this is not
    feasible, well-established alternatives like `bincode` or `postcard` offer
    proven Serde integration and derive capabilities.10
-1. **Actix-Inspired API Patterns**: Leveraging Actix Web's patterns for routing,
+3. **Actix-Inspired API Patterns**: Leveraging Actix Web's patterns for routing,
    data extraction (extractors), and middleware is key to achieving the desired
    developer-friendliness and reducing source code complexity.
-1. **Asynchronous Foundation**: Integration with an asynchronous runtime like
+4. **Asynchronous Foundation**: Integration with an asynchronous runtime like
    Tokio is non-negotiable for a modern, performant networking library in
    Rust.18
 
@@ -1055,7 +1055,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
      ````
 
-  1. **Frame Processor Implementation** (Simple Length-Prefixed Framing using
+  2. **Frame Processor Implementation** (Simple Length-Prefixed Framing using
      `tokio-util`):
 
      Rust
@@ -1108,7 +1108,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
      ````
 
-  1. **Server Setup and Handler**:
+  3. **Server Setup and Handler**:
 
      Rust
 
@@ -1186,7 +1186,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
      ````
 
-  1. **Application State**:
+  2. **Application State**:
 
      Rust
 
@@ -1206,7 +1206,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
      ````
 
-  1. **Server Setup and Handlers**:
+  3. **Server Setup and Handlers**:
 
      Rust
 
@@ -1518,7 +1518,7 @@ The key design elements contributing to this complexity reduction include:
 
 By adopting these strategies, "wireframe" seeks to improve developer
 productivity, enhance code maintainability, and allow applications to fully
-benefit from Rust's performance and safety guarantees.1 The design prioritizes
+benefit from Rust's performance and safety guarantees. The design prioritizes
 creating an intuitive and familiar experience for developers, especially those
 with a background in Actix Web, while remaining flexible enough to accommodate a
 wide variety of binary protocols.
