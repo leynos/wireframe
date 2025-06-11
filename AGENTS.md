@@ -116,7 +116,8 @@ project:
 ## Markdown Guidance
 
 - Validate Markdown files using `markdownlint`.
-- Validate Markdown Mermaid diagrams using `nixie`.
+- Validate Markdown Mermaid diagrams using the `nixie` CLI. The tool is
+  already installed; run `nixie` directly instead of using `npx`.
 
 ### Key Takeaway
 
