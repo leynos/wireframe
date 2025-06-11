@@ -13,6 +13,20 @@ after formatting. Line numbers below refer to that file.
   329-333).
 - [ ] Build the Actix-inspired API around `WireframeApp` and `WireframeServer`
   as described in lines 586-676.
+  - [ ] Implement `WireframeApp` builder.
+        Clarify method signatures (`new`, `route`, `service`, `wrap`),
+        expose a consistent `Result<Self>` error strategy, and allow
+        registration calls in any order for ergonomic chaining.
+  - [ ] Implement `WireframeServer`.
+        Outline how worker threads are spawned via Tokio, with graceful
+        shutdown using a signal and per-worker `WireframeApp` instances.
+  - [ ] Standardise supporting trait definitions.
+        Provide naming conventions and generic bounds for the
+        `FrameProcessor` trait, state extractors and middleware via
+        `async_trait` and associated types.
+  - [ ] Provide a minimal, runnable example.
+        Include imports and an async `main` so the snippet compiles out of
+        the box.
 
 ## 2. Middleware and Extractors
 
