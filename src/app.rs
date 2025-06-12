@@ -1,4 +1,7 @@
 use std::boxed::Box;
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Configures routing and middleware for a `WireframeServer`.
 ///
@@ -7,21 +10,16 @@ use std::boxed::Box;
 /// registrations can be chained ergonomically.
 #[derive(Default)]
 pub struct WireframeApp {
-    routes: Vec<Route>,
+    routes: HashMap<u32, Service>,
     services: Vec<Service>,
     middleware: Vec<Box<dyn Middleware>>,
 }
 
-/// A route mapping a message identifier to a handler.
-pub struct Route {
-    /// Identifier of the incoming message this route handles.
-    pub message_id: u32,
-    /// Handler invoked when the message arrives.
-    pub handler: Service,
-}
-
 /// Alias for boxed asynchronous handlers.
-pub type Service = Box<dyn Fn() + Send + Sync>;
+///
+/// A `Service` is a boxed function returning a [`Future`], enabling
+/// asynchronous execution of message handlers.
+pub type Service = Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Trait representing middleware components.
 pub trait Middleware: Send + Sync {}
@@ -54,13 +52,10 @@ impl WireframeApp {
     /// Returns [`WireframeError::DuplicateRoute`] if a handler for `id`
     /// has already been registered.
     pub fn route(mut self, id: u32, handler: Service) -> Result<Self> {
-        if self.routes.iter().any(|r| r.message_id == id) {
+        if self.routes.contains_key(&id) {
             return Err(WireframeError::DuplicateRoute(id));
         }
-        self.routes.push(Route {
-            message_id: id,
-            handler,
-        });
+        self.routes.insert(id, handler);
         Ok(self)
     }
 
