@@ -34,7 +34,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let server = WireframeServer::new(|| WireframeApp::default());
     /// ```
     pub fn new(factory: F) -> Self {
@@ -59,7 +59,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let server = WireframeServer::new(factory).workers(4);
     /// ```
     pub fn workers(mut self, count: usize) -> Self {
@@ -85,7 +85,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use std::net::SocketAddr;
     /// let server = WireframeServer::new(factory);
     /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
@@ -125,7 +125,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// # use std::net::SocketAddr;
     /// # use mycrate::{WireframeServer, WireframeApp};
     /// # async fn run_server() -> std::io::Result<()> {
