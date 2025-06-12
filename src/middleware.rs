@@ -52,8 +52,8 @@ where
     S: Service,
 {
     /// Wrapped service produced by the middleware.
-    type Service: Service;
+    type Output: Service;
 
     /// Create a new middleware service wrapping `service`.
-    async fn transform(&self, service: S) -> Self::Service;
+    async fn transform(&self, service: S) -> Self::Output;
 }

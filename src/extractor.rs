@@ -17,6 +17,23 @@ pub struct Payload<'a> {
     pub data: &'a [u8],
 }
 
+impl Payload<'_> {
+    /// Advances the payload by `count` bytes.
+    ///
+    /// Consumes up to `count` bytes from the front of the slice, ensuring we
+    /// never slice beyond the available buffer.
+    pub fn advance(&mut self, count: usize) {
+        let n = count.min(self.data.len());
+        self.data = &self.data[n..];
+    }
+
+    /// Returns the number of bytes remaining.
+    #[must_use]
+    pub fn remaining(&self) -> usize {
+        self.data.len()
+    }
+}
+
 /// Asynchronous extractor trait.
 #[async_trait]
 pub trait FromMessageRequest: Sized {
@@ -32,9 +49,9 @@ pub trait FromMessageRequest: Sized {
 
 /// Shared application state accessible to handlers.
 #[derive(Clone)]
-pub struct SharedState<T>(Arc<T>);
+pub struct SharedState<T: Send + Sync>(Arc<T>);
 
-impl<T> SharedState<T> {
+impl<T: Send + Sync> SharedState<T> {
     /// Construct a new [`SharedState`].
     #[must_use]
     pub fn new(inner: Arc<T>) -> Self {
@@ -42,7 +59,7 @@ impl<T> SharedState<T> {
     }
 }
 
-impl<T> std::ops::Deref for SharedState<T> {
+impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
