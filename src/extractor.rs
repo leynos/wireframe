@@ -54,6 +54,16 @@ pub struct SharedState<T: Send + Sync>(Arc<T>);
 impl<T: Send + Sync> SharedState<T> {
     /// Construct a new [`SharedState`].
     #[must_use]
+    /// Creates a new `SharedState` instance wrapping the provided `Arc<T>`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// let state = Arc::new(42);
+    /// let shared = SharedState::new(state.clone());
+    /// assert_eq!(*shared, 42);
+    /// ```
     pub fn new(inner: Arc<T>) -> Self {
         Self(inner)
     }
@@ -62,6 +72,18 @@ impl<T: Send + Sync> SharedState<T> {
 impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     type Target = T;
 
+    /// Returns a reference to the inner shared state value.
+    ///
+    /// This allows transparent access to the underlying state managed by `SharedState`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// let state = Arc::new(42);
+    /// let shared = SharedState::new(state.clone());
+    /// assert_eq!(*shared, 42);
+    /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
     }
