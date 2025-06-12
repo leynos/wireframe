@@ -22,7 +22,7 @@ after formatting. Line numbers below refer to that file.
         `WireframeApp` instance from a factory closure. A Ctrl+C signal triggers
         graceful shutdown, notifying all workers to stop accepting new
         connections.
-  - [x] Standardise supporting trait definitions.
+  - [x] Standardize supporting trait definitions.
         Provide naming conventions and generic bounds for the
         `FrameProcessor` trait, state extractors and middleware via
         `async_trait` and associated types.

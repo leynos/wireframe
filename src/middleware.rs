@@ -22,9 +22,13 @@ where
 {
     /// Creates a new `Next` instance wrapping a reference to the given service.
     ///
-    /// # Examples
-    ///
-    /// ```
+///
+/// ```ignore
+/// use wireframe::middleware::{ServiceRequest, ServiceResponse, Next, Service};
+/// ```
+    /// Service produced by the middleware.
+    type Wrapped: Service;
+    async fn transform(&self, service: S) -> Self::Wrapped;
     /// let service = MyService::default();
     /// let next = Next::new(&service);
     /// ```

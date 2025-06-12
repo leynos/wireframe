@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bytes::BytesMut;
 
 /// Trait defining how raw bytes are decoded into frames and how frames are
 /// encoded back into bytes for transmission.
@@ -15,8 +16,8 @@ pub trait FrameProcessor: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Attempt to decode the next frame from `src`.
-    async fn decode(&mut self, src: &[u8]) -> Result<Option<Self::Frame>, Self::Error>;
+    async fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Frame>, Self::Error>;
 
     /// Encode `frame` and append the bytes to `dst`.
-    async fn encode(&mut self, frame: &Self::Frame, dst: &mut Vec<u8>) -> Result<(), Self::Error>;
+    async fn encode(&mut self, frame: &Self::Frame, dst: &mut BytesMut) -> Result<(), Self::Error>;
 }

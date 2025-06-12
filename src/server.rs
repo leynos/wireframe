@@ -32,6 +32,13 @@ where
     ///
     /// The server is initialised with a default worker count equal to the number of CPU cores.
     ///
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
+    /// let server = WireframeServer::new(factory);
+    /// ```
+            workers: num_cpus::get().max(1),
 
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
