@@ -36,6 +36,14 @@ where
     ///
     /// ```ignore
     /// let server = WireframeServer::new(|| WireframeApp::default());
+    /// Creates a new `WireframeServer` with the given factory closure.
+    ///
+    /// The server is initialised with the default number of worker tasks equal to the number of CPU cores. The TCP listener is not yet bound; use `bind` to associate a socket address.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let server = WireframeServer::new(|| WireframeApp::default());
     /// ```
     pub fn new(factory: F) -> Self {
         Self {
@@ -56,6 +64,12 @@ where
     ///
     /// # Returns
     /// A new `WireframeServer` instance with the updated worker count.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let server = WireframeServer::new(factory).workers(4);
+    /// Sets the number of worker tasks for the server, ensuring at least one worker.
     ///
     /// # Examples
     ///
