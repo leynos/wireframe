@@ -28,7 +28,15 @@ impl<F> WireframeServer<F>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Create a new server from an application factory.
+    /// Constructs a new `WireframeServer` using the provided application factory closure.
+    ///
+    /// The server is initialised with a default worker count equal to the number of CPU cores.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(|| WireframeApp::default());
+    /// ```
     pub fn new(factory: F) -> Self {
         Self {
             factory,
@@ -39,6 +47,21 @@ where
 
     /// Set the number of worker tasks to spawn.
     #[must_use]
+    /// Sets the number of worker tasks to spawn for the server.
+    ///
+    /// Ensures that at least one worker is configured, even if a lower value is provided.
+    ///
+    /// # Parameters
+    /// - `count`: Desired number of worker tasks.
+    ///
+    /// # Returns
+    /// A new `WireframeServer` instance with the updated worker count.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(factory).workers(4);
+    /// ```
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
@@ -48,7 +71,26 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`io::Error`] if binding fails.
+    /// Binds the server to the specified socket address and prepares it for accepting TCP connections.
+    ///
+    /// Returns an error if binding to the address or configuring the listener fails.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The socket address to bind the server to.
+    ///
+    /// # Returns
+    ///
+    /// An updated server instance with the listener configured, or an `io::Error` if binding fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::SocketAddr;
+    /// let server = WireframeServer::new(factory);
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let server = server.bind(addr).expect("Failed to bind address");
+    /// ```
     pub fn bind(mut self, addr: SocketAddr) -> io::Result<Self> {
         let std_listener = StdTcpListener::bind(addr)?;
         std_listener.set_nonblocking(true)?;
@@ -69,7 +111,31 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if called before [`bind`].
+    /// Runs the server, accepting TCP connections concurrently until shutdown.
+    ///
+    /// Spawns the configured number of worker tasks, each accepting incoming connections using a shared listener and a separate `WireframeApp` instance. The server listens for a Ctrl+C signal to initiate graceful shutdown, signalling all workers to stop accepting new connections. Waits for all worker tasks to complete before returning.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called before `bind` has been invoked.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` when the server shuts down gracefully, or an `io::Error` if accepting connections fails during runtime.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::net::SocketAddr;
+    /// # use mycrate::{WireframeServer, WireframeApp};
+    /// # async fn run_server() -> std::io::Result<()> {
+    /// let factory = || WireframeApp::new();
+    /// let server = WireframeServer::new(factory)
+    ///     .workers(4)
+    ///     .bind("127.0.0.1:8080".parse::<SocketAddr>().unwrap())?;
+    /// server.run().await
+    /// # }
+    /// ```
     pub async fn run(self) -> io::Result<()> {
         let listener = self.listener.expect("`bind` must be called before `run`");
         let (shutdown_tx, _) = broadcast::channel(16);
