@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -36,14 +35,17 @@ impl Payload<'_> {
     }
 }
 
-/// Asynchronous extractor trait.
-#[async_trait]
+/// Trait for extracting data from a [`MessageRequest`].
 pub trait FromMessageRequest: Sized {
     /// Error type returned when extraction fails.
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Perform extraction from the request and payload.
-    async fn from_message_request(
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if extraction fails.
+    fn from_message_request(
         req: &MessageRequest,
         payload: &mut Payload<'_>,
     ) -> Result<Self, Self::Error>;

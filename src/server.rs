@@ -40,8 +40,7 @@ where
     /// ```
             workers: num_cpus::get().max(1),
 
-    /// ```no_run
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// Set the number of worker tasks to spawn for the server.
     ///
     /// #[tokio::main]
     /// async fn main() -> std::io::Result<()> {
