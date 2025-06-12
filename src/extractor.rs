@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Request context passed to extractors.
@@ -7,7 +8,8 @@ use std::sync::Arc;
 /// access to application state registered with [`WireframeApp`].
 #[derive(Default)]
 pub struct MessageRequest {
-    // TODO: populate with connection info and state storage
+    /// Address of the peer that sent the current message.
+    pub peer_addr: Option<SocketAddr>,
 }
 
 /// Raw payload buffer handed to extractors.
