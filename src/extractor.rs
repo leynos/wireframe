@@ -53,6 +53,17 @@ pub struct SharedState<T: Send + Sync>(Arc<T>);
 
 impl<T: Send + Sync> SharedState<T> {
     /// Construct a new [`SharedState`].
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use wireframe::extractor::SharedState;
+    ///
+    /// let data = Arc::new(5u32);
+    /// let state = SharedState::new(Arc::clone(&data));
+    /// assert_eq!(*state, 5);
+    /// ```
     #[must_use]
 
 #[cfg(test)]
