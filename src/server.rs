@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio::time::{Duration, sleep};
 
 use crate::app::WireframeApp;
 
@@ -71,7 +72,7 @@ where
     /// Panics if called before [`bind`].
     pub async fn run(self) -> io::Result<()> {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        let (shutdown_tx, _) = broadcast::channel(1);
+        let (shutdown_tx, _) = broadcast::channel(16);
 
         // Spawn worker tasks using Tokio's runtime.
         let mut handles = Vec::with_capacity(self.workers);
@@ -80,20 +81,25 @@ where
             let listener = Arc::clone(&listener);
             let factory = self.factory.clone();
             handles.push(tokio::spawn(async move {
-                let _app = (factory)();
+                let app = (factory)();
+                let mut delay = Duration::from_millis(10);
                 loop {
                     tokio::select! {
-                        res = listener.accept() => {
-                            match res {
-                                Ok((_stream, _)) => {
-                                    // TODO: pass stream to application
-                                }
-                                Err(e) => eprintln!("accept error: {e}"),
+                        res = listener.accept() => match res {
+                            Ok((_stream, _)) => {
+                                // TODO: hand off stream to `app`
+                                delay = Duration::from_millis(10);
                             }
-                        }
+                            Err(e) => {
+                                eprintln!("accept error: {e}");
+                                sleep(delay).await;
+                                delay = (delay * 2).min(Duration::from_secs(1));
+                            }
+                        },
                         _ = shutdown_rx.recv() => break,
                     }
                 }
+                drop(app);
             }));
         }
 
