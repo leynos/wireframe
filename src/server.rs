@@ -1,5 +1,5 @@
 use std::io;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
@@ -19,7 +19,7 @@ where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
     factory: F,
-    addr: Option<SocketAddr>,
+    listener: Option<Arc<TcpListener>>,
     workers: usize,
 }
 
@@ -31,7 +31,7 @@ where
     pub fn new(factory: F) -> Self {
         Self {
             factory,
-            addr: None,
+            listener: None,
             workers: num_cpus::get(),
         }
     }
@@ -43,13 +43,16 @@ where
         self
     }
 
-    /// Bind the server to the given address.
+    /// Bind the server to the given address and create a listener.
     ///
     /// # Errors
     ///
     /// Returns an [`io::Error`] if binding fails.
     pub fn bind(mut self, addr: SocketAddr) -> io::Result<Self> {
-        self.addr = Some(addr);
+        let std_listener = StdTcpListener::bind(addr)?;
+        std_listener.set_nonblocking(true)?;
+        let listener = TcpListener::from_std(std_listener)?;
+        self.listener = Some(Arc::new(listener));
         Ok(self)
     }
 
@@ -67,9 +70,7 @@ where
     ///
     /// Panics if called before [`bind`].
     pub async fn run(self) -> io::Result<()> {
-        let addr = self.addr.expect("`bind` must be called before `run`");
-        let listener = TcpListener::bind(addr).await?;
-        let listener = Arc::new(listener);
+        let listener = self.listener.expect("`bind` must be called before `run`");
         let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn worker tasks using Tokio's runtime.
@@ -96,13 +97,19 @@ where
             }));
         }
 
-        // Wait for Ctrl+C for graceful shutdown.
+        // Wait for Ctrl+C or workers finishing.
+        let join_all = futures::future::join_all(handles);
+        tokio::pin!(join_all);
+
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 let _ = shutdown_tx.send(());
             }
-            _ = futures::future::join_all(handles) => {}
+            _ = &mut join_all => {}
         }
+
+        // Ensure all workers have exited before returning.
+        join_all.await;
         Ok(())
     }
 }
