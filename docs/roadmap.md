@@ -17,9 +17,11 @@ after formatting. Line numbers below refer to that file.
         Clarify method signatures (`new`, `route`, `service`, `wrap`),
         expose a consistent `Result<Self>` error strategy, and allow
         registration calls in any order for ergonomic chaining.
-  - [ ] Implement `WireframeServer`.
-        Outline how worker threads are spawned via Tokio, with graceful
-        shutdown using a signal and per-worker `WireframeApp` instances.
+  - [x] Implement `WireframeServer`.
+        Worker tasks are spawned using Tokio. Each thread receives its own
+        `WireframeApp` instance from a factory closure. A Ctrl+C signal triggers
+        graceful shutdown, notifying all workers to stop accepting new
+        connections.
   - [ ] Standardise supporting trait definitions.
         Provide naming conventions and generic bounds for the
         `FrameProcessor` trait, state extractors and middleware via
