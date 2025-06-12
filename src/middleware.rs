@@ -31,6 +31,13 @@ where
     async fn transform(&self, service: S) -> Self::Wrapped;
     /// let service = MyService::default();
     /// let next = Next::new(&service);
+    /// Creates a new `Next` instance wrapping a reference to the given service.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let service = MyService::default();
+    /// let next = Next::new(&service);
     /// ```
     pub const fn new(service: &'a S) -> Self {
         Self { service }
@@ -61,6 +68,21 @@ where
     /// let req = ServiceRequest {};
     /// let res = tokio_test::block_on(next.call(req));
     /// assert!(res.is_ok());
+    /// Asynchronously invokes the next service in the middleware chain with the given request.
+    ///
+    /// Calls the wrapped service's `call` method, forwarding the provided `ServiceRequest` and returning its response or error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use your_crate::{Next, ServiceRequest, Service, ServiceResponse};
+    /// # async fn example<S: Service>(next: Next<'_, S>, req: ServiceRequest) {
+    /// let result = next.call(req).await;
+    /// match result {
+    ///     Ok(response) => { /* handle response */ }
+    ///     Err(e) => { /* handle error */ }
+    /// }
+    /// # }
     /// ```
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await

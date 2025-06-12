@@ -22,7 +22,19 @@ impl Payload<'_> {
     /// Advances the payload by `count` bytes.
     ///
     /// Consumes up to `count` bytes from the front of the slice, ensuring we
-    /// never slice beyond the available buffer.
+    /// Consumes up to `count` bytes from the front of the payload, never exceeding the available buffer.
+    ///
+    /// Advances the internal byte slice by removing up to `count` bytes from the start. If `count` exceeds the remaining length, the payload is emptied.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut payload = Payload { data: b"hello world" };
+    /// payload.advance(6);
+    /// assert_eq!(payload.data, b"world");
+    /// payload.advance(10);
+    /// assert_eq!(payload.data, b"");
+    /// ```
     pub fn advance(&mut self, count: usize) {
         let n = count.min(self.data.len());
         self.data = &self.data[n..];
@@ -30,6 +42,15 @@ impl Payload<'_> {
 
     /// Returns the number of bytes remaining.
     #[must_use]
+    /// Returns the number of bytes remaining in the payload.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let data = [1, 2, 3, 4];
+    /// let payload = Payload { data: &data };
+    /// assert_eq!(payload.remaining(), 4);
+    /// ```
     pub fn remaining(&self) -> usize {
         self.data.len()
     }
@@ -100,6 +121,15 @@ mod tests {
     /// let state = Arc::new(42);
     /// let shared = SharedState::new(state.clone());
     /// assert_eq!(*shared, 42);
+    /// Creates a new `SharedState` instance wrapping the provided `Arc`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// let state = Arc::new(42);
+    /// let shared = SharedState::new(state.clone());
+    /// assert_eq!(*shared, 42);
     /// ```
     pub fn new(inner: Arc<T>) -> Self {
         Self(inner)
@@ -120,6 +150,16 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// let state = Arc::new(42);
     /// let shared = SharedState::new(state.clone());
     /// assert_eq!(*shared, 42);
+    /// Returns a reference to the inner state.
+    ///
+    /// Allows transparent access to the wrapped value by dereferencing `SharedState`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// let state = SharedState::new(Arc::new(42));
+    /// assert_eq!(*state, 42);
     /// ```
     fn deref(&self) -> &Self::Target {
         &self.0

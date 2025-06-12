@@ -63,7 +63,36 @@ where
     ///
     /// ```ignore
     /// let server = WireframeServer::new(factory).workers(4);
-    /// ```
+    /// Sets the number of worker tasks to spawn for the server.
+        ///
+        /// The worker count determines how many concurrent tasks will accept incoming TCP connections.
+        /// If `count` is less than 1, it defaults to 1.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use my_crate::WireframeServer;
+        ///
+        /// let server = WireframeServer::new(|| MyApp::new())
+        ///     .workers(4);
+        /// ```
+        ///
+        /// ```
+        /// # // This example demonstrates full server setup and is not intended to be run as a test.
+        /// # use my_crate::WireframeServer;
+        /// # use std::net::SocketAddr;
+        /// #
+        /// # struct MyApp;
+        /// # impl MyApp { fn new() -> Self { MyApp } }
+        /// #
+        /// let server = WireframeServer::new(|| MyApp::new())
+        ///     .workers(8)
+        ///     .bind("127.0.0.1:8080".parse::<SocketAddr>().unwrap())
+        ///     .unwrap();
+        /// // server.run().await.unwrap();
+        /// ```
+        ///
+        /// Returns a new `WireframeServer` instance with the updated worker count.
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
