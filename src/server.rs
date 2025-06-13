@@ -28,42 +28,18 @@ impl<F> WireframeServer<F>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Constructs a new `WireframeServer` using the provided application factory closure.
-    ///
-    /// The server is initialised with a default worker count equal to the number of CPU cores.
-    ///
-    /// ```no_run
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let factory = || WireframeApp::new().unwrap();
-    /// let server = WireframeServer::new(factory);
-    /// ```
-            workers: num_cpus::get().max(1),
+    /// Construct a new server using the supplied application factory.
+    #[must_use]
+    pub fn new(factory: F) -> Self {
+        Self {
+            factory,
+            listener: None,
+            workers: num_cpus::get(),
+        }
+    }
 
-    /// Set the number of worker tasks to spawn for the server.
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> std::io::Result<()> {
-    ///     let factory = || WireframeApp::new().unwrap();
-    ///     WireframeServer::new(factory)
-    ///         .workers(4)
-    ///         .bind("127.0.0.1:0".parse().unwrap())?
-    ///         .run()
-    ///         .await
-    /// }
-    /// A new `WireframeServer` instance with the updated worker count.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let server = WireframeServer::new(factory).workers(4);
-    /// Sets the number of worker tasks for the server, ensuring at least one worker.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let server = WireframeServer::new(factory).workers(4);
-    /// ```
+    /// Set the number of worker tasks to spawn.
+    #[must_use]
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
