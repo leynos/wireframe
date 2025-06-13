@@ -11,6 +11,14 @@ pub struct Next<'a, S: Service + ?Sized> {
 }
 
 impl<'a, S: Service + ?Sized> Next<'a, S> {
+    /// Creates a new `Next` instance that wraps a reference to the given service.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let service = MyService::default();
+    /// let next = Next::new(&service);
+    /// ```
     pub fn new(service: &'a S) -> Self {
         Self { service }
     }
@@ -19,7 +27,26 @@ impl<'a, S: Service + ?Sized> Next<'a, S> {
     ///
     /// # Errors
     ///
-    /// Propagates any error returned by the wrapped service.
+    /// Asynchronously calls the wrapped service with the given request, returning its response or error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use your_crate::{Next, ServiceRequest, ServiceResponse, Service};
+    /// # struct DummyService;
+    /// # #[async_trait::async_trait]
+    /// # impl Service for DummyService {
+    /// #     type Error = std::convert::Infallible;
+    /// #     async fn call(&self, _req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+    /// #         Ok(ServiceResponse)
+    /// #     }
+    /// # }
+    /// # let service = DummyService;
+    /// let next = Next::new(&service);
+    /// # tokio_test::block_on(async {
+    /// let response = next.call(ServiceRequest).await.unwrap();
+    /// # });
+    /// ```
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await
     }

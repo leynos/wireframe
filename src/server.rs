@@ -28,6 +28,15 @@ where
 {
     /// Create a new server using the given application factory.
     #[must_use]
+    /// Creates a new server with the specified factory function.
+    ///
+    /// The server is initialised with no bound listener and a default worker count equal to the number of CPU cores (at least one).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(my_factory);
+    /// ```
     pub fn new(factory: F) -> Self {
         Self {
             factory,
@@ -38,6 +47,19 @@ where
 
     /// Set the number of worker tasks to spawn for the server.
     #[must_use]
+    /// Sets the number of worker tasks to spawn, ensuring at least one.
+    ///
+    /// Returns a new server instance with the updated worker count.
+    ///
+    /// # Parameters
+    ///
+    /// - `count`: The desired number of worker tasks. If less than 1, defaults to 1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(factory).workers(4);
+    /// ```
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
@@ -47,7 +69,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns any I/O error produced while creating the TCP listener.
+    /// Binds the server to the specified socket address using a non-blocking TCP listener.
+    ///
+    /// Returns an error if binding or configuring the listener fails.
     pub fn bind(mut self, addr: SocketAddr) -> io::Result<Self> {
         let std_listener = StdTcpListener::bind(addr)?;
         std_listener.set_nonblocking(true)?;
@@ -64,7 +88,25 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if called before [`bind`] has configured the listener.
+    /// Runs the server, accepting connections and handling shutdown signals.
+    ///
+    /// Panics if called before `bind` has configured the listener. Spawns worker tasks to accept incoming TCP connections and gracefully shuts down on Ctrl+C.
+    ///
+    /// # Returns
+    ///
+    /// An I/O result indicating success or failure.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::net::SocketAddr;
+    /// # use your_crate::{WireframeServer, WireframeApp};
+    /// # async fn run_server() -> std::io::Result<()> {
+    /// let server = WireframeServer::new(|| WireframeApp::new())
+    ///     .bind("127.0.0.1:8080".parse::<SocketAddr>().unwrap())?;
+    /// server.run().await
+    /// # }
+    /// ```
     pub async fn run(self) -> io::Result<()> {
         let listener = self.listener.expect("`bind` must be called before `run`");
         let (shutdown_tx, _) = broadcast::channel(16);
