@@ -69,6 +69,10 @@ impl<T: Send + Sync> SharedState<T> {
     /// assert_eq!(*state, 5);
     /// ```
     #[must_use]
+    pub fn new(inner: Arc<T>) -> Self {
+        Self(inner)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -91,20 +95,6 @@ mod tests {
         assert_eq!(payload.remaining(), 2);
     }
 }
-    /// Creates a new `SharedState` instance wrapping the provided `Arc<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::sync::Arc;
-    /// let state = Arc::new(42);
-    /// let shared = SharedState::new(state.clone());
-    /// assert_eq!(*shared, 42);
-    /// ```
-    pub fn new(inner: Arc<T>) -> Self {
-        Self(inner)
-    }
-}
 
 impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     type Target = T;
@@ -117,6 +107,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     ///
     /// ```
     /// use std::sync::Arc;
+    /// use wireframe::extractor::SharedState;
     /// let state = Arc::new(42);
     /// let shared = SharedState::new(state.clone());
     /// assert_eq!(*shared, 42);

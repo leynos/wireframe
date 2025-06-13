@@ -26,9 +26,35 @@ after formatting. Line numbers below refer to that file.
         Provide naming conventions and generic bounds for the
         `FrameProcessor` trait, state extractors and middleware via
         `async_trait` and associated types.
-  - [ ] Provide a minimal, runnable example.
+  - [x] Provide a minimal, runnable example.
         Include imports and an async `main` so the snippet compiles out of
         the box.
+
+        ```rust
+        use std::{future::Future, pin::Pin};
+        use wireframe::{
+            app::{Service, WireframeApp},
+            server::WireframeServer,
+        };
+
+        async fn handler() {}
+
+        #[tokio::main]
+        async fn main() -> std::io::Result<()> {
+            let factory = || {
+                let svc: Service = Box::new(|| Box::pin(handler()));
+                WireframeApp::new()
+                    .unwrap()
+                    .route(1, svc)
+                    .unwrap()
+            };
+
+            WireframeServer::new(factory)
+                .bind("127.0.0.1:7878".parse().unwrap())?
+                .run()
+                .await
+        }
+        ```
 
 ## 2. Middleware and Extractors
 
