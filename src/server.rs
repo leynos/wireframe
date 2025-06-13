@@ -40,7 +40,7 @@ where
 
     /// Set the number of worker tasks to spawn.
     #[must_use]
-    pub fn workers(&mut self, count: usize) -> &mut Self {
+    pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
     }
