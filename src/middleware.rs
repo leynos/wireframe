@@ -28,12 +28,14 @@ where
     /// # Examples
     ///
     /// ```ignore
-    /// # use your_crate::{Next, Service, ServiceRequest};
+    /// # use async_trait::async_trait;
+    /// # use wireframe::middleware::{Next, Service, ServiceRequest, ServiceResponse};
     /// # struct MyService;
+    /// # #[async_trait]
     /// # impl Service for MyService {
     /// #     type Error = std::convert::Infallible;
-    /// #     async fn call(&self, _req: ServiceRequest) -> Result<super::ServiceResponse, Self::Error> {
-    /// #         Ok(super::ServiceResponse)
+    /// #     async fn call(&self, _req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+    /// #         Ok(ServiceResponse)
     /// #     }
     /// # }
     /// let service = MyService;
