@@ -42,10 +42,9 @@ after formatting. Line numbers below refer to that file.
     #[tokio::main]
     async fn main() -> std::io::Result<()> {
         let factory = || {
-            let svc: Service = Box::new(|| Box::pin(handler()));
             WireframeApp::new()
                 .unwrap()
-                .route(1, svc)
+                .route(1, Box::new(|| Box::pin(handler())))
                 .unwrap()
         };
 
