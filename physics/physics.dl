@@ -1,0 +1,38 @@
+// DDlog definitions for the experimental physics engine.
+//
+// These types model spatial positions, individual blocks and
+// the slopes that connect them. They will be extended as the
+// engine evolves.
+
+type Position = struct {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+enum BlockType {
+    Air,
+    Solid,
+    Water,
+}
+
+type Block = struct {
+    pos: Position,
+    kind: BlockType,
+}
+
+type Slope = struct {
+    from: Position,
+    to: Position,
+    gradient: i32,
+}
+
+input relation Blocks(b: Block)
+input relation Slopes(s: Slope)
+
+// Derived relation listing all occupied positions.
+output relation Occupied(p: Position)
+
+Occupied(p) :- Blocks(Block{pos=p, ..}).
+Occupied(p) :- Slopes(Slope{from=p, ..}).
+Occupied(p) :- Slopes(Slope{to=p, ..}).
