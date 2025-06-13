@@ -40,6 +40,9 @@ WireframeServer::new(|| {
 .await
 ```
 
+By default, the number of worker tasks equals the number of CPU cores. If the
+CPU count cannot be determined, the server falls back to a single worker.
+
 The builder supports methods like `frame_processor`, `route`, `app_data`, and
 `wrap` for middleware configuration【F:docs/rust-binary-router-library-design.md†L616-L704】.
 

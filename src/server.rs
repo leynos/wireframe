@@ -28,21 +28,83 @@ impl<F> WireframeServer<F>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Construct a new server using the supplied application factory.
+    /// Constructs a new `WireframeServer` using the provided application factory
+    /// closure.
+    ///
+    /// The default worker count equals the number of CPU cores.
+    ///
+    /// If the CPU count cannot be determined, the server defaults to a single
+    /// worker.
+    ///
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
+    /// let server = WireframeServer::new(factory);
+    /// Creates a new `WireframeServer` with the provided factory closure.
+    ///
+    /// The server is initialised with a default worker count equal to the number of available CPU cores, or 1 if this cannot be determined. The TCP listener is unset and must be configured with `bind` before running the server.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of available CPUs cannot be determined and the fallback to 1 fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(|| WireframeApp::default());
+    /// assert!(server.worker_count() >= 1);
+    /// ```
     #[must_use]
     pub fn new(factory: F) -> Self {
+        let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
         Self {
             factory,
             listener: None,
-            workers: num_cpus::get(),
+            workers,
         }
     }
 
-    /// Set the number of worker tasks to spawn.
+    /// Set the number of worker tasks to spawn for the server.
+    ///
+    /// Ensures at least one worker is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let server = WireframeServer::new(factory).workers(4);
+    /// ```
     #[must_use]
+    /// Sets the number of worker tasks to spawn, ensuring at least one worker is configured.
+    ///
+    /// Returns a new `WireframeServer` instance with the updated worker count. If `count` is less than 1, it defaults to 1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(factory).workers(4);
+    /// assert_eq!(server.worker_count(), 4);
+    /// let server = server.workers(0);
+    /// assert_eq!(server.worker_count(), 1);
+    /// ```
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
+    }
+
+    /// Get the configured worker count.
+    #[inline]
+    #[must_use]
+    /// Returns the configured number of worker tasks for the server.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(factory);
+    /// assert!(server.worker_count() >= 1);
+    /// ```
+    pub const fn worker_count(&self) -> usize {
+        self.workers
     }
 
     /// Bind the server to the given address and create a listener.

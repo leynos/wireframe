@@ -69,6 +69,17 @@ impl<T: Send + Sync> SharedState<T> {
     /// assert_eq!(*state, 5);
     /// ```
     #[must_use]
+    /// Creates a new `SharedState` instance wrapping the provided `Arc<T>`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use wireframe::extractor::SharedState;
+    /// let state = Arc::new(42);
+    /// let shared = SharedState::new(state.clone());
+    /// assert_eq!(*shared, 42);
+    /// ```
     pub fn new(inner: Arc<T>) -> Self {
         Self(inner)
     }
@@ -123,8 +134,43 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// let state = Arc::new(42);
     /// let shared = SharedState::new(state.clone());
     /// assert_eq!(*shared, 42);
+    /// Returns a reference to the inner shared state value.
+    ///
+    /// Allows transparent access to the wrapped state as if it were a reference to the underlying type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use wireframe::extractor::SharedState;
+    ///
+    /// let state = Arc::new(42);
+    /// let shared = SharedState::new(state);
+    /// assert_eq!(*shared, 42);
     /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advance_consumes_bytes() {
+        let mut payload = Payload { data: b"hello" };
+        payload.advance(2);
+        assert_eq!(payload.data, b"llo");
+        payload.advance(10);
+        assert!(payload.data.is_empty());
+    }
+
+    #[test]
+    fn remaining_reports_length() {
+        let mut payload = Payload { data: b"abc" };
+        assert_eq!(payload.remaining(), 3);
+        payload.advance(1);
+        assert_eq!(payload.remaining(), 2);
     }
 }
