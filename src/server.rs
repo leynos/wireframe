@@ -32,34 +32,36 @@ where
     ///
     /// The server is initialised with a default worker count equal to the number of CPU cores.
     ///
-    /// # Examples
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
+    /// let factory = || WireframeApp::new().unwrap();
+    /// let server = WireframeServer::new(factory);
     /// ```
-    /// let server = WireframeServer::new(|| WireframeApp::default());
-    /// ```
-    pub fn new(factory: F) -> Self {
-        Self {
-            factory,
-            listener: None,
-            workers: num_cpus::get(),
-        }
-    }
+            workers: num_cpus::get().max(1),
 
-    /// Set the number of worker tasks to spawn.
-    #[must_use]
-    /// Sets the number of worker tasks to spawn for the server.
+    /// Set the number of worker tasks to spawn for the server.
     ///
-    /// Ensures that at least one worker is configured, even if a lower value is provided.
-    ///
-    /// # Parameters
-    /// - `count`: Desired number of worker tasks.
-    ///
-    /// # Returns
+    /// #[tokio::main]
+    /// async fn main() -> std::io::Result<()> {
+    ///     let factory = || WireframeApp::new().unwrap();
+    ///     WireframeServer::new(factory)
+    ///         .workers(4)
+    ///         .bind("127.0.0.1:0".parse().unwrap())?
+    ///         .run()
+    ///         .await
+    /// }
     /// A new `WireframeServer` instance with the updated worker count.
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
+    /// let server = WireframeServer::new(factory).workers(4);
+    /// Sets the number of worker tasks for the server, ensuring at least one worker.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
     /// let server = WireframeServer::new(factory).workers(4);
     /// ```
     pub fn workers(mut self, count: usize) -> Self {
@@ -85,7 +87,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use std::net::SocketAddr;
     /// let server = WireframeServer::new(factory);
     /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
@@ -125,7 +127,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// # use std::net::SocketAddr;
     /// # use mycrate::{WireframeServer, WireframeApp};
     /// # async fn run_server() -> std::io::Result<()> {

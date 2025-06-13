@@ -769,13 +769,14 @@ within handlers.
 
   ````rustrust
   use wireframe::dev::{MessageRequest, Payload}; // Hypothetical types
-  use std::future::Future;
 
   pub trait FromMessageRequest: Sized {
       type Error: Into<wireframe::Error>; // Error type if extraction fails
-      type Future: Future<Output = Result<Self, Self::Error>>;
 
-      fn from_message_request(req: &MessageRequest, payload: &mut Payload) -> Self::Future;
+      fn from_message_request(
+          req: &MessageRequest,
+          payload: &mut Payload,
+      ) -> Result<Self, Self::Error>;
   }
 
   ```rust
