@@ -22,13 +22,15 @@ where
 {
     /// Creates a new `Next` instance wrapping a reference to the given service.
     #[must_use]
-    pub const fn new(service: &'a S) -> Self {
+    pub fn new(service: &'a S) -> Self {
         Self { service }
     }
 
     /// Call the next service with the given request.
     ///
     /// # Errors
+    ///
+    /// Returns an error from the wrapped service if handling the request fails.
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await
     }

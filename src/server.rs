@@ -33,6 +33,10 @@ where
     ///
     /// The default worker count equals the number of CPU cores.
     ///
+    /// # Panics
+    ///
+    /// Panics if the number of available CPUs cannot be determined.
+    ///
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
@@ -43,7 +47,7 @@ where
         Self {
             factory,
             listener: None,
-            workers: num_cpus::get().max(1),
+            workers: std::thread::available_parallelism().unwrap().get(),
         }
     }
 
@@ -63,6 +67,7 @@ where
     }
 
     /// Get the configured worker count.
+    #[inline]
     #[must_use]
     pub const fn worker_count(&self) -> usize {
         self.workers
