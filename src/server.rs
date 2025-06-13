@@ -54,6 +54,8 @@ where
     /// # Examples
     ///
     /// ```ignore
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
     /// let server = WireframeServer::new(|| WireframeApp::default());
     /// assert!(server.worker_count() >= 1);
     /// ```
@@ -73,7 +75,10 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
     /// let server = WireframeServer::new(factory).workers(4);
     /// ```
     #[must_use]
@@ -84,6 +89,9 @@ where
     /// # Examples
     ///
     /// ```ignore
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
     /// let server = WireframeServer::new(factory).workers(4);
     /// assert_eq!(server.worker_count(), 4);
     /// let server = server.workers(0);
@@ -102,6 +110,9 @@ where
     /// # Examples
     ///
     /// ```ignore
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
     /// let server = WireframeServer::new(factory);
     /// assert!(server.worker_count() >= 1);
     /// ```
@@ -127,8 +138,11 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
     /// use std::net::SocketAddr;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
     /// let server = WireframeServer::new(factory);
     /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
     /// let server = server.bind(addr).expect("Failed to bind address");
@@ -167,16 +181,16 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// # use std::net::SocketAddr;
-    /// # use mycrate::{WireframeServer, WireframeApp};
-    /// # async fn run_server() -> std::io::Result<()> {
-    /// let factory = || WireframeApp::new();
-    /// let server = WireframeServer::new(factory)
-    ///     .workers(4)
-    ///     .bind("127.0.0.1:8080".parse::<SocketAddr>().unwrap())?;
-    /// server.run().await
-    /// # }
+    /// ```no_run
+    /// use std::net::SocketAddr;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// async fn run_server() -> std::io::Result<()> {
+    ///     let factory = || WireframeApp::new().unwrap();
+    ///     let server = WireframeServer::new(factory)
+    ///         .workers(4)
+    ///         .bind("127.0.0.1:8080".parse::<SocketAddr>().unwrap())?;
+    ///     server.run().await
+    /// }
     /// ```
     pub async fn run(self) -> io::Result<()> {
         let listener = self.listener.expect("`bind` must be called before `run`");

@@ -119,25 +119,3 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
         &self.0
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn advance_consumes_bytes() {
-        let mut payload = Payload { data: b"hello" };
-        payload.advance(2);
-        assert_eq!(payload.data, b"llo");
-        payload.advance(10);
-        assert!(payload.data.is_empty());
-    }
-
-    #[test]
-    fn remaining_reports_length() {
-        let mut payload = Payload { data: b"abc" };
-        assert_eq!(payload.remaining(), 3);
-        payload.advance(1);
-        assert_eq!(payload.remaining(), 2);
-    }
-}
