@@ -21,6 +21,7 @@ where
     S: Service + ?Sized,
 {
     /// Create a new [`Next`] wrapping the given service.
+    #[inline]
     #[must_use]
     pub fn new(service: &'a S) -> Self {
         Self { service }
@@ -31,7 +32,7 @@ where
     /// # Errors
     ///
     /// Propagates any error produced by the wrapped service.
-    #[must_use = "call the returned future"]
+    #[must_use = "await the returned future"]
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await
     }

@@ -31,7 +31,7 @@ after formatting. Line numbers below refer to that file.
         the box.
 
     ```rust
-    use std::{future::Future, pin::Pin};
+    // No extra imports required
     use wireframe::{
         app::{Service, WireframeApp},
         server::WireframeServer,

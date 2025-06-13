@@ -34,13 +34,13 @@ where
         Self {
             factory,
             listener: None,
-            workers: num_cpus::get().max(1),
+            workers: num_cpus::get(),
         }
     }
 
     /// Set the number of worker tasks to spawn.
     #[must_use]
-    pub fn workers(mut self, count: usize) -> Self {
+    pub fn workers(&mut self, count: usize) -> &mut Self {
         self.workers = count.max(1);
         self
     }

@@ -60,7 +60,7 @@ impl<T: Send + Sync> SharedState<T> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
     /// use std::sync::Arc;
     /// use wireframe::extractor::SharedState;
     ///
@@ -71,6 +71,18 @@ impl<T: Send + Sync> SharedState<T> {
     #[must_use]
     pub fn new(inner: Arc<T>) -> Self {
         Self(inner)
+    }
+}
+
+impl<T: Send + Sync> From<Arc<T>> for SharedState<T> {
+    fn from(inner: Arc<T>) -> Self {
+        Self(inner)
+    }
+}
+
+impl<T: Send + Sync> From<T> for SharedState<T> {
+    fn from(inner: T) -> Self {
+        Self(Arc::new(inner))
     }
 }
 
