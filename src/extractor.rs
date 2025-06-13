@@ -134,6 +134,19 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// let state = Arc::new(42);
     /// let shared = SharedState::new(state.clone());
     /// assert_eq!(*shared, 42);
+    /// Returns a reference to the inner shared state value.
+    ///
+    /// Allows transparent access to the wrapped state as if it were a reference to the underlying type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use wireframe::extractor::SharedState;
+    ///
+    /// let state = Arc::new(42);
+    /// let shared = SharedState::new(state);
+    /// assert_eq!(*shared, 42);
     /// ```
     fn deref(&self) -> &Self::Target {
         &self.0

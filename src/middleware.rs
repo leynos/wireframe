@@ -23,6 +23,22 @@ where
     /// Create a new [`Next`] wrapping the given service.
     #[inline]
     #[must_use]
+    /// Creates a new `Next` instance wrapping a reference to the given service.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use your_crate::{Next, Service, ServiceRequest};
+    /// # struct MyService;
+    /// # impl Service for MyService {
+    /// #     type Error = std::convert::Infallible;
+    /// #     async fn call(&self, _req: ServiceRequest) -> Result<super::ServiceResponse, Self::Error> {
+    /// #         Ok(super::ServiceResponse)
+    /// #     }
+    /// # }
+    /// let service = MyService;
+    /// let next = Next::new(&service);
+    /// ```
     pub fn new(service: &'a S) -> Self {
         Self { service }
     }
@@ -31,7 +47,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an error from the wrapped service if handling the request fails.
+    /// Asynchronously invokes the wrapped service with the given request.
+    ///
+    /// Returns a response produced by the service, or an error if the service fails to handle the request.
     #[must_use = "await the returned future"]
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await
