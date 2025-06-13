@@ -669,7 +669,8 @@ similar to Actix Web's web::Data.21
   `HttpServer`) would take the configured `WireframeApp` factory (a closure that
   creates an `App` instance per worker thread), bind to a network address, and
   manage incoming connections, task spawning for each connection, and the
-  overall server lifecycle. This would likely be built on Tokio's networking and
+  overall server lifecycle. The default number of worker tasks matches the
+  available CPU cores. This would likely be built on Tokio's networking and
   runtime primitives.18
 
 This structural similarity to Actix Web is intentional. Developers familiar with

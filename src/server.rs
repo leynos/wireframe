@@ -28,21 +28,45 @@ impl<F> WireframeServer<F>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Construct a new server using the supplied application factory.
+    /// Constructs a new `WireframeServer` using the provided application factory
+    /// closure.
+    ///
+    /// The default worker count equals the number of CPU cores.
+    ///
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
+    /// let server = WireframeServer::new(factory);
+    /// ```
     #[must_use]
     pub fn new(factory: F) -> Self {
         Self {
             factory,
             listener: None,
-            workers: num_cpus::get(),
+            workers: num_cpus::get().max(1),
         }
     }
 
-    /// Set the number of worker tasks to spawn.
+    /// Set the number of worker tasks to spawn for the server.
+    ///
+    /// Ensures at least one worker is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let server = WireframeServer::new(factory).workers(4);
+    /// ```
     #[must_use]
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
+    }
+
+    /// Get the configured worker count.
+    #[must_use]
+    pub const fn worker_count(&self) -> usize {
+        self.workers
     }
 
     /// Bind the server to the given address and create a listener.
