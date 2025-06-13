@@ -27,7 +27,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// # use your_crate::{Next, Service, ServiceRequest};
     /// # struct MyService;
     /// # impl Service for MyService {

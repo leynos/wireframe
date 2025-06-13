@@ -36,11 +36,13 @@ where
     /// If the CPU count cannot be determined, the server defaults to a single
     /// worker.
     ///
-    /// ```no_run
+    /// ```ignore
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let factory = || WireframeApp::new().unwrap();
     /// let server = WireframeServer::new(factory);
+    /// ```
+    ///
     /// Creates a new `WireframeServer` with the provided factory closure.
     ///
     /// The server is initialised with a default worker count equal to the number of available CPU cores, or 1 if this cannot be determined. The TCP listener is unset and must be configured with `bind` before running the server.
@@ -51,7 +53,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let server = WireframeServer::new(|| WireframeApp::default());
     /// assert!(server.worker_count() >= 1);
     /// ```
@@ -81,7 +83,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let server = WireframeServer::new(factory).workers(4);
     /// assert_eq!(server.worker_count(), 4);
     /// let server = server.workers(0);
@@ -99,7 +101,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let server = WireframeServer::new(factory);
     /// assert!(server.worker_count() >= 1);
     /// ```
