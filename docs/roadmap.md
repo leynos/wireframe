@@ -59,6 +59,17 @@ after formatting. Line numbers below refer to that file.
 
 - [ ] Develop a minimal middleware system and extractor traits for payloads,
   connection metadata, and shared state.
+  - [ ] Define `FromMessageRequest` for extractor types (lines 760-782).
+  - [ ] Provide built-in extractors `Message<T>`, `ConnectionInfo`, and
+        `SharedState<T>` (lines 792-840).
+  - [ ] Support custom extractors implementing `FromMessageRequest`
+        (lines 842-858).
+  - [ ] Implement middleware using `Transform`/`Service` traits and a simple
+        `from_fn` style variant (lines 866-899).
+  - [ ] Register middleware with `WireframeApp::wrap` and execute it in order
+        (lines 900-919).
+  - [ ] Document common middleware use cases like logging and authentication
+        (lines 920-935).
 
 ## 3. Initial Examples and Documentation
 
