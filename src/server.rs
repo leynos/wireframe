@@ -33,9 +33,8 @@ where
     ///
     /// The default worker count equals the number of CPU cores.
     ///
-    /// # Panics
-    ///
-    /// Panics if the number of available CPUs cannot be determined.
+    /// If the CPU count cannot be determined, the server defaults to a single
+    /// worker.
     ///
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
@@ -44,10 +43,11 @@ where
     /// let server = WireframeServer::new(factory);
     /// ```
     pub fn new(factory: F) -> Self {
+        let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
         Self {
             factory,
             listener: None,
-            workers: std::thread::available_parallelism().unwrap().get(),
+            workers,
         }
     }
 
