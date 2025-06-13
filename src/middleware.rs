@@ -31,8 +31,8 @@ where
     async fn transform(&self, service: S) -> Self::Wrapped;
     /// let service = MyService::default();
     /// let next = Next::new(&service);
-    type Output: Service;
-    async fn transform(&self, service: S) -> Self::Output;
+    type Wrapped: Service;
+    async fn transform(&self, service: S) -> Self::Wrapped;
         Self { service }
     }
 
