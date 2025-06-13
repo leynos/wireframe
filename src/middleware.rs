@@ -31,6 +31,7 @@ where
     /// # Errors
     ///
     /// Propagates any error produced by the wrapped service.
+    #[must_use = "call the returned future"]
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await
     }
