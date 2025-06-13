@@ -33,6 +33,8 @@ input relation Slopes(s: Slope)
 // Derived relation listing all occupied positions.
 output relation Occupied(p: Position)
 
-Occupied(p) :- Blocks(Block{pos=p, ..}).
-Occupied(p) :- Slopes(Slope{from=p, ..}).
-Occupied(p) :- Slopes(Slope{to=p, ..}).
+// Use a single rule to avoid redundant facts if aggregation is added later.
+Occupied(p) :-
+    Blocks(Block{pos=p, ..});
+    Slopes(Slope{from=p, ..});
+    Slopes(Slope{to=p, ..}).

@@ -56,30 +56,17 @@ pub trait FromMessageRequest: Sized {
 pub struct SharedState<T: Send + Sync>(Arc<T>);
 
 impl<T: Send + Sync> SharedState<T> {
-    /// Construct a new [`SharedState`].
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use std::sync::Arc;
-    /// use wireframe::extractor::SharedState;
-    ///
-    /// let data = Arc::new(5u32);
-    /// let state = SharedState::new(Arc::clone(&data));
-    /// assert_eq!(*state, 5);
-    /// ```
-    #[must_use]
-    /// Creates a new `SharedState` instance wrapping the provided `Arc<T>`.
-    ///
-    /// # Examples
+    /// Construct a new [`SharedState`] wrapping the provided `Arc<T>`.
     ///
     /// ```
     /// use std::sync::Arc;
     /// use wireframe::extractor::SharedState;
+    ///
     /// let state = Arc::new(42);
     /// let shared = SharedState::new(state.clone());
     /// assert_eq!(*shared, 42);
     /// ```
+    #[must_use]
     pub fn new(inner: Arc<T>) -> Self {
         Self(inner)
     }

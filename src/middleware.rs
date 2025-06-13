@@ -20,7 +20,7 @@ impl<'a, S: Service + ?Sized> Next<'a, S> {
     /// # Errors
     ///
     /// Propagates any error returned by the wrapped service.
-    pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
+    pub async fn call(&mut self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await
     }
 }
