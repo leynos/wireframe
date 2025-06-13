@@ -21,47 +21,14 @@ where
     S: Service + ?Sized,
 {
     /// Creates a new `Next` instance wrapping a reference to the given service.
-    ///
-///
-/// ```ignore
-/// use wireframe::middleware::{ServiceRequest, ServiceResponse, Next, Service};
-/// ```
-    /// Service produced by the middleware.
-    type Wrapped: Service;
-    async fn transform(&self, service: S) -> Self::Wrapped;
-    /// let service = MyService::default();
-    /// let next = Next::new(&service);
-    type Wrapped: Service;
-    async fn transform(&self, service: S) -> Self::Wrapped;
+    #[must_use]
+    pub const fn new(service: &'a S) -> Self {
         Self { service }
     }
 
     /// Call the next service with the given request.
     ///
     /// # Errors
-    ///
-    /// Asynchronously invokes the next service in the middleware chain with the given request.
-    ///
-    /// Returns the response from the wrapped service, or propagates any error produced.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use your_crate::{ServiceRequest, ServiceResponse, Next, Service};
-    /// # struct DummyService;
-    /// # #[async_trait::async_trait]
-    /// # impl Service for DummyService {
-    /// #     type Error = std::convert::Infallible;
-    /// #     async fn call(&self, _req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-    /// #         Ok(ServiceResponse::default())
-    /// #     }
-    /// # }
-    /// # let service = DummyService;
-    /// let next = Next::new(&service);
-    /// let req = ServiceRequest {};
-    /// let res = tokio_test::block_on(next.call(req));
-    /// assert!(res.is_ok());
-    /// ```
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await
     }
