@@ -58,11 +58,11 @@ after formatting. Line numbers below refer to that file.
 - [ ] Add connection preamble support.
       Provide built-in parsing of a handshake preamble (e.g., Hotline's "TRTP")
       and invoke a user-configured handler on success or failure.
-- [ ] Implement response serialization and transmission.
+- [ ] Add response serialization and transmission.
       Encode handler responses using the selected serialization format and write
       them back through the framing layer.
 - [ ] Add connection lifecycle hooks.
-      Integrate setup and teardown stages so sessions can hold state (such as a
+      Integrate setup and teardown stages, so sessions can hold state (such as a
       logged-in user ID) across messages.
 
 ## 2. Middleware and Extractors
@@ -106,6 +106,8 @@ after formatting. Line numbers below refer to that file.
 - [ ] Improve debugging support and expand documentation (lines 1430-1435).
 - [ ] Provide testing utilities for handlers.
       Offer simple ways to drive handlers with raw frames for unit tests.
+      Early examples live in [`tests/server.rs`](../tests/server.rs); future
+      helpers may reside in a `wireframe-testing` crate.
 
 ## 6. Community Engagement and Integration
 
