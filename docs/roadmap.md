@@ -55,6 +55,16 @@ after formatting. Line numbers below refer to that file.
     }
     ```
 
+- [ ] Add connection preamble support.
+      Provide built-in parsing of a handshake preamble (e.g., Hotline's "TRTP")
+      and invoke a user-configured handler on success or failure.
+- [ ] Implement response serialization and transmission.
+      Encode handler responses using the selected serialization format and write
+      them back through the framing layer.
+- [ ] Add connection lifecycle hooks.
+      Integrate setup and teardown stages so sessions can hold state (such as a
+      logged-in user ID) across messages.
+
 ## 2. Middleware and Extractors
 
 - [ ] Develop a minimal middleware system and extractor traits for payloads,
@@ -94,6 +104,8 @@ after formatting. Line numbers below refer to that file.
 
 - [ ] Create a CLI for protocol scaffolding and testing (lines 1424-1429).
 - [ ] Improve debugging support and expand documentation (lines 1430-1435).
+- [ ] Provide testing utilities for handlers.
+      Offer simple ways to drive handlers with raw frames for unit tests.
 
 ## 6. Community Engagement and Integration
 
