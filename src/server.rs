@@ -30,7 +30,7 @@ where
     listener: Option<Arc<TcpListener>>,
     workers: usize,
     on_preamble_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
-    on_preamble_failure: Option<Arc<dyn Fn(DecodeError) + Send + Sync>>,
+    on_preamble_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
     _preamble: PhantomData<T>,
 }
 
@@ -83,6 +83,9 @@ where
     }
 
     /// Convert this server to parse a custom preamble `T`.
+    ///
+    /// Call this before registering preamble handlers, otherwise any
+    /// previously configured callbacks will be dropped.
     #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
@@ -152,7 +155,7 @@ where
     #[must_use]
     pub fn on_preamble_decode_failure<H>(mut self, handler: H) -> Self
     where
-        H: Fn(DecodeError) + Send + Sync + 'static,
+        H: Fn(&DecodeError) + Send + Sync + 'static,
     {
         self.on_preamble_failure = Some(Arc::new(handler));
         self
@@ -255,66 +258,116 @@ where
     /// }
     /// ```
     pub async fn run(self) -> io::Result<()> {
+        self.run_with_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await
+    }
+
+    /// Run the server until the `shutdown` future resolves.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if accepting a connection fails during
+    /// runtime.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`bind`](Self::bind) was not called beforehand.
+    pub async fn run_with_shutdown<S>(self, shutdown: S) -> io::Result<()>
+    where
+        S: futures::Future<Output = ()> + Send,
+    {
         let listener = self.listener.expect("`bind` must be called before `run`");
         let (shutdown_tx, _) = broadcast::channel(16);
 
-        // Spawn worker tasks using Tokio's runtime.
+        // Spawn worker tasks.
         let mut handles = Vec::with_capacity(self.workers);
         for _ in 0..self.workers {
-            let mut shutdown_rx = shutdown_tx.subscribe();
             let listener = Arc::clone(&listener);
             let factory = self.factory.clone();
             let on_success = self.on_preamble_success.clone();
             let on_failure = self.on_preamble_failure.clone();
+            let mut shutdown_rx = shutdown_tx.subscribe();
             handles.push(tokio::spawn(async move {
-                let app = (factory)();
-                let mut delay = Duration::from_millis(10);
-                loop {
-                    tokio::select! {
-                        res = listener.accept() => match res {
-                            Ok((mut stream, _)) => {
-                                let result = read_preamble::<_, T>(&mut stream).await;
-                                match result {
-                                    Ok(preamble) => {
-                                        if let Some(handler) = on_success.as_ref() {
-                                            handler(&preamble);
-                                        }
-                                    }
-                                    Err(err) => {
-                                        if let Some(handler) = on_failure.as_ref() {
-                                            handler(err);
-                                        }
-                                    }
-                                }
-                                // TODO: hand off stream to `app`
-                                delay = Duration::from_millis(10);
-                            }
-                            Err(e) => {
-                                eprintln!("accept error: {e}");
-                                sleep(delay).await;
-                                delay = (delay * 2).min(Duration::from_secs(1));
-                            }
-                        },
-                        _ = shutdown_rx.recv() => break,
-                    }
-                }
-                drop(app);
+                worker_task(
+                    listener,
+                    factory,
+                    on_success.as_ref(),
+                    on_failure.as_ref(),
+                    &mut shutdown_rx,
+                )
+                .await;
             }));
         }
 
-        // Wait for Ctrl+C or workers finishing.
         let join_all = futures::future::join_all(handles);
         tokio::pin!(join_all);
 
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            () = shutdown => {
                 let _ = shutdown_tx.send(());
             }
             _ = &mut join_all => {}
         }
 
-        // Ensure all workers have exited before returning.
         join_all.await;
         Ok(())
+    }
+}
+
+#[allow(clippy::type_complexity)]
+async fn worker_task<F, T>(
+    listener: Arc<TcpListener>,
+    factory: F,
+    on_success: Option<&Arc<dyn Fn(&T) + Send + Sync>>,
+    on_failure: Option<&Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+    shutdown_rx: &mut broadcast::Receiver<()>,
+) where
+    F: Fn() -> WireframeApp,
+    T: bincode::Decode<()> + Send + 'static,
+{
+    let app = (factory)();
+    let mut delay = Duration::from_millis(10);
+    loop {
+        tokio::select! {
+            res = listener.accept() => match res {
+                Ok((stream, _)) => {
+                    process_stream(stream, on_success, on_failure).await;
+                    delay = Duration::from_millis(10);
+                }
+                Err(e) => {
+                    eprintln!("accept error: {e}");
+                    sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(1));
+                }
+            },
+            _ = shutdown_rx.recv() => break,
+        }
+    }
+    drop(app);
+}
+
+#[allow(clippy::type_complexity)]
+async fn process_stream<T>(
+    mut stream: tokio::net::TcpStream,
+    on_success: Option<&Arc<dyn Fn(&T) + Send + Sync>>,
+    on_failure: Option<&Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+) where
+    T: bincode::Decode<()> + Send + 'static,
+{
+    match read_preamble::<_, T>(&mut stream).await {
+        Ok((preamble, _)) => {
+            if let Some(handler) = on_success.as_ref() {
+                handler(&preamble);
+            }
+            // TODO: hand off stream to application
+        }
+        Err(err) => {
+            if let Some(handler) = on_failure.as_ref() {
+                handler(&err);
+            }
+            // drop stream on failure
+        }
     }
 }

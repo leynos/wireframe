@@ -1,6 +1,8 @@
 use bincode::error::DecodeError;
 use bincode::{Decode, config, decode_from_slice};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{self, AsyncRead, AsyncReadExt};
+
+const MAX_PREAMBLE_LEN: usize = 1024;
 
 /// Read and decode a connection preamble using bincode.
 ///
@@ -13,7 +15,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 ///
 /// Returns a [`DecodeError`] if decoding the preamble fails or an
 /// underlying I/O error occurs while reading from `reader`.
-pub async fn read_preamble<R, T>(reader: &mut R) -> Result<T, DecodeError>
+pub async fn read_preamble<R, T>(reader: &mut R) -> Result<(T, Vec<u8>), DecodeError>
 where
     R: AsyncRead + Unpin,
     T: Decode<()>,
@@ -24,14 +26,37 @@ where
         .with_fixed_int_encoding();
     loop {
         match decode_from_slice::<T, _>(&buf, config) {
-            Ok((value, _)) => return Ok(value),
+            Ok((value, consumed)) => {
+                let leftover = buf.split_off(consumed);
+                return Ok((value, leftover));
+            }
             Err(DecodeError::UnexpectedEnd { additional }) => {
                 let start = buf.len();
+                if start + additional > MAX_PREAMBLE_LEN {
+                    return Err(DecodeError::Other("preamble too long"));
+                }
                 buf.resize(start + additional, 0);
-                reader
-                    .read_exact(&mut buf[start..])
-                    .await
-                    .map_err(|inner| DecodeError::Io { inner, additional })?;
+                let mut read = 0;
+                while read < additional {
+                    match reader
+                        .read(&mut buf[start + read..start + additional])
+                        .await
+                    {
+                        Ok(0) => {
+                            return Err(DecodeError::Io {
+                                inner: io::Error::from(io::ErrorKind::UnexpectedEof),
+                                additional: additional - read,
+                            });
+                        }
+                        Ok(n) => read += n,
+                        Err(inner) => {
+                            return Err(DecodeError::Io {
+                                inner,
+                                additional: additional - read,
+                            });
+                        }
+                    }
+                }
             }
             Err(e) => return Err(e),
         }

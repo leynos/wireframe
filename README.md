@@ -13,11 +13,11 @@ reduce this boilerplate through layered abstractions:
 
 - **Transport adapter** built on Tokio I/O
 - **Framing layer** for length‑prefixed or custom frames
+- **Connection preamble** with customizable validation callbacks [[docs](docs/preamble-validator.md)]
 - **Serialization engine** using `bincode` or a `wire-rs` wrapper
 - **Routing engine** that dispatches messages by ID
 - **Handler invocation** with extractor support
 - **Middleware chain** for request/response processing
-- **Connection preamble** with customizable validation callbacks [[docs](docs/preamble-validator.md)]
 
 These layers correspond to the architecture outlined in the design
 document【F:docs/rust-binary-router-library-design.md†L292-L344】.

@@ -1,7 +1,7 @@
 use bincode::error::DecodeError;
-use libc;
 use tokio::io::{AsyncWriteExt, duplex};
 use tokio::net::TcpStream;
+use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
 use wireframe::preamble::read_preamble;
 use wireframe::{app::WireframeApp, server::WireframeServer};
@@ -33,7 +33,9 @@ async fn parse_valid_preamble() {
     let bytes = b"TRTPHOTL\x00\x01\x00\x02";
     client.write_all(bytes).await.unwrap();
     client.shutdown().await.unwrap();
-    let p: HotlinePreamble = read_preamble(&mut server).await.expect("valid preamble");
+    let (p, _) = read_preamble::<_, HotlinePreamble>(&mut server)
+        .await
+        .expect("valid preamble");
     eprintln!("decoded: {:?}", p);
     p.validate().unwrap();
     assert_eq!(p.magic, HotlinePreamble::MAGIC);
@@ -47,7 +49,9 @@ async fn invalid_magic_is_error() {
     let bytes = b"WRONGMAG\x00\x01\x00\x02";
     client.write_all(bytes).await.unwrap();
     client.shutdown().await.unwrap();
-    let preamble: HotlinePreamble = read_preamble(&mut server).await.expect("decoded");
+    let (preamble, _) = read_preamble::<_, HotlinePreamble>(&mut server)
+        .await
+        .expect("decoded");
     assert!(preamble.validate().is_err());
 }
 
@@ -79,7 +83,15 @@ async fn server_triggers_success_callback() {
         });
     let server = server.bind("127.0.0.1:0".parse().unwrap()).expect("bind");
     let addr = server.local_addr().expect("addr");
-    let handle = tokio::spawn(async move { server.run().await.unwrap() });
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let handle = tokio::spawn(async move {
+        server
+            .run_with_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
     let bytes = b"TRTPHOTL\x00\x01\x00\x02";
@@ -97,7 +109,7 @@ async fn server_triggers_success_callback() {
             .is_err()
     );
 
-    unsafe { libc::raise(libc::SIGINT) };
+    let _ = shutdown_tx.send(());
     handle.await.unwrap();
 }
 
@@ -129,7 +141,15 @@ async fn server_triggers_failure_callback() {
         });
     let server = server.bind("127.0.0.1:0".parse().unwrap()).expect("bind");
     let addr = server.local_addr().expect("addr");
-    let handle = tokio::spawn(async move { server.run().await.unwrap() });
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let handle = tokio::spawn(async move {
+        server
+            .run_with_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
     let bytes = b"TRTPHOT"; // truncated
@@ -146,6 +166,6 @@ async fn server_triggers_failure_callback() {
             .is_err()
     );
 
-    unsafe { libc::raise(libc::SIGINT) };
+    let _ = shutdown_tx.send(());
     handle.await.unwrap();
 }
