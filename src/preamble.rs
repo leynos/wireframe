@@ -58,6 +58,7 @@ where
     T: Decode<()>,
 {
     let mut buf = Vec::new();
+    // Build the decoder configuration once to avoid repeated allocations.
     let config = config::standard()
         .with_big_endian()
         .with_fixed_int_encoding();

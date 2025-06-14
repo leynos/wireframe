@@ -6,7 +6,7 @@ client connects. The server decodes the preamble with
 success or failure. The helper uses `bincode` to decode any type implementing
 `bincode::Decode` and reads exactly the number of bytes required.
 
-The flow is summarised below:
+The flow is summarized below:
 
 ```mermaid
 sequenceDiagram
@@ -28,6 +28,6 @@ sequenceDiagram
     Server-->>Client: (Continues or closes connection)
 ```
 
-In the tests a `HotlinePreamble` struct illustrates the pattern, but any
+In the tests, a `HotlinePreamble` struct illustrates the pattern, but any
 preamble type may be used. Register callbacks via `on_preamble_decode_success`
 and `on_preamble_decode_failure` on `WireframeServer`.

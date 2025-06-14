@@ -290,14 +290,7 @@ where
             let on_failure = self.on_preamble_failure.clone();
             let mut shutdown_rx = shutdown_tx.subscribe();
             handles.push(tokio::spawn(async move {
-                worker_task(
-                    listener,
-                    factory,
-                    on_success.as_ref(),
-                    on_failure.as_ref(),
-                    &mut shutdown_rx,
-                )
-                .await;
+                worker_task(listener, factory, on_success, on_failure, &mut shutdown_rx).await;
             }));
         }
 
@@ -320,8 +313,8 @@ where
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
-    on_success: Option<&Arc<dyn Fn(&T) + Send + Sync>>,
-    on_failure: Option<&Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+    on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
+    on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp,
@@ -333,7 +326,9 @@ async fn worker_task<F, T>(
         tokio::select! {
             res = listener.accept() => match res {
                 Ok((stream, _)) => {
-                    process_stream(stream, on_success, on_failure).await;
+                    let success = on_success.clone();
+                    let failure = on_failure.clone();
+                    tokio::spawn(process_stream(stream, success, failure));
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
@@ -351,8 +346,8 @@ async fn worker_task<F, T>(
 #[allow(clippy::type_complexity)]
 async fn process_stream<T>(
     mut stream: tokio::net::TcpStream,
-    on_success: Option<&Arc<dyn Fn(&T) + Send + Sync>>,
-    on_failure: Option<&Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+    on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
+    on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
 ) where
     T: bincode::Decode<()> + Send + 'static,
 {
