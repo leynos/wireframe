@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+      - name: Run coverage
+        run: cargo tarpaulin --out lcov
+      - name: Install CodeScene coverage tool
+        if: secrets.CS_ACCESS_TOKEN
+        env:
+          CODESCENE_CLI_SHA256: ${{ secrets.CODESCENE_CLI_SHA256 }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o install-cs-coverage-tool.sh https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
+          if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
+            echo "${CODESCENE_CLI_SHA256}  install-cs-coverage-tool.sh" | sha256sum -c -
+          fi
+          bash install-cs-coverage-tool.sh -y
+          rm install-cs-coverage-tool.sh
+      - name: Upload coverage data to CodeScene
+        if: secrets.CS_ACCESS_TOKEN
+        env:
+          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+        run: cs-coverage upload --format "lcov" --metric "line-coverage" "lcov.info"
+

@@ -1,0 +1,17 @@
+name: Get CodeScene CLI SHA256
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch-sha:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute SHA256 of install script
+        run: |
+          set -euo pipefail
+          url="https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh"
+          curl -fsSL "$url" -o install-cs-coverage-tool.sh
+          hash=$(sha256sum install-cs-coverage-tool.sh | awk '{print $1}')
+          echo "CODESCENE_CLI_SHA256=$hash"
+          rm install-cs-coverage-tool.sh
