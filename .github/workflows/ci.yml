@@ -23,7 +23,7 @@ jobs:
       - name: Run coverage
         run: cargo tarpaulin --out lcov
       - name: Install CodeScene coverage tool
-        if: secrets.CS_ACCESS_TOKEN
+        if: ${{ secrets.CS_ACCESS_TOKEN }}
         env:
           CODESCENE_CLI_SHA256: ${{ secrets.CODESCENE_CLI_SHA256 }}
         run: |
@@ -35,7 +35,7 @@ jobs:
           bash install-cs-coverage-tool.sh -y
           rm install-cs-coverage-tool.sh
       - name: Upload coverage data to CodeScene
-        if: secrets.CS_ACCESS_TOKEN
+        if: ${{ secrets.CS_ACCESS_TOKEN }}
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         run: cs-coverage upload --format "lcov" --metric "line-coverage" "lcov.info"
