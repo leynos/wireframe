@@ -289,12 +289,11 @@ where
         let mut handles = Vec::with_capacity(self.workers);
         for _ in 0..self.workers {
             let listener = Arc::clone(&listener);
-            let factory = self.factory.clone();
             let on_success = self.on_preamble_success.clone();
             let on_failure = self.on_preamble_failure.clone();
             let mut shutdown_rx = shutdown_tx.subscribe();
             handles.push(tokio::spawn(async move {
-                worker_task(listener, factory, on_success, on_failure, &mut shutdown_rx).await;
+                worker_task(listener, on_success, on_failure, &mut shutdown_rx).await;
             }));
         }
 
@@ -318,14 +317,12 @@ where
 }
 
 #[allow(clippy::type_complexity)]
-async fn worker_task<F, T>(
+async fn worker_task<T>(
     listener: Arc<TcpListener>,
-    _factory: F,
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
-    F: Fn() -> WireframeApp,
     // The unit context indicates no additional state is needed to decode `T`.
     T: bincode::Decode<()> + Send + 'static,
 {
@@ -360,13 +357,13 @@ async fn process_stream<T>(
     T: bincode::Decode<()> + Send + 'static,
 {
     match read_preamble::<_, T>(&mut stream).await {
-        Ok((preamble, _leftover)) => {
+        Ok((preamble, leftover)) => {
+            let _ = &leftover; // retain for future replay logic
             if let Some(handler) = on_success.as_ref() {
                 handler(&preamble);
             }
-            // TODO: hand off `stream` **and** `leftover` to the application layer,
-            // e.g. by wrapping the stream in a struct that replays `leftover`
-            // before delegating to the underlying socket.
+            // TODO: wrap `stream` so that `leftover` is replayed before
+            // delegating to the underlying socket (e.g. `RewindableStream`).
         }
         Err(err) => {
             if let Some(handler) = on_failure.as_ref() {
