@@ -55,6 +55,8 @@ where
 pub async fn read_preamble<R, T>(reader: &mut R) -> Result<(T, Vec<u8>), DecodeError>
 where
     R: AsyncRead + Unpin,
+    // `Decode` expects a decoding context type, not a lifetime. Most callers
+    // use the unit type as the context, which requires no external state.
     T: Decode<()>,
 {
     let mut buf = Vec::new();

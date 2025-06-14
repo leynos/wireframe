@@ -24,6 +24,8 @@ use crate::app::WireframeApp;
 pub struct WireframeServer<F, T = ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    // `Decode`'s type parameter represents a decoding context.
+    // The unit type signals that no context is required.
     T: bincode::Decode<()> + Send + 'static,
 {
     factory: F,
@@ -89,6 +91,7 @@ where
     #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
+        // Unit context indicates no external state is required when decoding.
         T: bincode::Decode<()> + Send + 'static,
     {
         WireframeServer {
@@ -105,6 +108,7 @@ where
 impl<F, T> WireframeServer<F, T>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    // `Decode` is generic over a context type; we use `()` here.
     T: bincode::Decode<()> + Send + 'static,
 {
     /// Set the number of worker tasks to spawn for the server.
@@ -318,6 +322,7 @@ async fn worker_task<F, T>(
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp,
+    // The unit context indicates no additional state is needed to decode `T`.
     T: bincode::Decode<()> + Send + 'static,
 {
     let app = (factory)();
@@ -349,14 +354,17 @@ async fn process_stream<T>(
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
 ) where
+    // The decoding context parameter is `()`; no external state is needed.
     T: bincode::Decode<()> + Send + 'static,
 {
     match read_preamble::<_, T>(&mut stream).await {
-        Ok((preamble, _)) => {
+        Ok((preamble, _leftover)) => {
             if let Some(handler) = on_success.as_ref() {
                 handler(&preamble);
             }
-            // TODO: hand off stream to application
+            // TODO: hand off `stream` **and** `leftover` to the application layer,
+            // e.g. by wrapping the stream in a struct that replays `leftover`
+            // before delegating to the underlying socket.
         }
         Err(err) => {
             if let Some(handler) = on_failure.as_ref() {
