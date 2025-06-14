@@ -36,7 +36,7 @@ async fn parse_valid_preamble() {
     let (p, _) = read_preamble::<_, HotlinePreamble>(&mut server)
         .await
         .expect("valid preamble");
-    eprintln!("decoded: {:?}", p);
+    eprintln!("decoded: {p:?}");
     p.validate().unwrap();
     assert_eq!(p.magic, HotlinePreamble::MAGIC);
     assert_eq!(p.min_version, 1);
