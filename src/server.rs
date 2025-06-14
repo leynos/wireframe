@@ -9,6 +9,7 @@ use tokio::time::{Duration, sleep};
 use core::marker::PhantomData;
 
 use crate::preamble::read_preamble;
+use crate::rewind_stream::RewindStream;
 use bincode::error::DecodeError;
 
 use crate::app::WireframeApp;
@@ -358,12 +359,11 @@ async fn process_stream<T>(
 {
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            let _ = &leftover; // retain for future replay logic
+            let _stream = RewindStream::new(leftover, stream);
             if let Some(handler) = on_success.as_ref() {
                 handler(&preamble);
             }
-            // TODO: wrap `stream` so that `leftover` is replayed before
-            // delegating to the underlying socket (e.g. `RewindableStream`).
+            // `RewindStream` plays back leftover bytes before using the socket.
         }
         Err(err) => {
             if let Some(handler) = on_failure.as_ref() {
