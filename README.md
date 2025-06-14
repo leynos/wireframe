@@ -17,6 +17,7 @@ reduce this boilerplate through layered abstractions:
 - **Routing engine** that dispatches messages by ID
 - **Handler invocation** with extractor support
 - **Middleware chain** for request/response processing
+- **Connection preamble** with customizable validation callbacks
 
 These layers correspond to the architecture outlined in the design
 document【F:docs/rust-binary-router-library-design.md†L292-L344】.

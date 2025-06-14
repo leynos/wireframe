@@ -6,6 +6,11 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::{Duration, sleep};
 
+use core::marker::PhantomData;
+
+use crate::preamble::read_preamble;
+use bincode::error::DecodeError;
+
 use crate::app::WireframeApp;
 
 /// Tokio-based server for `WireframeApp` instances.
@@ -15,16 +20,21 @@ use crate::app::WireframeApp;
 /// closure. The server listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop
 /// accepting new connections.
-pub struct WireframeServer<F>
+#[allow(clippy::type_complexity)]
+pub struct WireframeServer<F, T = ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: bincode::Decode<()> + Send + 'static,
 {
     factory: F,
     listener: Option<Arc<TcpListener>>,
     workers: usize,
+    on_preamble_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
+    on_preamble_failure: Option<Arc<dyn Fn(DecodeError) + Send + Sync>>,
+    _preamble: PhantomData<T>,
 }
 
-impl<F> WireframeServer<F>
+impl<F> WireframeServer<F, ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
@@ -66,9 +76,34 @@ where
             factory,
             listener: None,
             workers,
+            on_preamble_success: None,
+            on_preamble_failure: None,
+            _preamble: PhantomData,
         }
     }
 
+    /// Convert this server to parse a custom preamble `T`.
+    #[must_use]
+    pub fn with_preamble<T>(self) -> WireframeServer<F, T>
+    where
+        T: bincode::Decode<()> + Send + 'static,
+    {
+        WireframeServer {
+            factory: self.factory,
+            listener: self.listener,
+            workers: self.workers,
+            on_preamble_success: None,
+            on_preamble_failure: None,
+            _preamble: PhantomData,
+        }
+    }
+}
+
+impl<F, T> WireframeServer<F, T>
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: bincode::Decode<()> + Send + 'static,
+{
     /// Set the number of worker tasks to spawn for the server.
     ///
     /// Ensures at least one worker is configured.
@@ -102,6 +137,27 @@ where
         self
     }
 
+    /// Register a callback invoked when the connection preamble
+    /// decodes successfully.
+    #[must_use]
+    pub fn on_preamble_decode_success<H>(mut self, handler: H) -> Self
+    where
+        H: Fn(&T) + Send + Sync + 'static,
+    {
+        self.on_preamble_success = Some(Arc::new(handler));
+        self
+    }
+
+    /// Register a callback invoked when the connection preamble fails to decode.
+    #[must_use]
+    pub fn on_preamble_decode_failure<H>(mut self, handler: H) -> Self
+    where
+        H: Fn(DecodeError) + Send + Sync + 'static,
+    {
+        self.on_preamble_failure = Some(Arc::new(handler));
+        self
+    }
+
     /// Get the configured worker count.
     #[inline]
     #[must_use]
@@ -118,6 +174,12 @@ where
     /// ```
     pub const fn worker_count(&self) -> usize {
         self.workers
+    }
+
+    /// Get the socket address the server is bound to, if available.
+    #[must_use]
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        self.listener.as_ref().and_then(|l| l.local_addr().ok())
     }
 
     /// Bind the server to the given address and create a listener.
@@ -202,13 +264,28 @@ where
             let mut shutdown_rx = shutdown_tx.subscribe();
             let listener = Arc::clone(&listener);
             let factory = self.factory.clone();
+            let on_success = self.on_preamble_success.clone();
+            let on_failure = self.on_preamble_failure.clone();
             handles.push(tokio::spawn(async move {
                 let app = (factory)();
                 let mut delay = Duration::from_millis(10);
                 loop {
                     tokio::select! {
                         res = listener.accept() => match res {
-                            Ok((_stream, _)) => {
+                            Ok((mut stream, _)) => {
+                                let result = read_preamble::<_, T>(&mut stream).await;
+                                match result {
+                                    Ok(preamble) => {
+                                        if let Some(handler) = on_success.as_ref() {
+                                            handler(&preamble);
+                                        }
+                                    }
+                                    Err(err) => {
+                                        if let Some(handler) = on_failure.as_ref() {
+                                            handler(err);
+                                        }
+                                    }
+                                }
                                 // TODO: hand off stream to `app`
                                 delay = Duration::from_millis(10);
                             }

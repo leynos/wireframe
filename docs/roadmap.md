@@ -55,9 +55,10 @@ after formatting. Line numbers below refer to that file.
     }
     ```
 
-- [ ] Add connection preamble support.
-      Provide built-in parsing of a handshake preamble (e.g., Hotline's "TRTP")
-      and invoke a user-configured handler on success or failure.
+- [x] Add connection preamble support.
+      Provide generic parsing of connection preambles with a Hotline handshake
+      example in the tests. Invoke user-configured callbacks on decode success
+      or failure.
 - [ ] Add response serialization and transmission.
       Encode handler responses using the selected serialization format and write
       them back through the framing layer.
