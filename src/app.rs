@@ -82,4 +82,16 @@ impl WireframeApp {
         self.middleware.push(Box::new(mw));
         Ok(self)
     }
+
+    /// Handle an accepted connection.
+    ///
+    /// This placeholder simply drops the stream. Future implementations
+    /// will decode frames and dispatch them to registered handlers.
+    pub async fn handle_connection<S>(&self, _stream: S)
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
+    {
+        // Connection handling will be implemented later.
+        tokio::task::yield_now().await;
+    }
 }

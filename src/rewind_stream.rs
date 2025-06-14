@@ -44,6 +44,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for RewindStream<S> {
 
         if self.pos >= self.leftover.len() && !self.leftover.is_empty() {
             self.leftover.clear();
+            self.pos = 0;
         }
 
         Pin::new(&mut self.inner).poll_read(cx, buf)

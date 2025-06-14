@@ -290,11 +290,12 @@ where
         let mut handles = Vec::with_capacity(self.workers);
         for _ in 0..self.workers {
             let listener = Arc::clone(&listener);
+            let factory = self.factory.clone();
             let on_success = self.on_preamble_success.clone();
             let on_failure = self.on_preamble_failure.clone();
             let mut shutdown_rx = shutdown_tx.subscribe();
             handles.push(tokio::spawn(async move {
-                worker_task(listener, on_success, on_failure, &mut shutdown_rx).await;
+                worker_task(listener, factory, on_success, on_failure, &mut shutdown_rx).await;
             }));
         }
 
@@ -318,12 +319,14 @@ where
 }
 
 #[allow(clippy::type_complexity)]
-async fn worker_task<T>(
+async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
+    factory: F,
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // The unit context indicates no additional state is needed to decode `T`.
     T: bincode::Decode<()> + Send + 'static,
 {
@@ -334,7 +337,8 @@ async fn worker_task<T>(
                 Ok((stream, _)) => {
                     let success = on_success.clone();
                     let failure = on_failure.clone();
-                    tokio::spawn(process_stream(stream, success, failure));
+                    let factory = factory.clone();
+                    tokio::spawn(process_stream(stream, factory, success, failure));
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
@@ -349,21 +353,27 @@ async fn worker_task<T>(
 }
 
 #[allow(clippy::type_complexity)]
-async fn process_stream<T>(
+async fn process_stream<F, T>(
     mut stream: tokio::net::TcpStream,
+    factory: F,
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
 ) where
+    F: Fn() -> WireframeApp + Send + Sync + 'static,
     // The decoding context parameter is `()`; no external state is needed.
     T: bincode::Decode<()> + Send + 'static,
 {
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            let _stream = RewindStream::new(leftover, stream);
             if let Some(handler) = on_success.as_ref() {
                 handler(&preamble);
             }
-            // `RewindStream` plays back leftover bytes before using the socket.
+            let stream = RewindStream::new(leftover, stream);
+            // Hand the connection to the application for processing.
+            let app = (factory)();
+            tokio::spawn(async move {
+                app.handle_connection(stream).await;
+            });
         }
         Err(err) => {
             if let Some(handler) = on_failure.as_ref() {
