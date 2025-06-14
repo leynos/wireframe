@@ -308,7 +308,11 @@ where
             _ = &mut join_all => {}
         }
 
-        join_all.await;
+        for res in join_all.await {
+            if let Err(e) = res {
+                eprintln!("worker task failed: {e}");
+            }
+        }
         Ok(())
     }
 }
@@ -316,7 +320,7 @@ where
 #[allow(clippy::type_complexity)]
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
-    factory: F,
+    _factory: F,
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
     shutdown_rx: &mut broadcast::Receiver<()>,
@@ -325,7 +329,6 @@ async fn worker_task<F, T>(
     // The unit context indicates no additional state is needed to decode `T`.
     T: bincode::Decode<()> + Send + 'static,
 {
-    let app = (factory)();
     let mut delay = Duration::from_millis(10);
     loop {
         tokio::select! {
@@ -345,7 +348,6 @@ async fn worker_task<F, T>(
             _ = shutdown_rx.recv() => break,
         }
     }
-    drop(app);
 }
 
 #[allow(clippy::type_complexity)]
