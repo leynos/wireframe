@@ -85,13 +85,17 @@ impl WireframeApp {
 
     /// Handle an accepted connection.
     ///
-    /// This placeholder simply drops the stream. Future implementations
-    /// will decode frames and dispatch them to registered handlers.
+    /// This placeholder immediately closes the connection after the
+    /// preamble phase. A warning is logged so tests and callers are
+    /// aware of the current limitation.
     pub async fn handle_connection<S>(&self, _stream: S)
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
-        // Connection handling will be implemented later.
+        log::warn!(
+            "`WireframeApp::handle_connection` called, but connection handling \
+             is not implemented; closing stream"
+        );
         tokio::task::yield_now().await;
     }
 }

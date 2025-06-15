@@ -1,4 +1,9 @@
 use std::io;
+
+#[cfg(not(debug_assertions))]
+compile_error!(
+    "`wireframe` server functionality is experimental and not intended for production use"
+);
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::sync::Arc;
 
@@ -87,10 +92,10 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let factory = || WireframeApp::new().unwrap();
-    /// let server = WireframeServer::new(factory).with_preamble::<()>();
+    /// # use wireframe::server::WireframeServer;
+    /// # let factory = || WireframeApp::new().unwrap();
+    /// # struct MyPreamble;
+    /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
     pub fn with_preamble<P>(self) -> WireframeServer<F, P>
