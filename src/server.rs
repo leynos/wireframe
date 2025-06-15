@@ -60,10 +60,6 @@ where
     ///
     /// The server is initialised with a default worker count equal to the number of available CPU cores, or 1 if this cannot be determined. The TCP listener is unset and must be configured with `bind` before running the server.
     ///
-    /// # Panics
-    ///
-    /// Panics if the number of available CPUs cannot be determined and the fallback to 1 fails.
-    ///
     /// # Examples
     ///
     /// ```ignore
