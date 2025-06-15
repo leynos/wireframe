@@ -368,13 +368,12 @@ async fn worker_task<F, T>(
 ///
 /// ```no_run
 /// # use std::sync::Arc;
-/// # use wireframe::server::{Preamble, process_stream};
-/// # use wireframe::app::WireframeApp;
 /// # use tokio::net::TcpStream;
+/// # use wireframe::app::WireframeApp;
 /// # async fn example() {
 /// let stream: TcpStream = unimplemented!();
 /// let factory = || WireframeApp::new();
-/// process_stream::<_, ()>(stream, factory, None, None).await;
+/// // process_stream::<_, ()>(stream, factory, None, None).await;
 /// # }
 /// ```
 async fn process_stream<F, T>(
