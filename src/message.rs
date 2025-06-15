@@ -28,10 +28,12 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use your_crate::Message;
-    /// let bytes = /* some valid serialised message bytes */;
-    /// let (msg, consumed) = MyMessageType::from_bytes(&bytes).unwrap();
+    /// #[derive(bincode::Encode, bincode::BorrowDecode)]
+    /// struct MyMessageType(u8);
+    /// let bytes = vec![]; // serialized message bytes
+    /// let (_msg, consumed) = MyMessageType::from_bytes(&bytes).unwrap();
     /// assert!(consumed <= bytes.len());
     /// ```
     fn from_bytes(bytes: &[u8]) -> Result<(Self, usize), DecodeError>

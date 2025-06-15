@@ -74,9 +74,9 @@ where
 ///
 /// ```
 /// use tokio::io::BufReader;
-/// use bincode::BorrowDecode;
+/// use wireframe::preamble::read_preamble;
 ///
-/// #[derive(Debug, PartialEq, bincode::BorrowDecode)]
+/// #[derive(Debug, PartialEq, bincode::Encode, bincode::BorrowDecode)]
 /// struct MyPreamble(u8);
 ///
 /// #[tokio::main]

@@ -93,6 +93,7 @@ where
     ///
     /// ```no_run
     /// # use wireframe::server::WireframeServer;
+    /// # use wireframe::app::WireframeApp;
     /// # let factory = || WireframeApp::new().unwrap();
     /// # struct MyPreamble;
     /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
@@ -377,10 +378,11 @@ async fn worker_task<F, T>(
 ///
 /// ```no_run
 /// # use std::sync::Arc;
-/// # use mycrate::{process_stream, WireframeApp, Preamble};
+/// # use wireframe::server::{Preamble, process_stream};
+/// # use wireframe::app::WireframeApp;
 /// # use tokio::net::TcpStream;
 /// # async fn example() {
-/// let stream: TcpStream = /* ... */;
+/// let stream: TcpStream = unimplemented!();
 /// let factory = || WireframeApp::new();
 /// process_stream::<_, ()>(stream, factory, None, None).await;
 /// # }
