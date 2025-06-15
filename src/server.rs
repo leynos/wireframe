@@ -86,8 +86,12 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// #[derive(bincode::Decode)]
+    /// struct MyPreamble;
+    /// let server = WireframeServer::new(|| WireframeApp::default())
+    ///     .with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
@@ -162,7 +166,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let factory = || WireframeApp::new().unwrap();
