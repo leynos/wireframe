@@ -98,6 +98,23 @@ where
     /// Call this before registering preamble handlers, otherwise any
     /// previously configured callbacks will be dropped.
     #[must_use]
+    /// Converts the server to use a custom preamble type for connection decoding.
+    ///
+    /// This resets any previously set preamble success or failure callbacks.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The new preamble type, which must implement the `Preamble` trait.
+    ///
+    /// # Returns
+    ///
+    /// A new `WireframeServer` instance configured to decode preambles of type `T`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
+    /// ```
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
         // New preamble types must satisfy the `Preamble` bound.
@@ -327,6 +344,9 @@ where
 }
 
 #[allow(clippy::type_complexity)]
+/// Runs a worker task that accepts incoming TCP connections and processes them asynchronously.
+///
+/// Each accepted connection is handled in a separate task, with optional callbacks for preamble decode success or failure. The worker listens for shutdown signals to terminate gracefully. Accept errors are retried with exponential backoff.
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
@@ -361,6 +381,27 @@ async fn worker_task<F, T>(
 }
 
 #[allow(clippy::type_complexity)]
+/// Processes an incoming TCP stream by decoding a preamble and dispatching the connection to a `WireframeApp`.
+///
+/// Attempts to asynchronously decode a preamble of type `T` from the provided stream. If decoding succeeds, invokes the optional success handler, wraps the stream to include any leftover bytes, and passes it to a new `WireframeApp` instance for connection handling. If decoding fails, invokes the optional failure handler and closes the connection.
+///
+/// # Type Parameters
+///
+/// - `F`: A factory closure that produces `WireframeApp` instances.
+/// - `T`: The preamble type, which must support borrowed decoding via the `Preamble` trait.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use mycrate::{process_stream, WireframeApp, Preamble};
+/// # use tokio::net::TcpStream;
+/// # async fn example() {
+/// let stream: TcpStream = /* ... */;
+/// let factory = || WireframeApp::new();
+/// process_stream::<_, ()>(stream, factory, None, None).await;
+/// # }
+/// ```
 async fn process_stream<F, T>(
     mut stream: tokio::net::TcpStream,
     factory: F,

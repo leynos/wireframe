@@ -51,7 +51,36 @@ where
 /// # Errors
 ///
 /// Returns a [`DecodeError`] if decoding the preamble fails or an
-/// underlying I/O error occurs while reading from `reader`.
+/// Asynchronously reads and decodes a preamble of type `T` from an async reader using bincode.
+///
+/// Attempts to decode a value of type `T` from the beginning of the byte stream, reading more bytes as needed until decoding succeeds or an error occurs. Any bytes remaining after the decoded value are returned as leftovers.
+///
+/// # Returns
+///
+/// A tuple containing the decoded value and a vector of leftover bytes following the decoded preamble.
+///
+/// # Errors
+///
+/// Returns a `DecodeError` if decoding fails or if an I/O error occurs while reading from the reader.
+///
+/// # Examples
+///
+/// ```
+/// use tokio::io::BufReader;
+/// use bincode::BorrowDecode;
+///
+/// #[derive(Debug, PartialEq, bincode::BorrowDecode)]
+/// struct MyPreamble(u8);
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let data = bincode::encode_to_vec(MyPreamble(42), bincode::config::standard()).unwrap();
+///     let mut reader = BufReader::new(&data[..]);
+///     let (preamble, leftover) = read_preamble::<_, MyPreamble>(&mut reader).await.unwrap();
+///     assert_eq!(preamble.0, 42);
+///     assert!(leftover.is_empty());
+/// }
+/// ```
 pub async fn read_preamble<R, T>(reader: &mut R) -> Result<(T, Vec<u8>), DecodeError>
 where
     R: AsyncRead + Unpin,
