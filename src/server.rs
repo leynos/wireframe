@@ -25,9 +25,10 @@ use crate::app::WireframeApp;
 pub struct WireframeServer<F, T = ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // `Decode`'s type parameter represents a decoding context.
-    // The unit type signals that no context is required.
-    T: bincode::Decode<()> + Send + 'static,
+    // `Decode` accepts a lifetime parameter. We allow any borrow duration
+    // using a higher-ranked trait bound. The unit type indicates no external
+    // decoding context is required.
+    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
 {
     factory: F,
     listener: Option<Arc<TcpListener>>,
@@ -93,8 +94,10 @@ where
     #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
-        // Unit context indicates no external state is required when decoding.
-        T: bincode::Decode<()> + Send + 'static,
+        // The decoding context is `()`. We permit any borrow duration using a
+        // higher-ranked trait bound so callers may decode types containing
+        // references.
+        for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
     {
         WireframeServer {
             factory: self.factory,
@@ -110,8 +113,9 @@ where
 impl<F, T> WireframeServer<F, T>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // `Decode` is generic over a context type; we use `()` here.
-    T: bincode::Decode<()> + Send + 'static,
+    // Accept any borrow lifetime via `BorrowDecode`. No external context is
+    // required so we use `()`.
+    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
 {
     /// Set the number of worker tasks to spawn for the server.
     ///
@@ -328,8 +332,9 @@ async fn worker_task<F, T>(
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // The unit context indicates no additional state is needed to decode `T`.
-    T: bincode::Decode<()> + Send + 'static,
+    // Allow any lifetime for decoding borrowed preamble data via
+    // `BorrowDecode`. No external context is required.
+    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
 {
     let mut delay = Duration::from_millis(10);
     loop {
@@ -361,8 +366,9 @@ async fn process_stream<F, T>(
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,
-    // The decoding context parameter is `()`; no external state is needed.
-    T: bincode::Decode<()> + Send + 'static,
+    // Decoding may borrow from the preamble; allow any lifetime via
+    // `BorrowDecode`. No external context is needed so we use `()`.
+    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
 {
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {

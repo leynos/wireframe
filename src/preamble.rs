@@ -1,5 +1,5 @@
 use bincode::error::DecodeError;
-use bincode::{Decode, config, decode_from_slice};
+use bincode::{BorrowDecode, borrow_decode_from_slice, config};
 use tokio::io::{self, AsyncRead, AsyncReadExt};
 
 const MAX_PREAMBLE_LEN: usize = 1024;
@@ -55,9 +55,9 @@ where
 pub async fn read_preamble<R, T>(reader: &mut R) -> Result<(T, Vec<u8>), DecodeError>
 where
     R: AsyncRead + Unpin,
-    // `Decode` expects a decoding context type, not a lifetime. Most callers
-    // use the unit type as the context, which requires no external state.
-    T: Decode<()>,
+    // `BorrowDecode` allows decoding types with borrowed data using any
+    // lifetime. We require no external context, hence `()`.
+    for<'de> T: BorrowDecode<'de, ()>,
 {
     let mut buf = Vec::new();
     // Build the decoder configuration once to avoid repeated allocations.
@@ -65,7 +65,7 @@ where
         .with_big_endian()
         .with_fixed_int_encoding();
     loop {
-        match decode_from_slice::<T, _>(&buf, config) {
+        match borrow_decode_from_slice::<T, _>(&buf, config) {
             Ok((value, consumed)) => {
                 let leftover = buf.split_off(consumed);
                 return Ok((value, leftover));

@@ -1,13 +1,13 @@
 use bincode::error::{DecodeError, EncodeError};
-use bincode::{Decode, Encode, config, decode_from_slice, encode_to_vec};
+use bincode::{BorrowDecode, Encode, borrow_decode_from_slice, config, encode_to_vec};
 
 /// Wrapper trait for application message types.
 ///
-/// Any type deriving [`Encode`] and [`Decode`] automatically implements
+/// Any type deriving [`Encode`] and [`BorrowDecode`] automatically implements
 /// this trait via a blanket implementation. The default methods provide
 /// convenient helpers to serialize and deserialize using bincode's
 /// standard configuration.
-pub trait Message: Encode + Decode<()> {
+pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     /// Serialize the message into a byte vector.
     ///
     /// # Errors
@@ -27,8 +27,8 @@ pub trait Message: Encode + Decode<()> {
     where
         Self: Sized,
     {
-        decode_from_slice(bytes, config::standard())
+        borrow_decode_from_slice(bytes, config::standard())
     }
 }
 
-impl<T> Message for T where T: Encode + Decode<()> {}
+impl<T> Message for T where for<'de> T: Encode + BorrowDecode<'de, ()> {}
