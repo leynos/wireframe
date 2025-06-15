@@ -393,10 +393,10 @@ async fn process_stream<F, T>(
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
+            // We already run `process_stream` inside a task, so spawning again
+            // only adds overhead.
             let app = (factory)();
-            tokio::spawn(async move {
-                app.handle_connection(stream).await;
-            });
+            app.handle_connection(stream).await;
         }
         Err(err) => {
             if let Some(handler) = on_failure.as_ref() {
