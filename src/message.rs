@@ -22,7 +22,18 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     ///
     /// # Errors
     ///
-    /// Returns a [`DecodeError`] if deserialization fails.
+    /// Deserialises a message instance from a byte slice using the standard configuration.
+    ///
+    /// Returns the deserialised message and the number of bytes consumed, or a [`DecodeError`] if deserialisation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use your_crate::Message;
+    /// let bytes = /* some valid serialised message bytes */;
+    /// let (msg, consumed) = MyMessageType::from_bytes(&bytes).unwrap();
+    /// assert!(consumed <= bytes.len());
+    /// ```
     fn from_bytes(bytes: &[u8]) -> Result<(Self, usize), DecodeError>
     where
         Self: Sized,

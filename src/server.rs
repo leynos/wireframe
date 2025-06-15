@@ -322,6 +322,9 @@ where
 }
 
 #[allow(clippy::type_complexity)]
+/// Runs a worker task that accepts incoming TCP connections and processes them asynchronously.
+///
+/// Each accepted connection is handled in a separate task, with optional callbacks for preamble decode success or failure. The worker listens for shutdown signals to terminate gracefully. Accept errors are retried with exponential backoff.
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
@@ -356,6 +359,27 @@ async fn worker_task<F, T>(
 }
 
 #[allow(clippy::type_complexity)]
+/// Processes an incoming TCP stream by decoding a preamble and dispatching the connection to a `WireframeApp`.
+///
+/// Attempts to asynchronously decode a preamble of type `T` from the provided stream. If decoding succeeds, invokes the optional success handler, wraps the stream to include any leftover bytes, and passes it to a new `WireframeApp` instance for connection handling. If decoding fails, invokes the optional failure handler and closes the connection.
+///
+/// # Type Parameters
+///
+/// - `F`: A factory closure that produces `WireframeApp` instances.
+/// - `T`: The preamble type, which must support borrowed decoding via the `Preamble` trait.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use mycrate::{process_stream, WireframeApp, Preamble};
+/// # use tokio::net::TcpStream;
+/// # async fn example() {
+/// let stream: TcpStream = /* ... */;
+/// let factory = || WireframeApp::new();
+/// process_stream::<_, ()>(stream, factory, None, None).await;
+/// # }
+/// ```
 async fn process_stream<F, T>(
     mut stream: tokio::net::TcpStream,
     factory: F,
