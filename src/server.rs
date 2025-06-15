@@ -292,10 +292,13 @@ where
             let factory = self.factory.clone();
             let on_success = self.on_preamble_success.clone();
             let on_failure = self.on_preamble_failure.clone();
-            let mut shutdown_rx = shutdown_tx.subscribe();
-            handles.push(tokio::spawn(async move {
-                worker_task(listener, factory, on_success, on_failure, &mut shutdown_rx).await;
-            }));
+            handles.push(tokio::spawn(worker_task(
+                listener,
+                factory,
+                on_success,
+                on_failure,
+                shutdown_tx.subscribe(),
+            )));
         }
 
         let join_all = futures::future::join_all(handles);
@@ -326,7 +329,7 @@ async fn worker_task<F, T>(
     factory: F,
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
-    shutdown_rx: &mut broadcast::Receiver<()>,
+    mut shutdown_rx: broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // `Preamble` ensures `T` supports borrowed decoding.
