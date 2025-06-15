@@ -728,7 +728,7 @@ async fn my_async_test(async_fixture_value: u32) {
 
 The order of procedural macro attributes can sometimes matter.15 While `rstest`
 documentation and examples show flexibility (e.g., `#[rstest]` then
-`#[tokio::test]` 4, or vice-versa), users should ensure their chosen async
+`#[tokio::test]` 4, or vice versa), users should ensure their chosen async
 runtime's test macro is correctly placed to provide the necessary execution
 context for the async test body and any async fixtures. `rstest` itself does not
 bundle a runtime; it integrates with existing ones. The "Inject Test Attribute"
@@ -1161,7 +1161,7 @@ and Parameterization**
 | Fixture Injection                                             | Manual calls to setup functions within each test.             | Fixture name as argument in #[rstest] function; fixture defined with #[fixture]. |
 | Parameterized Tests (Specific Cases)                          | Loop inside one test, or multiple distinct #[test] functions. | #[case(...)] attributes on #[rstest] function.                                   |
 | Parameterized Tests (Value Combinations)                      | Nested loops inside one test, or complex manual generation.   | #[values(...)] attributes on arguments of #[rstest] function.                    |
-| Async Fixture Setup                                           | Manual async block and .await calls inside test.              | async fn fixtures, with #[future] and #[awt] for ergonomic .awaiting.            |
+| Async Fixture Setup                                           | Manual async block and .await calls inside test.              | async fn fixtures, with #[future] and #[awt] for ergonomic `.await`ing.          |
 | Reusing Parameter Sets                                        | Manual duplication of cases or custom helper macros.          | rstest_reuse crate with #[template] and #[apply] attributes.                     |
 
 This comparison highlights how `rstest`'s attribute-based, declarative approach
@@ -1203,7 +1203,7 @@ mind:
   for identifying and running specific failing cases with
   `cargo test test_function_name::case_N`. Some IDEs or debuggers might require
   specific configurations or might not fully support stepping through the
-  macro-generated code as seamlessly as hand-written code, though support is
+  macro-generated code as seamlessly as handwritten code, though support is
   improving.
 - **Static Nature of Test Cases:** Test cases (e.g., from `#[case]` or
   `#[files]`) are defined and discovered at compile time.7 This means the
@@ -1242,14 +1242,14 @@ runs, making it easier to get consistent log output from tests.
 The `test-with` crate allows for conditional execution of tests based on various
 runtime conditions, such as the presence of environment variables, the existence
 of specific files or folders, or the availability of network services.22 It can
-be used in conjunction with `rstest`. For example, an `rstest` test could be
-further annotated with `test-with` attributes to ensure it only runs if a
-particular database configuration file exists or if a dependent web service is
-reachable. The order of macros is important: `rstest` should typically generate
-the test cases first, and then `test-with` can apply its conditional execution
-logic to these generated tests.22 This allows `rstest` to focus on test
-structure and data provision, while `test-with` provides an orthogonal layer of
-control over test execution conditions.
+be used with `rstest`. For example, an `rstest` test could be further annotated
+with `test-with` attributes to ensure it only runs if a particular database
+configuration file exists or if a dependent web service is reachable. The order
+of macros is important: `rstest` should typically generate the test cases first,
+and then `test-with` can apply its conditional execution logic to these
+generated tests.22 This allows `rstest` to focus on test structure and data
+provision, while `test-with` provides an orthogonal layer of control over test
+execution conditions.
 
 ## XI. Conclusion and Further Resources
 
