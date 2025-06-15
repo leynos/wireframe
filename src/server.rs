@@ -92,11 +92,12 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// # use wireframe::server::WireframeServer;
+    /// # use wireframe::app::WireframeApp;
+    /// # let factory = || WireframeApp::new().unwrap();
     /// #[derive(bincode::Decode)]
-    /// struct MyPreamble;
-    /// let server = WireframeServer::new(|| WireframeApp::default())
-    ///     .with_preamble::<MyPreamble>();
+    /// # struct MyPreamble;
+    /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
     pub fn with_preamble<P>(self) -> WireframeServer<F, P>
@@ -367,10 +368,11 @@ async fn worker_task<F, T>(
 ///
 /// ```no_run
 /// # use std::sync::Arc;
-/// # use mycrate::{process_stream, WireframeApp, Preamble};
+/// # use wireframe::server::{Preamble, process_stream};
+/// # use wireframe::app::WireframeApp;
 /// # use tokio::net::TcpStream;
 /// # async fn example() {
-/// let stream: TcpStream = /* ... */;
+/// let stream: TcpStream = unimplemented!();
 /// let factory = || WireframeApp::new();
 /// process_stream::<_, ()>(stream, factory, None, None).await;
 /// # }
