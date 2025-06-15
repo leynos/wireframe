@@ -86,9 +86,23 @@ where
         }
     }
 
-    /// Convert this server to parse a custom preamble `T`.
+    /// Converts the server to use a custom preamble type for incoming connections.
     ///
-    /// Call this before registering preamble callbacks. Calling it later drops any previously configured callbacks.
+    /// Calling this method will drop any previously configured preamble decode callbacks. Use it before registering preamble handlers if you wish to retain them.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` – The type to decode as the connection preamble; must implement `bincode::Decode<()>`, `Send`, and `'static`.
+    ///
+    /// # Returns
+    ///
+    /// A new `WireframeServer` instance configured to decode preambles of type `T`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
+    /// ```
     #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
