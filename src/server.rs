@@ -74,7 +74,12 @@ where
     /// ```
     #[must_use]
     pub fn new(factory: F) -> Self {
-        let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        // Ensure at least one worker is always configured. While
+        // `available_parallelism` cannot return zero, defensive programming
+        // protects against unexpected platform behaviour.
+        let workers = std::thread::available_parallelism()
+            .map_or(1, std::num::NonZeroUsize::get)
+            .max(1);
         Self {
             factory,
             listener: None,
