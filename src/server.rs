@@ -90,6 +90,15 @@ where
     ///
     /// Call this before registering preamble handlers, otherwise any
     /// previously configured callbacks will be dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
+    /// let server = WireframeServer::new(factory).with_preamble::<()>();
+    /// ```
     #[must_use]
     pub fn with_preamble<P>(self) -> WireframeServer<F, P>
     where
