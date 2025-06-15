@@ -65,7 +65,7 @@ impl<T: Send + Sync> SharedState<T> {
     /// use wireframe::extractor::SharedState;
     ///
     /// let data = Arc::new(5u32);
-    /// let state = SharedState::new(Arc::clone(&data));
+    /// let state: SharedState<u32> = Arc::clone(&data).into();
     /// assert_eq!(*state, 5);
     /// ```
     #[must_use]
@@ -78,9 +78,10 @@ impl<T: Send + Sync> SharedState<T> {
     /// use wireframe::extractor::SharedState;
     ///
     /// let state = Arc::new(42);
-    /// let shared = SharedState::new(state.clone());
+    /// let shared: SharedState<u32> = state.clone().into();
     /// assert_eq!(*shared, 42);
     /// ```
+    #[deprecated(since = "0.2.0", note = "construct via `inner.into()` instead")]
     pub fn new(inner: Arc<T>) -> Self {
         Self(inner)
     }
@@ -112,7 +113,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// use wireframe::extractor::SharedState;
     ///
     /// let state = Arc::new(42);
-    /// let shared = SharedState::new(state.clone());
+    /// let shared: SharedState<u32> = state.clone().into();
     /// assert_eq!(*shared, 42);
     /// ```
     fn deref(&self) -> &Self::Target {

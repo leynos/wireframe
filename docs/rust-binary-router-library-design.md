@@ -624,7 +624,7 @@ WireframeApp::new()
 
 .frame_processor(MyFrameProcessor::new()) // Configure the framing logic
 
-.app_data(SharedState::new(app_state.clone())) // Shared application state
+.app_data(app_state.clone().into()) // Shared application state
 
 //.service(login_handler) // If using attribute macros and auto-discovery
 
