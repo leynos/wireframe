@@ -78,6 +78,13 @@ WireframeServer::new(|| {
 This example showcases how derive macros and the framing abstraction simplify a
 binary protocol server【F:docs/rust-binary-router-library-design.md†L1120-L1150】.
 
+## Current Limitations
+
+Connection processing is not implemented yet. After the optional
+preamble is read, the server logs a warning and immediately closes the
+stream. Release builds fail to compile to prevent accidental production
+use.
+
 ## Roadmap
 
 Development priorities are tracked in [docs/roadmap.md](docs/roadmap.md). Key
