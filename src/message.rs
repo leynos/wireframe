@@ -29,7 +29,7 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     /// # Examples
     ///
     /// ```no_run
-    /// use your_crate::Message;
+    /// use wireframe::message::Message;
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
     /// struct MyMessageType(u8);
     /// let bytes = vec![]; // serialized message bytes

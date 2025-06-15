@@ -77,11 +77,17 @@ where
 /// use wireframe::preamble::read_preamble;
 ///
 /// #[derive(Debug, PartialEq, bincode::Encode, bincode::BorrowDecode)]
-/// struct MyPreamble(u8);
+/// struct MyPreamble(u64);
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let data = bincode::encode_to_vec(MyPreamble(42), bincode::config::standard()).unwrap();
+///     let data = bincode::encode_to_vec(
+///         MyPreamble(42),
+///         bincode::config::standard()
+///             .with_big_endian()
+///             .with_fixed_int_encoding(),
+///     )
+///     .unwrap();
 ///     let mut reader = BufReader::new(&data[..]);
 ///     let (preamble, leftover) = read_preamble::<_, MyPreamble>(&mut reader).await.unwrap();
 ///     assert_eq!(preamble.0, 42);
