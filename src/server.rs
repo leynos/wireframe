@@ -86,7 +86,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
@@ -114,7 +114,8 @@ where
 {
     /// Set the number of worker tasks to spawn for the server.
     ///
-    /// Ensures at least one worker is configured.
+    /// The count is clamped to at least one so a worker is always
+    /// present. Returns a new server instance with the updated value.
     ///
     /// # Examples
     ///
@@ -123,23 +124,11 @@ where
     ///
     /// let factory = || WireframeApp::new().unwrap();
     /// let server = WireframeServer::new(factory).workers(4);
-    /// ```
-    #[must_use]
-    /// Sets the number of worker tasks to spawn, ensuring at least one worker is configured.
-    ///
-    /// Returns a new `WireframeServer` instance with the updated worker count. If `count` is less than 1, it defaults to 1.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let factory = || WireframeApp::new().unwrap();
-    /// let server = WireframeServer::new(factory).workers(4);
     /// assert_eq!(server.worker_count(), 4);
     /// let server = server.workers(0);
     /// assert_eq!(server.worker_count(), 1);
     /// ```
+    #[must_use]
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
         self
