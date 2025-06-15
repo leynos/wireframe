@@ -15,7 +15,7 @@ jobs:
       CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@4305c38b25d97ef35a8ad1f985ccf2d2242004f2
+      - uses: dtolnay/rust-toolchain@v1
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
