@@ -34,9 +34,8 @@ and `on_preamble_decode_failure` on `WireframeServer`.
 
 ## Call Order
 
-`WireframeServer::with_preamble::<T>()` must be called **before**
-registering callbacks with `on_preamble_decode_success` or
-`on_preamble_decode_failure`. The method converts the server to use a
-custom preamble type, dropping any callbacks configured on the default
-`()` preamble. Registering callbacks after calling `with_preamble::<T>()`
-ensures they are retained.
+`WireframeServer::with_preamble::<T>()` must be called **before** registering
+callbacks with `on_preamble_decode_success` or `on_preamble_decode_failure`. The
+method converts the server to use a custom preamble type, dropping any callbacks
+configured on the default `()` preamble. Registering callbacks after calling
+`with_preamble::<T>()` ensures they are retained.

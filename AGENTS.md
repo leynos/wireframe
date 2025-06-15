@@ -97,7 +97,8 @@ project:
 - Run cargo fmt, cargo clippy -- -D warnings, and RUSTFLAGS="-D warnings" cargo
   test before committing.
 - Clippy warnings MUST be disallowed.
-- Fix any warnings emitted during tests in the code itself rather than silencing them.
+- Fix any warnings emitted during tests in the code itself rather than
+  silencing them.
 - Where a function is too long, extract meaningfully named helper functions
   adhering to separation of concerns and CQRS.
 - Where a function has too many parameters, group related parameters in
