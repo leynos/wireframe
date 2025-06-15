@@ -78,5 +78,8 @@ where
     type Output: Service;
 
     /// Create a new middleware service wrapping `service`.
+    #[inline]
+    #[allow(clippy::inline_fn_without_body, unused_attributes)]
+    #[must_use = "use the returned middleware service"]
     async fn transform(&self, service: S) -> Self::Output;
 }

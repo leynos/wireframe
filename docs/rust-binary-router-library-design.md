@@ -868,6 +868,9 @@ pipeline.
   `Service` traits.25
 
   - The `Transform` trait would act as a factory for the middleware service.
+    Its `transform` method is annotated with `#[must_use]` (to encourage
+    using the returned service) and `#[inline]` for potential performance
+    gains.
   - The `Service` trait would define the actual request/response processing
     logic. Middleware would operate on "wireframe's" internal request and
     response types, which could be raw frames at one level or deserialized

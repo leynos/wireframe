@@ -81,7 +81,7 @@ after formatting. Line numbers below refer to that file.
         [`src/extractor.rs`](../src/extractor.rs#L39-L52).
   - [ ] Implement middleware using `Transform`/`Service` traits and a simple
         `from_fn` style variant (lines 866-899). Trait definitions live in
-        [`src/middleware.rs`](../src/middleware.rs#L59-L80).
+        [`src/middleware.rs`](../src/middleware.rs#L71-L84).
   - [ ] Register middleware with `WireframeApp::wrap` and execute it in order
         (lines 900-919). See the [`wrap` method](../src/app.rs#L73-L84).
   - [ ] Document common middleware use cases like logging and authentication
