@@ -88,7 +88,7 @@ where
 
     /// Convert this server to parse a custom preamble `T`.
     ///
-    /// Call this before registering preamble handlers. Calling it later drops any previously configured callbacks.
+    /// Call this before registering preamble callbacks. Calling it later drops any previously configured callbacks.
     #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
