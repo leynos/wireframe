@@ -48,7 +48,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let server = WireframeServer::new(|| WireframeApp::default());
