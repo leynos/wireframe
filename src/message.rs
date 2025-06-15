@@ -31,4 +31,4 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     }
 }
 
-impl<T> Message for T where for<'de> T: Encode + BorrowDecode<'de, ()> {}
+impl<T> Message for T where T: Encode + for<'de> BorrowDecode<'de, ()> {}

@@ -55,11 +55,13 @@ where
 pub async fn read_preamble<R, T>(reader: &mut R) -> Result<(T, Vec<u8>), DecodeError>
 where
     R: AsyncRead + Unpin,
-    // `BorrowDecode` allows decoding types with borrowed data using any
-    // lifetime. We require no external context, hence `()`.
+    // Decode borrowed data for any lifetime without external context.
     for<'de> T: BorrowDecode<'de, ()>,
 {
+    // Read a small chunk upfront to avoid a guaranteed decode failure on the
+    // first iteration.
     let mut buf = Vec::new();
+    read_more(reader, &mut buf, 8.min(MAX_PREAMBLE_LEN)).await?;
     // Build the decoder configuration once to avoid repeated allocations.
     let config = config::standard()
         .with_big_endian()

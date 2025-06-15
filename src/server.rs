@@ -14,6 +14,13 @@ use bincode::error::DecodeError;
 
 use crate::app::WireframeApp;
 
+/// Trait bound for preamble types accepted by the server.
+///
+/// The bound allows decoding borrowed data for any lifetime without
+/// requiring an external decoding context.
+pub trait Preamble: for<'de> bincode::BorrowDecode<'de, ()> + Send + 'static {}
+impl<T> Preamble for T where for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static {}
+
 /// Tokio-based server for `WireframeApp` instances.
 ///
 /// `WireframeServer` spawns a worker task per thread. Each worker
@@ -25,10 +32,9 @@ use crate::app::WireframeApp;
 pub struct WireframeServer<F, T = ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // `Decode` accepts a lifetime parameter. We allow any borrow duration
-    // using a higher-ranked trait bound. The unit type indicates no external
-    // decoding context is required.
-    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
+    // `Preamble` covers types implementing `BorrowDecode` for any lifetime,
+    // enabling decoding of borrowed data without external context.
+    T: Preamble,
 {
     factory: F,
     listener: Option<Arc<TcpListener>>,
@@ -94,10 +100,8 @@ where
     #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
-        // The decoding context is `()`. We permit any borrow duration using a
-        // higher-ranked trait bound so callers may decode types containing
-        // references.
-        for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
+        // New preamble types must satisfy the `Preamble` bound.
+        T: Preamble,
     {
         WireframeServer {
             factory: self.factory,
@@ -113,9 +117,8 @@ where
 impl<F, T> WireframeServer<F, T>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // Accept any borrow lifetime via `BorrowDecode`. No external context is
-    // required so we use `()`.
-    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
+    // The preamble type must satisfy the `Preamble` bound.
+    T: Preamble,
 {
     /// Set the number of worker tasks to spawn for the server.
     ///
@@ -332,9 +335,8 @@ async fn worker_task<F, T>(
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // Allow any lifetime for decoding borrowed preamble data via
-    // `BorrowDecode`. No external context is required.
-    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
+    // `Preamble` ensures `T` supports borrowed decoding.
+    T: Preamble,
 {
     let mut delay = Duration::from_millis(10);
     loop {
@@ -366,9 +368,8 @@ async fn process_stream<F, T>(
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,
-    // Decoding may borrow from the preamble; allow any lifetime via
-    // `BorrowDecode`. No external context is needed so we use `()`.
-    for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static,
+    // `Preamble` ensures `T` supports borrowed decoding.
+    T: Preamble,
 {
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {

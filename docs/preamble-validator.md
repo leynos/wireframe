@@ -4,7 +4,7 @@
 client connects. The server decodes the preamble with
 [`read_preamble`](../src/preamble.rs) and can invoke user-supplied callbacks on
 success or failure. The helper uses `bincode` to decode any type implementing
-`bincode::Decode` and reads exactly the number of bytes required.
+`bincode::BorrowDecode` and reads exactly the number of bytes required.
 
 The flow is summarized below:
 
