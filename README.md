@@ -14,6 +14,7 @@ reduce this boilerplate through layered abstractions:
 - **Transport adapter** built on Tokio I/O
 - **Framing layer** for length‑prefixed or custom frames
 - **Connection preamble** with customizable validation callbacks [[docs](docs/preamble-validator.md)]
+- Call `with_preamble::<T>()` before registering success or failure callbacks
 - **Serialization engine** using `bincode` or a `wire-rs` wrapper
 - **Routing engine** that dispatches messages by ID
 - **Handler invocation** with extractor support

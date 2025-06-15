@@ -8,18 +8,11 @@ use tokio::time::{Duration, sleep};
 
 use core::marker::PhantomData;
 
-use crate::preamble::read_preamble;
+use crate::preamble::{Preamble, read_preamble};
 use crate::rewind_stream::RewindStream;
 use bincode::error::DecodeError;
 
 use crate::app::WireframeApp;
-
-/// Trait bound for preamble types accepted by the server.
-///
-/// The bound allows decoding borrowed data for any lifetime without
-/// requiring an external decoding context.
-pub trait Preamble: for<'de> bincode::BorrowDecode<'de, ()> + Send + 'static {}
-impl<T> Preamble for T where for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static {}
 
 /// Tokio-based server for `WireframeApp` instances.
 ///
@@ -48,28 +41,14 @@ impl<F> WireframeServer<F, ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Constructs a new `WireframeServer` using the provided application factory
-    /// closure.
+    /// Create a new `WireframeServer` from the given application factory.
     ///
-    /// The default worker count equals the number of CPU cores.
-    ///
-    /// If the CPU count cannot be determined, the server defaults to a single
-    /// worker.
-    ///
-    /// ```ignore
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let factory = || WireframeApp::new().unwrap();
-    /// let server = WireframeServer::new(factory);
-    /// ```
-    ///
-    /// Creates a new `WireframeServer` with the provided factory closure.
-    ///
-    /// The server is initialised with a default worker count equal to the number of available CPU cores, or 1 if this cannot be determined. The TCP listener is unset and must be configured with `bind` before running the server.
+    /// The worker count defaults to the number of available CPU cores (or 1 if this cannot be determined).
+    /// The TCP listener is unset; call [`bind`](Self::bind) before running the server.
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let server = WireframeServer::new(|| WireframeApp::default());
@@ -93,18 +72,13 @@ where
         }
     }
 
-    /// Convert this server to parse a custom preamble `T`.
+    /// Converts the server to use a custom preamble type for incoming connections.
     ///
-    /// Call this before registering preamble handlers, otherwise any
-    /// previously configured callbacks will be dropped.
-    #[must_use]
-    /// Converts the server to use a custom preamble type for connection decoding.
-    ///
-    /// This resets any previously set preamble success or failure callbacks.
+    /// Calling this method will drop any previously configured preamble decode callbacks. Use it before registering preamble handlers if you wish to retain them.
     ///
     /// # Type Parameters
     ///
-    /// * `T` - The new preamble type, which must implement the `Preamble` trait.
+    /// * `T` – The type to decode as the connection preamble; must implement `bincode::Decode<()>`, `Send`, and `'static`.
     ///
     /// # Returns
     ///
@@ -112,13 +86,17 @@ where
     ///
     /// # Examples
     ///
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let factory = || WireframeApp::new().unwrap();
+    /// let server = WireframeServer::new(factory).with_preamble::<()>();
     /// ```
-    /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
-    /// ```
-    pub fn with_preamble<T>(self) -> WireframeServer<F, T>
+    #[must_use]
+    pub fn with_preamble<P>(self) -> WireframeServer<F, P>
     where
         // New preamble types must satisfy the `Preamble` bound.
-        T: Preamble,
+        P: Preamble,
     {
         WireframeServer {
             factory: self.factory,
