@@ -81,7 +81,7 @@ impl<T: Send + Sync> SharedState<T> {
     /// let shared: SharedState<u32> = state.clone().into();
     /// assert_eq!(*shared, 42);
     /// ```
-    #[deprecated(note = "construct via `inner.into()` instead")]
+    #[deprecated(since = "0.2.0", note = "construct via `inner.into()` instead")]
     pub fn new(inner: Arc<T>) -> Self {
         Self(inner)
     }
