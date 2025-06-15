@@ -41,28 +41,10 @@ impl<F> WireframeServer<F, ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Constructs a new `WireframeServer` using the provided application factory
-    /// closure.
+    /// Create a new `WireframeServer` from the given application factory.
     ///
-    /// The default worker count equals the number of CPU cores.
-    ///
-    /// If the CPU count cannot be determined, the server defaults to a single
-    /// worker.
-    ///
-    /// ```ignore
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let factory = || WireframeApp::new().unwrap();
-    /// let server = WireframeServer::new(factory);
-    /// ```
-    ///
-    /// Creates a new `WireframeServer` with the provided factory closure.
-    ///
-    /// The server is initialised with a default worker count equal to the number of available CPU cores, or 1 if this cannot be determined. The TCP listener is unset and must be configured with `bind` before running the server.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the number of available CPUs cannot be determined and the fallback to 1 fails.
+    /// The worker count defaults to the number of available CPU cores (or 1 if this cannot be determined).
+    /// The TCP listener is unset; call [`bind`](Self::bind) before running the server.
     ///
     /// # Examples
     ///
