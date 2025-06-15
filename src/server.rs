@@ -86,10 +86,6 @@ where
         }
     }
 
-    /// Convert this server to parse a custom preamble `T`.
-    ///
-    /// Call this before registering preamble callbacks. Calling it later drops any previously configured callbacks.
-    #[must_use]
     /// Converts the server to use a custom preamble type for incoming connections.
     ///
     /// Calling this method will drop any previously configured preamble decode callbacks. Use it before registering preamble handlers if you wish to retain them.
@@ -107,6 +103,7 @@ where
     /// ```
     /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
     /// ```
+    #[must_use]
     pub fn with_preamble<T>(self) -> WireframeServer<F, T>
     where
         // Unit context indicates no external state is required when decoding.
