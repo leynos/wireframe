@@ -366,7 +366,7 @@ async fn worker_task<F, T>(
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```no_run
 /// # use std::sync::Arc;
 /// # use tokio::net::TcpStream;
 /// # use wireframe::app::WireframeApp;
