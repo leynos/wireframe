@@ -8,18 +8,11 @@ use tokio::time::{Duration, sleep};
 
 use core::marker::PhantomData;
 
-use crate::preamble::read_preamble;
+use crate::preamble::{Preamble, read_preamble};
 use crate::rewind_stream::RewindStream;
 use bincode::error::DecodeError;
 
 use crate::app::WireframeApp;
-
-/// Trait bound for preamble types accepted by the server.
-///
-/// The bound allows decoding borrowed data for any lifetime without
-/// requiring an external decoding context.
-pub trait Preamble: for<'de> bincode::BorrowDecode<'de, ()> + Send + 'static {}
-impl<T> Preamble for T where for<'de> T: bincode::BorrowDecode<'de, ()> + Send + 'static {}
 
 /// Tokio-based server for `WireframeApp` instances.
 ///
@@ -98,10 +91,10 @@ where
     /// Call this before registering preamble handlers, otherwise any
     /// previously configured callbacks will be dropped.
     #[must_use]
-    pub fn with_preamble<T>(self) -> WireframeServer<F, T>
+    pub fn with_preamble<P>(self) -> WireframeServer<F, P>
     where
         // New preamble types must satisfy the `Preamble` bound.
-        T: Preamble,
+        P: Preamble,
     {
         WireframeServer {
             factory: self.factory,

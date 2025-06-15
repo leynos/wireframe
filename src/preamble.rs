@@ -4,6 +4,13 @@ use tokio::io::{self, AsyncRead, AsyncReadExt};
 
 const MAX_PREAMBLE_LEN: usize = 1024;
 
+/// Trait bound for types accepted as connection preambles.
+///
+/// The bound allows decoding borrowed data for any lifetime without
+/// requiring an external decoding context.
+pub trait Preamble: for<'de> BorrowDecode<'de, ()> + Send + 'static {}
+impl<T> Preamble for T where for<'de> T: BorrowDecode<'de, ()> + Send + 'static {}
+
 async fn read_more<R>(
     reader: &mut R,
     buf: &mut Vec<u8>,
