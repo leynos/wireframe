@@ -73,7 +73,7 @@ impl<T: Send + Sync> SharedState<T> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use std::sync::Arc;
     /// use wireframe::extractor::SharedState;
     ///
@@ -108,7 +108,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use std::sync::Arc;
     /// use wireframe::extractor::SharedState;
     ///

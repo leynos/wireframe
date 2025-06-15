@@ -13,7 +13,7 @@ use tokio::time::{Duration, sleep};
 
 use core::marker::PhantomData;
 
-use crate::preamble::read_preamble;
+use crate::preamble::{Preamble, read_preamble};
 use crate::rewind_stream::RewindStream;
 use bincode::error::DecodeError;
 
@@ -30,9 +30,9 @@ use crate::app::WireframeApp;
 pub struct WireframeServer<F, T = ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // `Decode`'s type parameter represents a decoding context.
-    // The unit type signals that no context is required.
-    T: bincode::Decode<()> + Send + 'static,
+    // `Preamble` covers types implementing `BorrowDecode` for any lifetime,
+    // enabling decoding of borrowed data without external context.
+    T: Preamble,
 {
     factory: F,
     listener: Option<Arc<TcpListener>>,
@@ -91,17 +91,17 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use wireframe::server::WireframeServer;
-    /// # let factory = || todo!();
+    /// # let factory = || WireframeApp::new().unwrap();
     /// # struct MyPreamble;
     /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
-    pub fn with_preamble<T>(self) -> WireframeServer<F, T>
+    pub fn with_preamble<P>(self) -> WireframeServer<F, P>
     where
-        // Unit context indicates no external state is required when decoding.
-        T: bincode::Decode<()> + Send + 'static,
+        // New preamble types must satisfy the `Preamble` bound.
+        P: Preamble,
     {
         WireframeServer {
             factory: self.factory,
@@ -117,8 +117,8 @@ where
 impl<F, T> WireframeServer<F, T>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // `Decode` is generic over a context type; we use `()` here.
-    T: bincode::Decode<()> + Send + 'static,
+    // The preamble type must satisfy the `Preamble` bound.
+    T: Preamble,
 {
     /// Set the number of worker tasks to spawn for the server.
     ///
@@ -327,6 +327,9 @@ where
 }
 
 #[allow(clippy::type_complexity)]
+/// Runs a worker task that accepts incoming TCP connections and processes them asynchronously.
+///
+/// Each accepted connection is handled in a separate task, with optional callbacks for preamble decode success or failure. The worker listens for shutdown signals to terminate gracefully. Accept errors are retried with exponential backoff.
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
@@ -335,8 +338,8 @@ async fn worker_task<F, T>(
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    // The unit context indicates no additional state is needed to decode `T`.
-    T: bincode::Decode<()> + Send + 'static,
+    // `Preamble` ensures `T` supports borrowed decoding.
+    T: Preamble,
 {
     let mut delay = Duration::from_millis(10);
     loop {
@@ -361,6 +364,27 @@ async fn worker_task<F, T>(
 }
 
 #[allow(clippy::type_complexity)]
+/// Processes an incoming TCP stream by decoding a preamble and dispatching the connection to a `WireframeApp`.
+///
+/// Attempts to asynchronously decode a preamble of type `T` from the provided stream. If decoding succeeds, invokes the optional success handler, wraps the stream to include any leftover bytes, and passes it to a new `WireframeApp` instance for connection handling. If decoding fails, invokes the optional failure handler and closes the connection.
+///
+/// # Type Parameters
+///
+/// - `F`: A factory closure that produces `WireframeApp` instances.
+/// - `T`: The preamble type, which must support borrowed decoding via the `Preamble` trait.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use mycrate::{process_stream, WireframeApp, Preamble};
+/// # use tokio::net::TcpStream;
+/// # async fn example() {
+/// let stream: TcpStream = /* ... */;
+/// let factory = || WireframeApp::new();
+/// process_stream::<_, ()>(stream, factory, None, None).await;
+/// # }
+/// ```
 async fn process_stream<F, T>(
     mut stream: tokio::net::TcpStream,
     factory: F,
@@ -368,8 +392,8 @@ async fn process_stream<F, T>(
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,
-    // The decoding context parameter is `()`; no external state is needed.
-    T: bincode::Decode<()> + Send + 'static,
+    // `Preamble` ensures `T` supports borrowed decoding.
+    T: Preamble,
 {
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
