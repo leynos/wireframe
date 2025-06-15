@@ -32,7 +32,7 @@ connections and runs the Tokio event loop:
 WireframeServer::new(|| {
     WireframeApp::new()
         .frame_processor(MyFrameProcessor::new())
-        .app_data(SharedState::new(state.clone()))
+        .app_data(state.clone().into())
         .route(MessageType::Login, handle_login)
         .wrap(MyLoggingMiddleware::default())
 })
