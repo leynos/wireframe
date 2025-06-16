@@ -12,5 +12,8 @@ async-trait = "0.1"
 bytes = "1"
 log = "0.4"
 
+[dev-dependencies]
+rstest = "0.18.2"
+
 [lints.clippy]
 pedantic = "warn"
