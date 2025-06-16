@@ -285,7 +285,7 @@ where
         let listener = self.listener.expect("`bind` must be called before `run`");
         let (shutdown_tx, _) = broadcast::channel(16);
 
-        // Spawn worker tasks.
+        // Spawn worker tasks, giving each its own shutdown receiver.
         let mut handles = Vec::with_capacity(self.workers);
         for _ in 0..self.workers {
             let listener = Arc::clone(&listener);
@@ -329,6 +329,7 @@ async fn worker_task<F, T>(
     factory: F,
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+    // Each worker owns its shutdown receiver.
     mut shutdown_rx: broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
