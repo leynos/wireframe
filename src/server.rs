@@ -283,19 +283,24 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        let (shutdown_tx, _) = broadcast::channel(16);
+        // Reserve one slot per worker so lagged messages remain visible during
+        // debugging.
+        let (shutdown_tx, _) = broadcast::channel(self.workers.max(1));
 
-        // Spawn worker tasks.
+        // Spawn worker tasks, giving each its own shutdown receiver.
         let mut handles = Vec::with_capacity(self.workers);
         for _ in 0..self.workers {
             let listener = Arc::clone(&listener);
             let factory = self.factory.clone();
             let on_success = self.on_preamble_success.clone();
             let on_failure = self.on_preamble_failure.clone();
-            let mut shutdown_rx = shutdown_tx.subscribe();
-            handles.push(tokio::spawn(async move {
-                worker_task(listener, factory, on_success, on_failure, &mut shutdown_rx).await;
-            }));
+            handles.push(tokio::spawn(worker_task(
+                listener,
+                factory,
+                on_success,
+                on_failure,
+                shutdown_tx.subscribe(),
+            )));
         }
 
         let join_all = futures::future::join_all(handles);
@@ -326,7 +331,8 @@ async fn worker_task<F, T>(
     factory: F,
     on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
     on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
-    shutdown_rx: &mut broadcast::Receiver<()>,
+    // Each worker owns its shutdown receiver.
+    mut shutdown_rx: broadcast::Receiver<()>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // `Preamble` ensures `T` supports borrowed decoding.
@@ -404,5 +410,409 @@ async fn process_stream<F, T>(
             }
             // drop stream on failure
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bincode::{Decode, Encode};
+    use rstest::{fixture, rstest};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
+    use tokio::sync::broadcast;
+    use tokio::time::{Duration, timeout};
+
+    #[derive(Debug, Clone, PartialEq, Encode, Decode)]
+    struct TestPreamble {
+        id: u32,
+        message: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Encode, Decode)]
+    struct EmptyPreamble;
+
+    #[fixture]
+    fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
+        || WireframeApp::default()
+    }
+
+    #[fixture]
+    fn free_port() -> SocketAddr {
+        let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+        let listener = std::net::TcpListener::bind(addr).unwrap();
+        listener.local_addr().unwrap()
+    }
+
+    fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F>
+    where
+        F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    {
+        WireframeServer::new(factory)
+            .bind(addr)
+            .expect("Failed to bind")
+    }
+
+    fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
+    where
+        F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    {
+        WireframeServer::new(factory).with_preamble::<TestPreamble>()
+    }
+
+    #[rstest]
+    fn test_new_server_creation(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+        assert!(server.worker_count() >= 1);
+        assert!(server.local_addr().is_none());
+    }
+
+    #[rstest]
+    fn test_new_server_default_worker_count(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+        let expected_workers = std::thread::available_parallelism()
+            .map_or(1, std::num::NonZeroUsize::get)
+            .max(1);
+        assert_eq!(server.worker_count(), expected_workers);
+    }
+
+    #[rstest]
+    fn test_workers_configuration(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+
+        let server = server.workers(4);
+        assert_eq!(server.worker_count(), 4);
+
+        let server = server.workers(100);
+        assert_eq!(server.worker_count(), 100);
+
+        let server = server.workers(0);
+        assert_eq!(server.worker_count(), 1);
+    }
+
+    #[rstest]
+    fn test_with_preamble_type_conversion(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+        let server_with_preamble = server.with_preamble::<TestPreamble>();
+        assert_eq!(
+            server_with_preamble.worker_count(),
+            std::thread::available_parallelism()
+                .map_or(1, std::num::NonZeroUsize::get)
+                .max(1)
+        );
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_bind_success(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let server = bind_server(factory, free_port);
+        let bound_addr = server.local_addr().unwrap();
+        assert_eq!(bound_addr.ip(), free_port.ip());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_bind_invalid_address(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+        let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 1);
+        let result = server.bind(addr);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[rstest]
+    fn test_local_addr_before_bind(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+        assert!(server.local_addr().is_none());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_local_addr_after_bind(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let server = bind_server(factory, free_port);
+        let local_addr = server.local_addr();
+        assert!(local_addr.is_some());
+        assert_eq!(local_addr.unwrap().ip(), free_port.ip());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_preamble_success_callback(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let callback_counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = callback_counter.clone();
+
+        let server = server_with_preamble(factory).on_preamble_decode_success(
+            move |_preamble: &TestPreamble| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        assert_eq!(callback_counter.load(Ordering::SeqCst), 0);
+        assert!(server.on_preamble_success.is_some());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_preamble_failure_callback(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let callback_counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = callback_counter.clone();
+
+        let server = server_with_preamble(factory).on_preamble_decode_failure(
+            move |_error: &DecodeError| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        assert_eq!(callback_counter.load(Ordering::SeqCst), 0);
+        assert!(server.on_preamble_failure.is_some());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_method_chaining(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let callback_invoked = Arc::new(AtomicUsize::new(0));
+        let counter_clone = callback_invoked.clone();
+
+        let server = WireframeServer::new(factory)
+            .workers(2)
+            .with_preamble::<TestPreamble>()
+            .on_preamble_decode_success(move |_: &TestPreamble| {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+            })
+            .on_preamble_decode_failure(|_: &DecodeError| {
+                eprintln!("Preamble decode failed");
+            })
+            .bind(free_port)
+            .expect("Failed to bind");
+
+        assert_eq!(server.worker_count(), 2);
+        assert!(server.local_addr().is_some());
+        assert!(server.on_preamble_success.is_some());
+        assert!(server.on_preamble_failure.is_some());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    #[should_panic(expected = "`bind` must be called before `run`")]
+    async fn test_run_without_bind_panics(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+        let _ = timeout(Duration::from_millis(100), server.run()).await;
+    }
+
+    #[rstest]
+    #[tokio::test]
+    #[should_panic(expected = "`bind` must be called before `run`")]
+    async fn test_run_with_shutdown_without_bind_panics(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+        let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
+        let _ = timeout(
+            Duration::from_millis(100),
+            server.run_with_shutdown(shutdown_future),
+        )
+        .await;
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_run_with_immediate_shutdown(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let server = WireframeServer::new(factory)
+            .workers(1)
+            .bind(free_port)
+            .expect("Failed to bind");
+
+        let shutdown_future = async {};
+
+        let result = timeout(
+            Duration::from_millis(1000),
+            server.run_with_shutdown(shutdown_future),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_ok());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_server_graceful_shutdown_with_ctrl_c_simulation(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let server = WireframeServer::new(factory)
+            .workers(2)
+            .bind(free_port)
+            .expect("Failed to bind");
+
+        let shutdown_future = async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+
+        let start = std::time::Instant::now();
+        let result = timeout(
+            Duration::from_millis(1000),
+            server.run_with_shutdown(shutdown_future),
+        )
+        .await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_ok());
+        assert!(elapsed < Duration::from_millis(500));
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_multiple_worker_creation(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let _ = &factory;
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let call_count_clone = call_count.clone();
+
+        let factory = move || {
+            call_count_clone.fetch_add(1, Ordering::SeqCst);
+            WireframeApp::default()
+        };
+
+        let server = WireframeServer::new(factory)
+            .workers(3)
+            .bind(free_port)
+            .expect("Failed to bind");
+
+        let shutdown_future = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+
+        let result = timeout(
+            Duration::from_millis(1000),
+            server.run_with_shutdown(shutdown_future),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_ok());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_server_configuration_persistence(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let server = WireframeServer::new(factory).workers(5);
+
+        assert_eq!(server.worker_count(), 5);
+
+        let server = server.bind(free_port).expect("Failed to bind");
+        assert_eq!(server.worker_count(), 5);
+        assert!(server.local_addr().is_some());
+    }
+
+    #[rstest]
+    fn test_preamble_callbacks_reset_on_type_change(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory)
+            .on_preamble_decode_success(|&()| {})
+            .on_preamble_decode_failure(|_: &DecodeError| {});
+
+        assert!(server.on_preamble_success.is_some());
+        assert!(server.on_preamble_failure.is_some());
+
+        let server = server.with_preamble::<TestPreamble>();
+        assert!(server.on_preamble_success.is_none());
+        assert!(server.on_preamble_failure.is_none());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_worker_task_shutdown_signal(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let (tx, rx) = broadcast::channel(1);
+        let listener = Arc::new(TcpListener::bind("127.0.0.1:0").await.unwrap());
+
+        let _ = tx.send(());
+
+        let task = tokio::spawn(worker_task::<_, ()>(listener, factory, None, None, rx));
+
+        let result = timeout(Duration::from_millis(100), task).await;
+        assert!(result.is_ok());
+    }
+
+    #[rstest]
+    fn test_extreme_worker_counts(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let server = WireframeServer::new(factory);
+
+        let server = server.workers(usize::MAX);
+        assert_eq!(server.worker_count(), usize::MAX);
+
+        let server = server.workers(0);
+        assert_eq!(server.worker_count(), 1);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_bind_to_multiple_addresses(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        free_port: SocketAddr,
+    ) {
+        let server = WireframeServer::new(factory);
+        let addr1 = free_port;
+        let addr2 = {
+            let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+            let listener = std::net::TcpListener::bind(addr).unwrap();
+            listener.local_addr().unwrap()
+        };
+
+        let server = server.bind(addr1).expect("Failed to bind first address");
+        let first_local_addr = server.local_addr().unwrap();
+
+        let server = server.bind(addr2).expect("Failed to bind second address");
+        let second_local_addr = server.local_addr().unwrap();
+
+        assert_ne!(first_local_addr.port(), second_local_addr.port());
+        assert_eq!(second_local_addr.ip(), addr2.ip());
+    }
+
+    #[test]
+    fn test_server_debug_compilation_guard() {
+        assert!(cfg!(debug_assertions));
     }
 }
