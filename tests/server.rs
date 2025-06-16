@@ -1,3 +1,5 @@
+//! Tests for [`WireframeServer`] configuration.
+
 use wireframe::{app::WireframeApp, server::WireframeServer};
 
 #[test]

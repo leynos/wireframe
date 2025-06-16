@@ -1,3 +1,9 @@
+//! Request context types and extractor traits.
+//!
+//! The `MessageRequest` struct carries connection metadata and shared
+//! application state. Implement [`FromMessageRequest`] to extract data
+//! for handlers.
+
 use std::{net::SocketAddr, sync::Arc};
 
 /// Request context passed to extractors.

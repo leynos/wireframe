@@ -1,3 +1,8 @@
+//! Async stream adapter that replays leftover bytes.
+//!
+//! `RewindStream` emits any bytes buffered from a preamble read before
+//! delegating reads and writes to the underlying stream.
+
 use std::{
     io,
     pin::Pin,

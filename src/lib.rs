@@ -1,3 +1,8 @@
+//! Public API for the `wireframe` library.
+//!
+//! This crate provides building blocks for asynchronous binary protocol
+//! servers, including routing, middleware, and connection utilities.
+
 pub mod app;
 pub mod extractor;
 pub mod frame;

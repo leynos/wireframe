@@ -1,3 +1,8 @@
+//! Traits and helpers for request middleware.
+//!
+//! Middleware components implement [`Transform`] to wrap services and
+//! process [`ServiceRequest`]s before passing them along the chain.
+
 use async_trait::async_trait;
 
 /// Incoming request wrapper passed through middleware.
