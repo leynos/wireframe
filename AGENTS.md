@@ -118,6 +118,8 @@ project:
 ## Markdown Guidance
 
 - Validate Markdown files using `markdownlint`.
+- Run `mdformat-all` after any documentation changes to format all Markdown
+  files and fix table markup.
 - Validate Markdown Mermaid diagrams using the `nixie` CLI. The tool is
   already installed; run `nixie` directly instead of using `npx`.
 
