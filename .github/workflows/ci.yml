@@ -13,6 +13,7 @@ jobs:
       CARGO_TERM_COLOR: always
       CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
       CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}
+      BUILD_PROFILE: debug
     steps:
       - uses: actions/checkout@v4
       - name: Install rust
@@ -26,10 +27,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            target/${{ env.BUILD_PROFILE }}
+          key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
       - name: Format
         run: cargo fmt --all -- --check
       - name: Lint
