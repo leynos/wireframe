@@ -4,20 +4,24 @@ use std::io;
 compile_error!(
     "`wireframe` server functionality is experimental and not intended for production use"
 );
-use std::net::{SocketAddr, TcpListener as StdTcpListener};
-use std::sync::Arc;
-
-use tokio::net::TcpListener;
-use tokio::sync::broadcast;
-use tokio::time::{Duration, sleep};
-
 use core::marker::PhantomData;
+use std::{
+    net::{SocketAddr, TcpListener as StdTcpListener},
+    sync::Arc,
+};
 
-use crate::preamble::{Preamble, read_preamble};
-use crate::rewind_stream::RewindStream;
 use bincode::error::DecodeError;
+use tokio::{
+    net::TcpListener,
+    sync::broadcast,
+    time::{Duration, sleep},
+};
 
-use crate::app::WireframeApp;
+use crate::{
+    app::WireframeApp,
+    preamble::{Preamble, read_preamble},
+    rewind_stream::RewindStream,
+};
 
 /// Tokio-based server for `WireframeApp` instances.
 ///
@@ -48,8 +52,9 @@ where
 {
     /// Create a new `WireframeServer` from the given application factory.
     ///
-    /// The worker count defaults to the number of available CPU cores (or 1 if this cannot be determined).
-    /// The TCP listener is unset; call [`bind`](Self::bind) before running the server.
+    /// The worker count defaults to the number of available CPU cores (or 1 if this cannot be
+    /// determined). The TCP listener is unset; call [`bind`](Self::bind) before running the
+    /// server.
     ///
     /// # Examples
     ///
@@ -79,11 +84,13 @@ where
 
     /// Converts the server to use a custom preamble type for incoming connections.
     ///
-    /// Calling this method will drop any previously configured preamble decode callbacks. Use it before registering preamble handlers if you wish to retain them.
+    /// Calling this method will drop any previously configured preamble decode callbacks. Use it
+    /// before registering preamble handlers if you wish to retain them.
     ///
     /// # Type Parameters
     ///
-    /// * `T` – The type to decode as the connection preamble; must implement `bincode::Decode<()>`, `Send`, and `'static`.
+    /// * `T` – The type to decode as the connection preamble; must implement `bincode::Decode<()>`,
+    ///   `Send`, and `'static`.
     ///
     /// # Returns
     ///
@@ -179,9 +186,7 @@ where
     /// let server = WireframeServer::new(factory);
     /// assert!(server.worker_count() >= 1);
     /// ```
-    pub const fn worker_count(&self) -> usize {
-        self.workers
-    }
+    pub const fn worker_count(&self) -> usize { self.workers }
 
     /// Get the socket address the server is bound to, if available.
     #[must_use]
@@ -193,7 +198,8 @@ where
     ///
     /// # Errors
     ///
-    /// Binds the server to the specified socket address and prepares it for accepting TCP connections.
+    /// Binds the server to the specified socket address and prepares it for accepting TCP
+    /// connections.
     ///
     /// Returns an error if binding to the address or configuring the listener fails.
     ///
@@ -209,6 +215,7 @@ where
     ///
     /// ```no_run
     /// use std::net::SocketAddr;
+    ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let factory = || WireframeApp::new().unwrap();
@@ -238,7 +245,10 @@ where
     ///
     /// Runs the server, accepting TCP connections concurrently until shutdown.
     ///
-    /// Spawns the configured number of worker tasks, each accepting incoming connections using a shared listener and a separate `WireframeApp` instance. The server listens for a Ctrl+C signal to initiate graceful shutdown, signalling all workers to stop accepting new connections. Waits for all worker tasks to complete before returning.
+    /// Spawns the configured number of worker tasks, each accepting incoming connections using a
+    /// shared listener and a separate `WireframeApp` instance. The server listens for a Ctrl+C
+    /// signal to initiate graceful shutdown, signalling all workers to stop accepting new
+    /// connections. Waits for all worker tasks to complete before returning.
     ///
     /// # Panics
     ///
@@ -246,12 +256,14 @@ where
     ///
     /// # Returns
     ///
-    /// Returns `Ok(())` when the server shuts down gracefully, or an `io::Error` if accepting connections fails during runtime.
+    /// Returns `Ok(())` when the server shuts down gracefully, or an `io::Error` if accepting
+    /// connections fails during runtime.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// use std::net::SocketAddr;
+    ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     /// async fn run_server() -> std::io::Result<()> {
     ///     let factory = || WireframeApp::new().unwrap();
@@ -325,7 +337,9 @@ where
 #[allow(clippy::type_complexity)]
 /// Runs a worker task that accepts incoming TCP connections and processes them asynchronously.
 ///
-/// Each accepted connection is handled in a separate task, with optional callbacks for preamble decode success or failure. The worker listens for shutdown signals to terminate gracefully. Accept errors are retried with exponential backoff.
+/// Each accepted connection is handled in a separate task, with optional callbacks for preamble
+/// decode success or failure. The worker listens for shutdown signals to terminate gracefully.
+/// Accept errors are retried with exponential backoff.
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
@@ -361,9 +375,13 @@ async fn worker_task<F, T>(
 }
 
 #[allow(clippy::type_complexity)]
-/// Processes an incoming TCP stream by decoding a preamble and dispatching the connection to a `WireframeApp`.
+/// Processes an incoming TCP stream by decoding a preamble and dispatching the connection to a
+/// `WireframeApp`.
 ///
-/// Attempts to asynchronously decode a preamble of type `T` from the provided stream. If decoding succeeds, invokes the optional success handler, wraps the stream to include any leftover bytes, and passes it to a new `WireframeApp` instance for connection handling. If decoding fails, invokes the optional failure handler and closes the connection.
+/// Attempts to asynchronously decode a preamble of type `T` from the provided stream. If decoding
+/// succeeds, invokes the optional success handler, wraps the stream to include any leftover bytes,
+/// and passes it to a new `WireframeApp` instance for connection handling. If decoding fails,
+/// invokes the optional failure handler and closes the connection.
 ///
 /// # Type Parameters
 ///
@@ -415,15 +433,23 @@ async fn process_stream<F, T>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{
+        net::{Ipv4Addr, SocketAddr},
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
+
     use bincode::{Decode, Encode};
     use rstest::{fixture, rstest};
-    use std::net::{Ipv4Addr, SocketAddr};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::net::TcpListener;
-    use tokio::sync::broadcast;
-    use tokio::time::{Duration, timeout};
+    use tokio::{
+        net::TcpListener,
+        sync::broadcast,
+        time::{Duration, timeout},
+    };
+
+    use super::*;
 
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
     struct TestPreamble {

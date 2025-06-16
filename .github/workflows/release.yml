@@ -1,0 +1,24 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install rust stable
+        uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af
+        with:
+          toolchain: stable
+          override: true
+      - name: Build artefacts
+        run: cargo +stable build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: wireframe
+          path: target/release/wireframe

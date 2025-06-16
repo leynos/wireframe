@@ -1,10 +1,11 @@
 use bincode::error::DecodeError;
-use tokio::io::{AsyncWriteExt, duplex};
-use tokio::net::TcpStream;
-use tokio::sync::oneshot;
-use tokio::time::{Duration, timeout};
-use wireframe::preamble::read_preamble;
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use tokio::{
+    io::{AsyncWriteExt, duplex},
+    net::TcpStream,
+    sync::oneshot,
+    time::{Duration, timeout},
+};
+use wireframe::{app::WireframeApp, preamble::read_preamble, server::WireframeServer};
 
 #[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 struct HotlinePreamble {
