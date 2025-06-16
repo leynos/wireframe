@@ -1,3 +1,9 @@
+//! Application builder configuring routes and middleware.
+//!
+//! `WireframeApp` stores registered routes, services, and middleware
+//! for a [`WireframeServer`]. Methods return [`Result<Self>`] so callers
+//! can chain registrations ergonomically.
+
 use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin};
 
 /// Configures routing and middleware for a `WireframeServer`.

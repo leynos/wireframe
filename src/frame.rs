@@ -1,3 +1,9 @@
+//! Frame encoding and decoding traits.
+//!
+//! A `FrameProcessor` converts raw bytes into logical frames and back.
+//! Implementations may use any framing strategy suitable for the
+//! underlying transport.
+
 use async_trait::async_trait;
 use bytes::BytesMut;
 

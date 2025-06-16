@@ -1,3 +1,5 @@
+//! Tests for connection preamble reading.
+
 use bincode::error::DecodeError;
 use tokio::{
     io::{AsyncWriteExt, duplex},

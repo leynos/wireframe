@@ -1,3 +1,8 @@
+//! Message trait and serialization helpers.
+//!
+//! Types implementing [`Message`] can be encoded and decoded using
+//! `bincode` with standard configuration.
+
 use bincode::{
     BorrowDecode,
     Encode,

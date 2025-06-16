@@ -1,3 +1,8 @@
+//! Connection preamble decoding utilities.
+//!
+//! The optional preamble is read before processing a connection, and this
+//! module provides helpers to decode it using `bincode`.
+
 use bincode::{BorrowDecode, borrow_decode_from_slice, config, error::DecodeError};
 use tokio::io::{self, AsyncRead, AsyncReadExt};
 
