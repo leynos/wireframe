@@ -657,7 +657,7 @@ mod tests {
             .bind(free_port)
             .expect("Failed to bind");
 
-        let shutdown_future = async { () };
+        let shutdown_future = async {};
 
         let result = timeout(
             Duration::from_millis(1000),
