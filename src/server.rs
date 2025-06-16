@@ -283,8 +283,9 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        // Only one shutdown message is ever sent, so a capacity of 1 is enough.
-        let (shutdown_tx, _) = broadcast::channel(1);
+        // Reserve one slot per worker so lagged messages remain visible during
+        // debugging.
+        let (shutdown_tx, _) = broadcast::channel(self.workers.max(1));
 
         // Spawn worker tasks, giving each its own shutdown receiver.
         let mut handles = Vec::with_capacity(self.workers);
@@ -354,18 +355,7 @@ async fn worker_task<F, T>(
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
             },
-            res = shutdown_rx.recv() => {
-                if matches!(
-                    res,
-                    Ok(())
-                        | Err(
-                            broadcast::error::RecvError::Closed
-                                | broadcast::error::RecvError::Lagged(_),
-                        )
-                ) {
-                    break;
-                }
-            },
+            _ = shutdown_rx.recv() => break,
         }
     }
 }
