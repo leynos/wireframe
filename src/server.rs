@@ -355,10 +355,16 @@ async fn worker_task<F, T>(
                 }
             },
             res = shutdown_rx.recv() => {
-                if matches!(res, Ok(()) | Err(broadcast::error::RecvError::Closed)) {
+                if matches!(
+                    res,
+                    Ok(())
+                        | Err(
+                            broadcast::error::RecvError::Closed
+                                | broadcast::error::RecvError::Lagged(_),
+                        )
+                ) {
                     break;
                 }
-                // Ignore lagged errors so the worker keeps waiting.
             },
         }
     }
