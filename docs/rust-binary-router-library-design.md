@@ -671,8 +671,8 @@ similar to Actix Web's web::Data.21
   manage incoming connections, task spawning for each connection, and the
   overall server lifecycle. The default number of worker tasks matches the
   available CPU cores, falling back to a single worker if the count cannot be
-  determined. This would likely be built on Tokio's networking and
-  runtime primitives.18
+  determined. This would likely be built on Tokio's networking and runtime
+  primitives.18
 
 This structural similarity to Actix Web is intentional. Developers familiar with
 Actix Web's application setup will find "wireframe's" approach intuitive,
@@ -867,10 +867,9 @@ pipeline.
   by implementing a pair of traits, analogous to Actix Web's `Transform` and
   `Service` traits.25
 
-  - The `Transform` trait would act as a factory for the middleware service.
-    Its `transform` method is annotated with `#[must_use]` (to encourage
-    using the returned service) and `#[inline]` for potential performance
-    gains.
+  - The `Transform` trait would act as a factory for the middleware service. Its
+    `transform` method is annotated with `#[must_use]` (to encourage using the
+    returned service) and `#[inline]` for potential performance gains.
   - The `Service` trait would define the actual request/response processing
     logic. Middleware would operate on "wireframe's" internal request and
     response types, which could be raw frames at one level or deserialized
