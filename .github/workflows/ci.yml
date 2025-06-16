@@ -19,7 +19,9 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
         with:
           override: true
-          components: rustfmt, clippy
+          components:
+            - rustfmt
+            - clippy
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
