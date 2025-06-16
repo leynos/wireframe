@@ -450,6 +450,22 @@ mod tests {
         listener.local_addr().unwrap()
     }
 
+    fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F>
+    where
+        F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    {
+        WireframeServer::new(factory)
+            .bind(addr)
+            .expect("Failed to bind")
+    }
+
+    fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
+    where
+        F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    {
+        WireframeServer::new(factory).with_preamble::<TestPreamble>()
+    }
+
     #[rstest]
     fn test_new_server_creation(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -506,9 +522,7 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
         free_port: SocketAddr,
     ) {
-        let server = WireframeServer::new(factory);
-        let server = server.bind(free_port).expect("Failed to bind to address");
-        assert!(server.local_addr().is_some());
+        let server = bind_server(factory, free_port);
         let bound_addr = server.local_addr().unwrap();
         assert_eq!(bound_addr.ip(), free_port.ip());
     }
@@ -538,8 +552,7 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
         free_port: SocketAddr,
     ) {
-        let server = WireframeServer::new(factory);
-        let server = server.bind(free_port).expect("Failed to bind");
+        let server = bind_server(factory, free_port);
         let local_addr = server.local_addr();
         assert!(local_addr.is_some());
         assert_eq!(local_addr.unwrap().ip(), free_port.ip());
@@ -553,11 +566,11 @@ mod tests {
         let callback_counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = callback_counter.clone();
 
-        let server = WireframeServer::new(factory)
-            .with_preamble::<TestPreamble>()
-            .on_preamble_decode_success(move |_preamble: &TestPreamble| {
+        let server = server_with_preamble(factory).on_preamble_decode_success(
+            move |_preamble: &TestPreamble| {
                 counter_clone.fetch_add(1, Ordering::SeqCst);
-            });
+            },
+        );
 
         assert_eq!(callback_counter.load(Ordering::SeqCst), 0);
         assert!(server.on_preamble_success.is_some());
@@ -571,11 +584,11 @@ mod tests {
         let callback_counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = callback_counter.clone();
 
-        let server = WireframeServer::new(factory)
-            .with_preamble::<TestPreamble>()
-            .on_preamble_decode_failure(move |_error: &DecodeError| {
+        let server = server_with_preamble(factory).on_preamble_decode_failure(
+            move |_error: &DecodeError| {
                 counter_clone.fetch_add(1, Ordering::SeqCst);
-            });
+            },
+        );
 
         assert_eq!(callback_counter.load(Ordering::SeqCst), 0);
         assert!(server.on_preamble_failure.is_some());
