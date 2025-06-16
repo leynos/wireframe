@@ -1,3 +1,4 @@
+#![doc(html_root_url = "https://docs.rs/wireframe/latest")]
 //! Public API for the `wireframe` library.
 //!
 //! This crate provides building blocks for asynchronous binary protocol
