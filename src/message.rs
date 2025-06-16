@@ -1,5 +1,11 @@
-use bincode::error::{DecodeError, EncodeError};
-use bincode::{BorrowDecode, Encode, borrow_decode_from_slice, config, encode_to_vec};
+use bincode::{
+    BorrowDecode,
+    Encode,
+    borrow_decode_from_slice,
+    config,
+    encode_to_vec,
+    error::{DecodeError, EncodeError},
+};
 
 /// Wrapper trait for application message types.
 ///
@@ -13,9 +19,7 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     /// # Errors
     ///
     /// Returns an [`EncodeError`] if serialization fails.
-    fn to_bytes(&self) -> Result<Vec<u8>, EncodeError> {
-        encode_to_vec(self, config::standard())
-    }
+    fn to_bytes(&self) -> Result<Vec<u8>, EncodeError> { encode_to_vec(self, config::standard()) }
 
     /// Deserialize a message from a byte slice, returning the message and
     /// the number of bytes consumed.
@@ -24,7 +28,8 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     ///
     /// Deserialises a message instance from a byte slice using the standard configuration.
     ///
-    /// Returns the deserialised message and the number of bytes consumed, or a [`DecodeError`] if deserialisation fails.
+    /// Returns the deserialised message and the number of bytes consumed, or a [`DecodeError`] if
+    /// deserialisation fails.
     ///
     /// # Examples
     ///

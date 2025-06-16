@@ -1,5 +1,4 @@
-use bincode::error::DecodeError;
-use bincode::{BorrowDecode, borrow_decode_from_slice, config};
+use bincode::{BorrowDecode, borrow_decode_from_slice, config, error::DecodeError};
 use tokio::io::{self, AsyncRead, AsyncReadExt};
 
 const MAX_PREAMBLE_LEN: usize = 1024;
@@ -60,15 +59,19 @@ where
 /// Returns a [`DecodeError`] if decoding the preamble fails or an
 /// Asynchronously reads and decodes a preamble of type `T` from an async reader using bincode.
 ///
-/// Attempts to decode a value of type `T` from the beginning of the byte stream, reading more bytes as needed until decoding succeeds or an error occurs. Any bytes remaining after the decoded value are returned as leftovers.
+/// Attempts to decode a value of type `T` from the beginning of the byte stream, reading more bytes
+/// as needed until decoding succeeds or an error occurs. Any bytes remaining after the decoded
+/// value are returned as leftovers.
 ///
 /// # Returns
 ///
-/// A tuple containing the decoded value and a vector of leftover bytes following the decoded preamble.
+/// A tuple containing the decoded value and a vector of leftover bytes following the decoded
+/// preamble.
 ///
 /// # Errors
 ///
-/// Returns a `DecodeError` if decoding fails or if an I/O error occurs while reading from the reader.
+/// Returns a `DecodeError` if decoding fails or if an I/O error occurs while reading from the
+/// reader.
 ///
 /// # Examples
 ///

@@ -41,9 +41,7 @@ where
     /// let service = MyService;
     /// let next = Next::new(&service);
     /// ```
-    pub fn new(service: &'a S) -> Self {
-        Self { service }
-    }
+    pub fn new(service: &'a S) -> Self { Self { service } }
 
     /// Call the next service with the provided request.
     ///
@@ -51,7 +49,8 @@ where
     ///
     /// Asynchronously invokes the wrapped service with the given request.
     ///
-    /// Returns a response produced by the service, or an error if the service fails to handle the request.
+    /// Returns a response produced by the service, or an error if the service fails to handle the
+    /// request.
     #[must_use = "await the returned future"]
     pub async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, S::Error> {
         self.service.call(req).await

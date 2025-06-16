@@ -1,5 +1,4 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 /// Request context passed to extractors.
 ///
@@ -30,9 +29,7 @@ impl Payload<'_> {
 
     /// Returns the number of bytes remaining.
     #[must_use]
-    pub fn remaining(&self) -> usize {
-        self.data.len()
-    }
+    pub fn remaining(&self) -> usize { self.data.len() }
 }
 
 /// Trait for extracting data from a [`MessageRequest`].
@@ -62,6 +59,7 @@ impl<T: Send + Sync> SharedState<T> {
     ///
     /// ```no_run
     /// use std::sync::Arc;
+    ///
     /// use wireframe::extractor::SharedState;
     ///
     /// let data = Arc::new(5u32);
@@ -75,6 +73,7 @@ impl<T: Send + Sync> SharedState<T> {
     ///
     /// ```no_run
     /// use std::sync::Arc;
+    ///
     /// use wireframe::extractor::SharedState;
     ///
     /// let state = Arc::new(42);
@@ -82,21 +81,15 @@ impl<T: Send + Sync> SharedState<T> {
     /// assert_eq!(*shared, 42);
     /// ```
     #[deprecated(since = "0.2.0", note = "construct via `inner.into()` instead")]
-    pub fn new(inner: Arc<T>) -> Self {
-        Self(inner)
-    }
+    pub fn new(inner: Arc<T>) -> Self { Self(inner) }
 }
 
 impl<T: Send + Sync> From<Arc<T>> for SharedState<T> {
-    fn from(inner: Arc<T>) -> Self {
-        Self(inner)
-    }
+    fn from(inner: Arc<T>) -> Self { Self(inner) }
 }
 
 impl<T: Send + Sync> From<T> for SharedState<T> {
-    fn from(inner: T) -> Self {
-        Self(Arc::new(inner))
-    }
+    fn from(inner: T) -> Self { Self(Arc::new(inner)) }
 }
 
 impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
@@ -110,13 +103,12 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     ///
     /// ```no_run
     /// use std::sync::Arc;
+    ///
     /// use wireframe::extractor::SharedState;
     ///
     /// let state = Arc::new(42);
     /// let shared: SharedState<u32> = state.clone().into();
     /// assert_eq!(*shared, 42);
     /// ```
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+    fn deref(&self) -> &Self::Target { &self.0 }
 }

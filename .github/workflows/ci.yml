@@ -15,10 +15,9 @@ jobs:
       CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install rust stable
+      - name: Install rust
         uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af
         with:
-            toolchain: stable
             override: true
             components: rustfmt, clippy
       - name: Cache cargo registry

@@ -1,7 +1,4 @@
-use std::boxed::Box;
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
+use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin};
 
 /// Configures routing and middleware for a `WireframeServer`.
 ///
@@ -41,9 +38,7 @@ impl WireframeApp {
     ///
     /// This function currently never returns an error but uses the
     /// [`Result`] type for forward compatibility.
-    pub fn new() -> Result<Self> {
-        Ok(Self::default())
-    }
+    pub fn new() -> Result<Self> { Ok(Self::default()) }
 
     /// Register a route that maps `id` to `handler`.
     ///
@@ -93,8 +88,8 @@ impl WireframeApp {
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
         log::warn!(
-            "`WireframeApp::handle_connection` called, but connection handling \
-             is not implemented; closing stream"
+            "`WireframeApp::handle_connection` called, but connection handling is not \
+             implemented; closing stream"
         );
         tokio::task::yield_now().await;
     }
