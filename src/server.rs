@@ -283,7 +283,8 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        let (shutdown_tx, _) = broadcast::channel(16);
+        // Only one shutdown message is ever sent, so a capacity of 1 is enough.
+        let (shutdown_tx, _) = broadcast::channel(1);
 
         // Spawn worker tasks, giving each its own shutdown receiver.
         let mut handles = Vec::with_capacity(self.workers);
@@ -353,7 +354,12 @@ async fn worker_task<F, T>(
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
             },
-            _ = shutdown_rx.recv() => break,
+            res = shutdown_rx.recv() => {
+                if matches!(res, Ok(()) | Err(broadcast::error::RecvError::Closed)) {
+                    break;
+                }
+                // Ignore lagged errors so the worker keeps waiting.
+            },
         }
     }
 }
@@ -681,9 +687,10 @@ mod tests {
     #[rstest]
     #[tokio::test]
     async fn test_multiple_worker_creation(
-        _factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
         free_port: SocketAddr,
     ) {
+        let _ = &factory;
         let call_count = Arc::new(AtomicUsize::new(0));
         let call_count_clone = call_count.clone();
 
@@ -731,7 +738,7 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
         let server = WireframeServer::new(factory)
-            .on_preamble_decode_success(|_: &()| {})
+            .on_preamble_decode_success(|&()| {})
             .on_preamble_decode_failure(|_: &DecodeError| {});
 
         assert!(server.on_preamble_success.is_some());
