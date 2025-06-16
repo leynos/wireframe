@@ -16,7 +16,7 @@ after formatting. Line numbers below refer to that file.
 - [ ] Build the Actix-inspired API around `WireframeApp` and `WireframeServer`
   as described in lines 586-676.
 
-  - [ ] Implement `WireframeApp` builder. Clarify method signatures (`new`,
+  - [x] Implement `WireframeApp` builder. Clarify method signatures (`new`,
     `route`, `service`, `wrap`), expose a consistent `Result<Self>` error
     strategy, and allow registration calls in any order for ergonomic chaining.
 
