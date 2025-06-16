@@ -16,10 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install rust
-        uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af
+        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
         with:
-            override: true
-            components: rustfmt, clippy
+          override: true
+          components: rustfmt, clippy
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
