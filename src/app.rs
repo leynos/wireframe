@@ -6,16 +6,29 @@
 
 use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin};
 
+use bytes::BytesMut;
+use tokio::io::{self, AsyncWrite, AsyncWriteExt};
+
+use crate::{
+    config::SerializationFormat,
+    frame::{FrameProcessor, LengthPrefixedProcessor},
+    message::Message,
+};
+
+type BoxedFrameProcessor =
+    Box<dyn FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>;
+
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes, services, and middleware
 /// without enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
-#[derive(Default)]
 pub struct WireframeApp {
     routes: HashMap<u32, Service>,
     services: Vec<Service>,
     middleware: Vec<Box<dyn Middleware>>,
+    frame_processor: BoxedFrameProcessor,
+    serializer: SerializationFormat,
 }
 
 /// Alias for boxed asynchronous handlers.
@@ -36,6 +49,18 @@ pub enum WireframeError {
 
 /// Result type used throughout the builder API.
 pub type Result<T> = std::result::Result<T, WireframeError>;
+
+impl Default for WireframeApp {
+    fn default() -> Self {
+        Self {
+            routes: HashMap::new(),
+            services: Vec::new(),
+            middleware: Vec::new(),
+            frame_processor: Box::new(LengthPrefixedProcessor),
+            serializer: SerializationFormat::Bincode,
+        }
+    }
+}
 
 impl WireframeApp {
     /// Construct a new empty application builder.
@@ -82,6 +107,47 @@ impl WireframeApp {
     {
         self.middleware.push(Box::new(mw));
         Ok(self)
+    }
+
+    /// Set the frame processor used for encoding and decoding frames.
+    ///
+    /// # Errors
+    ///
+    /// Currently never returns an error but retains `Result` for future
+    /// configurability.
+    pub fn frame_processor<P>(mut self, processor: P) -> Result<Self>
+    where
+        P: FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync + 'static,
+    {
+        self.frame_processor = Box::new(processor);
+        Ok(self)
+    }
+
+    /// Choose the serialization format for messages.
+    ///
+    /// # Errors
+    ///
+    /// This function currently never fails.
+    pub fn serialization_format(mut self, format: SerializationFormat) -> Result<Self> {
+        self.serializer = format;
+        Ok(self)
+    }
+
+    /// Serialize `msg` and write it to `stream` using the frame processor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` if serialization or writing fails.
+    pub async fn send_response<S, M>(&mut self, stream: &mut S, msg: &M) -> io::Result<()>
+    where
+        S: AsyncWrite + Unpin,
+        M: Message,
+    {
+        let bytes = self.serializer.serialize(msg).map_err(io::Error::other)?;
+        let mut framed = BytesMut::new();
+        self.frame_processor.encode(&bytes, &mut framed).await?;
+        stream.write_all(&framed).await?;
+        stream.flush().await
     }
 
     /// Handle an accepted connection.

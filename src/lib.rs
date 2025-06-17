@@ -5,6 +5,7 @@
 //! servers, including routing, middleware, and connection utilities.
 
 pub mod app;
+pub mod config;
 pub mod extractor;
 pub mod frame;
 pub mod message;

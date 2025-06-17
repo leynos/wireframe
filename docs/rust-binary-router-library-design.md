@@ -718,7 +718,10 @@ messages and optionally producing responses.
 
   - A specific message type that implements a `wireframe::Responder` trait
     (analogous to Actix Web's `Responder` trait 4). This trait defines how the
-    returned value is serialized and sent back to the client.
+    returned value is serialized and sent back to the client. When a handler
+    yields such a value, `wireframe` encodes it using the application’s
+    configured `SerializationFormat` and passes the resulting bytes to the
+    `FrameProcessor` for transmission back to the peer.
   - `Result<ResponseType, ErrorType>`: For explicit error handling. If
     `Ok(response_message)`, the message is sent. If `Err(error_value)`, the
     error is processed by "wireframe's" error handling mechanism (see Section

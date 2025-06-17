@@ -62,7 +62,7 @@ after formatting. Line numbers below refer to that file.
   user-configured callbacks on decode success or failure. See
   [preamble-validator](preamble-validator.md).
 
-- [ ] Add response serialization and transmission. Encode handler responses
+- [x] Add response serialization and transmission. Encode handler responses
   using the selected serialization format and write them back through the
   framing layer.
 
