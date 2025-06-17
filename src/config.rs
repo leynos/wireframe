@@ -8,13 +8,17 @@ use bincode::error::{DecodeError, EncodeError};
 use crate::message::Message;
 
 /// Serialization formats supported by `wireframe`.
-#[derive(Clone, Copy)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug)]
 pub enum SerializationFormat {
     /// Use `bincode` with its standard configuration.
     Bincode,
 }
 
 impl SerializationFormat {
+    /// The library default (currently [`Bincode`]).
+    pub const DEFAULT: SerializationFormat = SerializationFormat::Bincode;
+
     /// Serialize a message into a byte vector.
     ///
     /// # Errors
@@ -36,4 +40,8 @@ impl SerializationFormat {
             SerializationFormat::Bincode => M::from_bytes(bytes),
         }
     }
+}
+
+impl Default for SerializationFormat {
+    fn default() -> Self { SerializationFormat::DEFAULT }
 }

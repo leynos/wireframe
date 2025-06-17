@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod config;
+pub use config::SerializationFormat;
 pub mod extractor;
 pub mod frame;
 pub mod message;

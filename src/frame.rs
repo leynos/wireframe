@@ -45,17 +45,19 @@ impl FrameProcessor for LengthPrefixedProcessor {
         let mut len_bytes = [0u8; 4];
         len_bytes.copy_from_slice(&src[..4]);
         let len = u32::from_be_bytes(len_bytes);
-        if src.len() < 4 + len as usize {
+        let len_usize = usize::try_from(len).map_err(|_| io::Error::other("frame too large"))?;
+        if src.len() < 4 + len_usize {
             return Ok(None);
         }
         src.advance(4);
-        Ok(Some(src.split_to(len as usize).to_vec()))
+        Ok(Some(src.split_to(len_usize).to_vec()))
     }
 
     async fn encode(&mut self, frame: &Self::Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
         use bytes::BufMut;
         dst.reserve(4 + frame.len());
-        let len = u32::try_from(frame.len()).map_err(|_| io::Error::other("frame too large"))?;
+        let len = u32::try_from(frame.len())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?;
         dst.put_u32(len);
         dst.extend_from_slice(frame);
         Ok(())

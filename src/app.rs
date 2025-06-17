@@ -1,8 +1,8 @@
 //! Application builder configuring routes and middleware.
 //!
 //! `WireframeApp` stores registered routes, services, and middleware
-//! for a [`WireframeServer`]. Methods return [`Result<Self>`] so callers
-//! can chain registrations ergonomically.
+//! for a [`WireframeServer`]. Most builder methods return [`Result<Self>`]
+//! so callers can chain registrations ergonomically.
 
 use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin};
 
@@ -10,7 +10,7 @@ use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 
 use crate::{
-    config::SerializationFormat,
+    SerializationFormat,
     frame::{FrameProcessor, LengthPrefixedProcessor},
     message::Message,
 };
@@ -57,7 +57,7 @@ impl Default for WireframeApp {
             services: Vec::new(),
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor),
-            serializer: SerializationFormat::Bincode,
+            serializer: SerializationFormat::DEFAULT,
         }
     }
 }
@@ -110,27 +110,20 @@ impl WireframeApp {
     }
 
     /// Set the frame processor used for encoding and decoding frames.
-    ///
-    /// # Errors
-    ///
-    /// Currently never returns an error but retains `Result` for future
-    /// configurability.
-    pub fn frame_processor<P>(mut self, processor: P) -> Result<Self>
+    #[must_use]
+    pub fn frame_processor<P>(mut self, processor: P) -> Self
     where
         P: FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync + 'static,
     {
         self.frame_processor = Box::new(processor);
-        Ok(self)
+        self
     }
 
     /// Choose the serialization format for messages.
-    ///
-    /// # Errors
-    ///
-    /// This function currently never fails.
-    pub fn serialization_format(mut self, format: SerializationFormat) -> Result<Self> {
+    #[must_use]
+    pub fn serialization_format(mut self, format: SerializationFormat) -> Self {
         self.serializer = format;
-        Ok(self)
+        self
     }
 
     /// Serialize `msg` and write it to `stream` using the frame processor.
@@ -143,8 +136,11 @@ impl WireframeApp {
         S: AsyncWrite + Unpin,
         M: Message,
     {
-        let bytes = self.serializer.serialize(msg).map_err(io::Error::other)?;
-        let mut framed = BytesMut::new();
+        let bytes = self
+            .serializer
+            .serialize(msg)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut framed = BytesMut::with_capacity(4 + bytes.len());
         self.frame_processor.encode(&bytes, &mut framed).await?;
         stream.write_all(&framed).await?;
         stream.flush().await

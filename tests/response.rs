@@ -14,9 +14,7 @@ async fn send_response_encodes_and_frames() {
     let mut app = WireframeApp::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor)
-        .unwrap()
-        .serialization_format(SerializationFormat::Bincode)
-        .unwrap();
+        .serialization_format(SerializationFormat::Bincode);
 
     let mut out = Vec::new();
     app.send_response(&mut out, &TestResp(7)).await.unwrap();
@@ -75,8 +73,7 @@ impl tokio::io::AsyncWrite for FailingWriter {
 async fn send_response_propagates_write_error() {
     let mut app = WireframeApp::new()
         .unwrap()
-        .frame_processor(LengthPrefixedProcessor)
-        .unwrap();
+        .frame_processor(LengthPrefixedProcessor);
 
     let mut writer = FailingWriter;
     let err = app
