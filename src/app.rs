@@ -47,6 +47,41 @@ pub enum WireframeError {
     DuplicateRoute(u32),
 }
 
+/// Errors produced when sending a handler response over a stream.
+#[derive(Debug)]
+pub enum SendError {
+    /// Serialization failed.
+    Serialize(bincode::error::EncodeError),
+    /// Writing to the stream failed.
+    Io(io::Error),
+}
+
+impl std::fmt::Display for SendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SendError::Serialize(e) => write!(f, "serialization error: {e}"),
+            SendError::Io(e) => write!(f, "I/O error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SendError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SendError::Serialize(e) => Some(e),
+            SendError::Io(e) => Some(e),
+        }
+    }
+}
+
+impl From<io::Error> for SendError {
+    fn from(e: io::Error) -> Self { SendError::Io(e) }
+}
+
+impl From<bincode::error::EncodeError> for SendError {
+    fn from(e: bincode::error::EncodeError) -> Self { SendError::Serialize(e) }
+}
+
 /// Result type used throughout the builder API.
 pub type Result<T> = std::result::Result<T, WireframeError>;
 
@@ -130,8 +165,12 @@ impl WireframeApp {
     ///
     /// # Errors
     ///
-    /// Returns an `io::Error` if serialization or writing fails.
-    pub async fn send_response<S, M>(&mut self, stream: &mut S, msg: &M) -> io::Result<()>
+    /// Returns a [`SendError`] if serialization or writing fails.
+    pub async fn send_response<S, M>(
+        &self,
+        stream: &mut S,
+        msg: &M,
+    ) -> std::result::Result<(), SendError>
     where
         S: AsyncWrite + Unpin,
         M: Message,
@@ -139,11 +178,13 @@ impl WireframeApp {
         let bytes = self
             .serializer
             .serialize(msg)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            .map_err(SendError::Serialize)?;
         let mut framed = BytesMut::with_capacity(4 + bytes.len());
-        self.frame_processor.encode(&bytes, &mut framed).await?;
-        stream.write_all(&framed).await?;
-        stream.flush().await
+        self.frame_processor
+            .encode(&bytes, &mut framed)
+            .map_err(SendError::Io)?;
+        stream.write_all(&framed).await.map_err(SendError::Io)?;
+        stream.flush().await.map_err(SendError::Io)
     }
 
     /// Handle an accepted connection.
