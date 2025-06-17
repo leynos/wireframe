@@ -551,6 +551,8 @@ mechanism to dispatch this message to the appropriate user-defined handler.
      .message_guarded(
           MessageType::GenericCommand,
 
+
+<!-- markdownlint-disable MD009 MD025 MD033 MD024 -->
 ````
 
 |msg_header: &CommandHeader| msg_header.sub_type == CommandSubType::Special,
@@ -718,7 +720,10 @@ messages and optionally producing responses.
 
   - A specific message type that implements a `wireframe::Responder` trait
     (analogous to Actix Web's `Responder` trait 4). This trait defines how the
-    returned value is serialized and sent back to the client.
+    returned value is serialized and sent back to the client. When a handler
+    yields such a value, `wireframe` encodes it using the application’s
+    configured serializer and passes the resulting bytes to the `FrameProcessor`
+    for transmission back to the peer.
   - `Result<ResponseType, ErrorType>`: For explicit error handling. If
     `Ok(response_message)`, the message is sent. If `Err(error_value)`, the
     error is processed by "wireframe's" error handling mechanism (see Section
@@ -1115,55 +1120,65 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
      ````
 
+`````
+
+<!-- markdownlint-disable MD009 MD025 MD033 MD024 -->
+
   3. **Server Setup and Handler**:
 
      Rust
 
-     ````rustrust
+     ```rustrust
      // Crate: main.rs
-     use wireframe::{WireframeApp, WireframeServer, Message, error::Result as WireframeResult, config::SerializationFormat};
-     use my_protocol_messages::{EchoRequest, EchoResponse};
-     use my_frame_processor::LengthPrefixedCodec; // Or wireframe's abstraction
-     use std::time::{SystemTime, UNIX_EPOCH};
+     ```
 
-     // Define a message ID enum if not using type-based routing directly
-     #
-     enum MyMessageType { Echo = 1 }
+  use wireframe::{WireframeApp, WireframeServer, Message, error::Result as
+  WireframeResult, serializer::BincodeSerializer}; use
+  my_protocol_messages::{EchoRequest, EchoResponse}; use
+  my_frame_processor::LengthPrefixedCodec; // Or wireframe's abstraction use
+  std::time::{SystemTime, UNIX_EPOCH};
 
-     // Handler function
-     async fn handle_echo(req: Message<EchoRequest>) -> WireframeResult<EchoResponse> {
-         println!("Received echo request with payload: {}", req.payload);
-         Ok(EchoResponse {
-             original_payload: req.payload.clone(),
-             echoed_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-         })
-     }
+  // Define a message ID enum if not using type-based routing directly
 
-     #[tokio::main]
-     async fn main() -> std::io::Result<()> {
-         println!("Starting echo server on 127.0.0.1:8000");
+  # 
 
-         WireframeServer::new(|| {
-             WireframeApp::new()
-                 //.frame_processor(LengthPrefixedCodec) // Simplified
-                .serialization_format(SerializationFormat::Bincode) // Specify serializer
-                .route(MyMessageType::Echo, handle_echo) // Route based on ID
-                 // OR if type-based routing is supported and EchoRequest has an ID:
-                 //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
-         })
-        .bind("127.0.0.1:8000")?
-        .run()
-        .await
-     }
+  enum MyMessageType { Echo = 1 }
 
-     ```rust
+  // Handler function async fn handle_echo(req: Message<EchoRequest>) ->
+  WireframeResult<EchoResponse> { println!("Received echo request with payload:
+  {}", req.payload); Ok(EchoResponse { original_payload: req.payload.clone(),
+  echoed_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(), })
+  }
 
-     This example, even in outline, demonstrates how derive macros for messages,
-     a separable framing component, and a clear handler signature with
-     extractors (`Message<EchoRequest>`) and a return type
-     (`WireframeResult<EchoResponse>`) simplify server implementation.
+  #[tokio::main] async fn main() -> std::io::Result\<()> { println!("Starting
+  echo server on 127.0.0.1:8000");
 
-     ````
+  ```
+     WireframeServer::new(|| {
+        WireframeApp::new()
+            //.frame_processor(LengthPrefixedCodec) // Simplified
+            .serializer(BincodeSerializer) // Specify serializer
+            .route(MyMessageType::Echo, handle_echo) // Route based on ID
+             // OR if type-based routing is supported and EchoRequest has an ID:
+             //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
+     })
+    .bind("127.0.0.1:8000")?
+    .run()
+    .await
+  ```
+
+<!-- markdownlint-enable MD009 MD025 MD033 MD024 -->
+
+  }
+
+  ```rust
+
+  This example, even in outline, demonstrates how derive macros for messages,
+  a separable framing component, and a clear handler signature with
+  extractors (`Message<EchoRequest>`) and a return type
+  (`WireframeResult<EchoResponse>`) simplify server implementation.
+
+  ```
 
 - **Example 2: Basic Chat Message Protocol**
 
@@ -1217,62 +1232,53 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
      Rust
 
-     ````rustrust
+     ```rustrust
      // Crate: main.rs
-     use wireframe::{WireframeApp, WireframeServer, Message, ConnectionInfo, error::Result as WireframeResult, config::SerializationFormat};
-     use my_chat_messages::{ClientMessage, ServerMessage};
-     //... use ChatRoomState, SharedChatRoomState...
-     use std::sync::Arc;
+     ```
 
-     #
-     enum ChatMessageType { ClientJoin = 10, ClientPost = 11 }
+  use wireframe::{WireframeApp, WireframeServer, Message, ConnectionInfo,
+  error::Result as WireframeResult, serializer::BincodeSerializer}; use
+  my_chat_messages::{ClientMessage, ServerMessage}; //... use ChatRoomState,
+  SharedChatRoomState... use std::sync::Arc;
 
+  # 
 
-     async fn handle_join(
-         msg: Message<ClientMessage>, // Assume it's ClientMessage::Join
-         conn_info: ConnectionInfo,
-         state: SharedChatRoomState,
-     ) -> WireframeResult<Option<ServerMessage>> { // Optional direct response
-         if let ClientMessage::Join { user_name } = msg.into_inner() {
-             let mut room = state.lock().await;
-             //... logic to add user, check for name conflicts...
-             // room.add_user(conn_info.id(), user_name.clone());
-             // Broadcast ServerMessage::UserJoined to other users (not shown)
-             println!("User '{}' joined from {}", user_name, conn_info.peer_addr());
-             return Ok(None); // No direct response, or maybe an Ack
-         }
-         Ok(Some(ServerMessage::JoinError { reason: "Invalid Join message".to_string() }))
-     }
+  enum ChatMessageType { ClientJoin = 10, ClientPost = 11 }
 
-     async fn handle_post(
-         msg: Message<ClientMessage>, // Assume it's ClientMessage::Post
-         conn_info: ConnectionInfo,
-         state: SharedChatRoomState,
-     ) { // No direct response needed
-         if let ClientMessage::Post { content } = msg.into_inner() {
-             let room = state.lock().await;
-             // let user_name = room.get_user_name(conn_info.id()).unwrap_or_default();
-             // Broadcast ServerMessage::NewMessage to other users (not shown)
-             // println!("User '{}' posted: {}", user_name, content);
-         }
-     }
+  async fn handle_join( msg: Message<ClientMessage>, // Assume it's
+  ClientMessage::Join conn_info: ConnectionInfo, state: SharedChatRoomState, )
+  -> WireframeResult\<Option<ServerMessage>> { // Optional direct response if
+  let ClientMessage::Join { user_name } = msg.into_inner() { let mut room =
+  state.lock().await; //... logic to add user, check for name conflicts... //
+  room.add_user(conn_info.id(), user_name.clone()); // Broadcast
+  ServerMessage::UserJoined to other users (not shown) println!("User '{}'
+  joined from {}", user_name, conn_info.peer_addr()); return Ok(None); // No
+  direct response, or maybe an Ack } Ok(Some(ServerMessage::JoinError { reason:
+  "Invalid Join message".to_string() })) }
 
-     #[tokio::main]
-     async fn main() -> std::io::Result<()> {
-         let chat_state = Arc::new(Mutex::new(ChatRoomState { users: HashMap::new() }));
-         WireframeServer::new(move |
+  async fn handle_post( msg: Message<ClientMessage>, // Assume it's
+  ClientMessage::Post conn_info: ConnectionInfo, state: SharedChatRoomState, ) {
+  // No direct response needed if let ClientMessage::Post { content } =
+  msg.into_inner() { let room = state.lock().await; // let user_name =
+  room.get_user_name(conn_info.id()).unwrap_or_default(); // Broadcast
+  ServerMessage::NewMessage to other users (not shown) // println!("User '{}'
+  posted: {}", user_name, content); } }
 
-     ```rust
+  #[tokio::main] async fn main() -> std::io::Result\<()> { let chat_state =
+  Arc::new(Mutex::new(ChatRoomState { users: HashMap::new() }));
+  WireframeServer::new(move |
 
-     ````
+  ```rust
 
-| {
+  ```
+
+| { |
 
 WireframeApp::new()
 
 //.frame_processor(...)
 
-.serialization_format(SerializationFormat::Bincode)
+.serializer(BincodeSerializer)
 
 .app_data(SharedChatRoomState::new(chat_state.clone()))
 
@@ -1290,7 +1296,9 @@ WireframeApp::new()
 
 }
 
-\`\`\`
+`````
+
+<!-- markdownlint-enable MD009 MD025 MD033 MD024 -->
 
 This chat example hints at how shared state (SharedChatRoomState) and connection
 information (ConnectionInfo) would be used, and how handlers might not always
