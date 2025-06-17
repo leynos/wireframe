@@ -67,7 +67,7 @@ async fn handle_echo(req: Message<EchoRequest>) -> WireframeResult<EchoResponse>
 
 WireframeServer::new(|| {
     WireframeApp::new()
-        .serializer(BincodeSerializer::default())
+        .serializer(BincodeSerializer)
         .route(MyMessageType::Echo, handle_echo)
 })
 .bind("127.0.0.1:8000")?

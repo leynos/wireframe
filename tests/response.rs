@@ -34,7 +34,7 @@ async fn send_response_encodes_and_frames() {
     let app = WireframeApp::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor)
-        .serializer(BincodeSerializer::default());
+        .serializer(BincodeSerializer);
 
     let mut out = Vec::new();
     app.send_response(&mut out, &TestResp(7)).await.unwrap();

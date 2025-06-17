@@ -1155,9 +1155,9 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
   ```
      WireframeServer::new(|| {
-         WireframeApp::new()
-             //.frame_processor(LengthPrefixedCodec) // Simplified
-            .serializer(BincodeSerializer::default()) // Specify serializer
+        WireframeApp::new()
+            //.frame_processor(LengthPrefixedCodec) // Simplified
+            .serializer(BincodeSerializer) // Specify serializer
             .route(MyMessageType::Echo, handle_echo) // Route based on ID
              // OR if type-based routing is supported and EchoRequest has an ID:
              //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
@@ -1278,7 +1278,7 @@ WireframeApp::new()
 
 //.frame_processor(...)
 
-.serializer(BincodeSerializer::default())
+.serializer(BincodeSerializer)
 
 .app_data(SharedChatRoomState::new(chat_state.clone()))
 
