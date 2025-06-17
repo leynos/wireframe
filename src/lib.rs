@@ -5,6 +5,8 @@
 //! servers, including routing, middleware, and connection utilities.
 
 pub mod app;
+pub mod serializer;
+pub use serializer::{BincodeSerializer, Serializer};
 pub mod extractor;
 pub mod frame;
 pub mod message;
