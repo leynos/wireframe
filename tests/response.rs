@@ -1,3 +1,8 @@
+//! Tests covering response serialization and framing logic.
+//!
+//! These verify normal encoding as well as error conditions like
+//! write failures and encode errors.
+
 use bytes::BytesMut;
 use wireframe::{
     app::WireframeApp,
