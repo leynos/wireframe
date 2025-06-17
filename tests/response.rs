@@ -1,9 +1,9 @@
 use bytes::BytesMut;
 use wireframe::{
     app::WireframeApp,
-    config::SerializationFormat,
     frame::{FrameProcessor, LengthPrefixedProcessor},
     message::Message,
+    serializer::BincodeSerializer,
 };
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
@@ -34,7 +34,7 @@ async fn send_response_encodes_and_frames() {
     let app = WireframeApp::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor)
-        .serialization_format(SerializationFormat::Bincode);
+        .serializer(BincodeSerializer::default());
 
     let mut out = Vec::new();
     app.send_response(&mut out, &TestResp(7)).await.unwrap();

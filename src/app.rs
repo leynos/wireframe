@@ -10,9 +10,9 @@ use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 
 use crate::{
-    SerializationFormat,
     frame::{FrameProcessor, LengthPrefixedProcessor},
     message::Message,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 type BoxedFrameProcessor =
@@ -23,12 +23,12 @@ type BoxedFrameProcessor =
 /// The builder stores registered routes, services, and middleware
 /// without enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
-pub struct WireframeApp {
+pub struct WireframeApp<S: Serializer = BincodeSerializer> {
     routes: HashMap<u32, Service>,
     services: Vec<Service>,
     middleware: Vec<Box<dyn Middleware>>,
     frame_processor: BoxedFrameProcessor,
-    serializer: SerializationFormat,
+    serializer: S,
 }
 
 /// Alias for boxed asynchronous handlers.
@@ -51,7 +51,7 @@ pub enum WireframeError {
 #[derive(Debug)]
 pub enum SendError {
     /// Serialization failed.
-    Serialize(bincode::error::EncodeError),
+    Serialize(Box<dyn std::error::Error + Send + Sync>),
     /// Writing to the stream failed.
     Io(io::Error),
 }
@@ -68,7 +68,7 @@ impl std::fmt::Display for SendError {
 impl std::error::Error for SendError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SendError::Serialize(e) => Some(e),
+            SendError::Serialize(e) => Some(&**e),
             SendError::Io(e) => Some(e),
         }
     }
@@ -78,26 +78,25 @@ impl From<io::Error> for SendError {
     fn from(e: io::Error) -> Self { SendError::Io(e) }
 }
 
-impl From<bincode::error::EncodeError> for SendError {
-    fn from(e: bincode::error::EncodeError) -> Self { SendError::Serialize(e) }
-}
-
 /// Result type used throughout the builder API.
 pub type Result<T> = std::result::Result<T, WireframeError>;
 
-impl Default for WireframeApp {
+impl<S> Default for WireframeApp<S>
+where
+    S: Serializer + Default,
+{
     fn default() -> Self {
         Self {
             routes: HashMap::new(),
             services: Vec::new(),
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor),
-            serializer: SerializationFormat::DEFAULT,
+            serializer: S::default(),
         }
     }
 }
 
-impl WireframeApp {
+impl WireframeApp<BincodeSerializer> {
     /// Construct a new empty application builder.
     ///
     /// # Errors
@@ -105,7 +104,19 @@ impl WireframeApp {
     /// This function currently never returns an error but uses the
     /// [`Result`] type for forward compatibility.
     pub fn new() -> Result<Self> { Ok(Self::default()) }
+}
 
+impl<S> WireframeApp<S>
+where
+    S: Serializer,
+{
+    /// Construct a new empty application builder.
+    ///
+    /// # Errors
+    ///
+    /// This function currently never returns an error but uses the
+    /// [`Result`] type for forward compatibility.
+    ///
     /// Register a route that maps `id` to `handler`.
     ///
     /// # Errors
@@ -154,11 +165,19 @@ impl WireframeApp {
         self
     }
 
-    /// Choose the serialization format for messages.
+    /// Replace the serializer used for messages.
     #[must_use]
-    pub fn serialization_format(mut self, format: SerializationFormat) -> Self {
-        self.serializer = format;
-        self
+    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser>
+    where
+        Ser: Serializer,
+    {
+        WireframeApp {
+            routes: self.routes,
+            services: self.services,
+            middleware: self.middleware,
+            frame_processor: self.frame_processor,
+            serializer,
+        }
     }
 
     /// Serialize `msg` and write it to `stream` using the frame processor.
@@ -166,13 +185,13 @@ impl WireframeApp {
     /// # Errors
     ///
     /// Returns a [`SendError`] if serialization or writing fails.
-    pub async fn send_response<S, M>(
+    pub async fn send_response<W, M>(
         &self,
-        stream: &mut S,
+        stream: &mut W,
         msg: &M,
     ) -> std::result::Result<(), SendError>
     where
-        S: AsyncWrite + Unpin,
+        W: AsyncWrite + Unpin,
         M: Message,
     {
         let bytes = self
@@ -192,9 +211,9 @@ impl WireframeApp {
     /// This placeholder immediately closes the connection after the
     /// preamble phase. A warning is logged so tests and callers are
     /// aware of the current limitation.
-    pub async fn handle_connection<S>(&self, _stream: S)
+    pub async fn handle_connection<W>(&self, _stream: W)
     where
-        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
+        W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
         log::warn!(
             "`WireframeApp::handle_connection` called, but connection handling is not \
