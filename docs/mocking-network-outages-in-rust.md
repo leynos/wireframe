@@ -610,12 +610,11 @@ mocking might be higher-level components:
   network failing on sending that response. Such a mock ensures our test is
   laser-focused on networking behavior.
 
-In summary, **use** `mockall` **when you need to stub out parts of the system
-that are not the primary target of the test**. For testing network outages in
-`mxd`, we found we could largely rely on `tokio-test` to simulate the transport.
-But if, for example, database access or external services were intertwined with
-the network handling, mocking them out would be essential to create repeatable
-unit tests.
+In summary, **use** `mockall` **when stubbing out parts of the system that are
+not the primary target of the test**. For testing network outages in `mxd`, the
+tests largely rely on `tokio-test` to simulate the transport. However, if, for
+example, database access or external services were intertwined with the network
+handling, mocking them out would be essential to create repeatable unit tests.
 
 ## Async Testing Best Practices and Final Thoughts
 
@@ -624,7 +623,7 @@ Our refactoring and tests align with async Rust best practices in several ways:
 - **Deterministic Timing:** By using `#[tokio::test(start_paused)]` and
   controlling the clock, we avoid making tests that actually sleep for seconds.
   This speeds up the test suite and avoids flakiness due to timing. Always
-  ensure that any time-based logic (like `timeout` calls) in your code can be
+  ensure that any time-based logic (like `timeout` calls) in the code can be
   fast-forwarded in tests.
 
 - **Trait-Based Abstraction:** Introducing a trait or generic interface for the
@@ -644,12 +643,13 @@ Our refactoring and tests align with async Rust best practices in several ways:
   environment at once, we tested one connection at a time in various failure
   modes. This isolates issues and makes tests simpler. The use of `JoinSet` in
   `accept_connections` and multi-task concurrency is tested indirectly by these
-  unit tests, but you might also consider integration tests or an end-to-end
-  test (spinning up the server and connecting with a real socket) for additional
-  confidence. Those, however, are typically slower and less deterministic, so
-  unit tests like we’ve written are invaluable for covering edge cases.
+  unit tests, though integration tests or an end-to-end test (spinning up the
+  server and connecting with a real socket) may also be considered for
+  additional confidence. Those, however, are typically slower and less
+  deterministic, so unit tests like we’ve written are invaluable for covering
+  edge cases.
 
-By following this tutorial, you can confidently extend the `mxd` test suite. We
+Following this tutorial enables confident extension of the `mxd` test suite. We
 demonstrated how to simulate timeouts, abrupt disconnects, and I/O errors for
 both reads and writes. With parameterized tests and careful use of mocks, the
 server’s resilience under adverse network conditions can be validated
@@ -660,13 +660,13 @@ the client, or that an EOF is treated as a graceful shutdown).
 **In conclusion**, testing for network outages in async Rust requires a mix of
 clever abstractions and tools:
 
-- **Refactor for testability:** make the code accept fake implementations of
+- **Refactor for testability:** ensure the code accepts fake implementations of
   I/O.
 
-- **Use tokio’s test tools:** for simulating I/O and controlling time.
+- **Tokio’s test tools** simulate I/O and control time.
 
-- **Employ rstest and mockall:** to keep tests clean, avoid repetition, and
-  isolate concerns.
+- **Rstest and mockall** keep tests clean, avoid repetition, and isolate
+  concerns.
 
 With these techniques, `mxd`’s server is well-equipped to handle the messy
 reality of networks, and we have high-confidence tests to prove it.
