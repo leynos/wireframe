@@ -78,6 +78,14 @@ WireframeServer::new(|| {
 This example showcases how derive macros and the framing abstraction simplify a
 binary protocol server【F:docs/rust-binary-router-library-design.md†L1120-L1150】.
 
+## Response Serialization and Framing
+
+Handlers can return types implementing the `Responder` trait. These values are
+encoded using the application's configured `SerializationFormat` and written
+back through the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L718-L724】.
+The included `LengthPrefixedProcessor` illustrates a simple framing strategy
+based on a big‑endian length prefix【F:docs/rust-binary-router-library-design.md†L1076-L1117】.
+
 ## Current Limitations
 
 Connection processing is not implemented yet. After the optional
