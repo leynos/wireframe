@@ -19,7 +19,8 @@ reduce this boilerplate through layered abstractions:
 - **Routing engine** that dispatches messages by ID
 - **Handler invocation** with extractor support
 - **Middleware chain** for request/response processing
-- **Connection lifecycle hooks** for per-connection setup and teardown
+- **[Connection lifecycle hooks](#connection-lifecycle)** for per-connection
+  setup and teardown
 
 These layers correspond to the architecture outlined in the design
 document【F:docs/rust-binary-router-library-design.md†L292-L344】.
@@ -90,19 +91,16 @@ based on a big‑endian length prefix【F:docs/rust-binary-router-library-design
 
 ## Connection Lifecycle
 
-`WireframeApp` can run callbacks when a connection opens or closes. The state
+`WireframeApp` can run callbacks when a connection is opened or closed. The state
 produced by `on_connection_setup` is passed to `on_connection_teardown` when the
 connection ends.
 
 ```rust
 let app = WireframeApp::new()
-    .unwrap()
     .on_connection_setup(|| async { 42u32 })
-    .unwrap()
     .on_connection_teardown(|state| async move {
         println!("closing with {state}");
-    })
-    .unwrap();
+    });
 ```
 
 ## Current Limitations
