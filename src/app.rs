@@ -4,7 +4,7 @@
 //! for a [`WireframeServer`]. Most builder methods return [`Result<Self>`]
 //! so callers can chain registrations ergonomically.
 
-use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin};
+use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
@@ -23,12 +23,15 @@ type BoxedFrameProcessor =
 /// The builder stores registered routes, services, and middleware
 /// without enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
-pub struct WireframeApp<S: Serializer = BincodeSerializer> {
+#[allow(clippy::type_complexity)]
+pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = ()> {
     routes: HashMap<u32, Service>,
     services: Vec<Service>,
     middleware: Vec<Box<dyn Middleware>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
+    on_connect: Option<Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>>,
+    on_disconnect: Option<Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
 }
 
 /// Alias for boxed asynchronous handlers.
@@ -81,9 +84,10 @@ impl From<io::Error> for SendError {
 /// Result type used throughout the builder API.
 pub type Result<T> = std::result::Result<T, WireframeError>;
 
-impl<S> Default for WireframeApp<S>
+impl<S, C> Default for WireframeApp<S, C>
 where
     S: Serializer + Default,
+    C: Send + 'static,
 {
     fn default() -> Self {
         Self {
@@ -92,11 +96,13 @@ where
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor),
             serializer: S::default(),
+            on_connect: None,
+            on_disconnect: None,
         }
     }
 }
 
-impl WireframeApp<BincodeSerializer> {
+impl WireframeApp<BincodeSerializer, ()> {
     /// Construct a new empty application builder.
     ///
     /// # Errors
@@ -106,9 +112,10 @@ impl WireframeApp<BincodeSerializer> {
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 }
 
-impl<S> WireframeApp<S>
+impl<S, C> WireframeApp<S, C>
 where
     S: Serializer,
+    C: Send + 'static,
 {
     /// Construct a new empty application builder.
     ///
@@ -155,6 +162,57 @@ where
         Ok(self)
     }
 
+    /// Register a callback invoked when a new connection is established.
+    ///
+    /// The callback can perform authentication or other setup tasks and
+    /// returns connection-specific state stored for the connection's
+    /// lifetime.
+    ///
+    /// # Type Parameters
+    ///
+    /// This method changes the connection state type parameter from `C` to `C2`.
+    /// This means that any subsequent builder methods will operate on the new connection state type `C2`.
+    /// Be aware of this type transition when chaining builder methods.
+    ///
+    /// # Errors
+    ///
+    /// This function always succeeds currently but uses [`Result`] for
+    /// consistency with other builder methods.
+    pub fn on_connection_setup<F, Fut, C2>(self, f: F) -> Result<WireframeApp<S, C2>>
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = C2> + Send + 'static,
+        C2: Send + 'static,
+    {
+        Ok(WireframeApp {
+            routes: self.routes,
+            services: self.services,
+            middleware: self.middleware,
+            frame_processor: self.frame_processor,
+            serializer: self.serializer,
+            on_connect: Some(Arc::new(move || Box::pin(f()))),
+            on_disconnect: None,
+        })
+    }
+
+    /// Register a callback invoked when a connection is closed.
+    ///
+    /// The callback receives the connection state produced by
+    /// [`on_connection_setup`](Self::on_connection_setup).
+    ///
+    /// # Errors
+    ///
+    /// This function always succeeds currently but uses [`Result`] for
+    /// consistency with other builder methods.
+    pub fn on_connection_teardown<F, Fut>(mut self, f: F) -> Result<Self>
+    where
+        F: Fn(C) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.on_disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
+        Ok(self)
+    }
+
     /// Set the frame processor used for encoding and decoding frames.
     #[must_use]
     pub fn frame_processor<P>(mut self, processor: P) -> Self
@@ -167,7 +225,7 @@ where
 
     /// Replace the serializer used for messages.
     #[must_use]
-    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser>
+    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser, C>
     where
         Ser: Serializer,
     {
@@ -177,6 +235,8 @@ where
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer,
+            on_connect: self.on_connect,
+            on_disconnect: self.on_disconnect,
         }
     }
 
@@ -215,10 +275,20 @@ where
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
+        let state = if let Some(setup) = &self.on_connect {
+            Some((setup)().await)
+        } else {
+            None
+        };
+
         log::warn!(
             "`WireframeApp::handle_connection` called, but connection handling is not \
              implemented; closing stream"
         );
         tokio::task::yield_now().await;
+
+        if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
+            teardown(state).await;
+        }
     }
 }
