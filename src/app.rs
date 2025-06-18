@@ -27,15 +27,14 @@ type BoxedFrameProcessor =
 ///
 /// use wireframe::app::ConnectionSetup;
 ///
-/// let setup: ConnectionSetup<String> = Arc::new(|| {
+/// let setup: Arc<ConnectionSetup<String>> = Arc::new(|| {
 ///     Box::pin(async {
 ///         // Perform authentication and return connection state
 ///         String::from("hello")
 ///     })
 /// });
 /// ```
-pub type ConnectionSetup<C> =
-    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>;
+pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync;
 
 /// Callback invoked when a connection is closed.
 ///
@@ -46,14 +45,14 @@ pub type ConnectionSetup<C> =
 ///
 /// use wireframe::app::ConnectionTeardown;
 ///
-/// let teardown: ConnectionTeardown<String> = Arc::new(|state| {
+/// let teardown: Arc<ConnectionTeardown<String>> = Arc::new(|state| {
 ///     Box::pin(async move {
 ///         println!("Dropping {state}");
 ///     })
 /// });
 /// ```
 pub type ConnectionTeardown<C> =
-    Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+    dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
 /// Configures routing and middleware for a `WireframeServer`.
 ///
@@ -66,8 +65,8 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
     middleware: Vec<Box<dyn Middleware>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
-    on_connect: Option<ConnectionSetup<C>>,
-    on_disconnect: Option<ConnectionTeardown<C>>,
+    on_connect: Option<Arc<ConnectionSetup<C>>>,
+    on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
 }
 
 /// Alias for boxed asynchronous handlers.
