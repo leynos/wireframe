@@ -171,8 +171,8 @@ where
     /// # Type Parameters
     ///
     /// This method changes the connection state type parameter from `C` to `C2`.
-    /// This means that any subsequent builder methods will operate on the new connection state type `C2`.
-    /// Be aware of this type transition when chaining builder methods.
+    /// This means that any subsequent builder methods will operate on the new connection state type
+    /// `C2`. Be aware of this type transition when chaining builder methods.
     ///
     /// # Errors
     ///
@@ -271,7 +271,7 @@ where
     /// This placeholder immediately closes the connection after the
     /// preamble phase. A warning is logged so tests and callers are
     /// aware of the current limitation.
-    pub async fn handle_connection<W>(&self, _stream: W)
+    pub async fn handle_connection<W>(&self, mut stream: W)
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
@@ -281,14 +281,53 @@ where
             None
         };
 
-        log::warn!(
-            "`WireframeApp::handle_connection` called, but connection handling is not \
-             implemented; closing stream"
-        );
-        tokio::task::yield_now().await;
+        if let Err(e) = self.process_stream(&mut stream).await {
+            log::warn!("connection terminated with error: {e}");
+        }
 
         if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
             teardown(state).await;
         }
+    }
+
+    async fn process_stream<W>(&self, stream: &mut W) -> io::Result<()>
+    where
+        W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        use tokio::io::AsyncReadExt;
+
+        #[derive(bincode::Decode, bincode::Encode)]
+        struct Envelope {
+            id: u32,
+            msg: Vec<u8>,
+        }
+
+        use tokio::time::{Duration, timeout};
+
+        let mut buf = BytesMut::with_capacity(1024);
+        loop {
+            if let Some(frame) = self.frame_processor.decode(&mut buf)? {
+                match self.serializer.deserialize::<Envelope>(&frame) {
+                    Ok((env, _)) => {
+                        if let Some(handler) = self.routes.get(&env.id) {
+                            handler().await;
+                        } else {
+                            log::warn!("no handler for message id {}", env.id);
+                        }
+
+                        let _ = self.send_response(stream, &env).await;
+                    }
+                    Err(e) => log::warn!("failed to deserialize message: {e}"),
+                }
+            } else {
+                match timeout(Duration::from_millis(10), stream.read_buf(&mut buf)).await {
+                    Ok(Ok(0)) | Err(_) => break,
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => return Err(e),
+                }
+            }
+        }
+
+        Ok(())
     }
 }
