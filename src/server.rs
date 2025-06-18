@@ -17,6 +17,12 @@ use std::{
 };
 
 use bincode::error::DecodeError;
+
+/// Callback invoked when a connection preamble decodes successfully.
+pub type PreambleCallback<T> = Arc<dyn Fn(&T) + Send + Sync>;
+
+/// Callback invoked when decoding a connection preamble fails.
+pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 use tokio::{
     net::TcpListener,
     sync::broadcast,
@@ -36,7 +42,6 @@ use crate::{
 /// closure. The server listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop
 /// accepting new connections.
-#[allow(clippy::type_complexity)]
 pub struct WireframeServer<F, T = ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -47,8 +52,8 @@ where
     factory: F,
     listener: Option<Arc<TcpListener>>,
     workers: usize,
-    on_preamble_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
-    on_preamble_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+    on_preamble_success: Option<PreambleCallback<T>>,
+    on_preamble_failure: Option<PreambleErrorCallback>,
     _preamble: PhantomData<T>,
 }
 
@@ -340,7 +345,6 @@ where
     }
 }
 
-#[allow(clippy::type_complexity)]
 /// Runs a worker task that accepts incoming TCP connections and processes them asynchronously.
 ///
 /// Each accepted connection is handled in a separate task, with optional callbacks for preamble
@@ -349,8 +353,8 @@ where
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
-    on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
-    on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+    on_success: Option<PreambleCallback<T>>,
+    on_failure: Option<PreambleErrorCallback>,
     // Each worker owns its shutdown receiver.
     mut shutdown_rx: broadcast::Receiver<()>,
 ) where
@@ -380,7 +384,6 @@ async fn worker_task<F, T>(
     }
 }
 
-#[allow(clippy::type_complexity)]
 /// Processes an incoming TCP stream by decoding a preamble and dispatching the connection to a
 /// `WireframeApp`.
 ///
@@ -409,8 +412,8 @@ async fn worker_task<F, T>(
 async fn process_stream<F, T>(
     mut stream: tokio::net::TcpStream,
     factory: F,
-    on_success: Option<Arc<dyn Fn(&T) + Send + Sync>>,
-    on_failure: Option<Arc<dyn Fn(&DecodeError) + Send + Sync>>,
+    on_success: Option<PreambleCallback<T>>,
+    on_failure: Option<PreambleErrorCallback>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,
     // `Preamble` ensures `T` supports borrowed decoding.

@@ -171,8 +171,8 @@ where
     /// # Type Parameters
     ///
     /// This method changes the connection state type parameter from `C` to `C2`.
-    /// This means that any subsequent builder methods will operate on the new connection state type `C2`.
-    /// Be aware of this type transition when chaining builder methods.
+    /// This means that any subsequent builder methods will operate on the new connection state type
+    /// `C2`. Be aware of this type transition when chaining builder methods.
     ///
     /// # Errors
     ///
