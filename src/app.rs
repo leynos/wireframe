@@ -18,20 +18,56 @@ use crate::{
 type BoxedFrameProcessor =
     Box<dyn FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>;
 
+/// Callback invoked when a connection is established.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use wireframe::app::ConnectionSetup;
+///
+/// let setup: ConnectionSetup<String> = Arc::new(|| {
+///     Box::pin(async {
+///         // Perform authentication and return connection state
+///         String::from("hello")
+///     })
+/// });
+/// ```
+pub type ConnectionSetup<C> =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>;
+
+/// Callback invoked when a connection is closed.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use wireframe::app::ConnectionTeardown;
+///
+/// let teardown: ConnectionTeardown<String> = Arc::new(|state| {
+///     Box::pin(async move {
+///         println!("Dropping {state}");
+///     })
+/// });
+/// ```
+pub type ConnectionTeardown<C> =
+    Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes, services, and middleware
 /// without enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
-#[allow(clippy::type_complexity)]
 pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = ()> {
     routes: HashMap<u32, Service>,
     services: Vec<Service>,
     middleware: Vec<Box<dyn Middleware>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
-    on_connect: Option<Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>>,
-    on_disconnect: Option<Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
+    on_connect: Option<ConnectionSetup<C>>,
+    on_disconnect: Option<ConnectionTeardown<C>>,
 }
 
 /// Alias for boxed asynchronous handlers.
@@ -171,8 +207,8 @@ where
     /// # Type Parameters
     ///
     /// This method changes the connection state type parameter from `C` to `C2`.
-    /// This means that any subsequent builder methods will operate on the new connection state type `C2`.
-    /// Be aware of this type transition when chaining builder methods.
+    /// This means that any subsequent builder methods will operate on the new connection state type
+    /// `C2`. Be aware of this type transition when chaining builder methods.
     ///
     /// # Errors
     ///
