@@ -939,7 +939,9 @@ pipeline.
   - **Request/Response Manipulation**: Modifying message content before it
     reaches a handler or before a response is sent.
   - **Connection Lifecycle Hooks**: Performing actions when connections are
-    established or terminated.
+    established or terminated. `WireframeApp` exposes `on_connection_setup` and
+    `on_connection_teardown` for initializing and cleaning up per-connection
+    session state.
 
 The middleware system promotes a clean separation of concerns. Cross-cutting
 functionalities like logging, authentication, or metrics collection can be

@@ -66,7 +66,7 @@ after formatting. Line numbers below refer to that file.
   using the selected serialization format and write them back through the
   framing layer.
 
-- [ ] Add connection lifecycle hooks. Integrate setup and teardown stages, so
+- [x] Add connection lifecycle hooks. Integrate setup and teardown stages, so
   sessions can hold state (such as a logged-in user ID) across messages.
 
 ## 2. Middleware and Extractors
