@@ -94,8 +94,9 @@ This repository is written in Rust and uses Cargo for building and dependency
 management. Contributors should follow these best practices when working on the
 project:
 
-- Run `cargo fmt --all`, and `cargo clippy -- -D warnings` after making any change to the codebase.
-- Run `RUSTFLAGS="-D warnings" cargo test` before committing, in addition to the above.
+- Run `make fmt`, `make lint`, and `make test` before committing. These targets
+  wrap `cargo fmt`, `cargo clippy`, and `cargo test` with the appropriate
+  flags.
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
