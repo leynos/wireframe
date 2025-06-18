@@ -67,7 +67,7 @@ async fn teardown_without_setup_does_not_run() {
 
     let app = WireframeApp::new()
         .unwrap()
-        .on_connection_teardown(move |_| {
+        .on_connection_teardown(move |()| {
             let teardown_clone = teardown_clone.clone();
             async move {
                 teardown_clone.fetch_add(1, Ordering::SeqCst);
