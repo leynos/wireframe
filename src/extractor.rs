@@ -4,7 +4,12 @@
 //! application state. Implement [`FromMessageRequest`] to extract data
 //! for handlers.
 
-use std::{any::Any, net::SocketAddr, sync::Arc};
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    net::SocketAddr,
+    sync::Arc,
+};
 
 /// Request context passed to extractors.
 ///
@@ -15,19 +20,24 @@ pub struct MessageRequest {
     /// Address of the peer that sent the current message.
     pub peer_addr: Option<SocketAddr>,
     /// Shared state values registered with the application.
-    pub app_data: Vec<Arc<dyn Any + Send + Sync>>,
+    ///
+    /// Values are keyed by their [`TypeId`]. Registering additional
+    /// state of the same type will replace the previous entry.
+    pub app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 
 impl MessageRequest {
     /// Retrieve shared state of type `T` if available.
+    ///
+    /// Returns `None` when no value of type `T` was registered.
     #[must_use]
     pub fn state<T>(&self) -> Option<SharedState<T>>
     where
         T: Send + Sync + 'static,
     {
         self.app_data
-            .iter()
-            .find_map(|data| data.downcast_ref::<SharedState<T>>().cloned())
+            .get(&TypeId::of::<SharedState<T>>())
+            .and_then(|data| data.downcast_ref::<SharedState<T>>().cloned())
     }
 }
 

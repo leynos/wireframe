@@ -663,7 +663,8 @@ inferring the message type it handles if attribute macros are used.
 a handler.
 
 \* .app_data(SharedState\<T>) or .data(T): Provides shared application state,
-similar to Actix Web's web::Data.21
+keyed by type. Registering another value of the same type replaces the previous
+one, mirroring Actix Web's `web::Data`.21
 
 \* .wrap(middleware_factory): Adds middleware to the processing pipeline.26
 
@@ -788,68 +789,71 @@ within handlers.
 
   ```rust
 
-  The `MessageRequest` encapsulates connection metadata and any values
-  registered with `WireframeApp::app_data`. `Payload` represents the raw or
-  partially processed frame data.
-
   ````
+
+The `MessageRequest` encapsulates connection metadata and any values registered
+with `WireframeApp::app_data`. These values are stored by type, so only one
+instance of each type can exist; later registrations overwrite earlier ones.
+`Payload` represents the raw or partially processed frame data.
+
+`````
 
 - **Built-in Extractors**: "wireframe" will provide several common extractors:
 
-  - `Message<T>`: This would be the most common extractor. It attempts to
-    deserialize the incoming frame's payload into the specified type `T`. `T`
-    must implement the relevant deserialization trait (e.g., `Decode` from
-    `wire-rs` or `serde::Deserialize` if using `bincode`/`postcard`).
+- `Message<T>`: This would be the most common extractor. It attempts to
+  deserialize the incoming frame's payload into the specified type `T`. `T`
+  must implement the relevant deserialization trait (e.g., `Decode` from
+  `wire-rs` or `serde::Deserialize` if using `bincode`/`postcard`).
 
-    Rust
+  Rust
 
-    ````rustrust
-    async fn handle_user_update(update: Message<UserUpdateData>) -> Result<()> {
-        // update.into_inner() gives UserUpdateData
-        //...
-    }
+  ````rustrust
+  async fn handle_user_update(update: Message<UserUpdateData>) -> Result<()> {
+      // update.into_inner() gives UserUpdateData
+      //...
+  }
 
-    ```rust
+  ```rust
 
-    ````
+  ````
 
-  - `ConnectionInfo`: Provides access to metadata about the current connection,
-    such as the peer's network address, a unique connection identifier assigned
-    by "wireframe", or transport-specific details.
+- `ConnectionInfo`: Provides access to metadata about the current connection,
+  such as the peer's network address, a unique connection identifier assigned
+  by "wireframe", or transport-specific details.
 
-    Rust
+  Rust
 
-    ````rustrust
-    async fn handle_connect_event(conn_info: ConnectionInfo) {
-        println!("New connection from: {}", conn_info.peer_addr());
-    }
+  ````rustrust
+  async fn handle_connect_event(conn_info: ConnectionInfo) {
+      println!("New connection from: {}", conn_info.peer_addr());
+  }
 
-    ```rust
+  ```rust
 
-    ````
+  ````
 
-  - `SharedState<T>`: Allows handlers to access shared application state that
-    was registered with `WireframeApp::app_data()`, similar to
-    `actix_web::web::Data<T>`.21
+- `SharedState<T>`: Allows handlers to access shared application state that
+  was registered with `WireframeApp::app_data()`, similar to
+  `actix_web::web::Data<T>`.21
 
-    Rust
+  Rust
 
-    ````rustrust
-    async fn get_user_count(state: SharedState<Arc<Mutex<UserStats>>>) -> Result<UserCountResponse> {
-        let count = state.lock().await.get_user_count();
-        //...
-    }
+  ````rustrust
+  async fn get_user_count(state: SharedState<Arc<Mutex<UserStats>>>) -> Result<UserCountResponse> {
+      let count = state.lock().await.get_user_count();
+      //...
+  }
 
-    ```rust
+  ```rust
 
-    ````
+  ````
 
 - **Custom Extractors**: Developers can implement `FromMessageRequest` for their
-  own types. This is a powerful extensibility point, allowing encapsulation of
-  custom logic for deriving specific pieces of data from an incoming message or
-  its context. For example, a custom extractor could parse a session token from
-  a specific field in all messages, validate it, and provide a `UserSession`
-  object to the handler.
+own types. This is a powerful extensibility point, allowing encapsulation of
+custom logic for deriving specific pieces of data from an incoming message or
+its context. For example, a custom extractor could parse a session token from
+a specific field in all messages, validate it, and provide a `UserSession`
+object to the handler.
 
 This extractor system, backed by Rust's strong type system, ensures that
 handlers receive correctly typed and validated data, significantly reducing the
@@ -869,41 +873,41 @@ Web's 5, allowing developers to inject custom logic into the message processing
 pipeline.
 
 - `WireframeMiddleware` **Concept**: Middleware in "wireframe" will be defined
-  by implementing a pair of traits, analogous to Actix Web's `Transform` and
-  `Service` traits.25
+by implementing a pair of traits, analogous to Actix Web's `Transform` and
+`Service` traits.25
 
-  - The `Transform` trait would act as a factory for the middleware service. Its
-    `transform` method is annotated with `#[must_use]` (to encourage using the
-    returned service) and `#[inline]` for potential performance gains.
-  - The `Service` trait would define the actual request/response processing
-    logic. Middleware would operate on "wireframe's" internal request and
-    response types, which could be raw frames at one level or deserialized
-    messages at another, depending on the middleware's purpose.
+- The `Transform` trait would act as a factory for the middleware service. Its
+  `transform` method is annotated with `#[must_use]` (to encourage using the
+  returned service) and `#[inline]` for potential performance gains.
+- The `Service` trait would define the actual request/response processing
+  logic. Middleware would operate on "wireframe's" internal request and
+  response types, which could be raw frames at one level or deserialized
+  messages at another, depending on the middleware's purpose.
 
-  A simplified functional middleware approach, similar to
-  `actix_web::middleware::from_fn` 26, could also be provided for simpler use
-  cases:
+A simplified functional middleware approach, similar to
+`actix_web::middleware::from_fn` 26, could also be provided for simpler use
+cases:
 
-  Rust
+Rust
 
-  ````rustrust
-  use wireframe::middleware::{Next, ServiceRequest, ServiceResponse}; // Hypothetical types
+````rustrust
+use wireframe::middleware::{Next, ServiceRequest, ServiceResponse}; // Hypothetical types
 
-  async fn logging_mw_fn(
-      req: ServiceRequest, // Represents an incoming message/context
-      next: Next // Call to proceed to the next middleware or handler
-  ) -> Result<ServiceResponse, wireframe::Error> {
-      println!("Received message: {:?}", req.message_type_id());
-      let res = next.call(req).await?; // Call next service in chain
-      if let Some(response_info) = res.info() {
-          println!("Sending response: {:?}", response_info);
-      }
-      Ok(res)
-  }
+async fn logging_mw_fn(
+    req: ServiceRequest, // Represents an incoming message/context
+    next: Next // Call to proceed to the next middleware or handler
+) -> Result<ServiceResponse, wireframe::Error> {
+    println!("Received message: {:?}", req.message_type_id());
+    let res = next.call(req).await?; // Call next service in chain
+    if let Some(response_info) = res.info() {
+        println!("Sending response: {:?}", response_info);
+    }
+    Ok(res)
+}
 
-  ```rust
+```rust
 
-  ````
+`````
 
 - **Registration**: Middleware would be registered with the `WireframeApp`
   builder:

@@ -4,7 +4,14 @@
 //! for a [`WireframeServer`]. Most builder methods return [`Result<Self>`]
 //! so callers can chain registrations ergonomically.
 
-use std::{any::Any, boxed::Box, collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{
+    any::{Any, TypeId},
+    boxed::Box,
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 
 use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
@@ -31,7 +38,7 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
     middleware: Vec<Box<dyn Middleware>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
-    app_data: Vec<Arc<dyn Any + Send + Sync>>,
+    app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     on_connect: Option<Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>>,
     on_disconnect: Option<Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
 }
@@ -98,7 +105,7 @@ where
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor),
             serializer: S::default(),
-            app_data: Vec::new(),
+            app_data: HashMap::new(),
             on_connect: None,
             on_disconnect: None,
         }
@@ -166,8 +173,10 @@ where
         T: Send + Sync + 'static,
     {
         let data: SharedState<T> = state.into();
-        self.app_data
-            .push(Arc::new(data) as Arc<dyn Any + Send + Sync>);
+        self.app_data.insert(
+            TypeId::of::<SharedState<T>>(),
+            Arc::new(data) as Arc<dyn Any + Send + Sync>,
+        );
         Ok(self)
     }
 

@@ -47,7 +47,9 @@ CPU count cannot be determined, the server falls back to a single worker.
 
 The builder supports methods like `frame_processor`, `route`, `app_data`, and
 `wrap` for middleware configuration. `app_data` stores any `Send + Sync` value
-for later retrieval using the `SharedState<T>` extractor【F:docs/rust-binary-router-library-design.md†L616-L704】.
+keyed by type; registering another value of the same type overwrites the
+previous one. Handlers retrieve these values using the `SharedState<T>`
+extractor【F:docs/rust-binary-router-library-design.md†L616-L704】.
 
 Handlers are asynchronous functions whose parameters implement extractor traits
 and may return responses implementing the `Responder` trait. This pattern
