@@ -626,7 +626,7 @@ WireframeApp::new()
 
 .frame_processor(MyFrameProcessor::new()) // Configure the framing logic
 
-.app_data(app_state.clone().into()) // Shared application state
+.app_data(app_state.clone()) // Shared application state
 
 //.service(login_handler) // If using attribute macros and auto-discovery
 
@@ -788,9 +788,9 @@ within handlers.
 
   ```rust
 
-  The `MessageRequest` would encapsulate information about the current incoming
-  message context (like connection details, already parsed headers if any), and
-  `Payload` would represent the raw or partially processed frame data.
+  The `MessageRequest` encapsulates connection metadata and any values
+  registered with `WireframeApp::app_data`. `Payload` represents the raw or
+  partially processed frame data.
 
   ````
 

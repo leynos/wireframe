@@ -4,12 +4,13 @@
 //! for a [`WireframeServer`]. Most builder methods return [`Result<Self>`]
 //! so callers can chain registrations ergonomically.
 
-use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{any::Any, boxed::Box, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 
 use crate::{
+    extractor::SharedState,
     frame::{FrameProcessor, LengthPrefixedProcessor},
     message::Message,
     serializer::{BincodeSerializer, Serializer},
@@ -30,6 +31,7 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
     middleware: Vec<Box<dyn Middleware>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
+    app_data: Vec<Arc<dyn Any + Send + Sync>>,
     on_connect: Option<Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>>,
     on_disconnect: Option<Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
 }
@@ -96,6 +98,7 @@ where
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor),
             serializer: S::default(),
+            app_data: Vec::new(),
             on_connect: None,
             on_disconnect: None,
         }
@@ -149,6 +152,25 @@ where
         Ok(self)
     }
 
+    /// Store a shared state value accessible to request extractors.
+    ///
+    /// The value can later be retrieved using [`SharedState<T>`]. Multiple
+    /// calls may register different types.
+    ///
+    /// # Errors
+    ///
+    /// This function currently always succeeds but returns [`Result`] for
+    /// future flexibility.
+    pub fn app_data<T>(mut self, state: T) -> Result<Self>
+    where
+        T: Send + Sync + 'static,
+    {
+        let data: SharedState<T> = state.into();
+        self.app_data
+            .push(Arc::new(data) as Arc<dyn Any + Send + Sync>);
+        Ok(self)
+    }
+
     /// Add a middleware component to the processing pipeline.
     ///
     /// # Errors
@@ -171,8 +193,8 @@ where
     /// # Type Parameters
     ///
     /// This method changes the connection state type parameter from `C` to `C2`.
-    /// This means that any subsequent builder methods will operate on the new connection state type `C2`.
-    /// Be aware of this type transition when chaining builder methods.
+    /// This means that any subsequent builder methods will operate on the new connection state type
+    /// `C2`. Be aware of this type transition when chaining builder methods.
     ///
     /// # Errors
     ///
@@ -190,6 +212,7 @@ where
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer: self.serializer,
+            app_data: self.app_data,
             on_connect: Some(Arc::new(move || Box::pin(f()))),
             on_disconnect: None,
         })
@@ -235,6 +258,7 @@ where
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer,
+            app_data: self.app_data,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
         }

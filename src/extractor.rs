@@ -4,7 +4,7 @@
 //! application state. Implement [`FromMessageRequest`] to extract data
 //! for handlers.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{any::Any, net::SocketAddr, sync::Arc};
 
 /// Request context passed to extractors.
 ///
@@ -14,6 +14,21 @@ use std::{net::SocketAddr, sync::Arc};
 pub struct MessageRequest {
     /// Address of the peer that sent the current message.
     pub peer_addr: Option<SocketAddr>,
+    /// Shared state values registered with the application.
+    pub app_data: Vec<Arc<dyn Any + Send + Sync>>,
+}
+
+impl MessageRequest {
+    /// Retrieve shared state of type `T` if available.
+    #[must_use]
+    pub fn state<T>(&self) -> Option<SharedState<T>>
+    where
+        T: Send + Sync + 'static,
+    {
+        self.app_data
+            .iter()
+            .find_map(|data| data.downcast_ref::<SharedState<T>>().cloned())
+    }
 }
 
 /// Raw payload buffer handed to extractors.
@@ -55,8 +70,11 @@ pub trait FromMessageRequest: Sized {
 }
 
 /// Shared application state accessible to handlers.
-#[derive(Clone)]
 pub struct SharedState<T: Send + Sync>(Arc<T>);
+
+impl<T: Send + Sync> Clone for SharedState<T> {
+    fn clone(&self) -> Self { Self(self.0.clone()) }
+}
 
 impl<T: Send + Sync> SharedState<T> {
     /// Construct a new [`SharedState`].
@@ -96,6 +114,38 @@ impl<T: Send + Sync> From<Arc<T>> for SharedState<T> {
 
 impl<T: Send + Sync> From<T> for SharedState<T> {
     fn from(inner: T) -> Self { Self(Arc::new(inner)) }
+}
+
+/// Errors that can occur when extracting built-in types.
+#[derive(Debug)]
+pub enum ExtractError {
+    /// No shared state of the requested type was found.
+    MissingState(&'static str),
+}
+
+impl std::fmt::Display for ExtractError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
+        }
+    }
+}
+
+impl std::error::Error for ExtractError {}
+
+impl<T> FromMessageRequest for SharedState<T>
+where
+    T: Send + Sync + 'static,
+{
+    type Error = ExtractError;
+
+    fn from_message_request(
+        req: &MessageRequest,
+        _payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        req.state::<T>()
+            .ok_or(ExtractError::MissingState(std::any::type_name::<T>()))
+    }
 }
 
 impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
