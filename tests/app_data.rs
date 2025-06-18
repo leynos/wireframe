@@ -10,11 +10,10 @@ use wireframe::extractor::{
 
 #[test]
 fn shared_state_extractor_returns_data() {
-    let state: SharedState<u32> = 5u32.into();
     let mut map = HashMap::new();
     map.insert(
-        TypeId::of::<SharedState<u32>>(),
-        Arc::new(state.clone()) as Arc<dyn std::any::Any + Send + Sync>,
+        TypeId::of::<u32>(),
+        Arc::new(5u32) as Arc<dyn std::any::Any + Send + Sync>,
     );
     let req = MessageRequest {
         peer_addr: None,

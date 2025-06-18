@@ -662,9 +662,9 @@ inferring the message type it handles if attribute macros are used.
 \* .route(message_id, handler_function): Explicitly maps a message identifier to
 a handler.
 
-\* .app_data(SharedState\<T>) or .data(T): Provides shared application state,
-keyed by type. Registering another value of the same type replaces the previous
-one, mirroring Actix Web's `web::Data`.21
+\* .app_data(T): Provides shared application state, keyed by type. Registering
+another value of the same type replaces the previous one, mirroring Actix Web's
+`web::Data`.21
 
 \* .wrap(middleware_factory): Adds middleware to the processing pipeline.26
 
@@ -1286,7 +1286,7 @@ WireframeApp::new()
 
 .serializer(BincodeSerializer)
 
-.app_data(SharedChatRoomState::new(chat_state.clone()))
+.app_data(chat_state.clone())
 
 .route(ChatMessageType::ClientJoin, handle_join)
 

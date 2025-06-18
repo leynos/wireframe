@@ -17,7 +17,6 @@ use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 
 use crate::{
-    extractor::SharedState,
     frame::{FrameProcessor, LengthPrefixedProcessor},
     message::Message,
     serializer::{BincodeSerializer, Serializer},
@@ -161,23 +160,18 @@ where
 
     /// Store a shared state value accessible to request extractors.
     ///
-    /// The value can later be retrieved using [`SharedState<T>`]. Multiple
-    /// calls may register different types.
-    ///
-    /// # Errors
-    ///
-    /// This function currently always succeeds but returns [`Result`] for
-    /// future flexibility.
-    pub fn app_data<T>(mut self, state: T) -> Result<Self>
+    /// The value can later be retrieved using [`SharedState<T>`]. Registering
+    /// another value of the same type overwrites the previous one.
+    #[must_use]
+    pub fn app_data<T>(mut self, state: T) -> Self
     where
         T: Send + Sync + 'static,
     {
-        let data: SharedState<T> = state.into();
         self.app_data.insert(
-            TypeId::of::<SharedState<T>>(),
-            Arc::new(data) as Arc<dyn Any + Send + Sync>,
+            TypeId::of::<T>(),
+            Arc::new(state) as Arc<dyn Any + Send + Sync>,
         );
-        Ok(self)
+        self
     }
 
     /// Add a middleware component to the processing pipeline.

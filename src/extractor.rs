@@ -36,8 +36,9 @@ impl MessageRequest {
         T: Send + Sync + 'static,
     {
         self.app_data
-            .get(&TypeId::of::<SharedState<T>>())
-            .and_then(|data| data.downcast_ref::<SharedState<T>>().cloned())
+            .get(&TypeId::of::<T>())
+            .and_then(|data| data.clone().downcast::<T>().ok())
+            .map(SharedState)
     }
 }
 
