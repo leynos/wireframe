@@ -25,12 +25,47 @@ use crate::{
 type BoxedFrameProcessor =
     Box<dyn FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>;
 
+/// Callback invoked when a connection is established.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use wireframe::app::ConnectionSetup;
+///
+/// let setup: Arc<ConnectionSetup<String>> = Arc::new(|| {
+///     Box::pin(async {
+///         // Perform authentication and return connection state
+///         String::from("hello")
+///     })
+/// });
+/// ```
+pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync;
+
+/// Callback invoked when a connection is closed.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use wireframe::app::ConnectionTeardown;
+///
+/// let teardown: Arc<ConnectionTeardown<String>> = Arc::new(|state| {
+///     Box::pin(async move {
+///         println!("Dropping {state}");
+///     })
+/// });
+/// ```
+pub type ConnectionTeardown<C> =
+    dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
+
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes, services, and middleware
 /// without enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
-#[allow(clippy::type_complexity)]
 pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = ()> {
     routes: HashMap<u32, Service>,
     services: Vec<Service>,
@@ -38,8 +73,8 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
     frame_processor: BoxedFrameProcessor,
     serializer: S,
     app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
-    on_connect: Option<Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>>,
-    on_disconnect: Option<Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>,
+    on_connect: Option<Arc<ConnectionSetup<C>>>,
+    on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
 }
 
 /// Alias for boxed asynchronous handlers.

@@ -19,6 +19,8 @@ reduce this boilerplate through layered abstractions:
 - **Routing engine** that dispatches messages by ID
 - **Handler invocation** with extractor support
 - **Middleware chain** for request/response processing
+- **[Connection lifecycle hooks](#connection-lifecycle)** for per-connection
+  setup and teardown
 
 These layers correspond to the architecture outlined in the design
 document【F:docs/rust-binary-router-library-design.md†L292-L344】.
@@ -86,8 +88,23 @@ binary protocol server【F:docs/rust-binary-router-library-design.md†L1120-L11
 Handlers can return types implementing the `Responder` trait. These values are
 encoded using the application's configured serializer and written
 back through the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L718-L724】.
+
 The included `LengthPrefixedProcessor` illustrates a simple framing strategy
 based on a big‑endian length prefix【F:docs/rust-binary-router-library-design.md†L1076-L1117】.
+
+## Connection Lifecycle
+
+`WireframeApp` can run callbacks when a connection is opened or closed. The state
+produced by `on_connection_setup` is passed to `on_connection_teardown` when the
+connection ends.
+
+```rust
+let app = WireframeApp::new()
+    .on_connection_setup(|| async { 42u32 })
+    .on_connection_teardown(|state| async move {
+        println!("closing with {state}");
+    });
+```
 
 ## Current Limitations
 
