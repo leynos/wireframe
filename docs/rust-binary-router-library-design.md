@@ -506,8 +506,6 @@ mechanism to dispatch this message to the appropriate user-defined handler.
 
   2. **Attribute Macro on Handler Functions**:
 
-     Rust
-
      ```rust
      #
      async fn handle_login(msg: Message<LoginRequest>, conn_info: ConnectionInfo) -> Result<LoginResponse, MyError> {
@@ -577,9 +575,7 @@ to run it.
 - `WireframeApp` **or** `Router` **Builder**: A central builder struct, let's
   call it `WireframeApp`, will serve as the primary point for configuring the
   protocol handling logic.
-
-  Rust
-
+  
   ```rust
   use wireframe::{WireframeApp, WireframeServer, Message, error::Result};
   use my_protocol::{LoginRequest, LoginResponse, ChatMessage, AppState, MyFrameProcessor, MessageType};
@@ -617,8 +613,7 @@ to run it.
       .run()
       .await
    }
-
-```
+   ```
 
 The WireframeApp builder would offer methods like:
 
@@ -664,7 +659,7 @@ messages and optionally producing responses.
 
   Rust
 
-  ````rustrust
+  ```rust
   async fn handler_name(
       param1: ExtractedType1,
       param2: ExtractedType2,
@@ -672,7 +667,7 @@ messages and optionally producing responses.
   ) -> Result<ResponseType, ErrorType> {
       // Handler logic
   }
-  ````
+  ```
 
 - **Asynchronous Nature**: Handlers *must* be `async` functions to integrate
   seamlessly with the Tokio runtime and enable non-blocking operations. This is
@@ -769,7 +764,7 @@ instance of each type can exist; later registrations overwrite earlier ones.
       // update.into_inner() returns a `UserUpdateData` instance
       //...
   }
-  ````
+  ```
 
 - `ConnectionInfo`: Provides access to metadata about the current connection,
   such as the peer's network address, a unique connection identifier assigned
@@ -794,7 +789,7 @@ instance of each type can exist; later registrations overwrite earlier ones.
       let count = state.lock().await.get_user_count();
       //...
   }
-  ````
+  ```
 
 - **Custom Extractors**: Developers can implement `FromMessageRequest` for their
   own types. This is a powerful extensibility point, allowing encapsulation of
@@ -891,16 +886,13 @@ async fn logging_mw_fn(
 - **Registration**: Middleware would be registered with the `WireframeApp`
   builder:
 
-  Rust
-
-  ````rustrust
+  ```rust
   WireframeApp::new()
      .wrap(LoggingMiddleware::new())
      .wrap(AuthMiddleware::new(/* config */))
       // For functional middleware:
       //.wrap(wireframe::middleware::from_fn(logging_mw_fn))
-
-  ```rust
+  ```
 
   Middleware is typically executed in the reverse order of registration for
   incoming messages and in the registration order for outgoing responses.26
@@ -1041,7 +1033,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
          pub original_payload: String,
          pub echoed_at: u64, // Example: timestamp
      }
-     ````
+     ```
 
   2. **Frame Processor Implementation** (Simple Length-Prefixed Framing using
      `tokio-util`):
