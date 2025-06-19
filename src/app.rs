@@ -93,6 +93,8 @@ pub struct Envelope {
 
 /// Number of idle polls before terminating a connection.
 const MAX_IDLE_POLLS: u32 = 50; // ~5s with 100ms timeout
+/// Maximum consecutive deserialization failures before closing a connection.
+const MAX_DESER_FAILURES: u32 = 10;
 
 /// Result type used throughout the builder API.
 pub type Result<T> = std::result::Result<T, WireframeError>;
@@ -309,21 +311,31 @@ where
     {
         let mut buf = BytesMut::with_capacity(1024);
         let mut idle = 0u32;
+        let mut deser_failures = 0u32;
 
         loop {
             if let Some(frame) = self.frame_processor.decode(&mut buf)? {
-                self.handle_frame(stream, &frame).await?;
+                self.handle_frame(stream, &frame, &mut deser_failures)
+                    .await?;
                 idle = 0;
             } else {
-                match self.read_into(stream, &mut buf).await? {
-                    Some(0) => break,
-                    Some(_) => idle = 0,
-                    None => {
+                match self.read_into(stream, &mut buf).await {
+                    Ok(Some(0)) => break,
+                    Ok(Some(_)) => idle = 0,
+                    Ok(None) => {
                         idle += 1;
                         if idle >= MAX_IDLE_POLLS {
                             break;
                         }
                     }
+                    Err(e) => match e.kind() {
+                        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted => {}
+                        io::ErrorKind::UnexpectedEof
+                        | io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::ConnectionAborted
+                        | io::ErrorKind::BrokenPipe => break,
+                        _ => return Err(e),
+                    },
                 }
             }
         }
@@ -349,23 +361,38 @@ where
         }
     }
 
-    async fn handle_frame<W>(&self, stream: &mut W, frame: &[u8]) -> io::Result<()>
+    async fn handle_frame<W>(
+        &self,
+        stream: &mut W,
+        frame: &[u8],
+        deser_failures: &mut u32,
+    ) -> io::Result<()>
     where
         W: tokio::io::AsyncWrite + Unpin,
     {
         match self.serializer.deserialize::<Envelope>(frame) {
             Ok((env, _)) => {
+                *deser_failures = 0;
                 if let Some(handler) = self.routes.get(&env.id) {
                     handler(&env).await;
                 } else {
                     log::warn!("no handler for message id {}", env.id);
                 }
 
-                if let Err(e) = self.send_response(stream, &env).await {
-                    log::warn!("failed to send response: {e}");
+                if let Err(e) = stream.write_all(frame).await {
+                    log::warn!("failed to echo response: {e}");
                 }
             }
-            Err(e) => log::warn!("failed to deserialize message: {e}"),
+            Err(e) => {
+                *deser_failures += 1;
+                log::warn!("failed to deserialize message: {e}");
+                if *deser_failures >= MAX_DESER_FAILURES {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "too many deserialization failures",
+                    ));
+                }
+            }
         }
 
         Ok(())
