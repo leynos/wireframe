@@ -11,6 +11,10 @@ use std::{
     sync::Arc,
 };
 
+use bincode::error::DecodeError;
+
+use crate::message::Message as WireMessage;
+
 /// Request context passed to extractors.
 ///
 /// This type contains metadata about the current connection and provides
@@ -65,6 +69,12 @@ impl Payload<'_> {
 }
 
 /// Trait for extracting data from a [`MessageRequest`].
+///
+/// Types implementing this trait can be used as parameters to handler
+/// functions. When invoked, `wireframe` passes the current request metadata and
+/// message payload, allowing the extractor to parse bytes or inspect
+/// connection information. This makes it easy to share common parsing and
+/// validation logic across handlers.
 pub trait FromMessageRequest: Sized {
     /// Error type returned when extraction fails.
     type Error: std::error::Error + Send + Sync + 'static;
@@ -133,17 +143,27 @@ impl<T: Send + Sync> From<T> for SharedState<T> {
 pub enum ExtractError {
     /// No shared state of the requested type was found.
     MissingState(&'static str),
+    /// Failed to deserialize the message payload.
+    Deserialize(bincode::error::DecodeError),
 }
 
 impl std::fmt::Display for ExtractError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
+            Self::Deserialize(e) => write!(f, "failed to decode payload: {e}"),
         }
     }
 }
 
-impl std::error::Error for ExtractError {}
+impl std::error::Error for ExtractError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Deserialize(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl<T> FromMessageRequest for SharedState<T>
 where
@@ -179,4 +199,60 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// assert_eq!(*shared, 42);
     /// ```
     fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+/// Extractor that deserializes the message payload into `T`.
+pub struct Message<T>(T);
+
+impl<T> Message<T> {
+    /// Consume the extractor, returning the inner message.
+    #[must_use]
+    pub fn into_inner(self) -> T { self.0 }
+}
+
+impl<T> std::ops::Deref for Message<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl<T> FromMessageRequest for Message<T>
+where
+    T: WireMessage,
+{
+    type Error = DecodeError;
+
+    fn from_message_request(
+        _req: &MessageRequest,
+        payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        let (msg, consumed) = T::from_bytes(payload.data)?;
+        payload.advance(consumed);
+        Ok(Self(msg))
+    }
+}
+
+/// Extractor providing peer connection metadata.
+#[derive(Clone, Copy)]
+pub struct ConnectionInfo {
+    peer_addr: Option<SocketAddr>,
+}
+
+impl ConnectionInfo {
+    /// Returns the peer's socket address, if known.
+    #[must_use]
+    pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
+}
+
+impl FromMessageRequest for ConnectionInfo {
+    type Error = std::convert::Infallible;
+
+    fn from_message_request(
+        req: &MessageRequest,
+        _payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            peer_addr: req.peer_addr,
+        })
+    }
 }
