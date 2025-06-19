@@ -1,8 +1,7 @@
 //! Request context types and extractor traits.
-//!
 //! The `MessageRequest` struct carries connection metadata and shared
-//! application state. Implement [`FromMessageRequest`] to extract data
-//! for handlers.
+//! application state. Implement [`FromMessageRequest`] for custom
+//! extraction logic consumed by handlers.
 
 use std::{
     any::{Any, TypeId},
@@ -10,8 +9,6 @@ use std::{
     net::SocketAddr,
     sync::Arc,
 };
-
-use bincode::error::DecodeError;
 
 use crate::message::Message as WireMessage;
 
@@ -220,13 +217,13 @@ impl<T> FromMessageRequest for Message<T>
 where
     T: WireMessage,
 {
-    type Error = DecodeError;
+    type Error = ExtractError;
 
     fn from_message_request(
         _req: &MessageRequest,
         payload: &mut Payload<'_>,
     ) -> Result<Self, Self::Error> {
-        let (msg, consumed) = T::from_bytes(payload.data)?;
+        let (msg, consumed) = T::from_bytes(payload.data).map_err(ExtractError::Deserialize)?;
         payload.advance(consumed);
         Ok(Self(msg))
     }

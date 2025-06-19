@@ -117,7 +117,7 @@ app state or expose peer information.
 Custom extractors let you centralize parsing and validation logic that would
 otherwise be duplicated across handlers. A session token parser, for example,
 can verify the token before any route-specific code executes
-【F:docs/rust-binary-router-library-design.md†L842-L858】.
+[Design Guide: Data Extraction and Type Safety](docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety).
 
 ```rust
 use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
@@ -150,7 +150,7 @@ async fn handle_ping(token: SessionToken, info: ConnectionInfo) {
 ## Current Limitations
 
 Connection handling now processes frames and routes messages, but the
-server is still experimental. Release builds fail to compile so the
+server is still experimental. Release builds fail to compile, so the
 library cannot be used accidentally in production.
 
 ## Roadmap
