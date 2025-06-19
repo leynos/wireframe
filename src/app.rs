@@ -1,8 +1,8 @@
 //! Application builder configuring routes and middleware.
 //!
-//! `WireframeApp` stores registered routes, services, and middleware
-//! for a [`WireframeServer`]. Most builder methods return [`Result<Self>`]
-//! so callers can chain registrations ergonomically.
+//! This module defines [`WireframeApp`], an Actix-inspired builder for
+//! managing connection state, routing, and middleware in a `WireframeServer`.
+//! It exposes convenience methods to register handlers and lifecycle hooks.
 
 use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
@@ -79,6 +79,16 @@ impl std::error::Error for SendError {
 
 impl From<io::Error> for SendError {
     fn from(e: io::Error) -> Self { SendError::Io(e) }
+}
+
+/// Basic envelope type used by [`handle_connection`].
+///
+/// Incoming frames are deserialized into an `Envelope` containing the
+/// message identifier and raw payload bytes.
+#[derive(bincode::Decode, bincode::Encode)]
+struct Envelope {
+    id: u32,
+    msg: Vec<u8>,
 }
 
 /// Result type used throughout the builder API.
@@ -294,38 +304,51 @@ where
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
-        use tokio::io::AsyncReadExt;
-
-        #[derive(bincode::Decode, bincode::Encode)]
-        struct Envelope {
-            id: u32,
-            msg: Vec<u8>,
-        }
-
-        use tokio::time::{Duration, timeout};
-
         let mut buf = BytesMut::with_capacity(1024);
         loop {
             if let Some(frame) = self.frame_processor.decode(&mut buf)? {
-                match self.serializer.deserialize::<Envelope>(&frame) {
-                    Ok((env, _)) => {
-                        if let Some(handler) = self.routes.get(&env.id) {
-                            handler().await;
-                        } else {
-                            log::warn!("no handler for message id {}", env.id);
-                        }
-
-                        let _ = self.send_response(stream, &env).await;
-                    }
-                    Err(e) => log::warn!("failed to deserialize message: {e}"),
-                }
-            } else {
-                match timeout(Duration::from_millis(10), stream.read_buf(&mut buf)).await {
-                    Ok(Ok(0)) | Err(_) => break,
-                    Ok(Ok(_)) => {}
-                    Ok(Err(e)) => return Err(e),
-                }
+                self.handle_frame(stream, &frame).await?;
+            } else if !self.read_into(stream, &mut buf).await? {
+                break;
             }
+        }
+
+        Ok(())
+    }
+
+    async fn read_into<W>(&self, stream: &mut W, buf: &mut BytesMut) -> io::Result<bool>
+    where
+        W: tokio::io::AsyncRead + Unpin,
+    {
+        use tokio::{
+            io::AsyncReadExt,
+            time::{Duration, timeout},
+        };
+
+        const READ_TIMEOUT: Duration = Duration::from_millis(100);
+
+        match timeout(READ_TIMEOUT, stream.read_buf(buf)).await {
+            Ok(Ok(_)) => Ok(true),
+            Ok(Err(e)) => Err(e),
+            _ => Ok(false),
+        }
+    }
+
+    async fn handle_frame<W>(&self, stream: &mut W, frame: &[u8]) -> io::Result<()>
+    where
+        W: tokio::io::AsyncWrite + Unpin,
+    {
+        match self.serializer.deserialize::<Envelope>(frame) {
+            Ok((env, _)) => {
+                if let Some(handler) = self.routes.get(&env.id) {
+                    handler().await;
+                } else {
+                    log::warn!("no handler for message id {}", env.id);
+                }
+
+                let _ = self.send_response(stream, &env).await;
+            }
+            Err(e) => log::warn!("failed to deserialize message: {e}"),
         }
 
         Ok(())
