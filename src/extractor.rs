@@ -1,7 +1,10 @@
-//! Request context types and extractor traits.
-//! The `MessageRequest` struct carries connection metadata and shared
-//! application state. Implement [`FromMessageRequest`] for custom
-//! extraction logic consumed by handlers.
+//! Extractor and request context definitions.
+//!
+//! This module provides [`MessageRequest`], which carries connection
+//! metadata and shared application state, along with a set of extractor
+//! types. Implement [`FromMessageRequest`] for custom extractors to
+//! parse payload bytes or inspect connection info before your handler
+//! runs.
 
 use std::{
     any::{Any, TypeId},
@@ -140,15 +143,15 @@ impl<T: Send + Sync> From<T> for SharedState<T> {
 pub enum ExtractError {
     /// No shared state of the requested type was found.
     MissingState(&'static str),
-    /// Failed to deserialize the message payload.
-    Deserialize(bincode::error::DecodeError),
+    /// Failed to decode the message payload.
+    InvalidPayload(bincode::error::DecodeError),
 }
 
 impl std::fmt::Display for ExtractError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
-            Self::Deserialize(e) => write!(f, "failed to decode payload: {e}"),
+            Self::InvalidPayload(e) => write!(f, "failed to decode payload: {e}"),
         }
     }
 }
@@ -156,7 +159,7 @@ impl std::fmt::Display for ExtractError {
 impl std::error::Error for ExtractError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Deserialize(e) => Some(e),
+            Self::InvalidPayload(e) => Some(e),
             _ => None,
         }
     }
@@ -199,6 +202,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
 }
 
 /// Extractor that deserializes the message payload into `T`.
+#[derive(Debug, Clone)]
 pub struct Message<T>(T);
 
 impl<T> Message<T> {
@@ -223,14 +227,14 @@ where
         _req: &MessageRequest,
         payload: &mut Payload<'_>,
     ) -> Result<Self, Self::Error> {
-        let (msg, consumed) = T::from_bytes(payload.data).map_err(ExtractError::Deserialize)?;
+        let (msg, consumed) = T::from_bytes(payload.data).map_err(ExtractError::InvalidPayload)?;
         payload.advance(consumed);
         Ok(Self(msg))
     }
 }
 
 /// Extractor providing peer connection metadata.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct ConnectionInfo {
     peer_addr: Option<SocketAddr>,
 }

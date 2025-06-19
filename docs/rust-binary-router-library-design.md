@@ -888,7 +888,7 @@ classDiagram
     }
     class ExtractError {
         +MissingState(&'static str)
-        +Deserialize(DecodeError)
+        +InvalidPayload(DecodeError)
     }
     FromMessageRequest <|.. Message
     FromMessageRequest <|.. ConnectionInfo
