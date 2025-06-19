@@ -1067,59 +1067,63 @@ examples are invaluable. They make the abstract design tangible and showcase how
      (Note: "wireframe" would abstract the direct use of `Encoder`/`Decoder`
      behind its own `FrameProcessor` trait or provide helpers.)
 
-  3. **Server Setup and Handler**:
+1. **Server Setup and Handler**:
 
-     ```rust
-     // Crate: main.rs
+   ```rust
+   // Crate: main.rs
 
-     use wireframe::{
-         WireframeApp,
-         WireframeServer,
-         Message,
-         error::Result as WireframeResult,
-         serializer::BincodeSerializer
-     };
-     use my_protocol_messages::{EchoRequest, EchoResponse};
-     use my_frame_processor::LengthPrefixedCodec; // Or wireframe's abstraction
-     use std::time::{SystemTime, UNIX_EPOCH};
+   use wireframe::{
+       WireframeApp,
+       WireframeServer,
+       Message,
+       error::Result as WireframeResult,
+       serializer::BincodeSerializer,
+   };
+   use my_protocol_messages::{EchoRequest, EchoResponse};
+   use my_frame_processor::LengthPrefixedCodec; // Or wireframe's abstraction
+   use std::time::{SystemTime, UNIX_EPOCH};
 
-     // Define a message ID enum if not using type-based routing directly
+   // Define a message ID enum if not using type-based routing directly
+   enum MyMessageType {
+       Echo = 1,
+   }
 
-     enum MyMessageType { Echo = 1 }
+   // Handler function
+   async fn handle_echo(
+       req: Message<EchoRequest>,
+   ) -> WireframeResult<EchoResponse> {
+       println!("Received echo request with payload: {}", req.payload);
+       Ok(EchoResponse {
+           original_payload: req.payload.clone(),
+           echoed_at: SystemTime::now()
+               .duration_since(UNIX_EPOCH)
+               .unwrap()
+               .as_secs(),
+       })
+   }
 
-     // Handler function
-     async fn handle_echo(req: Message<EchoRequest>) -> WireframeResult<EchoResponse> {
-         println!("Received echo request with payload: {}", req.payload);
-         Ok(EchoResponse {
-             original_payload: req.payload.clone(),
-             echoed_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().
-         })
-     }
+   #[tokio::main]
+   async fn main() -> std::io::Result<()> {
+       println!("Starting echo server on 127.0.0.1:8000");
 
-     #[tokio::main] async fn main() -> std::io::Result\<()> { println!("Starting echo server on 127.0.0.1:8000");
+       WireframeServer::new(|| {
+           WireframeApp::new()
+               //.frame_processor(LengthPrefixedCodec) // Simplified
+               .serializer(BincodeSerializer) // Specify serializer
+               .route(MyMessageType::Echo, handle_echo) // Route based on ID
+               // OR if type-based routing is supported and EchoRequest has an ID:
+               //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
+       })
+       .bind("127.0.0.1:8000")?
+       .run()
+       .await
+   }
+   ```
 
-     WireframeServer::new(|| {
-         WireframeApp::new()
-             //.frame_processor(LengthPrefixedCodec) // Simplified
-             .serializer(BincodeSerializer) // Specify serializer
-             .route(MyMessageType::Echo, handle_echo) // Route based on ID
-             // OR if type-based routing is supported and EchoRequest has an ID:
-             //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
-         })
-         .bind("127.0.0.1:8000")?
-         .run()
-         .await
-     }
-     ```
-
-  This example, even in outline, demonstrates how derive macros for messages, a
-  separable framing component, and a clear handler signature with extractors
-  (`Message<EchoRequest>`) and a return type (`WireframeResult<EchoResponse>`)
-  simplify server implementation.
-
-  ```
-
-  ```
+This example, even in outline, demonstrates how derive macros for messages, a
+separable framing component, and a clear handler signature with extractors
+(`Message<EchoRequest>`) and a return type (`WireframeResult<EchoResponse>`)
+simplify server implementation.
 
 - **Example 2: Basic Chat Message Protocol**
 
