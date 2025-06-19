@@ -318,29 +318,57 @@ where
                 self.handle_frame(stream, &frame, &mut deser_failures)
                     .await?;
                 idle = 0;
-            } else {
-                match self.read_into(stream, &mut buf).await {
-                    Ok(Some(0)) => break,
-                    Ok(Some(_)) => idle = 0,
-                    Ok(None) => {
-                        idle += 1;
-                        if idle >= MAX_IDLE_POLLS {
-                            break;
-                        }
-                    }
-                    Err(e) => match e.kind() {
-                        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted => {}
-                        io::ErrorKind::UnexpectedEof
-                        | io::ErrorKind::ConnectionReset
-                        | io::ErrorKind::ConnectionAborted
-                        | io::ErrorKind::BrokenPipe => break,
-                        _ => return Err(e),
-                    },
-                }
+                continue;
+            }
+
+            if self.read_and_update(stream, &mut buf, &mut idle).await? {
+                break;
             }
         }
 
         Ok(())
+    }
+
+    async fn read_and_update<W>(
+        &self,
+        stream: &mut W,
+        buf: &mut BytesMut,
+        idle: &mut u32,
+    ) -> io::Result<bool>
+    where
+        W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        match self.read_into(stream, buf).await {
+            Ok(Some(0)) => Ok(true),
+            Ok(Some(_)) => {
+                *idle = 0;
+                Ok(false)
+            }
+            Ok(None) => {
+                *idle += 1;
+                Ok(*idle >= MAX_IDLE_POLLS)
+            }
+            Err(e) if Self::is_transient_error(&e) => Ok(false),
+            Err(e) if Self::is_fatal_error(&e) => Ok(true),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn is_transient_error(e: &io::Error) -> bool {
+        matches!(
+            e.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+        )
+    }
+
+    fn is_fatal_error(e: &io::Error) -> bool {
+        matches!(
+            e.kind(),
+            io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::BrokenPipe
+        )
     }
 
     async fn read_into<W>(&self, stream: &mut W, buf: &mut BytesMut) -> io::Result<Option<usize>>
@@ -379,8 +407,8 @@ where
                     log::warn!("no handler for message id {}", env.id);
                 }
 
-                if let Err(e) = stream.write_all(frame).await {
-                    log::warn!("failed to echo response: {e}");
+                if let Err(e) = self.send_response(stream, &env).await {
+                    log::warn!("failed to send response: {e}");
                 }
             }
             Err(e) => {
