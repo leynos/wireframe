@@ -35,7 +35,7 @@ connections and runs the Tokio event loop:
 WireframeServer::new(|| {
     WireframeApp::new()
         .frame_processor(MyFrameProcessor::new())
-        .app_data(state.clone().into())
+        .app_data(state.clone())
         .route(MessageType::Login, handle_login)
         .wrap(MyLoggingMiddleware::default())
 })
@@ -48,7 +48,10 @@ By default, the number of worker tasks equals the number of CPU cores. If the
 CPU count cannot be determined, the server falls back to a single worker.
 
 The builder supports methods like `frame_processor`, `route`, `app_data`, and
-`wrap` for middleware configuration【F:docs/rust-binary-router-library-design.md†L616-L704】.
+`wrap` for middleware configuration. `app_data` stores any `Send + Sync` value
+keyed by type; registering another value of the same type overwrites the
+previous one. Handlers retrieve these values using the `SharedState<T>`
+extractor【F:docs/rust-binary-router-library-design.md†L616-L704】.
 
 Handlers are asynchronous functions whose parameters implement extractor traits
 and may return responses implementing the `Responder` trait. This pattern

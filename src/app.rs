@@ -4,7 +4,14 @@
 //! for a [`WireframeServer`]. Most builder methods return [`Result<Self>`]
 //! so callers can chain registrations ergonomically.
 
-use std::{boxed::Box, collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{
+    any::{Any, TypeId},
+    boxed::Box,
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 
 use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
@@ -65,6 +72,7 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
     middleware: Vec<Box<dyn Middleware>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
+    app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     on_connect: Option<Arc<ConnectionSetup<C>>>,
     on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
 }
@@ -131,6 +139,7 @@ where
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor),
             serializer: S::default(),
+            app_data: HashMap::new(),
             on_connect: None,
             on_disconnect: None,
         }
@@ -184,6 +193,22 @@ where
         Ok(self)
     }
 
+    /// Store a shared state value accessible to request extractors.
+    ///
+    /// The value can later be retrieved using [`SharedState<T>`]. Registering
+    /// another value of the same type overwrites the previous one.
+    #[must_use]
+    pub fn app_data<T>(mut self, state: T) -> Self
+    where
+        T: Send + Sync + 'static,
+    {
+        self.app_data.insert(
+            TypeId::of::<T>(),
+            Arc::new(state) as Arc<dyn Any + Send + Sync>,
+        );
+        self
+    }
+
     /// Add a middleware component to the processing pipeline.
     ///
     /// # Errors
@@ -225,6 +250,7 @@ where
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer: self.serializer,
+            app_data: self.app_data,
             on_connect: Some(Arc::new(move || Box::pin(f()))),
             on_disconnect: None,
         })
@@ -270,6 +296,7 @@ where
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer,
+            app_data: self.app_data,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
         }
