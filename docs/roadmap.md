@@ -39,14 +39,15 @@ after formatting. Line numbers below refer to that file.
         server::WireframeServer,
     };
 
-    async fn handler() {}
+    use wireframe::app::Envelope;
+    async fn handler(_env: &Envelope) {}
 
     #[tokio::main]
     async fn main() -> std::io::Result<()> {
         let factory = || {
             WireframeApp::new()
                 .unwrap()
-                .route(1, Box::new(|| Box::pin(handler())))
+                .route(1, Box::new(|env| Box::pin(handler(env))))
                 .unwrap()
         };
 

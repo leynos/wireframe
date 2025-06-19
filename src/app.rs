@@ -38,7 +38,7 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
 ///
 /// A `Service` is a boxed function returning a [`Future`], enabling
 /// asynchronous execution of message handlers.
-pub type Service = Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+pub type Service = Box<dyn Fn(&Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Trait representing middleware components.
 pub trait Middleware: Send + Sync {}
@@ -86,10 +86,13 @@ impl From<io::Error> for SendError {
 /// Incoming frames are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
 #[derive(bincode::Decode, bincode::Encode)]
-struct Envelope {
+pub struct Envelope {
     id: u32,
     msg: Vec<u8>,
 }
+
+/// Number of idle polls before terminating a connection.
+const MAX_IDLE_POLLS: u32 = 50; // ~5s with 100ms timeout
 
 /// Result type used throughout the builder API.
 pub type Result<T> = std::result::Result<T, WireframeError>;
@@ -305,18 +308,30 @@ where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
         let mut buf = BytesMut::with_capacity(1024);
+        let mut idle = 0u32;
+
         loop {
             if let Some(frame) = self.frame_processor.decode(&mut buf)? {
                 self.handle_frame(stream, &frame).await?;
-            } else if !self.read_into(stream, &mut buf).await? {
-                break;
+                idle = 0;
+            } else {
+                match self.read_into(stream, &mut buf).await? {
+                    Some(0) => break,
+                    Some(_) => idle = 0,
+                    None => {
+                        idle += 1;
+                        if idle >= MAX_IDLE_POLLS {
+                            break;
+                        }
+                    }
+                }
             }
         }
 
         Ok(())
     }
 
-    async fn read_into<W>(&self, stream: &mut W, buf: &mut BytesMut) -> io::Result<bool>
+    async fn read_into<W>(&self, stream: &mut W, buf: &mut BytesMut) -> io::Result<Option<usize>>
     where
         W: tokio::io::AsyncRead + Unpin,
     {
@@ -328,9 +343,9 @@ where
         const READ_TIMEOUT: Duration = Duration::from_millis(100);
 
         match timeout(READ_TIMEOUT, stream.read_buf(buf)).await {
-            Ok(Ok(_)) => Ok(true),
+            Ok(Ok(n)) => Ok(Some(n)),
             Ok(Err(e)) => Err(e),
-            _ => Ok(false),
+            Err(_) => Ok(None),
         }
     }
 
@@ -341,12 +356,14 @@ where
         match self.serializer.deserialize::<Envelope>(frame) {
             Ok((env, _)) => {
                 if let Some(handler) = self.routes.get(&env.id) {
-                    handler().await;
+                    handler(&env).await;
                 } else {
                     log::warn!("no handler for message id {}", env.id);
                 }
 
-                let _ = self.send_response(stream, &env).await;
+                if let Err(e) = self.send_response(stream, &env).await {
+                    log::warn!("failed to send response: {e}");
+                }
             }
             Err(e) => log::warn!("failed to deserialize message: {e}"),
         }
