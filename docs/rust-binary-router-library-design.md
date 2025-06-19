@@ -10,7 +10,7 @@ messages to appropriate handlers. Such low-level concerns can obscure the core
 application logic, increase development time, and introduce a higher propensity
 for errors. The Rust programming language, with its emphasis on safety,
 performance, and powerful compile-time abstractions, offers a promising
-foundation for mitigating these challenges.1
+foundation for mitigating these challenges.
 
 This report outlines the design of "wireframe," a novel Rust library aimed at
 substantially reducing source code complexity when building applications that
@@ -92,7 +92,7 @@ each with distinct characteristics.
   derived.11 Its flexibility and performance make it a strong candidate if
   `wire-rs` proves unsuitable for derivable (de)serialization. The choice
   between fixed-width integers and Varint encoding offers trade-offs in terms of
-  size and speed.10
+  size and speed.
 
 - `postcard`: `postcard` is another Serde-compatible library, specifically
   designed for `no_std` and embedded environments, prioritizing resource
@@ -109,7 +109,7 @@ each with distinct characteristics.
   fine-grained control over bit-level layout, such as specifying the number of
   bits for fields and enum discriminants.14 `bin-proto` also supports
   context-aware parsing, where deserialization logic can depend on external
-  context, a feature potentially valuable for complex protocols.14
+  context, a feature potentially valuable for complex protocols.
 
 The common thread among the more ergonomic libraries (`bincode`, `postcard`,
 `bin-proto`) is the provision of derive macros. This significantly simplifies
@@ -136,7 +136,7 @@ network protocols, offering insights into effective abstractions.
   reduce boilerplate in protocol definitions, a core strategy for "wireframe".
 
 - `message-io`: This library provides abstractions for message-based network
-  communication over various transports like TCP, UDP, and WebSockets.17
+  communication over various transports like TCP, UDP, and WebSockets.
   Notably, it offers `FramedTcp`, which prefixes messages with their size,
   managing data as packets rather than a raw stream.17 This distinction between
   connection-oriented and packet-based transports, and the provision of framing
@@ -150,7 +150,7 @@ network protocols, offering insights into effective abstractions.
   routing solution, these traits are essential low-level building blocks upon
   which "wireframe" would likely build its framing layer.
 
-- `tarpc`: `tarpc` is an RPC framework for Rust focusing on ease of use.20
+- `tarpc`: `tarpc` is an RPC framework for Rust focusing on ease of use.
   Although designed for RPC, its approach of defining service schemas directly
   in Rust code (using the `#[tarpc::service]` attribute to generate service
   traits and client/server boilerplate) is an interesting parallel to
@@ -176,7 +176,7 @@ query as a model for API aesthetics. Its design offers valuable lessons for
 
 - **Routing**: Actix Web provides flexible and declarative routing. Attribute
   macros like `#[get("/")]` and `#[post("/echo")]` allow handlers to be
-  associated with specific HTTP methods and paths directly in their definition.4
+  associated with specific HTTP methods and paths directly in their definition.
   Alternatively, routes can be registered programmatically using
   `App::service()` for macro-routed handlers or `App::route()` for manual
   configuration.4 This declarative style simplifies route management.
@@ -192,18 +192,18 @@ query as a model for API aesthetics. Its design offers valuable lessons for
   logic.
 
 - **Middleware**: Actix Web has a robust middleware system allowing developers
-  to insert custom processing logic into the request/response lifecycle.5
+  to insert custom processing logic into the request/response lifecycle.
   Middleware is registered using `App::wrap()` and typically implements
   `Transform` and `Service` traits.26 Common use cases include logging 27,
   authentication, and request/response modification. Middleware functions can be
-  simple `async fn`s when using `middleware::from_fn()`.26
+  simple `async fn`s when using `middleware::from_fn()`.
 
 - **Application Structure and State**: Applications are built around an `App`
   instance, which is then used to configure an `HttpServer`.4 Shared application
   state can be managed using `web::Data<T>`, making state accessible to handlers
   and middleware.21 For globally shared mutable state, careful use of `Arc` and
   `Mutex` (or atomics) is required, initialized outside the `HttpServer::new`
-  closure.21
+  closure.
 
 The ergonomic success of Actix Web for web application development can be
 significantly attributed to these powerful and intuitive abstractions.
@@ -228,13 +228,13 @@ of "wireframe":
 2. **Robust (De)serialization Strategy**: The choice of `wire-rs` is contingent
    on its ability to support derivable `Encode`/`Decode` traits. If this is not
    feasible, well-established alternatives like `bincode` or `postcard` offer
-   proven Serde integration and derive capabilities.10
+   proven Serde integration and derive capabilities.
 3. **Actix-Inspired API Patterns**: Leveraging Actix Web's patterns for routing,
    data extraction (extractors), and middleware is key to achieving the desired
    developer-friendliness and reducing source code complexity.
 4. **Asynchronous Foundation**: Integration with an asynchronous runtime like
    Tokio is non-negotiable for a modern, performant networking library in
-   Rust.18
+   Rust.
 
 Given the inaccessibility of `leynos/mxd` 7, a direct benchmark of complexity
 reduction is not possible. Therefore, "wireframe" must demonstrate its benefits
@@ -268,10 +268,10 @@ The development of "wireframe" adheres to the following principles:
 - **Performance**: Leveraging Rust's inherent performance characteristics is
   crucial.2 While developer ergonomics is a primary focus, the design must avoid
   introducing unnecessary overhead. Asynchronous operations, powered by a
-  runtime like Tokio, are essential for efficient I/O and concurrency.18
+  runtime like Tokio, are essential for efficient I/O and concurrency.
 - **Safety**: The library will harness Rust's strong type system and ownership
   model to prevent common networking bugs, such as data races and use-after-free
-  errors, contributing to more reliable software.1
+  errors, contributing to more reliable software.
 - **Developer Ergonomics**: The API should be intuitive, well-documented, and
   easy to learn, particularly for developers familiar with patterns from Actix
   Web.
@@ -535,12 +535,10 @@ mechanism to dispatch this message to the appropriate user-defined handler.
 
   For more complex routing scenarios where the choice of handler might depend on
   multiple fields within a message or the state of the connection, "wireframe"
-  could incorporate a "guard" system, analogous to Actix Web's route guards.21
+  could incorporate a "guard" system, analogous to Actix Web's route guards.
   Guards would be functions that evaluate conditions on the incoming message or
   connection context before a handler is chosen.
-
-  Rust
-
+  
   ```rust
   Router::new()
      .message_guarded(
@@ -629,9 +627,9 @@ a handler.
 
 - .app_data(T): Provides shared application state, keyed by type. Registering
 another value of the same type replaces the previous one, mirroring Actix Web's
-`web::Data`.21
+`web::Data`.
 
-- .wrap(middleware_factory): Adds middleware to the processing pipeline.26
+- .wrap(middleware_factory): Adds middleware to the processing pipeline.
 
 - **Server Initialization**: A `WireframeServer` component (analogous to
   `HttpServer`) would take the configured `WireframeApp` factory (a closure that
@@ -640,7 +638,7 @@ another value of the same type replaces the previous one, mirroring Actix Web's
   overall server lifecycle. The default number of worker tasks matches the
   available CPU cores, falling back to a single worker if the count cannot be
   determined. This would likely be built on Tokio's networking and runtime
-  primitives.18
+  primitives.
 
 This structural similarity to Actix Web is intentional. Developers familiar with
 Actix Web's application setup will find "wireframe's" approach intuitive,
@@ -657,8 +655,6 @@ messages and optionally producing responses.
 - **Signature**: Handler functions will be `async` and their parameters will be
   resolved using "wireframe" extractors.
 
-  Rust
-
   ```rust
   async fn handler_name(
       param1: ExtractedType1,
@@ -671,7 +667,7 @@ messages and optionally producing responses.
 
 - **Asynchronous Nature**: Handlers *must* be `async` functions to integrate
   seamlessly with the Tokio runtime and enable non-blocking operations. This is
-  standard practice in modern Rust network programming.4
+  standard practice in modern Rust network programming.
 
 - **Parameters as Extractors**: Arguments to handler functions are not passed
   directly by the router. Instead, their types must implement an "extractor"
@@ -730,8 +726,6 @@ within handlers.
   `FromRequest` 24, will be defined. Types implementing `FromMessageRequest` can
   be used as handler arguments.
 
-  Rust
-
   ```rust
   use wireframe::dev::{MessageRequest, Payload}; // Hypothetical types
 
@@ -757,8 +751,6 @@ instance of each type can exist; later registrations overwrite earlier ones.
   must implement the relevant deserialization trait (e.g., `Decode` from
   `wire-rs` or `serde::Deserialize` if using `bincode`/`postcard`).
 
-  Rust
-
   ```rust
   async fn handle_user_update(update: Message<UserUpdateData>) -> Result<()> {
       // update.into_inner() returns a `UserUpdateData` instance
@@ -770,8 +762,6 @@ instance of each type can exist; later registrations overwrite earlier ones.
   such as the peer's network address, a unique connection identifier assigned
   by "wireframe", or transport-specific details.
 
-  Rust
-
   ```rust
   async fn handle_connect_event(conn_info: ConnectionInfo) {
       println!("New connection from: {}", conn_info.peer_addr());
@@ -780,9 +770,7 @@ instance of each type can exist; later registrations overwrite earlier ones.
 
 - `SharedState<T>`: Allows handlers to access shared application state that
   was registered with `WireframeApp::app_data()`, similar to
-  `actix_web::web::Data<T>`.21
-
-  Rust
+  `actix_web::web::Data<T>`.
 
   ```rust
   async fn get_user_count(state: SharedState<Arc<Mutex<UserStats>>>) -> Result<UserCountResponse> {
@@ -817,7 +805,7 @@ pipeline.
 
 - `WireframeMiddleware` **Concept**: Middleware in "wireframe" will be defined
   by implementing a pair of traits, analogous to Actix Web's `Transform` and
-  `Service` traits.25
+  `Service` traits.
 
 - The `Transform` trait would act as a factory for the middleware service. Its
   `transform` method is annotated with `#[must_use]` (to encourage using the
@@ -895,7 +883,7 @@ async fn logging_mw_fn(
   ```
 
   Middleware is typically executed in the reverse order of registration for
-  incoming messages and in the registration order for outgoing responses.26
+  incoming messages and in the registration order for outgoing responses.
 
 
 - **Use Cases**:
@@ -1015,8 +1003,6 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
   1. **Message Definitions** (assuming `wire-rs` with derive macros, or
      `bincode`/`postcard` with Serde):
-
-     Rust
 
      ```rust
      // Crate: my_protocol_messages.rs
@@ -1139,8 +1125,6 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
   1. **Message Definitions**:
 
-     Rust
-
      ```rust
      // Crate: my_chat_messages.rs
      use serde::{Serialize, Deserialize};
@@ -1159,8 +1143,6 @@ examples are invaluable. They make the abstract design tangible and showcase how
      ```
 
   2. **Application State**:
-
-     Rust
 
      ```rust
      // Crate: main.rs (or app_state.rs)
@@ -1387,7 +1369,7 @@ applicability.
     implementations for common framing techniques beyond simple
     length-prefixing, such as:
     - COBS (Consistent Overhead Byte Stuffing), which `postcard` already
-      supports for its serialization output.12
+      supports for its serialization output.
     - SLIP (Serial Line Internet Protocol) framing.
     - Protocols using fixed-size frames or more complex header/delimiter
       patterns.
