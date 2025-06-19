@@ -81,11 +81,8 @@ pub trait FromMessageRequest: Sized {
 }
 
 /// Shared application state accessible to handlers.
+#[derive(Clone)]
 pub struct SharedState<T: Send + Sync>(Arc<T>);
-
-impl<T: Send + Sync> Clone for SharedState<T> {
-    fn clone(&self) -> Self { Self(self.0.clone()) }
-}
 
 impl<T: Send + Sync> SharedState<T> {
     /// Construct a new [`SharedState`].
@@ -128,7 +125,11 @@ impl<T: Send + Sync> From<T> for SharedState<T> {
 }
 
 /// Errors that can occur when extracting built-in types.
+///
+/// This enum is marked `#[non_exhaustive]` so more variants may be added in
+/// the future without breaking changes.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ExtractError {
     /// No shared state of the requested type was found.
     MissingState(&'static str),

@@ -809,7 +809,7 @@ instance of each type can exist; later registrations overwrite earlier ones.
 
   ````rustrust
   async fn handle_user_update(update: Message<UserUpdateData>) -> Result<()> {
-      // update.into_inner() gives UserUpdateData
+      // update.into_inner() returns a `UserUpdateData` instance
       //...
   }
 
