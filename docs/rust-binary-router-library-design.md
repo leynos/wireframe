@@ -881,8 +881,44 @@ by implementing a pair of traits, analogous to Actix Web's `Transform` and
   returned service) and `#[inline]` for potential performance gains.
 - The `Service` trait would define the actual request/response processing
   logic. Middleware would operate on "wireframe's" internal request and
+
   response types, which could be raw frames at one level or deserialized
   messages at another, depending on the middleware's purpose.
+
+The relationships among these components are illustrated in the following
+diagram:
+
+```mermaid
+classDiagram
+    class ServiceRequest {
+    }
+    class ServiceResponse {
+    }
+    class Next {
+        +call(request: ServiceRequest): ServiceResponse
+    }
+    class Middleware {
+        <<interface>>
+        +call(request: ServiceRequest, next: Next): ServiceResponse
+    }
+    class Transform {
+        <<trait>>
+        +new_service(): Service
+    }
+    class Service {
+        <<trait>>
+        +call(request: ServiceRequest): ServiceResponse
+    }
+    class FromFn {
+        +from_fn(fn): Middleware
+    }
+    ServiceRequest <.. Next
+    ServiceResponse <.. Next
+    Middleware <|.. FromFn
+    Transform <|.. Middleware
+    Middleware <|.. Service
+    Next --> Middleware
+```
 
 A simplified functional middleware approach, similar to
 `actix_web::middleware::from_fn` 26, could also be provided for simpler use
