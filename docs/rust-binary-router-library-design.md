@@ -295,7 +295,7 @@ handling to be managed and customized independently.
 
 #### Conceptual Block Diagram
 
-````text
+```text
 +--------------------------+      +----------------------+      +--------------------------+
 | Network Connection       |<---->| Transport Layer      |<---->| Framing Layer            |
 | (e.g., TCP/UDP Socket)   |      | Adapter (Tokio I/O)  |      | (User-defined/Built-in)  |
