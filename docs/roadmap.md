@@ -77,25 +77,42 @@ after formatting. Line numbers below refer to that file.
   - [ ] Define `FromMessageRequest` for extractor types (lines 760-782). See
     [`FromMessageRequest`][from-message-request] in
     [`src/extractor.rs`](../src/extractor.rs).
+
   - [ ] Provide built-in extractors `Message<T>`, `ConnectionInfo`, and
     `SharedState<T>` (lines 792-840). `SharedState<T>` is defined in
     [`src/extractor.rs`](../src/extractor.rs#L54-L87).
+
   - [ ] Support custom extractors implementing `FromMessageRequest` (lines
     842-858). Refer again to [`src/extractor.rs`](../src/extractor.rs#L39-L52).
+
   - [ ] Implement middleware using `Transform`/`Service` traits.
-    - [ ] Flesh out `ServiceRequest` and `ServiceResponse` wrappers (lines
+
+    - [ ] Implement `ServiceRequest` and `ServiceResponse` wrappers (lines
       866-899) and introduce a `Next` helper to build the asynchronous call
       chain. Trait definitions live in
       [`src/middleware.rs`](../src/middleware.rs#L71-L84).
     - [ ] Provide a `from_fn` helper for functional middleware.
     - [ ] Add tests verifying middleware can modify requests and observe
       responses.
+
   - [ ] Register middleware with `WireframeApp::wrap` and build the chain around
-    handlers so the last registered middleware runs first on requests and first
+    handlers, so the last registered middleware runs first on requests and first
     on responses (lines 900-919). See the
     [`wrap` method](../src/app.rs#L73-L84).
+
   - [ ] Document common middleware use cases like logging and authentication
-    (lines 920-935). Include a logging example using `from_fn`.
+    (lines 920-935). Include a logging example using `from_fn`:
+
+    ```rust
+    use wireframe::middleware::from_fn;
+
+    let logging = from_fn(|req, next| async move {
+        tracing::info!("request_frame = {:?}", req.frame());
+        let mut res = next.call(req).await?;
+        tracing::info!("response_frame = {:?}", res.frame());
+        Ok(res)
+    });
+    ```
 
 ## 3. Initial Examples and Documentation
 
