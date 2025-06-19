@@ -148,6 +148,9 @@ pub enum ExtractError {
 }
 
 impl std::fmt::Display for ExtractError {
+    /// Formats the `ExtractError` for display purposes.
+    ///
+    /// Displays a descriptive message for missing shared state or payload decoding errors.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
@@ -157,6 +160,10 @@ impl std::fmt::Display for ExtractError {
 }
 
 impl std::error::Error for ExtractError {
+    /// Returns the underlying error if this is an `InvalidPayload` variant.
+    ///
+    /// # Returns
+    /// An optional reference to the underlying decode error, or `None` if not applicable.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidPayload(e) => Some(e),
@@ -197,7 +204,9 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// let state = Arc::new(42);
     /// let shared: SharedState<u32> = state.clone().into();
     /// assert_eq!(*shared, 42);
-    /// ```
+    /// Returns a reference to the inner value.
+///
+/// This enables transparent access to the wrapped type via dereferencing.
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
@@ -208,13 +217,17 @@ pub struct Message<T>(T);
 impl<T> Message<T> {
     /// Consume the extractor, returning the inner message.
     #[must_use]
-    pub fn into_inner(self) -> T { self.0 }
+    /// Consumes the extractor and returns the inner deserialised message value.
+pub fn into_inner(self) -> T { self.0 }
 }
 
 impl<T> std::ops::Deref for Message<T> {
     type Target = T;
 
-    fn deref(&self) -> &Self::Target { &self.0 }
+    /// Returns a reference to the inner value.
+///
+/// This enables transparent access to the wrapped type via dereferencing.
+fn deref(&self) -> &Self::Target { &self.0 }
 }
 
 impl<T> FromMessageRequest for Message<T>
@@ -223,6 +236,14 @@ where
 {
     type Error = ExtractError;
 
+    /// Attempts to extract and deserialize a message of type `T` from the payload.
+    ///
+    /// Advances the payload by the number of bytes consumed during deserialization.  
+    /// Returns an error if the payload cannot be decoded into the target type.
+    ///
+    /// # Returns
+    /// - `Ok(Self)`: The successfully extracted and deserialized message.
+    /// - `Err(ExtractError::InvalidPayload)`: If deserialization fails.
     fn from_message_request(
         _req: &MessageRequest,
         payload: &mut Payload<'_>,
@@ -242,12 +263,16 @@ pub struct ConnectionInfo {
 impl ConnectionInfo {
     /// Returns the peer's socket address, if known.
     #[must_use]
-    pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
+    /// Returns the peer's socket address for the current connection, if available.
+pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
 }
 
 impl FromMessageRequest for ConnectionInfo {
     type Error = std::convert::Infallible;
 
+    /// Extracts connection metadata from the message request.
+    ///
+    /// Returns a `ConnectionInfo` containing the peer's socket address, if available. This extraction is infallible.
     fn from_message_request(
         req: &MessageRequest,
         _payload: &mut Payload<'_>,
