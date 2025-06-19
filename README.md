@@ -106,6 +106,22 @@ let app = WireframeApp::new()
     });
 ```
 
+## Middleware
+
+Middleware allows inspecting or modifying requests and responses. The
+`from_fn` helper builds middleware from an async function or closure:
+
+```rust
+use wireframe::middleware::from_fn;
+
+let logging = from_fn(|req, next| async move {
+    tracing::info!("request_frame = {:?}", req.frame());
+    let res = next.call(req).await?;
+    tracing::info!("response_frame = {:?}", res.frame());
+    Ok(res)
+});
+```
+
 ## Current Limitations
 
 Connection processing is not implemented yet. After the optional

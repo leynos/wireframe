@@ -136,9 +136,9 @@ network protocols, offering insights into effective abstractions.
   reduce boilerplate in protocol definitions, a core strategy for "wireframe".
 
 - `message-io`: This library provides abstractions for message-based network
-  communication over various transports like TCP, UDP, and WebSockets.
-  Notably, it offers `FramedTcp`, which prefixes messages with their size,
-  managing data as packets rather than a raw stream.17 This distinction between
+  communication over various transports like TCP, UDP, and WebSockets. Notably,
+  it offers `FramedTcp`, which prefixes messages with their size, managing data
+  as packets rather than a raw stream.17 This distinction between
   connection-oriented and packet-based transports, and the provision of framing
   solutions, is relevant to "wireframe's" design for handling frame-based
   protocols.
@@ -233,8 +233,7 @@ of "wireframe":
    data extraction (extractors), and middleware is key to achieving the desired
    developer-friendliness and reducing source code complexity.
 4. **Asynchronous Foundation**: Integration with an asynchronous runtime like
-   Tokio is non-negotiable for a modern, performant networking library in
-   Rust.
+   Tokio is non-negotiable for a modern, performant networking library in Rust.
 
 Given the inaccessibility of `leynos/mxd` 7, a direct benchmark of complexity
 reduction is not possible. Therefore, "wireframe" must demonstrate its benefits
@@ -330,9 +329,9 @@ handling to be managed and customized independently.
   payload of incoming frames into strongly-typed Rust data structures (messages)
   and serializes outgoing Rust messages into byte payloads for outgoing frames.
   This is the primary role intended for `wire-rs` 6 or an alternative like
-  `bincode` 11 or `postcard`.12 A minimal wrapper trait in the library
-  currently exposes these derives under a convenient `Message` trait,
-  providing `to_bytes` and `from_bytes` helpers.
+  `bincode` 11 or `postcard`.12 A minimal wrapper trait in the library currently
+  exposes these derives under a convenient `Message` trait, providing `to_bytes`
+  and `from_bytes` helpers.
 - **Routing Engine**: After a message is deserialized (or at least a header
   containing an identifier is processed), the routing engine inspects it to
   determine which user-defined handler function is responsible for processing
@@ -495,7 +494,6 @@ mechanism to dispatch this message to the appropriate user-defined handler.
 
   1. **Programmatic Registration**:
 
-
      ```rust
      // Assuming MessageType is an enum identifying different messages
      Router::new()
@@ -538,15 +536,15 @@ mechanism to dispatch this message to the appropriate user-defined handler.
   could incorporate a "guard" system, analogous to Actix Web's route guards.
   Guards would be functions that evaluate conditions on the incoming message or
   connection context before a handler is chosen.
-  
-  ```rust
+
+  ````rust
   Router::new()
-     .message_guarded(
-          MessageType::GenericCommand,
-          |msg_header: &CommandHeader| msg_header.sub_type == CommandSubType::Special,
-          handle_special_command
-     ).message(MessageType::GenericCommand, handle_generic_command) // Fallback
-  ```
+    .message_guarded(
+         MessageType::GenericCommand,
+         <!-- markdownlint-disable-next-line MD013 -->
+         | msg_header: &CommandHeader | msg_header.sub_type == CommandSubType::Special, handle_special_command ).message(MessageType::GenericCommand, handle_generic_command) // Fallback ``` |
+
+  ````
 
 The routing mechanism essentially implements a form of pattern matching or a
 state machine that operates on message identifiers. A clear, declarative API for
@@ -573,7 +571,7 @@ to run it.
 - `WireframeApp` **or** `Router` **Builder**: A central builder struct, let's
   call it `WireframeApp`, will serve as the primary point for configuring the
   protocol handling logic.
-  
+
   ```rust
   use wireframe::{WireframeApp, WireframeServer, Message, error::Result};
   use my_protocol::{LoginRequest, LoginResponse, ChatMessage, AppState, MyFrameProcessor, MessageType};
@@ -611,7 +609,7 @@ to run it.
       .run()
       .await
    }
-   ```
+  ```
 
 The WireframeApp builder would offer methods like:
 
@@ -620,14 +618,14 @@ The WireframeApp builder would offer methods like:
 - .frame_processor(impl FrameProcessor): Sets the framing logic.
 
 - .service(handler_function): Registers a handler function, potentially
-inferring the message type it handles if attribute macros are used.
+  inferring the message type it handles if attribute macros are used.
 
 - .route(message_id, handler_function): Explicitly maps a message identifier to
-a handler.
+  a handler.
 
 - .app_data(T): Provides shared application state, keyed by type. Registering
-another value of the same type replaces the previous one, mirroring Actix Web's
-`web::Data`.
+  another value of the same type replaces the previous one, mirroring Actix
+  Web's `web::Data`.
 
 - .wrap(middleware_factory): Adds middleware to the processing pipeline.
 
@@ -696,16 +694,16 @@ analogies, illustrating how the "aesthetic sense" of Actix Web is translated:
 
 #### Table 1: Core `wireframe` API Components and Actix Web Analogies
 
-| `wireframe` Component | Actix Web Analogy | Purpose in `wireframe` |
-| --- | --- | --- |
-| `WireframeApp` / `Router` | `actix_web::App` | Overall application/service configuration, route registration, middleware, state. |
-| `WireframeServer` | `actix_web::HttpServer` | Binds to network, manages connections, runs the application. |
-| `#[message_handler(MsgId)]` | `#[get("/path")]` / `#[post("/path")]` | Declarative routing for handlers based on message identifiers. |
-| `Message<T>` (Extractor) | `web::Json<T>` / `web::Payload` | Extracts and deserializes the main message payload of type `T`.|
-| `ConnectionInfo` (Extractor) | `HttpRequest` | Provides access to connection-specific data (e.g., peer address, connection ID). |
-| `SharedState<T>` (Extractor) | `web::Data<T>` | Provides access to shared application state. |
-| `impl WireframeResponder` | `impl Responder` | Defines how handler return values are serialized and sent back to the client. |
-| `WireframeMiddleware` (Transform) | `impl Transform` | Factory for middleware services that process messages/frames. |
+| `wireframe` Component             | Actix Web Analogy                      | Purpose in `wireframe`                                                            |
+| --------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| `WireframeApp` / `Router`         | `actix_web::App`                       | Overall application/service configuration, route registration, middleware, state. |
+| `WireframeServer`                 | `actix_web::HttpServer`                | Binds to network, manages connections, runs the application.                      |
+| `#[message_handler(MsgId)]`       | `#[get("/path")]` / `#[post("/path")]` | Declarative routing for handlers based on message identifiers.                    |
+| `Message<T>` (Extractor)          | `web::Json<T>` / `web::Payload`        | Extracts and deserializes the main message payload of type `T`.                   |
+| `ConnectionInfo` (Extractor)      | `HttpRequest`                          | Provides access to connection-specific data (e.g., peer address, connection ID).  |
+| `SharedState<T>` (Extractor)      | `web::Data<T>`                         | Provides access to shared application state.                                      |
+| `impl WireframeResponder`         | `impl Responder`                       | Defines how handler return values are serialized and sent back to the client.     |
+| `WireframeMiddleware` (Transform) | `impl Transform`                       | Factory for middleware services that process messages/frames.                     |
 
 This mapping is valuable because it leverages existing mental models for
 developers familiar with Actix Web, thereby lowering the barrier to adoption for
@@ -747,9 +745,9 @@ instance of each type can exist; later registrations overwrite earlier ones.
 - **Built-in Extractors**: "wireframe" will provide several common extractors:
 
 - `Message<T>`: This would be the most common extractor. It attempts to
-  deserialize the incoming frame's payload into the specified type `T`. `T`
-  must implement the relevant deserialization trait (e.g., `Decode` from
-  `wire-rs` or `serde::Deserialize` if using `bincode`/`postcard`).
+  deserialize the incoming frame's payload into the specified type `T`. `T` must
+  implement the relevant deserialization trait (e.g., `Decode` from `wire-rs` or
+  `serde::Deserialize` if using `bincode`/`postcard`).
 
   ```rust
   async fn handle_user_update(update: Message<UserUpdateData>) -> Result<()> {
@@ -759,8 +757,8 @@ instance of each type can exist; later registrations overwrite earlier ones.
   ```
 
 - `ConnectionInfo`: Provides access to metadata about the current connection,
-  such as the peer's network address, a unique connection identifier assigned
-  by "wireframe", or transport-specific details.
+  such as the peer's network address, a unique connection identifier assigned by
+  "wireframe", or transport-specific details.
 
   ```rust
   async fn handle_connect_event(conn_info: ConnectionInfo) {
@@ -768,8 +766,8 @@ instance of each type can exist; later registrations overwrite earlier ones.
   }
   ```
 
-- `SharedState<T>`: Allows handlers to access shared application state that
-  was registered with `WireframeApp::app_data()`, similar to
+- `SharedState<T>`: Allows handlers to access shared application state that was
+  registered with `WireframeApp::app_data()`, similar to
   `actix_web::web::Data<T>`.
 
   ```rust
@@ -810,8 +808,9 @@ pipeline.
 - The `Transform` trait would act as a factory for the middleware service. Its
   `transform` method is annotated with `#[must_use]` (to encourage using the
   returned service) and `#[inline]` for potential performance gains.
-- The `Service` trait would define the actual request/response processing
-  logic. Middleware would operate on "wireframe's" internal request and
+
+- The `Service` trait would define the actual request/response processing logic.
+  Middleware would operate on "wireframe's" internal request and
 
   response types, which could be raw frames at one level or deserialized
   messages at another, depending on the middleware's purpose.
@@ -884,7 +883,6 @@ async fn logging_mw_fn(
 
   Middleware is typically executed in the reverse order of registration for
   incoming messages and in the registration order for outgoing responses.
-
 
 - **Use Cases**:
 
@@ -1069,57 +1067,63 @@ examples are invaluable. They make the abstract design tangible and showcase how
      (Note: "wireframe" would abstract the direct use of `Encoder`/`Decoder`
      behind its own `FrameProcessor` trait or provide helpers.)
 
-  3. **Server Setup and Handler**:
+1. **Server Setup and Handler**:
 
-     ```rust
-     // Crate: main.rs
+   ```rust
+   // Crate: main.rs
 
-     use wireframe::{
-         WireframeApp,
-         WireframeServer,
-         Message,
-         error::Result as WireframeResult,
-         serializer::BincodeSerializer
-     };
-     use my_protocol_messages::{EchoRequest, EchoResponse};
-     use my_frame_processor::LengthPrefixedCodec; // Or wireframe's abstraction
-     use std::time::{SystemTime, UNIX_EPOCH};
-   
-     // Define a message ID enum if not using type-based routing directly
-  
-     enum MyMessageType { Echo = 1 }
-   
-     // Handler function
-     async fn handle_echo(req: Message<EchoRequest>) -> WireframeResult<EchoResponse> {
-         println!("Received echo request with payload: {}", req.payload);
-         Ok(EchoResponse {
-             original_payload: req.payload.clone(),
-             echoed_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().
-         })
-     }
-   
-     #[tokio::main] async fn main() -> std::io::Result\<()> { println!("Starting echo server on 127.0.0.1:8000");
-   
-     WireframeServer::new(|| {
-         WireframeApp::new()
-             //.frame_processor(LengthPrefixedCodec) // Simplified
-             .serializer(BincodeSerializer) // Specify serializer
-             .route(MyMessageType::Echo, handle_echo) // Route based on ID
-             // OR if type-based routing is supported and EchoRequest has an ID:
-             //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
-         })
-         .bind("127.0.0.1:8000")?
-         .run()
-         .await
-     }
-     ```
+   use wireframe::{
+       WireframeApp,
+       WireframeServer,
+       Message,
+       error::Result as WireframeResult,
+       serializer::BincodeSerializer,
+   };
+   use my_protocol_messages::{EchoRequest, EchoResponse};
+   use my_frame_processor::LengthPrefixedCodec; // Or wireframe's abstraction
+   use std::time::{SystemTime, UNIX_EPOCH};
 
-  This example, even in outline, demonstrates how derive macros for messages,
-  a separable framing component, and a clear handler signature with
-  extractors (`Message<EchoRequest>`) and a return type
-  (`WireframeResult<EchoResponse>`) simplify server implementation.
+   // Define a message ID enum if not using type-based routing directly
+   enum MyMessageType {
+       Echo = 1,
+   }
 
-  ```
+   // Handler function
+   async fn handle_echo(
+       req: Message<EchoRequest>,
+   ) -> WireframeResult<EchoResponse> {
+       println!("Received echo request with payload: {}", req.payload);
+       Ok(EchoResponse {
+           original_payload: req.payload.clone(),
+           echoed_at: SystemTime::now()
+               .duration_since(UNIX_EPOCH)
+               .unwrap()
+               .as_secs(),
+       })
+   }
+
+   #[tokio::main]
+   async fn main() -> std::io::Result<()> {
+       println!("Starting echo server on 127.0.0.1:8000");
+
+       WireframeServer::new(|| {
+           WireframeApp::new()
+               //.frame_processor(LengthPrefixedCodec) // Simplified
+               .serializer(BincodeSerializer) // Specify serializer
+               .route(MyMessageType::Echo, handle_echo) // Route based on ID
+               // OR if type-based routing is supported and EchoRequest has an ID:
+               //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
+       })
+       .bind("127.0.0.1:8000")?
+       .run()
+       .await
+   }
+   ```
+
+This example, even in outline, demonstrates how derive macros for messages, a
+separable framing component, and a clear handler signature with extractors
+(`Message<EchoRequest>`) and a return type (`WireframeResult<EchoResponse>`)
+simplify server implementation.
 
 - **Example 2: Basic Chat Message Protocol**
 
@@ -1175,7 +1179,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
      use ChatRoomState, SharedChatRoomState...
      use std::sync::Arc;
      enum ChatMessageType { ClientJoin = 10, ClientPost = 11 }
-   
+
      async fn handle_join(
          msg: Message<ClientMessage>, // Assume it's
          ClientMessage::Join conn_info: ConnectionInfo,
@@ -1194,7 +1198,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
              reason: "Invalid Join message".to_string()
          }))
      }
-   
+
      async fn handle_post(
         msg: Message<ClientMessage>, // Assume it's Client Message::Post
         conn_info: ConnectionInfo,
@@ -1208,7 +1212,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
              println!("User '{}' posted: {}", user_name, content);
          }
      }
-   
+
      #[tokio::main]
      async fn main() -> std::io::Result<()> {
          let chat_state = Arc::new(Mutex::new(ChatRoomState {
