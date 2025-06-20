@@ -17,7 +17,7 @@ use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 
 use crate::{
-    frame::{FrameProcessor, LengthPrefixedProcessor},
+    frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
     message::Message,
     serializer::{BincodeSerializer, Serializer},
 };
@@ -147,12 +147,16 @@ where
     S: Serializer + Default,
     C: Send + 'static,
 {
+    ///
+    /// Initialises empty routes, services, middleware, and application data.
+    /// Sets the default frame processor and serializer, with no connection
+    /// lifecycle hooks.
     fn default() -> Self {
         Self {
             routes: HashMap::new(),
             services: Vec::new(),
             middleware: Vec::new(),
-            frame_processor: Box::new(LengthPrefixedProcessor),
+            frame_processor: Box::new(LengthPrefixedProcessor::new(LengthFormat::default())),
             serializer: S::default(),
             app_data: HashMap::new(),
             on_connect: None,

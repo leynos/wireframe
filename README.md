@@ -92,7 +92,8 @@ encoded using the application's configured serializer and written back through
 the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L718-L724】.
 
 The included `LengthPrefixedProcessor` illustrates a simple framing strategy
-based on a big‑endian length
+that prefixes each frame with its length. The format is configurable (prefix
+size and endianness) and defaults to a 4‑byte big‑endian length
 prefix【F:docs/rust-binary-router-library-design.md†L1076-L1117】.
 
 ## Connection Lifecycle
@@ -113,9 +114,9 @@ when the connection ends.
 
 Extractors are types that implement `FromMessageRequest`. When a handler lists
 an extractor as a parameter, `wireframe` automatically constructs it using the
-incoming \[`MessageRequest`\] and remaining \[`Payload`\]. Built‑in extractors like
-`Message<T>`, `SharedState<T>` and `ConnectionInfo` decode the payload, access
-app state or expose peer information.
+incoming \[`MessageRequest`\] and remaining \[`Payload`\]. Built‑in extractors
+like `Message<T>`, `SharedState<T>` and `ConnectionInfo` decode the payload,
+access app state or expose peer information.
 
 Custom extractors let you centralize parsing and validation logic that would
 otherwise be duplicated across handlers. A session token parser, for example,
@@ -168,9 +169,9 @@ let logging = from_fn(|req, next| async move {
 
 ## Current Limitations
 
-Connection handling now processes frames and routes messages, but the
-server is still experimental. Release builds fail to compile, so the
-library cannot be used accidentally in production.
+Connection handling now processes frames and routes messages, but the server is
+still experimental. Release builds fail to compile, so the library cannot be
+used accidentally in production.
 
 ## Roadmap
 
