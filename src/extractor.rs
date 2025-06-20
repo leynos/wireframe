@@ -95,7 +95,7 @@ pub trait FromMessageRequest: Sized {
 pub struct SharedState<T: Send + Sync>(Arc<T>);
 
 impl<T: Send + Sync> SharedState<T> {
-    /// Construct a new [`SharedState`].
+    /// Creates a new [`SharedState`] instance wrapping the provided `Arc<T>`.
     ///
     /// # Examples
     ///
@@ -109,19 +109,6 @@ impl<T: Send + Sync> SharedState<T> {
     /// assert_eq!(*state, 5);
     /// ```
     #[must_use]
-    /// Creates a new `SharedState` instance wrapping the provided `Arc<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use std::sync::Arc;
-    ///
-    /// use wireframe::extractor::SharedState;
-    ///
-    /// let state = Arc::new(42);
-    /// let shared: SharedState<u32> = state.clone().into();
-    /// assert_eq!(*shared, 42);
-    /// ```
     #[deprecated(since = "0.2.0", note = "construct via `inner.into()` instead")]
     pub fn new(inner: Arc<T>) -> Self { Self(inner) }
 }
@@ -204,9 +191,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// let state = Arc::new(42);
     /// let shared: SharedState<u32> = state.clone().into();
     /// assert_eq!(*shared, 42);
-    /// Returns a reference to the inner value.
-///
-/// This enables transparent access to the wrapped type via dereferencing.
+    /// ```
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
@@ -215,19 +200,18 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
 pub struct Message<T>(T);
 
 impl<T> Message<T> {
-    /// Consume the extractor, returning the inner message.
-    #[must_use]
     /// Consumes the extractor and returns the inner deserialised message value.
-pub fn into_inner(self) -> T { self.0 }
+    #[must_use]
+    pub fn into_inner(self) -> T { self.0 }
 }
 
 impl<T> std::ops::Deref for Message<T> {
     type Target = T;
 
     /// Returns a reference to the inner value.
-///
-/// This enables transparent access to the wrapped type via dereferencing.
-fn deref(&self) -> &Self::Target { &self.0 }
+    ///
+    /// This enables transparent access to the wrapped type via dereferencing.
+    fn deref(&self) -> &Self::Target { &self.0 }
 }
 
 impl<T> FromMessageRequest for Message<T>
@@ -238,7 +222,7 @@ where
 
     /// Attempts to extract and deserialize a message of type `T` from the payload.
     ///
-    /// Advances the payload by the number of bytes consumed during deserialization.  
+    /// Advances the payload by the number of bytes consumed during deserialization.
     /// Returns an error if the payload cannot be decoded into the target type.
     ///
     /// # Returns
@@ -261,10 +245,9 @@ pub struct ConnectionInfo {
 }
 
 impl ConnectionInfo {
-    /// Returns the peer's socket address, if known.
-    #[must_use]
     /// Returns the peer's socket address for the current connection, if available.
-pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
+    #[must_use]
+    pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
 }
 
 impl FromMessageRequest for ConnectionInfo {
@@ -272,7 +255,8 @@ impl FromMessageRequest for ConnectionInfo {
 
     /// Extracts connection metadata from the message request.
     ///
-    /// Returns a `ConnectionInfo` containing the peer's socket address, if available. This extraction is infallible.
+    /// Returns a `ConnectionInfo` containing the peer's socket address, if available. This
+    /// extraction is infallible.
     fn from_message_request(
         req: &MessageRequest,
         _payload: &mut Payload<'_>,

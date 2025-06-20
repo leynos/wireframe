@@ -11,8 +11,9 @@ struct TestMsg(u8);
 #[test]
 /// Tests that a message can be extracted from a payload and that the payload cursor advances fully.
 ///
-/// Verifies that a `TestMsg` instance serialised into bytes can be correctly extracted from a `Payload`
-/// using `Message::<TestMsg>::from_message_request`, and asserts that the payload has no remaining unread data after extraction.
+/// Verifies that a `TestMsg` instance serialised into bytes can be correctly extracted from a
+/// `Payload` using `Message::<TestMsg>::from_message_request`, and asserts that the payload has no
+/// remaining unread data after extraction.
 fn message_extractor_parses_and_advances() {
     let msg = TestMsg(42);
     let bytes = msg.to_bytes().unwrap();
@@ -27,7 +28,8 @@ fn message_extractor_parses_and_advances() {
 }
 
 #[test]
-/// Tests that `ConnectionInfo` correctly reports the peer socket address extracted from a `MessageRequest`.
+/// Tests that `ConnectionInfo` correctly reports the peer socket address extracted from a
+/// `MessageRequest`.
 fn connection_info_reports_peer() {
     let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
     let req = MessageRequest {
@@ -40,10 +42,11 @@ fn connection_info_reports_peer() {
 }
 
 #[test]
-/// Tests that shared state of type `u8` can be successfully extracted from a `MessageRequest`'s `app_data`.
+/// Tests that shared state of type `u8` can be successfully extracted from a `MessageRequest`'s
+/// `app_data`.
 ///
-/// Inserts an `Arc<u8>` into the request's shared state, extracts it using the `SharedState` extractor,
-/// and asserts that the extracted value matches the original.
+/// Inserts an `Arc<u8>` into the request's shared state, extracts it using the `SharedState`
+/// extractor, and asserts that the extracted value matches the original.
 fn shared_state_extractor() {
     let mut data = HashMap::default();
     data.insert(

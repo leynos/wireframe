@@ -25,10 +25,7 @@ impl<'a, S> Next<'a, S>
 where
     S: Service + ?Sized,
 {
-    /// Create a new [`Next`] wrapping the given service.
-    #[inline]
-    #[must_use]
-    /// Creates a new `Next` instance wrapping a reference to the given service.
+    /// Creates a new [`Next`] instance wrapping a reference to the given service.
     ///
     /// # Examples
     ///
@@ -46,6 +43,8 @@ where
     /// let service = MyService;
     /// let next = Next::new(&service);
     /// ```
+    #[inline]
+    #[must_use]
     pub fn new(service: &'a S) -> Self { Self { service } }
 
     /// Call the next service with the provided request.
