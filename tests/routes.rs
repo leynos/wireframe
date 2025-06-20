@@ -30,7 +30,7 @@ async fn handler_receives_message_and_echoes_response() {
     let called_clone = called.clone();
     let app = WireframeApp::new()
         .unwrap()
-        .frame_processor(LengthPrefixedProcessor)
+        .frame_processor(LengthPrefixedProcessor::default())
         .route(
             1,
             Box::new(move |_| {
@@ -49,14 +49,13 @@ async fn handler_receives_message_and_echoes_response() {
     };
     let env_bytes = BincodeSerializer.serialize(&env).unwrap();
     let mut framed = BytesMut::new();
-    LengthPrefixedProcessor
-        .encode(&env_bytes, &mut framed)
-        .unwrap();
+    let processor = LengthPrefixedProcessor::default();
+    processor.encode(&env_bytes, &mut framed).unwrap();
 
     let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
 
     let mut buf = BytesMut::from(&out[..]);
-    let frame = LengthPrefixedProcessor.decode(&mut buf).unwrap().unwrap();
+    let frame = processor.decode(&mut buf).unwrap().unwrap();
     let (resp_env, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frame)
         .unwrap();
