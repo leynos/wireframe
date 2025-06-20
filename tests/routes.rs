@@ -8,13 +8,13 @@ use rstest::rstest;
 use wireframe::{
     Serializer,
     app::WireframeApp,
-    frame::{FrameProcessor, LengthPrefixedProcessor},
+    frame::FrameProcessor,
     message::Message,
     serializer::BincodeSerializer,
 };
 
 mod util;
-use util::{processor, run_app_with_frame};
+use util::{default_processor, run_app_with_frame};
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestEnvelope {
@@ -30,6 +30,7 @@ struct Echo(u8);
 async fn handler_receives_message_and_echoes_response(processor: LengthPrefixedProcessor) {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
+    let processor = default_processor();
     let app = WireframeApp::new()
         .unwrap()
         .frame_processor(processor.clone())
