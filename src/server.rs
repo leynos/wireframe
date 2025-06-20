@@ -183,9 +183,6 @@ where
         self
     }
 
-    /// Get the configured worker count.
-    #[inline]
-    #[must_use]
     /// Returns the configured number of worker tasks for the server.
     ///
     /// # Examples
@@ -197,6 +194,8 @@ where
     /// let server = WireframeServer::new(factory);
     /// assert!(server.worker_count() >= 1);
     /// ```
+    #[inline]
+    #[must_use]
     pub const fn worker_count(&self) -> usize { self.workers }
 
     /// Get the socket address the server is bound to, if available.
