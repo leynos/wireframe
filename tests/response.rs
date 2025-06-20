@@ -4,6 +4,7 @@
 //! write failures and encode errors.
 
 use bytes::BytesMut;
+use rstest::rstest;
 use wireframe::{
     app::WireframeApp,
     frame::{Endianness, FrameProcessor, LengthFormat, LengthPrefixedProcessor},
@@ -93,21 +94,16 @@ impl tokio::io::AsyncWrite for FailingWriter {
         _: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         std::task::Poll::Ready(Ok(()))
-    }
+#[rstest]
+#[case(LengthFormat::u16_be(), vec![1, 2, 3, 4], vec![0x00, 0x04])]
+#[case(LengthFormat::u32_le(), vec![9, 8, 7], vec![3, 0, 0, 0])]
+fn custom_length_roundtrip(
+    #[case] fmt: LengthFormat,
+    #[case] frame: Vec<u8>,
+    #[case] prefix: Vec<u8>,
+) {
+    assert_eq!(&buf[..prefix.len()], &prefix[..]);
 
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-}
-
-#[tokio::test]
-/// Tests that `send_response` correctly propagates I/O errors encountered during writing.
-///
-/// This test uses a writer that always fails on write operations and asserts that
-/// the resulting error is of the `Io` variant.
 async fn send_response_propagates_write_error() {
     let app = WireframeApp::new()
         .unwrap()

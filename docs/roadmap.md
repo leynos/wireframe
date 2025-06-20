@@ -88,8 +88,8 @@ after formatting. Line numbers below refer to that file.
   - [ ] Implement middleware using `Transform`/`Service` traits.
 
   - [x] Implement `ServiceRequest` and `ServiceResponse` wrappers (lines
-    866-899) and introduce a `Next` helper to build the asynchronous call
-    chain. Trait definitions live in
+    866-899) and introduce a `Next` helper to build the asynchronous call chain.
+    Trait definitions live in
     [`src/middleware.rs`](../src/middleware.rs#L71-L84).
 
     - [ ] Provide a `from_fn` helper for functional middleware.
