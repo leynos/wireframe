@@ -1,7 +1,8 @@
-//! Traits and helpers for request middleware.
+//! Request middleware building blocks.
 //!
-//! Middleware components implement [`Transform`] to wrap services and
-//! process `ServiceRequest` instances before passing them along the chain.
+//! Middleware can inspect or modify [`ServiceRequest`] values before they reach
+//! the underlying [`Service`]. Implement [`Transform`] to wrap services or use
+//! [`from_fn`] to create middleware from an async function.
 
 use async_trait::async_trait;
 
