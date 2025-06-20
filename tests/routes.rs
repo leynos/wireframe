@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use bytes::BytesMut;
+use rstest::rstest;
 use wireframe::{
     Serializer,
     app::WireframeApp,
@@ -24,6 +25,7 @@ struct TestEnvelope {
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Echo(u8);
 
+#[rstest]
 #[tokio::test]
 async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
