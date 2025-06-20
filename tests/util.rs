@@ -80,9 +80,3 @@ pub async fn run_app_with_frames_with_capacity(
     server_task.await.unwrap();
     Ok(buf)
 }
-
-/// Convenience for constructing a default length-prefixed processor.
-#[must_use]
-pub fn default_processor() -> wireframe::frame::LengthPrefixedProcessor {
-    wireframe::frame::LengthPrefixedProcessor::default()
-}
