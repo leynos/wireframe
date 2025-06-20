@@ -35,6 +35,8 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
 }
 
 #[tokio::test]
+/// Tests that sending a response serialises and frames the data correctly,
+/// and that the response can be decoded and deserialised back to its original value asynchronously.
 async fn send_response_encodes_and_frames() {
     let app = WireframeApp::new()
         .unwrap()
@@ -52,6 +54,9 @@ async fn send_response_encodes_and_frames() {
 }
 
 #[tokio::test]
+/// Tests that decoding with an incomplete length prefix header returns `None` and does not consume any bytes from the buffer.
+///
+/// This ensures that the decoder waits for the full header before attempting to decode a frame.
 async fn length_prefixed_decode_requires_complete_header() {
     let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
@@ -60,6 +65,10 @@ async fn length_prefixed_decode_requires_complete_header() {
 }
 
 #[tokio::test]
+/// Tests that decoding with a complete length prefix but incomplete frame data returns `None`
+/// and retains all bytes in the buffer.
+///
+/// Ensures that the decoder does not consume any bytes when the full frame is not yet available.
 async fn length_prefixed_decode_requires_full_frame() {
     let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
@@ -95,6 +104,10 @@ impl tokio::io::AsyncWrite for FailingWriter {
 }
 
 #[tokio::test]
+/// Tests that `send_response` correctly propagates I/O errors encountered during writing.
+///
+/// This test uses a writer that always fails on write operations and asserts that
+/// the resulting error is of the `Io` variant.
 async fn send_response_propagates_write_error() {
     let app = WireframeApp::new()
         .unwrap()
@@ -109,6 +122,10 @@ async fn send_response_propagates_write_error() {
 }
 
 #[tokio::test]
+/// Tests that `send_response` returns a serialization error when encoding fails.
+///
+/// This test sends a `FailingResp` using `send_response` and asserts that the resulting
+/// error is of the `Serialize` variant, indicating a failure during response encoding.
 async fn send_response_returns_encode_error() {
     let app = WireframeApp::new().unwrap();
     let err = app
@@ -119,6 +136,10 @@ async fn send_response_returns_encode_error() {
 }
 
 #[test]
+/// Tests roundtrip encoding and decoding of a frame using a two-byte big-endian length prefix.
+///
+/// Verifies that a frame encoded with a `LengthPrefixedProcessor` configured for a 2-byte
+/// big-endian length format can be correctly decoded back to its original contents.
 fn custom_two_byte_big_endian_roundtrip() {
     let fmt = LengthFormat::u16_be();
     let processor = LengthPrefixedProcessor::new(fmt);
@@ -130,6 +151,10 @@ fn custom_two_byte_big_endian_roundtrip() {
 }
 
 #[test]
+/// Tests roundtrip encoding and decoding of a frame using a four-byte little-endian length prefix.
+///
+/// Verifies that the encoded buffer contains the correct little-endian length prefix and that
+/// decoding restores the original frame.
 fn custom_four_byte_little_endian_roundtrip() {
     let fmt = LengthFormat::u32_le();
     let processor = LengthPrefixedProcessor::new(fmt);

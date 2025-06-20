@@ -147,6 +147,10 @@ where
     S: Serializer + Default,
     C: Send + 'static,
 {
+    /// Creates a new `WireframeApp` instance with default configuration.
+    ///
+    /// Initialises empty routes, services, middleware, and application data. Sets the
+    /// default frame processor and serializer, with no connection lifecycle hooks.
     fn default() -> Self {
         Self {
             routes: HashMap::new(),

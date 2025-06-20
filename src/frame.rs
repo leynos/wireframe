@@ -25,26 +25,47 @@ pub struct LengthFormat {
 }
 
 impl LengthFormat {
-    /// Create a new [`LengthFormat`].
+    /// Creates a new `LengthFormat` with the specified number of bytes and
+    /// endianness for the length prefix.
+    ///
+    /// # Parameters
+    /// - `bytes`: The number of bytes used for the length prefix.
+    /// - `endianness`: The byte order for encoding and decoding the length prefix.
+    ///
+    /// # Returns
+    /// A `LengthFormat` configured with the given size and endianness.
     #[must_use]
     pub const fn new(bytes: usize, endianness: Endianness) -> Self { Self { bytes, endianness } }
 
-    /// Two byte big-endian prefix.
+    /// Creates a `LengthFormat` for a 2-byte big-endian length prefix.
     #[must_use]
     pub const fn u16_be() -> Self { Self::new(2, Endianness::Big) }
 
-    /// Two byte little-endian prefix.
+    /// Creates a `LengthFormat` for a 2-byte little-endian length prefix.
     #[must_use]
     pub const fn u16_le() -> Self { Self::new(2, Endianness::Little) }
 
-    /// Four byte big-endian prefix.
+    /// Creates a `LengthFormat` for a 4-byte big-endian length prefix.
     #[must_use]
     pub const fn u32_be() -> Self { Self::new(4, Endianness::Big) }
 
-    /// Four byte little-endian prefix.
+    /// Creates a `LengthFormat` for a 4-byte little-endian length prefix.
     #[must_use]
     pub const fn u32_le() -> Self { Self::new(4, Endianness::Little) }
 
+    /// Reads a length prefix from a byte slice according to the configured prefix size and
+    /// endianness.
+    ///
+    /// # Parameters
+    /// - `bytes`: The byte slice containing the length prefix. Must be at least as long as the
+    ///   configured prefix size.
+    ///
+    /// # Returns
+    /// The decoded length as a `usize` if successful.
+    ///
+    /// # Errors
+    /// Returns an error if the prefix size is unsupported or if the decoded length does not fit in
+    /// a `usize`.
     fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
         let len = match (self.bytes, self.endianness) {
             (1, _) => u64::from(u8::from_ne_bytes([bytes[0]])),
@@ -72,6 +93,18 @@ impl LengthFormat {
         usize::try_from(len).map_err(|_| io::Error::other("frame too large"))
     }
 
+    /// Writes a length prefix to the destination buffer using the configured size and endianness.
+    ///
+    /// Returns an error if the length is too large to fit in the configured prefix size or if the
+    /// prefix size is unsupported.
+    ///
+    /// # Parameters
+    /// - `len`: The length value to encode and write.
+    /// - `dst`: The buffer to which the encoded length prefix will be appended.
+    ///
+    /// # Errors
+    /// Returns an error if `len` exceeds the maximum value for the configured prefix size or if the
+    /// prefix size is not supported.
     fn write_len(&self, len: usize, dst: &mut BytesMut) -> io::Result<()> {
         match (self.bytes, self.endianness) {
             (1, _) => dst.put_u8(
@@ -120,6 +153,9 @@ impl LengthFormat {
 }
 
 impl Default for LengthFormat {
+    /// Returns a `LengthFormat` using a 4-byte big-endian length prefix.
+    ///
+    /// This is the default format for length-prefixed framing.
     fn default() -> Self { Self::u32_be() }
 }
 
@@ -159,12 +195,24 @@ pub struct LengthPrefixedProcessor {
 }
 
 impl LengthPrefixedProcessor {
-    /// Construct a processor with the provided [`LengthFormat`].
+    /// Creates a new `LengthPrefixedProcessor` with the specified length prefix
+    /// format.
+    ///
+    /// # Parameters
+    /// - `format`: The length prefix format to use for framing.
+    ///
+    /// # Returns
+    /// A `LengthPrefixedProcessor` configured with the given length format.
     #[must_use]
     pub const fn new(format: LengthFormat) -> Self { Self { format } }
 }
 
 impl Default for LengthPrefixedProcessor {
+    /// Creates a `LengthPrefixedProcessor` using the default length format (4-byte big-endian
+    /// prefix).
+    ///
+    /// # Returns
+    /// A processor configured for 4-byte big-endian length-prefixed framing.
     fn default() -> Self { Self::new(LengthFormat::default()) }
 }
 
@@ -172,6 +220,13 @@ impl FrameProcessor for LengthPrefixedProcessor {
     type Frame = Vec<u8>;
     type Error = std::io::Error;
 
+    /// Attempts to decode a single length-prefixed frame from the source buffer.
+    ///
+    /// Returns `Ok(Some(frame))` if a complete frame is available, `Ok(None)` if
+    /// more data is needed, or an error if the length prefix is invalid or cannot
+    /// be read according to the configured format.
+    ///
+    /// The source buffer is advanced past the decoded frame and its length prefix.
     fn decode(&self, src: &mut BytesMut) -> Result<Option<Self::Frame>, Self::Error> {
         if src.len() < self.format.bytes {
             return Ok(None);
@@ -184,6 +239,10 @@ impl FrameProcessor for LengthPrefixedProcessor {
         Ok(Some(src.split_to(len).to_vec()))
     }
 
+    /// Encodes a frame by prefixing it with its length and appending it to the destination buffer.
+    ///
+    /// The length prefix format is determined by the processor's configuration. Returns an error
+    /// if the frame length cannot be represented in the configured format.
     fn encode(&self, frame: &Self::Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.reserve(self.format.bytes + frame.len());
         self.format.write_len(frame.len(), dst)?;
