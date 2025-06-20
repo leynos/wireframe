@@ -190,6 +190,7 @@ pub trait FrameProcessor: Send + Sync {
 }
 
 /// Simple length-prefixed framing using a configurable length prefix.
+#[derive(Clone)]
 pub struct LengthPrefixedProcessor {
     format: LengthFormat,
 }

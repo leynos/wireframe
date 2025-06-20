@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use bytes::BytesMut;
+use rstest::rstest;
 use wireframe::{
     Serializer,
     app::WireframeApp,
@@ -13,7 +14,7 @@ use wireframe::{
 };
 
 mod util;
-use util::run_app_with_frame;
+use util::{processor, run_app_with_frame};
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestEnvelope {
@@ -24,13 +25,14 @@ struct TestEnvelope {
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Echo(u8);
 
+#[rstest]
 #[tokio::test]
-async fn handler_receives_message_and_echoes_response() {
+async fn handler_receives_message_and_echoes_response(processor: LengthPrefixedProcessor) {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
     let app = WireframeApp::new()
         .unwrap()
-        .frame_processor(LengthPrefixedProcessor)
+        .frame_processor(processor.clone())
         .route(
             1,
             Box::new(move |_| {
@@ -49,14 +51,12 @@ async fn handler_receives_message_and_echoes_response() {
     };
     let env_bytes = BincodeSerializer.serialize(&env).unwrap();
     let mut framed = BytesMut::new();
-    LengthPrefixedProcessor
-        .encode(&env_bytes, &mut framed)
-        .unwrap();
+    processor.encode(&env_bytes, &mut framed).unwrap();
 
     let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
 
     let mut buf = BytesMut::from(&out[..]);
-    let frame = LengthPrefixedProcessor.decode(&mut buf).unwrap().unwrap();
+    let frame = processor.decode(&mut buf).unwrap().unwrap();
     let (resp_env, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frame)
         .unwrap();

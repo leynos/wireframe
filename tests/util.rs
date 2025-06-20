@@ -1,5 +1,6 @@
+use rstest::fixture;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, duplex};
-use wireframe::app::WireframeApp;
+use wireframe::{app::WireframeApp, frame::LengthPrefixedProcessor};
 
 /// Feed a single frame into `app` and collect the response bytes.
 ///
@@ -12,6 +13,13 @@ use wireframe::app::WireframeApp;
 /// Panics if the spawned task running the application panics.
 /// Optional duplex buffer capacity for `run_app_with_frame`.
 const DEFAULT_CAPACITY: usize = 4096;
+
+/// Create a default length-prefixed frame processor for tests.
+#[fixture]
+#[rustfmt::skip]
+pub fn processor() -> LengthPrefixedProcessor {
+    LengthPrefixedProcessor::default()
+}
 
 /// Run `app` with a single input `frame` using the default buffer capacity.
 ///
