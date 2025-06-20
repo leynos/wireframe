@@ -4,6 +4,8 @@
 //! the underlying [`Service`]. Implement [`Transform`] to wrap services or use
 //! [`from_fn`] to create middleware from an async function.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 /// Incoming request wrapper passed through middleware.
@@ -78,7 +80,7 @@ where
     /// # impl Service for MyService {
     /// #     type Error = std::convert::Infallible;
     /// #     async fn call(&self, _req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-    /// #         Ok(ServiceResponse)
+    /// #         Ok(ServiceResponse::default())
     /// #     }
     /// # }
     /// let service = MyService;
@@ -163,7 +165,7 @@ impl<F> FromFn<F> {
 /// # impl wireframe::middleware::Service for MyService {
 /// #     type Error = std::convert::Infallible;
 /// #     async fn call(&self, _req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-/// #         Ok(ServiceResponse)
+/// #         Ok(ServiceResponse::default())
 /// #     }
 /// # }
 /// let mw = from_fn(logging);
