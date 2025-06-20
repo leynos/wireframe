@@ -63,7 +63,8 @@ async fn middleware_applied_in_reverse_order() {
     let env = Envelope::new(1, vec![b'X']);
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).unwrap();
-    let processor = LengthPrefixedProcessor;
+    // Use the default 4-byte big-endian length prefix for framing
+    let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::new();
     processor.encode(&bytes, &mut buf).unwrap();
     client.write_all(&buf).await.unwrap();

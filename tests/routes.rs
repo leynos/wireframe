@@ -35,7 +35,7 @@ async fn handler_receives_message_and_echoes_response() {
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
             1,
-            Box::new(move |_| {
+            std::sync::Arc::new(move |_| {
                 let called_inner = called_clone.clone();
                 Box::pin(async move {
                     called_inner.fetch_add(1, Ordering::SeqCst);
@@ -75,7 +75,7 @@ async fn multiple_frames_processed_in_sequence() {
     let app = WireframeApp::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())
-        .route(1, Box::new(|_| Box::pin(async {})))
+        .route(1, std::sync::Arc::new(|_| Box::pin(async {})))
         .unwrap();
 
     let frames: Vec<Vec<u8>> = (1u8..=2)
