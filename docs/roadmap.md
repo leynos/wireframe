@@ -107,9 +107,9 @@ after formatting. Line numbers below refer to that file.
     use wireframe::middleware::from_fn;
 
     let logging = from_fn(|req, next| async move {
-        tracing::info!("request_frame = {:?}", req.frame());
+        tracing::info!("received request: {:?}", req);
         let mut res = next.call(req).await?;
-        tracing::info!("response_frame = {:?}", res.frame());
+        tracing::info!("sending response: {:?}", res);
         Ok(res)
     });
     ```

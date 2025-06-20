@@ -13,7 +13,8 @@ reduce this boilerplate through layered abstractions:
 
 - **Transport adapter** built on Tokio I/O
 - **Framing layer** for length‑prefixed or custom frames
-- **Connection preamble** with customizable validation callbacks \[[docs](docs/preamble-validator.md)\]
+- **Connection preamble** with customizable validation callbacks
+  \[[docs](docs/preamble-validator.md)\]
 - Call `with_preamble::<T>()` before registering success or failure callbacks
 - **Serialization engine** using `bincode` or a `wire-rs` wrapper
 - **Routing engine** that dispatches messages by ID
@@ -55,7 +56,8 @@ extractor【F:docs/rust-binary-router-library-design.md†L616-L704】.
 
 Handlers are asynchronous functions whose parameters implement extractor traits
 and may return responses implementing the `Responder` trait. This pattern
-mirrors Actix Web handlers and keeps protocol logic concise【F:docs/rust-binary-router-library-design.md†L676-L704】.
+mirrors Actix Web handlers and keeps protocol logic
+concise【F:docs/rust-binary-router-library-design.md†L676-L704】.
 
 ## Example
 
@@ -86,17 +88,18 @@ binary protocol server【F:docs/rust-binary-router-library-design.md†L1120-L11
 ## Response Serialization and Framing
 
 Handlers can return types implementing the `Responder` trait. These values are
-encoded using the application's configured serializer and written
-back through the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L718-L724】.
+encoded using the application's configured serializer and written back through
+the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L718-L724】.
 
 The included `LengthPrefixedProcessor` illustrates a simple framing strategy
-based on a big‑endian length prefix【F:docs/rust-binary-router-library-design.md†L1076-L1117】.
+based on a big‑endian length
+prefix【F:docs/rust-binary-router-library-design.md†L1076-L1117】.
 
 ## Connection Lifecycle
 
-`WireframeApp` can run callbacks when a connection is opened or closed. The state
-produced by `on_connection_setup` is passed to `on_connection_teardown` when the
-connection ends.
+`WireframeApp` can run callbacks when a connection is opened or closed. The
+state produced by `on_connection_setup` is passed to `on_connection_teardown`
+when the connection ends.
 
 ```rust
     let app = WireframeApp::new()
@@ -147,6 +150,22 @@ async fn handle_ping(token: SessionToken, info: ConnectionInfo) {
 }
 ```
 
+## Middleware
+
+Middleware allows inspecting or modifying requests and responses. The `from_fn`
+helper builds middleware from an async function or closure:
+
+```rust
+use wireframe::middleware::from_fn;
+
+let logging = from_fn(|req, next| async move {
+    tracing::info!("received request: {:?}", req);
+    let res = next.call(req).await?;
+    tracing::info!("sending response: {:?}", res);
+    Ok(res)
+});
+```
+
 ## Current Limitations
 
 Connection handling now processes frames and routes messages, but the
@@ -161,5 +180,5 @@ extractor traits, and providing example applications【F:docs/roadmap.md†L1-L2
 
 ## License
 
-Wireframe is distributed under the terms of the ISC license.
-See [LICENSE](LICENSE) for details.
+Wireframe is distributed under the terms of the ISC license. See
+[LICENSE](LICENSE) for details.
