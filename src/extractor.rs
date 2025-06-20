@@ -1,8 +1,10 @@
-//! Request context types and extractor traits.
+//! Extractor and request context definitions.
 //!
-//! The `MessageRequest` struct carries connection metadata and shared
-//! application state. Implement [`FromMessageRequest`] to extract data
-//! for handlers.
+//! This module provides [`MessageRequest`], which carries connection
+//! metadata and shared application state, along with a set of extractor
+//! types. Implement [`FromMessageRequest`] for custom extractors to
+//! parse payload bytes or inspect connection info before your handler
+//! runs.
 
 use std::{
     any::{Any, TypeId},
@@ -10,6 +12,8 @@ use std::{
     net::SocketAddr,
     sync::Arc,
 };
+
+use crate::message::Message as WireMessage;
 
 /// Request context passed to extractors.
 ///
@@ -65,6 +69,12 @@ impl Payload<'_> {
 }
 
 /// Trait for extracting data from a [`MessageRequest`].
+///
+/// Types implementing this trait can be used as parameters to handler
+/// functions. When invoked, `wireframe` passes the current request metadata and
+/// message payload, allowing the extractor to parse bytes or inspect
+/// connection information. This makes it easy to share common parsing and
+/// validation logic across handlers.
 pub trait FromMessageRequest: Sized {
     /// Error type returned when extraction fails.
     type Error: std::error::Error + Send + Sync + 'static;
@@ -85,7 +95,7 @@ pub trait FromMessageRequest: Sized {
 pub struct SharedState<T: Send + Sync>(Arc<T>);
 
 impl<T: Send + Sync> SharedState<T> {
-    /// Construct a new [`SharedState`].
+    /// Creates a new [`SharedState`] instance wrapping the provided `Arc<T>`.
     ///
     /// # Examples
     ///
@@ -99,19 +109,6 @@ impl<T: Send + Sync> SharedState<T> {
     /// assert_eq!(*state, 5);
     /// ```
     #[must_use]
-    /// Creates a new `SharedState` instance wrapping the provided `Arc<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use std::sync::Arc;
-    ///
-    /// use wireframe::extractor::SharedState;
-    ///
-    /// let state = Arc::new(42);
-    /// let shared: SharedState<u32> = state.clone().into();
-    /// assert_eq!(*shared, 42);
-    /// ```
     #[deprecated(since = "0.2.0", note = "construct via `inner.into()` instead")]
     pub fn new(inner: Arc<T>) -> Self { Self(inner) }
 }
@@ -133,17 +130,34 @@ impl<T: Send + Sync> From<T> for SharedState<T> {
 pub enum ExtractError {
     /// No shared state of the requested type was found.
     MissingState(&'static str),
+    /// Failed to decode the message payload.
+    InvalidPayload(bincode::error::DecodeError),
 }
 
 impl std::fmt::Display for ExtractError {
+    /// Formats the `ExtractError` for display purposes.
+    ///
+    /// Displays a descriptive message for missing shared state or payload decoding errors.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
+            Self::InvalidPayload(e) => write!(f, "failed to decode payload: {e}"),
         }
     }
 }
 
-impl std::error::Error for ExtractError {}
+impl std::error::Error for ExtractError {
+    /// Returns the underlying error if this is an `InvalidPayload` variant.
+    ///
+    /// # Returns
+    /// An optional reference to the underlying decode error, or `None` if not applicable.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidPayload(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl<T> FromMessageRequest for SharedState<T>
 where
@@ -179,4 +193,76 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// assert_eq!(*shared, 42);
     /// ```
     fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+/// Extractor that deserializes the message payload into `T`.
+#[derive(Debug, Clone)]
+pub struct Message<T>(T);
+
+impl<T> Message<T> {
+    /// Consumes the extractor and returns the inner deserialised message value.
+    #[must_use]
+    pub fn into_inner(self) -> T { self.0 }
+}
+
+impl<T> std::ops::Deref for Message<T> {
+    type Target = T;
+
+    /// Returns a reference to the inner value.
+    ///
+    /// This enables transparent access to the wrapped type via dereferencing.
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl<T> FromMessageRequest for Message<T>
+where
+    T: WireMessage,
+{
+    type Error = ExtractError;
+
+    /// Attempts to extract and deserialize a message of type `T` from the payload.
+    ///
+    /// Advances the payload by the number of bytes consumed during deserialization.
+    /// Returns an error if the payload cannot be decoded into the target type.
+    ///
+    /// # Returns
+    /// - `Ok(Self)`: The successfully extracted and deserialized message.
+    /// - `Err(ExtractError::InvalidPayload)`: If deserialization fails.
+    fn from_message_request(
+        _req: &MessageRequest,
+        payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        let (msg, consumed) = T::from_bytes(payload.data).map_err(ExtractError::InvalidPayload)?;
+        payload.advance(consumed);
+        Ok(Self(msg))
+    }
+}
+
+/// Extractor providing peer connection metadata.
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectionInfo {
+    peer_addr: Option<SocketAddr>,
+}
+
+impl ConnectionInfo {
+    /// Returns the peer's socket address for the current connection, if available.
+    #[must_use]
+    pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
+}
+
+impl FromMessageRequest for ConnectionInfo {
+    type Error = std::convert::Infallible;
+
+    /// Extracts connection metadata from the message request.
+    ///
+    /// Returns a `ConnectionInfo` containing the peer's socket address, if available. This
+    /// extraction is infallible.
+    fn from_message_request(
+        req: &MessageRequest,
+        _payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            peer_addr: req.peer_addr,
+        })
+    }
 }

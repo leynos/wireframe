@@ -786,16 +786,50 @@ instance of each type can exist; later registrations overwrite earlier ones.
   a specific field in all messages, validate it, and provide a `UserSession`
   object to the handler.
 
+
 This extractor system, backed by Rust's strong type system, ensures that
 handlers receive correctly typed and validated data, significantly reducing the
 likelihood of runtime errors and boilerplate parsing code within the handler
 logic itself. Custom extractors are particularly valuable as they allow common,
-protocol-specific data extraction and validation logic (e.g., extracting and
-verifying a session token from a custom frame header) to be encapsulated into
-reusable components. This further reduces code duplication across multiple
+protocol-specific data extraction and validation logic (for example extracting
+and verifying a session token from a custom frame header) to be encapsulated
+into reusable components. This further reduces code duplication across multiple
 handlers and keeps the handler functions lean and focused on their specific
 business tasks, mirroring the benefits seen with Actix Web's `FromRequest`
 trait.
+
+```mermaid
+classDiagram
+    class FromMessageRequest {
+        <<trait>>
+        +from_message_request(req: &MessageRequest, payload: &mut Payload) Result<Self, Self::Error>
+        +Error
+    }
+    class Message~T~ {
+        +Message(T)
+        +into_inner() T
+        +deref() &T
+    }
+    class ConnectionInfo {
+        +peer_addr: Option<SocketAddr>
+        +peer_addr() Option<SocketAddr>
+    }
+    class SharedState~T~ {
+        +deref() &T
+    }
+    class ExtractError {
+        +MissingState(&'static str)
+        +InvalidPayload(DecodeError)
+    }
+    FromMessageRequest <|.. Message
+    FromMessageRequest <|.. ConnectionInfo
+    FromMessageRequest <|.. SharedState
+    SharedState --> ExtractError
+    ExtractError o-- DecodeError
+    Message o-- T
+    SharedState o-- T
+    ConnectionInfo o-- SocketAddr
+```
 
 ### 5.4. Middleware and Extensibility
 
