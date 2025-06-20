@@ -5,6 +5,9 @@ use wireframe::{
     server::WireframeServer,
 };
 
+/// Simple middleware demonstrating the `wrap` API.
+///
+/// `Middleware` has no hooks yet, so this type is just a marker.
 struct Logger;
 impl Middleware for Logger {}
 
@@ -15,7 +18,15 @@ async fn main() -> io::Result<()> {
             .unwrap()
             .wrap(Logger)
             .unwrap()
-            .route(1, Box::new(|_env| Box::pin(async {})))
+            .route(
+                1,
+                Box::new(|_| {
+                    Box::pin(async move {
+                        println!("echo request received");
+                        // `WireframeApp` automatically echoes the envelope back.
+                    })
+                }),
+            )
             .unwrap()
     };
 

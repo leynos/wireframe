@@ -37,6 +37,7 @@ async fn handler_receives_message_and_echoes_response() {
                 let called_inner = called_clone.clone();
                 Box::pin(async move {
                     called_inner.fetch_add(1, Ordering::SeqCst);
+                    // `WireframeApp` sends the envelope back automatically
                 })
             }),
         )
