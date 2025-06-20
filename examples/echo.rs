@@ -9,7 +9,7 @@ async fn main() -> io::Result<()> {
             .unwrap()
             .route(
                 1,
-                Box::new(|_| {
+                std::sync::Arc::new(|_| {
                     Box::pin(async move {
                         println!("echo request received");
                         // `WireframeApp` automatically echoes the envelope back.
