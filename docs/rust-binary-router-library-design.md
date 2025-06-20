@@ -397,7 +397,13 @@ way to define and process frames.
 
   "wireframe" could provide common `FrameProcessor` implementations (e.g., for
   length-prefixed frames) as part of its standard library, simplifying setup for
-  common protocol types.
+  common protocol types. The library ships with a `LengthPrefixedProcessor`. It
+  accepts a `LengthFormat` specifying the prefix size and byte order—for
+  example, `LengthFormat::u16_le()` or `LengthFormat::u32_be()`. Applications
+  configure it via
+  `WireframeApp::frame_processor(LengthPrefixedProcessor::new(format))`. The
+  `FrameProcessor` trait remains public, so custom implementations can be
+  supplied when required.
 
 - **Optional** `FrameMetadata` **Trait**: For protocols where routing decisions
   or pre-handler middleware logic might depend on information in a frame header
