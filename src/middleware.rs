@@ -4,17 +4,55 @@
 //! the underlying [`Service`]. Implement [`Transform`] to wrap services or use
 //! [`from_fn`] to create middleware from an async function.
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
 
 /// Incoming request wrapper passed through middleware.
 #[derive(Debug)]
-pub struct ServiceRequest;
+pub struct ServiceRequest {
+    frame: Vec<u8>,
+}
+
+impl ServiceRequest {
+    /// Create a new [`ServiceRequest`] from raw frame bytes.
+    #[must_use]
+    pub fn new(frame: Vec<u8>) -> Self { Self { frame } }
+
+    /// Borrow the underlying frame bytes.
+    #[must_use]
+    pub fn frame(&self) -> &[u8] { &self.frame }
+
+    /// Mutable access to the inner frame bytes.
+    #[must_use]
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> { &mut self.frame }
+
+    /// Consume the request, returning the inner frame bytes.
+    #[must_use]
+    pub fn into_inner(self) -> Vec<u8> { self.frame }
+}
 
 /// Response produced by a handler or middleware.
 #[derive(Debug, Default)]
-pub struct ServiceResponse;
+pub struct ServiceResponse {
+    frame: Vec<u8>,
+}
+
+impl ServiceResponse {
+    /// Create a new [`ServiceResponse`] containing the given frame bytes.
+    #[must_use]
+    pub fn new(frame: Vec<u8>) -> Self { Self { frame } }
+
+    /// Borrow the inner frame bytes.
+    #[must_use]
+    pub fn frame(&self) -> &[u8] { &self.frame }
+
+    /// Mutable access to the response frame bytes.
+    #[must_use]
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> { &mut self.frame }
+
+    /// Consume the response, yielding the raw frame bytes.
+    #[must_use]
+    pub fn into_inner(self) -> Vec<u8> { self.frame }
+}
 
 /// Continuation used by middleware to call the next service in the chain.
 pub struct Next<'a, S>
@@ -28,10 +66,7 @@ impl<'a, S> Next<'a, S>
 where
     S: Service + ?Sized,
 {
-    /// Create a new [`Next`] wrapping the given service.
-    #[inline]
-    #[must_use]
-    /// Creates a new `Next` instance wrapping a reference to the given service.
+    /// Creates a new `Next` instance wrapping a reference to `service`.
     ///
     /// # Examples
     ///
@@ -49,6 +84,8 @@ where
     /// let service = MyService;
     /// let next = Next::new(&service);
     /// ```
+    #[inline]
+    #[must_use]
     pub fn new(service: &'a S) -> Self { Self { service } }
 
     /// Call the next service with the provided request.

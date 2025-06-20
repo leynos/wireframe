@@ -102,11 +102,52 @@ state produced by `on_connection_setup` is passed to `on_connection_teardown`
 when the connection ends.
 
 ```rust
-let app = WireframeApp::new()
-    .on_connection_setup(|| async { 42u32 })
-    .on_connection_teardown(|state| async move {
-        println!("closing with {state}");
-    });
+    let app = WireframeApp::new()
+        .on_connection_setup(|| async { 42u32 })
+        .on_connection_teardown(|state| async move {
+            println!("closing with {state}");
+        });
+```
+
+## Custom Extractors
+
+Extractors are types that implement `FromMessageRequest`. When a handler lists
+an extractor as a parameter, `wireframe` automatically constructs it using the
+incoming \[`MessageRequest`\] and remaining \[`Payload`\]. Built‑in extractors like
+`Message<T>`, `SharedState<T>` and `ConnectionInfo` decode the payload, access
+app state or expose peer information.
+
+Custom extractors let you centralize parsing and validation logic that would
+otherwise be duplicated across handlers. A session token parser, for example,
+can verify the token before any route-specific code executes
+[Design Guide: Data Extraction and Type Safety](docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety).
+
+```rust
+use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
+
+pub struct SessionToken(String);
+
+impl FromMessageRequest for SessionToken {
+    type Error = std::convert::Infallible;
+
+    fn from_message_request(
+        _req: &MessageRequest,
+        payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        let len = payload.data[0] as usize;
+        let token = std::str::from_utf8(&payload.data[1..=len]).unwrap().to_string();
+        payload.advance(1 + len);
+        Ok(Self(token))
+    }
+}
+```
+
+Custom extractors integrate seamlessly with other parameters:
+
+```rust
+async fn handle_ping(token: SessionToken, info: ConnectionInfo) {
+    println!("{} from {:?}", token.0, info.peer_addr());
+}
 ```
 
 ## Middleware
@@ -127,9 +168,9 @@ let logging = from_fn(|req, next| async move {
 
 ## Current Limitations
 
-Connection processing is not implemented yet. After the optional preamble is
-read, the server logs a warning and immediately closes the stream. Release
-builds fail to compile to prevent accidental production use.
+Connection handling now processes frames and routes messages, but the
+server is still experimental. Release builds fail to compile, so the
+library cannot be used accidentally in production.
 
 ## Roadmap
 
