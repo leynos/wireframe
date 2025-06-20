@@ -402,7 +402,7 @@ way to define and process frames.
   example, `LengthFormat::u16_le()` or `LengthFormat::u32_be()`. Applications
   configure it via
   `WireframeApp::frame_processor(LengthPrefixedProcessor::new(format))`. The
-  `FrameProcessor` trait remains public so custom implementations can be
+  `FrameProcessor` trait remains public, so custom implementations can be
   supplied when required.
 
 - **Optional** `FrameMetadata` **Trait**: For protocols where routing decisions
