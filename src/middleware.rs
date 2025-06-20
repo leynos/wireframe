@@ -1,17 +1,58 @@
-//! Traits and helpers for request middleware.
+//! Middleware traits and helpers.
 //!
-//! Middleware components implement [`Transform`] to wrap services and
-//! process `ServiceRequest` instances before passing them along the chain.
+//! This module defines the asynchronous [`Service`] and [`Transform`] traits,
+//! along with [`ServiceRequest`] and [`ServiceResponse`] wrappers. Middleware
+//! components use the [`Next`] helper to call the next service in the chain.
 
 use async_trait::async_trait;
 
 /// Incoming request wrapper passed through middleware.
 #[derive(Debug)]
-pub struct ServiceRequest;
+pub struct ServiceRequest {
+    frame: Vec<u8>,
+}
+
+impl ServiceRequest {
+    /// Create a new [`ServiceRequest`] from raw frame bytes.
+    #[must_use]
+    pub fn new(frame: Vec<u8>) -> Self { Self { frame } }
+
+    /// Borrow the underlying frame bytes.
+    #[must_use]
+    pub fn frame(&self) -> &[u8] { &self.frame }
+
+    /// Mutable access to the inner frame bytes.
+    #[must_use]
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> { &mut self.frame }
+
+    /// Consume the request, returning the inner frame bytes.
+    #[must_use]
+    pub fn into_inner(self) -> Vec<u8> { self.frame }
+}
 
 /// Response produced by a handler or middleware.
 #[derive(Debug, Default)]
-pub struct ServiceResponse;
+pub struct ServiceResponse {
+    frame: Vec<u8>,
+}
+
+impl ServiceResponse {
+    /// Create a new [`ServiceResponse`] containing the given frame bytes.
+    #[must_use]
+    pub fn new(frame: Vec<u8>) -> Self { Self { frame } }
+
+    /// Borrow the inner frame bytes.
+    #[must_use]
+    pub fn frame(&self) -> &[u8] { &self.frame }
+
+    /// Mutable access to the response frame bytes.
+    #[must_use]
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> { &mut self.frame }
+
+    /// Consume the response, yielding the raw frame bytes.
+    #[must_use]
+    pub fn into_inner(self) -> Vec<u8> { self.frame }
+}
 
 /// Continuation used by middleware to call the next service in the chain.
 pub struct Next<'a, S>
@@ -25,7 +66,7 @@ impl<'a, S> Next<'a, S>
 where
     S: Service + ?Sized,
 {
-    /// Creates a new [`Next`] instance wrapping a reference to the given service.
+    /// Creates a new `Next` instance wrapping a reference to `service`.
     ///
     /// # Examples
     ///
