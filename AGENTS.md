@@ -95,11 +95,10 @@ management. Contributors should follow these best practices when working on the
 project:
 
 - Run `make fmt`, `make lint`, and `make test` before committing. These targets
-  wrap `cargo fmt`, `cargo clippy`, and `cargo test` with the appropriate
-  flags.
+  wrap `cargo fmt`, `cargo clippy`, and `cargo test` with the appropriate flags.
 - Clippy warnings MUST be disallowed.
-- Fix any warnings emitted during tests in the code itself rather than
-  silencing them.
+- Fix any warnings emitted during tests in the code itself rather than silencing
+  them.
 - Where a function is too long, extract meaningfully named helper functions
   adhering to separation of concerns and CQRS.
 - Where a function has too many parameters, group related parameters in
@@ -121,8 +120,8 @@ project:
 - Validate Markdown files using `markdownlint`.
 - Run `mdformat-all` after any documentation changes to format all Markdown
   files and fix table markup.
-- Validate Markdown Mermaid diagrams using the `nixie` CLI. The tool is
-  already installed; run `nixie` directly instead of using `npx`.
+- Validate Markdown Mermaid diagrams using the `nixie` CLI. The tool is already
+  installed; run `nixie` directly instead of using `npx`.
 
 ### Key Takeaway
 

@@ -784,7 +784,6 @@ instance of each type can exist; later registrations overwrite earlier ones.
   a specific field in all messages, validate it, and provide a `UserSession`
   object to the handler.
 
-
 This extractor system, backed by Rust's strong type system, ensures that
 handlers receive correctly typed and validated data, significantly reducing the
 likelihood of runtime errors and boilerplate parsing code within the handler
