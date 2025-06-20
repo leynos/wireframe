@@ -4,6 +4,8 @@
 //! the underlying [`Service`]. Implement [`Transform`] to wrap services or use
 //! [`from_fn`] to create middleware from an async function.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 /// Incoming request wrapper passed through middleware.
@@ -131,23 +133,28 @@ impl<F> FromFn<F> {
 /// ```
 pub fn from_fn<F>(f: F) -> FromFn<F> { FromFn::new(f) }
 
+/// Service wrapper that applies a middleware function to requests.
+///
+/// Created by [`FromFn::transform`], this type owns the wrapped service and an
+/// `Arc` to the middleware function. The function is invoked on each request
+/// with a [`ServiceRequest`] and [`Next`] continuation.
 pub struct FnService<S, F> {
     service: S,
-    f: F,
+    f: Arc<F>,
 }
 
 #[async_trait]
 impl<S, F, Fut> Service for FnService<S, F>
 where
     S: Service + 'static,
-    F: for<'a> Fn(ServiceRequest, Next<'a, S>) -> Fut + Send + Sync + Clone,
+    F: for<'a> Fn(ServiceRequest, Next<'a, S>) -> Fut + Send + Sync + 'static,
     Fut: std::future::Future<Output = Result<ServiceResponse, S::Error>> + Send,
 {
     type Error = S::Error;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         let next = Next::new(&self.service);
-        (self.f.clone())(req, next).await
+        (self.f.as_ref())(req, next).await
     }
 }
 
@@ -155,7 +162,7 @@ where
 impl<S, F, Fut> Transform<S> for FromFn<F>
 where
     S: Service + 'static,
-    F: for<'a> Fn(ServiceRequest, Next<'a, S>) -> Fut + Send + Sync + Clone,
+    F: for<'a> Fn(ServiceRequest, Next<'a, S>) -> Fut + Send + Sync + Clone + 'static,
     Fut: std::future::Future<Output = Result<ServiceResponse, S::Error>> + Send,
 {
     type Output = FnService<S, F>;
@@ -163,7 +170,7 @@ where
     async fn transform(&self, service: S) -> Self::Output {
         FnService {
             service,
-            f: self.f.clone(),
+            f: Arc::new(self.f.clone()),
         }
     }
 }
