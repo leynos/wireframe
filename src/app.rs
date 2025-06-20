@@ -501,13 +501,19 @@ where
                 *deser_failures = 0;
                 if let Some(service) = routes.get(&env.id) {
                     let request = ServiceRequest::new(env.msg);
-                    let resp = service.call(request).await.unwrap();
-                    let response = Envelope {
-                        id: env.id,
-                        msg: resp.into_inner(),
-                    };
-                    if let Err(e) = self.send_response(stream, &response).await {
-                        log::warn!("failed to send response: {e}");
+                    match service.call(request).await {
+                        Ok(resp) => {
+                            let response = Envelope {
+                                id: env.id,
+                                msg: resp.into_inner(),
+                            };
+                            if let Err(e) = self.send_response(stream, &response).await {
+                                log::warn!("failed to send response: {e}");
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("handler error for id {}: {e}", env.id);
+                        }
                     }
                 } else {
                     log::warn!("no handler for message id {}", env.id);
