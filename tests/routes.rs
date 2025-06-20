@@ -7,13 +7,13 @@ use bytes::BytesMut;
 use wireframe::{
     Serializer,
     app::WireframeApp,
-    frame::{FrameProcessor, LengthPrefixedProcessor},
+    frame::FrameProcessor,
     message::Message,
     serializer::BincodeSerializer,
 };
 
 mod util;
-use util::run_app_with_frame;
+use util::{default_processor, run_app_with_frame};
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestEnvelope {
@@ -28,9 +28,10 @@ struct Echo(u8);
 async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
+    let processor = default_processor();
     let app = WireframeApp::new()
         .unwrap()
-        .frame_processor(LengthPrefixedProcessor::default())
+        .frame_processor(processor)
         .route(
             1,
             Box::new(move |_| {
@@ -49,7 +50,6 @@ async fn handler_receives_message_and_echoes_response() {
     };
     let env_bytes = BincodeSerializer.serialize(&env).unwrap();
     let mut framed = BytesMut::new();
-    let processor = LengthPrefixedProcessor::default();
     processor.encode(&env_bytes, &mut framed).unwrap();
 
     let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
