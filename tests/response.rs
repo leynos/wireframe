@@ -55,7 +55,8 @@ async fn send_response_encodes_and_frames() {
 }
 
 #[tokio::test]
-/// Tests that decoding with an incomplete length prefix header returns `None` and does not consume any bytes from the buffer.
+/// Tests that decoding with an incomplete length prefix header returns `None` and does not consume
+/// any bytes from the buffer.
 ///
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 async fn length_prefixed_decode_requires_complete_header() {
@@ -94,6 +95,16 @@ impl tokio::io::AsyncWrite for FailingWriter {
         _: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
 #[rstest]
 #[case(LengthFormat::u16_be(), vec![1, 2, 3, 4], vec![0x00, 0x04])]
 #[case(LengthFormat::u32_le(), vec![9, 8, 7], vec![3, 0, 0, 0])]
@@ -102,8 +113,15 @@ fn custom_length_roundtrip(
     #[case] frame: Vec<u8>,
     #[case] prefix: Vec<u8>,
 ) {
+    let processor = LengthPrefixedProcessor::new(fmt);
+    let mut buf = BytesMut::new();
+    processor.encode(&frame, &mut buf).unwrap();
     assert_eq!(&buf[..prefix.len()], &prefix[..]);
+    let decoded = processor.decode(&mut buf).unwrap().unwrap();
+    assert_eq!(decoded, frame);
+}
 
+#[tokio::test]
 async fn send_response_propagates_write_error() {
     let app = WireframeApp::new()
         .unwrap()
@@ -111,6 +129,11 @@ async fn send_response_propagates_write_error() {
 
     let mut writer = FailingWriter;
     let err = app
+        .send_response(&mut writer, &TestResp(3))
+        .await
+        .expect_err("expected error");
+    assert!(matches!(err, wireframe::app::SendError::Io(_)));
+}
 
 #[test]
 fn encode_fails_for_unsupported_prefix_size() {
@@ -131,11 +154,6 @@ fn decode_fails_for_unsupported_prefix_size() {
     let err = processor.decode(&mut buf).expect_err("expected error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
-        .send_response(&mut writer, &TestResp(3))
-        .await
-        .expect_err("expected error");
-    assert!(matches!(err, wireframe::app::SendError::Io(_)));
-}
 
 #[tokio::test]
 /// Tests that `send_response` returns a serialization error when encoding fails.
@@ -149,35 +167,4 @@ async fn send_response_returns_encode_error() {
         .await
         .expect_err("expected error");
     assert!(matches!(err, wireframe::app::SendError::Serialize(_)));
-}
-
-#[test]
-/// Tests roundtrip encoding and decoding of a frame using a two-byte big-endian length prefix.
-///
-/// Verifies that a frame encoded with a `LengthPrefixedProcessor` configured for a 2-byte
-/// big-endian length format can be correctly decoded back to its original contents.
-fn custom_two_byte_big_endian_roundtrip() {
-    let fmt = LengthFormat::u16_be();
-    let processor = LengthPrefixedProcessor::new(fmt);
-    let frame = vec![1, 2, 3, 4];
-    let mut buf = BytesMut::new();
-    processor.encode(&frame, &mut buf).unwrap();
-    let decoded = processor.decode(&mut buf).unwrap().unwrap();
-    assert_eq!(decoded, frame);
-}
-
-#[test]
-/// Tests roundtrip encoding and decoding of a frame using a four-byte little-endian length prefix.
-///
-/// Verifies that the encoded buffer contains the correct little-endian length prefix and that
-/// decoding restores the original frame.
-fn custom_four_byte_little_endian_roundtrip() {
-    let fmt = LengthFormat::u32_le();
-    let processor = LengthPrefixedProcessor::new(fmt);
-    let frame = vec![9, 8, 7];
-    let mut buf = BytesMut::new();
-    processor.encode(&frame, &mut buf).unwrap();
-    assert_eq!(&buf[..4], u32::try_from(frame.len()).unwrap().to_le_bytes());
-    let decoded = processor.decode(&mut buf).unwrap().unwrap();
-    assert_eq!(decoded, frame);
 }
