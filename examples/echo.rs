@@ -1,22 +1,11 @@
 use std::io;
 
-use wireframe::{
-    app::{Middleware, WireframeApp},
-    server::WireframeServer,
-};
-
-/// Simple middleware demonstrating the `wrap` API.
-///
-/// `Middleware` has no hooks yet, so this type is just a marker.
-struct Logger;
-impl Middleware for Logger {}
+use wireframe::{app::WireframeApp, server::WireframeServer};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let factory = || {
         WireframeApp::new()
-            .unwrap()
-            .wrap(Logger)
             .unwrap()
             .route(
                 1,
