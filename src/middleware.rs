@@ -256,6 +256,8 @@ impl Service for RouteService {
     type Error = Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+        // The handler only borrows the envelope, allowing us to consume it
+        // afterwards to extract the response payload.
         let env = Envelope {
             id: self.id,
             msg: req.into_inner(),
