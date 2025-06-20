@@ -85,7 +85,7 @@ after formatting. Line numbers below refer to that file.
   - [ ] Support custom extractors implementing `FromMessageRequest` (lines
     842-858). Refer again to [`src/extractor.rs`](../src/extractor.rs#L39-L52).
 
-  - [ ] Implement middleware using `Transform`/`Service` traits.
+  - [x] Implement middleware using `Transform`/`Service` traits.
 
   - [x] Implement `ServiceRequest` and `ServiceResponse` wrappers (lines
     866-899) and introduce a `Next` helper to build the asynchronous call chain.
@@ -96,7 +96,7 @@ after formatting. Line numbers below refer to that file.
     - [x] Add tests verifying middleware can modify requests and observe
       responses.
 
-  - [ ] Register middleware with `WireframeApp::wrap` and build the chain around
+  - [x] Register middleware with `WireframeApp::wrap` and build the chain around
     handlers, so the last registered middleware runs first on requests and first
     on responses (lines 900-919). See the
     [`wrap` method](../src/app.rs#L73-L84).

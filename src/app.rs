@@ -19,6 +19,7 @@ use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 use crate::{
     frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
     message::Message,
+    middleware::{HandlerService, Service, ServiceRequest, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
 
@@ -67,9 +68,9 @@ pub type ConnectionTeardown<C> =
 /// without enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
 pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = ()> {
-    routes: HashMap<u32, Service>,
-    services: Vec<Service>,
-    middleware: Vec<Box<dyn Middleware>>,
+    routes: HashMap<u32, Handler>,
+    services: Vec<Handler>,
+    middleware: Vec<Box<dyn Transform<HandlerService, Output = HandlerService>>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
     app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
@@ -77,14 +78,16 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
     on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
 }
 
-/// Alias for boxed asynchronous handlers.
+/// Alias for asynchronous route handlers.
 ///
-/// A `Service` is a boxed function returning a [`Future`], enabling
+/// A `Handler` is an `Arc` to a function returning a [`Future`], enabling
 /// asynchronous execution of message handlers.
-pub type Service = Box<dyn Fn(&Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+pub type Handler = Arc<dyn Fn(&Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Trait representing middleware components.
-pub trait Middleware: Send + Sync {}
+pub trait Middleware: Transform<HandlerService, Output = HandlerService> + Send + Sync {}
+
+impl<T> Middleware for T where T: Transform<HandlerService, Output = HandlerService> + Send + Sync {}
 
 /// Top-level error type for application setup.
 #[derive(Debug)]
@@ -130,8 +133,18 @@ impl From<io::Error> for SendError {
 /// message identifier and raw payload bytes.
 #[derive(bincode::Decode, bincode::Encode)]
 pub struct Envelope {
-    id: u32,
-    msg: Vec<u8>,
+    pub(crate) id: u32,
+    pub(crate) msg: Vec<u8>,
+}
+
+impl Envelope {
+    /// Create a new [`Envelope`] with the provided id and payload.
+    #[must_use]
+    pub fn new(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+
+    /// Consume the envelope, returning its id and payload bytes.
+    #[must_use]
+    pub fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
 }
 
 /// Number of idle polls before terminating a connection.
@@ -193,7 +206,7 @@ where
     ///
     /// Returns [`WireframeError::DuplicateRoute`] if a handler for `id`
     /// has already been registered.
-    pub fn route(mut self, id: u32, handler: Service) -> Result<Self> {
+    pub fn route(mut self, id: u32, handler: Handler) -> Result<Self> {
         if self.routes.contains_key(&id) {
             return Err(WireframeError::DuplicateRoute(id));
         }
@@ -207,7 +220,7 @@ where
     ///
     /// This function always succeeds currently but uses [`Result`] for
     /// consistency with other builder methods.
-    pub fn service(mut self, handler: Service) -> Result<Self> {
+    pub fn service(mut self, handler: Handler) -> Result<Self> {
         self.services.push(handler);
         Ok(self)
     }
@@ -235,7 +248,7 @@ where
     /// This function currently always succeeds.
     pub fn wrap<M>(mut self, mw: M) -> Result<Self>
     where
-        M: Middleware + 'static,
+        M: Transform<HandlerService, Output = HandlerService> + Send + Sync + 'static,
     {
         self.middleware.push(Box::new(mw));
         Ok(self)
@@ -362,7 +375,9 @@ where
             None
         };
 
-        if let Err(e) = self.process_stream(&mut stream).await {
+        let routes = self.build_chains().await;
+
+        if let Err(e) = self.process_stream(&mut stream, &routes).await {
             log::warn!("connection terminated with error: {e}");
         }
 
@@ -371,7 +386,23 @@ where
         }
     }
 
-    async fn process_stream<W>(&self, stream: &mut W) -> io::Result<()>
+    async fn build_chains(&self) -> HashMap<u32, HandlerService> {
+        let mut routes = HashMap::new();
+        for (&id, handler) in &self.routes {
+            let mut service = HandlerService::new(id, handler.clone());
+            for mw in self.middleware.iter().rev() {
+                service = mw.transform(service).await;
+            }
+            routes.insert(id, service);
+        }
+        routes
+    }
+
+    async fn process_stream<W>(
+        &self,
+        stream: &mut W,
+        routes: &HashMap<u32, HandlerService>,
+    ) -> io::Result<()>
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
@@ -381,7 +412,7 @@ where
 
         loop {
             if let Some(frame) = self.frame_processor.decode(&mut buf)? {
-                self.handle_frame(stream, &frame, &mut deser_failures)
+                self.handle_frame(stream, &frame, &mut deser_failures, routes)
                     .await?;
                 idle = 0;
                 continue;
@@ -460,6 +491,7 @@ where
         stream: &mut W,
         frame: &[u8],
         deser_failures: &mut u32,
+        routes: &HashMap<u32, HandlerService>,
     ) -> io::Result<()>
     where
         W: tokio::io::AsyncWrite + Unpin,
@@ -467,14 +499,18 @@ where
         match self.serializer.deserialize::<Envelope>(frame) {
             Ok((env, _)) => {
                 *deser_failures = 0;
-                if let Some(handler) = self.routes.get(&env.id) {
-                    handler(&env).await;
+                if let Some(service) = routes.get(&env.id) {
+                    let request = ServiceRequest::new(env.msg);
+                    let resp = service.call(request).await.unwrap();
+                    let response = Envelope {
+                        id: env.id,
+                        msg: resp.into_inner(),
+                    };
+                    if let Err(e) = self.send_response(stream, &response).await {
+                        log::warn!("failed to send response: {e}");
+                    }
                 } else {
                     log::warn!("no handler for message id {}", env.id);
-                }
-
-                if let Err(e) = self.send_response(stream, &env).await {
-                    log::warn!("failed to send response: {e}");
                 }
             }
             Err(e) => {
