@@ -52,12 +52,12 @@ The builder supports methods like `frame_processor`, `route`, `app_data`, and
 `wrap` for middleware configuration. `app_data` stores any `Send + Sync` value
 keyed by type; registering another value of the same type overwrites the
 previous one. Handlers retrieve these values using the `SharedState<T>`
-extractor【F:docs/rust-binary-router-library-design.md†L616-L704】.
+extractor【F:docs/rust-binary-router-library-design.md†L622-L710】.
 
 Handlers are asynchronous functions whose parameters implement extractor traits
 and may return responses implementing the `Responder` trait. This pattern
 mirrors Actix Web handlers and keeps protocol logic
-concise【F:docs/rust-binary-router-library-design.md†L676-L704】.
+concise【F:docs/rust-binary-router-library-design.md†L682-L710】.
 
 ## Example
 
@@ -83,18 +83,25 @@ WireframeServer::new(|| {
 ```
 
 This example showcases how derive macros and the framing abstraction simplify a
-binary protocol server【F:docs/rust-binary-router-library-design.md†L1120-L1150】.
+binary protocol server【F:docs/rust-binary-router-library-design.md†L1126-L1156】.
 
 ## Response Serialization and Framing
 
 Handlers can return types implementing the `Responder` trait. These values are
 encoded using the application's configured serializer and written back through
-the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L718-L724】.
+the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L724-L730】.
 
 The included `LengthPrefixedProcessor` illustrates a simple framing strategy
 that prefixes each frame with its length. The format is configurable (prefix
 size and endianness) and defaults to a 4‑byte big‑endian length
-prefix【F:docs/rust-binary-router-library-design.md†L1076-L1117】.
+prefix【F:docs/rust-binary-router-library-design.md†L1082-L1123】.
+
+```rust
+use wireframe::frame::{LengthFormat, LengthPrefixedProcessor};
+
+let app = WireframeApp::new()?
+    .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()));
+```
 
 ## Connection Lifecycle
 
