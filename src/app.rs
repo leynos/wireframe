@@ -17,7 +17,7 @@ use bytes::BytesMut;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 
 use crate::{
-    frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
+    frame::{FrameProcessor, LengthPrefixedProcessor},
     message::Message,
     serializer::{BincodeSerializer, Serializer},
 };
@@ -147,7 +147,7 @@ where
     S: Serializer + Default,
     C: Send + 'static,
 {
-    /// Creates a new `WireframeApp` instance with default configuration.
+            frame_processor: Box::new(LengthPrefixedProcessor::default()),
     ///
     /// Initialises empty routes, services, middleware, and application data. Sets the
     /// default frame processor and serializer, with no connection lifecycle hooks.

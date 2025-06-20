@@ -6,7 +6,7 @@
 use bytes::BytesMut;
 use wireframe::{
     app::WireframeApp,
-    frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
+    frame::{Endianness, FrameProcessor, LengthFormat, LengthPrefixedProcessor},
     message::Message,
     serializer::BincodeSerializer,
 };
@@ -115,6 +115,26 @@ async fn send_response_propagates_write_error() {
 
     let mut writer = FailingWriter;
     let err = app
+
+#[test]
+fn encode_fails_for_unsupported_prefix_size() {
+    let fmt = LengthFormat::new(3, Endianness::Big);
+    let processor = LengthPrefixedProcessor::new(fmt);
+    let mut buf = BytesMut::new();
+    let err = processor
+        .encode(&vec![1, 2], &mut buf)
+        .expect_err("expected error");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+}
+
+#[test]
+fn decode_fails_for_unsupported_prefix_size() {
+    let fmt = LengthFormat::new(3, Endianness::Little);
+    let processor = LengthPrefixedProcessor::new(fmt);
+    let mut buf = BytesMut::from(&[0x00, 0x01, 0x02][..]);
+    let err = processor.decode(&mut buf).expect_err("expected error");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+}
         .send_response(&mut writer, &TestResp(3))
         .await
         .expect_err("expected error");

@@ -25,69 +25,35 @@ pub struct LengthFormat {
 }
 
 impl LengthFormat {
-    /// Creates a new `LengthFormat` with the specified number of bytes and
-    /// endianness for the length prefix.
-    ///
-    /// # Parameters
-    /// - `bytes`: The number of bytes used for the length prefix.
-    /// - `endianness`: The byte order for encoding and decoding the length prefix.
-    ///
-    /// # Returns
-    /// A `LengthFormat` configured with the given size and endianness.
-    #[must_use]
-    pub const fn new(bytes: usize, endianness: Endianness) -> Self { Self { bytes, endianness } }
+        if bytes.len() < self.bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "length prefix truncated",
+            ));
+        }
+        if !matches!(self.bytes, 1 | 2 | 4 | 8) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported length prefix size",
+            ));
+        }
 
-    /// Creates a `LengthFormat` for a 2-byte big-endian length prefix.
-    #[must_use]
-    pub const fn u16_be() -> Self { Self::new(2, Endianness::Big) }
+        let mut slice = &bytes[..self.bytes];
+        let len = match self.endianness {
+            Endianness::Big => slice.get_uint(self.bytes),
+            Endianness::Little => slice.get_uint_le(self.bytes),
+        if !matches!(self.bytes, 1 | 2 | 4 | 8) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported length prefix size",
+            ));
+        }
 
-    /// Creates a `LengthFormat` for a 2-byte little-endian length prefix.
-    #[must_use]
-    pub const fn u16_le() -> Self { Self::new(2, Endianness::Little) }
-
-    /// Creates a `LengthFormat` for a 4-byte big-endian length prefix.
-    #[must_use]
-    pub const fn u32_be() -> Self { Self::new(4, Endianness::Big) }
-
-    /// Creates a `LengthFormat` for a 4-byte little-endian length prefix.
-    #[must_use]
-    pub const fn u32_le() -> Self { Self::new(4, Endianness::Little) }
-
-    /// Reads a length prefix from a byte slice according to the configured prefix size and
-    /// endianness.
-    ///
-    /// # Parameters
-    /// - `bytes`: The byte slice containing the length prefix. Must be at least as long as the
-    ///   configured prefix size.
-    ///
-    /// # Returns
-    /// The decoded length as a `usize` if successful.
-    ///
-    /// # Errors
-    /// Returns an error if the prefix size is unsupported or if the decoded length does not fit in
-    /// a `usize`.
-    fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
-        let len = match (self.bytes, self.endianness) {
-            (1, _) => u64::from(u8::from_ne_bytes([bytes[0]])),
-            (2, Endianness::Big) => u64::from(u16::from_be_bytes([bytes[0], bytes[1]])),
-            (2, Endianness::Little) => u64::from(u16::from_le_bytes([bytes[0], bytes[1]])),
-            (4, Endianness::Big) => {
-                u64::from(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-            }
-            (4, Endianness::Little) => {
-                u64::from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-            }
-            (8, Endianness::Big) => u64::from_be_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            ]),
-            (8, Endianness::Little) => u64::from_le_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            ]),
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "unsupported length prefix size",
-                ));
+        let len_u64 = u64::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?;
+        match self.endianness {
+            Endianness::Big => dst.put_uint(len_u64, self.bytes),
+            Endianness::Little => dst.put_uint_le(len_u64, self.bytes),
             }
         };
         usize::try_from(len).map_err(|_| io::Error::other("frame too large"))
