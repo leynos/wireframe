@@ -27,13 +27,13 @@ struct Echo(u8);
 
 #[rstest]
 #[tokio::test]
-async fn handler_receives_message_and_echoes_response(processor: LengthPrefixedProcessor) {
+async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
     let processor = default_processor();
     let app = WireframeApp::new()
         .unwrap()
-        .frame_processor(processor.clone())
+        .frame_processor(processor)
         .route(
             1,
             Box::new(move |_| {
