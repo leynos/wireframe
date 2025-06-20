@@ -1,7 +1,8 @@
-//! Traits and helpers for request middleware.
+//! Middleware traits and helpers.
 //!
-//! Middleware components implement [`Transform`] to wrap services and
-//! process `ServiceRequest` instances before passing them along the chain.
+//! This module defines the asynchronous [`Service`] and [`Transform`] traits,
+//! along with [`ServiceRequest`] and [`ServiceResponse`] wrappers. Middleware
+//! components use the [`Next`] helper to call the next service in the chain.
 
 use async_trait::async_trait;
 
