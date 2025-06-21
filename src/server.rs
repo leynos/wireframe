@@ -4,14 +4,9 @@
 //! optionally decoding a connection preamble before handing the
 //! stream to the application.
 
-use std::io;
-
-#[cfg(not(debug_assertions))]
-compile_error!(
-    "`wireframe` server functionality is experimental and not intended for production use"
-);
 use core::marker::PhantomData;
 use std::{
+    io,
     net::{SocketAddr, TcpListener as StdTcpListener},
     sync::Arc,
 };
