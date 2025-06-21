@@ -176,9 +176,9 @@ let logging = from_fn(|req, next| async move {
 
 ## Current Limitations
 
-Connection handling now processes frames and routes messages, but the server is
-still experimental. Release builds fail to compile, so the library cannot be
-used accidentally in production.
+Connection handling now processes frames and routes messages. Although the
+server is still experimental, it now compiles in release mode for evaluation or
+production use.
 
 ## Roadmap
 
