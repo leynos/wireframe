@@ -4,7 +4,7 @@
 //! the underlying [`Service`]. Implement [`Transform`] to wrap services or use
 //! [`from_fn`] to create middleware from an async function.
 
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use async_trait::async_trait;
 
@@ -211,5 +211,68 @@ where
             service,
             f: Arc::new(self.f.clone()),
         }
+    }
+}
+
+use crate::app::{Envelope, Handler};
+
+/// Service that invokes a stored route handler and middleware chain.
+pub struct HandlerService {
+    id: u32,
+    svc: Box<dyn Service<Error = Infallible> + Send + Sync>,
+}
+
+impl HandlerService {
+    /// Create a new [`HandlerService`] for the given route `id` and `handler`.
+    #[must_use]
+    pub fn new(id: u32, handler: Handler) -> Self {
+        Self {
+            id,
+            svc: Box::new(RouteService { id, handler }),
+        }
+    }
+
+    /// Construct a `HandlerService` from an existing service implementation.
+    #[must_use]
+    pub fn from_service(id: u32, svc: impl Service<Error = Infallible> + 'static) -> Self {
+        Self {
+            id,
+            svc: Box::new(svc),
+        }
+    }
+
+    /// Returns the route identifier associated with this service.
+    #[must_use]
+    pub const fn id(&self) -> u32 { self.id }
+}
+
+struct RouteService {
+    id: u32,
+    handler: Handler,
+}
+
+#[async_trait]
+impl Service for RouteService {
+    type Error = Infallible;
+
+    async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+        // The handler only borrows the envelope, allowing us to consume it
+        // afterwards to extract the response payload.
+        let env = Envelope {
+            id: self.id,
+            msg: req.into_inner(),
+        };
+        (self.handler.as_ref())(&env).await;
+        let (_, bytes) = env.into_parts();
+        Ok(ServiceResponse::new(bytes))
+    }
+}
+
+#[async_trait]
+impl Service for HandlerService {
+    type Error = Infallible;
+
+    async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+        self.svc.call(req).await
     }
 }
