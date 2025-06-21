@@ -72,27 +72,27 @@ after formatting. Line numbers below refer to that file.
 
 ## 2. Middleware and Extractors
 
-- [ ] Develop a minimal middleware system and extractor traits for payloads,
+- [x] Develop a minimal middleware system and extractor traits for payloads,
   connection metadata, and shared state.
-  - [ ] Define `FromMessageRequest` for extractor types (lines 760-782). See
+  - [x] Define `FromMessageRequest` for extractor types (lines 760-782). See
     [`FromMessageRequest`][from-message-request] in
     [`src/extractor.rs`](../src/extractor.rs).
 
-  - [ ] Provide built-in extractors `Message<T>`, `ConnectionInfo`, and
+  - [x] Provide built-in extractors `Message<T>`, `ConnectionInfo`, and
     `SharedState<T>` (lines 792-840). `SharedState<T>` is defined in
     [`src/extractor.rs`](../src/extractor.rs#L54-L87).
 
-  - [ ] Support custom extractors implementing `FromMessageRequest` (lines
+  - [x] Support custom extractors implementing `FromMessageRequest` (lines
     842-858). Refer again to [`src/extractor.rs`](../src/extractor.rs#L39-L52).
 
   - [x] Implement middleware using `Transform`/`Service` traits.
 
-  - [x] Implement `ServiceRequest` and `ServiceResponse` wrappers
-    (lines 866-899) and introduce a `Next` helper to build the
-    asynchronous call chain. Trait definitions live in
+  - [x] Implement `ServiceRequest` and `ServiceResponse` wrappers (lines
+    866-899) and introduce a `Next` helper to build the asynchronous call chain.
+    Trait definitions live in
     [`src/middleware.rs`](../src/middleware.rs#L71-L84).
 
-    - [ ] Provide a `from_fn` helper for functional middleware.
+    - [x] Provide a `from_fn` helper for functional middleware.
     - [x] Add tests verifying middleware can modify requests and observe
       responses.
 
@@ -101,7 +101,7 @@ after formatting. Line numbers below refer to that file.
     on responses (lines 900-919). See the
     [`wrap` method](../src/app.rs#L73-L84).
 
-  - [ ] Document common middleware use cases like logging and authentication
+  - [x] Document common middleware use cases like logging and authentication
     (lines 920-935). Include a logging example using `from_fn`:
 
     ```rust

@@ -889,24 +889,18 @@ classDiagram
     Next --> Middleware
 ```
 
-A simplified functional middleware approach, similar to
-`actix_web::middleware::from_fn` 26, could also be provided for simpler use
-cases:
+A simplified functional middleware approach uses `from_fn` so middleware can be
+written as an async function or closure:
 
 ```rust
-use wireframe::middleware::{Next, ServiceRequest, ServiceResponse}; // Hypothetical types
+use wireframe::middleware::from_fn;
 
-async fn logging_mw_fn(
-    req: ServiceRequest, // Represents an incoming message/context
-    next: Next // Call to proceed to the next middleware or handler
-) -> Result<ServiceResponse, wireframe::Error> {
-    println!("Received message: {:?}", req.message_type_id());
-    let res = next.call(req).await?; // Call next service in chain
-    if let Some(response_info) = res.info() {
-        println!("Sending response: {:?}", response_info);
-    }
+let logging = from_fn(|req, next| async move {
+    println!("--> received: {:?}", req.frame());
+    let mut res = next.call(req).await?;
+    println!("<-- sending: {:?}", res.frame());
     Ok(res)
-}
+});
 ```
 
 - **Registration**: Middleware would be registered with the `WireframeApp`
@@ -914,14 +908,12 @@ async fn logging_mw_fn(
 
   ```rust
   WireframeApp::new()
-     .wrap(LoggingMiddleware::new())
-     .wrap(AuthMiddleware::new(/* config */))
-      // For functional middleware:
-      //.wrap(wireframe::middleware::from_fn(logging_mw_fn))
+     .wrap(from_fn(|req, next| async move { /* auth */ next.call(req).await }))
+     .wrap(logging)
   ```
 
-  Middleware is typically executed in the reverse order of registration for
-  incoming messages and in the registration order for outgoing responses.
+  The last middleware registered (`logging` above) runs first on incoming
+  messages and last on outgoing responses.
 
 - **Use Cases**:
 
