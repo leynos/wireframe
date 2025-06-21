@@ -896,9 +896,9 @@ written as an async function or closure:
 use wireframe::middleware::from_fn;
 
 let logging = from_fn(|req, next| async move {
-    println!("--> received: {:?}", req.frame());
+    tracing::info!("--> received: {:?}", req.frame());
     let mut res = next.call(req).await?;
-    println!("<-- sending: {:?}", res.frame());
+    tracing::info!("<-- sending: {:?}", res.frame());
     Ok(res)
 });
 ```
