@@ -117,7 +117,7 @@ after formatting. Line numbers below refer to that file.
 
 ## 3. Initial Examples and Documentation
 
-- [ ] Provide examples demonstrating routing, serialization, and middleware.
+- [x] Provide examples demonstrating routing, serialization, and middleware.
   Document configuration and usage reflecting the API design section.
 
 ## 4. Extended Features

@@ -174,6 +174,14 @@ let logging = from_fn(|req, next| async move {
 });
 ```
 
+## Examples
+
+Example programs are available in the `examples/` directory:
+
+- `echo.rs` – minimal echo server using routing
+- `ping_pong.rs` – showcases serialization and middleware in a ping/pong
+  protocol
+
 ## Current Limitations
 
 Connection handling now processes frames and routes messages, but the server is
