@@ -35,6 +35,11 @@ async fn drive_with_frame(app: WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>
 
 /// Drive `app` with multiple frames, returning all bytes written by the app.
 async fn drive_with_frames(app: WireframeApp, frames: Vec<Vec<u8>>) -> IoResult<Vec<u8>>;
+
+/// Encode `msg` with `bincode`, wrap it in a frame, and drive the app.
+async fn drive_with_bincode<M>(app: WireframeApp, msg: M) -> IoResult<Vec<u8>>
+where
+    M: bincode::Encode;
 ```
 
 These functions mirror the behaviour of `run_app_with_frame` and
@@ -50,6 +55,14 @@ A variant accepting a buffer `capacity` allows fine‑tuning the size of the
 in‑memory duplex channel, matching the existing
 `run_app_with_frame_with_capacity` and `run_app_with_frames_with_capacity`
 helpers.
+
+### Bincode Convenience Wrapper
+
+For most tests the input frame is preassembled from raw bytes. A small wrapper
+can accept any `bincode::Encode` value and perform the encoding and framing
+before delegating to `drive_with_frame`. This mirrors the patterns in
+`tests/routes.rs` where structs are converted to bytes with `BincodeSerializer`
+and then wrapped in a length‑prefixed frame.
 
 ## Example Usage
 
