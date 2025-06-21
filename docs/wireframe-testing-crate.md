@@ -1,4 +1,4 @@
-# Testing Helpers for `wireframe`
+# `wireframe-testing`: Testing Helpers for Wireframe
 
 `wireframe-testing` is a proposed companion crate providing utilities for unit
 and integration tests. It focuses on driving `WireframeApp` instances with raw
@@ -21,6 +21,21 @@ reusable across projects.
   - `src/lib.rs` exposing asynchronous functions for driving apps with raw
     frames.
 
+```toml
+[dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[dev-dependencies]
+rstest = "0.18"
+```
+
+```rust
+// src/lib.rs
+pub mod helpers;
+
+pub use helpers::{drive_with_frame, drive_with_frames};
+```
+
 The crate would live in a `wireframe-testing/` directory alongside the main
 `wireframe` crate.
 
@@ -31,13 +46,13 @@ use tokio::io::Result as IoResult;
 use wireframe::app::WireframeApp;
 
 /// Feed a single frame into `app` using an in-memory duplex stream.
-async fn drive_with_frame(app: WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>>;
+pub async fn drive_with_frame(app: WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>>;
 
 /// Drive `app` with multiple frames, returning all bytes written by the app.
-async fn drive_with_frames(app: WireframeApp, frames: Vec<Vec<u8>>) -> IoResult<Vec<u8>>;
+pub async fn drive_with_frames(app: WireframeApp, frames: Vec<Vec<u8>>) -> IoResult<Vec<u8>>;
 
 /// Encode `msg` with `bincode`, wrap it in a frame, and drive the app.
-async fn drive_with_bincode<M>(app: WireframeApp, msg: M) -> IoResult<Vec<u8>>
+pub async fn drive_with_bincode<M>(app: WireframeApp, msg: M) -> IoResult<Vec<u8>>
 where
     M: bincode::Encode;
 ```
@@ -56,6 +71,20 @@ in‑memory duplex channel, matching the existing
 `run_app_with_frame_with_capacity` and `run_app_with_frames_with_capacity`
 helpers.
 
+```rust
+pub async fn drive_with_frame_with_capacity(
+    app: WireframeApp,
+    frame: Vec<u8>,
+    capacity: usize,
+) -> IoResult<Vec<u8>>;
+
+pub async fn drive_with_frames_with_capacity(
+    app: WireframeApp,
+    frames: Vec<Vec<u8>>,
+    capacity: usize,
+) -> IoResult<Vec<u8>>;
+```
+
 ### Bincode Convenience Wrapper
 
 For most tests the input frame is preassembled from raw bytes. A small wrapper
@@ -67,6 +96,9 @@ and then wrapped in a length‑prefixed frame.
 ## Example Usage
 
 ```rust
+use std::sync::Arc;
+use wireframe_testing::{drive_with_frame, drive_with_frames};
+
 #[tokio::test]
 async fn handler_echoes_message() {
     let app = WireframeApp::new()
