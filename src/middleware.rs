@@ -214,21 +214,27 @@ where
     }
 }
 
-use crate::app::{Envelope, Handler};
+use crate::app::{Handler, Packet};
 
 /// Service that invokes a stored route handler and middleware chain.
-pub struct HandlerService {
+pub struct HandlerService<E: Packet> {
     id: u32,
     svc: Box<dyn Service<Error = Infallible> + Send + Sync>,
+    _marker: std::marker::PhantomData<E>,
 }
 
-impl HandlerService {
+impl<E: Packet> HandlerService<E> {
     /// Create a new [`HandlerService`] for the given route `id` and `handler`.
     #[must_use]
-    pub fn new(id: u32, handler: Handler) -> Self {
+    pub fn new(id: u32, handler: Handler<E>) -> Self {
         Self {
             id,
-            svc: Box::new(RouteService { id, handler }),
+            svc: Box::new(RouteService {
+                id,
+                handler,
+                _marker: std::marker::PhantomData,
+            }),
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -238,6 +244,7 @@ impl HandlerService {
         Self {
             id,
             svc: Box::new(svc),
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -246,22 +253,20 @@ impl HandlerService {
     pub const fn id(&self) -> u32 { self.id }
 }
 
-struct RouteService {
+struct RouteService<E: Packet> {
     id: u32,
-    handler: Handler,
+    handler: Handler<E>,
+    _marker: std::marker::PhantomData<E>,
 }
 
 #[async_trait]
-impl Service for RouteService {
+impl<E: Packet> Service for RouteService<E> {
     type Error = Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         // The handler only borrows the envelope, allowing us to consume it
         // afterwards to extract the response payload.
-        let env = Envelope {
-            id: self.id,
-            msg: req.into_inner(),
-        };
+        let env = E::from_parts(self.id, req.into_inner());
         (self.handler.as_ref())(&env).await;
         let (_, bytes) = env.into_parts();
         Ok(ServiceResponse::new(bytes))
@@ -269,7 +274,7 @@ impl Service for RouteService {
 }
 
 #[async_trait]
-impl Service for HandlerService {
+impl<E: Packet> Service for HandlerService<E> {
     type Error = Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {

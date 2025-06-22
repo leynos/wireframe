@@ -31,10 +31,10 @@ where
 }
 
 #[async_trait]
-impl Transform<HandlerService> for TagMiddleware {
-    type Output = HandlerService;
+impl Transform<HandlerService<Envelope>> for TagMiddleware {
+    type Output = HandlerService<Envelope>;
 
-    async fn transform(&self, service: HandlerService) -> Self::Output {
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
         let id = service.id();
         HandlerService::from_service(
             id,
@@ -48,7 +48,7 @@ impl Transform<HandlerService> for TagMiddleware {
 
 #[tokio::test]
 async fn middleware_applied_in_reverse_order() {
-    let handler: Handler = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
+    let handler: Handler<Envelope> = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
     let app = WireframeApp::new()
         .unwrap()
         .route(1, handler)

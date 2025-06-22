@@ -67,10 +67,14 @@ pub type ConnectionTeardown<C> =
 /// The builder stores registered routes, services, and middleware
 /// without enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
-pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = ()> {
-    routes: HashMap<u32, Handler>,
-    services: Vec<Handler>,
-    middleware: Vec<Box<dyn Transform<HandlerService, Output = HandlerService>>>,
+pub struct WireframeApp<
+    S: Serializer + Send + Sync = BincodeSerializer,
+    C: Send + 'static = (),
+    E: Packet = Envelope,
+> {
+    routes: HashMap<u32, Handler<E>>,
+    services: Vec<Handler<E>>,
+    middleware: Vec<Box<dyn Transform<HandlerService<E>, Output = HandlerService<E>>>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
     app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
@@ -82,12 +86,18 @@ pub struct WireframeApp<S: Serializer = BincodeSerializer, C: Send + 'static = (
 ///
 /// A `Handler` is an `Arc` to a function returning a [`Future`], enabling
 /// asynchronous execution of message handlers.
-pub type Handler = Arc<dyn Fn(&Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+pub type Handler<E> = Arc<dyn Fn(&E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Trait representing middleware components.
-pub trait Middleware: Transform<HandlerService, Output = HandlerService> + Send + Sync {}
+pub trait Middleware<E: Packet>:
+    Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
+{
+}
 
-impl<T> Middleware for T where T: Transform<HandlerService, Output = HandlerService> + Send + Sync {}
+impl<E: Packet, T> Middleware<E> for T where
+    T: Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
+{
+}
 
 /// Top-level error type for application setup.
 #[derive(Debug)]
@@ -127,6 +137,21 @@ impl From<io::Error> for SendError {
     fn from(e: io::Error) -> Self { SendError::Io(e) }
 }
 
+/// Envelope-like type used to wrap incoming and outgoing messages.
+///
+/// Custom envelope types must implement this trait so `WireframeApp` can route
+/// messages and construct responses.
+pub trait Packet: Message + Send + Sync + 'static {
+    /// Return the message identifier used for routing.
+    fn id(&self) -> u32;
+
+    /// Consume the packet and return its identifier and payload bytes.
+    fn into_parts(self) -> (u32, Vec<u8>);
+
+    /// Construct a new packet from an id and raw payload bytes.
+    fn from_parts(id: u32, msg: Vec<u8>) -> Self;
+}
+
 /// Basic envelope type used by [`handle_connection`].
 ///
 /// Incoming frames are deserialized into an `Envelope` containing the
@@ -147,6 +172,14 @@ impl Envelope {
     pub fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
 }
 
+impl Packet for Envelope {
+    fn id(&self) -> u32 { self.id }
+
+    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+
+    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+}
+
 /// Number of idle polls before terminating a connection.
 const MAX_IDLE_POLLS: u32 = 50; // ~5s with 100ms timeout
 /// Maximum consecutive deserialization failures before closing a connection.
@@ -155,10 +188,11 @@ const MAX_DESER_FAILURES: u32 = 10;
 /// Result type used throughout the builder API.
 pub type Result<T> = std::result::Result<T, WireframeError>;
 
-impl<S, C> Default for WireframeApp<S, C>
+impl<S, C, E> Default for WireframeApp<S, C, E>
 where
-    S: Serializer + Default,
+    S: Serializer + Default + Send + Sync,
     C: Send + 'static,
+    E: Packet,
 {
     ///
     /// Initialises empty routes, services, middleware, and application data.
@@ -178,7 +212,7 @@ where
     }
 }
 
-impl WireframeApp<BincodeSerializer, ()> {
+impl WireframeApp<BincodeSerializer, (), Envelope> {
     /// Construct a new empty application builder.
     ///
     /// # Errors
@@ -188,10 +222,24 @@ impl WireframeApp<BincodeSerializer, ()> {
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 }
 
-impl<S, C> WireframeApp<S, C>
+impl<E> WireframeApp<BincodeSerializer, (), E>
 where
-    S: Serializer,
+    E: Packet,
+{
+    /// Construct a new application builder using a custom envelope type.
+    ///
+    /// # Errors
+    ///
+    /// This function currently never returns an error but uses [`Result`] for
+    /// forward compatibility.
+    pub fn new_with_envelope() -> Result<Self> { Ok(Self::default()) }
+}
+
+impl<S, C, E> WireframeApp<S, C, E>
+where
+    S: Serializer + Send + Sync,
     C: Send + 'static,
+    E: Packet,
 {
     /// Construct a new empty application builder.
     ///
@@ -206,7 +254,7 @@ where
     ///
     /// Returns [`WireframeError::DuplicateRoute`] if a handler for `id`
     /// has already been registered.
-    pub fn route(mut self, id: u32, handler: Handler) -> Result<Self> {
+    pub fn route(mut self, id: u32, handler: Handler<E>) -> Result<Self> {
         if self.routes.contains_key(&id) {
             return Err(WireframeError::DuplicateRoute(id));
         }
@@ -220,7 +268,7 @@ where
     ///
     /// This function always succeeds currently but uses [`Result`] for
     /// consistency with other builder methods.
-    pub fn service(mut self, handler: Handler) -> Result<Self> {
+    pub fn service(mut self, handler: Handler<E>) -> Result<Self> {
         self.services.push(handler);
         Ok(self)
     }
@@ -248,7 +296,7 @@ where
     /// This function currently always succeeds.
     pub fn wrap<M>(mut self, mw: M) -> Result<Self>
     where
-        M: Transform<HandlerService, Output = HandlerService> + Send + Sync + 'static,
+        M: Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync + 'static,
     {
         self.middleware.push(Box::new(mw));
         Ok(self)
@@ -270,7 +318,7 @@ where
     ///
     /// This function always succeeds currently but uses [`Result`] for
     /// consistency with other builder methods.
-    pub fn on_connection_setup<F, Fut, C2>(self, f: F) -> Result<WireframeApp<S, C2>>
+    pub fn on_connection_setup<F, Fut, C2>(self, f: F) -> Result<WireframeApp<S, C2, E>>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = C2> + Send + 'static,
@@ -318,9 +366,9 @@ where
 
     /// Replace the serializer used for messages.
     #[must_use]
-    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser, C>
+    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser, C, E>
     where
-        Ser: Serializer,
+        Ser: Serializer + Send + Sync,
     {
         WireframeApp {
             routes: self.routes,
@@ -386,7 +434,7 @@ where
         }
     }
 
-    async fn build_chains(&self) -> HashMap<u32, HandlerService> {
+    async fn build_chains(&self) -> HashMap<u32, HandlerService<E>> {
         let mut routes = HashMap::new();
         for (&id, handler) in &self.routes {
             let mut service = HandlerService::new(id, handler.clone());
@@ -401,7 +449,7 @@ where
     async fn process_stream<W>(
         &self,
         stream: &mut W,
-        routes: &HashMap<u32, HandlerService>,
+        routes: &HashMap<u32, HandlerService<E>>,
     ) -> io::Result<()>
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -491,32 +539,30 @@ where
         stream: &mut W,
         frame: &[u8],
         deser_failures: &mut u32,
-        routes: &HashMap<u32, HandlerService>,
+        routes: &HashMap<u32, HandlerService<E>>,
     ) -> io::Result<()>
     where
         W: tokio::io::AsyncWrite + Unpin,
     {
-        match self.serializer.deserialize::<Envelope>(frame) {
+        match self.serializer.deserialize::<E>(frame) {
             Ok((env, _)) => {
                 *deser_failures = 0;
-                if let Some(service) = routes.get(&env.id) {
-                    let request = ServiceRequest::new(env.msg);
+                let (id, bytes) = env.into_parts();
+                if let Some(service) = routes.get(&id) {
+                    let request = ServiceRequest::new(bytes);
                     match service.call(request).await {
                         Ok(resp) => {
-                            let response = Envelope {
-                                id: env.id,
-                                msg: resp.into_inner(),
-                            };
+                            let response = E::from_parts(id, resp.into_inner());
                             if let Err(e) = self.send_response(stream, &response).await {
                                 log::warn!("failed to send response: {e}");
                             }
                         }
                         Err(e) => {
-                            log::warn!("handler error for id {}: {e}", env.id);
+                            log::warn!("handler error for id {id}: {e}");
                         }
                     }
                 } else {
-                    log::warn!("no handler for message id {}", env.id);
+                    log::warn!("no handler for message id {id}");
                 }
             }
             Err(e) => {
