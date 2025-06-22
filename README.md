@@ -153,15 +153,24 @@ incoming \[`MessageRequest`\] and remaining \[`Payload`\]. Built‑in extractors
 like `Message<T>`, `SharedState<T>` and `ConnectionInfo` decode the payload,
 access app state or expose peer information.
 
-Custom extractors let you centralize parsing and validation logic that would
-otherwise be duplicated across handlers. A session token parser, for example,
-can verify the token before any route-specific code executes
+- `echo.rs` — minimal echo server using routing
+- `ping_pong.rs` — showcases serialization and middleware in a ping/pong
+  protocol. See [examples/ping_pong.md](examples/ping_pong.md) for a detailed
+  overview.
 [Design Guide: Data Extraction and Type Safety][data-extraction-guide].
 
 ```rust
 use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
 
 pub struct SessionToken(String);
+
+Try the echo server with netcat:
+
+```bash
+$ cargo run --example echo
+# in another terminal
+$ printf '\x00\x00\x00\x00\x01\x00\x00\x00' | nc 127.0.0.1 7878 | xxd
+```
 
 impl FromMessageRequest for SessionToken {
     type Error = std::convert::Infallible;
@@ -204,12 +213,26 @@ let logging = from_fn(|req, next| async move {
 
 ## Examples
 
-The `examples/` directory contains runnable demos illustrating different
-protocol designs:
+Example programs are available in the `examples/` directory:
 
-- `echo.rs` – minimal server that echoes incoming frames.
+- `echo.rs` – minimal echo server using routing
 - `packet_enum.rs` – shows packet type discrimination with a bincode enum and a
   frame containing container types like `HashMap` and `Vec`.
+- `ping_pong.rs` – showcases serialization and middleware in a ping/pong
+  protocol
+
+Run an example with Cargo:
+
+```bash
+cargo run --example echo
+```
+
+Try the ping‑pong server with netcat:
+
+```bash
+$ cargo run --example ping_pong
+# in another terminal
+$ printf '\x00\x00\x00\x08\x01\x00\x00\x00\x2a\x00\x00\x00' | nc 127.0.0.1 7878 | xxd
 
 ## Current Limitations
 
