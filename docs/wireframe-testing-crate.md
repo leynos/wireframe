@@ -1,6 +1,6 @@
-# `wireframe-testing`: Testing Helpers for Wireframe
+# `wireframe_testing`: Testing Helpers for Wireframe
 
-`wireframe-testing` is a proposed companion crate providing utilities for unit
+`wireframe_testing` is a proposed companion crate providing utilities for unit
 and integration tests. It focuses on driving `WireframeApp` instances with raw
 frames, enabling fast tests without opening real network connections.
 
@@ -15,7 +15,7 @@ reusable across projects.
 
 ## Crate Layout
 
-- `wireframe-testing`
+- `wireframe_testing`
   - `Cargo.toml` enabling the `tokio` and `rstest` dependencies used by the
     helpers.
   - `src/lib.rs` exposing asynchronous functions for driving apps with raw
@@ -33,10 +33,16 @@ rstest = "0.18"
 // src/lib.rs
 pub mod helpers;
 
-pub use helpers::{drive_with_frame, drive_with_frames};
+pub use helpers::{
+    drive_with_frame,
+    drive_with_frames,
+    drive_with_frame_with_capacity,
+    drive_with_frames_with_capacity,
+    drive_with_bincode,
+};
 ```
 
-The crate would live in a `wireframe-testing/` directory alongside the main
+The crate would live in a `wireframe_testing/` directory alongside the main
 `wireframe` crate.
 
 ## Proposed API
@@ -44,6 +50,7 @@ The crate would live in a `wireframe-testing/` directory alongside the main
 ```rust
 use tokio::io::Result as IoResult;
 use wireframe::app::WireframeApp;
+use bincode::Encode;
 
 /// Feed a single frame into `app` using an in-memory duplex stream.
 pub async fn drive_with_frame(app: WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>>;
@@ -64,6 +71,11 @@ write the provided frame(s) to the client side of the stream. After the app
 finishes processing, the helpers collect the bytes written back and return them
 for inspection.
 
+Any I/O errors surfaced by the duplex stream or failures while decoding a
+length prefix propagate through the returned `IoResult`. Malformed or
+truncated frames therefore cause the future to resolve with an error,
+allowing tests to assert on these failure conditions directly.
+
 ### Custom Buffer Capacity
 
 A variant accepting a buffer `capacity` allows fine‑tuning the size of the
@@ -83,6 +95,12 @@ pub async fn drive_with_frames_with_capacity(
     frames: Vec<Vec<u8>>,
     capacity: usize,
 ) -> IoResult<Vec<u8>>;
+
+/// The above helpers consume the `WireframeApp`. For scenarios
+/// where a single app instance should be reused across calls,
+/// borrow it mutably instead.
+pub async fn drive_with_frame_mut(app: &mut WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>>;
+pub async fn drive_with_frames_mut(app: &mut WireframeApp, frames: Vec<Vec<u8>>) -> IoResult<Vec<u8>>;
 ```
 
 ### Bincode Convenience Wrapper
@@ -93,11 +111,21 @@ before delegating to `drive_with_frame`. This mirrors the patterns in
 `tests/routes.rs` where structs are converted to bytes with `BincodeSerializer`
 and then wrapped in a length‑prefixed frame.
 
+```rust
+#[derive(bincode::Encode)]
+struct Ping(u8);
+
+let bytes = drive_with_bincode(app, Ping(1)).await.unwrap();
+assert_eq!(bytes, [0, 1]);
+```
+
 ## Example Usage
 
 ```rust
 use std::sync::Arc;
 use wireframe_testing::{drive_with_frame, drive_with_frames};
+use wireframe::processor::LengthPrefixedProcessor;
+use crate::tests::{build_test_frame, expected_bytes};
 
 #[tokio::test]
 async fn handler_echoes_message() {
@@ -121,7 +149,7 @@ with prebuilt frames and their responses decoded for assertions.
 - **Isolation**: Handlers can be tested without spinning up a full server or
   opening sockets.
 - **Reusability**: Projects consuming `wireframe` can depend on
-  `wireframe-testing` in their dev‑dependencies to leverage the same helpers.
+  `wireframe_testing` in their dev‑dependencies to leverage the same helpers.
 - **Clarity**: Abstracting the duplex stream logic keeps test cases focused on
   behaviour instead of transport details.
 
