@@ -1,8 +1,8 @@
-use std::{collections::HashMap, io};
+use std::{collections::HashMap, future::Future, io, pin::Pin};
 
 use async_trait::async_trait;
 use wireframe::{
-    app::WireframeApp,
+    app::{Envelope, WireframeApp},
     frame::{LengthFormat, LengthPrefixedProcessor},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
@@ -22,8 +22,10 @@ struct Frame {
     packet: Packet,
 }
 
+/// Middleware that decodes incoming frames and logs packet details.
 struct DecodeMiddleware;
 
+/// Service wrapper that handles frame decoding before invoking the inner service.
 struct DecodeService<S> {
     inner: S,
 }
@@ -58,6 +60,12 @@ impl Transform<HandlerService> for DecodeMiddleware {
     }
 }
 
+fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    Box::pin(async {
+        println!("packet received");
+    })
+}
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let factory = || {
@@ -66,14 +74,7 @@ async fn main() -> io::Result<()> {
             .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()))
             .wrap(DecodeMiddleware)
             .unwrap()
-            .route(
-                1,
-                std::sync::Arc::new(|_| {
-                    Box::pin(async move {
-                        println!("packet received");
-                    })
-                }),
-            )
+            .route(1, std::sync::Arc::new(handle_packet))
             .unwrap()
     };
 
