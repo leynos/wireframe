@@ -55,10 +55,10 @@ where
 }
 
 #[async_trait]
-impl Transform<HandlerService> for DecodeMiddleware {
-    type Output = HandlerService;
+impl Transform<HandlerService<Envelope>> for DecodeMiddleware {
+    type Output = HandlerService<Envelope>;
 
-    async fn transform(&self, service: HandlerService) -> Self::Output {
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
         let id = service.id();
         HandlerService::from_service(id, DecodeService { inner: service })
     }

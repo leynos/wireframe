@@ -71,10 +71,10 @@ write the provided frame(s) to the client side of the stream. After the app
 finishes processing, the helpers collect the bytes written back and return them
 for inspection.
 
-Any I/O errors surfaced by the duplex stream or failures while decoding a
-length prefix propagate through the returned `IoResult`. Malformed or
-truncated frames therefore cause the future to resolve with an error,
-allowing tests to assert on these failure conditions directly.
+Any I/O errors surfaced by the duplex stream or failures while decoding a length
+prefix propagate through the returned `IoResult`. Malformed or truncated frames
+therefore cause the future to resolve with an error, allowing tests to assert on
+these failure conditions directly.
 
 ### Custom Buffer Capacity
 
