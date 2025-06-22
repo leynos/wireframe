@@ -2,20 +2,12 @@ use std::{io, sync::Arc};
 
 use async_trait::async_trait;
 use wireframe::{
-    app::{Envelope, WireframeApp},
+    app::WireframeApp,
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
     server::WireframeServer,
 };
-
-/// Convenience helper to convert a service into a `HandlerService`.
-fn wrap_service<S>(id: u32, svc: S) -> HandlerService
-where
-    S: Service<Error = std::convert::Infallible> + Send + Sync + 'static,
-{
-    HandlerService::from_service(id, svc)
-}
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 struct Ping(u32);
@@ -23,17 +15,17 @@ struct Ping(u32);
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 struct Pong(u32);
 
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
+struct ErrorMsg(String);
+
 const PING_ID: u32 = 1;
 
 /// Handler invoked for `PING_ID` messages.
 ///
 /// The middleware chain generates the actual response, so this
 /// handler intentionally performs no work.
-fn ping_handler(
-    _env: &Envelope,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-    Box::pin(async {})
-}
+#[allow(clippy::unused_async)]
+async fn ping_handler() {}
 
 struct PongMiddleware;
 
@@ -53,7 +45,9 @@ where
             Ok(val) => val,
             Err(e) => {
                 eprintln!("failed to decode ping: {e:?}");
-                return Ok(ServiceResponse::default());
+                let err = ErrorMsg(format!("decode error: {e:?}"));
+                let bytes = err.to_bytes().unwrap_or_default();
+                return Ok(ServiceResponse::new(bytes));
             }
         };
         let mut response = self.inner.call(req).await?;
@@ -62,7 +56,9 @@ where
             Ok(bytes) => *response.frame_mut() = bytes,
             Err(e) => {
                 eprintln!("failed to encode pong: {e:?}");
-                return Ok(ServiceResponse::default());
+                let err = ErrorMsg(format!("encode error: {e:?}"));
+                let bytes = err.to_bytes().unwrap_or_default();
+                return Ok(ServiceResponse::new(bytes));
             }
         }
         Ok(response)
@@ -75,7 +71,7 @@ impl Transform<HandlerService> for PongMiddleware {
 
     async fn transform(&self, service: HandlerService) -> Self::Output {
         let id = service.id();
-        wrap_service(id, PongService { inner: service })
+        HandlerService::from_service(id, PongService { inner: service })
     }
 }
 
@@ -106,26 +102,28 @@ impl Transform<HandlerService> for Logging {
 
     async fn transform(&self, service: HandlerService) -> Self::Output {
         let id = service.id();
-        wrap_service(id, LoggingService { inner: service })
+        HandlerService::from_service(id, LoggingService { inner: service })
     }
+}
+
+fn build_app() -> WireframeApp {
+    WireframeApp::new()
+        .expect("failed to create app")
+        .serializer(BincodeSerializer)
+        .route(PING_ID, Arc::new(|_| Box::pin(ping_handler())))
+        .expect("failed to register ping handler")
+        .wrap(PongMiddleware)
+        .expect("failed to apply PongMiddleware")
+        .wrap(Logging)
+        .expect("failed to apply Logging middleware")
 }
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let factory = || {
-        WireframeApp::new()
-            .unwrap()
-            .serializer(BincodeSerializer)
-            .route(PING_ID, Arc::new(ping_handler))
-            .unwrap()
-            .wrap(PongMiddleware)
-            .unwrap()
-            .wrap(Logging)
-            .unwrap()
-    };
+    let factory = || build_app();
 
-    WireframeServer::new(factory)
-        .bind("127.0.0.1:7878".parse().unwrap())?
-        .run()
-        .await
+    let addr = "127.0.0.1:7878"
+        .parse()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    WireframeServer::new(factory).bind(addr)?.run().await
 }

@@ -182,6 +182,14 @@ Example programs are available in the `examples/` directory:
 - `ping_pong.rs` – showcases serialization and middleware in a ping/pong
   protocol
 
+Run an example with Cargo:
+
+```bash
+$ cargo run --example ping_pong
+# in another terminal
+$ printf '\x00\x00\x00\x08\x01\x00\x00\x00\x2a\x00\x00\x00' | nc 127.0.0.1 7878 | xxd
+```
+
 ## Current Limitations
 
 Connection handling now processes frames and routes messages, but the server is
