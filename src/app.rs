@@ -434,6 +434,25 @@ where
         stream.write_all(&framed).await.map_err(SendError::Io)?;
         stream.flush().await.map_err(SendError::Io)
     }
+}
+
+impl<S, C, E> WireframeApp<S, C, E>
+where
+    S: Serializer + crate::frame::FrameMetadata<Frame = Envelope> + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+{
+    /// Try parsing the frame using [`FrameMetadata::parse`], falling back to
+    /// full deserialization on failure.
+    fn parse_envelope(
+        &self,
+        frame: &[u8],
+    ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
+        self.serializer
+            .parse(frame)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
+    }
 
     /// Handle an accepted connection.
     ///
@@ -571,26 +590,12 @@ where
     where
         W: tokio::io::AsyncWrite + Unpin,
     {
-        match self.serializer.deserialize::<E>(frame) {
-            Ok((env, _)) => {
+        // Parse the frame first; routing is handled below to avoid duplicating
+        // logic on the success path.
+        let (env, _) = match self.parse_envelope(frame) {
+            Ok(result) => {
                 *deser_failures = 0;
-                let (id, bytes) = env.into_parts();
-                if let Some(service) = routes.get(&id) {
-                    let request = ServiceRequest::new(bytes);
-                    match service.call(request).await {
-                        Ok(resp) => {
-                            let response = E::from_parts(id, resp.into_inner());
-                            if let Err(e) = self.send_response(stream, &response).await {
-                                log::warn!("failed to send response: {e}");
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("handler error for id {id}: {e}");
-                        }
-                    }
-                } else {
-                    log::warn!("no handler for message id {id}");
-                }
+                result
             }
             Err(e) => {
                 *deser_failures += 1;
@@ -601,7 +606,28 @@ where
                         "too many deserialization failures",
                     ));
                 }
+                return Ok(());
             }
+        };
+
+        if let Some(service) = routes.get(&env.id) {
+            let request = ServiceRequest::new(env.msg);
+            match service.call(request).await {
+                Ok(resp) => {
+                    let response = Envelope {
+                        id: env.id,
+                        msg: resp.into_inner(),
+                    };
+                    if let Err(e) = self.send_response(stream, &response).await {
+                        log::warn!("failed to send response: {e}");
+                    }
+                }
+                Err(e) => {
+                    log::warn!("handler error for id {}: {e}", env.id);
+                }
+            }
+        } else {
+            log::warn!("no handler for message id {}", env.id);
         }
 
         Ok(())

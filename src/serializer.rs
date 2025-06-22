@@ -6,7 +6,7 @@
 
 use std::error::Error;
 
-use crate::message::Message;
+use crate::{frame::FrameMetadata, message::Message};
 
 /// Trait for serializing and deserializing messages.
 pub trait Serializer {
@@ -44,5 +44,14 @@ impl Serializer for BincodeSerializer {
         bytes: &[u8],
     ) -> Result<(M, usize), Box<dyn Error + Send + Sync>> {
         M::from_bytes(bytes).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+    }
+}
+
+impl FrameMetadata for BincodeSerializer {
+    type Frame = crate::app::Envelope;
+    type Error = bincode::error::DecodeError;
+
+    fn parse(&self, src: &[u8]) -> Result<(Self::Frame, usize), Self::Error> {
+        crate::app::Envelope::from_bytes(src)
     }
 }

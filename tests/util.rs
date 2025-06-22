@@ -1,10 +1,21 @@
 use rstest::fixture;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, duplex};
 use wireframe::{
-    app::{Packet, WireframeApp},
-    frame::LengthPrefixedProcessor,
+    app::{Envelope, Packet, WireframeApp},
+    frame::{FrameMetadata, LengthPrefixedProcessor},
     serializer::Serializer,
 };
+
+/// Trait alias for serializers used in tests.
+pub trait TestSerializer:
+    Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
+{
+}
+
+impl<T> TestSerializer for T where
+    T: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
+{
+}
 
 /// Feed a single frame into `app` and collect the response bytes.
 ///
@@ -36,7 +47,7 @@ pub async fn run_app_with_frame<S, C, E>(
     frame: Vec<u8>,
 ) -> io::Result<Vec<u8>>
 where
-    S: Serializer + Send + Sync + 'static,
+    S: TestSerializer,
     C: Send + 'static,
     E: Packet,
 {
@@ -58,7 +69,7 @@ pub async fn run_app_with_frame_with_capacity<S, C, E>(
     capacity: usize,
 ) -> io::Result<Vec<u8>>
 where
-    S: Serializer + Send + Sync + 'static,
+    S: TestSerializer,
     C: Send + 'static,
     E: Packet,
 {
@@ -71,12 +82,13 @@ where
 ///
 /// Returns any I/O errors encountered while interacting with the in-memory
 /// duplex stream.
+#[allow(dead_code)]
 pub async fn run_app_with_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
 ) -> io::Result<Vec<u8>>
 where
-    S: Serializer + Send + Sync + 'static,
+    S: TestSerializer,
     C: Send + 'static,
     E: Packet,
 {
@@ -98,7 +110,7 @@ pub async fn run_app_with_frames_with_capacity<S, C, E>(
     capacity: usize,
 ) -> io::Result<Vec<u8>>
 where
-    S: Serializer + Send + Sync + 'static,
+    S: TestSerializer,
     C: Send + 'static,
     E: Packet,
 {
