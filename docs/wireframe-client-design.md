@@ -23,7 +23,7 @@ A new `WireframeClient` type manages a single connection to a server. It mirrors
 `WireframeServer` but operates in the opposite direction:
 
 - Connect to a `TcpStream`.
-- Optionally send a preamble using the existing `Preamble` helpers.
+- Optionally, send a preamble using the existing `Preamble` helpers.
 - Encode outgoing messages using the selected `Serializer` and `FrameProcessor`.
 - Decode incoming frames into typed responses.
 - Expose async `send` and `receive` operations.
