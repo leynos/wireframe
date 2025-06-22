@@ -202,6 +202,15 @@ let logging = from_fn(|req, next| async move {
 });
 ```
 
+## Examples
+
+The `examples/` directory contains runnable demos illustrating different
+protocol designs:
+
+- `echo.rs` – minimal server that echoes incoming frames.
+- `packet_enum.rs` – shows packet type discrimination with a bincode enum and a
+  frame containing container types like `HashMap` and `Vec`.
+
 ## Current Limitations
 
 Connection handling now processes frames and routes messages. Although the
