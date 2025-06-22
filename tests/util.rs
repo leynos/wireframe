@@ -1,7 +1,7 @@
 use rstest::fixture;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, duplex};
 use wireframe::{
-    app::{Packet, Envelope, WireframeApp},
+    app::{Envelope, Packet, WireframeApp},
     frame::{FrameMetadata, LengthPrefixedProcessor},
     serializer::Serializer,
 };
