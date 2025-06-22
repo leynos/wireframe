@@ -153,9 +153,10 @@ incoming \[`MessageRequest`\] and remaining \[`Payload`\]. Built‑in extractors
 like `Message<T>`, `SharedState<T>` and `ConnectionInfo` decode the payload,
 access app state or expose peer information.
 
-Custom extractors let you centralize parsing and validation logic that would
-otherwise be duplicated across handlers. A session token parser, for example,
-can verify the token before any route-specific code executes
+- `echo.rs` — minimal echo server using routing
+- `ping_pong.rs` — showcases serialization and middleware in a ping/pong
+  protocol. See [examples/ping_pong.md](examples/ping_pong.md) for a detailed
+  overview.
 [Design Guide: Data Extraction and Type Safety][data-extraction-guide].
 
 ```rust
