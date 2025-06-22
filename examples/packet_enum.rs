@@ -38,13 +38,17 @@ where
     type Error = S::Error;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-        if let Ok((frame, _)) = Frame::from_bytes(req.frame()) {
-            match frame.packet {
+        match Frame::from_bytes(req.frame()) {
+            Ok((frame, _)) => match frame.packet {
                 Packet::Ping => println!("ping: {:?}", frame.headers),
                 Packet::Chat { user, msg } => println!("{user} says: {msg}"),
                 Packet::Stats(values) => println!("stats: {values:?}"),
+            },
+            Err(e) => {
+                eprintln!("Failed to decode frame: {e}");
             }
         }
+
         let response = self.inner.call(req).await?;
         Ok(response)
     }
@@ -70,16 +74,18 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 async fn main() -> io::Result<()> {
     let factory = || {
         WireframeApp::new()
-            .unwrap()
+            .expect("Failed to create WireframeApp")
             .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()))
             .wrap(DecodeMiddleware)
-            .unwrap()
+            .expect("Failed to wrap middleware")
             .route(1, std::sync::Arc::new(handle_packet))
-            .unwrap()
+            .expect("Failed to add route")
     };
 
+    let addr = std::env::var("SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:7879".to_string());
+
     WireframeServer::new(factory)
-        .bind("127.0.0.1:7879".parse().unwrap())?
+        .bind(addr.parse().expect("Invalid server address"))?
         .run()
         .await
 }
