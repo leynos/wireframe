@@ -1,4 +1,4 @@
-# Design of "wireframe": A Rust Router for Binary Protocols
+# Design of `wireframe`: A Rust Router for Binary Protocols
 
 ## 1. Introduction
 
