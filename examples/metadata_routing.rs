@@ -44,6 +44,9 @@ impl FrameMetadata for HeaderSerializer {
         // bits.
         let _ = src[2];
         let payload = src[3..].to_vec();
+        // `parse` receives the complete frame because `LengthPrefixedProcessor`
+        // ensures `src` contains exactly one message. Returning `src.len()` is
+        // therefore correct for this demo.
         Ok((Envelope::new(id, payload), src.len()))
     }
 }
