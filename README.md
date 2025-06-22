@@ -164,6 +164,14 @@ use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, P
 
 pub struct SessionToken(String);
 
+Try the echo server with netcat:
+
+```bash
+$ cargo run --example echo
+# in another terminal
+$ printf '\x00\x00\x00\x00\x01\x00\x00\x00' | nc 127.0.0.1 7878 | xxd
+```
+
 impl FromMessageRequest for SessionToken {
     type Error = std::convert::Infallible;
 
