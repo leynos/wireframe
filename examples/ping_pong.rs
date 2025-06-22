@@ -85,6 +85,8 @@ where
 impl Transform<HandlerService> for PongMiddleware {
     type Output = HandlerService;
 
+    // `HandlerService` is a boxed trait object without generic parameters,
+    // so the transform signature uses the concrete type directly.
     async fn transform(&self, service: HandlerService) -> Self::Output {
         let id = service.id();
         HandlerService::from_service(id, PongService { inner: service })
@@ -116,6 +118,7 @@ where
 impl Transform<HandlerService> for Logging {
     type Output = HandlerService;
 
+    // `HandlerService` is a concrete type, not a generic wrapper.
     async fn transform(&self, service: HandlerService) -> Self::Output {
         let id = service.id();
         HandlerService::from_service(id, LoggingService { inner: service })
