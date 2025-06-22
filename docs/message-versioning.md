@@ -1,10 +1,11 @@
 # Message Versioning and Compatibility
 
-> **Status:** Targeted for a post-1.0 release
+> **Status:** Targeted for a post-1.0 release — see the
+> [schema evolution roadmap item](roadmap.md#4-extended-features) for progress.
 
 ## Motivation
 
-Binary protocols often evolve over time. New features require changes to message
+Binary protocols often evolve. New features require changes to message
 structures, while older clients may still be deployed in the field. `wireframe`
 needs a strategy to support multiple message versions without breaking
 compatibility.
@@ -13,8 +14,7 @@ compatibility.
 
 - **Version negotiation**: Determine a mutually supported protocol version when
   a client connects.
-- **Per-message versions**: Allow individual message types to define their own
-  version numbers.
+- **Per-message versions**: Allow message types to define version numbers.
 - **Compatibility checks**: Detect incompatible versions at runtime and surface
   meaningful errors.
 - **Ergonomic API**: Provide Actix-like helpers for routing and version guards.
@@ -45,13 +45,13 @@ Extend `Envelope` with an optional `version` field:
 ```rust
 pub struct Envelope {
     id: u32,
-    version: u16,
+    version: Option<u16>,
     msg: Vec<u8>,
 }
 ```
 
 The serializer will encode and decode this field transparently. Older clients
-that lack a version field will default to `0`.
+that lack a version field will represent it as `None`.
 
 ### 3. Version Guards
 

@@ -124,8 +124,8 @@ after formatting. Line numbers below refer to that file.
 
 - [ ] Add UDP and other transport implementations (lines 1366-1379).
 - [ ] Develop built-in `FrameProcessor` variants (lines 1381-1389).
-- [ ] Address schema evolution and versioning strategies (post-1.0, lines
-  1394-1409).
+- [ ] Address schema evolution and versioning strategies
+  ([design](message-versioning.md), post-1.0, lines 1394-1409).
 - [ ] Investigate multiplexing and flow control mechanisms (lines 1411-1422).
 
 ## 5. Developer Tooling
