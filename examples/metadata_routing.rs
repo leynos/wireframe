@@ -39,8 +39,9 @@ impl FrameMetadata for HeaderSerializer {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "header"));
         }
         let id = u32::from(u16::from_be_bytes([src[0], src[1]]));
-        // The third byte carries message flags. This demo ignores them
-        // entirely, but a real protocol might parse and act on these bits.
+        // The third byte carries message flags. This example intentionally
+        // ignores the flags, but a real protocol might parse and act on these
+        // bits.
         let _ = src[2];
         let payload = src[3..].to_vec();
         Ok((Envelope::new(id, payload), src.len()))

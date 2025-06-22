@@ -1,10 +1,21 @@
 use rstest::fixture;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, duplex};
 use wireframe::{
-    app::{Packet, WireframeApp},
-    frame::LengthPrefixedProcessor,
+    app::{Packet, Envelope, WireframeApp},
+    frame::{FrameMetadata, LengthPrefixedProcessor},
     serializer::Serializer,
 };
+
+/// Trait alias for serializers used in tests.
+pub trait TestSerializer:
+    Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
+{
+}
+
+impl<T> TestSerializer for T where
+    T: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
+{
+}
 
 /// Feed a single frame into `app` and collect the response bytes.
 ///
@@ -33,11 +44,7 @@ pub fn processor() -> LengthPrefixedProcessor {
 /// duplex stream.
 pub async fn run_app_with_frame<S>(app: WireframeApp<S>, frame: Vec<u8>) -> io::Result<Vec<u8>>
 where
-    S: wireframe::serializer::Serializer
-        + wireframe::frame::FrameMetadata<Frame = wireframe::app::Envelope>
-        + Send
-        + Sync
-        + 'static,
+    S: TestSerializer,
 {
     run_app_with_frame_with_capacity(app, frame, DEFAULT_CAPACITY).await
 }
@@ -57,11 +64,7 @@ pub async fn run_app_with_frame_with_capacity<S>(
     capacity: usize,
 ) -> io::Result<Vec<u8>>
 where
-    S: wireframe::serializer::Serializer
-        + wireframe::frame::FrameMetadata<Frame = wireframe::app::Envelope>
-        + Send
-        + Sync
-        + 'static,
+    S: TestSerializer,
 {
     run_app_with_frames_with_capacity(app, vec![frame], capacity).await
 }
@@ -78,11 +81,7 @@ pub async fn run_app_with_frames<S>(
     frames: Vec<Vec<u8>>,
 ) -> io::Result<Vec<u8>>
 where
-    S: wireframe::serializer::Serializer
-        + wireframe::frame::FrameMetadata<Frame = wireframe::app::Envelope>
-        + Send
-        + Sync
-        + 'static,
+    S: TestSerializer,
 {
     run_app_with_frames_with_capacity(app, frames, DEFAULT_CAPACITY).await
 }
@@ -102,11 +101,7 @@ pub async fn run_app_with_frames_with_capacity<S>(
     capacity: usize,
 ) -> io::Result<Vec<u8>>
 where
-    S: wireframe::serializer::Serializer
-        + wireframe::frame::FrameMetadata<Frame = wireframe::app::Envelope>
-        + Send
-        + Sync
-        + 'static,
+    S: TestSerializer,
 {
     let (mut client, server) = duplex(capacity);
     let server_task = tokio::spawn(async move {

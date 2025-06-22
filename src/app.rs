@@ -434,6 +434,24 @@ where
         stream.write_all(&framed).await.map_err(SendError::Io)?;
         stream.flush().await.map_err(SendError::Io)
     }
+}
+
+impl<S, C> WireframeApp<S, C>
+where
+    S: Serializer + crate::frame::FrameMetadata<Frame = Envelope>,
+    C: Send + 'static,
+{
+    /// Try parsing the frame using [`FrameMetadata::parse`], falling back to
+    /// full deserialization on failure.
+    fn parse_envelope(
+        &self,
+        frame: &[u8],
+    ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
+        self.serializer
+            .parse(frame)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
+    }
 
     /// Handle an accepted connection.
     ///
@@ -443,7 +461,6 @@ where
     pub async fn handle_connection<W>(&self, mut stream: W)
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
-        S: crate::frame::FrameMetadata<Frame = Envelope>,
     {
         let state = if let Some(setup) = &self.on_connect {
             Some((setup)().await)
@@ -481,7 +498,6 @@ where
     ) -> io::Result<()>
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-        S: crate::frame::FrameMetadata<Frame = Envelope>,
     {
         let mut buf = BytesMut::with_capacity(1024);
         let mut idle = 0u32;
@@ -572,13 +588,8 @@ where
     ) -> io::Result<()>
     where
         W: tokio::io::AsyncWrite + Unpin,
-        S: crate::frame::FrameMetadata<Frame = Envelope>,
     {
-        let (env, _) = match self
-            .serializer
-            .parse(frame)
-            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
-        {
+        let (env, _) = match self.parse_envelope(frame) {
             Ok((env, _)) => {
                 *deser_failures = 0;
                 let (id, bytes) = env.into_parts();
