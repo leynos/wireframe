@@ -139,8 +139,35 @@ impl From<io::Error> for SendError {
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
 ///
-/// Custom envelope types must implement this trait so `WireframeApp` can route
-/// messages and construct responses.
+/// Custom envelope types must implement this trait so [`WireframeApp`] can
+/// route messages and construct responses.
+///
+/// # Example
+///
+/// ```
+/// use wireframe::{app::Packet, message::Message};
+///
+/// #[derive(bincode::Decode, bincode::Encode)]
+/// struct CustomEnvelope {
+///     id: u32,
+///     payload: Vec<u8>,
+///     timestamp: u64,
+/// }
+///
+/// impl Packet for CustomEnvelope {
+///     fn id(&self) -> u32 { self.id }
+///
+///     fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.payload) }
+///
+///     fn from_parts(id: u32, msg: Vec<u8>) -> Self {
+///         Self {
+///             id,
+///             payload: msg,
+///             timestamp: 0,
+///         }
+///     }
+/// }
+/// ```
 pub trait Packet: Message + Send + Sync + 'static {
     /// Return the message identifier used for routing.
     fn id(&self) -> u32;

@@ -220,6 +220,7 @@ use crate::app::{Handler, Packet};
 pub struct HandlerService<E: Packet> {
     id: u32,
     svc: Box<dyn Service<Error = Infallible> + Send + Sync>,
+    /// Marker to bind the generic parameter `E` without storing a value.
     _marker: std::marker::PhantomData<E>,
 }
 
