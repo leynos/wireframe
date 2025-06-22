@@ -12,9 +12,17 @@ use std::{
 };
 
 use bincode::error::DecodeError;
+use futures::future::BoxFuture;
 
 /// Callback invoked when a connection preamble decodes successfully.
-pub type PreambleCallback<T> = Arc<dyn Fn(&T) + Send + Sync>;
+///
+/// The callback may perform asynchronous I/O on the provided stream before the
+/// connection is handed off to [`WireframeApp`].
+pub type PreambleCallback<T> = Arc<
+    dyn for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+        + Send
+        + Sync,
+>;
 
 /// Callback invoked when decoding a connection preamble fails.
 pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
@@ -162,7 +170,10 @@ where
     #[must_use]
     pub fn on_preamble_decode_success<H>(mut self, handler: H) -> Self
     where
-        H: Fn(&T) + Send + Sync + 'static,
+        H: for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.on_preamble_success = Some(Arc::new(handler));
         self
@@ -415,8 +426,10 @@ async fn process_stream<F, T>(
 {
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            if let Some(handler) = on_success.as_ref() {
-                handler(&preamble);
+            if let Some(handler) = on_success.as_ref()
+                && let Err(e) = handler(&preamble, &mut stream).await
+            {
+                eprintln!("preamble callback error: {e}");
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
@@ -592,8 +605,12 @@ mod tests {
         let counter_clone = callback_counter.clone();
 
         let server = server_with_preamble(factory).on_preamble_decode_success(
-            move |_preamble: &TestPreamble| {
-                counter_clone.fetch_add(1, Ordering::SeqCst);
+            move |_preamble: &TestPreamble, _| {
+                let cnt = counter_clone.clone();
+                Box::pin(async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })
             },
         );
 
@@ -631,8 +648,12 @@ mod tests {
         let server = WireframeServer::new(factory)
             .workers(2)
             .with_preamble::<TestPreamble>()
-            .on_preamble_decode_success(move |_: &TestPreamble| {
-                counter_clone.fetch_add(1, Ordering::SeqCst);
+            .on_preamble_decode_success(move |_: &TestPreamble, _| {
+                let cnt = counter_clone.clone();
+                Box::pin(async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })
             })
             .on_preamble_decode_failure(|_: &DecodeError| {
                 eprintln!("Preamble decode failed");
@@ -776,7 +797,7 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
         let server = WireframeServer::new(factory)
-            .on_preamble_decode_success(|&()| {})
+            .on_preamble_decode_success(|&(), _| Box::pin(async { Ok(()) }))
             .on_preamble_decode_failure(|_: &DecodeError| {});
 
         assert!(server.on_preamble_success.is_some());
