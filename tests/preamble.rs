@@ -113,64 +113,20 @@ async fn invalid_magic_is_error() {
     assert!(preamble.validate().is_err());
 }
 
-#[rstest]
-#[tokio::test]
-async fn server_triggers_success_callback(
-    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-) {
-    let (success_tx, success_rx) = tokio::sync::oneshot::channel::<HotlinePreamble>();
-    let (failure_tx, failure_rx) = tokio::sync::oneshot::channel::<()>();
-    let success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(success_tx)));
-    let failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(failure_tx)));
-    let server = server_with_handlers(
-        factory,
-        {
-            let success_tx = success_tx.clone();
-            move |p, _| {
-                let success_tx = success_tx.clone();
-                let clone = p.clone();
-                Box::pin(async move {
-                    if let Some(tx) = success_tx.lock().unwrap().take() {
-                        let _ = tx.send(clone);
-                    }
-                    Ok(())
-                })
-            }
-        },
-        {
-            let failure_tx = failure_tx.clone();
-            move |_| {
-                if let Some(tx) = failure_tx.lock().unwrap().take() {
-                    let _ = tx.send(());
-                }
-            }
-        },
-    );
-
-    with_running_server(server, |addr| async move {
-        let mut stream = TcpStream::connect(addr).await.unwrap();
-        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
-        stream.write_all(bytes).await.unwrap();
-        stream.shutdown().await.unwrap();
-    })
-    .await;
-
-    let preamble = timeout(Duration::from_secs(1), success_rx)
-        .await
-        .expect("timeout waiting for success")
-        .expect("success send");
-    assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
-    assert!(
-        timeout(Duration::from_millis(100), failure_rx)
-            .await
-            .is_err()
-    );
+#[derive(Clone, Copy)]
+enum ExpectedCallback {
+    Success,
+    Failure,
 }
 
 #[rstest]
+#[case(b"TRTPHOTL\x00\x01\x00\x02", ExpectedCallback::Success)]
+#[case(b"TRTPHOT", ExpectedCallback::Failure)]
 #[tokio::test]
-async fn server_triggers_failure_callback(
+async fn server_triggers_expected_callback(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    #[case] bytes: &'static [u8],
+    #[case] expected: ExpectedCallback,
 ) {
     let (success_tx, success_rx) = tokio::sync::oneshot::channel::<HotlinePreamble>();
     let (failure_tx, failure_rx) = tokio::sync::oneshot::channel::<()>();
@@ -203,21 +159,36 @@ async fn server_triggers_failure_callback(
 
     with_running_server(server, |addr| async move {
         let mut stream = TcpStream::connect(addr).await.unwrap();
-        let bytes = b"TRTPHOT"; // truncated
         stream.write_all(bytes).await.unwrap();
         stream.shutdown().await.unwrap();
     })
     .await;
 
-    timeout(Duration::from_secs(1), failure_rx)
-        .await
-        .expect("timeout waiting for failure")
-        .expect("failure send");
-    assert!(
-        timeout(Duration::from_millis(100), success_rx)
-            .await
-            .is_err()
-    );
+    match expected {
+        ExpectedCallback::Success => {
+            let preamble = timeout(Duration::from_secs(1), success_rx)
+                .await
+                .expect("timeout waiting for success")
+                .expect("success send");
+            assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
+            assert!(
+                timeout(Duration::from_millis(100), failure_rx)
+                    .await
+                    .is_err()
+            );
+        }
+        ExpectedCallback::Failure => {
+            timeout(Duration::from_secs(1), failure_rx)
+                .await
+                .expect("timeout waiting for failure")
+                .expect("failure send");
+            assert!(
+                timeout(Duration::from_millis(100), success_rx)
+                    .await
+                    .is_err()
+            );
+        }
+    }
 }
 
 #[rstest]
