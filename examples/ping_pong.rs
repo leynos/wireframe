@@ -51,13 +51,32 @@ where
             }
         };
         let mut response = self.inner.call(req).await?;
-        let pong_resp = Pong(ping_req.0 + 1);
+        let pong_resp = if let Some(v) = ping_req.0.checked_add(1) {
+            Pong(v)
+        } else {
+            eprintln!("ping overflowed at {}", ping_req.0);
+            let err = ErrorMsg("overflow".into());
+            let bytes = match err.to_bytes() {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("failed to encode error: {e:?}");
+                    Vec::new()
+                }
+            };
+            return Ok(ServiceResponse::new(bytes));
+        };
         match pong_resp.to_bytes() {
             Ok(bytes) => *response.frame_mut() = bytes,
             Err(e) => {
                 eprintln!("failed to encode pong: {e:?}");
                 let err = ErrorMsg(format!("encode error: {e:?}"));
-                let bytes = err.to_bytes().unwrap_or_default();
+                let bytes = match err.to_bytes() {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("failed to encode error: {e:?}");
+                        Vec::new()
+                    }
+                };
                 return Ok(ServiceResponse::new(bytes));
             }
         }
