@@ -1,6 +1,10 @@
 use rstest::fixture;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, duplex};
-use wireframe::{app::WireframeApp, frame::LengthPrefixedProcessor};
+use wireframe::{
+    app::{Packet, WireframeApp},
+    frame::LengthPrefixedProcessor,
+    serializer::Serializer,
+};
 
 /// Feed a single frame into `app` and collect the response bytes.
 ///
@@ -27,7 +31,15 @@ pub fn processor() -> LengthPrefixedProcessor {
 ///
 /// Returns any I/O errors encountered while interacting with the in-memory
 /// duplex stream.
-pub async fn run_app_with_frame(app: WireframeApp, frame: Vec<u8>) -> io::Result<Vec<u8>> {
+pub async fn run_app_with_frame<S, C, E>(
+    app: WireframeApp<S, C, E>,
+    frame: Vec<u8>,
+) -> io::Result<Vec<u8>>
+where
+    S: Serializer + Send + Sync + 'static,
+    C: Send + 'static,
+    E: Packet,
+{
     run_app_with_frame_with_capacity(app, frame, DEFAULT_CAPACITY).await
 }
 
@@ -40,11 +52,16 @@ pub async fn run_app_with_frame(app: WireframeApp, frame: Vec<u8>) -> io::Result
 /// # Panics
 ///
 /// Panics if the spawned task running the application panics.
-pub async fn run_app_with_frame_with_capacity(
-    app: WireframeApp,
+pub async fn run_app_with_frame_with_capacity<S, C, E>(
+    app: WireframeApp<S, C, E>,
     frame: Vec<u8>,
     capacity: usize,
-) -> io::Result<Vec<u8>> {
+) -> io::Result<Vec<u8>>
+where
+    S: Serializer + Send + Sync + 'static,
+    C: Send + 'static,
+    E: Packet,
+{
     run_app_with_frames_with_capacity(app, vec![frame], capacity).await
 }
 
@@ -54,7 +71,15 @@ pub async fn run_app_with_frame_with_capacity(
 ///
 /// Returns any I/O errors encountered while interacting with the in-memory
 /// duplex stream.
-pub async fn run_app_with_frames(app: WireframeApp, frames: Vec<Vec<u8>>) -> io::Result<Vec<u8>> {
+pub async fn run_app_with_frames<S, C, E>(
+    app: WireframeApp<S, C, E>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: Serializer + Send + Sync + 'static,
+    C: Send + 'static,
+    E: Packet,
+{
     run_app_with_frames_with_capacity(app, frames, DEFAULT_CAPACITY).await
 }
 
@@ -67,11 +92,16 @@ pub async fn run_app_with_frames(app: WireframeApp, frames: Vec<Vec<u8>>) -> io:
 /// # Panics
 ///
 /// Panics if the spawned task running the application panics.
-pub async fn run_app_with_frames_with_capacity(
-    app: WireframeApp,
+pub async fn run_app_with_frames_with_capacity<S, C, E>(
+    app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
     capacity: usize,
-) -> io::Result<Vec<u8>> {
+) -> io::Result<Vec<u8>>
+where
+    S: Serializer + Send + Sync + 'static,
+    C: Send + 'static,
+    E: Packet,
+{
     let (mut client, server) = duplex(capacity);
     let server_task = tokio::spawn(async move {
         app.handle_connection(server).await;

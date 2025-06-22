@@ -572,7 +572,7 @@ a tuple or struct and the test only cares about some parts or wants to use more
 idiomatic names for destructured elements, `#[from]` is essential to link the
 argument pattern to the correct source fixture.12
 
-### D. Partial Fixture Injection and Default Arguments: `#[with]` and `#[default]`
+### D. Partial Fixture Injection & Default Arguments
 
 `rstest` provides mechanisms for creating highly configurable "template"
 fixtures using `#[default(...)]` for fixture arguments and `#[with(...)]` to

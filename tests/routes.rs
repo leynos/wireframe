@@ -22,6 +22,14 @@ struct TestEnvelope {
     msg: Vec<u8>,
 }
 
+impl wireframe::app::Packet for TestEnvelope {
+    fn id(&self) -> u32 { self.id }
+
+    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+
+    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+}
+
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Echo(u8);
 
@@ -30,12 +38,12 @@ struct Echo(u8);
 async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
-    let app = WireframeApp::new()
+    let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
             1,
-            std::sync::Arc::new(move |_| {
+            std::sync::Arc::new(move |_: &TestEnvelope| {
                 let called_inner = called_clone.clone();
                 Box::pin(async move {
                     called_inner.fetch_add(1, Ordering::SeqCst);
@@ -72,10 +80,13 @@ async fn handler_receives_message_and_echoes_response() {
 
 #[tokio::test]
 async fn multiple_frames_processed_in_sequence() {
-    let app = WireframeApp::new()
+    let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())
-        .route(1, std::sync::Arc::new(|_| Box::pin(async {})))
+        .route(
+            1,
+            std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+        )
         .unwrap();
 
     let frames: Vec<Vec<u8>> = (1u8..=2)
