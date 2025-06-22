@@ -11,7 +11,19 @@ use wireframe::{
 };
 
 mod util;
-use util::run_app_with_frame;
+use util::{TestSerializer, run_app_with_frame};
+
+fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S>
+where
+    S: TestSerializer,
+{
+    WireframeApp::new()
+        .unwrap()
+        .frame_processor(LengthPrefixedProcessor::default())
+        .serializer(serializer)
+        .route(1, Arc::new(|_| Box::pin(async {})))
+        .unwrap()
+}
 
 struct CountingSerializer(Arc<AtomicUsize>);
 
@@ -45,12 +57,7 @@ impl FrameMetadata for CountingSerializer {
 async fn metadata_parser_invoked_before_deserialize() {
     let counter = Arc::new(AtomicUsize::new(0));
     let serializer = CountingSerializer(counter.clone());
-    let app = WireframeApp::new()
-        .unwrap()
-        .frame_processor(LengthPrefixedProcessor::default())
-        .serializer(serializer)
-        .route(1, Arc::new(|_| Box::pin(async {})))
-        .unwrap();
+    let app = mock_wireframe_app_with_serializer(serializer);
 
     let env = Envelope::new(1, vec![42]);
     let bytes = BincodeSerializer.serialize(&env).unwrap();
@@ -98,12 +105,7 @@ async fn falls_back_to_deserialize_after_parse_error() {
     let parse_calls = Arc::new(AtomicUsize::new(0));
     let deser_calls = Arc::new(AtomicUsize::new(0));
     let serializer = FallbackSerializer(parse_calls.clone(), deser_calls.clone());
-    let app = WireframeApp::new()
-        .unwrap()
-        .frame_processor(LengthPrefixedProcessor::default())
-        .serializer(serializer)
-        .route(1, Arc::new(|_| Box::pin(async {})))
-        .unwrap();
+    let app = mock_wireframe_app_with_serializer(serializer);
 
     let env = Envelope::new(1, vec![7]);
     let bytes = BincodeSerializer.serialize(&env).unwrap();
