@@ -432,6 +432,58 @@ way to define and process frames.
   identifiers or flags. This allows for a two-stage deserialization: first the
   metadata, then, based on that, the full payload.
 
+The relationship between the trait and example serializers can be visualised as
+follows:
+
+```mermaid
+classDiagram
+    class FrameMetadata {
+        <<trait>>
+        +parse(src: &[u8]) Result<(Frame, usize), Error>
+        type Frame
+        type Error
+    }
+    class BincodeSerializer {
+        +serialize()
+        +deserialize()
+        +parse(src: &[u8]) Result<(Envelope, usize), DecodeError>
+    }
+    class HeaderSerializer {
+        +serialize()
+        +deserialize()
+        +parse(src: &[u8]) Result<(Envelope, usize), io::Error>
+    }
+    class Envelope
+    FrameMetadata <|.. BincodeSerializer
+    FrameMetadata <|.. HeaderSerializer
+    BincodeSerializer --> Envelope : Frame = Envelope
+    HeaderSerializer --> Envelope : Frame = Envelope
+```
+
+During message processing, metadata parsing precedes full deserialization:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant WireframeApp
+    participant Serializer
+    Client->>WireframeApp: Send frame bytes
+    WireframeApp->>Serializer: parse(frame)
+    alt parse succeeds
+        Serializer-->>WireframeApp: (Envelope, bytes_consumed)
+        WireframeApp->>WireframeApp: Route selection based on Envelope.id
+        WireframeApp->>Serializer: deserialize(frame) (if needed)
+    else parse fails
+        WireframeApp->>Serializer: deserialize(frame)
+        alt deserialize fails
+            WireframeApp-->>Client: Error/close connection
+        else deserialize succeeds
+            Serializer-->>WireframeApp: (Envelope, bytes_consumed)
+            WireframeApp->>WireframeApp: Route selection
+        end
+    end
+```
+
 This separation of framing logic via traits is crucial. Different binary
 protocols employ vastly different methods for delimiting messages on the wire.
 Some use fixed-size headers with length fields, others rely on special start/end
