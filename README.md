@@ -156,7 +156,7 @@ access app state or expose peer information.
 Custom extractors let you centralize parsing and validation logic that would
 otherwise be duplicated across handlers. A session token parser, for example,
 can verify the token before any route-specific code executes
-[Design Guide: Data Extraction and Type Safety](docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety).
+[Design Guide: Data Extraction and Type Safety][data-extraction-guide].
 
 ```rust
 use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
@@ -227,3 +227,5 @@ extractor traits, and providing example applications【F:docs/roadmap.md†L1-L2
 
 Wireframe is distributed under the terms of the ISC license. See
 [LICENSE](LICENSE) for details.
+
+[data-extraction-guide]: docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety
