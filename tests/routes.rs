@@ -12,9 +12,10 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-
-mod util;
-use util::{run_app_with_frame, run_app_with_frames};
+use wireframe_testing::{
+    drive_with_frame as run_app_with_frame,
+    drive_with_frames as run_app_with_frames,
+};
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestEnvelope {
