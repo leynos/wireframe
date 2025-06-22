@@ -1,4 +1,4 @@
-use std::{io, sync::Arc};
+use std::{io, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use wireframe::{
@@ -17,6 +17,17 @@ struct Pong(u32);
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 struct ErrorMsg(String);
+
+fn encode_error(msg: impl Into<String>) -> Vec<u8> {
+    let err = ErrorMsg(msg.into());
+    match err.to_bytes() {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("failed to encode error: {e:?}");
+            Vec::new()
+        }
+    }
+}
 
 const PING_ID: u32 = 1;
 
@@ -45,9 +56,9 @@ where
             Ok(val) => val,
             Err(e) => {
                 eprintln!("failed to decode ping: {e:?}");
-                let err = ErrorMsg(format!("decode error: {e:?}"));
-                let bytes = err.to_bytes().unwrap_or_default();
-                return Ok(ServiceResponse::new(bytes));
+                return Ok(ServiceResponse::new(encode_error(format!(
+                    "decode error: {e:?}"
+                ))));
             }
         };
         let mut response = self.inner.call(req).await?;
@@ -55,29 +66,15 @@ where
             Pong(v)
         } else {
             eprintln!("ping overflowed at {}", ping_req.0);
-            let err = ErrorMsg("overflow".into());
-            let bytes = match err.to_bytes() {
-                Ok(b) => b,
-                Err(e) => {
-                    eprintln!("failed to encode error: {e:?}");
-                    Vec::new()
-                }
-            };
-            return Ok(ServiceResponse::new(bytes));
+            return Ok(ServiceResponse::new(encode_error("overflow")));
         };
         match pong_resp.to_bytes() {
             Ok(bytes) => *response.frame_mut() = bytes,
             Err(e) => {
                 eprintln!("failed to encode pong: {e:?}");
-                let err = ErrorMsg(format!("encode error: {e:?}"));
-                let bytes = match err.to_bytes() {
-                    Ok(b) => b,
-                    Err(e) => {
-                        eprintln!("failed to encode error: {e:?}");
-                        Vec::new()
-                    }
-                };
-                return Ok(ServiceResponse::new(bytes));
+                return Ok(ServiceResponse::new(encode_error(format!(
+                    "encode error: {e:?}"
+                ))));
             }
         }
         Ok(response)
@@ -137,7 +134,11 @@ fn build_app() -> AppResult<WireframeApp> {
 async fn main() -> io::Result<()> {
     let factory = || build_app().expect("app build failed");
 
-    let addr = "127.0.0.1:7878"
+    let default_addr = "127.0.0.1:7878";
+    let addr_str = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| default_addr.into());
+    let addr: SocketAddr = addr_str
         .parse()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     WireframeServer::new(factory).bind(addr)?.run().await
