@@ -85,6 +85,34 @@ WireframeServer::new(|| {
 This example showcases how derive macros and the framing abstraction simplify a
 binary protocol server【F:docs/rust-binary-router-library-design.md†L1126-L1156】.
 
+## Custom Envelopes
+
+`WireframeApp` defaults to a simple `Envelope` containing a message ID and raw
+payload bytes. Applications can supply their own envelope type by calling
+`WireframeApp::<_, _, MyEnv>::new_with_envelope()`. The custom type must
+implement the `Packet` trait:
+
+```rust
+use wireframe::app::{Packet, WireframeApp};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct MyEnv { id: u32, data: Vec<u8> }
+
+impl Packet for MyEnv {
+    fn id(&self) -> u32 { self.id }
+    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.data) }
+    fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
+}
+
+let app = WireframeApp::<_, _, MyEnv>::new_with_envelope()
+    .unwrap()
+    .route(1, std::sync::Arc::new(|env: &MyEnv| Box::pin(async move { /* ... */ })))
+    .unwrap();
+```
+
+This allows integration with existing packet formats without modifying
+`handle_frame`.
+
 ## Response Serialization and Framing
 
 Handlers can return types implementing the `Responder` trait. These values are

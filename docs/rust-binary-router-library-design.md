@@ -364,6 +364,24 @@ handling to be managed and customized independently.
    payload. c. This payload is given to the **Framing Layer** to be encapsulated
    in a frame. d. The framed bytes are sent via the **Transport Layer Adapter**.
 
+```mermaid
+sequenceDiagram
+    participant Client
+    participant WireframeApp
+    participant Middleware
+    participant HandlerService
+    participant Handler
+
+    Client->>WireframeApp: Send frame (bytes)
+    WireframeApp->>WireframeApp: Deserialize to E: Packet
+    WireframeApp->>Middleware: Pass envelope (E)
+    Middleware->>HandlerService: Pass envelope (E)
+    HandlerService->>Handler: Call handler with &E
+    Handler-->>HandlerService: Return response (bytes)
+    HandlerService->>WireframeApp: Construct response envelope (E::from_parts)
+    WireframeApp->>Client: Send response frame (bytes)
+```
+
 This layered architecture mirrors the conceptual separation found in network
 protocol stacks, such as the OSI or TCP/IP models.28 Each component addresses a
 distinct set of problems. This modularity is fundamental to managing the overall
