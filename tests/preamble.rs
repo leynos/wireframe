@@ -1,8 +1,12 @@
 //! Tests for connection preamble reading.
 
+use std::io;
+
 use bincode::error::DecodeError;
+use futures::future::BoxFuture;
+use rstest::{fixture, rstest};
 use tokio::{
-    io::{AsyncWriteExt, duplex},
+    io::{AsyncReadExt, AsyncWriteExt, duplex},
     net::TcpStream,
     sync::oneshot,
     time::{Duration, timeout},
@@ -28,6 +32,57 @@ impl HotlinePreamble {
         }
         Ok(())
     }
+}
+
+#[fixture]
+fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
+    || WireframeApp::new().expect("WireframeApp::new failed")
+}
+
+/// Create a server configured with `HotlinePreamble` handlers.
+fn server_with_handlers<F, S, E>(
+    factory: F,
+    success: S,
+    failure: E,
+) -> WireframeServer<F, HotlinePreamble>
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    S: for<'a> Fn(&'a HotlinePreamble, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>>
+        + Send
+        + Sync
+        + 'static,
+    E: Fn(&DecodeError) + Send + Sync + 'static,
+{
+    WireframeServer::new(factory)
+        .workers(1)
+        .with_preamble::<HotlinePreamble>()
+        .on_preamble_decode_success(success)
+        .on_preamble_decode_failure(failure)
+}
+
+/// Run the provided server while executing `block`.
+async fn with_running_server<F, T, Fut, B>(server: WireframeServer<F, T>, block: B)
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: wireframe::preamble::Preamble,
+    Fut: std::future::Future<Output = ()>,
+    B: FnOnce(std::net::SocketAddr) -> Fut,
+{
+    let server = server.bind("127.0.0.1:0".parse().unwrap()).expect("bind");
+    let addr = server.local_addr().expect("addr");
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let handle = tokio::spawn(async move {
+        server
+            .run_with_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+
+    block(addr).await;
+    let _ = shutdown_tx.send(());
+    handle.await.unwrap();
 }
 
 #[tokio::test]
@@ -58,48 +113,47 @@ async fn invalid_magic_is_error() {
     assert!(preamble.validate().is_err());
 }
 
+#[rstest]
 #[tokio::test]
-async fn server_triggers_success_callback() {
-    let factory = || WireframeApp::new().expect("WireframeApp::new failed");
+async fn server_triggers_success_callback(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
     let (success_tx, success_rx) = tokio::sync::oneshot::channel::<HotlinePreamble>();
     let (failure_tx, failure_rx) = tokio::sync::oneshot::channel::<()>();
     let success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(success_tx)));
     let failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(failure_tx)));
-    let server = WireframeServer::new(factory)
-        .workers(1)
-        .with_preamble::<HotlinePreamble>()
-        .on_preamble_decode_success({
+    let server = server_with_handlers(
+        factory,
+        {
             let success_tx = success_tx.clone();
-            move |p| {
-                if let Some(tx) = success_tx.lock().unwrap().take() {
-                    let _ = tx.send(p.clone());
-                }
+            move |p, _| {
+                let success_tx = success_tx.clone();
+                let clone = p.clone();
+                Box::pin(async move {
+                    if let Some(tx) = success_tx.lock().unwrap().take() {
+                        let _ = tx.send(clone);
+                    }
+                    Ok(())
+                })
             }
-        })
-        .on_preamble_decode_failure({
+        },
+        {
             let failure_tx = failure_tx.clone();
             move |_| {
                 if let Some(tx) = failure_tx.lock().unwrap().take() {
                     let _ = tx.send(());
                 }
             }
-        });
-    let server = server.bind("127.0.0.1:0".parse().unwrap()).expect("bind");
-    let addr = server.local_addr().expect("addr");
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let handle = tokio::spawn(async move {
-        server
-            .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .unwrap();
-    });
+        },
+    );
 
-    let mut stream = TcpStream::connect(addr).await.unwrap();
-    let bytes = b"TRTPHOTL\x00\x01\x00\x02";
-    stream.write_all(bytes).await.unwrap();
-    stream.shutdown().await.unwrap();
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
+        stream.write_all(bytes).await.unwrap();
+        stream.shutdown().await.unwrap();
+    })
+    .await;
 
     let preamble = timeout(Duration::from_secs(1), success_rx)
         .await
@@ -111,53 +165,49 @@ async fn server_triggers_success_callback() {
             .await
             .is_err()
     );
-
-    let _ = shutdown_tx.send(());
-    handle.await.unwrap();
 }
 
+#[rstest]
 #[tokio::test]
-async fn server_triggers_failure_callback() {
-    let factory = || WireframeApp::new().expect("WireframeApp::new failed");
+async fn server_triggers_failure_callback(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
     let (success_tx, success_rx) = tokio::sync::oneshot::channel::<HotlinePreamble>();
     let (failure_tx, failure_rx) = tokio::sync::oneshot::channel::<()>();
     let success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(success_tx)));
     let failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(failure_tx)));
-    let server = WireframeServer::new(factory)
-        .workers(1)
-        .with_preamble::<HotlinePreamble>()
-        .on_preamble_decode_success({
+    let server = server_with_handlers(
+        factory,
+        {
             let success_tx = success_tx.clone();
-            move |p| {
-                if let Some(tx) = success_tx.lock().unwrap().take() {
-                    let _ = tx.send(p.clone());
-                }
+            move |p, _| {
+                let success_tx = success_tx.clone();
+                let clone = p.clone();
+                Box::pin(async move {
+                    if let Some(tx) = success_tx.lock().unwrap().take() {
+                        let _ = tx.send(clone);
+                    }
+                    Ok(())
+                })
             }
-        })
-        .on_preamble_decode_failure({
+        },
+        {
             let failure_tx = failure_tx.clone();
             move |_| {
                 if let Some(tx) = failure_tx.lock().unwrap().take() {
                     let _ = tx.send(());
                 }
             }
-        });
-    let server = server.bind("127.0.0.1:0".parse().unwrap()).expect("bind");
-    let addr = server.local_addr().expect("addr");
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let handle = tokio::spawn(async move {
-        server
-            .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .unwrap();
-    });
+        },
+    );
 
-    let mut stream = TcpStream::connect(addr).await.unwrap();
-    let bytes = b"TRTPHOT"; // truncated
-    stream.write_all(bytes).await.unwrap();
-    stream.shutdown().await.unwrap();
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let bytes = b"TRTPHOT"; // truncated
+        stream.write_all(bytes).await.unwrap();
+        stream.shutdown().await.unwrap();
+    })
+    .await;
 
     timeout(Duration::from_secs(1), failure_rx)
         .await
@@ -168,7 +218,32 @@ async fn server_triggers_failure_callback() {
             .await
             .is_err()
     );
+}
 
-    let _ = shutdown_tx.send(());
-    handle.await.unwrap();
+#[rstest]
+#[tokio::test]
+async fn success_callback_can_write_response(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let server = server_with_handlers(
+        factory,
+        |_, stream| {
+            Box::pin(async move {
+                stream.write_all(b"ACK").await.unwrap();
+                stream.flush().await.unwrap();
+                Ok(())
+            })
+        },
+        |_| {},
+    );
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
+        stream.write_all(bytes).await.unwrap();
+        let mut buf = [0u8; 3];
+        stream.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"ACK");
+    })
+    .await;
 }
