@@ -2,7 +2,7 @@ use std::{io, sync::Arc};
 
 use async_trait::async_trait;
 use wireframe::{
-    app::WireframeApp,
+    app::{Result as AppResult, WireframeApp},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
@@ -106,21 +106,17 @@ impl Transform<HandlerService> for Logging {
     }
 }
 
-fn build_app() -> WireframeApp {
-    WireframeApp::new()
-        .expect("failed to create app")
+fn build_app() -> AppResult<WireframeApp> {
+    WireframeApp::new()?
         .serializer(BincodeSerializer)
-        .route(PING_ID, Arc::new(|_| Box::pin(ping_handler())))
-        .expect("failed to register ping handler")
-        .wrap(PongMiddleware)
-        .expect("failed to apply PongMiddleware")
+        .route(PING_ID, Arc::new(|_| Box::pin(ping_handler())))?
+        .wrap(PongMiddleware)?
         .wrap(Logging)
-        .expect("failed to apply Logging middleware")
 }
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let factory = || build_app();
+    let factory = || build_app().expect("app build failed");
 
     let addr = "127.0.0.1:7878"
         .parse()
