@@ -443,6 +443,7 @@ where
     pub async fn handle_connection<W>(&self, mut stream: W)
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
+        S: crate::frame::FrameMetadata<Frame = Envelope>,
     {
         let state = if let Some(setup) = &self.on_connect {
             Some((setup)().await)
@@ -480,6 +481,7 @@ where
     ) -> io::Result<()>
     where
         W: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+        S: crate::frame::FrameMetadata<Frame = Envelope>,
     {
         let mut buf = BytesMut::with_capacity(1024);
         let mut idle = 0u32;
@@ -570,8 +572,13 @@ where
     ) -> io::Result<()>
     where
         W: tokio::io::AsyncWrite + Unpin,
+        S: crate::frame::FrameMetadata<Frame = Envelope>,
     {
-        match self.serializer.deserialize::<E>(frame) {
+        let (env, _) = match self
+            .serializer
+            .parse(frame)
+            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
+        {
             Ok((env, _)) => {
                 *deser_failures = 0;
                 let (id, bytes) = env.into_parts();
@@ -601,7 +608,28 @@ where
                         "too many deserialization failures",
                     ));
                 }
+                return Ok(());
             }
+        };
+
+        if let Some(service) = routes.get(&env.id) {
+            let request = ServiceRequest::new(env.msg);
+            match service.call(request).await {
+                Ok(resp) => {
+                    let response = Envelope {
+                        id: env.id,
+                        msg: resp.into_inner(),
+                    };
+                    if let Err(e) = self.send_response(stream, &response).await {
+                        log::warn!("failed to send response: {e}");
+                    }
+                }
+                Err(e) => {
+                    log::warn!("handler error for id {}: {e}", env.id);
+                }
+            }
+        } else {
+            log::warn!("no handler for message id {}", env.id);
         }
 
         Ok(())
