@@ -590,6 +590,8 @@ where
     where
         W: tokio::io::AsyncWrite + Unpin,
     {
+        // Parse the frame first; routing is handled below to avoid duplicating
+        // logic on the success path.
         let (env, _) = match self.parse_envelope(frame) {
             Ok(result) => {
                 *deser_failures = 0;
