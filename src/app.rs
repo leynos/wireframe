@@ -436,10 +436,11 @@ where
     }
 }
 
-impl<S, C> WireframeApp<S, C>
+impl<S, C, E> WireframeApp<S, C, E>
 where
-    S: Serializer + crate::frame::FrameMetadata<Frame = Envelope>,
+    S: Serializer + crate::frame::FrameMetadata<Frame = Envelope> + Send + Sync,
     C: Send + 'static,
+    E: Packet,
 {
     /// Try parsing the frame using [`FrameMetadata::parse`], falling back to
     /// full deserialization on failure.
@@ -590,25 +591,9 @@ where
         W: tokio::io::AsyncWrite + Unpin,
     {
         let (env, _) = match self.parse_envelope(frame) {
-            Ok((env, _)) => {
+            Ok(result) => {
                 *deser_failures = 0;
-                let (id, bytes) = env.into_parts();
-                if let Some(service) = routes.get(&id) {
-                    let request = ServiceRequest::new(bytes);
-                    match service.call(request).await {
-                        Ok(resp) => {
-                            let response = E::from_parts(id, resp.into_inner());
-                            if let Err(e) = self.send_response(stream, &response).await {
-                                log::warn!("failed to send response: {e}");
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("handler error for id {id}: {e}");
-                        }
-                    }
-                } else {
-                    log::warn!("no handler for message id {id}");
-                }
+                result
             }
             Err(e) => {
                 *deser_failures += 1;
