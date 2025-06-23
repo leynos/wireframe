@@ -24,12 +24,16 @@ protocols.
 
 The implementation must satisfy the following core requirements:
 
-| ID | Requirement |
-| G1 | Any async task must be able to push frames to a live connection. |
-| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules. |
-| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption. |
-| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe. |
-| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users. |
+<!-- markdownlint-disable MD013 -->
+
+| ID | Requirement                                                                                                                                            |
+| G1 | Any async task must be able to push frames to a live connection.                                                                                       |
+| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
+| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
+| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
+| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+
+<!-- markdownlint-enable MD013 -->
 
 ## 3. Core Architecture: The Connection Actor
 
@@ -47,7 +51,7 @@ manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
    messages like heartbeats, session control notifications, or protocol-level
    pings.
 
-1. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
+2. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
    background messages like log forwarding or secondary status updates.
 
 The bounded nature of these channels provides an inherent and robust
@@ -67,13 +71,13 @@ The polling order will be:
 1. **Graceful Shutdown Signal:** The `CancellationToken` will be checked first
    to ensure immediate reaction to a server-wide shutdown request.
 
-1. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
+2. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
    drained next.
 
-1. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
+3. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
    processed after all high-priority messages.
 
-1. **Handler Response Stream:** Frames from the active request's
+4. **Handler Response Stream:** Frames from the active request's
    `Response::Stream` will be processed last.
 
 Rust
@@ -190,38 +194,38 @@ classDiagram
     class PushQueues~F~ {
         +high_priority_rx: mpsc::Receiver<F>
         +low_priority_rx: mpsc::Receiver<F>
-        +bounded(high_capacity: usize, low_capacity: usize): (PushQueues, PushHandle~F~)
+        +bounded(high_capacity: usize, low_capacity: usize): (PushQueues~F~, PushHandle~F~)
         +recv(): Option<(PushPriority, F)>
     }
 
     PushHandleInner <.. PushHandle~F~ : contains
-    PushQueues~F~ o-- PushHandle~F~ : bounded(capacity&#58; usize)
+    PushQueues~F~ o-- PushHandle~F~ : bounded(high_capacity, low_capacity)
     PushHandle --> PushPriority
     PushHandle --> PushPolicy
     PushHandle --> PushError
-    PushQueues~F~ --> PushHandle~F~
-    PushQueues~F~ --> FrameLike
-    PushHandle~F~ --> FrameLike
 ```
+
+The diagram uses `~F~` to represent the `<F>` generic parameter because Mermaid
+treats angle brackets as HTML.
 
 ```mermaid
 flowchart TD
     Producer[Producer]
-    Handle[PushHandle]
+    Handle[PushHandle<F>]
     HighQueue[High Priority Queue]
     LowQueue[Low Priority Queue]
     Policy[PushPolicy]
     Error[PushError or Drop]
 
     Producer -->|push_high_priority| Handle
-    Handle --> HighQueue
+    Handle -->|priority: High| HighQueue
     Producer -->|push_low_priority| Handle
-    Handle --> LowQueue
+    Handle -->|priority: Low| LowQueue
 
     Producer -->|try_push| Policy
     Policy -->|Queue available| Handle
-    Handle -->|High| HighQueue
-    Handle -->|Low| LowQueue
+    Handle -->|priority: High| HighQueue
+    Handle -->|priority: Low| LowQueue
     Policy -->|ReturnErrorIfFull| Error
     Policy -->|DropIfFull| Error
     Policy -->|WarnAndDropIfFull| Error
@@ -347,10 +351,14 @@ features of the 1.0 release.
 
 ## 7. Measurable Objectives & Success Criteria
 
-| Category | Objective | Success Metric |
-| API Correctness | The PushHandle, SessionRegistry, and WireframeProtocol trait are implemented exactly as specified in this document. | 100% of the public API surface is present and correctly typed. |
-| Functionality | Pushed frames are delivered reliably and in the correct order of priority. | A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order. |
-| Back-pressure | A slow consumer must cause producer tasks to suspend without consuming unbounded memory. | A test with a slow consumer and a fast producer must show the producer's push().await call blocks, and the process memory usage remains stable. |
-| Resilience | The SessionRegistry must not leak memory when connections are terminated. | A long-running test that creates and destroys thousands of connections must show no corresponding growth in the SessionRegistry's size or the process's overall memory footprint. |
-| Performance | The overhead of the push mechanism should be minimal for connections that do not use it. | A benchmark of a simple request-response workload with the push feature enabled (but unused) should show < 2% performance degradation compared to a build without the feature. |
-| Performance | The latency for a high-priority push under no contention should be negligible. | The time from push_high_priority().await returning to the frame being written to the socket buffer should be < 10µs. |
+<!-- markdownlint-disable MD013 -->
+
+| Category        | Objective                                                                                                           | Success Metric                                                                                                                                                                              |
+| API Correctness | The PushHandle, SessionRegistry, and WireframeProtocol trait are implemented exactly as specified in this document. | 100% of the public API surface is present and correctly typed.                                                                                                                              |
+| Functionality   | Pushed frames are delivered reliably and in the correct order of priority.                                          | A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order. |
+| Back-pressure   | A slow consumer must cause producer tasks to suspend without consuming unbounded memory.                            | A test with a slow consumer and a fast producer must show the producer's push().await call blocks, and the process memory usage remains stable.                                             |
+| Resilience      | The SessionRegistry must not leak memory when connections are terminated.                                           | A long-running test that creates and destroys thousands of connections must show no corresponding growth in the SessionRegistry's size or the process's overall memory footprint.           |
+| Performance     | The overhead of the push mechanism should be minimal for connections that do not use it.                            | A benchmark of a simple request-response workload with the push feature enabled (but unused) should show < 2% performance degradation compared to a build without the feature.              |
+| Performance     | The latency for a high-priority push under no contention should be negligible.                                      | The time from push_high_priority().await returning to the frame being written to the socket buffer should be < 10µs.                                                                        |
+
+<!-- markdownlint-enable MD013 -->
