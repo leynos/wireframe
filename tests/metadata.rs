@@ -9,9 +9,7 @@ use wireframe::{
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
     serializer::{BincodeSerializer, Serializer},
 };
-
-mod util;
-use util::{TestSerializer, run_app_with_frame};
+use wireframe_testing::{TestSerializer, drive_with_frame};
 
 fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S>
 where
@@ -66,7 +64,7 @@ async fn metadata_parser_invoked_before_deserialize() {
         .encode(&bytes, &mut framed)
         .unwrap();
 
-    let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
+    let out = drive_with_frame(app, framed.to_vec()).await.unwrap();
     assert!(!out.is_empty());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
@@ -114,7 +112,7 @@ async fn falls_back_to_deserialize_after_parse_error() {
         .encode(&bytes, &mut framed)
         .unwrap();
 
-    let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
+    let out = drive_with_frame(app, framed.to_vec()).await.unwrap();
     assert!(!out.is_empty());
     assert_eq!(parse_calls.load(Ordering::SeqCst), 1);
     assert_eq!(deser_calls.load(Ordering::SeqCst), 1);
