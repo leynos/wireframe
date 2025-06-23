@@ -109,7 +109,7 @@ impl<F: FrameLike> PushHandle<F> {
                 PushPolicy::ReturnErrorIfFull => Err(PushError::QueueFull),
                 PushPolicy::DropIfFull => Ok(()),
                 PushPolicy::WarnAndDropIfFull => {
-                    log::warn!("push queue full; dropping frame");
+                    log::warn!("push queue full; dropping {priority:?} priority frame");
                     Ok(())
                 }
             },
