@@ -24,12 +24,16 @@ protocols.
 
 The implementation must satisfy the following core requirements:
 
+<!-- markdownlint-disable MD013 -->
+
 | ID | Requirement                                                                                                                                            |
 | G1 | Any async task must be able to push frames to a live connection.                                                                                       |
 | G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
 | G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
 | G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
 | G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+
+<!-- markdownlint-enable MD013 -->
 
 ## 3. Core Architecture: The Connection Actor
 
@@ -342,6 +346,8 @@ features of the 1.0 release.
 
 ## 7. Measurable Objectives & Success Criteria
 
+<!-- markdownlint-disable MD013 -->
+
 | Category        | Objective                                                                                                           | Success Metric                                                                                                                                                                              |
 | API Correctness | The PushHandle, SessionRegistry, and WireframeProtocol trait are implemented exactly as specified in this document. | 100% of the public API surface is present and correctly typed.                                                                                                                              |
 | Functionality   | Pushed frames are delivered reliably and in the correct order of priority.                                          | A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order. |
@@ -349,3 +355,5 @@ features of the 1.0 release.
 | Resilience      | The SessionRegistry must not leak memory when connections are terminated.                                           | A long-running test that creates and destroys thousands of connections must show no corresponding growth in the SessionRegistry's size or the process's overall memory footprint.           |
 | Performance     | The overhead of the push mechanism should be minimal for connections that do not use it.                            | A benchmark of a simple request-response workload with the push feature enabled (but unused) should show < 2% performance degradation compared to a build without the feature.              |
 | Performance     | The latency for a high-priority push under no contention should be negligible.                                      | The time from push_high_priority().await returning to the frame being written to the socket buffer should be < 10µs.                                                                        |
+
+<!-- markdownlint-enable MD013 -->

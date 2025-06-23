@@ -33,9 +33,8 @@
   added/removed, or architectural patterns evolve, **proactively update** the
   relevant file(s) in the `docs/` directory to reflect the latest state. Ensure
   the documentation remains accurate and current.
-- Documentation must use en-GB-oxendict spelling and grammar (with the
-  exception of "license" which is to be left unchanged for community
-  consistency.
+- Documentation must use en-GB-oxendict spelling and grammar (with the exception
+  of "license" which is to be left unchanged for community consistency.
 
 ## Change Quality & Committing
 
@@ -114,8 +113,8 @@ project:
   after making any change.
 - Document public APIs using Rustdoc comments (`///`) so documentation can be
   generated with cargo doc.
-- Every module **must** begin with a module level (`//!`) comment explaining
-  the module's purpose and utility.
+- Every module **must** begin with a module level (`//!`) comment explaining the
+  module's purpose and utility.
 - Prefer immutable data and avoid unnecessary `mut` bindings.
 - Handle errors with the `Result` type instead of panicking where feasible.
 - Use explicit version ranges in `Cargo.toml` and keep dependencies up-to-date.
