@@ -211,7 +211,7 @@ treats angle brackets as HTML.
 ```mermaid
 flowchart TD
     Producer[Producer]
-    Handle[PushHandle<F>]
+    Handle[PushHandle~F~]
     HighQueue[High Priority Queue]
     LowQueue[Low Priority Queue]
     Policy[PushPolicy]
