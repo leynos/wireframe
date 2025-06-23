@@ -6,7 +6,7 @@ use std::sync::{
 use bytes::BytesMut;
 use tokio::io::duplex;
 use wireframe::{
-    app::WireframeApp,
+    app::{Envelope, Packet, WireframeApp},
     frame::{FrameProcessor, LengthPrefixedProcessor},
     serializer::{BincodeSerializer, Serializer},
 };
@@ -14,32 +14,43 @@ use wireframe::{
 mod util;
 use util::{processor, run_app_with_frame};
 
-#[tokio::test]
-async fn setup_and_teardown_callbacks_run() {
-    let setup_count = Arc::new(AtomicUsize::new(0));
-    let teardown_count = Arc::new(AtomicUsize::new(0));
+fn wireframe_app_with_lifecycle_callbacks<E>(
+    setup: &Arc<AtomicUsize>,
+    teardown: &Arc<AtomicUsize>,
+    state: u32,
+) -> WireframeApp<BincodeSerializer, u32, E>
+where
+    E: Packet,
+{
+    let setup_clone = setup.clone();
+    let teardown_clone = teardown.clone();
 
-    let setup_clone = setup_count.clone();
-    let teardown_clone = teardown_count.clone();
-
-    let app = WireframeApp::new()
+    WireframeApp::<_, _, E>::new_with_envelope()
         .unwrap()
         .on_connection_setup(move || {
             let setup_clone = setup_clone.clone();
             async move {
                 setup_clone.fetch_add(1, Ordering::SeqCst);
-                42u32
+                state
             }
         })
         .unwrap()
-        .on_connection_teardown(move |state| {
+        .on_connection_teardown(move |s| {
             let teardown_clone = teardown_clone.clone();
             async move {
-                assert_eq!(state, 42u32);
+                assert_eq!(s, state);
                 teardown_clone.fetch_add(1, Ordering::SeqCst);
             }
         })
-        .unwrap();
+        .unwrap()
+}
+
+#[tokio::test]
+async fn setup_and_teardown_callbacks_run() {
+    let setup_count = Arc::new(AtomicUsize::new(0));
+    let teardown_count = Arc::new(AtomicUsize::new(0));
+
+    let app = wireframe_app_with_lifecycle_callbacks::<Envelope>(&setup_count, &teardown_count, 42);
 
     let (_client, server) = duplex(64);
     app.handle_connection(server).await;
@@ -108,28 +119,8 @@ async fn helpers_propagate_connection_state() {
     let setup = Arc::new(AtomicUsize::new(0));
     let teardown = Arc::new(AtomicUsize::new(0));
 
-    let setup_clone = setup.clone();
-    let teardown_clone = teardown.clone();
-
-    let app = WireframeApp::<_, _, StateEnvelope>::new_with_envelope()
-        .unwrap()
+    let app = wireframe_app_with_lifecycle_callbacks::<StateEnvelope>(&setup, &teardown, 7)
         .frame_processor(processor())
-        .on_connection_setup(move || {
-            let setup_clone = setup_clone.clone();
-            async move {
-                setup_clone.fetch_add(1, Ordering::SeqCst);
-                7u32
-            }
-        })
-        .unwrap()
-        .on_connection_teardown(move |state| {
-            let teardown_clone = teardown_clone.clone();
-            async move {
-                assert_eq!(state, 7u32);
-                teardown_clone.fetch_add(1, Ordering::SeqCst);
-            }
-        })
-        .unwrap()
         .route(1, Arc::new(|_: &StateEnvelope| Box::pin(async {})))
         .unwrap();
 
