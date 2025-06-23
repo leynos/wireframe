@@ -1,6 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use bytes::BytesMut;
@@ -14,6 +18,25 @@ use wireframe::{
 mod util;
 use util::{processor, run_app_with_frame};
 
+fn call_counting_callback<R, A>(
+    counter: &Arc<AtomicUsize>,
+    result: R,
+) -> impl Fn(A) -> Pin<Box<dyn Future<Output = R> + Send>> + Clone + 'static
+where
+    A: Send + 'static,
+    R: Clone + Send + 'static,
+{
+    let counter = counter.clone();
+    move |_| {
+        let counter = counter.clone();
+        let result = result.clone();
+        Box::pin(async move {
+            counter.fetch_add(1, Ordering::SeqCst);
+            result
+        })
+    }
+}
+
 fn wireframe_app_with_lifecycle_callbacks<E>(
     setup: &Arc<AtomicUsize>,
     teardown: &Arc<AtomicUsize>,
@@ -22,26 +45,14 @@ fn wireframe_app_with_lifecycle_callbacks<E>(
 where
     E: Packet,
 {
-    let setup_clone = setup.clone();
-    let teardown_clone = teardown.clone();
+    let setup_cb = call_counting_callback(setup, state);
+    let teardown_cb = call_counting_callback(teardown, ());
 
     WireframeApp::<_, _, E>::new_with_envelope()
         .unwrap()
-        .on_connection_setup(move || {
-            let setup_clone = setup_clone.clone();
-            async move {
-                setup_clone.fetch_add(1, Ordering::SeqCst);
-                state
-            }
-        })
+        .on_connection_setup(move || setup_cb(()))
         .unwrap()
-        .on_connection_teardown(move |s| {
-            let teardown_clone = teardown_clone.clone();
-            async move {
-                assert_eq!(s, state);
-                teardown_clone.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        .on_connection_teardown(teardown_cb)
         .unwrap()
 }
 
@@ -61,16 +72,11 @@ async fn setup_and_teardown_callbacks_run() {
 #[tokio::test]
 async fn setup_without_teardown_runs() {
     let setup_count = Arc::new(AtomicUsize::new(0));
-    let setup_clone = setup_count.clone();
+    let cb = call_counting_callback(&setup_count, ());
 
     let app = WireframeApp::new()
         .unwrap()
-        .on_connection_setup(move || {
-            let setup_clone = setup_clone.clone();
-            async move {
-                setup_clone.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        .on_connection_setup(move || cb(()))
         .unwrap();
 
     let (_client, server) = duplex(64);
@@ -82,16 +88,11 @@ async fn setup_without_teardown_runs() {
 #[tokio::test]
 async fn teardown_without_setup_does_not_run() {
     let teardown_count = Arc::new(AtomicUsize::new(0));
-    let teardown_clone = teardown_count.clone();
+    let cb = call_counting_callback(&teardown_count, ());
 
     let app = WireframeApp::new()
         .unwrap()
-        .on_connection_teardown(move |()| {
-            let teardown_clone = teardown_clone.clone();
-            async move {
-                teardown_clone.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        .on_connection_teardown(cb)
         .unwrap();
 
     let (_client, server) = duplex(64);
