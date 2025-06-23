@@ -21,6 +21,8 @@
   related code (e.g., models + utilities + fixtures) close together.
 - **Group by feature, not layer.** Colocate views, logic, fixtures, and helpers
   related to a domain concept rather than splitting by type.
+- Comments must use en-GB-oxendict spelling and grammar.
+- Function documentation must include clear examples.
 
 ## Documentation Maintenance
 
@@ -31,6 +33,9 @@
   added/removed, or architectural patterns evolve, **proactively update** the
   relevant file(s) in the `docs/` directory to reflect the latest state. Ensure
   the documentation remains accurate and current.
+- Documentation must use en-GB-oxendict spelling and grammar (with the
+  exception of "license" which is to be left unchanged for community
+  consistency.
 
 ## Change Quality & Committing
 
@@ -109,19 +114,34 @@ project:
   after making any change.
 - Document public APIs using Rustdoc comments (`///`) so documentation can be
   generated with cargo doc.
+- Every module **must** begin with a module level (`//!`) comment explaining
+  the module's purpose and utility.
 - Prefer immutable data and avoid unnecessary `mut` bindings.
 - Handle errors with the `Result` type instead of panicking where feasible.
 - Use explicit version ranges in `Cargo.toml` and keep dependencies up-to-date.
 - Avoid `unsafe` code unless absolutely necessary and document any usage
   clearly.
+- Place function attributes **after** doc comments.
+- Do not use `return` in single-line functions.
+- Use predicate functions for conditional criteria with more than two branches.
+- Lints must not be silenced except as a **last resort**.
+- Lint rule suppressions must be tightly scoped and include a clear reason.
+- Prefer `expect` over `allow`.
+- Use `rstest` fixtures for shared setup.
+- Replace duplicated tests with `#[rstest(...)]` parameterised cases.
+- Prefer `mockall` for mocks/stubs.
+- Prefer `.expect()` over `.unwrap()`.
 
 ## Markdown Guidance
 
-- Validate Markdown files using `markdownlint`.
+- Validate Markdown files using `markdownlint *.md **/*.md`.
 - Run `mdformat-all` after any documentation changes to format all Markdown
   files and fix table markup.
 - Validate Markdown Mermaid diagrams using the `nixie` CLI. The tool is already
-  installed; run `nixie` directly instead of using `npx`.
+  installed; run `nixie *.md **/*.md` directly instead of using `npx`.
+- Markdown paragraphs and bullet points must be wrapped at 80 columns.
+- Code blocks must be wrapped at 120 columns.
+- Tables and headings must not be wrapped.
 
 ### Key Takeaway
 
