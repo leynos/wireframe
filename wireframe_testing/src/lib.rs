@@ -24,4 +24,10 @@ pub use helpers::{
     drive_with_frames,
     drive_with_frames_mut,
     drive_with_frames_with_capacity,
+    processor,
+    run_app_with_frame,
+    run_app_with_frame_with_capacity,
+    run_app_with_frames,
+    run_app_with_frames_with_capacity,
+    run_with_duplex_server,
 };

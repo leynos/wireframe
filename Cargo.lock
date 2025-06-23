@@ -573,6 +573,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytes",
+ "rstest",
  "tokio",
  "wireframe",
 ]
