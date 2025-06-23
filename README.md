@@ -85,6 +85,34 @@ WireframeServer::new(|| {
 This example showcases how derive macros and the framing abstraction simplify a
 binary protocol server【F:docs/rust-binary-router-library-design.md†L1126-L1156】.
 
+## Custom Envelopes
+
+`WireframeApp` defaults to a simple `Envelope` containing a message ID and raw
+payload bytes. Applications can supply their own envelope type by calling
+`WireframeApp::<_, _, MyEnv>::new_with_envelope()`. The custom type must
+implement the `Packet` trait:
+
+```rust
+use wireframe::app::{Packet, WireframeApp};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct MyEnv { id: u32, data: Vec<u8> }
+
+impl Packet for MyEnv {
+    fn id(&self) -> u32 { self.id }
+    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.data) }
+    fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
+}
+
+let app = WireframeApp::<_, _, MyEnv>::new_with_envelope()
+    .unwrap()
+    .route(1, std::sync::Arc::new(|env: &MyEnv| Box::pin(async move { /* ... */ })))
+    .unwrap();
+```
+
+This allows integration with existing packet formats without modifying
+`handle_frame`.
+
 ## Response Serialization and Framing
 
 Handlers can return types implementing the `Responder` trait. These values are
@@ -128,7 +156,7 @@ access app state or expose peer information.
 Custom extractors let you centralize parsing and validation logic that would
 otherwise be duplicated across handlers. A session token parser, for example,
 can verify the token before any route-specific code executes
-[Design Guide: Data Extraction and Type Safety](docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety).
+[Design Guide: Data Extraction and Type Safety][data-extraction-guide].
 
 ```rust
 use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
@@ -182,6 +210,8 @@ Example programs are available in the `examples/` directory:
 - `ping_pong.rs` — showcases serialization and middleware in a ping/pong
   protocol. See [examples/ping_pong.md](examples/ping_pong.md) for a detailed
   overview.
+- `packet_enum.rs` – shows packet type discrimination with a bincode enum and a
+  frame containing container types like `HashMap` and `Vec`.
 
 Run an example with Cargo:
 
@@ -207,9 +237,9 @@ $ printf '\x00\x00\x00\x08\x01\x00\x00\x00\x2a\x00\x00\x00' | nc 127.0.0.1 7878 
 
 ## Current Limitations
 
-Connection handling now processes frames and routes messages, but the server is
-still experimental. Release builds fail to compile, so the library cannot be
-used accidentally in production.
+Connection handling now processes frames and routes messages. Although the
+server is still experimental, it now compiles in release mode for evaluation or
+production use.
 
 ## Roadmap
 
@@ -221,3 +251,5 @@ extractor traits, and providing example applications【F:docs/roadmap.md†L1-L2
 
 Wireframe is distributed under the terms of the ISC license. See
 [LICENSE](LICENSE) for details.
+
+[data-extraction-guide]: docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety

@@ -21,6 +21,7 @@ sequenceDiagram
     alt Decode success
         PreambleDecoder-->>Server: Decoded preamble (T)
         Server->>SuccessCallback: Invoke with preamble data
+        SuccessCallback-->>Client: Optional response
     else Decode failure
         PreambleDecoder-->>Server: DecodeError
         Server->>FailureCallback: Invoke with error
@@ -28,9 +29,12 @@ sequenceDiagram
     Server-->>Client: (Continues or closes connection)
 ```
 
-In the tests, a `HotlinePreamble` struct illustrates the pattern, but any
-preamble type may be used. Register callbacks via `on_preamble_decode_success`
-and `on_preamble_decode_failure` on `WireframeServer`.
+The success callback receives the decoded preamble and a mutable `TcpStream`. It
+may write a handshake response before the connection is passed to
+`WireframeApp`. In the tests, a `HotlinePreamble` struct illustrates the
+pattern, but any preamble type may be used. Register callbacks via
+`on_preamble_decode_success` and `on_preamble_decode_failure` on
+`WireframeServer`.
 
 ## Call Order
 

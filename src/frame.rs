@@ -189,6 +189,28 @@ pub trait FrameProcessor: Send + Sync {
     fn encode(&self, frame: &Self::Frame, dst: &mut BytesMut) -> Result<(), Self::Error>;
 }
 
+/// Trait for parsing frame metadata from a header without decoding the full payload.
+///
+/// Types implementing this trait can inspect the initial bytes of a frame to
+/// determine routing information or other header fields. The associated
+/// [`Frame`](FrameMetadata::Frame) represents the fully deserialised frame type
+/// returned by [`parse`](FrameMetadata::parse).
+pub trait FrameMetadata {
+    /// Fully deserialised frame type.
+    type Frame;
+
+    /// Error produced when parsing the metadata.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Parse frame metadata from `src`, returning the frame and bytes consumed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bytes cannot be interpreted as a valid frame
+    /// header for the implementing protocol.
+    fn parse(&self, src: &[u8]) -> Result<(Self::Frame, usize), Self::Error>;
+}
+
 /// Simple length-prefixed framing using a configurable length prefix.
 #[derive(Clone, Copy, Debug)]
 pub struct LengthPrefixedProcessor {
