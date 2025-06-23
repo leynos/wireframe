@@ -122,8 +122,71 @@ impl<F: FrameLike> PushHandle<F> {
         frame: F,
         priority: PushPriority,
         policy: PushPolicy
-    ) -> Result<(), PushError>;
+) -> Result<(), PushError>;
 }
+```
+
+```mermaid
+classDiagram
+    class FrameLike {
+    }
+    class PushPriority {
+        <<enum>>
+        High
+        Low
+    }
+    class PushPolicy {
+        <<enum>>
+        ReturnErrorIfFull
+        DropIfFull
+        WarnAndDropIfFull
+    }
+    class PushError {
+        <<enum>>
+        QueueFull
+        Closed
+    }
+    class PushHandleInner {
+        high_prio_tx: mpsc::Sender<F>
+        low_prio_tx: mpsc::Sender<F>
+    }
+    class PushHandle {
+        +push_high_priority(frame: F): Result<(), PushError>
+        +push_low_priority(frame: F): Result<(), PushError>
+        +try_push(frame: F, priority: PushPriority, policy: PushPolicy): Result<(), PushError>
+    }
+    class PushQueues {
+        +high_priority_rx: mpsc::Receiver<F>
+        +low_priority_rx: mpsc::Receiver<F>
+        +bounded(capacity: usize): (PushQueues, PushHandle)
+    }
+
+    PushHandleInner <.. PushHandle : contains
+    PushQueues o-- PushHandle : bounded()
+    PushHandle --> PushPriority
+    PushHandle --> PushPolicy
+    PushHandle --> PushError
+    PushQueues --> PushHandle
+    PushQueues --> FrameLike
+    PushHandle --> FrameLike
+```
+
+```mermaid
+flowchart TD
+    Producer[Producer]
+    PushHandle[PushHandle]
+    HighQueue[High Priority Queue]
+    LowQueue[Low Priority Queue]
+    Policy[PushPolicy]
+    Error[PushError or Drop]
+
+    Producer -->|push_high_priority / push_low_priority / try_push| PushHandle
+    PushHandle -->|High| HighQueue
+    PushHandle -->|Low| LowQueue
+    PushHandle -->|If queue full| Policy
+    Policy -->|ReturnErrorIfFull| Error
+    Policy -->|DropIfFull| Error
+    Policy -->|WarnAndDropIfFull| Error
 ```
 
 This API gives developers fine-grained control over both the priority and the back-pressure behaviour of their pushed messages.
