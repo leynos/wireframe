@@ -182,41 +182,46 @@ classDiagram
         high_prio_tx: mpsc::Sender<F>
         low_prio_tx: mpsc::Sender<F>
     }
-    class PushHandle {
+    class PushHandle~F~ {
         +push_high_priority(frame: F): Result<(), PushError>
         +push_low_priority(frame: F): Result<(), PushError>
         +try_push(frame: F, priority: PushPriority, policy: PushPolicy): Result<(), PushError>
     }
-    class PushQueues {
+    class PushQueues~F~ {
         +high_priority_rx: mpsc::Receiver<F>
         +low_priority_rx: mpsc::Receiver<F>
-        +bounded(high_capacity: usize, low_capacity: usize): (PushQueues, PushHandle)
+        +bounded(high_capacity: usize, low_capacity: usize): (PushQueues, PushHandle~F~)
         +recv(): Option<(PushPriority, F)>
     }
 
-    PushHandleInner <.. PushHandle : contains
-    PushQueues o-- PushHandle : bounded()
+    PushHandleInner <.. PushHandle~F~ : contains
+    PushQueues~F~ o-- PushHandle~F~ : bounded(capacity: usize)
     PushHandle --> PushPriority
     PushHandle --> PushPolicy
     PushHandle --> PushError
-    PushQueues --> PushHandle
-    PushQueues --> FrameLike
-    PushHandle --> FrameLike
+    PushQueues~F~ --> PushHandle~F~
+    PushQueues~F~ --> FrameLike
+    PushHandle~F~ --> FrameLike
 ```
 
 ```mermaid
 flowchart TD
     Producer[Producer]
-    PushHandle[PushHandle]
+    Handle[PushHandle]
     HighQueue[High Priority Queue]
     LowQueue[Low Priority Queue]
     Policy[PushPolicy]
     Error[PushError or Drop]
 
-    Producer -->|push_high_priority / push_low_priority / try_push| PushHandle
-    PushHandle -->|High| HighQueue
-    PushHandle -->|Low| LowQueue
-    PushHandle -->|If queue full| Policy
+    Producer -->|push_high_priority| Handle
+    Handle --> HighQueue
+    Producer -->|push_low_priority| Handle
+    Handle --> LowQueue
+
+    Producer -->|try_push| Policy
+    Policy -->|Queue available| Handle
+    Handle -->|High| HighQueue
+    Handle -->|Low| LowQueue
     Policy -->|ReturnErrorIfFull| Error
     Policy -->|DropIfFull| Error
     Policy -->|WarnAndDropIfFull| Error
