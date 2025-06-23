@@ -1,49 +1,80 @@
-
 # Comprehensive Design: Asynchronous Outbound Messaging
 
 ## 1. Introduction & Philosophy
 
-The initial versions of `wireframe` established a robust, strictly request-response communication model. While effective for many RPC-style protocols, this model is insufficient for the rich, bidirectional conversations common in modern network services like database clients, message brokers, and real-time applications.
+The initial versions of `wireframe` established a robust, strictly
+request-response communication model. While effective for many RPC-style
+protocols, this model is insufficient for the rich, bidirectional conversations
+common in modern network services like database clients, message brokers, and
+real-time applications.
 
-This document details the design for a first-class, asynchronous outbound messaging feature. The core philosophy is to evolve `wireframe` from a simple request-response router into a fully **asynchronous, duplex message bus**. This will be achieved by providing a generic, protocol-agnostic facility that allows any part of an application—a request handler, a background timer, a separate worker task—to push frames to a live connection at any time.
+This document details the design for a first-class, asynchronous outbound
+messaging feature. The core philosophy is to evolve `wireframe` from a simple
+request-response router into a fully **asynchronous, duplex message bus**. This
+will be achieved by providing a generic, protocol-agnostic facility that allows
+any part of an application—a request handler, a background timer, a separate
+worker task—to push frames to a live connection at any time.
 
-This feature is a cornerstone of the "Road to Wireframe 1.0" and is designed to be synergistic with the planned streaming and fragmentation capabilities, creating a cohesive and powerful framework for a wide class of network protocols.
+This feature is a cornerstone of the "Road to Wireframe 1.0" and is designed to
+be synergistic with the planned streaming and fragmentation capabilities,
+creating a cohesive and powerful framework for a wide class of network
+protocols.
 
 ## 2. Design Goals & Requirements
 
 The implementation must satisfy the following core requirements:
 
-<table class="not-prose border-collapse table-auto w-full" style="min-width: 50px">
-<colgroup><col style="min-width: 25px"><col style="min-width: 25px"></colgroup><tbody><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>ID</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Requirement</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>G1</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Any async task must be able to <strong>push</strong> frames to a live connection.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>G2</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>Ordering-safety</strong>: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>G3</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>Back-pressure</strong>: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>G4</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Generic—independent of any particular protocol; usable by both <strong>servers</strong> and <strong>clients</strong> built on <code class="code-inline">wireframe</code>.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>G5</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.</p></td></tr></tbody>
-</table>
+| ID | Requirement                                                                                                                                            |
+| G1 | Any async task must be able to push frames to a live connection.                                                                                       |
+| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
+| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
+| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
+| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
 
 ## 3. Core Architecture: The Connection Actor
 
-The foundation of this design is the **actor-per-connection** model, where each network connection is managed by a dedicated, isolated asynchronous task. 1 This approach serialises all I/O for a given connection, eliminating the need for complex locking and simplifying reasoning about concurrency. 2
+The foundation of this design is the **actor-per-connection** model, where each
+network connection is managed by a dedicated, isolated asynchronous task. 1 This
+approach serialises all I/O for a given connection, eliminating the need for
+complex locking and simplifying reasoning about concurrency. 2
 
 ### 3.1 Prioritised Message Queues
 
-To handle different classes of outbound messages, each connection actor will manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
+To handle different classes of outbound messages, each connection actor will
+manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
 
-1. `high_priority_push_rx: mpsc::Receiver<F>`: For urgent, time-sensitive messages like heartbeats, session control notifications, or protocol-level pings.
+1. `high_priority_push_rx: mpsc::Receiver<F>`: For urgent, time-sensitive
+   messages like heartbeats, session control notifications, or protocol-level
+   pings.
 
-2. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent background messages like log forwarding or secondary status updates.
+2. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
+   background messages like log forwarding or secondary status updates.
 
-The bounded nature of these channels provides an inherent and robust back-pressure mechanism. When a channel's buffer is full, any task attempting to push a new message will be asynchronously suspended until space becomes available. 8
+The bounded nature of these channels provides an inherent and robust
+back-pressure mechanism. When a channel's buffer is full, any task attempting to
+push a new message will be asynchronously suspended until space becomes
+available. 8
 
 ### 3.2 The Prioritised Write Loop
 
-The connection actor's write logic will be implemented within a `tokio::select!` loop. Crucially, this loop will use the `biased` keyword to ensure a strict, deterministic polling order. This prevents high-volume data streams from starving low-volume but critical control messages. 16
+The connection actor's write logic will be implemented within a `tokio::select!`
+loop. Crucially, this loop will use the `biased` keyword to ensure a strict,
+deterministic polling order. This prevents high-volume data streams from
+starving low-volume but critical control messages. 16
 
 The polling order will be:
 
-1. **Graceful Shutdown Signal:** The `CancellationToken` will be checked first to ensure immediate reaction to a server-wide shutdown request.
+1. **Graceful Shutdown Signal:** The `CancellationToken` will be checked first
+   to ensure immediate reaction to a server-wide shutdown request.
 
-2. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be drained next.
+2. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
+   drained next.
 
-3. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be processed after all high-priority messages.
+3. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
+   processed after all high-priority messages.
 
-4. **Handler Response Stream:** Frames from the active request's `Response::Stream` will be processed last.
+4. **Handler Response Stream:** Frames from the active request's
+   `Response::Stream` will be processed last.
 
 Rust
 
@@ -87,7 +118,8 @@ The public API is designed for ergonomics, safety, and extensibility.
 
 ### 4.1 The `PushHandle`
 
-The primary user-facing primitive is the `PushHandle`, a cloneable handle that provides the capability to send frames to a specific connection.
+The primary user-facing primitive is the `PushHandle`, a cloneable handle that
+provides the capability to send frames to a specific connection.
 
 Rust
 
@@ -158,7 +190,8 @@ classDiagram
     class PushQueues {
         +high_priority_rx: mpsc::Receiver<F>
         +low_priority_rx: mpsc::Receiver<F>
-        +bounded(capacity: usize): (PushQueues, PushHandle)
+        +bounded(high_capacity: usize, low_capacity: usize): (PushQueues, PushHandle)
+        +recv(): Option<(PushPriority, F)>
     }
 
     PushHandleInner <.. PushHandle : contains
@@ -189,11 +222,14 @@ flowchart TD
     Policy -->|WarnAndDropIfFull| Error
 ```
 
-This API gives developers fine-grained control over both the priority and the back-pressure behaviour of their pushed messages.
+This API gives developers fine-grained control over both the priority and the
+back-pressure behaviour of their pushed messages.
 
 ### 4.2 The `SessionRegistry`
 
-To allow background tasks to discover and message active connections, a `SessionRegistry` will be provided. To prevent memory leaks, this registry **must** be implemented using non-owning `Weak` references. 20
+To allow background tasks to discover and message active connections, a
+`SessionRegistry` will be provided. To prevent memory leaks, this registry
+**must** be implemented using non-owning `Weak` references. 20
 
 Rust
 
@@ -231,7 +267,10 @@ impl<F> SessionRegistry<F> {
 
 ### 4.3 Configuration via the `WireframeProtocol` Trait
 
-To provide a clean, organised, and extensible configuration API, all protocol-specific logic and callbacks will be encapsulated within a single `WireframeProtocol` trait. This is a significant ergonomic improvement over using a collection of individual closures. 30
+To provide a clean, organised, and extensible configuration API, all
+protocol-specific logic and callbacks will be encapsulated within a single
+`WireframeProtocol` trait. This is a significant ergonomic improvement over
+using a collection of individual closures. 30
 
 Rust
 
@@ -266,24 +305,47 @@ WireframeApp::new().with_protocol(MySqlProtocolImpl);
 
 ### 5.1 `BrokenPipe` on Connection Loss
 
-The primary error condition for a `PushHandle` is the termination of its associated connection. When the connection actor terminates (due to a socket error, clean shutdown, or graceful cancellation), the receiving end of the internal `mpsc` channels will be dropped. Any subsequent attempt to use a `PushHandle` will fail with an error analogous to `io::ErrorKind::BrokenPipe`, clearly signalling to the producer task that the connection is gone.
+The primary error condition for a `PushHandle` is the termination of its
+associated connection. When the connection actor terminates (due to a socket
+error, clean shutdown, or graceful cancellation), the receiving end of the
+internal `mpsc` channels will be dropped. Any subsequent attempt to use a
+`PushHandle` will fail with an error analogous to `io::ErrorKind::BrokenPipe`,
+clearly signalling to the producer task that the connection is gone.
 
 ### 5.2 Optional Dead Letter Queue (DLQ) for Critical Messages
 
-For applications where dropping a message is unacceptable (e.g., critical notifications, audit events), the framework will support an optional Dead Letter Queue. 36
+For applications where dropping a message is unacceptable (e.g., critical
+notifications, audit events), the framework will support an optional Dead Letter
+Queue. 36
 
-**Implementation:** The `WireframeApp` builder will provide a method, `with_push_dlq(mpsc::Sender<F>)`, to configure a DLQ. If provided, any frame that would normally be dropped by the `PushPolicy::DropIfFull` or `WarnAndDropIfFull` policies will instead be sent to this channel. A separate part of the application is then responsible for consuming from the DLQ to inspect, log, and potentially retry these failed messages.
+**Implementation:** The `WireframeApp` builder will provide a method,
+`with_push_dlq(mpsc::Sender<F>)`, to configure a DLQ. If provided, any frame
+that would normally be dropped by the `PushPolicy::DropIfFull` or
+`WarnAndDropIfFull` policies will instead be sent to this channel. A separate
+part of the application is then responsible for consuming from the DLQ to
+inspect, log, and potentially retry these failed messages.
 
 ## 6. Synergy with Other 1.0 Features
 
-This design is explicitly intended to work in concert with the other major features of the 1.0 release.
+This design is explicitly intended to work in concert with the other major
+features of the 1.0 release.
 
-- **Streaming Responses:** The prioritised write loop (Section 3.2) naturally handles the interleaving of pushed messages and streaming responses, ensuring that urgent pushes can interrupt a long-running data stream.
+- **Streaming Responses:** The prioritised write loop (Section 3.2) naturally
+  handles the interleaving of pushed messages and streaming responses, ensuring
+  that urgent pushes can interrupt a long-running data stream.
 
-- **Message Fragmentation:** Pushes occur at the *logical frame* level. The `FragmentAdapter` will operate at a lower layer in the `FrameProcessor` stack, transparently splitting any large pushed frames before they are written to the socket. The `PushHandle` and the application code that uses it remain completely unaware of fragmentation.
+- **Message Fragmentation:** Pushes occur at the *logical frame* level. The
+  `FragmentAdapter` will operate at a lower layer in the `FrameProcessor` stack,
+  transparently splitting any large pushed frames before they are written to the
+  socket. The `PushHandle` and the application code that uses it remain
+  completely unaware of fragmentation.
 
 ## 7. Measurable Objectives & Success Criteria
 
-<table class="not-prose border-collapse table-auto w-full" style="min-width: 75px">
-<colgroup><col style="min-width: 25px"><col style="min-width: 25px"><col style="min-width: 25px"></colgroup><tbody><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Category</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Objective</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Success Metric</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>API Correctness</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>The <code class="code-inline">PushHandle</code>, <code class="code-inline">SessionRegistry</code>, and <code class="code-inline">WireframeProtocol</code> trait are implemented exactly as specified in this document.</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>100% of the public API surface is present and correctly typed.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>Functionality</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>Pushed frames are delivered reliably and in the correct order of priority.</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>Back-pressure</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>A slow consumer must cause producer tasks to suspend without consuming unbounded memory.</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>A test with a slow consumer and a fast producer must show the producer's <code class="code-inline">push().await</code> call blocks, and the process memory usage remains stable.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>Resilience</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>The <code class="code-inline">SessionRegistry</code> must not leak memory when connections are terminated.</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>A long-running test that creates and destroys thousands of connections must show no corresponding growth in the <code class="code-inline">SessionRegistry</code>'s size or the process's overall memory footprint.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>Performance</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>The overhead of the push mechanism should be minimal for connections that do not use it.</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>A benchmark of a simple request-response workload with the push feature enabled (but unused) should show &lt; 2% performance degradation compared to a build without the feature.</p></td></tr><tr><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p><strong>Performance</strong></p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>The latency for a high-priority push under no contention should be negligible.</p></td><td class="border border-neutral-300 dark:border-neutral-600 p-1.5" colspan="1" rowspan="1"><p>The time from <code class="code-inline">push_high_priority().await</code> returning to the frame being written to the socket buffer should be &lt; 10µs.</p></td></tr></tbody>
-</table>
+| Category        | Objective                                                                                                           | Success Metric                                                                                                                                                                              |
+| API Correctness | The PushHandle, SessionRegistry, and WireframeProtocol trait are implemented exactly as specified in this document. | 100% of the public API surface is present and correctly typed.                                                                                                                              |
+| Functionality   | Pushed frames are delivered reliably and in the correct order of priority.                                          | A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order. |
+| Back-pressure   | A slow consumer must cause producer tasks to suspend without consuming unbounded memory.                            | A test with a slow consumer and a fast producer must show the producer's push().await call blocks, and the process memory usage remains stable.                                             |
+| Resilience      | The SessionRegistry must not leak memory when connections are terminated.                                           | A long-running test that creates and destroys thousands of connections must show no corresponding growth in the SessionRegistry's size or the process's overall memory footprint.           |
+| Performance     | The overhead of the push mechanism should be minimal for connections that do not use it.                            | A benchmark of a simple request-response workload with the push feature enabled (but unused) should show < 2% performance degradation compared to a build without the feature.              |
+| Performance     | The latency for a high-priority push under no contention should be negligible.                                      | The time from push_high_priority().await returning to the frame being written to the socket buffer should be < 10µs.                                                                        |

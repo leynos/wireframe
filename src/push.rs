@@ -125,12 +125,12 @@ pub struct PushQueues<F> {
 }
 
 impl<F: FrameLike> PushQueues<F> {
-    /// Create a new set of queues with the specified bound and return them along
-    /// with a [`PushHandle`] for producers.
+    /// Create a new set of queues with the specified bounds for each priority
+    /// and return them along with a [`PushHandle`] for producers.
     #[must_use]
-    pub fn bounded(capacity: usize) -> (Self, PushHandle<F>) {
-        let (high_tx, high_rx) = mpsc::channel(capacity);
-        let (low_tx, low_rx) = mpsc::channel(capacity);
+    pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
+        let (high_tx, high_rx) = mpsc::channel(high_capacity);
+        let (low_tx, low_rx) = mpsc::channel(low_capacity);
         let inner = PushHandleInner {
             high_prio_tx: high_tx,
             low_prio_tx: low_tx,
@@ -142,5 +142,16 @@ impl<F: FrameLike> PushQueues<F> {
             },
             PushHandle(Arc::new(inner)),
         )
+    }
+
+    /// Receive the next frame, preferring high priority frames when available.
+    ///
+    /// Returns `None` when both queues are closed and empty.
+    pub async fn recv(&mut self) -> Option<(PushPriority, F)> {
+        tokio::select! {
+            biased;
+            res = self.high_priority_rx.recv() => res.map(|f| (PushPriority::High, f)),
+            res = self.low_priority_rx.recv() => res.map(|f| (PushPriority::Low, f)),
+        }
     }
 }
