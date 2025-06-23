@@ -2,7 +2,7 @@ use std::{io, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use wireframe::{
-    app::{Result as AppResult, WireframeApp},
+    app::{Envelope, Packet, Result as AppResult, WireframeApp},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
@@ -82,12 +82,10 @@ where
 }
 
 #[async_trait]
-impl Transform<HandlerService> for PongMiddleware {
-    type Output = HandlerService;
+impl Transform<HandlerService<Envelope>> for PongMiddleware {
+    type Output = HandlerService<Envelope>;
 
-    // `HandlerService` is a boxed trait object without generic parameters,
-    // so the transform signature uses the concrete type directly.
-    async fn transform(&self, service: HandlerService) -> Self::Output {
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
         let id = service.id();
         HandlerService::from_service(id, PongService { inner: service })
     }
@@ -115,11 +113,10 @@ where
 }
 
 #[async_trait]
-impl Transform<HandlerService> for Logging {
-    type Output = HandlerService;
+impl<E: Packet> Transform<HandlerService<E>> for Logging {
+    type Output = HandlerService<E>;
 
-    // `HandlerService` is a concrete type, not a generic wrapper.
-    async fn transform(&self, service: HandlerService) -> Self::Output {
+    async fn transform(&self, service: HandlerService<E>) -> Self::Output {
         let id = service.id();
         HandlerService::from_service(id, LoggingService { inner: service })
     }
