@@ -12,5 +12,6 @@ pub mod frame;
 pub mod message;
 pub mod middleware;
 pub mod preamble;
+pub mod push;
 pub mod rewind_stream;
 pub mod server;
