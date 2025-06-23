@@ -78,8 +78,13 @@ where
     let mut buf = Vec::new();
     client.read_to_end(&mut buf).await?;
 
-    server_task.await.unwrap();
-    Ok(buf)
+    match server_task.await {
+        Ok(_) => Ok(buf),
+        Err(e) => Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("server task failed: {e}"),
+        )),
+    }
 }
 
 pub async fn drive_with_frame_mut<S, C, E>(
@@ -157,7 +162,12 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    let bytes = bincode::encode_to_vec(msg, config::standard()).unwrap();
+    let bytes = bincode::encode_to_vec(msg, config::standard()).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("bincode encode failed: {e}"),
+        )
+    })?;
     let mut framed = BytesMut::new();
     LengthPrefixedProcessor::default().encode(&bytes, &mut framed)?;
     drive_with_frame(app, framed.to_vec()).await

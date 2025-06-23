@@ -56,7 +56,9 @@ async fn handler_receives_message_and_echoes_response() {
         msg: msg_bytes,
     };
 
-    let out = drive_with_bincode(app, env).await.unwrap();
+    let out = drive_with_bincode(app, env)
+        .await
+        .expect("drive_with_bincode failed");
 
     let mut buf = BytesMut::from(&out[..]);
     let frame = LengthPrefixedProcessor::default()
@@ -98,7 +100,9 @@ async fn multiple_frames_processed_in_sequence() {
         })
         .collect();
 
-    let out = drive_with_frames(app, frames).await.unwrap();
+    let out = drive_with_frames(app, frames)
+        .await
+        .expect("drive_with_frames failed");
 
     let mut buf = BytesMut::from(&out[..]);
     let first = LengthPrefixedProcessor::default()

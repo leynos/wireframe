@@ -58,7 +58,9 @@ async fn metadata_parser_invoked_before_deserialize() {
 
     let env = Envelope::new(1, vec![42]);
 
-    let out = drive_with_bincode(app, env).await.unwrap();
+    let out = drive_with_bincode(app, env)
+        .await
+        .expect("drive_with_bincode failed");
     assert!(!out.is_empty());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
@@ -101,7 +103,9 @@ async fn falls_back_to_deserialize_after_parse_error() {
 
     let env = Envelope::new(1, vec![7]);
 
-    let out = drive_with_bincode(app, env).await.unwrap();
+    let out = drive_with_bincode(app, env)
+        .await
+        .expect("drive_with_bincode failed");
     assert!(!out.is_empty());
     assert_eq!(parse_calls.load(Ordering::SeqCst), 1);
     assert_eq!(deser_calls.load(Ordering::SeqCst), 1);
