@@ -13,9 +13,7 @@ use wireframe::{
     frame::{FrameProcessor, LengthPrefixedProcessor},
     serializer::{BincodeSerializer, Serializer},
 };
-
-mod util;
-use util::{processor, run_app_with_frame, run_with_duplex_server};
+use wireframe_testing::{processor, run_app_with_frame, run_with_duplex_server};
 
 fn call_counting_callback<R, A>(
     counter: &Arc<AtomicUsize>,
