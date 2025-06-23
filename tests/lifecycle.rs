@@ -8,7 +8,6 @@ use std::{
 };
 
 use bytes::BytesMut;
-use tokio::io::duplex;
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     frame::{FrameProcessor, LengthPrefixedProcessor},
@@ -16,7 +15,7 @@ use wireframe::{
 };
 
 mod util;
-use util::{processor, run_app_with_frame};
+use util::{processor, run_app_with_frame, run_with_duplex_server};
 
 fn call_counting_callback<R, A>(
     counter: &Arc<AtomicUsize>,
@@ -63,8 +62,7 @@ async fn setup_and_teardown_callbacks_run() {
 
     let app = wireframe_app_with_lifecycle_callbacks::<Envelope>(&setup_count, &teardown_count, 42);
 
-    let (_client, server) = duplex(64);
-    app.handle_connection(server).await;
+    run_with_duplex_server(app).await;
 
     assert_eq!(setup_count.load(Ordering::SeqCst), 1);
     assert_eq!(teardown_count.load(Ordering::SeqCst), 1);
@@ -79,8 +77,7 @@ async fn setup_without_teardown_runs() {
         .on_connection_setup(move || cb(()))
         .unwrap();
 
-    let (_client, server) = duplex(64);
-    app.handle_connection(server).await;
+    run_with_duplex_server(app).await;
 
     assert_eq!(setup_count.load(Ordering::SeqCst), 1);
 }
@@ -95,8 +92,7 @@ async fn teardown_without_setup_does_not_run() {
         .on_connection_teardown(cb)
         .unwrap();
 
-    let (_client, server) = duplex(64);
-    app.handle_connection(server).await;
+    run_with_duplex_server(app).await;
 
     assert_eq!(teardown_count.load(Ordering::SeqCst), 0);
 }
