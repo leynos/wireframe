@@ -3,15 +3,12 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use bytes::BytesMut;
 use wireframe::{
     app::{Envelope, WireframeApp},
-    frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
+    frame::{FrameMetadata, LengthPrefixedProcessor},
     serializer::{BincodeSerializer, Serializer},
 };
-
-mod util;
-use util::{TestSerializer, run_app_with_frame};
+use wireframe_testing::{TestSerializer, drive_with_bincode};
 
 fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S>
 where
@@ -60,13 +57,10 @@ async fn metadata_parser_invoked_before_deserialize() {
     let app = mock_wireframe_app_with_serializer(serializer);
 
     let env = Envelope::new(1, vec![42]);
-    let bytes = BincodeSerializer.serialize(&env).unwrap();
-    let mut framed = BytesMut::new();
-    LengthPrefixedProcessor::default()
-        .encode(&bytes, &mut framed)
-        .unwrap();
 
-    let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
+    let out = drive_with_bincode(app, env)
+        .await
+        .expect("drive_with_bincode failed");
     assert!(!out.is_empty());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
@@ -108,13 +102,10 @@ async fn falls_back_to_deserialize_after_parse_error() {
     let app = mock_wireframe_app_with_serializer(serializer);
 
     let env = Envelope::new(1, vec![7]);
-    let bytes = BincodeSerializer.serialize(&env).unwrap();
-    let mut framed = BytesMut::new();
-    LengthPrefixedProcessor::default()
-        .encode(&bytes, &mut framed)
-        .unwrap();
 
-    let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
+    let out = drive_with_bincode(app, env)
+        .await
+        .expect("drive_with_bincode failed");
     assert!(!out.is_empty());
     assert_eq!(parse_calls.load(Ordering::SeqCst), 1);
     assert_eq!(deser_calls.load(Ordering::SeqCst), 1);

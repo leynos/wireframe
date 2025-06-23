@@ -12,9 +12,7 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-
-mod util;
-use util::{run_app_with_frame, run_app_with_frames};
+use wireframe_testing::{drive_with_bincode, drive_with_frames};
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestEnvelope {
@@ -57,13 +55,10 @@ async fn handler_receives_message_and_echoes_response() {
         id: 1,
         msg: msg_bytes,
     };
-    let env_bytes = BincodeSerializer.serialize(&env).unwrap();
-    let mut framed = BytesMut::new();
-    LengthPrefixedProcessor::default()
-        .encode(&env_bytes, &mut framed)
-        .unwrap();
 
-    let out = run_app_with_frame(app, framed.to_vec()).await.unwrap();
+    let out = drive_with_bincode(app, env)
+        .await
+        .expect("drive_with_bincode failed");
 
     let mut buf = BytesMut::from(&out[..]);
     let frame = LengthPrefixedProcessor::default()
@@ -105,7 +100,9 @@ async fn multiple_frames_processed_in_sequence() {
         })
         .collect();
 
-    let out = run_app_with_frames(app, frames).await.unwrap();
+    let out = drive_with_frames(app, frames)
+        .await
+        .expect("drive_with_frames failed");
 
     let mut buf = BytesMut::from(&out[..]);
     let first = LengthPrefixedProcessor::default()

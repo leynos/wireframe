@@ -564,4 +564,15 @@ dependencies = [
  "rstest",
  "serde",
  "tokio",
+ "wireframe_testing",
+]
+
+[[package]]
+name = "wireframe_testing"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bytes",
+ "tokio",
+ "wireframe",
 ]
