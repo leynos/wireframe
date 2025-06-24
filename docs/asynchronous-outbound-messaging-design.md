@@ -75,14 +75,14 @@ manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
 The bounded nature of these channels provides an inherent and robust
 back-pressure mechanism. When a channel's buffer is full, any task attempting to
 push a new message will be asynchronously suspended until space becomes
-available. 8
+available.
 
 ### 3.2 The Prioritised Write Loop
 
 The connection actor's write logic will be implemented within a `tokio::select!`
 loop. Crucially, this loop will use the `biased` keyword to ensure a strict,
-deterministic polling order. This prevents high-volume data streams from
-starving low-volume but critical control messages. 16
+deterministic polling order. This prevents high-volume but critical control
+messages from being starved by large data streams.
 
 The polling order will be:
 
@@ -140,9 +140,9 @@ loop {
 classDiagram
     class ConnectionActor {
         - context: ConnectionContext
-        - high_priority_queue: mpsc::Receiver<Frame>
-        - low_priority_queue: mpsc::Receiver<Frame>
-        - response_stream: Stream<Response>
+        - high_priority_queue: mpsc::Receiver&lt;Frame&gt;
+        - low_priority_queue: mpsc::Receiver&lt;Frame&gt;
+        - response_stream: Stream&lt;Response&gt;
         - shutdown_signal: CancellationToken
         + run()
         + handle_push()
@@ -154,9 +154,9 @@ classDiagram
         + push_with_policy(frame: Frame, policy: PushPolicy)
     }
     class SessionRegistry {
-        - sessions: DashMap<SessionId, Weak<ConnectionActor>>
+        - sessions: DashMap&lt;SessionId, Weak&lt;ConnectionActor&gt;&gt;
         + register(session_id, actor)
-        + get_handle(session_id): Option<PushHandle>
+        + get_handle(session_id): Option&lt;PushHandle&gt;
     }
     ConnectionActor o-- PushHandle : exposes
     SessionRegistry o-- PushHandle : provides
@@ -167,12 +167,11 @@ classDiagram
 sequenceDiagram
     participant Client
     participant ConnectionActor
-    participant PushQueue
     participant Socket
 
     Client->>ConnectionActor: Initiate connection/request
-    ConnectionActor->>PushQueue: Enqueue outbound message
-    Note over ConnectionActor: Manages state and push queue
+    ConnectionActor->>ConnectionActor: enqueue outbound frame
+    Note over ConnectionActor: Manages high/low priority queues
     ConnectionActor->>Socket: Write outbound frame (from queue)
     Socket-->>Client: Delivers outbound message
 ```
@@ -380,7 +379,7 @@ clearly signalling to the producer task that the connection is gone.
 
 For applications where dropping a message is unacceptable (e.g., critical
 notifications, audit events), the framework will support an optional Dead Letter
-Queue. 36
+Queue.
 
 **Implementation:** The `WireframeApp` builder will provide a method,
 `with_push_dlq(mpsc::Sender<F>)`, to configure a DLQ. If provided, any frame
