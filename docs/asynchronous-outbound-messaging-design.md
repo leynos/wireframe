@@ -32,25 +32,26 @@ protocols.
 Only the queue management utilities in `src/push.rs` exist at present. The
 connection actor and its write loop are still to be implemented. The remaining
 sections describe how to build that actor from first principles using the biased
-`select!` loop presented in [Section 3](#3-core-architecture-the-connection-actor).
+`select!` loop presented in
+[Section 3](#3-core-architecture-the-connection-actor).
 
 ## 2. Design Goals & Requirements
 
 The implementation must satisfy the following core requirements:
 
-| ID  | Requirement                                                                                                                                            |
+| ID | Requirement                                                                                                                                            |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| G1  | Any async task must be able to push frames to a live connection.                                                                                       |
-| G2  | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
-| G3  | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
-| G4  | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
-| G5  | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+| G1 | Any async task must be able to push frames to a live connection.                                                                                       |
+| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
+| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
+| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
+| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
 
 ## 3. Core Architecture: The Connection Actor
 
 The foundation of this design is the **actor-per-connection** model, where each
 network connection is managed by a dedicated, isolated asynchronous task. This
-approach serialises all I/O for a given connection, eliminating the need for
+approach serializes all I/O for a given connection, eliminating the need for
 complex locking and simplifying reasoning about concurrency.
 
 In previous iterations, a connection's logic lived in short-lived worker tasks
@@ -69,7 +70,7 @@ manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
    messages like heartbeats, session control notifications, or protocol-level
    pings.
 
-2. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
+1. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
    background messages like log forwarding or secondary status updates.
 
 The bounded nature of these channels provides an inherent and robust
@@ -89,13 +90,13 @@ The polling order will be:
 1. **Graceful Shutdown Signal:** The `CancellationToken` will be checked first
    to ensure immediate reaction to a server-wide shutdown request.
 
-2. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
+1. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
    drained next.
 
-3. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
+1. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
    processed after all high-priority messages.
 
-4. **Handler Response Stream:** Frames from the active request's
+1. **Handler Response Stream:** Frames from the active request's
    `Response::Stream` will be processed last.
 
 ```rust
@@ -164,13 +165,16 @@ classDiagram
 sequenceDiagram
     participant Client
     participant ConnectionActor
+    participant Outbox
     participant Socket
 
     Client->>ConnectionActor: Initiate connection/request
     Note over ConnectionActor: Manages high/low priority queues
-    ConnectionActor->>ConnectionActor: enqueue outbound frame
+    ConnectionActor->>Outbox: enqueue outbound frame
+    Outbox->>ConnectionActor: dequeue frame
     ConnectionActor->>Socket: Write outbound frame
     Socket-->>Client: Delivers outbound message
+    Note over Outbox: Holds frames while socket busy
 ```
 
 ## 4. Public API Surface
@@ -420,10 +424,12 @@ sequenceDiagram
     participant AppTask as Application Task
     participant SessionRegistry
     participant ConnectionActor
+    participant Outbox
     participant Socket
     AppTask->>SessionRegistry: get PushHandle for session
     AppTask->>ConnectionActor: push(OK packet or LOCAL INFILE)
-    ConnectionActor->>ConnectionActor: queue frame in outbox
+    ConnectionActor->>Outbox: enqueue frame
+    Outbox->>ConnectionActor: dequeue frame
     ConnectionActor->>Socket: write frame (when idle or after command completes)
 ```
 
@@ -437,9 +443,11 @@ even while a large response stream is in progress.
 sequenceDiagram
     participant Timer as Heart-beat Timer
     participant ConnectionActor
+    participant Outbox
     participant Socket
     Timer->>ConnectionActor: push_high_priority(Ping frame)
-    ConnectionActor->>ConnectionActor: enqueue Ping in high-priority queue
+    ConnectionActor->>Outbox: enqueue Ping in high-priority queue
+    Outbox->>ConnectionActor: dequeue Ping
     ConnectionActor->>Socket: write Ping frame (even during response stream)
 ```
 
@@ -460,7 +468,7 @@ sequenceDiagram
     alt Queue not full
         ConnectionActor->>Socket: write PUBLISH frame
     else Queue full
-        ConnectionActor->>ConnectionActor: drop frame
+        Note over ConnectionActor: Drop frame due to full queue
     end
 ```
 
