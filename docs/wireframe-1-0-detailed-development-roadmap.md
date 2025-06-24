@@ -1,5 +1,3 @@
-<!-- markdownlint-disable MD013 MD033 MD056 -->
-
 # Wireframe 1.0: Detailed Development Roadmap
 
 This document provides a granular, task-oriented development roadmap for the
@@ -74,5 +72,3 @@ ready for a 1.0 release.*
 | 4.4 | Comprehensive User Guides             | Write the official documentation for the new features. Create separate guides for "Duplex Messaging & Pushes", "Streaming Responses", and "Message Fragmentation". Each guide must include runnable examples and explain the relevant concepts and APIs.                     | Large  | All        |
 | 4.5 | High-Quality Examples                 | Create at least two complete, high-quality examples demonstrating real-world use cases. These should include server-initiated MySQL packets (e.g., LOCAL INFILE and session-state trackers) and a push-driven protocol such as WebSocket heart-beats or MQTT broker fan-out. | Medium | All        |
 | 4.6 | Changelog & 1.0 Release               | Finalize the CHANGELOG.md with a comprehensive summary of all new features, enhancements, and breaking changes. Tag and publish the 1.0.0 release.                                                                                                                           | Small  | All        |
-
-<!-- markdownlint-enable MD013 MD033 MD056 -->
