@@ -39,13 +39,13 @@ sections describe how to build that actor from first principles using the biased
 
 The implementation must satisfy the following core requirements:
 
-| ID | Requirement                                                                                                                                            |
+| ID  | Requirement                                                                                                                                            |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| G1 | Any async task must be able to push frames to a live connection.                                                                                       |
-| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
-| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
-| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
-| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+| G1  | Any async task must be able to push frames to a live connection.                                                                                       |
+| G2  | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
+| G3  | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
+| G4  | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
+| G5  | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
 
 ## 3. Core Architecture: The Connection Actor
 
@@ -59,7 +59,7 @@ spawned per request. Converting those workers into long-running actors allows
 `wireframe` to maintain per-connection state—such as sequence counters, command
 metadata, and pending pushes—without cross-task sharing. Handlers now send
 commands back to the actor instead of writing directly to the socket,
-centralising all output in one place.
+centralizing all output in one place.
 
 ### 3.1 Prioritised Message Queues
 
@@ -70,7 +70,7 @@ manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
    messages like heartbeats, session control notifications, or protocol-level
    pings.
 
-1. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
+2. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
    background messages like log forwarding or secondary status updates.
 
 The bounded nature of these channels provides an inherent and robust
@@ -90,13 +90,13 @@ The polling order will be:
 1. **Graceful Shutdown Signal:** The `CancellationToken` will be checked first
    to ensure immediate reaction to a server-wide shutdown request.
 
-1. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
+2. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
    drained next.
 
-1. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
+3. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
    processed after all high-priority messages.
 
-1. **Handler Response Stream:** Frames from the active request's
+4. **Handler Response Stream:** Frames from the active request's
    `Response::Stream` will be processed last.
 
 ```rust
@@ -171,10 +171,10 @@ sequenceDiagram
     Client->>ConnectionActor: Initiate connection/request
     Note over ConnectionActor: Manages high/low priority queues
     ConnectionActor->>Outbox: enqueue outbound frame
-    Outbox->>ConnectionActor: dequeue frame
+    ConnectionActor->>Outbox: dequeue frame
     ConnectionActor->>Socket: Write outbound frame
     Socket-->>Client: Delivers outbound message
-    Note over Outbox: Holds frames while socket busy
+    Note over Outbox: Holds frames while the socket is busy
 ```
 
 ## 4. Public API Surface
@@ -429,7 +429,7 @@ sequenceDiagram
     AppTask->>SessionRegistry: get PushHandle for session
     AppTask->>ConnectionActor: push(OK packet or LOCAL INFILE)
     ConnectionActor->>Outbox: enqueue frame
-    Outbox->>ConnectionActor: dequeue frame
+    ConnectionActor->>Outbox: dequeue frame
     ConnectionActor->>Socket: write frame (when idle or after command completes)
 ```
 
@@ -447,7 +447,7 @@ sequenceDiagram
     participant Socket
     Timer->>ConnectionActor: push_high_priority(Ping frame)
     ConnectionActor->>Outbox: enqueue Ping in high-priority queue
-    Outbox->>ConnectionActor: dequeue Ping
+    ConnectionActor->>Outbox: dequeue Ping
     ConnectionActor->>Socket: write Ping frame (even during response stream)
 ```
 
@@ -468,7 +468,7 @@ sequenceDiagram
     alt Queue not full
         ConnectionActor->>Socket: write PUBLISH frame
     else Queue full
-        Note over ConnectionActor: Drop frame due to full queue
+        Note over ConnectionActor: Drop frame due to full queue.
     end
 ```
 
