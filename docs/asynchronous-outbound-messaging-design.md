@@ -32,7 +32,8 @@ protocols.
 Only the queue management utilities in `src/push.rs` exist at present. The
 connection actor and its write loop are still to be implemented. The remaining
 sections describe how to build that actor from first principles using the biased
-`select!` loop presented in [Section 3](#3-core-architecture-the-connection-actor).
+`select!` loop presented in
+[Section 3](#3-core-architecture-the-connection-actor).
 
 ## 2. Design Goals & Requirements
 
@@ -50,7 +51,7 @@ The implementation must satisfy the following core requirements:
 
 The foundation of this design is the **actor-per-connection** model, where each
 network connection is managed by a dedicated, isolated asynchronous task. This
-approach serialises all I/O for a given connection, eliminating the need for
+approach serializes all I/O for a given connection, eliminating the need for
 complex locking and simplifying reasoning about concurrency.
 
 In previous iterations, a connection's logic lived in short-lived worker tasks
@@ -58,7 +59,7 @@ spawned per request. Converting those workers into long-running actors allows
 `wireframe` to maintain per-connection state—such as sequence counters, command
 metadata, and pending pushes—without cross-task sharing. Handlers now send
 commands back to the actor instead of writing directly to the socket,
-centralising all output in one place.
+centralizing all output in one place.
 
 ### 3.1 Prioritised Message Queues
 
@@ -164,13 +165,17 @@ classDiagram
 sequenceDiagram
     participant Client
     participant ConnectionActor
+    participant Outbox
     participant Socket
 
     Client->>ConnectionActor: Initiate connection/request
     Note over ConnectionActor: Manages high/low priority queues
-    ConnectionActor->>ConnectionActor: enqueue outbound frame
+    ConnectionActor->>Outbox: enqueue outbound frame
+    ConnectionActor->>Outbox: dequeue request
+    Outbox-->>ConnectionActor: frame
     ConnectionActor->>Socket: Write outbound frame
     Socket-->>Client: Delivers outbound message
+    Note over Outbox: Holds frames while the socket is busy.
 ```
 
 ## 4. Public API Surface
@@ -420,10 +425,13 @@ sequenceDiagram
     participant AppTask as Application Task
     participant SessionRegistry
     participant ConnectionActor
+    participant Outbox
     participant Socket
     AppTask->>SessionRegistry: get PushHandle for session
     AppTask->>ConnectionActor: push(OK packet or LOCAL INFILE)
-    ConnectionActor->>ConnectionActor: queue frame in outbox
+    ConnectionActor->>Outbox: enqueue frame
+    ConnectionActor->>Outbox: dequeue request
+    Outbox-->>ConnectionActor: frame
     ConnectionActor->>Socket: write frame (when idle or after command completes)
 ```
 
@@ -437,9 +445,12 @@ even while a large response stream is in progress.
 sequenceDiagram
     participant Timer as Heart-beat Timer
     participant ConnectionActor
+    participant Outbox
     participant Socket
     Timer->>ConnectionActor: push_high_priority(Ping frame)
-    ConnectionActor->>ConnectionActor: enqueue Ping in high-priority queue
+    ConnectionActor->>Outbox: enqueue Ping in high-priority queue
+    ConnectionActor->>Outbox: dequeue request
+    Outbox-->>ConnectionActor: Ping
     ConnectionActor->>Socket: write Ping frame (even during response stream)
 ```
 
@@ -460,7 +471,7 @@ sequenceDiagram
     alt Queue not full
         ConnectionActor->>Socket: write PUBLISH frame
     else Queue full
-        ConnectionActor->>ConnectionActor: drop frame
+        Note over ConnectionActor: Drop frame due to full queue.
     end
 ```
 
