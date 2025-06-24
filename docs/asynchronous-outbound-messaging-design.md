@@ -49,9 +49,9 @@ The implementation must satisfy the following core requirements:
 ## 3. Core Architecture: The Connection Actor
 
 The foundation of this design is the **actor-per-connection** model, where each
-network connection is managed by a dedicated, isolated asynchronous task. 1 This
+network connection is managed by a dedicated, isolated asynchronous task. This
 approach serialises all I/O for a given connection, eliminating the need for
-complex locking and simplifying reasoning about concurrency. 2
+complex locking and simplifying reasoning about concurrency.
 
 In previous iterations, a connection's logic lived in short-lived worker tasks
 spawned per request. Converting those workers into long-running actors allows
@@ -75,14 +75,14 @@ manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
 The bounded nature of these channels provides an inherent and robust
 back-pressure mechanism. When a channel's buffer is full, any task attempting to
 push a new message will be asynchronously suspended until space becomes
-available. 8
+available.
 
 ### 3.2 The Prioritised Write Loop
 
 The connection actor's write logic will be implemented within a `tokio::select!`
 loop. Crucially, this loop will use the `biased` keyword to ensure a strict,
-deterministic polling order. This prevents high-volume data streams from
-starving low-volume but critical control messages. 16
+deterministic polling order. This prevents high-volume yet critical control
+messages from being starved by large data streams.
 
 The polling order will be:
 
@@ -97,8 +97,6 @@ The polling order will be:
 
 4. **Handler Response Stream:** Frames from the active request's
    `Response::Stream` will be processed last.
-
-Rust
 
 ```rust
 // Simplified pseudo-code for the actor's write loop
@@ -132,6 +130,47 @@ loop {
         else => { break; }
     }
 }
+```
+
+### 3.3 Connection Actor Overview
+
+```mermaid
+classDiagram
+    class ConnectionActor {
+        - context: ConnectionContext
+        - high_priority_queue: mpsc::Receiver&lt;Frame&gt;
+        - low_priority_queue: mpsc::Receiver&lt;Frame&gt;
+        - response_stream: Stream&lt;Response&gt;
+        - shutdown_signal: CancellationToken
+        + run()
+        + handle_push()
+        + handle_response()
+    }
+    class PushHandle {
+        + push(frame: Frame)
+        + try_push(frame: Frame)
+        + push_with_policy(frame: Frame, policy: PushPolicy)
+    }
+    class SessionRegistry {
+        - sessions: DashMap&lt;ConnectionId, Weak&lt;ConnectionActor&gt;&gt;
+        + register(connection_id, actor)
+        + get_handle(connection_id): Option&lt;PushHandle&gt;
+    }
+    ConnectionActor o-- PushHandle : exposes / queues frames
+    SessionRegistry o-- PushHandle : provides
+```
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant ConnectionActor
+    participant Socket
+
+    Client->>ConnectionActor: Initiate connection/request
+    Note over ConnectionActor: Manages high/low priority queues
+    ConnectionActor->>ConnectionActor: enqueue outbound frame
+    ConnectionActor->>Socket: Write outbound frame
+    Socket-->>Client: Delivers outbound message
 ```
 
 ## 4. Public API Surface
@@ -337,7 +376,7 @@ clearly signalling to the producer task that the connection is gone.
 
 For applications where dropping a message is unacceptable (e.g., critical
 notifications, audit events), the framework will support an optional Dead Letter
-Queue. 36
+Queue.
 
 **Implementation:** The `WireframeApp` builder will provide a method,
 `with_push_dlq(mpsc::Sender<F>)`, to configure a DLQ. If provided, any frame
@@ -376,17 +415,54 @@ through a registry or the `on_connection_setup` hook. Any async task can call
 for delivery. Sequence IDs reset to zero on command completion to maintain
 protocol integrity.
 
+```mermaid
+sequenceDiagram
+    participant AppTask as Application Task
+    participant SessionRegistry
+    participant ConnectionActor
+    participant Socket
+    AppTask->>SessionRegistry: get PushHandle for session
+    AppTask->>ConnectionActor: push(OK packet or LOCAL INFILE)
+    ConnectionActor->>ConnectionActor: queue frame in outbox
+    ConnectionActor->>Socket: write frame (when idle or after command completes)
+```
+
 ### 7.2 Heart-beat Pings (WebSocket)
 
 A background timer can periodically send Ping frames to keep a WebSocket
 connection alive. `push_high_priority()` ensures these heart-beats are written
 even while a large response stream is in progress.
 
+```mermaid
+sequenceDiagram
+    participant Timer as Heart-beat Timer
+    participant ConnectionActor
+    participant Socket
+    Timer->>ConnectionActor: push_high_priority(Ping frame)
+    ConnectionActor->>ConnectionActor: enqueue Ping in high-priority queue
+    ConnectionActor->>Socket: write Ping frame (even during response stream)
+```
+
 ### 7.3 Broker-Side MQTT `PUBLISH`
 
 An MQTT broker can deliver retained messages or fan-out new `PUBLISH` frames to
 all subscribed clients via their `PushHandle`s. The `try_push` method allows the
 broker to drop non-critical messages when a subscriber falls behind.
+
+```mermaid
+sequenceDiagram
+    participant Broker as MQTT Broker
+    participant SessionRegistry
+    participant ConnectionActor as Client ConnectionActor
+    participant Socket
+    Broker->>SessionRegistry: get PushHandle for subscriber
+    Broker->>ConnectionActor: try_push(PUBLISH frame)
+    alt Queue not full
+        ConnectionActor->>Socket: write PUBLISH frame
+    else Queue full
+        ConnectionActor->>ConnectionActor: drop frame
+    end
+```
 
 ## 8. Measurable Objectives & Success Criteria
 
