@@ -49,9 +49,9 @@ The implementation must satisfy the following core requirements:
 ## 3. Core Architecture: The Connection Actor
 
 The foundation of this design is the **actor-per-connection** model, where each
-network connection is managed by a dedicated, isolated asynchronous task. 1 This
+network connection is managed by a dedicated, isolated asynchronous task. This
 approach serialises all I/O for a given connection, eliminating the need for
-complex locking and simplifying reasoning about concurrency. 2
+complex locking and simplifying reasoning about concurrency.
 
 In previous iterations, a connection's logic lived in short-lived worker tasks
 spawned per request. Converting those workers into long-running actors allows
@@ -97,8 +97,6 @@ The polling order will be:
 
 4. **Handler Response Stream:** Frames from the active request's
    `Response::Stream` will be processed last.
-
-Rust
 
 ```rust
 // Simplified pseudo-code for the actor's write loop
@@ -154,9 +152,9 @@ classDiagram
         + push_with_policy(frame: Frame, policy: PushPolicy)
     }
     class SessionRegistry {
-        - sessions: DashMap&lt;SessionId, Weak&lt;ConnectionActor&gt;&gt;
-        + register(session_id, actor)
-        + get_handle(session_id): Option&lt;PushHandle&gt;
+        - sessions: DashMap&lt;ConnectionId, Weak&lt;ConnectionActor&gt;&gt;
+        + register(connection_id, actor)
+        + get_handle(connection_id): Option&lt;PushHandle&gt;
     }
     ConnectionActor o-- PushHandle : exposes
     SessionRegistry o-- PushHandle : provides
@@ -167,13 +165,12 @@ classDiagram
 sequenceDiagram
     participant Client
     participant ConnectionActor
-    participant Queue as Outbox
     participant Socket
 
     Client->>ConnectionActor: Initiate connection/request
-    ConnectionActor->>Queue: enqueue outbound frame
-    Note over ConnectionActor,Queue: Manages high/low priority queues
-    ConnectionActor->>Socket: Write outbound frame (from queue)
+    Note over ConnectionActor: Manages high/low priority queues
+    ConnectionActor->>ConnectionActor: enqueue outbound frame
+    ConnectionActor->>Socket: Write outbound frame
     Socket-->>Client: Delivers outbound message
 ```
 
