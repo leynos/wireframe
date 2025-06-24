@@ -40,6 +40,7 @@ The implementation must satisfy the following core requirements:
 <!-- markdownlint-disable MD013 -->
 
 | ID | Requirement                                                                                                                                            |
+| -- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | G1 | Any async task must be able to push frames to a live connection.                                                                                       |
 | G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
 | G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
@@ -144,8 +145,6 @@ The public API is designed for ergonomics, safety, and extensibility.
 
 The primary user-facing primitive is the `PushHandle`, a cloneable handle that
 provides the capability to send frames to a specific connection.
-
-Rust
 
 ```rust
 // The internal state, managed by an Arc for shared ownership.
@@ -258,9 +257,7 @@ back-pressure behaviour of their pushed messages.
 
 To allow background tasks to discover and message active connections, a
 `SessionRegistry` will be provided. To prevent memory leaks, this registry
-**must** be implemented using non-owning `Weak` references. 20
-
-Rust
+**must** be implemented using non-owning `Weak` references.
 
 ```rust
 use dashmap::DashMap;
@@ -299,9 +296,7 @@ impl<F> SessionRegistry<F> {
 To provide a clean, organised, and extensible configuration API, all
 protocol-specific logic and callbacks will be encapsulated within a single
 `WireframeProtocol` trait. This is a significant ergonomic improvement over
-using a collection of individual closures. 30
-
-Rust
+using a collection of individual closures.
 
 ```rust
 pub trait WireframeProtocol: Send + Sync + 'static {
@@ -405,6 +400,7 @@ broker to drop non-critical messages when a subscriber falls behind.
 <!-- markdownlint-disable MD013 -->
 
 | Category        | Objective                                                                                                           | Success Metric                                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API Correctness | The PushHandle, SessionRegistry, and WireframeProtocol trait are implemented exactly as specified in this document. | 100% of the public API surface is present and correctly typed.                                                                                                                              |
 | Functionality   | Pushed frames are delivered reliably and in the correct order of priority.                                          | A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order. |
 | Back-pressure   | A slow consumer must cause producer tasks to suspend without consuming unbounded memory.                            | A test with a slow consumer and a fast producer must show the producer's push().await call blocks, and the process memory usage remains stable.                                             |
