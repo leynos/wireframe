@@ -27,6 +27,25 @@ pub enum Response<F, E> {
     Empty,
 }
 
+impl<F: std::fmt::Debug, E> std::fmt::Debug for Response<F, E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Response::Single(frame) => f.debug_tuple("Single").field(frame).finish(),
+            Response::Vec(v) => f.debug_tuple("Vec").field(v).finish(),
+            Response::Stream(_) => f.write_str("Stream(..)"),
+            Response::Empty => f.write_str("Empty"),
+        }
+    }
+}
+
+impl<F, E> From<F> for Response<F, E> {
+    fn from(f: F) -> Self { Response::Single(f) }
+}
+
+impl<F, E> From<Vec<F>> for Response<F, E> {
+    fn from(v: Vec<F>) -> Self { Response::Vec(v) }
+}
+
 /// A generic error type for wireframe operations.
 #[derive(Debug)]
 pub enum WireframeError<E> {
@@ -36,6 +55,12 @@ pub enum WireframeError<E> {
     Protocol(E),
 }
 
-impl<E> From<std::io::Error> for WireframeError<E> {
-    fn from(e: std::io::Error) -> Self { WireframeError::Io(e) }
+impl<E> From<E> for WireframeError<E> {
+    fn from(e: E) -> Self { WireframeError::Protocol(e) }
+}
+
+impl<E> WireframeError<E> {
+    /// Convert an I/O error into a `WireframeError`.
+    #[must_use]
+    pub fn from_io(e: std::io::Error) -> Self { WireframeError::Io(e) }
 }
