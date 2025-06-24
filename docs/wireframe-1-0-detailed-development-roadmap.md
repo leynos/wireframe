@@ -22,7 +22,6 @@ all public-facing features will be built.*
 
 | #      | Task                           | Description                                                                                                                                                                                                              | Size   | Depends On |
 | ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---------- |
-| ------ | ----------                     |
 | 1.1    | Core Response & Error Types    | Define the new `Response<F, E>` enum with `Single`, `Vec`, `Stream` and `Empty` variants. Implement the generic `WireframeError<E>` enum to distinguish between I/O and protocol errors.                                 | Small  | -          |
 | 1.2    | Priority Push Channels         | Implement the internal dual-channel `mpsc` mechanism within the connection state to handle high-priority and low-priority pushed frames.                                                                                 | Medium | -          |
 | 1.3    | Connection Actor Write Loop    | Convert the per-request workers into stateful connection actors. Implement a `select!(biased; ...)` loop that polls for shutdown signals, high/low priority pushes and the handler response stream in that strict order. | Large  | #1.2       |
@@ -38,7 +37,6 @@ and intuitive.*
 
 | #      | Task                              | Description                                                                                                                                                                                                     | Size   | Depends On       |
 | ------ | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
-| ------ | ----------------                  |
 | 2.1    | WireframeProtocol Trait & Builder | Define the cohesive `WireframeProtocol` trait to encapsulate all protocol-specific logic. Refactor the `WireframeApp` builder to use a fluent `.with_protocol(MyProtocol)` method instead of multiple closures. | Medium | #1.6             |
 | 2.2    | Public PushHandle API             | Implement the public `PushHandle<F>` struct with its `push`, `try_push` and policy-based `push_with_policy` methods. This handle will interact with the dual-channel system from #1.2.                          | Medium | #1.2             |
 | 2.3    | Leak-Proof SessionRegistry        | Implement the `SessionRegistry` for discovering connection handles. This must use `dashmap` with `Weak<T>` pointers to prevent memory leaks from terminated connections.                                        | Medium | #2.2             |
@@ -54,8 +52,6 @@ operation in a production environment. This phase moves the library from
 
 | #      | Task                           | Description                                                                                                                                                                                          | Size   | Depends On |
 | ------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------- |
-| ------ | ----------                     |
-| ------ | ----------                     |
 | 3.1    | Graceful Shutdown              | Implement the server-wide graceful shutdown pattern. Use tokio_util::sync::CancellationToken for signalling and tokio_util::task::TaskTracker to ensure all connection actors terminate cleanly.     | Large  | #1.3       |
 | 3.2    | Re-assembly DoS Protection     | Harden the FragmentAdapter by adding a non-optional, configurable timeout for partial message re-assembly and strictly enforcing the max_message_size limit to prevent memory exhaustion.            | Medium | #1.5       |
 | 3.3    | Multiplexed Re-assembly        | Enhance the FragmentAdapter's inbound logic to support concurrent re-assembly of multiple messages. Use the msg_id from FragmentMeta as a key into a dashmap::DashMap of partial messages.           | Large  | #3.2       |
@@ -71,7 +67,6 @@ ready for a 1.0 release.*
 
 | #      | Task                                  | Description                                                                                                                                                                                                                                                                  | Size   | Depends On |
 | ------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------- |
-| ------ | ----------                            |
 | 4.1    | Pervasive tracing instrumentation     | Instrument the entire library with `tracing`. Add `span!` calls for connection and request lifecycles and detailed `event!` calls for key state transitions (e.g., back-pressure applied, frame dropped, connection terminated).                                             | Large  | All        |
 | 4.2    | Advanced Testing: Concurrency & Logic | Implement the advanced test suite. Use loom to verify the concurrency correctness of the select! loop and PushHandle. Use proptest for stateful property-based testing of complex protocol interactions (e.g., fragmentation and streaming).                                 | Large  | #3.3, #3.5 |
 | 4.3    | Advanced Testing: Performance         | Implement the criterion benchmark suite. Create micro-benchmarks for individual components (e.g., PushHandle contention) and macro-benchmarks for end-to-end throughput and latency.                                                                                         | Medium | All        |
