@@ -373,7 +373,7 @@ existing request/response model.
 Each connection task owns an mpsc outbox channel and exposes a `PushHandle`
 through a registry or the `on_connection_setup` hook. Any async task can call
 `push_high_priority()` or `push_low_priority()` on this handle to queue a frame
-for delivery. Sequence-ids reset to zero on command completion to maintain
+for delivery. Sequence IDs reset to zero on command completion to maintain
 protocol integrity.
 
 ### 7.2 Heart-beat Pings (WebSocket)
