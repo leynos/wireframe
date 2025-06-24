@@ -8,7 +8,7 @@ design documents.
 
 - [x] **Priority push queues** (`PushQueues`, `PushHandle`) with high and low
   channels. See [Design §3.1][design-queues].
-- [ ] **Unified `Response<F, E>` and `WireframeError<E>` types** to capture
+- [x] **Unified `Response<F, E>` and `WireframeError<E>` types** to capture
   protocol errors and transport failures ([Roadmap #1.1][roadmap-1-1]).
 - [ ] **Connection actor** with a biased `select!` loop that polls for shutdown,
   high/low queues and response streams as described in
