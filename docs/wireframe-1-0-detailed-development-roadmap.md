@@ -37,7 +37,6 @@ and intuitive.*
 
 | #      | Task                              | Description                                                                                                                                                                                                     | Size   | Depends On       |
 | ------ | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
-| ------ | ----------------                  |
 | 2.1    | WireframeProtocol Trait & Builder | Define the cohesive `WireframeProtocol` trait to encapsulate all protocol-specific logic. Refactor the `WireframeApp` builder to use a fluent `.with_protocol(MyProtocol)` method instead of multiple closures. | Medium | #1.6             |
 | 2.2    | Public PushHandle API             | Implement the public `PushHandle<F>` struct with its `push`, `try_push` and policy-based `push_with_policy` methods. This handle will interact with the dual-channel system from #1.2.                          | Medium | #1.2             |
 | 2.3    | Leak-Proof SessionRegistry        | Implement the `SessionRegistry` for discovering connection handles. This must use `dashmap` with `Weak<T>` pointers to prevent memory leaks from terminated connections.                                        | Medium | #2.2             |
