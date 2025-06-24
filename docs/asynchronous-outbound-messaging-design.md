@@ -15,10 +15,23 @@ will be achieved by providing a generic, protocol-agnostic facility that allows
 any part of an application—a request handler, a background timer, a separate
 worker task—to push frames to a live connection at any time.
 
+Earlier releases spawned a short-lived worker per request. This approach made
+persistent state awkward and required extra synchronisation when multiple tasks
+needed to write to the same socket. The new design promotes each connection to a
+**stateful actor** that owns its context for the lifetime of the session. Actor
+state keeps sequencing rules and push queues local to one task, drastically
+simplifying concurrency while enabling unsolicited frames.
+
 This feature is a cornerstone of the "Road to Wireframe 1.0" and is designed to
 be synergistic with the planned streaming and fragmentation capabilities,
 creating a cohesive and powerful framework for a wide class of network
 protocols.
+
+At the time of writing, the repository only contains the queue management
+utilities in `src/push.rs`. No connection actor or write loop is implemented.
+The remaining sections therefore describe how to build that actor from first
+principles. Implementers should start by creating the new connection task with
+the biased `select!` loop described in Section 3.
 
 ## 2. Design Goals & Requirements
 
@@ -41,6 +54,13 @@ The foundation of this design is the **actor-per-connection** model, where each
 network connection is managed by a dedicated, isolated asynchronous task. 1 This
 approach serialises all I/O for a given connection, eliminating the need for
 complex locking and simplifying reasoning about concurrency. 2
+
+In previous iterations, a connection's logic lived in short-lived worker tasks
+spawned per request. Converting those workers into long-running actors allows
+`wireframe` to maintain per-connection state—such as sequence counters, command
+metadata, and pending pushes—without cross-task sharing. Handlers now send
+commands back to the actor instead of writing directly to the socket,
+centralising all output in one place.
 
 ### 3.1 Prioritised Message Queues
 
@@ -349,7 +369,38 @@ features of the 1.0 release.
   socket. The `PushHandle` and the application code that uses it remain
   completely unaware of fragmentation.
 
-## 7. Measurable Objectives & Success Criteria
+## 7. Use Cases
+
+### 7.1 Server-Initiated MySQL Packets
+
+MariaDB may spontaneously push packets while a client is idle. Two notable
+examples are an `OK` packet with session tracker data and a `LOCAL INFILE`
+request. The design presented here enables these packets without changing the
+existing request/response model.
+
+Each connection task owns an mpsc outbox channel and exposes a `SessionHandle`
+through a registry or the `on_connection_setup` hook. Any async task can call
+`push()` on this handle to queue a frame for delivery.
+
+The biased write loop from Section 3.2 polls for shutdown, high-priority pushes,
+low-priority pushes, then the response stream. Connection state tracks the
+active command and next sequence-id. Pushed frames are written immediately when
+the connection is idle or deferred until the current command completes.
+Sequence-ids reset to zero on command completion to maintain protocol integrity.
+
+### 7.2 Heart-beat Pings (WebSocket)
+
+A background timer can periodically send Ping frames to keep a WebSocket
+connection alive. `push_high_priority()` ensures these heart-beats are written
+even while a large response stream is in progress.
+
+### 7.3 Broker-Side MQTT `PUBLISH`
+
+An MQTT broker can deliver retained messages or fan-out new `PUBLISH` frames to
+all subscribed clients via their `PushHandle`s. The `try_push` method allows the
+broker to drop non-critical messages when a subscriber falls behind.
+
+## 8. Measurable Objectives & Success Criteria
 
 <!-- markdownlint-disable MD013 -->
 
