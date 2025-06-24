@@ -373,14 +373,10 @@ examples are an `OK` packet with session tracker data and a `LOCAL INFILE`
 request. The design presented here enables these packets without changing the
 existing request/response model.
 
-Each connection task owns an mpsc outbox channel and exposes a `SessionHandle`
+Each connection task owns an mpsc outbox channel and exposes a `PushHandle`
 through a registry or the `on_connection_setup` hook. Any async task can call
-`push()` on this handle to queue a frame for delivery.
-
-The biased write loop from Section 3.2 polls for shutdown, high-priority pushes,
-low-priority pushes, then the response stream. Connection state tracks the
-active command and next sequence-id. Pushed frames are written immediately when
-the connection is idle or deferred until the current command completes.
+`push_high_priority()` or `push_low_priority()` on this handle to queue a frame
+for delivery.
 Sequence-ids reset to zero on command completion to maintain protocol integrity.
 
 ### 7.2 Heart-beat Pings (WebSocket)
