@@ -156,9 +156,8 @@ classDiagram
         + register(connection_id, actor)
         + get_handle(connection_id): Option&lt;PushHandle&gt;
     }
-    ConnectionActor o-- PushHandle : exposes
+    ConnectionActor o-- PushHandle : exposes / queues frames
     SessionRegistry o-- PushHandle : provides
-    PushHandle ..> ConnectionActor : queues frames
 ```
 
 ```mermaid
