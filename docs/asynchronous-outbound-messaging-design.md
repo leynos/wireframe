@@ -81,7 +81,7 @@ available.
 
 The connection actor's write logic will be implemented within a `tokio::select!`
 loop. Crucially, this loop will use the `biased` keyword to ensure a strict,
-deterministic polling order. This prevents high-volume but critical control
+deterministic polling order. This prevents high-volume yet critical control
 messages from being starved by large data streams.
 
 The polling order will be:
@@ -167,11 +167,12 @@ classDiagram
 sequenceDiagram
     participant Client
     participant ConnectionActor
+    participant Queue as Outbox
     participant Socket
 
     Client->>ConnectionActor: Initiate connection/request
-    ConnectionActor->>ConnectionActor: enqueue outbound frame
-    Note over ConnectionActor: Manages high/low priority queues
+    ConnectionActor->>Queue: enqueue outbound frame
+    Note over ConnectionActor,Queue: Manages high/low priority queues
     ConnectionActor->>Socket: Write outbound frame (from queue)
     Socket-->>Client: Delivers outbound message
 ```
