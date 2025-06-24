@@ -22,7 +22,6 @@ all public-facing features will be built.*
 
 | #      | Task                           | Description                                                                                                                                                                                                              | Size   | Depends On |
 | ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---------- |
-| ------ | ----------                     |
 | 1.1    | Core Response & Error Types    | Define the new `Response<F, E>` enum with `Single`, `Vec`, `Stream` and `Empty` variants. Implement the generic `WireframeError<E>` enum to distinguish between I/O and protocol errors.                                 | Small  | -          |
 | 1.2    | Priority Push Channels         | Implement the internal dual-channel `mpsc` mechanism within the connection state to handle high-priority and low-priority pushed frames.                                                                                 | Medium | -          |
 | 1.3    | Connection Actor Write Loop    | Convert the per-request workers into stateful connection actors. Implement a `select!(biased; ...)` loop that polls for shutdown signals, high/low priority pushes and the handler response stream in that strict order. | Large  | #1.2       |
