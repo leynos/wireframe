@@ -27,23 +27,24 @@ be synergistic with the planned streaming and fragmentation capabilities,
 creating a cohesive and powerful framework for a wide class of network
 protocols.
 
-At the time of writing, the repository only contains the queue management
-utilities in `src/push.rs`. No connection actor or write loop is implemented.
-The remaining sections therefore describe how to build that actor from first
-principles. Implementers should start by creating the new connection task with
-the biased `select!` loop described in Section 3.
+### Implementation Status
+
+Only the queue management utilities in `src/push.rs` exist at present. The
+connection actor and its write loop are still to be implemented. The remaining
+sections describe how to build that actor from first principles using the biased
+`select!` loop presented in [Section 3](#3-core-architecture-the-connection-actor).
 
 ## 2. Design Goals & Requirements
 
 The implementation must satisfy the following core requirements:
 
-| ID | Requirement                                                                                                                                            |
-| -- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| G1 | Any async task must be able to push frames to a live connection.                                                                                       |
-| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
-| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
-| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
-| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+| ID  | Requirement                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| G1  | Any async task must be able to push frames to a live connection.                                                                                       |
+| G2  | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
+| G3  | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
+| G4  | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
+| G5  | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
 
 ## 3. Core Architecture: The Connection Actor
 
@@ -372,8 +373,8 @@ existing request/response model.
 Each connection task owns an mpsc outbox channel and exposes a `PushHandle`
 through a registry or the `on_connection_setup` hook. Any async task can call
 `push_high_priority()` or `push_low_priority()` on this handle to queue a frame
-for delivery.
-Sequence-ids reset to zero on command completion to maintain protocol integrity.
+for delivery. Sequence IDs reset to zero on command completion to maintain
+protocol integrity.
 
 ### 7.2 Heart-beat Pings (WebSocket)
 
