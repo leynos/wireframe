@@ -34,6 +34,7 @@ connection actor and its write loop are still to be implemented. The remaining
 sections describe how to build that actor from first principles using the biased
 `select!` loop presented in
 [Section 3](#3-core-architecture-the-connection-actor).
+[Section 3](#3-core-architecture-the-connection-actor).
 
 ## 2. Design Goals & Requirements
 
