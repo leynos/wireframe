@@ -13,31 +13,31 @@ design documents.
 - [ ] **Connection actor** with a biased `select!` loop that polls for shutdown,
   high/low queues and response streams as described in
   [Design §3.2][design-write-loop].
-- [ ] **Internal protocol hooks** `before_send` and `on_command_end` invoked
+- [ ] **Internal protocol hooks** `before_send` and `on_command_end` invoked
   from the actor ([Design §4.3][design-hooks]).
 
 ## 2. Public API and Ergonomics
 
 - [ ] **`WireframeProtocol` trait** and builder integration to consolidate
-  callbacks ([Roadmap #2.1][roadmap-2-1], [Design §4.3][design-hooks]).
+  callbacks ([Roadmap #2.1][roadmap-2-1], [Design §4.3][design-hooks]).
 - [x] **Public `PushHandle` API** with `push` and `try_push` methods
   ([Design §4.1][design-push-handle]).
 - [ ] **Leak-proof `SessionRegistry`** using `dashmap::DashMap` and `Weak`
   pointers ([Design §4.2][design-registry],
-  [Resilience Guide §3.2][resilience-registry]).
+  [Resilience Guide §3.2][resilience-registry]).
 - [ ] **Document `async-stream`** for creating `Response::Stream` values
-  ([Roadmap #2.4][roadmap-2-4]).
+  ([Roadmap #2.4][roadmap-2-4]).
 - [ ] **Tests covering streams and push delivery** drawing on
-  [Testing Guide §4][testing-guide-advanced].
+  [Testing Guide §4][testing-guide-advanced].
 
 ## 3. Production Hardening
 
 - [ ] **Graceful shutdown** using `CancellationToken` and `TaskTracker`
-  ([Resilience Guide §2][resilience-shutdown]).
+  ([Resilience Guide §2][resilience-shutdown]).
 - [ ] **Typed `WireframeError`** for recoverable protocol errors
   ([Design §5][design-errors]).
 - [ ] **Per-connection rate limiting** on pushes via a token bucket
-  ([Resilience Guide §4.1][resilience-rate]).
+  ([Resilience Guide §4.1][resilience-rate]).
 - [ ] **Optional Dead Letter Queue** for full queues
   ([Design §5.2][design-dlq]).
 
@@ -46,9 +46,9 @@ design documents.
 - [ ] **Tracing instrumentation** for pushes and connections with metrics export
   ([Resilience Guide][resilience-guide]).
 - [ ] **Concurrency tests with `loom`** and property tests with `proptest`
-  ([Testing Guide §4.2][testing-loom], [Testing Guide §4.3][testing-proptest]).
+  ([Testing Guide §4.2][testing-loom], [Testing Guide §4.3][testing-proptest]).
 - [ ] **Benchmarks** for push throughput using `criterion`
-  ([Roadmap #4.3][roadmap-4-3]).
+  ([Roadmap #4.3][roadmap-4-3]).
 - [ ] **User guides and examples** demonstrating server-initiated messaging
   ([Design §7][design-use-cases]).
 
