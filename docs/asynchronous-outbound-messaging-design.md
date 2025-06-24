@@ -134,6 +134,49 @@ loop {
 }
 ```
 
+### 3.3 Connection Actor Overview
+
+```mermaid
+classDiagram
+    class ConnectionActor {
+        - context: ConnectionContext
+        - high_priority_queue: mpsc::Receiver<Frame>
+        - low_priority_queue: mpsc::Receiver<Frame>
+        - response_stream: Stream<Response>
+        - shutdown_signal: CancellationToken
+        + run()
+        + handle_push()
+        + handle_response()
+    }
+    class PushHandle {
+        + push(frame: Frame)
+        + try_push(frame: Frame)
+        + push_with_policy(frame: Frame, policy: PushPolicy)
+    }
+    class SessionRegistry {
+        - sessions: DashMap<SessionId, Weak<ConnectionActor>>
+        + register(session_id, actor)
+        + get_handle(session_id): Option<PushHandle>
+    }
+    ConnectionActor o-- PushHandle : exposes
+    SessionRegistry o-- PushHandle : provides
+    PushHandle ..> ConnectionActor : queues frames
+```
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant ConnectionActor
+    participant PushQueue
+    participant Socket
+
+    Client->>ConnectionActor: Initiate connection/request
+    ConnectionActor->>PushQueue: Enqueue outbound message
+    Note over ConnectionActor: Manages state and push queue
+    ConnectionActor->>Socket: Write outbound frame (from queue)
+    Socket-->>Client: Delivers outbound message
+```
+
 ## 4. Public API Surface
 
 The public API is designed for ergonomics, safety, and extensibility.
@@ -376,17 +419,54 @@ through a registry or the `on_connection_setup` hook. Any async task can call
 for delivery. Sequence IDs reset to zero on command completion to maintain
 protocol integrity.
 
+```mermaid
+sequenceDiagram
+    participant AppTask as Application Task
+    participant SessionRegistry
+    participant ConnectionActor
+    participant Socket
+    AppTask->>SessionRegistry: get PushHandle for session
+    AppTask->>ConnectionActor: push(OK packet or LOCAL INFILE)
+    ConnectionActor->>ConnectionActor: queue frame in outbox
+    ConnectionActor->>Socket: write frame (when idle or after command completes)
+```
+
 ### 7.2 Heart-beat Pings (WebSocket)
 
 A background timer can periodically send Ping frames to keep a WebSocket
 connection alive. `push_high_priority()` ensures these heart-beats are written
 even while a large response stream is in progress.
 
+```mermaid
+sequenceDiagram
+    participant Timer as Heart-beat Timer
+    participant ConnectionActor
+    participant Socket
+    Timer->>ConnectionActor: push_high_priority(Ping frame)
+    ConnectionActor->>ConnectionActor: enqueue Ping in high-priority queue
+    ConnectionActor->>Socket: write Ping frame (even during response stream)
+```
+
 ### 7.3 Broker-Side MQTT `PUBLISH`
 
 An MQTT broker can deliver retained messages or fan-out new `PUBLISH` frames to
 all subscribed clients via their `PushHandle`s. The `try_push` method allows the
 broker to drop non-critical messages when a subscriber falls behind.
+
+```mermaid
+sequenceDiagram
+    participant Broker as MQTT Broker
+    participant SessionRegistry
+    participant ConnectionActor as Client ConnectionActor
+    participant Socket
+    Broker->>SessionRegistry: get PushHandle for subscriber
+    Broker->>ConnectionActor: try_push(PUBLISH frame)
+    alt Queue not full
+        ConnectionActor->>Socket: write PUBLISH frame
+    else Queue full
+        ConnectionActor->>ConnectionActor: drop frame
+    end
+```
 
 ## 8. Measurable Objectives & Success Criteria
 
