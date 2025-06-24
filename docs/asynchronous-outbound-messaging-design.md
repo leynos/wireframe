@@ -171,10 +171,11 @@ sequenceDiagram
     Client->>ConnectionActor: Initiate connection/request
     Note over ConnectionActor: Manages high/low priority queues
     ConnectionActor->>Outbox: enqueue outbound frame
-    ConnectionActor->>Outbox: dequeue frame
+    ConnectionActor->>Outbox: dequeue request
+    Outbox-->>ConnectionActor: frame
     ConnectionActor->>Socket: Write outbound frame
     Socket-->>Client: Delivers outbound message
-    Note over Outbox: Holds frames while the socket is busy
+    Note over Outbox: Holds frames while the socket is busy.
 ```
 
 ## 4. Public API Surface
@@ -429,7 +430,8 @@ sequenceDiagram
     AppTask->>SessionRegistry: get PushHandle for session
     AppTask->>ConnectionActor: push(OK packet or LOCAL INFILE)
     ConnectionActor->>Outbox: enqueue frame
-    ConnectionActor->>Outbox: dequeue frame
+    ConnectionActor->>Outbox: dequeue request
+    Outbox-->>ConnectionActor: frame
     ConnectionActor->>Socket: write frame (when idle or after command completes)
 ```
 
@@ -447,7 +449,8 @@ sequenceDiagram
     participant Socket
     Timer->>ConnectionActor: push_high_priority(Ping frame)
     ConnectionActor->>Outbox: enqueue Ping in high-priority queue
-    ConnectionActor->>Outbox: dequeue Ping
+    ConnectionActor->>Outbox: dequeue request
+    Outbox-->>ConnectionActor: Ping
     ConnectionActor->>Socket: write Ping frame (even during response stream)
 ```
 
