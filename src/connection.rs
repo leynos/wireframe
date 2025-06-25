@@ -38,6 +38,20 @@ where
         }
     }
 
+    /// Access the underlying push queues.
+    ///
+    /// This is mainly used in tests to close the queues when no actor is
+    /// draining them.
+    #[must_use]
+    pub fn queues_mut(&mut self) -> &mut PushQueues<F> { &mut self.queues }
+
+    /// Set or replace the current streaming response.
+    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) { self.response = stream; }
+
+    /// Get a clone of the shutdown token used by the actor.
+    #[must_use]
+    pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
+
     /// Drive the actor until all sources are exhausted or shutdown is triggered.
     ///
     /// Frames are appended to `out` in the order they are processed.
