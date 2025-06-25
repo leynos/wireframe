@@ -46,9 +46,10 @@ where
     ///
     /// Returns a [`WireframeError`] if the response stream yields an error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
-        // If cancellation has already been requested, exit immediately without
-        // draining any sources. This mirrors a hard shutdown and is required by
-        // tests.
+        // If cancellation has already been requested, exit immediately.
+        // Nothing will be drained, queued frames are lost and any streaming
+        // response is abandoned. This mirrors a hard shutdown and is required
+        // for the tests.
         if self.shutdown.is_cancelled() {
             return Ok(());
         }
@@ -86,9 +87,7 @@ where
                 }
             }
 
-            let push_drained = high_closed && low_closed;
-            let done = push_drained && (resp_closed || shutting_down);
-            if done {
+            if Self::is_done(high_closed, low_closed, resp_closed, shutting_down) {
                 break;
             }
         }
@@ -99,8 +98,21 @@ where
     fn start_shutdown(&mut self, resp_closed: &mut bool) {
         self.queues.high_priority_rx.close();
         self.queues.low_priority_rx.close();
+        // Drop any streaming response so shutdown is prompt. Queued frames are
+        // still drained, but streamed responses may be truncated.
         self.response = None;
         *resp_closed = true;
+    }
+
+    #[allow(clippy::fn_params_excessive_bools)]
+    fn is_done(
+        high_closed: bool,
+        low_closed: bool,
+        resp_closed: bool,
+        shutting_down: bool,
+    ) -> bool {
+        let push_drained = high_closed && low_closed;
+        push_drained && (resp_closed || shutting_down)
     }
 
     fn handle_push(res: Option<F>, closed: &mut bool, out: &mut Vec<F>) {
