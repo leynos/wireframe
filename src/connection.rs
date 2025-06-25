@@ -6,6 +6,7 @@
 //! low-priority ones, with streamed responses handled last.
 
 use futures::StreamExt;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -98,27 +99,21 @@ where
         tokio::select! {
             biased;
 
-            () = self.shutdown.cancelled(), if !state.shutting_down => {
+            () = Self::wait_shutdown(&self.shutdown), if !state.shutting_down => {
                 state.shutting_down = true;
                 self.start_shutdown(&mut state.resp_closed);
             }
 
-            res = self.queues.high_priority_rx.recv(), if !state.push.high => {
-                self.handle_push(res, &mut state.push.high, out);
+            res = Self::recv_push(&mut self.queues.high_priority_rx), if !state.push.high => {
+                Self::handle_push(res, &mut state.push.high, out);
             }
 
-            res = self.queues.low_priority_rx.recv(), if !state.push.low => {
-                self.handle_push(res, &mut state.push.low, out);
+            res = Self::recv_push(&mut self.queues.low_priority_rx), if !state.push.low => {
+                Self::handle_push(res, &mut state.push.low, out);
             }
 
-            res = async {
-                if let Some(stream) = &mut self.response {
-                    stream.next().await
-                } else {
-                    None
-                }
-            }, if !state.shutting_down && !state.resp_closed => {
-                self.handle_response(res, &mut state.resp_closed, out)?;
+            res = Self::next_response(&mut self.response), if !state.shutting_down && !state.resp_closed => {
+                Self::handle_response(res, &mut state.resp_closed, out)?;
             }
         }
 
@@ -163,6 +158,20 @@ where
         }
 
         Ok(())
+    }
+
+    async fn wait_shutdown(token: &CancellationToken) { token.cancelled().await; }
+
+    async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
+
+    async fn next_response(
+        stream: &mut Option<FrameStream<F, E>>,
+    ) -> Option<Result<F, WireframeError<E>>> {
+        if let Some(s) = stream {
+            s.next().await
+        } else {
+            None
+        }
     }
 }
 
