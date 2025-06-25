@@ -46,15 +46,32 @@ where
     ///
     /// Returns a [`WireframeError`] if the response stream yields an error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
+        // If cancellation has already been requested, exit immediately without
+        // draining any sources. This mirrors a hard shutdown and is required by
+        // tests.
+        if self.shutdown.is_cancelled() {
+            return Ok(());
+        }
+
         let mut high_closed = false;
         let mut low_closed = false;
         let mut resp_closed = self.response.is_none();
+        let mut shutting_down = false;
 
         loop {
             tokio::select! {
                 biased;
 
-                () = self.shutdown.cancelled() => break,
+                () = self.shutdown.cancelled(), if !shutting_down => {
+                    shutting_down = true;
+                    // Close the queues so producers receive an error and we can
+                    // drain queued frames without waiting for new ones.
+                    self.queues.high_priority_rx.close();
+                    self.queues.low_priority_rx.close();
+                    // Drop any streaming response so shutdown is prompt.
+                    self.response = None;
+                    resp_closed = true;
+                }
 
                 res = self.queues.high_priority_rx.recv(), if !high_closed => {
                     match res {
@@ -78,7 +95,7 @@ where
                     } else {
                         None
                     }
-                } => {
+                }, if !shutting_down => {
                     match res {
                         Some(Ok(frame)) => out.push(frame),
                         Some(Err(e)) => return Err(e),
@@ -87,7 +104,7 @@ where
                 }
             }
 
-            if high_closed && low_closed && resp_closed {
+            if high_closed && low_closed && (resp_closed || shutting_down) {
                 break;
             }
         }
