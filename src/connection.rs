@@ -15,9 +15,9 @@ use crate::{
 
 /// Actor driving outbound frame delivery for a connection.
 pub struct ConnectionActor<F, E> {
-    pub queues: PushQueues<F>,
-    pub response: Option<FrameStream<F, E>>, // current streaming response
-    pub shutdown: CancellationToken,
+    queues: PushQueues<F>,
+    response: Option<FrameStream<F, E>>, // current streaming response
+    shutdown: CancellationToken,
 }
 
 impl<F, E> ConnectionActor<F, E>

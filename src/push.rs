@@ -120,8 +120,8 @@ impl<F: FrameLike> PushHandle<F> {
 
 /// Receiver ends of the push queues stored by the connection actor.
 pub struct PushQueues<F> {
-    pub high_priority_rx: mpsc::Receiver<F>,
-    pub low_priority_rx: mpsc::Receiver<F>,
+    pub(crate) high_priority_rx: mpsc::Receiver<F>,
+    pub(crate) low_priority_rx: mpsc::Receiver<F>,
 }
 
 impl<F: FrameLike> PushQueues<F> {
@@ -153,5 +153,14 @@ impl<F: FrameLike> PushQueues<F> {
             res = self.high_priority_rx.recv() => res.map(|f| (PushPriority::High, f)),
             res = self.low_priority_rx.recv() => res.map(|f| (PushPriority::Low, f)),
         }
+    }
+
+    /// Close both receivers to prevent further pushes from being accepted.
+    ///
+    /// This is primarily used in tests to release resources when no actor is
+    /// draining the queues.
+    pub fn close(&mut self) {
+        self.high_priority_rx.close();
+        self.low_priority_rx.close();
     }
 }

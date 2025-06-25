@@ -1,3 +1,8 @@
+//! Tests for the `ConnectionActor` component.
+//!
+//! These cover priority order, shutdown behaviour, error propagation,
+//! interleaved cancellation and back-pressure handling.
+
 use futures::stream;
 use rstest::{fixture, rstest};
 use tokio::time::{Duration, sleep, timeout};
@@ -130,12 +135,12 @@ async fn interleaved_shutdown_during_stream(
 #[rstest]
 #[tokio::test]
 async fn push_queue_exhaustion_backpressure() {
-    let (queues, handle) = PushQueues::bounded(1, 1);
+    let (mut queues, handle) = PushQueues::bounded(1, 1);
     handle.push_high_priority(1).await.unwrap();
 
     let blocked = timeout(Duration::from_millis(50), handle.push_high_priority(2)).await;
     assert!(blocked.is_err());
 
-    // clean up to avoid background tasks holding the queue
-    drop(queues.high_priority_rx);
+    // clean up without exposing internal fields
+    queues.close();
 }
