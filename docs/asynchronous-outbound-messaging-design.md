@@ -133,6 +133,24 @@ loop {
 }
 ```
 
+#### 3.2.1 Fairness for low-priority frames
+
+Continuous bursts of urgent messages can prevent the low-priority queue from
+ever being drained. To mitigate this without removing the deterministic bias,
+each `ConnectionActor` tracks how many high-priority frames have been processed
+in a row. After a configurable threshold (`max_high_before_low`), the actor
+checks `low_priority_push_rx.try_recv()` and, if a frame is present, processes
+it and resets the counter.
+
+An optional time slice (for example 100 µs) can also be configured. When the
+elapsed time handling high-priority frames exceeds this slice and the low queue
+is not empty, the actor yields to a low-priority frame. Application builders
+expose `with_fairness(usize)` to set the threshold, defaulting to 16. Setting it
+to zero preserves the original strict ordering.
+
+This fairness mechanism ensures low-priority traffic continues to progress even
+under sustained high-priority load.
+
 ### 3.3 Connection Actor Overview
 
 ```mermaid
