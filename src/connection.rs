@@ -64,49 +64,61 @@ where
 
                 () = self.shutdown.cancelled(), if !shutting_down => {
                     shutting_down = true;
-                    // Close the queues so producers receive an error and we can
-                    // drain queued frames without waiting for new ones.
-                    self.queues.high_priority_rx.close();
-                    self.queues.low_priority_rx.close();
-                    // Drop any streaming response so shutdown is prompt.
-                    self.response = None;
-                    resp_closed = true;
+                    self.start_shutdown(&mut resp_closed);
                 }
 
                 res = self.queues.high_priority_rx.recv(), if !high_closed => {
-                    match res {
-                        Some(frame) => out.push(frame),
-                        None => high_closed = true,
-                    }
+                    Self::handle_push(res, &mut high_closed, out);
                 }
 
                 res = self.queues.low_priority_rx.recv(), if !low_closed => {
-                    match res {
-                        Some(frame) => out.push(frame),
-                        None => low_closed = true,
-                    }
+                    Self::handle_push(res, &mut low_closed, out);
                 }
 
                 res = async {
-                    if resp_closed {
-                        None
-                    } else if let Some(stream) = &mut self.response {
+                    if let Some(stream) = &mut self.response {
                         stream.next().await
                     } else {
                         None
                     }
-                }, if !shutting_down => {
-                    match res {
-                        Some(Ok(frame)) => out.push(frame),
-                        Some(Err(e)) => return Err(e),
-                        None => resp_closed = true,
-                    }
+                }, if !shutting_down && !resp_closed => {
+                    Self::handle_response(res, &mut resp_closed, out)?;
                 }
             }
 
-            if high_closed && low_closed && (resp_closed || shutting_down) {
+            let push_drained = high_closed && low_closed;
+            let done = push_drained && (resp_closed || shutting_down);
+            if done {
                 break;
             }
+        }
+
+        Ok(())
+    }
+
+    fn start_shutdown(&mut self, resp_closed: &mut bool) {
+        self.queues.high_priority_rx.close();
+        self.queues.low_priority_rx.close();
+        self.response = None;
+        *resp_closed = true;
+    }
+
+    fn handle_push(res: Option<F>, closed: &mut bool, out: &mut Vec<F>) {
+        match res {
+            Some(frame) => out.push(frame),
+            None => *closed = true,
+        }
+    }
+
+    fn handle_response(
+        res: Option<Result<F, WireframeError<E>>>,
+        closed: &mut bool,
+        out: &mut Vec<F>,
+    ) -> Result<(), WireframeError<E>> {
+        match res {
+            Some(Ok(frame)) => out.push(frame),
+            Some(Err(e)) => return Err(e),
+            None => *closed = true,
         }
 
         Ok(())

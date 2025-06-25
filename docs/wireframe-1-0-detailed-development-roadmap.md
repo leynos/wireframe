@@ -9,10 +9,10 @@ breaking the project down into four distinct phases, each with a set of
 well-defined tasks. The dependencies between tasks are explicitly noted to
 ensure a logical and stable development progression.
 
-As of this roadmap's publication, only the push queue utilities exist in
-`src/push.rs`. No connection actor or write loop has been implemented. Phase 1
-therefore begins by introducing the connection actor with its biased `select!`
-loop and integrating the push queues.
+At the time of writing, the push queue utilities and the connection actor with
+its biased `select!` write loop are implemented. The first phase therefore
+focuses on integrating the remaining foundational pieces, preparing the API for
+public consumption.
 
 ## Phase 1: Foundational Mechanics
 
