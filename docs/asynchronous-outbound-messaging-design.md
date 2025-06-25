@@ -178,6 +178,32 @@ sequenceDiagram
     Note over Outbox: Holds frames while the socket is busy.
 ```
 
+### 3.4 Actor state management
+
+The connection actor polls four sources: a shutdown token, high and low priority
+push channels, and an optional response stream. Earlier drafts tracked a boolean
+for each source, leading to verbose state updates. The actor now stores each
+receiver as an `Option` and counts how many sources have closed.
+
+```rust
+enum RunState {
+    Active,
+    ShuttingDown,
+    Finished,
+}
+
+struct ActorState {
+    run_state: RunState,
+    closed_sources: u8,
+    total_sources: u8,
+}
+```
+
+`total_sources` is calculated when the actor starts. Whenever a receiver returns
+`None` it is set to `None` and `closed_sources` increments. When
+`closed_sources == total_sources` the loop exits. This consolidation clarifies
+progress through the actor lifecycle and reduces manual flag management.
+
 ## 4. Public API Surface
 
 The public API is designed for ergonomics, safety, and extensibility.
