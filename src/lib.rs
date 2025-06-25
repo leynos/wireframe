@@ -13,5 +13,8 @@ pub mod message;
 pub mod middleware;
 pub mod preamble;
 pub mod push;
+pub mod response;
 pub mod rewind_stream;
 pub mod server;
+
+pub use response::{FrameStream, Response, WireframeError};
