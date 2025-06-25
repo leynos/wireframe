@@ -9,10 +9,10 @@ breaking the project down into four distinct phases, each with a set of
 well-defined tasks. The dependencies between tasks are explicitly noted to
 ensure a logical and stable development progression.
 
-As of this roadmap's publication, only the push queue utilities exist in
-`src/push.rs`. No connection actor or write loop has been implemented. Phase 1
-therefore begins by introducing the connection actor with its biased `select!`
-loop and integrating the push queues.
+At the time of writing, the push queue utilities and the connection actor with
+its biased `select!` write loop are implemented. The first phase therefore
+focuses on integrating the remaining foundational pieces, preparing the API for
+public consumption.
 
 ## Phase 1: Foundational Mechanics
 
@@ -26,6 +26,7 @@ all public-facing features will be built.*
 | 1.4 | Initial FragmentStrategy Trait | Define the initial `FragmentStrategy` trait and the `FragmentMeta` struct. Focus on the core methods: `decode_header` and `encode_header`.                                                                               | Medium | -    |
 | 1.5 | Basic FragmentAdapter          | Implement the `FragmentAdapter` as a `FrameProcessor`. Build the inbound reassembly logic for a single, non-multiplexed stream of fragments and the outbound logic for splitting a single large frame.                   | Large  | #1.4 |
 | 1.6 | Internal Hook Plumbing         | Add the invocation points for the protocol-specific hooks (`before_send`, `on_command_end`, etc.) within the connection actor, even if the public trait is not yet defined.                                              | Small  | #1.3 |
+
 ## Phase 2: Public APIs & Developer Ergonomics
 
 *Focus: Exposing the new functionality to developers through a clean, ergonomic,
@@ -38,6 +39,7 @@ and intuitive.*
 | 2.4 | async-stream Integration & Docs   | Remove the proposed `FrameSink` from the design. Update the `Response::Stream` handling and write documentation recommending `async-stream` as the canonical way to create streams imperatively.                | Small  | #1.1             |
 | 2.5 | Initial Test Suite                | Write unit and integration tests for the new public APIs. Verify that `Response::Vec` and `Response::Stream` work, and that `PushHandle` can successfully send frames that are received by a client.            | Large  | #2.1, #2.3, #2.4 |
 | 2.6 | Basic Fragmentation Example       | Implement a simple `FragmentStrategy` (e.g. `LenFlag32K`) and an example showing the `FragmentAdapter` in use. This validates the adapter's basic functionality.                                                | Medium | #1.5, #2.5       |
+
 ## Phase 3: Production Hardening & Resilience
 
 *Focus: Adding the critical features required for robust, secure, and reliable

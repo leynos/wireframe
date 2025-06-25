@@ -7,6 +7,7 @@
 pub mod app;
 pub mod serializer;
 pub use serializer::{BincodeSerializer, Serializer};
+pub mod connection;
 pub mod extractor;
 pub mod frame;
 pub mod message;
@@ -17,4 +18,5 @@ pub mod response;
 pub mod rewind_stream;
 pub mod server;
 
+pub use connection::ConnectionActor;
 pub use response::{FrameStream, Response, WireframeError};

@@ -35,11 +35,11 @@ async fn try_push_respects_policy() {
 async fn push_queues_error_on_closed() {
     let (queues, handle) = PushQueues::bounded(1, 1);
 
-    drop(queues.high_priority_rx);
+    let mut queues = queues;
+    queues.close();
     let res = handle.push_high_priority(42u8).await;
     assert!(matches!(res, Err(PushError::Closed)));
 
-    drop(queues.low_priority_rx);
     let res = handle.push_low_priority(24u8).await;
     assert!(matches!(res, Err(PushError::Closed)));
 }

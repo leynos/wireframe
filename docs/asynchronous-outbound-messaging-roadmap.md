@@ -10,7 +10,7 @@ design documents.
   channels. See [Design §3.1][design-queues].
 - [x] **Unified `Response<F, E>` and `WireframeError<E>` types** to capture
   protocol errors and transport failures ([Roadmap #1.1][roadmap-1-1]).
-- [ ] **Connection actor** with a biased `select!` loop that polls for shutdown,
+- [x] **Connection actor** with a biased `select!` loop that polls for shutdown,
   high/low queues and response streams as described in
   [Design §3.2][design-write-loop].
 - [ ] **Internal protocol hooks** `before_send` and `on_command_end` invoked
