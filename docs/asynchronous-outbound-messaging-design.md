@@ -143,15 +143,24 @@ checks `low_priority_push_rx.try_recv()` and, if a frame is present, processes
 it and resets the counter.
 
 An optional time slice (for example 100 µs) can also be configured. When the
-elapsed time handling high-priority frames exceeds this slice and the low queue
-is not empty, the actor yields to a low-priority frame. Application builders
-expose `with_fairness(usize)` to set the threshold, defaulting to 16. Setting it
-to zero preserves the original strict ordering.
+elapsed time spent handling high-priority frames exceeds this slice, and the low
+queue is not empty, the actor yields to a low-priority frame. Application
+builders expose `with_fairness(usize)` to set the threshold, defaulting to 16.
+An additional `with_fairness_time_slice(Duration)` method allows tuning of the
+time-based yield. Setting the counter to zero preserves the original strict
+ordering.
 
 This fairness mechanism ensures low-priority traffic continues to progress even
 under sustained high-priority load.
 
+<!-- markdownlint-disable MD033 -->
+
 The flow diagram below summarises the fairness logic.
+
+<description>The diagram shows how the actor yields to the low-priority queue
+after N high-priority frames.</description>
+
+<!-- markdownlint-enable MD033 -->
 
 ```mermaid
 flowchart TD
