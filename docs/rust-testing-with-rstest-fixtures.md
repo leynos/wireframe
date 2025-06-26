@@ -62,7 +62,7 @@ developer experience for writing tests, the underlying macro expansion involves
 compile-time code generation. This complexity, though hidden, can have
 implications for build times, particularly in large test suites.7 Furthermore,
 understanding the macro expansion can sometimes be necessary for debugging
-complex test scenarios or unexpected behavior.8
+complex test scenarios or unexpected behaviour.8
 
 ### C. Core Benefits: Readability, Reusability, Reduced Boilerplate
 
@@ -284,12 +284,12 @@ Here are a few examples illustrating different kinds of fixtures:
   This example, adapted from concepts in 1 and 1, demonstrates a fixture
   providing a mutable `Repository` implementation.
 
-### B. Understanding Fixture Scope and Lifetime (Default Behavior)
+### B. Understanding Fixture Scope and Lifetime (Default Behaviour)
 
 By default, `rstest` calls a fixture function anew for each test that uses it.
 This means if five different tests inject the same fixture, the fixture function
 will be executed five times, and each test will receive a fresh, independent
-instance of the fixture's result. This behavior is crucial for test isolation.
+instance of the fixture's result. This behaviour is crucial for test isolation.
 The `rstest` macro effectively desugars a test like `fn the_test(injected: i32)`
 into something conceptually similar to
 `#[test] fn the_test() { let injected = injected_fixture_func(); /*... */ }`
@@ -297,7 +297,7 @@ within the test body, implying a new call each time.13
 
 Test isolation prevents the state from one test from inadvertently affecting
 another. If fixtures were shared by default, a mutation to a fixture's state in
-one test could lead to unpredictable behavior or failures in subsequent tests
+one test could lead to unpredictable behaviour or failures in subsequent tests
 that use the same fixture. Such dependencies would make tests order-dependent
 and significantly harder to debug. By providing a fresh instance for each test
 (unless explicitly specified otherwise using `#[once]`), `rstest` upholds this
@@ -534,7 +534,7 @@ When using `#[once]`, there are critical caveats 12:
    and cannot be generic functions (neither with generic type parameters nor
    using `impl Trait` in arguments or return types).
 
-The "never dropped" behavior arises because `rstest` typically creates a
+The "never dropped" behaviour arises because `rstest` typically creates a
 `static` variable to hold the result of the `#[once]` fixture. `static`
 variables in Rust live for the entire duration of the program, and their `Drop`
 implementations are not usually called at program exit. This is a crucial
@@ -782,7 +782,7 @@ async fn test_with_future_awt_arg(
     // Need to explicitly await base_value_async if it's not covered by a function-level #[awt]
     // However, if base_value_async is a simple fixture (not a case) and the test is async,
     // rstest might await it automatically when #[awt] is not used.
-    // The precise behavior of auto-awaiting non-case futures without #[awt] should be verified.
+    // The precise behaviour of auto-awaiting non-case futures without #[awt] should be verified.
     // For clarity, using #[awt] or explicit.await is recommended.
     // Assuming base_value_async needs explicit await here if no function-level #[awt]:
     // assert_eq!(base_value_async.await / divisor_async, 6);
@@ -983,7 +983,7 @@ verbose, involving defining expectations, return values, and call counts) from
 the actual test function. Tests then simply request the configured mock as an
 argument. If different tests require the mock to behave differently, multiple
 specialized mock fixtures can be created, or fixture arguments combined with
-`#[with(...)]` can be used to dynamically configure the mock's behavior within
+`#[with(...)]` can be used to dynamically configure the mock's behaviour within
 the fixture itself. This makes tests that depend on external services more
 readable and maintainable.
 
@@ -1109,7 +1109,7 @@ for maintainability and scalability.
     integration tests.
 - **Naming Conventions:** Use clear, descriptive names for fixtures that
   indicate what they provide or set up. Test function names should clearly state
-  what behavior they are verifying.
+  what behaviour they are verifying.
 - **Fixture Responsibility:** Aim for fixtures with a single, well-defined
   responsibility. Complex setups can be achieved by composing smaller, focused
   fixtures.12

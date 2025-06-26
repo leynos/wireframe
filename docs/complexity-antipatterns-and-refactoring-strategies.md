@@ -455,7 +455,7 @@ together.
 CQRS promotes a clear separation that can prevent the kind of tangled logic that
 forms Bumpy Roads. By isolating write operations (commands) from read operations
 (queries), and by encouraging task-based commands, the system naturally tends
-towards smaller, more cohesive units of behavior, thus reducing overall
+towards smaller, more cohesive units of behaviour, thus reducing overall
 cognitive complexity within individual components.18 The separation allows for
 independent optimization and scaling of read and write sides, but more
 importantly for this discussion, it enforces a structural discipline that
@@ -478,7 +478,7 @@ original spaghetti.24
    ensure that the extracted code is functionally cohesive. Elements within a
    module (function or class) should be closely related and work together to
    achieve a single, well-defined purpose. Don't break down code arbitrarily
-   based on length alone; base it on behavior and meaningful abstractions.10
+   based on length alone; base it on behaviour and meaningful abstractions.10
 
 2. **Balance Abstraction Levels:** Abstraction is about hiding unnecessary
    details and exposing essential features.27
@@ -524,7 +524,7 @@ original spaghetti.24
    that the interactions and dependencies between components are clear and easy
    to follow. Sometimes, a slightly larger, more cohesive component is
    preferable to many tiny ones if it improves the clarity of the overall system
-   behavior.
+   behaviour.
 
 The goal is not to have the fewest classes or methods, but to have a structure
 where each component is easy to understand in isolation, and the interactions
@@ -651,7 +651,7 @@ complexity or could introduce its own.41
 
 3\. Employing Dispatcher and Command Patterns
 
-For managing complex conditional logic that selects different behaviors (often
+For managing complex conditional logic that selects different behaviours (often
 found in Bumpy Roads or large switch statements), the Command and Dispatcher
 patterns offer a structured and extensible alternative.
 
@@ -739,10 +739,10 @@ remains clear and that the proliferation of small classes doesn't lead to
 Ravioli Code, where the overall system flow becomes obscured.24 Clear naming
 conventions and logical organization are vital.42
 
-The **State pattern** is a related behavioral pattern useful when an object's
-behavior changes depending on its internal state.45 Instead of using large
+The **State pattern** is a related behavioural pattern useful when an object's
+behaviour changes depending on its internal state.45 Instead of using large
 conditionals based on state variables, each state is encapsulated in its own
-object. The context object delegates behavior to its current state object.
+object. The context object delegates behaviour to its current state object.
 Transitions involve changing the context's state object. This is particularly
 effective for refactoring state machines implemented with complex
 
