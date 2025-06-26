@@ -1,3 +1,7 @@
+//! Tests ensuring middleware registration order is reversed during execution.
+//!
+//! Verifies tags are applied in reverse to request and response bodies.
+
 use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};

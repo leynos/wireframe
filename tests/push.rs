@@ -1,3 +1,7 @@
+//! Tests for push queue routing and limits.
+//!
+//! They cover priority ordering, policy behaviour, and closed queue errors.
+
 use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
 
 #[tokio::test]

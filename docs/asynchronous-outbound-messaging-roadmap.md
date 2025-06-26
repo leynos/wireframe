@@ -15,7 +15,7 @@ design documents.
   [Design §3.2][design-write-loop].
 - [ ] **Run state consolidation** using `Option` receivers and a closed source
   counter ([Design §3.4][design-actor-state]).
-- [ ] **Internal protocol hooks** `before_send` and `on_command_end` invoked
+- [X] **Internal protocol hooks** `before_send` and `on_command_end` invoked
   from the actor ([Design §4.3][design-hooks]).
 
 ## 2. Public API and Ergonomics

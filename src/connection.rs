@@ -9,6 +9,7 @@ use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    hooks::ProtocolHooks,
     push::{FrameLike, PushQueues},
     response::{FrameStream, WireframeError},
 };
@@ -18,6 +19,7 @@ pub struct ConnectionActor<F, E> {
     queues: PushQueues<F>,
     response: Option<FrameStream<F, E>>, // current streaming response
     shutdown: CancellationToken,
+    hooks: ProtocolHooks<F>,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -31,10 +33,22 @@ where
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
     ) -> Self {
+        Self::with_hooks(queues, response, shutdown, ProtocolHooks::default())
+    }
+
+    /// Create a new `ConnectionActor` with custom protocol hooks.
+    #[must_use]
+    pub fn with_hooks(
+        queues: PushQueues<F>,
+        response: Option<FrameStream<F, E>>,
+        shutdown: CancellationToken,
+        hooks: ProtocolHooks<F>,
+    ) -> Self {
         Self {
             queues,
             response,
             shutdown,
+            hooks,
         }
     }
 
@@ -90,11 +104,11 @@ where
             }
 
             res = self.queues.high_priority_rx.recv(), if !state.push.high => {
-                Self::handle_push(res, &mut state.push.high, out);
+                self.handle_push(res, &mut state.push.high, out);
             }
 
             res = self.queues.low_priority_rx.recv(), if !state.push.low => {
-                Self::handle_push(res, &mut state.push.low, out);
+                self.handle_push(res, &mut state.push.low, out);
             }
 
             res = async {
@@ -104,7 +118,7 @@ where
                     None
                 }
             }, if !state.shutting_down && !state.resp_closed => {
-                Self::handle_response(res, &mut state.resp_closed, out)?;
+                self.handle_response(res, &mut state.resp_closed, out)?;
             }
         }
 
@@ -120,22 +134,32 @@ where
         *resp_closed = true;
     }
 
-    fn handle_push(res: Option<F>, closed: &mut bool, out: &mut Vec<F>) {
+    fn handle_push(&mut self, res: Option<F>, closed: &mut bool, out: &mut Vec<F>) {
         match res {
-            Some(frame) => out.push(frame),
+            Some(mut frame) => {
+                self.hooks.before_send(&mut frame);
+                out.push(frame);
+            }
             None => *closed = true,
         }
     }
 
     fn handle_response(
+        &mut self,
         res: Option<Result<F, WireframeError<E>>>,
         closed: &mut bool,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
         match res {
-            Some(Ok(frame)) => out.push(frame),
+            Some(Ok(mut frame)) => {
+                self.hooks.before_send(&mut frame);
+                out.push(frame);
+            }
             Some(Err(e)) => return Err(e),
-            None => *closed = true,
+            None => {
+                *closed = true;
+                self.hooks.on_command_end();
+            }
         }
 
         Ok(())
