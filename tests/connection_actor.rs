@@ -50,7 +50,8 @@ async fn shutdown_signal_precedence(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
 ) {
-    let (queues, _handle) = queues;
+    let (queues, handle) = queues;
+    drop(handle);
     shutdown_token.cancel();
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, shutdown_token);
     let mut out = Vec::new();
@@ -87,7 +88,8 @@ async fn error_propagation_from_stream(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
 ) {
-    let (queues, _handle) = queues;
+    let (queues, handle) = queues;
+    drop(handle);
     let stream = stream::iter(vec![
         Ok(1u8),
         Ok(2u8),
@@ -110,7 +112,8 @@ async fn interleaved_shutdown_during_stream(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
 ) {
-    let (queues, _handle) = queues;
+    let (queues, handle) = queues;
+    drop(handle);
     let token = shutdown_token.clone();
     tokio::spawn(async move {
         sleep(Duration::from_millis(50)).await;
@@ -143,4 +146,60 @@ async fn push_queue_exhaustion_backpressure() {
 
     // clean up without exposing internal fields
     queues.close();
+}
+
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use wireframe::ProtocolHooks;
+
+#[rstest]
+#[tokio::test]
+async fn before_send_hook_modifies_frames(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    handle.push_high_priority(1).await.unwrap();
+    drop(handle);
+
+    let stream = stream::iter(vec![Ok(2u8)]);
+    let hooks = ProtocolHooks {
+        before_send: Some(Box::new(|f: &mut u8| *f += 1)),
+        ..ProtocolHooks::default()
+    };
+
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::with_hooks(queues, Some(Box::pin(stream)), shutdown_token, hooks);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    assert_eq!(out, vec![2, 3]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn on_command_end_hook_runs(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    drop(handle);
+    let stream = stream::iter(vec![Ok(1u8)]);
+
+    let counter = Arc::new(AtomicUsize::new(0));
+    let c = counter.clone();
+    let hooks = ProtocolHooks {
+        on_command_end: Some(Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        })),
+        ..ProtocolHooks::default()
+    };
+
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::with_hooks(queues, Some(Box::pin(stream)), shutdown_token, hooks);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
