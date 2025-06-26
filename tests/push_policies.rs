@@ -4,8 +4,10 @@ use std::sync::{Mutex, OnceLock};
 
 use logtest::Logger;
 use rstest::{fixture, rstest};
-use tokio::runtime::Runtime;
-use tokio::time::{timeout, Duration};
+use tokio::{
+    runtime::Runtime,
+    time::{Duration, timeout},
+};
 use wireframe::push::{PushPolicy, PushPriority, PushQueues};
 
 /// Handle to the global logger with exclusive access.
@@ -20,7 +22,7 @@ impl LoggerHandle {
         let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
         let guard = logger
             .lock()
-            .expect("failed to acquire global logger lock when starting capture");
+            .expect("failed to acquire global logger lock; a previous test may still hold it");
 
         Self { guard }
     }
