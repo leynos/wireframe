@@ -13,7 +13,7 @@ design documents.
 - [x] **Connection actor** with a biased `select!` loop that polls for shutdown,
   high/low queues and response streams as described in
   [Design §3.2][design-write-loop].
-- [ ] **Internal protocol hooks** `before_send` and `on_command_end` invoked
+- [x] **Internal protocol hooks** `before_send` and `on_command_end` invoked
   from the actor ([Design §4.3][design-hooks]).
 
 ## 2. Public API and Ergonomics
