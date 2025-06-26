@@ -133,6 +133,54 @@ loop {
 }
 ```
 
+#### 3.2.1 Fairness for low-priority frames
+
+Continuous bursts of urgent messages can prevent the low-priority queue from
+ever being drained. To mitigate this without removing the deterministic bias,
+each `ConnectionActor` tracks how many high-priority frames have been processed
+in a row. After a configurable threshold (`max_high_before_low`), the actor
+checks `low_priority_push_rx.try_recv()` and, if a frame is present, processes
+it and resets the counter.
+
+An optional time slice (for example 100 µs) can also be configured. When the
+elapsed time spent handling high-priority frames exceeds this slice, and the low
+queue is not empty, the actor yields to a low-priority frame. Application
+builders expose `with_fairness(FairnessConfig)` where `FairnessConfig` groups
+the counter threshold and an optional `time_slice`. The counter defaults to 16
+while `time_slice` is disabled. Setting the counter to zero preserves the
+original strict ordering.
+
+This fairness mechanism ensures low-priority traffic continues to progress even
+under sustained high-priority load.
+
+<!-- markdownlint-disable MD033 -->
+
+The flow diagram below summarises the fairness logic.
+
+<description>The diagram shows how the actor yields to the low-priority queue
+after N high-priority frames.</description>
+
+<!-- markdownlint-enable MD033 -->
+
+```mermaid
+flowchart TD
+    A[Start select! loop] --> B{High-priority frame available?}
+    B -- Yes --> C[Process high-priority frame]
+    C --> D[Increment high_priority_counter]
+    D --> E{high_priority_counter >= max_high_before_low?}
+    E -- Yes --> F{Low-priority frame available?}
+    F -- Yes --> G[Process low-priority frame]
+    G --> H[Reset high_priority_counter]
+    F -- No --> I[Continue]
+    E -- No --> I
+    B -- No --> J{Low-priority frame available?}
+    J -- Yes --> K[Process low-priority frame]
+    J -- No --> I
+    I --> A
+    H --> A
+    K --> A
+```
+
 ### 3.3 Connection Actor Overview
 
 ```mermaid

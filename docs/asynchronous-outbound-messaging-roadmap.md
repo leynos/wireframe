@@ -13,6 +13,8 @@ design documents.
 - [x] **Connection actor** with a biased `select!` loop that polls for shutdown,
   high/low queues and response streams as described in
   [Design §3.2][design-write-loop].
+- [ ] **Fairness counter** to yield to the low-priority queue after bursts of
+  high-priority frames ([Design §3.2.1][design-fairness]).
 - [ ] **Run state consolidation** using `Option` receivers and a closed source
   counter ([Design §3.4][design-actor-state]).
 - [X] **Internal protocol hooks** `before_send` and `on_command_end` invoked
@@ -57,6 +59,7 @@ design documents.
 [design-actor-state]: asynchronous-outbound-messaging-design.md#34-actor-state-management
 [design-dlq]: asynchronous-outbound-messaging-design.md#52-optional-dead-letter-queue-dlq-for-critical-messages
 [design-errors]: asynchronous-outbound-messaging-design.md#5-error-handling--resilience
+[design-fairness]: asynchronous-outbound-messaging-design.md#321-fairness-for-low-priority-frames
 [design-hooks]: asynchronous-outbound-messaging-design.md#43-configuration-via-the-wireframeprotocol-trait
 [design-push-handle]: asynchronous-outbound-messaging-design.md#41-the-pushhandle
 [design-queues]: asynchronous-outbound-messaging-design.md#31-prioritised-message-queues

@@ -413,7 +413,9 @@ inputs.
 pushes, low-priority pushes, and multi-frame `Response::Stream`s for a single
 connection. The test asserts that the final output stream respects the strict
 priority order (`shutdown > high > low > stream`) and that no frames are ever
-lost or reordered within their own channel.
+lost or reordered within their own channel. When the fairness counter is
+configured, sequences containing continuous high-priority pushes must still
+observe periodic low-priority frames.
 
 **Measurable Objective:** The test suite must pass **1,000,000 generated test
 cases**, verifying frame ordering and completeness on every run.
