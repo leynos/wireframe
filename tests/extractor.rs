@@ -1,3 +1,7 @@
+//! Tests for message request extractors.
+//!
+//! Validate message parsing, connection info, and shared state behaviour.
+
 use std::{collections::HashMap, net::SocketAddr};
 
 use wireframe::{
