@@ -7,7 +7,7 @@
 //! # Examples
 //!
 //! ```
-//! use futures::stream;
+//! use futures::{StreamExt, stream};
 //! use wireframe::Response;
 //!
 //! # type Frame = u8;
@@ -21,8 +21,12 @@
 //! let multiple: Response<Frame, Error> = Response::Vec(vec![make_frame(1), make_frame(2)]);
 //!
 //! // A streamed series of frames
-//! let frames = stream::iter(vec![Ok(make_frame(1)), Ok(make_frame(2))]);
+//! let frames = stream::iter(vec![Ok(make_frame(1)), Ok(make_frame(2))])
+//!     .map(|r: Result<Frame, Error>| r.map_err(wireframe::WireframeError::from));
 //! let streamed: Response<Frame, Error> = Response::Stream(Box::pin(frames));
+//!
+//! // No-content response
+//! let empty: Response<Frame, Error> = Response::Empty;
 //! ```
 
 use std::pin::Pin;
