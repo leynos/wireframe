@@ -456,10 +456,10 @@ CQRS promotes a clear separation that can prevent the kind of tangled logic that
 forms Bumpy Roads. By isolating write operations (commands) from read operations
 (queries), and by encouraging task-based commands, the system naturally tends
 towards smaller, more cohesive units of behaviour, thus reducing overall
-cognitive complexity within individual components.18 The separation allows for
+cognitive complexity within individual components. The separation allows for
 independent optimization and scaling of read and write sides, but more
 importantly for this discussion, it enforces a structural discipline that
-discourages methods from accumulating diverse responsibilities.18
+discourages methods from accumulating diverse responsibilities.
 
 ### B. Avoiding Spaghetti Code Turning into Ravioli Code
 
@@ -478,7 +478,7 @@ original spaghetti.24
    ensure that the extracted code is functionally cohesive. Elements within a
    module (function or class) should be closely related and work together to
    achieve a single, well-defined purpose. Don't break down code arbitrarily
-   based on length alone; base it on behaviour and meaningful abstractions.10
+   based on length alone; base it on behaviour and meaningful abstractions.
 
 2. **Balance Abstraction Levels:** Abstraction is about hiding unnecessary
    details and exposing essential features.27
