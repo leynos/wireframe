@@ -4,6 +4,8 @@ use std::sync::{Mutex, OnceLock};
 
 use logtest::Logger;
 use rstest::{fixture, rstest};
+use tokio::runtime::Runtime;
+use tokio::time::{timeout, Duration};
 use wireframe::push::{PushPolicy, PushPriority, PushQueues};
 
 /// Handle to the global logger with exclusive access.
@@ -16,10 +18,9 @@ impl LoggerHandle {
         static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
 
         let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
-        let mut guard = logger
+        let guard = logger
             .lock()
             .expect("failed to acquire global logger lock when starting capture");
-        while guard.pop().is_some() {}
 
         Self { guard }
     }
@@ -39,35 +40,54 @@ impl std::ops::DerefMut for LoggerHandle {
 #[fixture]
 fn logger() -> LoggerHandle { LoggerHandle::new() }
 
-#[rstest]
-#[tokio::test]
-async fn drop_if_full_discards_frame(mut logger: LoggerHandle) {
-    let (mut queues, handle) = PushQueues::bounded(1, 1);
-    handle.push_high_priority(1u8).await.unwrap();
-    handle
-        .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-        .unwrap();
-    let (_, val) = queues.recv().await.unwrap();
-    assert_eq!(val, 1);
-    assert!(queues.high_priority_rx.try_recv().is_err());
-
-    assert!(logger.pop().is_none());
+#[allow(unused_braces)]
+#[fixture]
+fn rt() -> Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build test runtime")
 }
 
 #[rstest]
-#[tokio::test]
-async fn warn_and_drop_if_full_logs_warning(mut logger: LoggerHandle) {
-    let (mut queues, handle) = PushQueues::bounded(1, 1);
-    handle.push_low_priority(3u8).await.unwrap();
-    handle
-        .try_push(4u8, PushPriority::Low, PushPolicy::WarnAndDropIfFull)
-        .unwrap();
-    let (_, val) = queues.recv().await.unwrap();
-    assert_eq!(val, 3);
-    assert!(queues.low_priority_rx.try_recv().is_err());
+fn drop_if_full_discards_frame(rt: Runtime, mut logger: LoggerHandle) {
+    rt.block_on(async {
+        let (mut queues, handle) = PushQueues::bounded(1, 1);
+        handle.push_high_priority(1u8).await.unwrap();
+        handle
+            .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
+            .unwrap();
+        let (_, val) = queues.recv().await.unwrap();
+        assert_eq!(val, 1);
+        assert!(
+            timeout(Duration::from_millis(20), queues.recv())
+                .await
+                .is_err()
+        );
 
-    let record = logger.pop().expect("expected warning");
-    assert_eq!(record.level(), log::Level::Warn);
-    assert!(record.args().contains("push queue full"));
-    assert!(logger.pop().is_none());
+        assert!(logger.pop().is_none());
+    });
+}
+
+#[rstest]
+fn warn_and_drop_if_full_logs_warning(rt: Runtime, mut logger: LoggerHandle) {
+    rt.block_on(async {
+        let (mut queues, handle) = PushQueues::bounded(1, 1);
+        handle.push_low_priority(3u8).await.unwrap();
+        handle
+            .try_push(4u8, PushPriority::Low, PushPolicy::WarnAndDropIfFull)
+            .unwrap();
+        let (_, val) = queues.recv().await.unwrap();
+        assert_eq!(val, 3);
+        assert!(
+            timeout(Duration::from_millis(20), queues.recv())
+                .await
+                .is_err()
+        );
+
+        let record = logger.pop().expect("expected warning");
+        assert_eq!(record.level(), log::Level::Warn);
+        assert!(record.args().contains("push queue full"));
+        assert!(logger.pop().is_none());
+    });
 }
