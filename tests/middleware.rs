@@ -1,3 +1,7 @@
+//! Tests for middleware transformations.
+//!
+//! Confirm that a custom middleware can modify requests and responses.
+
 use async_trait::async_trait;
 use wireframe::middleware::{Next, Service, ServiceRequest, ServiceResponse, Transform};
 

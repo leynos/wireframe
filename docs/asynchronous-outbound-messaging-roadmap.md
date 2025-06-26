@@ -15,7 +15,9 @@ design documents.
   [Design §3.2][design-write-loop].
 - [ ] **Fairness counter** to yield to the low-priority queue after bursts of
   high-priority frames ([Design §3.2.1][design-fairness]).
-- [ ] **Internal protocol hooks** `before_send` and `on_command_end` invoked
+- [ ] **Run state consolidation** using `Option` receivers and a closed source
+  counter ([Design §3.4][design-actor-state]).
+- [X] **Internal protocol hooks** `before_send` and `on_command_end` invoked
   from the actor ([Design §4.3][design-hooks]).
 
 ## 2. Public API and Ergonomics
@@ -54,6 +56,7 @@ design documents.
 - [ ] **User guides and examples** demonstrating server-initiated messaging
   ([Design §7][design-use-cases]).
 
+[design-actor-state]: asynchronous-outbound-messaging-design.md#34-actor-state-management
 [design-dlq]: asynchronous-outbound-messaging-design.md#52-optional-dead-letter-queue-dlq-for-critical-messages
 [design-errors]: asynchronous-outbound-messaging-design.md#5-error-handling--resilience
 [design-fairness]: asynchronous-outbound-messaging-design.md#321-fairness-for-low-priority-frames

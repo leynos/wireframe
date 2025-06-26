@@ -16,6 +16,7 @@ log = "0.4"
 [dev-dependencies]
 rstest = "0.18.2"
 wireframe_testing = { path = "./wireframe_testing" }
+logtest = "^2.0"
 
 [lints.clippy]
 pedantic = "warn"

@@ -1,3 +1,7 @@
+//! Tests for frame metadata parsing using custom serializers.
+//!
+//! They ensure parse callbacks run before deserialization and errors fall back correctly.
+
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},

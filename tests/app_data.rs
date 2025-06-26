@@ -1,3 +1,7 @@
+//! Tests for extracting shared state from message requests.
+//!
+//! They verify successful extraction and error handling when state is missing.
+
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use wireframe::extractor::{

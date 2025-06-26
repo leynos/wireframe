@@ -1237,7 +1237,31 @@ proper initialization. `rstest-log` likely provides attributes or wrappers to
 ensure that logging is correctly set up before each `rstest`-generated test case
 runs, making it easier to get consistent log output from tests.
 
-### B. `test-with`: Conditional Testing with `rstest`
+### B. `logtest`: Verifying Log Output
+
+`logtest` provides a lightweight logger that records emitted log records during
+tests. This makes it trivial to assert on log messages without interfering with
+other tests. Add it under `[dev-dependencies]` using an explicit version range:
+
+```toml
+[dev-dependencies]
+logtest = "^2.0"
+```
+
+Start a `Logger` before running the code under test:
+
+```rust
+use logtest::Logger;
+
+let mut logger = Logger::start();
+my_async_fn().await;
+assert!(logger.pop().is_some());
+```
+
+This crate complements `rstest` nicely when verifying that warnings or errors
+are logged under specific conditions.
+
+### C. `test-with`: Conditional Testing with `rstest`
 
 The `test-with` crate allows for conditional execution of tests based on various
 runtime conditions, such as the presence of environment variables, the existence
