@@ -281,10 +281,10 @@ Here are a few examples illustrating different kinds of fixtures:
 
   ```
 
-  This example, adapted from concepts in 1 and 1, demonstrates a fixture
-  providing a mutable `Repository` implementation.
+This example demonstrates a fixture providing a mutable `Repository`
+implementation.
 
-### B. Understanding Fixture Scope and Lifetime (Default Behaviour)
+### B. Understanding fixture scope and lifetime (default behaviour)
 
 By default, `rstest` calls a fixture function anew for each test that uses it.
 This means if five different tests inject the same fixture, the fixture function
@@ -319,7 +319,7 @@ defines a specific scenario with a distinct set of input arguments for the test
 function. Arguments within the test function that are intended to receive these
 values must also be annotated with `#[case]`.
 
-A classic example is testing the Fibonacci sequence 1:
+A classic example is testing the Fibonacci sequence:
 
 ```rust
 use rstest::rstest;
@@ -521,7 +521,7 @@ fn test_once_2(expensive_setup: &'static AtomicUsize) {
 }
 ```
 
-When using `#[once]`, there are critical caveats 12:
+When using `#[once]`, there are critical caveats:
 
 1. **Resource Lifetime:** The value returned by an `#[once]` fixture is
    effectively promoted to a `static` lifetime and is **never dropped**. This
@@ -619,7 +619,7 @@ fn test_admin_user(#[with("AdminUser", 42, "Admin")] user_fixture: User) {
 }
 
 // Example of overriding only specific arguments (syntax may vary based on rstest version for named overrides)
-// The provided snippets (e.g., [12] `#[with(3)] second: i32`) suggest positional overrides.
+// The provided snippets (e.g., `#[with(3)] second: i32`) suggest positional overrides.
 // For named overrides, one might need to define intermediate fixtures or check specific rstest version capabilities.
 // Assuming positional override for the first argument (name):
 #[rstest]
@@ -728,12 +728,12 @@ async fn my_async_test(async_fixture_value: u32) {
 
 The order of procedural macro attributes can sometimes matter. While `rstest`
 documentation and examples show flexibility (e.g., `#[rstest]` then
-`#[tokio::test]` 4, or vice versa), users should ensure their chosen async
+`#[tokio::test]`, or vice versa), users should ensure their chosen async
 runtime's test macro is correctly placed to provide the necessary execution
 context for the async test body and any async fixtures. `rstest` itself does not
 bundle a runtime; it integrates with existing ones. The "Inject Test Attribute"
-feature mentioned in `rstest` documentation 10 may offer more explicit control
-over which test runner attribute is applied.
+feature mentioned in `rstest` documentation may offer more explicit control over
+which test runner attribute is applied.
 
 ### C. Managing Futures: `#[future]` and `#[awt]` Attributes
 
@@ -787,7 +787,7 @@ async fn test_with_future_awt_arg(
     // Assuming base_value_async needs explicit await here if no function-level #[awt]:
     // assert_eq!(base_value_async.await / divisor_async, 6);
     // If base_value_async fixture is also awaited by rstest implicitly:
-    assert_eq!(base_value_async / divisor_async, 6); // [4] example suggests this works
+    assert_eq!(base_value_async / divisor_async, 6); // Example suggests this works
 }
 ```
 
@@ -1054,7 +1054,7 @@ definition of reusable test templates.
 // Add to Cargo.toml: rstest_reuse = "0.7" (or latest)
 // In your test module or lib.rs/main.rs for crate-wide visibility if needed:
 // #[cfg(test)]
-// use rstest_reuse; // Important for template macro expansion [18]
+// use rstest_reuse; // Important for template macro expansion
 
 use rstest::rstest;
 use rstest_reuse::{self, template, apply}; // Or use rstest_reuse::*;
@@ -1063,7 +1063,7 @@ use rstest_reuse::{self, template, apply}; // Or use rstest_reuse::*;
 #[template]
 #[rstest]
 #[case(2, 2)]
-#[case(4 / 2, 2)] // Cases can use expressions [13]
+#[case(4 / 2, 2)] // Cases can use expressions
 #[case(6, 3 * 2)]
 fn common_math_cases(#[case] a: i32, #[case] b: i32) {}
 
@@ -1075,7 +1075,7 @@ fn test_addition_is_commutative(#[case] a: i32, #[case] b: i32) {
 
 // Apply the template to another test function, possibly with additional cases
 #[apply(common_math_cases)]
-#[case(10, 5 + 5)] // Composition: add more cases [18]
+#[case(10, 5 + 5)] // Composition: add more cases
 fn test_multiplication_by_one(#[case] a: i32, #[case] b: i32) {
     // This test might not use 'b', but the template provides it.
     assert_eq!(a * 1, a);
@@ -1120,13 +1120,12 @@ for maintainability and scalability.
   proper resource management.
 - **Modularity:** Group related fixtures and tests into modules. This improves
   navigation and understanding of the test suite.
-- **Readability:** Utilize features like `#[from]` for renaming 12 and
-  `#[default]` / `#[with]` for configurable fixtures to enhance the clarity of
-  both fixture definitions and their usage in tests.
+  - **Readability:** Utilize features like `#[from]` for renaming and
+    `#[default]` / `#[with]` for configurable fixtures to enhance the clarity of
+    both fixture definitions and their usage in tests.
 
 General testing advice, such as keeping tests small and focused and mocking
-external dependencies 17, also applies and is well-supported by `rstest`'s
-design.
+external dependencies, also applies and is well-supported by `rstest`'s design.
 
 ## IX. `rstest` in Context: Comparison and Considerations
 

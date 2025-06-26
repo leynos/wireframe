@@ -54,7 +54,7 @@ Thresholds and Implications:
 High Cyclomatic Complexity indicates a more intricate control flow, which
 directly impacts testability and maintainability. More paths mean more test
 cases are required for comprehensive coverage. McCabe proposed the following
-risk categorization based on CC scores 3:
+risk categorization based on CC scores:
 
 - 1-10: Simple procedure, little risk.
 
@@ -157,7 +157,7 @@ sections, each characterized by deep nesting of conditional logic or loops. Each
 responsibility or a separate logical chunk that has not been properly
 encapsulated.
 
-Key characteristics include 6:
+Key characteristics include:
 
 - **Multiple Chunks of Nested Logic:** The function isn't just deeply nested in
   one place, but has several such areas.
@@ -178,7 +178,7 @@ Key characteristics include 6:
   intertwined, leading to complex state management and a higher likelihood of
   defects.
 
-The severity of a Bumpy Road can be assessed by 6:
+The severity of a Bumpy Road can be assessed by:
 
 - The depth of nesting within each bump (deeper is worse).
 
@@ -443,14 +443,14 @@ together.
   modifying state.
 
 - **God Objects and CQRS:** The "God Object" or "God Class" antipattern, where a
-  single class hoards too much logic and responsibility 2, often leads to
-  methods within that class becoming Bumpy Roads. CQRS can help decompose God
-  Objects by separating their command-handling responsibilities from their
-  query-handling responsibilities, potentially leading to smaller, more focused
-  classes (e.g., one class for command processing, another for query processing,
-  or even finer-grained handlers). This separation simplifies each part, making
-  them easier to manage and reducing the cognitive load associated with the
-  original monolithic structure.
+  single class hoards too much logic and responsibility, often leads to methods
+  within that class becoming Bumpy Roads. CQRS can help decompose God Objects by
+  separating their command-handling responsibilities from their query-handling
+  responsibilities, potentially leading to smaller, more focused classes (e.g.,
+  one class for command processing, another for query processing, or even
+  finer-grained handlers). This separation simplifies each part, making them
+  easier to manage and reducing the cognitive load associated with the original
+  monolithic structure.
 
 CQRS promotes a clear separation that can prevent the kind of tangled logic that
 forms Bumpy Roads. By isolating write operations (commands) from read operations
@@ -636,7 +636,7 @@ reduce side effects, which are common culprits for bugs and increased cognitive
 load in imperative code.
 
 Examples include using SQL for database queries (specifying the desired dataset,
-not the retrieval algorithm) 34, or employing functional programming constructs
+not the retrieval algorithm), or employing functional programming constructs
 like
 
 `map`, `filter`, and `reduce` on collections instead of writing explicit loops.
@@ -785,6 +785,6 @@ A proactive and disciplined approach, where these principles and techniques are
 integrated into daily development practices, is essential. This includes regular
 code reviews, monitoring complexity metrics, and fostering a team culture that
 values code quality and continuous improvement. The oft-quoted wisdom, "Good
-programmers write code that humans can understand" 1, remains the guiding
+programmers write code that humans can understand", remains the guiding
 principle. By striving for this ideal, development teams can build systems that
 are not only powerful and efficient but also a pleasure to evolve and maintain.
