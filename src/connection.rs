@@ -105,15 +105,15 @@ where
             }
 
             res = Self::recv_push(&mut self.queues.high_priority_rx), if !state.push.high => {
-                Self::handle_push(res, &mut state.push.high, out);
+                self.handle_push(res, &mut state.push.high, out);
             }
 
             res = Self::recv_push(&mut self.queues.low_priority_rx), if !state.push.low => {
-                Self::handle_push(res, &mut state.push.low, out);
+                self.handle_push(res, &mut state.push.low, out);
             }
 
             res = Self::next_response(&mut self.response), if !state.shutting_down && !state.resp_closed => {
-                Self::handle_response(res, &mut state.resp_closed, out)?;
+                self.handle_response(res, &mut state.resp_closed, out)?;
                 if state.resp_closed {
                     self.response = None;
                 }
@@ -163,12 +163,15 @@ where
         Ok(())
     }
 
+    /// Await cancellation on the provided shutdown token.
     #[inline]
     async fn wait_shutdown(token: CancellationToken) { token.cancelled_owned().await; }
 
+    /// Receive the next frame from a push queue.
     #[inline]
     async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
+    /// Poll the current streaming response for the next frame.
     #[inline]
     async fn next_response(
         stream: &mut Option<FrameStream<F, E>>,
