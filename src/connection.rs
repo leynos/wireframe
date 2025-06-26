@@ -99,7 +99,7 @@ where
         tokio::select! {
             biased;
 
-            () = Self::wait_shutdown(&self.shutdown), if !state.shutting_down => {
+            () = Self::wait_shutdown(self.shutdown.clone()), if !state.shutting_down => {
                 state.shutting_down = true;
                 self.start_shutdown(&mut state.resp_closed);
             }
@@ -114,6 +114,9 @@ where
 
             res = Self::next_response(&mut self.response), if !state.shutting_down && !state.resp_closed => {
                 Self::handle_response(res, &mut state.resp_closed, out)?;
+                if state.resp_closed {
+                    self.response = None;
+                }
             }
         }
 
@@ -160,10 +163,13 @@ where
         Ok(())
     }
 
-    async fn wait_shutdown(token: &CancellationToken) { token.cancelled().await; }
+    #[inline]
+    async fn wait_shutdown(token: CancellationToken) { token.cancelled_owned().await; }
 
+    #[inline]
     async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
+    #[inline]
     async fn next_response(
         stream: &mut Option<FrameStream<F, E>>,
     ) -> Option<Result<F, WireframeError<E>>> {
