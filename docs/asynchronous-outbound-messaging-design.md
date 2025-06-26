@@ -151,6 +151,27 @@ to zero preserves the original strict ordering.
 This fairness mechanism ensures low-priority traffic continues to progress even
 under sustained high-priority load.
 
+The flow diagram below summarises the fairness logic.
+
+```mermaid
+flowchart TD
+    A[Start select! loop] --> B{High-priority frame available?}
+    B -- Yes --> C[Process high-priority frame]
+    C --> D[Increment high_priority_counter]
+    D --> E{high_priority_counter >= max_high_before_low?}
+    E -- Yes --> F{Low-priority frame available?}
+    F -- Yes --> G[Process low-priority frame]
+    G --> H[Reset high_priority_counter]
+    F -- No --> I[Continue]
+    E -- No --> I
+    B -- No --> J{Low-priority frame available?}
+    J -- Yes --> K[Process low-priority frame]
+    J -- No --> I
+    I --> A
+    H --> A
+    K --> A
+```
+
 ### 3.3 Connection Actor Overview
 
 ```mermaid
