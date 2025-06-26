@@ -13,7 +13,9 @@ design documents.
 - [x] **Connection actor** with a biased `select!` loop that polls for shutdown,
   high/low queues and response streams as described in
   [Design §3.2][design-write-loop].
-- [x] **Internal protocol hooks** `before_send` and `on_command_end` invoked
+- [ ] **Run state consolidation** using `Option` receivers and a closed source
+  counter ([Design §3.4][design-actor-state]).
+- [X] **Internal protocol hooks** `before_send` and `on_command_end` invoked
   from the actor ([Design §4.3][design-hooks]).
 
 ## 2. Public API and Ergonomics
@@ -52,6 +54,7 @@ design documents.
 - [ ] **User guides and examples** demonstrating server-initiated messaging
   ([Design §7][design-use-cases]).
 
+[design-actor-state]: asynchronous-outbound-messaging-design.md#34-actor-state-management
 [design-dlq]: asynchronous-outbound-messaging-design.md#52-optional-dead-letter-queue-dlq-for-critical-messages
 [design-errors]: asynchronous-outbound-messaging-design.md#5-error-handling--resilience
 [design-hooks]: asynchronous-outbound-messaging-design.md#43-configuration-via-the-wireframeprotocol-trait
