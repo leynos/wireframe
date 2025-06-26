@@ -3,6 +3,27 @@
 //! `Response` lets handlers return single frames, multiple frames or a
 //! stream of frames. `WireframeError` distinguishes transport errors from
 //! protocol errors when streaming.
+//!
+//! # Examples
+//!
+//! ```
+//! use futures::stream;
+//! use wireframe::Response;
+//!
+//! # type Frame = u8;
+//! # type Error = ();
+//! # fn make_frame(n: u8) -> Frame { n }
+//!
+//! // A single frame response
+//! let single: Response<Frame, Error> = Response::Single(make_frame(1));
+//!
+//! // A vector of pre-built frames
+//! let multiple: Response<Frame, Error> = Response::Vec(vec![make_frame(1), make_frame(2)]);
+//!
+//! // A streamed series of frames
+//! let frames = stream::iter(vec![Ok(make_frame(1)), Ok(make_frame(2))]);
+//! let streamed: Response<Frame, Error> = Response::Stream(Box::pin(frames));
+//! ```
 
 use std::pin::Pin;
 
