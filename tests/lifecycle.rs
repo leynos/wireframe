@@ -1,3 +1,7 @@
+//! Tests for connection lifecycle callbacks.
+//!
+//! They check setup, teardown, and state propagation through helper utilities.
+
 use std::{
     future::Future,
     pin::Pin,
