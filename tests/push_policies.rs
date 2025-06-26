@@ -16,7 +16,9 @@ impl LoggerHandle {
         static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
 
         let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
-        let mut guard = logger.lock().expect("lock logger");
+        let mut guard = logger
+            .lock()
+            .expect("failed to acquire global logger lock when starting capture");
         while guard.pop().is_some() {}
 
         Self { guard }
