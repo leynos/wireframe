@@ -81,7 +81,7 @@ understanding code than writing it.
 
 Core Principles of Calculation:
 
-Cognitive Complexity is incremented based on three main rules:
+Cognitive Complexity is incremented based on three main rules.
 
 1. **Breaks in Linear Flow:** Each time the code breaks the normal linear
    reading flow (e.g., loops, conditionals like `if`/`else`/`switch`,
