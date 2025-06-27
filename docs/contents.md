@@ -1,6 +1,6 @@
 # Documentation contents
 
-This page summarises each file in the `docs/` directory.
+This page summarizes each file in the `docs/` directory.
 Use it as a quick reference when navigating the project's design and
 architecture material.
 
