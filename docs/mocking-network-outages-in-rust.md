@@ -150,7 +150,7 @@ With this change, `client_handler` no longer assumes a real network `TcpStream`;
 we can pass in any in-memory or mock stream for testing. **Importantly**, the
 production code doesn’t lose functionality – we still create actual TCP
 listeners/streams, but we hand off to the generic handler. This refactor
-maintains the same behavior while enabling injection of test streams.
+maintains the same behaviour while enabling injection of test streams.
 
 *Example – generic handler signature:*
 
@@ -227,7 +227,7 @@ but on generic `reader`/`writer`. This refactoring sets the stage for injecting
 With the transport abstracted, we can create **dummy streams** to simulate
 various network outage scenarios. Tokio’s testing utilities include
 `tokio_test::io::Builder`, which allows building an object that implements
-`AsyncRead` and `AsyncWrite` with predetermined behavior. We can script a
+`AsyncRead` and `AsyncWrite` with predetermined behaviour. We can script a
 sequence of reads/writes and even inject errors.
 
 For example, the Tokio documentation demonstrates using `Builder` to simulate a
@@ -570,7 +570,8 @@ explicit mocking might be useful. The `mockall` crate can generate mocks for our
 abstractions. For example, if we had defined a trait
 `trait Transport: AsyncRead + AsyncWrite + Unpin {}` (or a trait with specific
 async methods for read/write), we could use `mockall` to create a
-`MockTransport` and program its behavior (return errors on certain calls, etc.).
+`MockTransport` and program its behaviour (return errors on certain calls,
+etc.).
 
 However, mocking `AsyncRead/Write` directly can be complex. An easier target for
 mocking might be higher-level components:
@@ -608,7 +609,7 @@ mocking might be higher-level components:
   don’t invoke the real DB or commands at all – the mock could simply return a
   simple “OK” response transaction when called. Then we only simulate the
   network failing on sending that response. Such a mock ensures our test is
-  laser-focused on networking behavior.
+  laser-focused on networking behaviour.
 
 In summary, **use** `mockall` **when stubbing out parts of the system that are
 not the primary target of the test**. For testing network outages in `mxd`, the
@@ -654,7 +655,7 @@ demonstrated how to simulate timeouts, abrupt disconnects, and I/O errors for
 both reads and writes. With parameterized tests and careful use of mocks, the
 server’s resilience under adverse network conditions can be validated
 thoroughly. This not only prevents regressions but also documents the intended
-behavior (for example, that a timeout should result in a specific error code to
+behaviour (for example, that a timeout should result in a specific error code to
 the client, or that an EOF is treated as a graceful shutdown).
 
 **In conclusion**, testing for network outages in async Rust requires a mix of

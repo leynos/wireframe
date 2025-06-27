@@ -14,7 +14,7 @@ response feature. The core philosophy is to enable this complex functionality
 through a simple, declarative, and ergonomic API. By embracing modern
 asynchronous Rust patterns, we will avoid the complexities of imperative,
 sink-based APIs and provide a unified handler model that is both powerful for
-streaming and simple for single-frame replies. 1
+streaming and simple for single-frame replies.
 
 This feature is a key component of the "Road to Wireframe 1.0," working in
 concert with asynchronous push messaging and fragmentation to create a fully
@@ -227,12 +227,12 @@ If the stream yields an `Err(WireframeError<E>)`, the connection actor will:
 The design is inherently cancellation-safe. The `select!` macro in the
 connection actor will drop the `FrameStream` future if another branch (e.g., a
 shutdown signal) completes first. Because `StreamExt::next()` is
-cancellation-safe, no frames will be lost; the stream will simply be dropped. 12
+cancellation-safe, no frames will be lost; the stream will simply be dropped.
 
 Similarly, if a handler panics or returns early, the `Stream` object it created
 is simply dropped. The connection actor will see the stream end as if it had
 completed normally, ensuring no resources are leaked and the connection does not
-hang. 17
+hang.
 
 ## 7. Synergy with Other 1.0 Features
 
