@@ -40,7 +40,7 @@ The implementation must satisfy the following core requirements:
 The cornerstone of this design is a move to a purely **declarative streaming
 model**. Instead of providing handlers with an imperative `FrameSink` to push
 frames into, handlers will declaratively return a description of the entire
-response. 5 This approach significantly simplifies the API surface, improves
+response. This approach significantly simplifies the API surface, improves
 testability, and eliminates a class of resource management issues associated
 with sink-based designs.
 
@@ -62,11 +62,10 @@ explicit channel management.
 
 To provide an ergonomic way for developers to generate streams using
 imperative-style logic (e.g., inside a `for` loop), `wireframe` will adopt and
-recommend the `async-stream` crate. 9 This crate provides macros (
-
-`stream!` and `try_stream!`) that transform imperative `yield` statements into a
-fully compliant `Stream` object. This gives developers the best of both worlds:
-the intuitive feel of imperative code generation without the API complexity of a
+recommend the `async-stream` crate. This crate provides macros (`stream!` and
+`try_stream!`) that transform imperative `yield` statements into a fully
+compliant `Stream` object. This gives developers the best of both worlds: the
+intuitive feel of imperative code generation without the API complexity of a
 separate `FrameSink` type.
 
 ## 4. Public API Surface
