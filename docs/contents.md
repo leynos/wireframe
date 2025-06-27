@@ -31,9 +31,8 @@ architecture material.
   Detailed tasks leading to Wireframe 1.0.
 - [Project roadmap](roadmap.md)  
   High-level development roadmap.
-- [1.0 philosophy][philosophy]  
+- [1.0 philosophy](the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md)  
   Philosophy and feature set for Wireframe 1.0.
-
 ## Testing
 
 - [Multi-layered testing strategy](multi-layered-testing-strategy.md)  
