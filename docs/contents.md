@@ -59,4 +59,3 @@ architecture material.
 - [Documentation style guide](documentation-style-guide.md)  
   Conventions for writing project documentation.
 
-[philosophy]: the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
