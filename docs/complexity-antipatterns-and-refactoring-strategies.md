@@ -463,9 +463,9 @@ discourages methods from accumulating diverse responsibilities.
 
 ### B. Avoiding Spaghetti Code Turning into Ravioli Code
 
-When refactoring complex, tangled code (often called "Spaghetti Code" 2), a
-common approach is to break it down into smaller pieces, such as functions or
-classes. However, if this is done without careful consideration for cohesion and
+When refactoring complex, tangled code (often called "Spaghetti Code"), a common
+approach is to break it down into smaller pieces, such as functions or classes.
+However, if this is done without careful consideration for cohesion and
 appropriate levels of abstraction, it can lead to "Ravioli Code". Ravioli Code
 is characterized by a multitude of small, often overly granular classes or
 functions, where understanding the overall program flow requires navigating
@@ -737,7 +737,7 @@ without modifying existing dispatcher code (aligning with the Open/Closed
 Principle). However, it's important to ensure that the dispatch mechanism itself
 remains clear and that the proliferation of small classes doesn't lead to
 Ravioli Code, where the overall system flow becomes obscured. Clear naming
-conventions and logical organization are vital.
+conventions and logical organisation are vital.
 
 The **State pattern** is a related behavioural pattern useful when an object's
 behaviour changes depending on its internal state. Instead of using large

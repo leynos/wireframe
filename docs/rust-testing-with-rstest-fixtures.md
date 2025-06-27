@@ -4,8 +4,8 @@ Testing is an indispensable part of modern software development, ensuring code
 reliability, maintainability, and correctness. In the Rust ecosystem, while the
 built-in testing framework provides a solid foundation, managing test
 dependencies and creating parameterized tests can become verbose. The `rstest`
-crate (`github.com/la10736/rstest`) emerges as a powerful solution, offering a
-sophisticated fixture-based and parameterized testing framework that
+crate (<https://github.com/la10736/rstest>) emerges as a powerful solution,
+offering a sophisticated fixture-based and parameterized testing framework that
 significantly simplifies these tasks through the use of procedural macros. This
 document provides a comprehensive exploration of `rstest`, from fundamental
 concepts to advanced techniques, enabling Rust developers to write cleaner, more
@@ -44,9 +44,9 @@ become shorter, more focused, and thus more readable and maintainable.
 `rstest` is a Rust crate specifically designed to simplify and enhance testing
 by leveraging the concept of fixtures and providing powerful parameterization
 capabilities. It is available on `crates.io` and its source code is hosted at
-`github.com/la10736/rstest`, distinguishing it from other software projects that
-may share the same name but operate in different ecosystems (e.g., a
-JavaScript/TypeScript framework mentioned).
+<https://github.com/la10736/rstest>, distinguishing it from other software
+projects that may share the same name but operate in different ecosystems (e.g.,
+a JavaScript/TypeScript framework mentioned).
 
 The `rstest` crate utilizes Rust's procedural macros, such as `#[rstest]` and
 `#[fixture]`, to achieve its declarative and expressive syntax. These macros
@@ -521,7 +521,7 @@ fn test_once_2(expensive_setup: &'static AtomicUsize) {
 }
 ```
 
-When using `#[once]`, there are critical caveats:
+When using `#[once]`, there are critical warnings:
 
 1. **Resource Lifetime:** The value returned by an `#[once]` fixture is
    effectively promoted to a `static` lifetime and is **never dropped**. This
@@ -995,7 +995,7 @@ function argument to inject file paths that match a given glob pattern. The
 argument type is typically `PathBuf`. It can also inject file contents directly
 as `&str` or `&[u8]` by specifying a mode, e.g.,
 `#[files("glob_pattern", mode = "str")]`. Additional attributes like
-`#[base_dir = "..."]` can specify a base directory for the glob, and
+`#[base_dir = "…"]` can specify a base directory for the glob, and
 `#[exclude("regex")]` can filter out paths matching a regular expression.
 
 ```rust
