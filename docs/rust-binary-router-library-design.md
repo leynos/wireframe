@@ -154,14 +154,14 @@ network protocols, offering insights into effective abstractions.
   Although designed for RPC, its approach of defining service schemas directly
   in Rust code (using the `#[tarpc::service]` attribute to generate service
   traits and client/server boilerplate) is an interesting parallel to
-  "wireframe's" goal of reducing boilerplate for message handlers.20 Features
-  like pluggable transports and serde serialization further highlight its modern
+  "wireframe's" goal of reducing boilerplate for message handlers. Features like
+  pluggable transports and serde serialization further highlight its modern
   design.
 
 A clear pattern emerges from these libraries: the use of derive macros and
 trait-based designs is a prevalent and effective strategy in Rust for
-simplifying protocol handling and reducing boilerplate code. Both `bin-proto` 14
-and `protocol` 16 leverage custom derives to generate (de)serialization logic
+simplifying protocol handling and reducing boilerplate code. Both `bin-proto`
+and `protocol` leverage custom derives to generate (de)serialization logic
 directly from struct and enum definitions. This is a proven pattern for
 enhancing developer ergonomics and reducing the likelihood of manual
 implementation errors. "wireframe" should strongly consider adopting a similar
@@ -1348,7 +1348,7 @@ simplicity; "wireframe" aims for similar illustrative power with its examples.
 
 A primary motivation for "wireframe" is to reduce the inherent source code
 complexity often encountered when developing systems that communicate over
-custom binary protocols. The inaccessibility of the `leynos/mxd` repository 7
+custom binary protocols. The inaccessibility of the `leynos/mxd` repository
 prevents a direct before-and-after comparison, but we can identify common
 sources of complexity in such projects and articulate how "wireframe's" design
 choices aim to mitigate them.

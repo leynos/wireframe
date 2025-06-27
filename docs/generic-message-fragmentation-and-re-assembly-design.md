@@ -87,7 +87,7 @@ struct PartialMessage {
 
 The use of `dashmap::DashMap` allows for lock-free reads and sharded writes,
 providing efficient and concurrent access to the re-assembly buffers without
-blocking the entire connection task. 1
+blocking the entire connection task.
 
 ## 4. Public API: The `FragmentStrategy` Trait
 

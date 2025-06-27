@@ -64,11 +64,11 @@ pub enum Response<F = Frame, E = MyProtocolError> {
 ```
 
 This design is powered by the `async-stream` crate, which allows developers to
-write imperative-looking logic that generates a declarative `Stream` object. 4
+write imperative-looking logic that generates a declarative `Stream` object.
 This provides the best of both worlds: the intuitive feel of a
 
 `for` loop for generating frames, without the API complexity of a separate
-`Sink` type. 9
+`Sink` type.
 
 Rust
 
@@ -101,7 +101,7 @@ The core of this actor is a `tokio::select!` loop that multiplexes frames from
 multiple sources onto the outbound socket. To ensure that time-sensitive control
 messages (like heartbeats or session notifications) are not delayed by large
 data transfers, this loop will be explicitly prioritized using
-`select!(biased;)`. 17
+`select!(biased;)`.
 
 The polling order will be:
 
@@ -184,7 +184,7 @@ quality assurance.
 
 A robust network service must be able to shut down cleanly. `wireframe` will
 adopt a canonical, proactive shutdown pattern using
-`tokio_util::sync::CancellationToken` and `tokio_util::task::TaskTracker`. 24
+`tokio_util::sync::CancellationToken` and `tokio_util::task::TaskTracker`.
 
 - A single `CancellationToken` will be created at server startup.
 
@@ -212,14 +212,14 @@ Rust's ownership model and `Drop` trait are the foundation of resource safety.
   `SessionRegistry` for push handles) will use `Arc<T>` and `Weak<T>` pointers.
   This prevents the registry from artificially keeping connection resources
   alive after a client disconnects, eliminating a common source of memory leaks
-  in long-running servers. 39
+  in long-running servers.
 
 - **DoS Protection:** The framework will provide built-in, configurable
   protections against resource exhaustion attacks:
 
   - **Rate Limiting:** An asynchronous, token-bucket-based rate limiter will be
     available on a per-connection basis to throttle high-frequency message
-    pushes. 46
+    pushes.
 
   - **Memory Caps:** The fragmentation layer will enforce a strict
     `max_message_size` to prevent a single client from consuming excessive
@@ -252,23 +252,23 @@ committed to an API that is intuitive, flexible, and idiomatic.
 
 - **Fluent Builder API:** All configuration will be done through a fluent
   builder pattern (`WireframeApp::new().with_feature_x().with_config_y()`),
-  which is readable and self-documenting. 63
+  which is readable and self-documenting.
 
 - **Trait-Based Extensibility:** Instead of a collection of disparate callback
   closures, protocol-specific logic will be encapsulated within a single,
-  cohesive `WireframeProtocol` trait. 68 This promotes better organization,
+  cohesive `WireframeProtocol` trait. This promotes better organization,
   reusability, and makes the framework easier to extend.
 
 - **Idiomatic Asynchronous APIs:** The library will consistently favor
-  declarative, stream-based APIs over imperative, sink-based ones. 74 This
-  aligns with the broader async Rust ecosystem and leads to code that is easier
-  to compose and reason about. 79
+  declarative, stream-based APIs over imperative, sink-based ones. This aligns
+  with the broader async Rust ecosystem and leads to code that is easier to
+  compose and reason about.
 
 ### C. Pervasive Observability
 
 A production system is a black box without good instrumentation. `wireframe` 1.0
 will treat observability as a first-class feature, integrating the `tracing`
-crate throughout its core. 83
+crate throughout its core.
 
 - **Structured Logging and Tracing:** The entire lifecycle of a connection,
   request, and response will be wrapped in `tracing::span!`s. 83 This provides
@@ -303,12 +303,12 @@ traditional unit and integration tests.
 
 - **Stateful Property Testing:** For validating complex, stateful protocol
   conversations (like fragmentation and re-assembly), `proptest` will be used.
-  98 This technique generates thousands of random-but-valid sequences of
-  operations to uncover edge cases that manual tests would miss.
+  This technique generates thousands of random-but-valid sequences of operations
+  to uncover edge cases that manual tests would miss.
 
 - **Concurrency Verification:** The `loom` crate will be used for permutation
   testing of concurrency hotspots, such as the connection actor's `select!`
-  loop. 103
+  loop.
 
   `loom` deterministically explores all possible interleavings of concurrent
   operations, providing a strong guarantee against data races and deadlocks.
