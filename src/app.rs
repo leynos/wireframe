@@ -386,6 +386,10 @@ where
     }
 
     /// Install a [`WireframeProtocol`] implementation.
+    ///
+    /// The protocol defines hooks for connection setup, frame modification, and
+    /// command completion. It is wrapped in an [`Arc`] and stored for later use
+    /// by the connection actor.
     #[must_use]
     pub fn with_protocol<P>(mut self, protocol: P) -> Self
     where
@@ -396,6 +400,8 @@ where
     }
 
     /// Get a clone of the configured protocol, if any.
+    ///
+    /// Returns `None` if no protocol was installed via [`with_protocol`](Self::with_protocol).
     #[must_use]
     pub fn protocol(
         &self,
@@ -404,6 +410,8 @@ where
     }
 
     /// Return protocol hooks derived from the installed protocol.
+    ///
+    /// If no protocol is installed, returns default (no-op) hooks.
     #[must_use]
     pub fn protocol_hooks(&self) -> ProtocolHooks<Vec<u8>> {
         self.protocol

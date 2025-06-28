@@ -10,6 +10,9 @@ use std::sync::Arc;
 use crate::push::{FrameLike, PushHandle};
 
 /// Per-connection state passed to protocol callbacks.
+///
+/// This empty struct is intentionally extensible. Future protocol features may
+/// require storing connection-local data without breaking existing APIs.
 #[derive(Default)]
 pub struct ConnectionContext;
 
@@ -75,12 +78,11 @@ impl<F> ProtocolHooks<F> {
     where
         P: WireframeProtocol<Frame = F> + ?Sized,
     {
-        let before = {
-            let p = Arc::clone(&protocol);
-            Box::new(move |frame: &mut F, ctx: &mut ConnectionContext| {
-                p.before_send(frame, ctx);
-            }) as BeforeSendHook<F>
-        };
+        let protocol_before = Arc::clone(&protocol);
+        let before = Box::new(move |frame: &mut F, ctx: &mut ConnectionContext| {
+            protocol_before.before_send(frame, ctx);
+        }) as BeforeSendHook<F>;
+
         let end = Box::new(move |ctx: &mut ConnectionContext| {
             protocol.on_command_end(ctx);
         }) as OnCommandEndHook;
