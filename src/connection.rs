@@ -41,6 +41,18 @@ impl Default for FairnessConfig {
 }
 
 /// Actor driving outbound frame delivery for a connection.
+///
+/// # Examples
+///
+/// ```no_run
+/// use tokio_util::sync::CancellationToken;
+/// use wireframe::{connection::ConnectionActor, push::PushQueues};
+///
+/// let (queues, _handle) = PushQueues::<u8>::bounded(8, 8);
+/// let shutdown = CancellationToken::new();
+/// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, shutdown);
+/// # drop(actor);
+/// ```
 pub struct ConnectionActor<F, E> {
     high_rx: Option<mpsc::Receiver<F>>,
     low_rx: Option<mpsc::Receiver<F>>,
@@ -57,6 +69,18 @@ where
     F: FrameLike,
 {
     /// Create a new `ConnectionActor` from the provided components.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokio_util::sync::CancellationToken;
+    /// use wireframe::{connection::ConnectionActor, push::PushQueues};
+    ///
+    /// let (queues, _handle) = PushQueues::<u8>::bounded(4, 4);
+    /// let token = CancellationToken::new();
+    /// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, token);
+    /// # drop(actor);
+    /// ```
     #[must_use]
     pub fn new(
         queues: PushQueues<F>,
@@ -162,6 +186,11 @@ where
                 self.process_low(res, state, out);
             }
 
+            // `tokio::select!` is biased so the shutdown branch runs before
+            // this one. `process_shutdown` removes the response stream, making
+            // `resp_available` false on the next loop iteration. The explicit
+            // `!state.is_shutting_down()` check avoids polling the stream after
+            // shutdown has begun.
             res = Self::next_response(&mut self.response), if resp_available && !state.is_shutting_down() => {
                 self.process_response(res, state, out)?;
             }
@@ -344,6 +373,15 @@ impl ActorState {
     ///
     /// `has_response` indicates whether a streaming response is currently
     /// attached.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use wireframe::connection::ActorState;
+    ///
+    /// let state = ActorState::new(true);
+    /// assert!(state.is_active());
+    /// ```
     fn new(has_response: bool) -> Self {
         Self {
             run_state: RunState::Active,
