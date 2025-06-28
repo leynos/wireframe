@@ -18,6 +18,7 @@ use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
+    hooks::{ProtocolHooks, WireframeProtocol},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, Transform},
     serializer::{BincodeSerializer, Serializer},
@@ -80,6 +81,7 @@ pub struct WireframeApp<
     app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     on_connect: Option<Arc<ConnectionSetup<C>>>,
     on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
+    protocol: Option<Arc<dyn WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()>>>,
 }
 
 /// Alias for asynchronous route handlers.
@@ -235,6 +237,7 @@ where
             app_data: HashMap::new(),
             on_connect: None,
             on_disconnect: None,
+            protocol: None,
         }
     }
 }
@@ -360,6 +363,7 @@ where
             app_data: self.app_data,
             on_connect: Some(Arc::new(move || Box::pin(f()))),
             on_disconnect: None,
+            protocol: self.protocol,
         })
     }
 
@@ -379,6 +383,41 @@ where
     {
         self.on_disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
         Ok(self)
+    }
+
+    /// Install a [`WireframeProtocol`] implementation.
+    ///
+    /// The protocol defines hooks for connection setup, frame modification, and
+    /// command completion. It is wrapped in an [`Arc`] and stored for later use
+    /// by the connection actor.
+    #[must_use]
+    pub fn with_protocol<P>(mut self, protocol: P) -> Self
+    where
+        P: WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()> + 'static,
+    {
+        self.protocol = Some(Arc::new(protocol));
+        self
+    }
+
+    /// Get a clone of the configured protocol, if any.
+    ///
+    /// Returns `None` if no protocol was installed via [`with_protocol`](Self::with_protocol).
+    #[must_use]
+    pub fn protocol(
+        &self,
+    ) -> Option<Arc<dyn WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()>>> {
+        self.protocol.as_ref().map(Arc::clone)
+    }
+
+    /// Return protocol hooks derived from the installed protocol.
+    ///
+    /// If no protocol is installed, returns default (no-op) hooks.
+    #[must_use]
+    pub fn protocol_hooks(&self) -> ProtocolHooks<Vec<u8>> {
+        self.protocol
+            .as_ref()
+            .map(|p| ProtocolHooks::from_protocol(&Arc::clone(p)))
+            .unwrap_or_default()
     }
 
     /// Set the frame processor used for encoding and decoding frames.
@@ -406,6 +445,7 @@ where
             app_data: self.app_data,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
+            protocol: self.protocol,
         }
     }
 

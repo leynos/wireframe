@@ -20,5 +20,5 @@ pub mod rewind_stream;
 pub mod server;
 
 pub use connection::ConnectionActor;
-pub use hooks::ProtocolHooks;
+pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
 pub use response::{FrameStream, Response, WireframeError};

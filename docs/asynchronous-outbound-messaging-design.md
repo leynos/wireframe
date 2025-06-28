@@ -466,6 +466,51 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 WireframeApp::new().with_protocol(MySqlProtocolImpl);
 ```
 
+```mermaid
+classDiagram
+    class WireframeProtocol {
+        <<trait>>
+        +Frame: FrameLike
+        +ProtocolError
+        +on_connection_setup(PushHandle<Frame>, &mut ConnectionContext)
+        +before_send(&mut Frame, &mut ConnectionContext)
+        +on_command_end(&mut ConnectionContext)
+    }
+    class ProtocolHooks {
+        -before_send: Option<BeforeSendHook<F>>
+        -on_command_end: Option<OnCommandEndHook>
+        +before_send(&mut self, &mut F, &mut ConnectionContext)
+        +on_command_end(&mut self, &mut ConnectionContext)
+        +from_protocol(protocol: Arc<P>)
+    }
+    class ConnectionContext {
+        <<struct>>
+    }
+    class WireframeApp {
+        -protocol: Option<Arc<dyn WireframeProtocol<Frame=Vec<u8>, ProtocolError=()>>>
+        +with_protocol(protocol)
+        +protocol()
+        +protocol_hooks()
+    }
+    class ConnectionActor {
+        -hooks: ProtocolHooks<F>
+        -ctx: ConnectionContext
+    }
+    WireframeApp --> "1" WireframeProtocol : uses
+    WireframeApp --> "1" ProtocolHooks : creates
+    ProtocolHooks --> "1" WireframeProtocol : from_protocol
+    ConnectionActor --> "1" ProtocolHooks : uses
+    ConnectionActor --> "1" ConnectionContext : owns
+    ProtocolHooks --> "1" ConnectionContext : passes to hooks
+    WireframeProtocol --> "1" ConnectionContext : uses
+    WireframeProtocol --> "1" PushHandle : uses
+    WireframeProtocol <|.. ProtocolHooks : implemented by
+```
+
+`ConnectionContext` is intentionally empty today. It offers a stable extension
+point for per-connection data without breaking existing protocol
+implementations.
+
 ## 5. Error Handling & Resilience
 
 ### 5.1 `BrokenPipe` on Connection Loss
