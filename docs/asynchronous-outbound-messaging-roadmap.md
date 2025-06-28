@@ -15,7 +15,7 @@ design documents.
   [Design §3.2][design-write-loop].
 - [x] **Fairness counter** to yield to the low-priority queue after bursts of
   high-priority frames ([Design §3.2.1][design-fairness]).
-- [ ] **Run state consolidation** using `Option` receivers and a closed source
+- [x] **Run state consolidation** using `Option` receivers and a closed source
   counter ([Design §3.4][design-actor-state]).
 - [X] **Internal protocol hooks** `before_send` and `on_command_end` invoked
   from the actor ([Design §4.3][design-hooks]).

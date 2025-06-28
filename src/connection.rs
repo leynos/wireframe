@@ -42,7 +42,8 @@ impl Default for FairnessConfig {
 
 /// Actor driving outbound frame delivery for a connection.
 pub struct ConnectionActor<F, E> {
-    queues: PushQueues<F>,
+    high_rx: Option<mpsc::Receiver<F>>,
+    low_rx: Option<mpsc::Receiver<F>>,
     response: Option<FrameStream<F, E>>, // current streaming response
     shutdown: CancellationToken,
     hooks: ProtocolHooks<F>,
@@ -74,7 +75,8 @@ where
         hooks: ProtocolHooks<F>,
     ) -> Self {
         Self {
-            queues,
+            high_rx: Some(queues.high_priority_rx),
+            low_rx: Some(queues.low_priority_rx),
             response,
             shutdown,
             hooks,
@@ -83,13 +85,6 @@ where
             high_start: None,
         }
     }
-
-    /// Access the underlying push queues.
-    ///
-    /// This is mainly used in tests to close the queues when no actor is
-    /// draining them.
-    #[must_use]
-    pub fn queues_mut(&mut self) -> &mut PushQueues<F> { &mut self.queues }
 
     /// Replace the fairness configuration.
     pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness = fairness; }
@@ -116,7 +111,7 @@ where
             return Ok(());
         }
 
-        let mut state = ActorState::new(self.response.is_none());
+        let mut state = ActorState::new(self.response.is_some());
 
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
@@ -130,22 +125,38 @@ where
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
+        let high_available = self.high_rx.is_some();
+        let low_available = self.low_rx.is_some();
+        let resp_available = self.response.is_some();
+
         tokio::select! {
             biased;
 
-            () = Self::wait_shutdown(self.shutdown.clone()), if !state.shutting_down => {
+            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => {
                 self.process_shutdown(state);
             }
 
-            res = Self::recv_push(&mut self.queues.high_priority_rx), if !state.push.high => {
+            res = async {
+                if let Some(rx) = &mut self.high_rx {
+                    Self::recv_push(rx).await
+                } else {
+                    unreachable!()
+                }
+            }, if high_available => {
                 self.process_high(res, state, out);
             }
 
-            res = Self::recv_push(&mut self.queues.low_priority_rx), if !state.push.low => {
+            res = async {
+                if let Some(rx) = &mut self.low_rx {
+                    Self::recv_push(rx).await
+                } else {
+                    unreachable!()
+                }
+            }, if low_available => {
                 self.process_low(res, state, out);
             }
 
-            res = Self::next_response(&mut self.response), if !state.shutting_down && !state.resp_closed => {
+            res = Self::next_response(&mut self.response), if resp_available && !state.is_shutting_down() => {
                 self.process_response(res, state, out)?;
             }
         }
@@ -154,25 +165,30 @@ where
     }
 
     fn process_shutdown(&mut self, state: &mut ActorState) {
-        state.shutting_down = true;
-        self.start_shutdown(&mut state.resp_closed);
+        state.start_shutdown();
+        self.start_shutdown(state);
     }
 
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        let processed = res.is_some();
-        self.handle_push(res, &mut state.push.high, out);
-        if processed {
-            self.after_high(out, &mut state.push.low);
+        if let Some(mut frame) = res {
+            self.hooks.before_send(&mut frame);
+            out.push(frame);
+            self.after_high(out, state);
         } else {
+            self.high_rx = None;
+            state.mark_closed();
             self.reset_high_counter();
         }
     }
 
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        let processed = res.is_some();
-        self.handle_push(res, &mut state.push.low, out);
-        if processed {
+        if let Some(mut frame) = res {
+            self.hooks.before_send(&mut frame);
+            out.push(frame);
             self.after_low();
+        } else {
+            self.low_rx = None;
+            state.mark_closed();
         }
     }
 
@@ -183,51 +199,49 @@ where
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
         let processed = matches!(res, Some(Ok(_)));
-        self.handle_response(res, &mut state.resp_closed, out)?;
+        let is_none = res.is_none();
+        self.handle_response(res, state, out)?;
         if processed {
             self.after_low();
         }
-        if state.resp_closed {
+        if is_none {
             self.response = None;
         }
         Ok(())
     }
 
-    fn start_shutdown(&mut self, resp_closed: &mut bool) {
-        self.queues.high_priority_rx.close();
-        self.queues.low_priority_rx.close();
-        // Drop any streaming response so shutdown is prompt. Queued frames are
-        // still drained, but streamed responses may be truncated.
-        self.response = None;
-        *resp_closed = true;
-    }
-
-    fn handle_push(&mut self, res: Option<F>, closed: &mut bool, out: &mut Vec<F>) {
-        match res {
-            Some(mut frame) => {
-                self.hooks.before_send(&mut frame);
-                out.push(frame);
-            }
-            None => *closed = true,
+    fn start_shutdown(&mut self, state: &mut ActorState) {
+        if let Some(rx) = &mut self.high_rx {
+            rx.close();
+        }
+        if let Some(rx) = &mut self.low_rx {
+            rx.close();
+        }
+        if self.response.take().is_some() {
+            state.mark_closed();
         }
     }
 
-    fn after_high(&mut self, out: &mut Vec<F>, low_closed: &mut bool) {
+    fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
         self.high_counter += 1;
         if self.high_counter == 1 {
             self.high_start = Some(Instant::now());
         }
 
-        if self.should_yield_to_low_priority() {
-            match self.queues.low_priority_rx.try_recv() {
+        if self.should_yield_to_low_priority()
+            && let Some(rx) = &mut self.low_rx
+        {
+            match rx.try_recv() {
                 Ok(mut frame) => {
                     self.hooks.before_send(&mut frame);
                     out.push(frame);
                     self.after_low();
-                    *low_closed = false;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => {}
-                Err(mpsc::error::TryRecvError::Disconnected) => *low_closed = true,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    self.low_rx = None;
+                    state.mark_closed();
+                }
             }
         }
     }
@@ -253,7 +267,7 @@ where
     fn handle_response(
         &mut self,
         res: Option<Result<F, WireframeError<E>>>,
-        closed: &mut bool,
+        state: &mut ActorState,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
         match res {
@@ -263,7 +277,7 @@ where
             }
             Some(Err(e)) => return Err(e),
             None => {
-                *closed = true;
+                state.mark_closed();
                 self.hooks.on_command_end();
             }
         }
@@ -292,31 +306,46 @@ where
     }
 }
 
-struct PushClosed {
-    high: bool,
-    low: bool,
+enum RunState {
+    Active,
+    ShuttingDown,
+    Finished,
 }
 
 struct ActorState {
-    push: PushClosed,
-    resp_closed: bool,
-    shutting_down: bool,
+    run_state: RunState,
+    closed_sources: usize,
+    total_sources: usize,
 }
 
 impl ActorState {
-    fn new(resp_closed: bool) -> Self {
+    fn new(has_response: bool) -> Self {
         Self {
-            push: PushClosed {
-                high: false,
-                low: false,
-            },
-            resp_closed,
-            shutting_down: false,
+            run_state: RunState::Active,
+            // The shutdown token is considered closed until cancellation
+            // occurs, matching previous behaviour where draining sources
+            // without explicit shutdown terminates the actor.
+            closed_sources: 1,
+            total_sources: 3 + usize::from(has_response),
         }
     }
 
-    fn is_done(&self) -> bool {
-        let push_drained = self.push.high && self.push.low;
-        push_drained && (self.resp_closed || self.shutting_down)
+    fn mark_closed(&mut self) {
+        self.closed_sources += 1;
+        if self.closed_sources == self.total_sources {
+            self.run_state = RunState::Finished;
+        }
     }
+
+    fn start_shutdown(&mut self) {
+        if matches!(self.run_state, RunState::Active) {
+            self.run_state = RunState::ShuttingDown;
+        }
+    }
+
+    fn is_active(&self) -> bool { matches!(self.run_state, RunState::Active) }
+
+    fn is_shutting_down(&self) -> bool { matches!(self.run_state, RunState::ShuttingDown) }
+
+    fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 }
