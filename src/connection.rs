@@ -6,7 +6,10 @@
 //! low-priority ones, with streamed responses handled last.
 
 use futures::StreamExt;
-use tokio::sync::mpsc;
+use tokio::{
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -16,11 +19,34 @@ use crate::{
 };
 
 /// Actor driving outbound frame delivery for a connection.
+/// Configuration controlling fairness when draining push queues.
+#[derive(Clone, Copy)]
+pub struct FairnessConfig {
+    /// Number of consecutive high-priority frames to process before
+    /// checking the low-priority queue.
+    pub max_high_before_low: usize,
+    /// Optional time slice after which the low-priority queue is checked
+    /// if high-priority traffic has been continuous.
+    pub time_slice: Option<Duration>,
+}
+
+impl Default for FairnessConfig {
+    fn default() -> Self {
+        Self {
+            max_high_before_low: 16,
+            time_slice: None,
+        }
+    }
+}
+
 pub struct ConnectionActor<F, E> {
     queues: PushQueues<F>,
     response: Option<FrameStream<F, E>>, // current streaming response
     shutdown: CancellationToken,
     hooks: ProtocolHooks<F>,
+    fairness: FairnessConfig,
+    high_counter: usize,
+    high_start: Option<Instant>,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -50,6 +76,9 @@ where
             response,
             shutdown,
             hooks,
+            fairness: FairnessConfig::default(),
+            high_counter: 0,
+            high_start: None,
         }
     }
 
@@ -59,6 +88,9 @@ where
     /// draining them.
     #[must_use]
     pub fn queues_mut(&mut self) -> &mut PushQueues<F> { &mut self.queues }
+
+    /// Replace the fairness configuration.
+    pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness = fairness; }
 
     /// Set or replace the current streaming response.
     pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) { self.response = stream; }
@@ -105,15 +137,29 @@ where
             }
 
             res = Self::recv_push(&mut self.queues.high_priority_rx), if !state.push.high => {
+                let processed = res.is_some();
                 self.handle_push(res, &mut state.push.high, out);
+                if processed {
+                    self.after_high(out, &mut state.push.low);
+                } else {
+                    self.reset_high_counter();
+                }
             }
 
             res = Self::recv_push(&mut self.queues.low_priority_rx), if !state.push.low => {
+                let processed = res.is_some();
                 self.handle_push(res, &mut state.push.low, out);
+                if processed {
+                    self.after_low();
+                }
             }
 
             res = Self::next_response(&mut self.response), if !state.shutting_down && !state.resp_closed => {
+                let processed = matches!(res, Some(Ok(_)));
                 self.handle_response(res, &mut state.resp_closed, out)?;
+                if processed {
+                    self.after_low();
+                }
                 if state.resp_closed {
                     self.response = None;
                 }
@@ -140,6 +186,45 @@ where
             }
             None => *closed = true,
         }
+    }
+
+    fn after_high(&mut self, out: &mut Vec<F>, low_closed: &mut bool) {
+        self.high_counter += 1;
+        if self.high_counter == 1 {
+            self.high_start = Some(Instant::now());
+        }
+
+        let threshold_hit = self.fairness.max_high_before_low > 0
+            && self.high_counter >= self.fairness.max_high_before_low;
+        let time_hit =
+            if let (Some(slice), Some(start)) = (self.fairness.time_slice, self.high_start) {
+                start.elapsed() >= slice
+            } else {
+                false
+            };
+
+        if threshold_hit || time_hit {
+            match self.queues.low_priority_rx.try_recv() {
+                Ok(mut frame) => {
+                    self.hooks.before_send(&mut frame);
+                    out.push(frame);
+                    self.after_low();
+                    *low_closed = false;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => {}
+                Err(mpsc::error::TryRecvError::Disconnected) => *low_closed = true,
+            }
+        }
+    }
+
+    fn after_low(&mut self) {
+        self.high_counter = 0;
+        self.high_start = None;
+    }
+
+    fn reset_high_counter(&mut self) {
+        self.high_counter = 0;
+        self.high_start = None;
     }
 
     fn handle_response(
