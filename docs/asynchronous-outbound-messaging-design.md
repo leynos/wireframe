@@ -146,9 +146,10 @@ An optional time slice (for example 100 µs) can also be configured. When the
 elapsed time spent handling high-priority frames exceeds this slice, and the low
 queue is not empty, the actor yields to a low-priority frame. Application
 builders expose `with_fairness(FairnessConfig)` where `FairnessConfig` groups
-the counter threshold and an optional `time_slice`. The counter defaults to 16
-while `time_slice` is disabled. Setting the counter to zero preserves the
-original strict ordering.
+the counter threshold and an optional `time_slice`. The counter defaults to 8
+while `time_slice` is disabled. Setting the counter to zero disables the
+threshold logic and relies solely on `time_slice` for fairness, preserving
+strict high-priority ordering otherwise.
 
 This fairness mechanism ensures low-priority traffic continues to progress even
 under sustained high-priority load.
@@ -179,6 +180,31 @@ flowchart TD
     I --> A
     H --> A
     K --> A
+```
+
+The following sequence diagram illustrates the runtime behaviour:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant ConnectionActor
+    participant HighQueue
+    participant LowQueue
+
+    loop While processing frames
+        ConnectionActor->>HighQueue: Poll high-priority frame
+        alt High-priority frame received
+            ConnectionActor->>ConnectionActor: after_high()
+            alt Max high before low or time slice reached
+                ConnectionActor->>LowQueue: Try receive low-priority frame
+                alt Low-priority frame available
+                    ConnectionActor->>ConnectionActor: after_low()
+                end
+            end
+        else No high-priority frame
+            ConnectionActor->>ConnectionActor: reset_high_counter()
+        end
+    end
 ```
 
 ### 3.3 Connection Actor Overview

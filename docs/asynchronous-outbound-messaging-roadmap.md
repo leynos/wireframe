@@ -13,7 +13,7 @@ design documents.
 - [x] **Connection actor** with a biased `select!` loop that polls for shutdown,
   high/low queues and response streams as described in
   [Design §3.2][design-write-loop].
-- [ ] **Fairness counter** to yield to the low-priority queue after bursts of
+- [x] **Fairness counter** to yield to the low-priority queue after bursts of
   high-priority frames ([Design §3.2.1][design-fairness]).
 - [ ] **Run state consolidation** using `Option` receivers and a closed source
   counter ([Design §3.4][design-actor-state]).
