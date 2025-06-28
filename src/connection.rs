@@ -13,7 +13,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    hooks::ProtocolHooks,
+    hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushQueues},
     response::{FrameStream, WireframeError},
 };
@@ -59,6 +59,7 @@ pub struct ConnectionActor<F, E> {
     response: Option<FrameStream<F, E>>, // current streaming response
     shutdown: CancellationToken,
     hooks: ProtocolHooks<F>,
+    ctx: ConnectionContext,
     fairness: FairnessConfig,
     high_counter: usize,
     high_start: Option<Instant>,
@@ -104,6 +105,7 @@ where
             response,
             shutdown,
             hooks,
+            ctx: ConnectionContext,
             fairness: FairnessConfig::default(),
             high_counter: 0,
             high_start: None,
@@ -208,7 +210,7 @@ where
     /// Handle the result of polling the high-priority queue.
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
         if let Some(mut frame) = res {
-            self.hooks.before_send(&mut frame);
+            self.hooks.before_send(&mut frame, &mut self.ctx);
             out.push(frame);
             self.after_high(out, state);
         } else {
@@ -221,7 +223,7 @@ where
     /// Handle the result of polling the low-priority queue.
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
         if let Some(mut frame) = res {
-            self.hooks.before_send(&mut frame);
+            self.hooks.before_send(&mut frame, &mut self.ctx);
             out.push(frame);
             self.after_low();
         } else {
@@ -274,7 +276,7 @@ where
         {
             match rx.try_recv() {
                 Ok(mut frame) => {
-                    self.hooks.before_send(&mut frame);
+                    self.hooks.before_send(&mut frame, &mut self.ctx);
                     out.push(frame);
                     self.after_low();
                 }
@@ -317,13 +319,13 @@ where
     ) -> Result<(), WireframeError<E>> {
         match res {
             Some(Ok(mut frame)) => {
-                self.hooks.before_send(&mut frame);
+                self.hooks.before_send(&mut frame, &mut self.ctx);
                 out.push(frame);
             }
             Some(Err(e)) => return Err(e),
             None => {
                 state.mark_closed();
-                self.hooks.on_command_end();
+                self.hooks.on_command_end(&mut self.ctx);
             }
         }
 

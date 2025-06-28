@@ -1,14 +1,42 @@
 //! Internal protocol hooks called by the connection actor.
 //!
-//! This module defines [`ProtocolHooks`], a container for optional callback
-//! functions invoked during connection output. The hooks are placeholders for
-//! the future `WireframeProtocol` trait described in the design documents.
+//! This module defines [`ProtocolHooks`] along with the public
+//! [`WireframeProtocol`] trait. `ProtocolHooks` stores optional callbacks
+//! invoked during connection output. Applications configure these callbacks via
+//! an implementation of [`WireframeProtocol`].
+
+use std::sync::Arc;
+
+use crate::push::{FrameLike, PushHandle};
+
+/// Per-connection state passed to protocol callbacks.
+#[derive(Default)]
+pub struct ConnectionContext;
+
+/// Trait encapsulating protocol-specific logic and callbacks.
+pub trait WireframeProtocol: Send + Sync + 'static {
+    /// Frame type written to the socket.
+    type Frame: FrameLike;
+    /// Custom error type for protocol operations.
+    type ProtocolError;
+
+    /// Called once when a new connection is established. The provided
+    /// [`PushHandle`] may be stored by the implementation to enable
+    /// asynchronous server pushes.
+    fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {}
+
+    /// Invoked before any frame (push or response) is written to the socket.
+    fn before_send(&self, _frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {}
+
+    /// Invoked when a request/response cycle completes.
+    fn on_command_end(&self, _ctx: &mut ConnectionContext) {}
+}
 
 /// Type alias for the `before_send` callback.
-type BeforeSendHook<F> = Box<dyn FnMut(&mut F) + Send + 'static>;
+type BeforeSendHook<F> = Box<dyn FnMut(&mut F, &mut ConnectionContext) + Send + 'static>;
 
 /// Type alias for the `on_command_end` callback.
-type OnCommandEndHook = Box<dyn FnMut() + Send + 'static>;
+type OnCommandEndHook = Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>;
 
 /// Callbacks used by the connection actor.
 pub struct ProtocolHooks<F> {
@@ -29,16 +57,37 @@ impl<F> Default for ProtocolHooks<F> {
 
 impl<F> ProtocolHooks<F> {
     /// Run the `before_send` hook if registered.
-    pub fn before_send(&mut self, frame: &mut F) {
+    pub fn before_send(&mut self, frame: &mut F, ctx: &mut ConnectionContext) {
         if let Some(hook) = &mut self.before_send {
-            hook(frame);
+            hook(frame, ctx);
         }
     }
 
     /// Run the `on_command_end` hook if registered.
-    pub fn on_command_end(&mut self) {
+    pub fn on_command_end(&mut self, ctx: &mut ConnectionContext) {
         if let Some(hook) = &mut self.on_command_end {
-            hook();
+            hook(ctx);
+        }
+    }
+
+    /// Construct hooks from a [`WireframeProtocol`] implementation.
+    pub fn from_protocol<P>(protocol: Arc<P>) -> Self
+    where
+        P: WireframeProtocol<Frame = F> + ?Sized,
+    {
+        let before = {
+            let p = Arc::clone(&protocol);
+            Box::new(move |frame: &mut F, ctx: &mut ConnectionContext| {
+                p.before_send(frame, ctx);
+            }) as BeforeSendHook<F>
+        };
+        let end = Box::new(move |ctx: &mut ConnectionContext| {
+            protocol.on_command_end(ctx);
+        }) as OnCommandEndHook;
+
+        Self {
+            before_send: Some(before),
+            on_command_end: Some(end),
         }
     }
 }

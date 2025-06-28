@@ -178,7 +178,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use wireframe::ProtocolHooks;
+use wireframe::{ConnectionContext, ProtocolHooks};
 
 #[rstest]
 #[tokio::test]
@@ -192,7 +192,7 @@ async fn before_send_hook_modifies_frames(
 
     let stream = stream::iter(vec![Ok(2u8)]);
     let hooks = ProtocolHooks {
-        before_send: Some(Box::new(|f: &mut u8| *f += 1)),
+        before_send: Some(Box::new(|f: &mut u8, _ctx: &mut ConnectionContext| *f += 1)),
         ..ProtocolHooks::default()
     };
 
@@ -216,7 +216,7 @@ async fn on_command_end_hook_runs(
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
     let hooks = ProtocolHooks {
-        on_command_end: Some(Box::new(move || {
+        on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
             c.fetch_add(1, Ordering::SeqCst);
         })),
         ..ProtocolHooks::default()
