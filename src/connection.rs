@@ -34,7 +34,7 @@ pub struct FairnessConfig {
 impl Default for FairnessConfig {
     fn default() -> Self {
         Self {
-            max_high_before_low: 16,
+            max_high_before_low: 8,
             time_slice: None,
         }
     }
@@ -218,16 +218,7 @@ where
             self.high_start = Some(Instant::now());
         }
 
-        let threshold_hit = self.fairness.max_high_before_low > 0
-            && self.high_counter >= self.fairness.max_high_before_low;
-        let time_hit =
-            if let (Some(slice), Some(start)) = (self.fairness.time_slice, self.high_start) {
-                start.elapsed() >= slice
-            } else {
-                false
-            };
-
-        if threshold_hit || time_hit {
+        if self.should_yield_to_low_priority() {
             match self.queues.low_priority_rx.try_recv() {
                 Ok(mut frame) => {
                     self.hooks.before_send(&mut frame);
@@ -239,6 +230,17 @@ where
                 Err(mpsc::error::TryRecvError::Disconnected) => *low_closed = true,
             }
         }
+    }
+
+    fn should_yield_to_low_priority(&self) -> bool {
+        let threshold_hit = self.fairness.max_high_before_low > 0
+            && self.high_counter >= self.fairness.max_high_before_low;
+        let time_hit = self
+            .fairness
+            .time_slice
+            .zip(self.high_start)
+            .is_some_and(|(slice, start)| start.elapsed() >= slice);
+        threshold_hit || time_hit
     }
 
     fn after_low(&mut self) { self.reset_high_counter(); }

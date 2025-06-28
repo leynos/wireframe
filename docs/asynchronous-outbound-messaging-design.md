@@ -146,7 +146,7 @@ An optional time slice (for example 100 µs) can also be configured. When the
 elapsed time spent handling high-priority frames exceeds this slice, and the low
 queue is not empty, the actor yields to a low-priority frame. Application
 builders expose `with_fairness(FairnessConfig)` where `FairnessConfig` groups
-the counter threshold and an optional `time_slice`. The counter defaults to 16
+the counter threshold and an optional `time_slice`. The counter defaults to 8
 while `time_slice` is disabled. Setting the counter to zero disables the
 threshold logic and relies solely on `time_slice` for fairness, preserving
 strict high-priority ordering otherwise.
