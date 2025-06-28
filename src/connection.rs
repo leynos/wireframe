@@ -120,6 +120,12 @@ where
         Ok(())
     }
 
+    /// Poll all sources and push available frames into `out`.
+    ///
+    /// This method polls the shutdown token, high- and low-priority queues,
+    /// and the optional response stream. Frames are appended to `out` in the
+    /// order they are processed. `ActorState` is updated based on which sources
+    /// return `None`.
     async fn poll_sources(
         &mut self,
         state: &mut ActorState,
@@ -164,11 +170,13 @@ where
         Ok(())
     }
 
+    /// Begin shutdown once cancellation has been observed.
     fn process_shutdown(&mut self, state: &mut ActorState) {
         state.start_shutdown();
         self.start_shutdown(state);
     }
 
+    /// Handle the result of polling the high-priority queue.
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
         if let Some(mut frame) = res {
             self.hooks.before_send(&mut frame);
@@ -181,6 +189,7 @@ where
         }
     }
 
+    /// Handle the result of polling the low-priority queue.
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
         if let Some(mut frame) = res {
             self.hooks.before_send(&mut frame);
@@ -192,6 +201,7 @@ where
         }
     }
 
+    /// Handle the next frame or error from the streaming response.
     fn process_response(
         &mut self,
         res: Option<Result<F, WireframeError<E>>>,
@@ -210,6 +220,7 @@ where
         Ok(())
     }
 
+    /// Close all receivers and mark the response stream as closed if present.
     fn start_shutdown(&mut self, state: &mut ActorState) {
         if let Some(rx) = &mut self.high_rx {
             rx.close();
@@ -222,6 +233,7 @@ where
         }
     }
 
+    /// Update counters and opportunistically drain the low-priority queue.
     fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
         self.high_counter += 1;
         if self.high_counter == 1 {
@@ -246,6 +258,7 @@ where
         }
     }
 
+    /// Determine if processing should yield to the low-priority queue.
     fn should_yield_to_low_priority(&self) -> bool {
         let threshold_hit = self.fairness.max_high_before_low > 0
             && self.high_counter >= self.fairness.max_high_before_low;
@@ -257,13 +270,16 @@ where
         threshold_hit || time_hit
     }
 
+    /// Reset counters after processing a low-priority frame.
     fn after_low(&mut self) { self.reset_high_counter(); }
 
+    /// Clear the burst counter and associated timestamp.
     fn reset_high_counter(&mut self) {
         self.high_counter = 0;
         self.high_start = None;
     }
 
+    /// Push a frame from the response stream into `out` or handle completion.
     fn handle_response(
         &mut self,
         res: Option<Result<F, WireframeError<E>>>,
@@ -306,12 +322,17 @@ where
     }
 }
 
+/// Internal run state for the connection actor.
 enum RunState {
+    /// All sources are open and frames are still being processed.
     Active,
+    /// A shutdown request has been observed and queues are being closed.
     ShuttingDown,
+    /// All sources have completed and the actor can exit.
     Finished,
 }
 
+/// Tracks progress through the actor lifecycle.
 struct ActorState {
     run_state: RunState,
     closed_sources: usize,
@@ -319,6 +340,10 @@ struct ActorState {
 }
 
 impl ActorState {
+    /// Create a new `ActorState`.
+    ///
+    /// `has_response` indicates whether a streaming response is currently
+    /// attached.
     fn new(has_response: bool) -> Self {
         Self {
             run_state: RunState::Active,
@@ -330,6 +355,7 @@ impl ActorState {
         }
     }
 
+    /// Mark a source as closed and update the run state if all are closed.
     fn mark_closed(&mut self) {
         self.closed_sources += 1;
         if self.closed_sources == self.total_sources {
@@ -337,15 +363,19 @@ impl ActorState {
         }
     }
 
+    /// Transition to `ShuttingDown` if currently active.
     fn start_shutdown(&mut self) {
         if matches!(self.run_state, RunState::Active) {
             self.run_state = RunState::ShuttingDown;
         }
     }
 
+    /// Returns `true` while the actor is actively processing sources.
     fn is_active(&self) -> bool { matches!(self.run_state, RunState::Active) }
 
+    /// Returns `true` once shutdown has begun.
     fn is_shutting_down(&self) -> bool { matches!(self.run_state, RunState::ShuttingDown) }
 
+    /// Returns `true` when all sources have finished.
     fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 }
