@@ -147,8 +147,9 @@ elapsed time spent handling high-priority frames exceeds this slice, and the low
 queue is not empty, the actor yields to a low-priority frame. Application
 builders expose `with_fairness(FairnessConfig)` where `FairnessConfig` groups
 the counter threshold and an optional `time_slice`. The counter defaults to 16
-while `time_slice` is disabled. Setting the counter to zero preserves the
-original strict ordering.
+while `time_slice` is disabled. Setting the counter to zero disables the
+threshold logic and relies solely on `time_slice` for fairness, preserving
+strict high-priority ordering otherwise.
 
 This fairness mechanism ensures low-priority traffic continues to progress even
 under sustained high-priority load.

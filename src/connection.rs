@@ -18,13 +18,14 @@ use crate::{
     response::{FrameStream, WireframeError},
 };
 
-/// Actor driving outbound frame delivery for a connection.
 /// Configuration controlling fairness when draining push queues.
 #[derive(Clone, Copy)]
 pub struct FairnessConfig {
     /// Number of consecutive high-priority frames to process before
     /// checking the low-priority queue.
     pub max_high_before_low: usize,
+    /// A zero value disables the counter and relies solely on `time_slice` for
+    /// fairness, preserving strict high-priority ordering otherwise.
     /// Optional time slice after which the low-priority queue is checked
     /// if high-priority traffic has been continuous.
     pub time_slice: Option<Duration>,
@@ -39,6 +40,7 @@ impl Default for FairnessConfig {
     }
 }
 
+/// Actor driving outbound frame delivery for a connection.
 pub struct ConnectionActor<F, E> {
     queues: PushQueues<F>,
     response: Option<FrameStream<F, E>>, // current streaming response
@@ -239,10 +241,7 @@ where
         }
     }
 
-    fn after_low(&mut self) {
-        self.high_counter = 0;
-        self.high_start = None;
-    }
+    fn after_low(&mut self) { self.reset_high_counter(); }
 
     fn reset_high_counter(&mut self) {
         self.high_counter = 0;
