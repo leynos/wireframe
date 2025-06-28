@@ -181,6 +181,31 @@ flowchart TD
     K --> A
 ```
 
+The following sequence diagram illustrates the runtime behaviour:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant ConnectionActor
+    participant HighQueue
+    participant LowQueue
+
+    loop While processing frames
+        ConnectionActor->>HighQueue: Poll high-priority frame
+        alt High-priority frame received
+            ConnectionActor->>ConnectionActor: after_high()
+            alt Max high before low or time slice reached
+                ConnectionActor->>LowQueue: Try receive low-priority frame
+                alt Low-priority frame available
+                    ConnectionActor->>ConnectionActor: after_low()
+                end
+            end
+        else No high-priority frame
+            ConnectionActor->>ConnectionActor: reset_high_counter()
+        end
+    end
+```
+
 ### 3.3 Connection Actor Overview
 
 ```mermaid
