@@ -143,21 +143,21 @@ where
             }
 
             res = async {
-                if let Some(rx) = &mut self.high_rx {
-                    Self::recv_push(rx).await
-                } else {
-                    unreachable!()
-                }
+                Self::recv_push(
+                    self.high_rx
+                        .as_mut()
+                        .expect("high_rx should be Some when high_available is true")
+                ).await
             }, if high_available => {
                 self.process_high(res, state, out);
             }
 
             res = async {
-                if let Some(rx) = &mut self.low_rx {
-                    Self::recv_push(rx).await
-                } else {
-                    unreachable!()
-                }
+                Self::recv_push(
+                    self.low_rx
+                        .as_mut()
+                        .expect("low_rx should be Some when low_available is true")
+                ).await
             }, if low_available => {
                 self.process_low(res, state, out);
             }
