@@ -8,7 +8,7 @@ use rstest::{fixture, rstest};
 use tokio::time::{Duration, sleep, timeout};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    connection::ConnectionActor,
+    connection::{ConnectionActor, FairnessConfig},
     push::PushQueues,
     response::{FrameStream, WireframeError},
 };
@@ -42,6 +42,31 @@ async fn strict_priority_order(
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert_eq!(out, vec![1, 2, 3]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn fairness_yields_low_after_burst(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    let fairness = FairnessConfig {
+        max_high_before_low: 2,
+        time_slice: None,
+    };
+
+    for n in 1..=5 {
+        handle.push_high_priority(n).await.unwrap();
+    }
+    handle.push_low_priority(99).await.unwrap();
+    drop(handle);
+
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, shutdown_token);
+    actor.set_fairness(fairness);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    assert_eq!(out, vec![1, 2, 99, 3, 4, 5]);
 }
 
 #[rstest]
