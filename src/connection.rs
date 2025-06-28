@@ -132,40 +132,62 @@ where
             biased;
 
             () = Self::wait_shutdown(self.shutdown.clone()), if !state.shutting_down => {
-                state.shutting_down = true;
-                self.start_shutdown(&mut state.resp_closed);
+                self.process_shutdown(state);
             }
 
             res = Self::recv_push(&mut self.queues.high_priority_rx), if !state.push.high => {
-                let processed = res.is_some();
-                self.handle_push(res, &mut state.push.high, out);
-                if processed {
-                    self.after_high(out, &mut state.push.low);
-                } else {
-                    self.reset_high_counter();
-                }
+                self.process_high(res, state, out);
             }
 
             res = Self::recv_push(&mut self.queues.low_priority_rx), if !state.push.low => {
-                let processed = res.is_some();
-                self.handle_push(res, &mut state.push.low, out);
-                if processed {
-                    self.after_low();
-                }
+                self.process_low(res, state, out);
             }
 
             res = Self::next_response(&mut self.response), if !state.shutting_down && !state.resp_closed => {
-                let processed = matches!(res, Some(Ok(_)));
-                self.handle_response(res, &mut state.resp_closed, out)?;
-                if processed {
-                    self.after_low();
-                }
-                if state.resp_closed {
-                    self.response = None;
-                }
+                self.process_response(res, state, out)?;
             }
         }
 
+        Ok(())
+    }
+
+    fn process_shutdown(&mut self, state: &mut ActorState) {
+        state.shutting_down = true;
+        self.start_shutdown(&mut state.resp_closed);
+    }
+
+    fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
+        let processed = res.is_some();
+        self.handle_push(res, &mut state.push.high, out);
+        if processed {
+            self.after_high(out, &mut state.push.low);
+        } else {
+            self.reset_high_counter();
+        }
+    }
+
+    fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
+        let processed = res.is_some();
+        self.handle_push(res, &mut state.push.low, out);
+        if processed {
+            self.after_low();
+        }
+    }
+
+    fn process_response(
+        &mut self,
+        res: Option<Result<F, WireframeError<E>>>,
+        state: &mut ActorState,
+        out: &mut Vec<F>,
+    ) -> Result<(), WireframeError<E>> {
+        let processed = matches!(res, Some(Ok(_)));
+        self.handle_response(res, &mut state.resp_closed, out)?;
+        if processed {
+            self.after_low();
+        }
+        if state.resp_closed {
+            self.response = None;
+        }
         Ok(())
     }
 
