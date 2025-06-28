@@ -34,11 +34,10 @@ async fn strict_priority_order(
     let (queues, handle) = queues;
     handle.push_low_priority(2).await.unwrap();
     handle.push_high_priority(1).await.unwrap();
-    drop(handle);
 
     let stream = stream::iter(vec![Ok(3u8)]);
     let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert_eq!(out, vec![1, 2, 3]);
@@ -60,9 +59,9 @@ async fn fairness_yields_low_after_burst(
         handle.push_high_priority(n).await.unwrap();
     }
     handle.push_low_priority(99).await.unwrap();
-    drop(handle);
 
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, shutdown_token);
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
@@ -76,9 +75,10 @@ async fn shutdown_signal_precedence(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    drop(handle);
     shutdown_token.cancel();
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, shutdown_token);
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, None, shutdown_token);
+    // drop the handle after actor creation to mimic early disconnection
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert!(out.is_empty());
@@ -92,11 +92,11 @@ async fn complete_draining_of_sources(
 ) {
     let (queues, handle) = queues;
     handle.push_high_priority(1).await.unwrap();
-    drop(handle);
 
     let stream = stream::iter(vec![Ok(2u8), Ok(3u8)]);
     let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+    // drop handle after actor setup
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert_eq!(out, vec![1, 2, 3]);
@@ -114,14 +114,13 @@ async fn error_propagation_from_stream(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    drop(handle);
     let stream = stream::iter(vec![
         Ok(1u8),
         Ok(2u8),
         Err(WireframeError::Protocol(TestError::Kaboom)),
     ]);
     let mut actor: ConnectionActor<_, TestError> =
-        ConnectionActor::new(queues, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     let result = actor.run(&mut out).await;
     assert!(matches!(
@@ -138,7 +137,6 @@ async fn interleaved_shutdown_during_stream(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    drop(handle);
     let token = shutdown_token.clone();
     tokio::spawn(async move {
         sleep(Duration::from_millis(50)).await;
@@ -154,7 +152,7 @@ async fn interleaved_shutdown_during_stream(
         }
     });
     let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert!(!out.is_empty() && out.len() < 5);
@@ -188,7 +186,6 @@ async fn before_send_hook_modifies_frames(
 ) {
     let (queues, handle) = queues;
     handle.push_high_priority(1).await.unwrap();
-    drop(handle);
 
     let stream = stream::iter(vec![Ok(2u8)]);
     let hooks = ProtocolHooks {
@@ -196,8 +193,13 @@ async fn before_send_hook_modifies_frames(
         ..ProtocolHooks::default()
     };
 
-    let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::with_hooks(queues, Some(Box::pin(stream)), shutdown_token, hooks);
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
+        queues,
+        handle,
+        Some(Box::pin(stream)),
+        shutdown_token,
+        hooks,
+    );
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert_eq!(out, vec![2, 3]);
@@ -210,7 +212,6 @@ async fn on_command_end_hook_runs(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    drop(handle);
     let stream = stream::iter(vec![Ok(1u8)]);
 
     let counter = Arc::new(AtomicUsize::new(0));
@@ -222,8 +223,13 @@ async fn on_command_end_hook_runs(
         ..ProtocolHooks::default()
     };
 
-    let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::with_hooks(queues, Some(Box::pin(stream)), shutdown_token, hooks);
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
+        queues,
+        handle,
+        Some(Box::pin(stream)),
+        shutdown_token,
+        hooks,
+    );
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert_eq!(counter.load(Ordering::SeqCst), 1);

@@ -54,12 +54,16 @@ async fn builder_produces_protocol_hooks() {
     let app = WireframeApp::new().unwrap().with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
 
+    let (queues, handle) = PushQueues::bounded(1, 1);
+    hooks.on_connection_setup(handle, &mut ConnectionContext);
+    drop(queues); // silence unused warnings
+
     let mut frame = vec![1u8];
     hooks.before_send(&mut frame, &mut ConnectionContext);
     hooks.on_command_end(&mut ConnectionContext);
 
     assert_eq!(frame, vec![1, 1]);
-    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
 }
 
 #[rstest]
@@ -74,10 +78,10 @@ async fn connection_actor_uses_protocol_from_builder() {
     let hooks = app.protocol_hooks();
     let (queues, handle) = PushQueues::bounded(8, 8);
     handle.push_high_priority(vec![1]).await.unwrap();
-    drop(handle);
     let stream = stream::iter(vec![Ok(vec![2u8])]);
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
         queues,
+        handle,
         Some(Box::pin(stream)),
         CancellationToken::new(),
         hooks,
@@ -86,5 +90,5 @@ async fn connection_actor_uses_protocol_from_builder() {
     actor.run(&mut out).await.unwrap();
 
     assert_eq!(out, vec![vec![1, 1], vec![2, 1]]);
-    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
 }

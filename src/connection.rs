@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     hooks::{ConnectionContext, ProtocolHooks},
-    push::{FrameLike, PushQueues},
+    push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
 };
 
@@ -48,9 +48,9 @@ impl Default for FairnessConfig {
 /// use tokio_util::sync::CancellationToken;
 /// use wireframe::{connection::ConnectionActor, push::PushQueues};
 ///
-/// let (queues, _handle) = PushQueues::<u8>::bounded(8, 8);
+/// let (queues, handle) = PushQueues::<u8>::bounded(8, 8);
 /// let shutdown = CancellationToken::new();
-/// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, shutdown);
+/// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
 /// # drop(actor);
 /// ```
 pub struct ConnectionActor<F, E> {
@@ -77,35 +77,39 @@ where
     /// use tokio_util::sync::CancellationToken;
     /// use wireframe::{connection::ConnectionActor, push::PushQueues};
     ///
-    /// let (queues, _handle) = PushQueues::<u8>::bounded(4, 4);
+    /// let (queues, handle) = PushQueues::<u8>::bounded(4, 4);
     /// let token = CancellationToken::new();
-    /// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, None, token);
+    /// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, token);
     /// # drop(actor);
     /// ```
     #[must_use]
     pub fn new(
         queues: PushQueues<F>,
+        handle: PushHandle<F>,
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
     ) -> Self {
-        Self::with_hooks(queues, response, shutdown, ProtocolHooks::default())
+        Self::with_hooks(queues, handle, response, shutdown, ProtocolHooks::default())
     }
 
     /// Create a new `ConnectionActor` with custom protocol hooks.
     #[must_use]
     pub fn with_hooks(
         queues: PushQueues<F>,
+        handle: PushHandle<F>,
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
-        hooks: ProtocolHooks<F>,
+        mut hooks: ProtocolHooks<F>,
     ) -> Self {
+        let mut ctx = ConnectionContext;
+        hooks.on_connection_setup(handle, &mut ctx);
         Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             response,
             shutdown,
             hooks,
-            ctx: ConnectionContext,
+            ctx,
             fairness: FairnessConfig::default(),
             high_counter: 0,
             high_start: None,

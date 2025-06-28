@@ -416,7 +416,7 @@ where
     pub fn protocol_hooks(&self) -> ProtocolHooks<Vec<u8>> {
         self.protocol
             .as_ref()
-            .map(|p| ProtocolHooks::from_protocol(Arc::clone(p)))
+            .map(|p| ProtocolHooks::from_protocol(&Arc::clone(p)))
             .unwrap_or_default()
     }
 

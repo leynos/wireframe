@@ -38,11 +38,17 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 /// Type alias for the `before_send` callback.
 type BeforeSendHook<F> = Box<dyn FnMut(&mut F, &mut ConnectionContext) + Send + 'static>;
 
+/// Type alias for the `on_connection_setup` callback.
+type OnConnectionSetupHook<F> =
+    Box<dyn FnOnce(PushHandle<F>, &mut ConnectionContext) + Send + 'static>;
+
 /// Type alias for the `on_command_end` callback.
 type OnCommandEndHook = Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>;
 
 /// Callbacks used by the connection actor.
 pub struct ProtocolHooks<F> {
+    /// Invoked when a connection is established.
+    pub on_connection_setup: Option<OnConnectionSetupHook<F>>,
     /// Invoked before a frame is written to the socket.
     pub before_send: Option<BeforeSendHook<F>>,
     /// Invoked once a command completes.
@@ -52,6 +58,7 @@ pub struct ProtocolHooks<F> {
 impl<F> Default for ProtocolHooks<F> {
     fn default() -> Self {
         Self {
+            on_connection_setup: None,
             before_send: None,
             on_command_end: None,
         }
@@ -59,6 +66,12 @@ impl<F> Default for ProtocolHooks<F> {
 }
 
 impl<F> ProtocolHooks<F> {
+    /// Run the `on_connection_setup` hook if registered.
+    pub fn on_connection_setup(&mut self, handle: PushHandle<F>, ctx: &mut ConnectionContext) {
+        if let Some(hook) = self.on_connection_setup.take() {
+            hook(handle, ctx);
+        }
+    }
     /// Run the `before_send` hook if registered.
     pub fn before_send(&mut self, frame: &mut F, ctx: &mut ConnectionContext) {
         if let Some(hook) = &mut self.before_send {
@@ -74,20 +87,27 @@ impl<F> ProtocolHooks<F> {
     }
 
     /// Construct hooks from a [`WireframeProtocol`] implementation.
-    pub fn from_protocol<P>(protocol: Arc<P>) -> Self
+    pub fn from_protocol<P>(protocol: &Arc<P>) -> Self
     where
         P: WireframeProtocol<Frame = F> + ?Sized,
     {
-        let protocol_before = Arc::clone(&protocol);
+        let protocol_before = Arc::clone(protocol);
         let before = Box::new(move |frame: &mut F, ctx: &mut ConnectionContext| {
             protocol_before.before_send(frame, ctx);
         }) as BeforeSendHook<F>;
 
+        let protocol_end = Arc::clone(protocol);
         let end = Box::new(move |ctx: &mut ConnectionContext| {
-            protocol.on_command_end(ctx);
+            protocol_end.on_command_end(ctx);
         }) as OnCommandEndHook;
 
+        let protocol_setup = Arc::clone(protocol);
+        let setup = Box::new(move |handle: PushHandle<F>, ctx: &mut ConnectionContext| {
+            protocol_setup.on_connection_setup(handle, ctx);
+        }) as OnConnectionSetupHook<F>;
+
         Self {
+            on_connection_setup: Some(setup),
             before_send: Some(before),
             on_command_end: Some(end),
         }
