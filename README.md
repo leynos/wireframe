@@ -133,16 +133,28 @@ let app = WireframeApp::new()?
 
 ## Connection Lifecycle
 
-`WireframeApp` can run callbacks when a connection is opened or closed. The
-state produced by `on_connection_setup` is passed to `on_connection_teardown`
-when the connection ends.
+Protocol callbacks are consolidated under the `WireframeProtocol` trait,
+replacing the individual `on_connection_setup`/`on_connection_teardown`
+closures. A protocol implementation registers hooks for connection setup, frame
+mutation and command completion.
 
 ```rust
-    let app = WireframeApp::new()
-        .on_connection_setup(|| async { 42u32 })
-        .on_connection_teardown(|state| async move {
-            println!("closing with {state}");
-        });
+pub trait WireframeProtocol: Send + Sync + 'static {
+    type Frame: FrameLike;
+    type ProtocolError;
+
+    fn on_connection_setup(
+        &self,
+        handle: PushHandle<Self::Frame>,
+        ctx: &mut ConnectionContext,
+    );
+
+    fn before_send(&self, frame: &mut Self::Frame, ctx: &mut ConnectionContext);
+
+    fn on_command_end(&self, ctx: &mut ConnectionContext);
+}
+
+let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 ```
 
 ## Custom Extractors
