@@ -45,6 +45,43 @@ async fn get_returns_none_after_drop(
     assert!(registry.get(&id).is_none());
 }
 
+/// Calling `get` should remove expired entries.
+#[rstest]
+#[tokio::test]
+async fn get_prunes_dead_handle(
+    registry: SessionRegistry<u8>,
+    #[from(push_setup)] setup: (PushQueues<u8>, PushHandle<u8>),
+) {
+    let (_queues, handle) = setup;
+    let id = ConnectionId::new(11);
+    registry.insert(id, &handle);
+    drop(handle);
+
+    assert!(registry.get(&id).is_none());
+    assert!(!registry.active_ids().contains(&id));
+}
+
+/// `active_handles` returns only live sessions.
+#[rstest]
+#[tokio::test]
+async fn active_handles_lists_live_connections(
+    registry: SessionRegistry<u8>,
+    #[from(push_setup)] setup1: (PushQueues<u8>, PushHandle<u8>),
+    #[from(push_setup)] setup2: (PushQueues<u8>, PushHandle<u8>),
+) {
+    let (_queues1, handle1) = setup1;
+    let (_queues2, handle2) = setup2;
+    let id1 = ConnectionId::new(21);
+    let id2 = ConnectionId::new(22);
+    registry.insert(id1, &handle1);
+    registry.insert(id2, &handle2);
+    drop(handle1);
+
+    let handles = registry.active_handles();
+    assert_eq!(handles.len(), 1);
+    assert_eq!(handles[0].0, id2);
+}
+
 /// Test that `prune` removes entries whose handles have been dropped.
 #[rstest]
 #[tokio::test]

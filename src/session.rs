@@ -41,10 +41,13 @@ pub struct SessionRegistry<F>(DashMap<ConnectionId, Weak<PushHandleInner<F>>>);
 impl<F: FrameLike> SessionRegistry<F> {
     /// Retrieve a `PushHandle` for `id` if the connection is still alive.
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
-        self.0
-            .get(id)
-            .and_then(|weak| weak.upgrade())
-            .map(PushHandle::from_arc)
+        let guard = self.0.get(id);
+        let handle = guard.as_ref().and_then(|weak| weak.upgrade());
+        drop(guard);
+        if handle.is_none() {
+            self.0.remove_if(id, |_, weak| weak.strong_count() == 0);
+        }
+        handle.map(PushHandle::from_arc)
     }
 
     /// Insert a handle for a newly established connection.
@@ -57,4 +60,36 @@ impl<F: FrameLike> SessionRegistry<F> {
 
     /// Drop entries whose connections have terminated.
     pub fn prune(&self) { self.0.retain(|_, weak| weak.strong_count() > 0); }
+
+    /// Return a list of all live connection IDs and their handles.
+    #[must_use]
+    pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
+        let mut stale = Vec::new();
+        let handles = self
+            .0
+            .iter()
+            .filter_map(|entry| {
+                let id = *entry.key();
+                if let Some(inner) = entry.value().upgrade() {
+                    Some((id, PushHandle::from_arc(inner)))
+                } else {
+                    stale.push(id);
+                    None
+                }
+            })
+            .collect();
+        for id in stale {
+            self.0.remove_if(&id, |_, weak| weak.strong_count() == 0);
+        }
+        handles
+    }
+
+    /// Return the IDs of all live connections.
+    #[must_use]
+    pub fn active_ids(&self) -> Vec<ConnectionId> {
+        self.active_handles()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect()
+    }
 }

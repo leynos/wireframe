@@ -409,13 +409,15 @@ pub struct SessionRegistry<F>(DashMap<ConnectionId, Weak<PushHandleInner<F>>>);
 
 impl<F> SessionRegistry<F> {
     /// Attempts to retrieve a live PushHandle for a given connection.
-    /// Returns None if the connection has been terminated.
+    /// Entries whose handles have been dropped are removed lazily.
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
-        self.0.get(id)
-            // Attempt to upgrade the Weak pointer to a strong Arc.
-           .and_then(|weak_ref| weak_ref.upgrade())
-            // If successful, wrap it in our public handle type.
-           .map(PushHandle)
+        let guard = self.0.get(id);
+        let handle = guard.as_ref().and_then(|w| w.upgrade());
+        drop(guard);
+        if handle.is_none() {
+            self.0.remove_if(id, |_, weak| weak.strong_count() == 0);
+        }
+        handle.map(PushHandle)
     }
 
     /// Inserts a new handle into the registry.
@@ -428,6 +430,17 @@ impl<F> SessionRegistry<F> {
     /// Removes a handle, typically called on connection teardown.
     pub fn remove(&self, id: &ConnectionId) {
         self.0.remove(id);
+    }
+
+    /// Returns all live session handles for broadcast or diagnostics.
+    pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
+        self.0
+            .iter()
+            .filter_map(|entry| {
+                let id = *entry.key();
+                entry.value().upgrade().map(|h| (id, PushHandle(h)))
+            })
+            .collect()
     }
 }
 ```
