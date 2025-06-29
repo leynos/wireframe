@@ -39,13 +39,13 @@ sections describe how to build that actor from first principles using the biased
 
 The implementation must satisfy the following core requirements:
 
-| ID  | Requirement                                                                                                                                            |
+| ID | Requirement |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| G1  | Any async task must be able to push frames to a live connection.                                                                                       |
-| G2  | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
-| G3  | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
-| G4  | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
-| G5  | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+| G1 | Any async task must be able to push frames to a live connection. |
+| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules. |
+| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption. |
+| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe. |
+| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users. |
 
 ## 3. Core Architecture: The Connection Actor
 
@@ -70,7 +70,7 @@ manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
    messages like heartbeats, session control notifications, or protocol-level
    pings.
 
-2. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
+1. `low_priority_push_rx: mpsc::Receiver<F>`: For standard, non-urgent
    background messages like log forwarding or secondary status updates.
 
 The bounded nature of these channels provides an inherent and robust
@@ -90,13 +90,13 @@ The polling order will be:
 1. **Graceful Shutdown Signal:** The `CancellationToken` will be checked first
    to ensure immediate reaction to a server-wide shutdown request.
 
-2. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
+1. **High-Priority Push Channel:** Messages from `high_priority_push_rx` will be
    drained next.
 
-3. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
+1. **Low-Priority Push Channel:** Messages from `low_priority_push_rx` will be
    processed after all high-priority messages.
 
-4. **Handler Response Stream:** Frames from the active request's
+1. **Handler Response Stream:** Frames from the active request's
    `Response::Stream` will be processed last.
 
 ```rust
@@ -445,6 +445,55 @@ impl<F> SessionRegistry<F> {
 }
 ```
 
+The diagram below summarises the data structures and how they interact when
+storing session handles. `SessionRegistry` maps `ConnectionId`s to weak
+references of `PushHandleInner<F>` so closed connections do not stay alive.
+
+```mermaid
+classDiagram
+    class ConnectionId {
+        +u64 value
+        +from(u64) ConnectionId
+    }
+    class PushHandleInner~F~ {
+        +high_prio_tx: mpsc::Sender<F>
+        +low_prio_tx: mpsc::Sender<F>
+    }
+    class PushHandle~F~ {
+        +from_arc(arc: Arc<PushHandleInner<F>>) PushHandle<F>
+        +downgrade() Weak<PushHandleInner<F>>
+        +push(frame: F)
+        +try_push(frame: F)
+    }
+    class SessionRegistry~F~ {
+        +get(id: &ConnectionId) Option<PushHandle<F>>
+        +insert(id: ConnectionId, handle: &PushHandle<F>)
+        +remove(id: &ConnectionId)
+        +prune()
+    }
+    SessionRegistry~F~ --> "*" ConnectionId : uses as key
+    SessionRegistry~F~ --> "*" PushHandleInner~F~ : stores Weak refs
+    PushHandle~F~ --> PushHandleInner~F~ : wraps Arc
+    PushHandle~F~ ..> SessionRegistry~F~ : used in insert/get
+```
+
+```mermaid
+sequenceDiagram
+    participant Task as Background Task
+    participant Registry as SessionRegistry
+    participant Conn as Connection (PushHandle)
+    participant Queue as Frame Queue
+
+    Task->>Registry: get(ConnectionId)
+    alt If handle exists and alive
+        Registry-->>Task: PushHandle
+        Task->>Conn: push(frame)
+        Conn->>Queue: enqueue(frame)
+    else If handle missing or dropped
+        Registry-->>Task: None
+    end
+```
+
 ### 4.3 Configuration via the `WireframeProtocol` Trait
 
 To provide a clean, organised, and extensible configuration API, all
@@ -635,11 +684,11 @@ sequenceDiagram
 
 ## 8. Measurable Objectives & Success Criteria
 
-| Category        | Objective                                                                                                           | Success Metric                                                                                                                                                                              |
+| Category | Objective | Success Metric |
 | --------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API Correctness | The PushHandle, SessionRegistry, and WireframeProtocol trait are implemented exactly as specified in this document. | 100% of the public API surface is present and correctly typed.                                                                                                                              |
-| Functionality   | Pushed frames are delivered reliably and in the correct order of priority.                                          | A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order. |
-| Back-pressure   | A slow consumer must cause producer tasks to suspend without consuming unbounded memory.                            | A test with a slow consumer and a fast producer must show the producer's push().await call blocks, and the process memory usage remains stable.                                             |
-| Resilience      | The SessionRegistry must not leak memory when connections are terminated.                                           | A long-running test that creates and destroys thousands of connections must show no corresponding growth in the SessionRegistry's size or the process's overall memory footprint.           |
-| Performance     | The overhead of the push mechanism should be minimal for connections that do not use it.                            | A benchmark of a simple request-response workload with the push feature enabled (but unused) should show < 2% performance degradation compared to a build without the feature.              |
-| Performance     | The latency for a high-priority push under no contention should be negligible.                                      | The time from push_high_priority().await returning to the frame being written to the socket buffer should be < 10µs.                                                                        |
+| API Correctness | The PushHandle, SessionRegistry, and WireframeProtocol trait are implemented exactly as specified in this document. | 100% of the public API surface is present and correctly typed. |
+| Functionality | Pushed frames are delivered reliably and in the correct order of priority. | A test with concurrent high-priority, low-priority, and streaming producers must show that all frames are delivered and that the final written sequence respects the strict priority order. |
+| Back-pressure | A slow consumer must cause producer tasks to suspend without consuming unbounded memory. | A test with a slow consumer and a fast producer must show the producer's push().await call blocks, and the process memory usage remains stable. |
+| Resilience | The SessionRegistry must not leak memory when connections are terminated. | A long-running test that creates and destroys thousands of connections must show no corresponding growth in the SessionRegistry's size or the process's overall memory footprint. |
+| Performance | The overhead of the push mechanism should be minimal for connections that do not use it. | A benchmark of a simple request-response workload with the push feature enabled (but unused) should show < 2% performance degradation compared to a build without the feature. |
+| Performance | The latency for a high-priority push under no contention should be negligible. | The time from push_high_priority().await returning to the frame being written to the socket buffer should be < 10µs. |
