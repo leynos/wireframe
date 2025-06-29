@@ -185,6 +185,30 @@ impl WireframeProtocol for MySqlProtocolImpl {
 let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 ```
 
+## Session Registry
+
+The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for active
+connections. Background tasks can look up a handle by \[`ConnectionId`\] to send
+frames asynchronously without keeping the connection alive. Stale entries are
+removed automatically when looked up and found to be dead. Call
+`active_handles()` to iterate over live sessions for broadcast or diagnostics.
+
+```rust
+use wireframe::{
+    session::{ConnectionId, SessionRegistry},
+    push::PushHandle,
+    ConnectionContext,
+};
+
+let registry: SessionRegistry<MyFrame> = SessionRegistry::default();
+
+// inside a `WireframeProtocol` implementation
+fn on_connection_setup(&self, handle: PushHandle<MyFrame>, _ctx: &mut ConnectionContext) {
+    let id = ConnectionId::new(42);
+    registry.insert(id, &handle);
+}
+```
+
 ## Custom Extractors
 
 Extractors are types that implement `FromMessageRequest`. When a handler lists

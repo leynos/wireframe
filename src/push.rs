@@ -6,7 +6,7 @@
 //! [`PushHandle`]. Queued frames are delivered in FIFO order within each
 //! priority level.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use tokio::sync::mpsc;
 
@@ -45,7 +45,7 @@ pub enum PushError {
     Closed,
 }
 
-struct PushHandleInner<F> {
+pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
 }
@@ -55,6 +55,7 @@ struct PushHandleInner<F> {
 pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 impl<F: FrameLike> PushHandle<F> {
+    pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
     /// Push a high-priority frame.
     ///
     /// Awaits if the queue is full.
@@ -116,6 +117,9 @@ impl<F: FrameLike> PushHandle<F> {
             Err(mpsc::error::TrySendError::Closed(_)) => Err(PushError::Closed),
         }
     }
+
+    /// Downgrade to a `Weak` reference for storage in a registry.
+    pub(crate) fn downgrade(&self) -> Weak<PushHandleInner<F>> { Arc::downgrade(&self.0) }
 }
 
 /// Receiver ends of the push queues stored by the connection actor.

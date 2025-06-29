@@ -26,7 +26,7 @@ design documents.
   callbacks ([Roadmap #2.1][roadmap-2-1], [Design §4.3][design-hooks]).
 - [x] **Public `PushHandle` API** with `push` and `try_push` methods
   ([Design §4.1][design-push-handle]).
-- [ ] **Leak-proof `SessionRegistry`** using `dashmap::DashMap` and `Weak`
+- [x] **Leak-proof `SessionRegistry`** using `dashmap::DashMap` and `Weak`
   pointers ([Design §4.2][design-registry],
   [Resilience Guide §3.2][resilience-registry]).
 - [ ] **Document `async-stream`** for creating `Response::Stream` values
