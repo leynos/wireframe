@@ -135,8 +135,11 @@ let app = WireframeApp::new()?
 
 Protocol callbacks are consolidated under the `WireframeProtocol` trait,
 replacing the individual `on_connection_setup`/`on_connection_teardown`
-closures. A protocol implementation registers hooks for connection setup, frame
-mutation and command completion.
+closures. The trait methods are synchronous so the trait remains object safe,
+but callbacks can spawn asynchronous tasks when needed. A protocol
+implementation registers hooks for connection setup, frame mutation and command
+completion. The associated `ProtocolError` type is used by other parts of the
+API, such as request handling.
 
 ```rust
 pub trait WireframeProtocol: Send + Sync + 'static {
@@ -152,6 +155,28 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     fn before_send(&self, frame: &mut Self::Frame, ctx: &mut ConnectionContext);
 
     fn on_command_end(&self, ctx: &mut ConnectionContext);
+}
+
+struct MySqlProtocolImpl;
+
+impl WireframeProtocol for MySqlProtocolImpl {
+    type Frame = Vec<u8>;
+    type ProtocolError = ();
+
+    fn on_connection_setup(
+        &self,
+        handle: PushHandle<Self::Frame>,
+        _ctx: &mut ConnectionContext,
+    ) {
+        // Spawn an async task to send a heartbeat after setup
+        tokio::spawn(async move {
+            let _ = handle.push_high_priority(b"ping".to_vec()).await;
+        });
+    }
+
+    fn before_send(&self, _frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {}
+
+    fn on_command_end(&self, _ctx: &mut ConnectionContext) {}
 }
 
 let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
