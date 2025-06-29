@@ -162,7 +162,7 @@ let registry: SessionRegistry<MyFrame> = SessionRegistry::default();
 
 // inside a `WireframeProtocol` implementation
 fn on_connection_setup(&self, handle: PushHandle<MyFrame>, _ctx: &mut ConnectionContext) {
-    let id = ConnectionId::from(42);
+    let id = ConnectionId::new(42);
     registry.insert(id, &handle);
 }
 ```

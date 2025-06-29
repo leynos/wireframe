@@ -18,6 +18,22 @@ impl From<u64> for ConnectionId {
     fn from(value: u64) -> Self { Self(value) }
 }
 
+impl ConnectionId {
+    /// Create a new [`ConnectionId`] with the provided value.
+    #[must_use]
+    pub fn new(id: u64) -> Self { Self(id) }
+
+    /// Return the inner `u64` representation.
+    #[must_use]
+    pub fn as_u64(&self) -> u64 { self.0 }
+}
+
+impl std::fmt::Display for ConnectionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ConnectionId({})", self.0)
+    }
+}
+
 /// Concurrent registry of push handles keyed by [`ConnectionId`].
 #[derive(Default)]
 pub struct SessionRegistry<F>(DashMap<ConnectionId, Weak<PushHandleInner<F>>>);
