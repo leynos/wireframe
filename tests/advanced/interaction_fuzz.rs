@@ -16,6 +16,46 @@ enum Action {
     Stream(Vec<u8>),
 }
 
+async fn run_actions(actions: &[Action]) -> Vec<u8> {
+    let (queues, handle) = PushQueues::bounded(16, 16);
+    let shutdown = CancellationToken::new();
+
+    let mut stream: Option<FrameStream<u8, ()>> = None;
+    for act in actions {
+        match act {
+            Action::High(f) => handle.push_high_priority(*f).await.unwrap(),
+            Action::Low(f) => handle.push_low_priority(*f).await.unwrap(),
+            Action::Stream(frames) => {
+                let s = stream::iter(frames.clone().into_iter().map(Ok));
+                stream = Some(Box::pin(s));
+            }
+        }
+    }
+
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, stream, shutdown);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    out
+}
+
+fn expected_from(actions: &[Action]) -> Vec<u8> {
+    let mut high = Vec::new();
+    let mut low = Vec::new();
+    let mut stream = Vec::new();
+    for act in actions {
+        match act {
+            Action::High(f) => high.push(*f),
+            Action::Low(f) => low.push(*f),
+            Action::Stream(v) => stream = v.clone(),
+        }
+    }
+    let mut expected = high;
+    expected.extend(low);
+    expected.extend(stream);
+    expected
+}
+
 prop_compose! {
     fn actions_strategy()
         (
@@ -42,42 +82,31 @@ proptest! {
             .unwrap();
 
         rt.block_on(async {
-            let (queues, handle) = PushQueues::bounded(16, 16);
-            let shutdown = CancellationToken::new();
-
-            let mut stream: Option<FrameStream<u8, ()>> = None;
-            for act in &actions {
-                match act {
-                    Action::High(f) => handle.push_high_priority(*f).await.unwrap(),
-                    Action::Low(f) => handle.push_low_priority(*f).await.unwrap(),
-                    Action::Stream(frames) => {
-                        let s = stream::iter(frames.clone().into_iter().map(Ok));
-                        stream = Some(Box::pin(s));
-                    }
-                }
-            }
-
-            let mut actor: ConnectionActor<_, ()> =
-                ConnectionActor::new(queues, handle, stream, shutdown);
-            let mut out = Vec::new();
-            actor.run(&mut out).await.unwrap();
-
-            let mut expected_high = Vec::new();
-            let mut expected_low = Vec::new();
-            let mut expected_stream = Vec::new();
-            for act in actions {
-                match act {
-                    Action::High(f) => expected_high.push(f),
-                    Action::Low(f) => expected_low.push(f),
-                    Action::Stream(v) => expected_stream = v,
-                }
-            }
-            let mut expected = expected_high;
-            expected.extend(expected_low);
-            expected.extend(expected_stream);
-
+            let out = run_actions(&actions).await;
+            let expected = expected_from(&actions);
             prop_assert_eq!(out, expected);
         });
     }
+}
+
+#[tokio::test]
+async fn test_empty_actions_vector() {
+    let actions: Vec<Action> = Vec::new();
+    let out = run_actions(&actions).await;
+    let expected = expected_from(&actions);
+    assert_eq!(out, expected);
+}
+
+#[tokio::test]
+async fn test_maximal_actions_vector() {
+    let mut actions = Vec::new();
+    for n in 0u8..5 { actions.push(Action::High(n)); }
+    for n in 5u8..10 { actions.push(Action::Low(n)); }
+    let stream_frames = (10u8..15).collect::<Vec<_>>();
+    actions.push(Action::Stream(stream_frames));
+
+    let out = run_actions(&actions).await;
+    let expected = expected_from(&actions);
+    assert_eq!(out, expected);
 }
 
