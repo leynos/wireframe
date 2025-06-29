@@ -179,6 +179,9 @@ impl WireframeProtocol for MySqlProtocolImpl {
     fn on_command_end(&self, _ctx: &mut ConnectionContext) {}
 }
 
+```
+
+```rust
 let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 ```
 
