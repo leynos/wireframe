@@ -38,11 +38,10 @@ The implementation must satisfy the following core requirements:
 ## 3. Core Architecture: Declarative Streaming
 
 The cornerstone of this design is a move to a purely **declarative streaming
-model**. Instead of providing handlers with an imperative `FrameSink` to push
-frames into, handlers will declaratively return a description of the entire
-response. This approach significantly simplifies the API surface, improves
-testability, and eliminates a class of resource management issues associated
-with sink-based designs.
+model**. Handlers declaratively return a description of the entire response.
+This approach significantly simplifies the API surface, improves testability,
+and eliminates a class of resource management issues associated with sink-based
+designs.
 
 ### 3.1 The Connection Actor's Role
 
@@ -61,12 +60,12 @@ explicit channel management.
 ### 3.2 The `async-stream` Crate
 
 To provide an ergonomic way for developers to generate streams using
-imperative-style logic (e.g., inside a `for` loop), `wireframe` will adopt and
-recommend the `async-stream` crate. This crate provides macros (`stream!` and
+imperative-style logic (e.g., inside a `for` loop), `wireframe` adopts and
+recommends the `async-stream` crate. This crate provides macros (`stream!` and
 `try_stream!`) that transform imperative `yield` statements into a fully
-compliant `Stream` object. This gives developers the best of both worlds: the
-intuitive feel of imperative code generation without the API complexity of a
-separate `FrameSink` type.
+compliant `Stream` object. This gives developers the intuitive feel of
+imperative code generation with minimal API complexity. The library recommends
+this pattern as the canonical way to build `Response::Stream` values.
 
 ## 4. Public API Surface
 
@@ -252,7 +251,7 @@ hang.
 | Category        | Objective                                                                                                                                        | Success Metric                                                                                                                                             |
 | API Correctness | The Response enum and FrameStream type alias are implemented exactly as specified in this document.                                              | 100% of the public API surface is present and correctly typed.                                                                                             |
 | Functionality   | A handler returning a stream of N frames results in N frames being written to the socket in the correct order.                                   | A test suite confirms 100% frame delivery and strict ordering for Response::Vec and Response::Stream.                                                      |
-| Ergonomics      | The async-stream pattern is documented as the canonical approach for dynamic stream generation and is demonstrably simpler than a FrameSink API. | The official examples and documentation exclusively use the declarative Response model.                                                                    |
+| Ergonomics      | The async-stream pattern is documented as the canonical approach for dynamic stream generation.                                                  | The official examples and documentation exclusively use the declarative Response model.                                                                    |
 | Performance     | The Response::Vec variant has measurably lower allocation and dispatch overhead than Response::Stream for small, fixed-size responses.           | A criterion benchmark confirms that Response::Vec is at least 50% faster and performs fewer allocations than Response::Stream for a response of 10 frames. |
 | Error Handling  | A WireframeError::Protocol error yielded from a stream correctly triggers the handle_error protocol callback without terminating the connection. | An integration test confirms that a protocol-level error is correctly formatted and sent to the client, while the connection remains open.                 |
 

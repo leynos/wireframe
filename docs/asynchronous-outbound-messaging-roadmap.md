@@ -29,8 +29,10 @@ design documents.
 - [x] **Leak-proof `SessionRegistry`** using `dashmap::DashMap` and `Weak`
   pointers ([Design §4.2][design-registry],
   [Resilience Guide §3.2][resilience-registry]).
-- [ ] **Document `async-stream`** for creating `Response::Stream` values
+- [x] **Document `async-stream`** for creating `Response::Stream` values
   ([Roadmap #2.4][roadmap-2-4]).
+- [ ] **Example handler using `async-stream`** demonstrating `Response::Stream`
+  generation in the examples directory.
 - [ ] **Tests covering streams and push delivery** drawing on
   [Testing Guide §4][testing-guide-advanced].
 

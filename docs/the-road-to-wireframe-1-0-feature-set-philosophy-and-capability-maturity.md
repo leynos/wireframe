@@ -40,10 +40,9 @@ server-initiated pushes and streaming responses.
 
 #### The Unified `Response` Enum and Declarative Handler Model
 
-To provide a clean, unified API, the handler return type will evolve. The
-imperative `FrameSink` model, which required a separate handler signature and
-introduced resource management complexities, will be replaced by a more
-ergonomic, declarative approach. 1 Handlers will return an enhanced
+To provide a clean, unified API, the handler return type will evolve. A more
+ergonomic, declarative approach replaces the previous imperative model. 1
+Handlers will return an enhanced
 
 `Response` enum, giving developers clear and efficient ways to express their
 intent.
@@ -64,11 +63,11 @@ pub enum Response<F = Frame, E = MyProtocolError> {
 ```
 
 This design is powered by the `async-stream` crate, which allows developers to
-write imperative-looking logic that generates a declarative `Stream` object.
-This provides the best of both worlds: the intuitive feel of a
-
-`for` loop for generating frames, without the API complexity of a separate
-`Sink` type.
+write imperative-looking logic that generates a declarative `Stream` object. It
+provides the best of both worlds: the intuitive feel of a `for` loop for
+generating frames with minimal API complexity. The project recommends
+`async-stream` as the canonical method for constructing `Response::Stream`
+values.
 
 Rust
 
