@@ -35,7 +35,7 @@ all public-facing features will be built.*
 and idiomatic API. This phase is about making the powerful new mechanics usable
 and intuitive.*
 
-| Item | Name                              | Details                                                                                                                                                                                                         | Size   | Depends          |
+| Item | Name                              | Details                                                                                                                                                                                                         | Size   | Depends on       |
 | ---- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
 | 2.1  | WireframeProtocol Trait & Builder | Define the cohesive `WireframeProtocol` trait to encapsulate all protocol-specific logic. Refactor the `WireframeApp` builder to use a fluent `.with_protocol(MyProtocol)` method instead of multiple closures. | Medium | #1.6             |
 | 2.2  | Public PushHandle API             | Implement the public `PushHandle<F>` struct with its `push`, `try_push` and policy-based `push_with_policy` methods. This handle interacts with the dual-channel system from #1.2.                              | Medium | #1.2             |
