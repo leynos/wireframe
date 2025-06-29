@@ -145,6 +145,28 @@ when the connection ends.
         });
 ```
 
+## Session Registry
+
+The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for active
+connections. Background tasks can look up a handle by \[`ConnectionId`\] to send
+frames asynchronously without keeping the connection alive.
+
+```rust
+use wireframe::{
+    session::{ConnectionId, SessionRegistry},
+    push::PushHandle,
+    ConnectionContext,
+};
+
+let registry: SessionRegistry<MyFrame> = SessionRegistry::default();
+
+// inside a `WireframeProtocol` implementation
+fn on_connection_setup(&self, handle: PushHandle<MyFrame>, _ctx: &mut ConnectionContext) {
+    let id = ConnectionId::from(42);
+    registry.insert(id, &handle);
+}
+```
+
 ## Custom Extractors
 
 Extractors are types that implement `FromMessageRequest`. When a handler lists
