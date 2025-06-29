@@ -50,7 +50,7 @@ and intuitive.*
 operation in a production environment. This phase moves the library from
 "functional" to "resilient".*
 
-| Item | Name                           | Details                                                                                                                                                                                              | Size   | Depends |
+| Item | Name                           | Details                                                                                                                                                                                              | Size   | Depends on |
 | ---- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------- |
 | 3.1  | Graceful Shutdown              | Implement the server-wide graceful shutdown pattern. Use `tokio_util::sync::CancellationToken` for signalling and `tokio_util::task::TaskTracker` to ensure all connection actors terminate cleanly. | Large  | #1.3    |
 | 3.2  | Re-assembly DoS Protection     | Harden the `FragmentAdapter` by adding a non-optional, configurable timeout for partial message re-assembly and strictly enforcing the `max_message_size` limit to prevent memory exhaustion.        | Medium | #1.5    |
