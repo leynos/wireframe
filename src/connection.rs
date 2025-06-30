@@ -172,23 +172,11 @@ where
                 self.process_shutdown(state);
             }
 
-            res = async {
-                Self::recv_push(
-                    self.high_rx
-                        .as_mut()
-                        .expect("high_rx should be Some when high_available is true")
-                ).await
-            }, if high_available => {
+            res = Self::poll_high(self.high_rx.as_mut()), if high_available => {
                 self.process_high(res, state, out);
             }
 
-            res = async {
-                Self::recv_push(
-                    self.low_rx
-                        .as_mut()
-                        .expect("low_rx should be Some when low_available is true")
-                ).await
-            }, if low_available => {
+            res = Self::poll_low(self.low_rx.as_mut()), if low_available => {
                 self.process_low(res, state, out);
             }
 
@@ -197,7 +185,7 @@ where
             // `resp_available` false on the next loop iteration. The explicit
             // `!state.is_shutting_down()` check avoids polling the stream after
             // shutdown has begun.
-            res = Self::next_response(&mut self.response), if resp_available && !state.is_shutting_down() => {
+            res = Self::poll_response(self.response.as_mut()), if resp_available && !state.is_shutting_down() => {
                 self.process_response(res, state, out)?;
             }
         }
@@ -344,15 +332,45 @@ where
     #[inline]
     async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
-    /// Poll the current streaming response for the next frame.
-    #[inline]
-    async fn next_response(
-        stream: &mut Option<FrameStream<F, E>>,
-    ) -> Option<Result<F, WireframeError<E>>> {
-        if let Some(s) = stream {
-            s.next().await
-        } else {
-            None
+    /// Future for polling the high-priority queue if present.
+    #[allow(clippy::manual_async_fn)]
+    fn poll_high(
+        rx: Option<&mut mpsc::Receiver<F>>,
+    ) -> impl std::future::Future<Output = Option<F>> + '_ {
+        async move {
+            if let Some(rx) = rx {
+                Self::recv_push(rx).await
+            } else {
+                None
+            }
+        }
+    }
+
+    /// Future for polling the low-priority queue if present.
+    #[allow(clippy::manual_async_fn)]
+    fn poll_low(
+        rx: Option<&mut mpsc::Receiver<F>>,
+    ) -> impl std::future::Future<Output = Option<F>> + '_ {
+        async move {
+            if let Some(rx) = rx {
+                Self::recv_push(rx).await
+            } else {
+                None
+            }
+        }
+    }
+
+    /// Future for polling the response stream if present.
+    #[allow(clippy::manual_async_fn)]
+    fn poll_response(
+        stream: Option<&mut FrameStream<F, E>>,
+    ) -> impl std::future::Future<Output = Option<Result<F, WireframeError<E>>>> + '_ {
+        async move {
+            if let Some(s) = stream {
+                s.next().await
+            } else {
+                None
+            }
         }
     }
 }
