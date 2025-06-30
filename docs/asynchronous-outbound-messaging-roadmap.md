@@ -33,7 +33,7 @@ design documents.
   ([Roadmap #2.4][roadmap-2-4]).
 - [ ] **Example handler using `async-stream`** demonstrating `Response::Stream`
   generation in the examples directory.
-- [ ] **Tests covering streams and push delivery** drawing on
+- [x] **Tests covering streams and push delivery** drawing on
   [Testing Guide §4][testing-guide-advanced].
 
 ## 3. Production Hardening
