@@ -2,6 +2,7 @@
 
 use futures::stream;
 use proptest::prelude::*;
+use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::ConnectionActor,
@@ -89,22 +90,18 @@ proptest! {
     }
 }
 
-#[tokio::test]
-async fn test_empty_actions_vector() {
-    let actions: Vec<Action> = Vec::new();
-    let out = run_actions(&actions).await;
-    let expected = expected_from(&actions);
-    assert_eq!(out, expected);
-}
-
-#[tokio::test]
-async fn test_maximal_actions_vector() {
+#[rstest]
+#[case::empty(Vec::new())]
+#[case::maximal({
     let mut actions = Vec::new();
     for n in 0u8..5 { actions.push(Action::High(n)); }
     for n in 5u8..10 { actions.push(Action::Low(n)); }
     let stream_frames = (10u8..15).collect::<Vec<_>>();
     actions.push(Action::Stream(stream_frames));
-
+    actions
+})]
+#[tokio::test]
+async fn test_boundary_cases(#[case] actions: Vec<Action>) {
     let out = run_actions(&actions).await;
     let expected = expected_from(&actions);
     assert_eq!(out, expected);
