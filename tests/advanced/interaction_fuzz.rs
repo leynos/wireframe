@@ -1,4 +1,9 @@
 #![cfg(feature = "advanced-tests")]
+//! Advanced property-based fuzzing tests for push and stream handling.
+//!
+//! This module provides comprehensive fuzzing tests using proptest to verify
+//! the correctness of push queue priorities and stream frame handling in
+//! various randomised scenarios.
 
 use futures::stream;
 use proptest::prelude::*;
@@ -24,8 +29,14 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
     let mut stream: Option<FrameStream<u8, ()>> = None;
     for act in actions {
         match act {
-            Action::High(f) => handle.push_high_priority(*f).await.unwrap(),
-            Action::Low(f) => handle.push_low_priority(*f).await.unwrap(),
+            Action::High(f) => handle
+                .push_high_priority(*f)
+                .await
+                .expect("failed to push high priority frame"),
+            Action::Low(f) => handle
+                .push_low_priority(*f)
+                .await
+                .expect("failed to push low priority frame"),
             Action::Stream(frames) => {
                 let s = stream::iter(frames.clone().into_iter().map(Ok));
                 stream = Some(Box::pin(s));
@@ -36,7 +47,10 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, stream, shutdown);
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor
+        .run(&mut out)
+        .await
+        .expect("connection actor failed to run");
     out
 }
 
@@ -80,7 +94,7 @@ proptest! {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+            .expect("failed to build tokio runtime");
 
         rt.block_on(async {
             let out = run_actions(&actions).await;
