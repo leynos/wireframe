@@ -172,11 +172,11 @@ where
                 self.process_shutdown(state);
             }
 
-            res = Self::poll_high(self.high_rx.as_mut()), if high_available => {
+            res = Self::poll_receiver(self.high_rx.as_mut()), if high_available => {
                 self.process_high(res, state, out);
             }
 
-            res = Self::poll_low(self.low_rx.as_mut()), if low_available => {
+            res = Self::poll_receiver(self.low_rx.as_mut()), if low_available => {
                 self.process_low(res, state, out);
             }
 
@@ -201,27 +201,36 @@ where
 
     /// Handle the result of polling the high-priority queue.
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        if let Some(mut frame) = res {
-            self.hooks.before_send(&mut frame, &mut self.ctx);
-            out.push(frame);
+        if let Some(frame) = res {
+            self.process_frame_common(frame, out);
             self.after_high(out, state);
         } else {
-            self.high_rx = None;
-            state.mark_closed();
+            Self::handle_closed_receiver(&mut self.high_rx, state);
             self.reset_high_counter();
         }
     }
 
     /// Handle the result of polling the low-priority queue.
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        if let Some(mut frame) = res {
-            self.hooks.before_send(&mut frame, &mut self.ctx);
-            out.push(frame);
+        if let Some(frame) = res {
+            self.process_frame_common(frame, out);
             self.after_low();
         } else {
-            self.low_rx = None;
-            state.mark_closed();
+            Self::handle_closed_receiver(&mut self.low_rx, state);
         }
+    }
+
+    /// Common logic for processing frames from push queues.
+    fn process_frame_common(&mut self, frame: F, out: &mut Vec<F>) {
+        let mut frame = frame;
+        self.hooks.before_send(&mut frame, &mut self.ctx);
+        out.push(frame);
+    }
+
+    /// Common logic for handling closed receivers.
+    fn handle_closed_receiver(receiver: &mut Option<mpsc::Receiver<F>>, state: &mut ActorState) {
+        *receiver = None;
+        state.mark_closed();
     }
 
     /// Handle the next frame or error from the streaming response.
@@ -332,23 +341,12 @@ where
     #[inline]
     async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
-    /// Future for polling the high-priority queue if present.
-    #[allow(clippy::manual_async_fn)]
-    fn poll_high(
-        rx: Option<&mut mpsc::Receiver<F>>,
-    ) -> impl std::future::Future<Output = Option<F>> + '_ {
-        async move {
-            if let Some(rx) = rx {
-                Self::recv_push(rx).await
-            } else {
-                None
-            }
-        }
-    }
-
-    /// Future for polling the low-priority queue if present.
-    #[allow(clippy::manual_async_fn)]
-    fn poll_low(
+    /// Future for polling a push queue receiver if present.
+    #[expect(
+        clippy::manual_async_fn,
+        reason = "Generic lifetime requires explicit async move"
+    )]
+    fn poll_receiver(
         rx: Option<&mut mpsc::Receiver<F>>,
     ) -> impl std::future::Future<Output = Option<F>> + '_ {
         async move {
@@ -361,7 +359,10 @@ where
     }
 
     /// Future for polling the response stream if present.
-    #[allow(clippy::manual_async_fn)]
+    #[expect(
+        clippy::manual_async_fn,
+        reason = "Generic lifetime requires explicit async move"
+    )]
     fn poll_response(
         stream: Option<&mut FrameStream<F, E>>,
     ) -> impl std::future::Future<Output = Option<Result<F, WireframeError<E>>>> + '_ {
