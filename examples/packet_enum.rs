@@ -1,3 +1,8 @@
+//! Example demonstrating enumerated packet types with middleware routing.
+//!
+//! The application defines an enum representing different packet variants and
+//! shows how to dispatch handlers based on the variant received.
+
 use std::{collections::HashMap, future::Future, io, pin::Pin};
 
 use async_trait::async_trait;

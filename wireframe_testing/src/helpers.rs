@@ -1,3 +1,8 @@
+//! Helper utilities for driving `WireframeApp` instances in tests.
+//!
+//! These functions spin up an application on an in-memory duplex stream and
+//! collect the bytes written back by the app for assertions.
+
 use bincode::config;
 use bytes::BytesMut;
 use rstest::fixture;

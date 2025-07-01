@@ -1,3 +1,8 @@
+//! Ping/pong example exchanging typed request and response packets.
+//!
+//! Demonstrates custom packet structs and middleware that maps `Ping` to
+//! `Pong` responses.
+
 use std::{io, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;

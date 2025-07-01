@@ -1,3 +1,8 @@
+//! Minimal echo server example using `WireframeApp`.
+//!
+//! The application listens for incoming frames and simply echoes each
+//! envelope back to the client.
+
 use std::io;
 
 use wireframe::{app::WireframeApp, server::WireframeServer};
