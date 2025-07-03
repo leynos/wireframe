@@ -37,11 +37,11 @@ use futures::stream::Stream;
 ///
 /// Each yielded item is a `Result` containing either a frame `F` or a
 /// [`WireframeError`] describing why the stream failed.
-pub type FrameStream<F, E> =
+pub type FrameStream<F, E = ()> =
     Pin<Box<dyn Stream<Item = Result<F, WireframeError<E>>> + Send + 'static>>;
 
 /// Represents the full response to a request.
-pub enum Response<F, E> {
+pub enum Response<F, E = ()> {
     /// A single frame reply.
     Single(F),
     /// An optimised list of frames.
@@ -73,7 +73,7 @@ impl<F, E> From<Vec<F>> for Response<F, E> {
 
 /// A generic error type for wireframe operations.
 #[derive(Debug)]
-pub enum WireframeError<E> {
+pub enum WireframeError<E = ()> {
     /// An error in the underlying transport (e.g., socket closed).
     Io(std::io::Error),
     /// A protocol-defined logical error.

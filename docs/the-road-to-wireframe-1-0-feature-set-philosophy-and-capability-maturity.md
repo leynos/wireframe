@@ -42,10 +42,8 @@ server-initiated pushes and streaming responses.
 
 To provide a clean, unified API, the handler return type will evolve. A more
 ergonomic, declarative approach replaces the previous imperative model. Handlers
-will return an enhanced
-
-`Response` enum, giving developers clear and efficient ways to express their
-intent.
+will return an enhanced `Response` enum, giving developers clear and efficient
+ways to express their intent.
 
 Rust
 

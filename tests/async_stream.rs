@@ -12,7 +12,7 @@ use wireframe::{
     response::{FrameStream, WireframeError},
 };
 
-fn frame_stream() -> impl futures::Stream<Item = Result<u8, WireframeError<()>>> {
+fn frame_stream() -> impl futures::Stream<Item = Result<u8, WireframeError>> {
     try_stream! {
         for n in 0u8..3 {
             yield n;
@@ -25,7 +25,7 @@ fn frame_stream() -> impl futures::Stream<Item = Result<u8, WireframeError<()>>>
 async fn async_stream_frames_processed_in_order() {
     let (queues, handle) = PushQueues::<u8>::bounded(8, 8);
     let shutdown = CancellationToken::new();
-    let stream: FrameStream<u8, ()> = Box::pin(frame_stream());
+    let stream: FrameStream<u8> = Box::pin(frame_stream());
 
     let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
     let mut out = Vec::new();

@@ -11,7 +11,7 @@ use wireframe::response::Response;
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
 struct Frame(u32);
 
-fn stream_response() -> Response<Frame, ()> {
+fn stream_response() -> Response<Frame> {
     let frames = try_stream! {
         for n in 0..5u32 {
             yield Frame(n);
