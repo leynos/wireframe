@@ -41,8 +41,8 @@ server-initiated pushes and streaming responses.
 #### The Unified `Response` Enum and Declarative Handler Model
 
 To provide a clean, unified API, the handler return type will evolve. A more
-ergonomic, declarative approach replaces the previous imperative model.
-Handlers will return an enhanced
+ergonomic, declarative approach replaces the previous imperative model. Handlers
+will return an enhanced
 
 `Response` enum, giving developers clear and efficient ways to express their
 intent.
@@ -87,6 +87,8 @@ async fn handle_large_query(req: Request) -> io::Result<Response<MyFrame>> {
     Ok(Response::Stream(Box::pin(stream)))
 }
 ```
+
+See `examples/async_stream.rs` for a runnable demonstration of this pattern.
 
 #### The Connection Actor
 
