@@ -6,7 +6,7 @@
 use futures::stream;
 use rstest::{fixture, rstest};
 use tokio::time::{Duration, sleep, timeout};
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
     push::PushQueues,
@@ -233,4 +233,32 @@ async fn on_command_end_hook_runs(
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert_eq!(counter.load(Ordering::SeqCst), 1);
+}
+
+#[rstest]
+#[tokio::test]
+async fn graceful_shutdown_waits_for_tasks() {
+    let tracker = TaskTracker::new();
+    let token = CancellationToken::new();
+
+    let mut handles = Vec::new();
+    for _ in 0..5 {
+        let (queues, handle) = PushQueues::<u8>::bounded(1, 1);
+        let mut actor: ConnectionActor<_, ()> =
+            ConnectionActor::new(queues, handle.clone(), None, token.clone());
+        handles.push(handle);
+        tracker.spawn(async move {
+            let mut out = Vec::new();
+            let _ = actor.run(&mut out).await;
+        });
+    }
+
+    token.cancel();
+    tracker.close();
+
+    assert!(
+        timeout(Duration::from_millis(500), tracker.wait())
+            .await
+            .is_ok()
+    );
 }
