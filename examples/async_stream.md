@@ -32,7 +32,7 @@ classDiagram
     }
     Frame <.. Response : used as generic
     class stream_response {
-        +stream_response() Response<Frame, ()>
+        +stream_response() Response<Frame>
     }
     stream_response ..> Response : returns
     stream_response ..> Frame : yields
