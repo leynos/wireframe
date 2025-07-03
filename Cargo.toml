@@ -20,6 +20,7 @@ wireframe_testing = { path = "./wireframe_testing" }
 logtest = "^2.0"
 proptest = "^1.0"
 loom = "^0.7"
+async-stream = "0.3"
 
 [features]
 advanced-tests = []

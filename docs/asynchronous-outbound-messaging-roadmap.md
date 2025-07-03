@@ -31,8 +31,8 @@ design documents.
   [Resilience Guide §3.2][resilience-registry]).
 - [x] **Document `async-stream`** for creating `Response::Stream` values
   ([Roadmap #2.4][roadmap-2-4]).
-- [ ] **Example handler using `async-stream`** demonstrating `Response::Stream`
-  generation in the examples directory.
+- [x] **Example handler using `async-stream`** demonstrating `Response::Stream`
+  generation in the examples directory (`examples/async_stream.rs`).
 - [x] **Tests covering streams and push delivery** drawing on
   [Testing Guide §4][testing-guide-advanced].
 
