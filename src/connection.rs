@@ -161,33 +161,11 @@ where
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
-        let high_available = self.high_rx.is_some();
-        let low_available = self.low_rx.is_some();
-        let resp_available = self.response.is_some();
-
-        tokio::select! {
-            biased;
-
-            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => {
-                self.process_shutdown(state);
-            }
-
-            res = Self::poll_receiver(self.high_rx.as_mut()), if high_available => {
-                self.process_high(res, state, out);
-            }
-
-            res = Self::poll_receiver(self.low_rx.as_mut()), if low_available => {
-                self.process_low(res, state, out);
-            }
-
-            // `tokio::select!` is biased so the shutdown branch runs before
-            // this one. `process_shutdown` removes the response stream, making
-            // `resp_available` false on the next loop iteration. The explicit
-            // `!state.is_shutting_down()` check avoids polling the stream after
-            // shutdown has begun.
-            res = Self::poll_response(self.response.as_mut()), if resp_available && !state.is_shutting_down() => {
-                self.process_response(res, state, out)?;
-            }
+        match self.next_event(state).await {
+            PollEvent::Shutdown => self.process_shutdown(state),
+            PollEvent::High(res) => self.process_high(res, state, out),
+            PollEvent::Low(res) => self.process_low(res, state, out),
+            PollEvent::Response(res) => self.process_response(res, state, out)?,
         }
 
         Ok(())
@@ -374,6 +352,37 @@ where
             }
         }
     }
+
+    /// Determine which event should be processed next.
+    async fn next_event(&mut self, state: &ActorState) -> PollEvent<F, E> {
+        let high_available = self.high_rx.is_some();
+        let low_available = self.low_rx.is_some();
+        let resp_available = self.response.is_some() && !state.is_shutting_down();
+
+        tokio::select! {
+            biased;
+
+            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => PollEvent::Shutdown,
+
+            res = Self::poll_receiver(self.high_rx.as_mut()), if high_available => PollEvent::High(res),
+
+            res = Self::poll_receiver(self.low_rx.as_mut()), if low_available => PollEvent::Low(res),
+
+            res = Self::poll_response(self.response.as_mut()), if resp_available => PollEvent::Response(res),
+        }
+    }
+}
+
+/// Outcome of polling the various sources.
+enum PollEvent<F, E> {
+    /// Shutdown signal triggered.
+    Shutdown,
+    /// Result of polling the high-priority queue.
+    High(Option<F>),
+    /// Result of polling the low-priority queue.
+    Low(Option<F>),
+    /// Result of polling the response stream.
+    Response(Option<Result<F, WireframeError<E>>>),
 }
 
 /// Internal run state for the connection actor.
