@@ -4,7 +4,9 @@
 //! Implementations may use any framing strategy suitable for the
 //! underlying transport.
 
-use std::{convert::TryInto, io};
+use std::io;
+
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 
 const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 const ERR_FRAME_TOO_LARGE: &str = "frame too large";
@@ -46,46 +48,18 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
         ));
     }
 
-    let slice = &bytes[..size];
-    Ok(match (size, endianness) {
-        (1, _) => u64::from(slice[0]),
-        (2, Endianness::Big) => u64::from(u16::from_be_bytes(
-            slice
-                .try_into()
-                .expect("expected 2 bytes for u16::from_be_bytes"),
-        )),
-        (2, Endianness::Little) => u64::from(u16::from_le_bytes(
-            slice
-                .try_into()
-                .expect("expected 2 bytes for u16::from_le_bytes"),
-        )),
-        (4, Endianness::Big) => u64::from(u32::from_be_bytes(
-            slice
-                .try_into()
-                .expect("expected 4 bytes for u32::from_be_bytes"),
-        )),
-        (4, Endianness::Little) => u64::from(u32::from_le_bytes(
-            slice
-                .try_into()
-                .expect("expected 4 bytes for u32::from_le_bytes"),
-        )),
-        (8, Endianness::Big) => u64::from_be_bytes(
-            slice
-                .try_into()
-                .expect("expected 8 bytes for u64::from_be_bytes"),
-        ),
-        (8, Endianness::Little) => u64::from_le_bytes(
-            slice
-                .try_into()
-                .expect("expected 8 bytes for u64::from_le_bytes"),
-        ),
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                ERR_UNSUPPORTED_PREFIX,
-            ));
-        }
-    })
+    let mut cur = io::Cursor::new(&bytes[..size]);
+    let val = match (size, endianness) {
+        (1, _) => cur.read_u8().map(u64::from),
+        (2, Endianness::Big) => cur.read_u16::<BigEndian>().map(u64::from),
+        (2, Endianness::Little) => cur.read_u16::<LittleEndian>().map(u64::from),
+        (4, Endianness::Big) => cur.read_u32::<BigEndian>().map(u64::from),
+        (4, Endianness::Little) => cur.read_u32::<LittleEndian>().map(u64::from),
+        (8, Endianness::Big) => cur.read_u64::<BigEndian>(),
+        (8, Endianness::Little) => cur.read_u64::<LittleEndian>(),
+        _ => unreachable!(),
+    }?;
+    Ok(val)
 }
 
 /// Encodes an integer directly into `out` according to `size` and `endianness`.
