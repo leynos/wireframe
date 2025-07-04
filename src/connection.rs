@@ -5,6 +5,8 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
+use std::future::Future;
+
 use futures::StreamExt;
 use tokio::{
     sync::mpsc,
@@ -172,11 +174,11 @@ where
                 self.process_shutdown(state);
             }
 
-            res = Self::poll_receiver(self.high_rx.as_mut()), if high_available => {
+            res = Self::poll_optional(self.high_rx.as_mut(), Self::recv_push), if high_available => {
                 self.process_high(res, state, out);
             }
 
-            res = Self::poll_receiver(self.low_rx.as_mut()), if low_available => {
+            res = Self::poll_optional(self.low_rx.as_mut(), Self::recv_push), if low_available => {
                 self.process_low(res, state, out);
             }
 
@@ -185,7 +187,7 @@ where
             // `resp_available` false on the next loop iteration. The explicit
             // `!state.is_shutting_down()` check avoids polling the stream after
             // shutdown has begun.
-            res = Self::poll_response(self.response.as_mut()), if resp_available && !state.is_shutting_down() => {
+            res = Self::poll_optional(self.response.as_mut(), |s| s.next()), if resp_available && !state.is_shutting_down() => {
                 self.process_response(res, state, out)?;
             }
         }
@@ -341,34 +343,22 @@ where
     #[inline]
     async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
-    /// Future for polling a push queue receiver if present.
+    /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
     #[expect(
         clippy::manual_async_fn,
         reason = "Generic lifetime requires explicit async move"
     )]
-    fn poll_receiver(
-        rx: Option<&mut mpsc::Receiver<F>>,
-    ) -> impl std::future::Future<Output = Option<F>> + '_ {
+    fn poll_optional<'a, T, Fut, R>(
+        opt: Option<&'a mut T>,
+        f: impl FnOnce(&'a mut T) -> Fut + Send + 'a,
+    ) -> impl Future<Output = Option<R>> + Send + 'a
+    where
+        T: Send + 'a,
+        Fut: Future<Output = Option<R>> + Send + 'a,
+    {
         async move {
-            if let Some(rx) = rx {
-                Self::recv_push(rx).await
-            } else {
-                None
-            }
-        }
-    }
-
-    /// Future for polling the response stream if present.
-    #[expect(
-        clippy::manual_async_fn,
-        reason = "Generic lifetime requires explicit async move"
-    )]
-    fn poll_response(
-        stream: Option<&mut FrameStream<F, E>>,
-    ) -> impl std::future::Future<Output = Option<Result<F, WireframeError<E>>>> + '_ {
-        async move {
-            if let Some(s) = stream {
-                s.next().await
+            if let Some(value) = opt {
+                f(value).await
             } else {
                 None
             }
