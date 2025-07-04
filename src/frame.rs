@@ -6,71 +6,126 @@
 
 use std::{convert::TryInto, io};
 
+const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
+const ERR_FRAME_TOO_LARGE: &str = "frame too large";
+
 use bytes::{Buf, BufMut, BytesMut};
 
-/// Converts a byte slice into a `u64` according to the given prefix size and
-/// endianness.
+/// Converts a byte slice into a `u64` according to `size` and `endianness`.
 ///
-/// Returns an error if the size is unsupported.
-fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
+/// Only prefix sizes of `1`, `2`, `4`, or `8` bytes are supported. `bytes` must
+/// contain at least `size` bytes.
+///
+/// # Errors
+/// Returns [`io::ErrorKind::InvalidInput`] if `size` is unsupported or
+/// [`io::ErrorKind::UnexpectedEof`] if `bytes` is too short.
+pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
+    if bytes.len() < size {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "incomplete length prefix",
+        ));
+    }
+
+    let slice = &bytes[..size];
     Ok(match (size, endianness) {
-        (1, _) => u64::from(u8::from_ne_bytes([bytes[0]])),
-        (2, Endianness::Big) => u64::from(u16::from_be_bytes(bytes[..2].try_into().unwrap())),
-        (2, Endianness::Little) => u64::from(u16::from_le_bytes(bytes[..2].try_into().unwrap())),
-        (4, Endianness::Big) => u64::from(u32::from_be_bytes(bytes[..4].try_into().unwrap())),
-        (4, Endianness::Little) => u64::from(u32::from_le_bytes(bytes[..4].try_into().unwrap())),
-        (8, Endianness::Big) => u64::from_be_bytes(bytes[..8].try_into().unwrap()),
-        (8, Endianness::Little) => u64::from_le_bytes(bytes[..8].try_into().unwrap()),
+        (1, _) => u64::from(u8::from_ne_bytes([slice[0]])),
+        (2, Endianness::Big) => u64::from(u16::from_be_bytes(
+            slice.try_into().expect("slice length validated"),
+        )),
+        (2, Endianness::Little) => u64::from(u16::from_le_bytes(
+            slice.try_into().expect("slice length validated"),
+        )),
+        (4, Endianness::Big) => u64::from(u32::from_be_bytes(
+            slice.try_into().expect("slice length validated"),
+        )),
+        (4, Endianness::Little) => u64::from(u32::from_le_bytes(
+            slice.try_into().expect("slice length validated"),
+        )),
+        (8, Endianness::Big) => {
+            u64::from_be_bytes(slice.try_into().expect("slice length validated"))
+        }
+        (8, Endianness::Little) => {
+            u64::from_le_bytes(slice.try_into().expect("slice length validated"))
+        }
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "unsupported length prefix size",
+                ERR_UNSUPPORTED_PREFIX,
             ));
         }
     })
 }
 
-/// Encodes an integer into bytes according to the given prefix size and
-/// endianness.
+/// Encodes an integer directly into `out` according to `size` and `endianness`.
 ///
-/// Returns an error if the integer does not fit into the requested size.
-fn u64_to_bytes(len: usize, size: usize, endianness: Endianness) -> io::Result<Vec<u8>> {
-    Ok(match (size, endianness) {
-        (1, _) => vec![
-            u8::try_from(len)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?,
-        ],
-        (2, Endianness::Big) => u16::try_from(len)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-            .to_be_bytes()
-            .to_vec(),
-        (2, Endianness::Little) => u16::try_from(len)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-            .to_le_bytes()
-            .to_vec(),
-        (4, Endianness::Big) => u32::try_from(len)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-            .to_be_bytes()
-            .to_vec(),
-        (4, Endianness::Little) => u32::try_from(len)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-            .to_le_bytes()
-            .to_vec(),
-        (8, Endianness::Big) => u64::try_from(len)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-            .to_be_bytes()
-            .to_vec(),
-        (8, Endianness::Little) => u64::try_from(len)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-            .to_le_bytes()
-            .to_vec(),
+/// The function supports prefix sizes of `1`, `2`, `4`, or `8` bytes.
+///
+/// # Errors
+/// Returns [`io::ErrorKind::InvalidInput`] if the size is unsupported or if
+/// `len` does not fit into the prefix.
+pub(crate) fn u64_to_bytes(
+    len: usize,
+    size: usize,
+    endianness: Endianness,
+    out: &mut [u8; 8],
+) -> io::Result<usize> {
+    match (size, endianness) {
+        (1, _) => {
+            out[0] = u8::try_from(len)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?;
+        }
+        (2, Endianness::Big) => {
+            out[..2].copy_from_slice(
+                &u16::try_from(len)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
+                    .to_be_bytes(),
+            );
+        }
+        (2, Endianness::Little) => {
+            out[..2].copy_from_slice(
+                &u16::try_from(len)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
+                    .to_le_bytes(),
+            );
+        }
+        (4, Endianness::Big) => {
+            out[..4].copy_from_slice(
+                &u32::try_from(len)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
+                    .to_be_bytes(),
+            );
+        }
+        (4, Endianness::Little) => {
+            out[..4].copy_from_slice(
+                &u32::try_from(len)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
+                    .to_le_bytes(),
+            );
+        }
+        (8, Endianness::Big) => {
+            out[..8].copy_from_slice(
+                &u64::try_from(len)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
+                    .to_be_bytes(),
+            );
+        }
+        (8, Endianness::Little) => {
+            out[..8].copy_from_slice(
+                &u64::try_from(len)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
+                    .to_le_bytes(),
+            );
+        }
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "unsupported length prefix size",
+                ERR_UNSUPPORTED_PREFIX,
             ));
         }
-    })
+    }
+
+    Ok(size)
 }
 
 /// Byte order used for encoding and decoding length prefixes.
@@ -133,7 +188,7 @@ impl LengthFormat {
     /// a `usize`.
     fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
         let len = bytes_to_u64(bytes, self.bytes, self.endianness)?;
-        usize::try_from(len).map_err(|_| io::Error::other("frame too large"))
+        usize::try_from(len).map_err(|_| io::Error::other(ERR_FRAME_TOO_LARGE))
     }
 
     /// Writes a length prefix to the destination buffer using the configured size and endianness.
@@ -149,8 +204,9 @@ impl LengthFormat {
     /// Returns an error if `len` exceeds the maximum value for the configured prefix size or if the
     /// prefix size is not supported.
     fn write_len(&self, len: usize, dst: &mut BytesMut) -> io::Result<()> {
-        let prefix = u64_to_bytes(len, self.bytes, self.endianness)?;
-        dst.put_slice(&prefix);
+        let mut buf = [0u8; 8];
+        let written = u64_to_bytes(len, self.bytes, self.endianness, &mut buf)?;
+        dst.put_slice(&buf[..written]);
         Ok(())
     }
 }
@@ -274,5 +330,64 @@ impl FrameProcessor for LengthPrefixedProcessor {
         self.format.write_len(frame.len(), dst)?;
         dst.extend_from_slice(frame);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(vec![0x12], 1, Endianness::Big, 0x12)]
+    #[case(vec![0x12, 0x34], 2, Endianness::Big, 0x1234)]
+    #[case(vec![0x34, 0x12], 2, Endianness::Little, 0x1234)]
+    #[case(vec![0, 0, 0, 1], 4, Endianness::Big, 1)]
+    #[case(vec![1, 0, 0, 0], 4, Endianness::Little, 1)]
+    fn bytes_to_u64_ok(
+        #[case] bytes: Vec<u8>,
+        #[case] size: usize,
+        #[case] endianness: Endianness,
+        #[case] expected: u64,
+    ) {
+        assert_eq!(bytes_to_u64(&bytes, size, endianness).unwrap(), expected);
+    }
+
+    #[rstest]
+    #[case(0x12usize, 1, Endianness::Big, vec![0x12])]
+    #[case(0x1234usize, 2, Endianness::Big, vec![0x12, 0x34])]
+    #[case(0x1234usize, 2, Endianness::Little, vec![0x34, 0x12])]
+    #[case(1usize, 4, Endianness::Big, vec![0, 0, 0, 1])]
+    #[case(1usize, 4, Endianness::Little, vec![1, 0, 0, 0])]
+    fn u64_to_bytes_ok(
+        #[case] value: usize,
+        #[case] size: usize,
+        #[case] endianness: Endianness,
+        #[case] expected: Vec<u8>,
+    ) {
+        let mut buf = [0u8; 8];
+        let written = u64_to_bytes(value, size, endianness, &mut buf).unwrap();
+        assert_eq!(written, size);
+        assert_eq!(&buf[..written], expected.as_slice());
+    }
+
+    #[rstest]
+    #[case(vec![0x01], 2, Endianness::Big)]
+    #[case(vec![0x02, 0x03], 4, Endianness::Little)]
+    fn bytes_to_u64_short(
+        #[case] bytes: Vec<u8>,
+        #[case] size: usize,
+        #[case] endianness: Endianness,
+    ) {
+        let err = bytes_to_u64(&bytes, size, endianness).expect_err("expected error");
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[rstest]
+    fn u64_to_bytes_large() {
+        let mut buf = [0u8; 8];
+        let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf).expect_err("expected error");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 }
