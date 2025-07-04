@@ -333,7 +333,6 @@ where
         }
 
         tracker.close();
-        shutdown_token.cancel();
         tracker.wait().await;
         Ok(())
     }
