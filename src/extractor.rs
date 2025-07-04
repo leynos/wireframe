@@ -34,6 +34,22 @@ impl MessageRequest {
     /// Retrieve shared state of type `T` if available.
     ///
     /// Returns `None` when no value of type `T` was registered.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     app::WireframeApp,
+    ///     extractor::{MessageRequest, SharedState},
+    /// };
+    ///
+    /// let _app = WireframeApp::new().unwrap().app_data(5u32);
+    /// // The framework populates the request with application data.
+    /// # let mut req = MessageRequest::default();
+    /// # req.insert_state(5u32);
+    /// let val: Option<SharedState<u32>> = req.state();
+    /// assert_eq!(*val.unwrap(), 5);
+    /// ```
     #[must_use]
     pub fn state<T>(&self) -> Option<SharedState<T>>
     where
@@ -44,13 +60,73 @@ impl MessageRequest {
             .and_then(|data| data.clone().downcast::<T>().ok())
             .map(SharedState)
     }
+
+    /// Insert shared state of type `T` into the request.
+    ///
+    /// This replaces any existing value of the same type.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::extractor::{MessageRequest, SharedState};
+    ///
+    /// let mut req = MessageRequest::default();
+    /// req.insert_state(5u32);
+    /// let val: Option<SharedState<u32>> = req.state();
+    /// assert_eq!(*val.unwrap(), 5);
+    /// ```
+    pub fn insert_state<T>(&mut self, state: T)
+    where
+        T: Send + Sync + 'static,
+    {
+        self.app_data.insert(
+            TypeId::of::<T>(),
+            Arc::new(state) as Arc<dyn Any + Send + Sync>,
+        );
+    }
 }
 
 /// Raw payload buffer handed to extractors.
+///
+/// Create a `Payload` from a slice using [`Payload::new`] or `into`:
+///
+/// ```rust
+/// use wireframe::extractor::Payload;
+///
+/// let p1 = Payload::new(b"abc");
+/// let p2: Payload<'_> = b"xyz".as_slice().into();
+/// assert_eq!(p1.as_ref(), b"abc" as &[u8]);
+/// assert_eq!(p2.as_ref(), b"xyz" as &[u8]);
+/// ```
 #[derive(Default)]
 pub struct Payload<'a> {
     /// Incoming bytes not yet processed.
-    pub data: &'a [u8],
+    data: &'a [u8],
+}
+
+impl<'a> Payload<'a> {
+    /// Creates a new `Payload` from the provided byte slice.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::extractor::Payload;
+    ///
+    /// let payload = Payload::new(b"data");
+    /// assert_eq!(payload.as_ref(), b"data" as &[u8]);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn new(data: &'a [u8]) -> Self { Self { data } }
+}
+
+impl<'a> From<&'a [u8]> for Payload<'a> {
+    #[inline]
+    fn from(data: &'a [u8]) -> Self { Self { data } }
+}
+
+impl AsRef<[u8]> for Payload<'_> {
+    fn as_ref(&self) -> &[u8] { self.data }
 }
 
 impl Payload<'_> {
@@ -58,12 +134,33 @@ impl Payload<'_> {
     ///
     /// Consumes up to `count` bytes from the front of the slice, ensuring we
     /// never slice beyond the available buffer.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::extractor::Payload;
+    ///
+    /// let mut payload = Payload::new(b"abcd");
+    /// payload.advance(2);
+    /// assert_eq!(payload.as_ref(), b"cd" as &[u8]);
+    /// ```
     pub fn advance(&mut self, count: usize) {
         let n = count.min(self.data.len());
         self.data = &self.data[n..];
     }
 
     /// Returns the number of bytes remaining.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::extractor::Payload;
+    ///
+    /// let mut payload = Payload::new(b"bytes");
+    /// assert_eq!(payload.remaining(), 5);
+    /// payload.advance(2);
+    /// assert_eq!(payload.remaining(), 3);
+    /// ```
     #[must_use]
     pub fn remaining(&self) -> usize { self.data.len() }
 }
@@ -99,7 +196,7 @@ impl<T: Send + Sync> SharedState<T> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```rust,no_run
     /// use std::sync::Arc;
     ///
     /// use wireframe::extractor::SharedState;
@@ -183,7 +280,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```rust,no_run
     /// use std::sync::Arc;
     ///
     /// use wireframe::extractor::SharedState;
@@ -246,6 +343,21 @@ pub struct ConnectionInfo {
 
 impl ConnectionInfo {
     /// Returns the peer's socket address for the current connection, if available.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::net::SocketAddr;
+    ///
+    /// use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
+    ///
+    /// let req = MessageRequest {
+    ///     peer_addr: Some("127.0.0.1:8080".parse::<SocketAddr>().unwrap()),
+    ///     ..Default::default()
+    /// };
+    /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default()).unwrap();
+    /// assert_eq!(info.peer_addr(), req.peer_addr);
+    /// ```
     #[must_use]
     pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
 }

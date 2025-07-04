@@ -271,13 +271,6 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    /// Construct a new empty application builder.
-    ///
-    /// # Errors
-    ///
-    /// This function currently never returns an error but uses the
-    /// [`Result`] type for forward compatibility.
-    ///
     /// Register a route that maps `id` to `handler`.
     ///
     /// # Errors
