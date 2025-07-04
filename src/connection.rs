@@ -5,7 +5,7 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
-use std::{future::Future, pin::Pin};
+use std::future::Future;
 
 use futures::StreamExt;
 use tokio::{
@@ -19,9 +19,6 @@ use crate::{
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
 };
-
-/// Future returned by [`poll_optional`].
-type OptionalFuture<'a, T> = Pin<Box<dyn Future<Output = Option<T>> + 'a>>;
 
 /// Configuration controlling fairness when draining push queues.
 #[derive(Clone, Copy)]
@@ -347,20 +344,25 @@ where
     async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
     /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
+    #[expect(
+        clippy::manual_async_fn,
+        reason = "Generic lifetime requires explicit async move"
+    )]
     fn poll_optional<'a, T, Fut, R>(
         opt: Option<&'a mut T>,
-        f: impl FnOnce(&'a mut T) -> Fut + 'a,
-    ) -> OptionalFuture<'a, R>
+        f: impl FnOnce(&'a mut T) -> Fut + Send + 'a,
+    ) -> impl Future<Output = Option<R>> + Send + 'a
     where
-        Fut: Future<Output = Option<R>> + 'a,
+        T: Send + 'a,
+        Fut: Future<Output = Option<R>> + Send + 'a,
     {
-        Box::pin(async move {
+        async move {
             if let Some(value) = opt {
                 f(value).await
             } else {
                 None
             }
-        })
+        }
     }
 }
 
