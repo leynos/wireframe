@@ -38,7 +38,7 @@ design documents.
 
 ## 3. Production Hardening
 
-- [ ] **Graceful shutdown** using `CancellationToken` and `TaskTracker`
+- [x] **Graceful shutdown** using `CancellationToken` and `TaskTracker`
   ([Resilience Guide §2][resilience-shutdown]).
 - [ ] **Typed `WireframeError`** for recoverable protocol errors
   ([Design §5][design-errors]).
