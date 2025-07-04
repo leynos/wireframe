@@ -5,6 +5,8 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
+use std::{future::Future, pin::Pin};
+
 use futures::StreamExt;
 use tokio::{
     sync::mpsc,
@@ -17,6 +19,9 @@ use crate::{
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
 };
+
+/// Future returned by [`poll_optional`].
+type OptionalFuture<'a, T> = Pin<Box<dyn Future<Output = Option<T>> + 'a>>;
 
 /// Configuration controlling fairness when draining push queues.
 #[derive(Clone, Copy)]
@@ -172,11 +177,11 @@ where
                 self.process_shutdown(state);
             }
 
-            res = Self::poll_if_present(self.high_rx.as_mut(), Self::recv_push), if high_available => {
+            res = Self::poll_optional(self.high_rx.as_mut(), Self::recv_push), if high_available => {
                 self.process_high(res, state, out);
             }
 
-            res = Self::poll_if_present(self.low_rx.as_mut(), Self::recv_push), if low_available => {
+            res = Self::poll_optional(self.low_rx.as_mut(), Self::recv_push), if low_available => {
                 self.process_low(res, state, out);
             }
 
@@ -185,7 +190,7 @@ where
             // `resp_available` false on the next loop iteration. The explicit
             // `!state.is_shutting_down()` check avoids polling the stream after
             // shutdown has begun.
-            res = Self::poll_if_present(self.response.as_mut(), |s| s.next()), if resp_available && !state.is_shutting_down() => {
+            res = Self::poll_optional(self.response.as_mut(), |s| s.next()), if resp_available && !state.is_shutting_down() => {
                 self.process_response(res, state, out)?;
             }
         }
@@ -342,24 +347,20 @@ where
     async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
     /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
-    #[expect(
-        clippy::manual_async_fn,
-        reason = "Generic lifetime requires explicit async move"
-    )]
-    fn poll_if_present<'a, T, Fut, R>(
+    fn poll_optional<'a, T, Fut, R>(
         opt: Option<&'a mut T>,
         f: impl FnOnce(&'a mut T) -> Fut + 'a,
-    ) -> impl std::future::Future<Output = Option<R>> + 'a
+    ) -> OptionalFuture<'a, R>
     where
-        Fut: std::future::Future<Output = Option<R>> + 'a,
+        Fut: Future<Output = Option<R>> + 'a,
     {
-        async move {
+        Box::pin(async move {
             if let Some(value) = opt {
                 f(value).await
             } else {
                 None
             }
-        }
+        })
     }
 }
 
