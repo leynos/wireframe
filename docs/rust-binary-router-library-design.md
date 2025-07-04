@@ -1123,50 +1123,57 @@ examples are invaluable. They make the abstract design tangible and showcase how
   2. **Frame Processor Implementation** (Simple Length-Prefixed Framing using
      `tokio-util`):
 
-     ```rust
-     // Crate: my_frame_processor.rs
-     use bytes::{BytesMut, Buf, BufMut};
-     use tokio_util::codec::{Encoder, Decoder};
-     use std::io;
+  ```rust
+  // Crate: my_frame_processor.rs
+  use bytes::{BytesMut, Buf, BufMut};
+  use tokio_util::codec::{Decoder, Encoder};
+  use byteorder::{BigEndian, ReadBytesExt};
+  use std::io;
 
-     pub struct LengthPrefixedCodec;
+  const MAX_FRAME_LEN: usize = 16 * 1024 * 1024; // 16 MiB upper limit
 
-     impl Decoder for LengthPrefixedCodec {
-         type Item = BytesMut; // Raw frame payload
-         type Error = io::Error;
+  pub struct LengthPrefixedCodec;
 
-         fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-             if src.len() < 4 { return Ok(None); } // Not enough data for length prefix
+  impl Decoder for LengthPrefixedCodec {
+      type Item = BytesMut; // Raw frame payload
+      type Error = io::Error;
 
-             let mut length_bytes = [0u8; 4];
-             length_bytes.copy_from_slice(&src[..4]);
-             let length = u32::from_be_bytes(length_bytes) as usize;
+      fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+          if src.len() < 4 { return Ok(None); } // Not enough data for length prefix
 
-             if src.len() < 4 + length {
-                 src.reserve(4 + length - src.len());
-                 return Ok(None); // Not enough data for full frame
-             }
+          let length = (&src[..4])
+              .read_u32::<BigEndian>()
+              .expect("slice length checked") as usize;
 
-             src.advance(4); // Consume length prefix
-             Ok(Some(src.split_to(length)))
-         }
-     }
+          if length > MAX_FRAME_LEN {
+              return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame too large"));
+          }
 
-     impl<T: AsRef<[u8]>> Encoder<T> for LengthPrefixedCodec {
-         type Error = io::Error;
+          if src.len() < 4 + length {
+              src.reserve(4 + length - src.len());
+              return Ok(None); // Not enough data for full frame
+          }
 
-         fn encode(&mut self, item: T, dst: &mut BytesMut) -> Result<(), Self::Error> {
-             let data = item.as_ref();
-             dst.reserve(4 + data.len());
-             dst.put_u32(data.len() as u32);
-             dst.put_slice(data);
-             Ok(())
-         }
-     }
-     ```
+          src.advance(4); // Consume length prefix
+          Ok(Some(src.split_to(length)))
+      }
+  }
 
-     (Note: "wireframe" would abstract the direct use of `Encoder`/`Decoder`
-     behind its own `FrameProcessor` trait or provide helpers.)
+  impl<T: AsRef<[u8]>> Encoder<T> for LengthPrefixedCodec {
+      type Error = io::Error;
+
+      fn encode(&mut self, item: T, dst: &mut BytesMut) -> Result<(), Self::Error> {
+          let data = item.as_ref();
+          dst.reserve(4 + data.len());
+          dst.put_u32(data.len() as u32);
+          dst.put_slice(data);
+          Ok(())
+      }
+  }
+  ```
+
+  (Note: "wireframe" would abstract the direct use of `Encoder`/`Decoder` behind
+  its own `FrameProcessor` trait or provide helpers.)
 
 1. **Server Setup and Handler**:
 

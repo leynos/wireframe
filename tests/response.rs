@@ -131,7 +131,7 @@ async fn send_response_propagates_write_error() {
     let err = app
         .send_response(&mut writer, &TestResp(3))
         .await
-        .expect_err("expected error");
+        .expect_err("send_response should propagate write error");
     assert!(matches!(err, wireframe::app::SendError::Io(_)));
 }
 
@@ -145,7 +145,7 @@ fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: En
     let mut buf = BytesMut::new();
     let err = processor
         .encode(&vec![1, 2], &mut buf)
-        .expect_err("expected error");
+        .expect_err("encode must fail for unsupported prefix size");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
@@ -157,7 +157,9 @@ fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: En
     let fmt = LengthFormat::new(bytes, endian);
     let processor = LengthPrefixedProcessor::new(fmt);
     let mut buf = BytesMut::from(vec![0u8; bytes].as_slice());
-    let err = processor.decode(&mut buf).expect_err("expected error");
+    let err = processor
+        .decode(&mut buf)
+        .expect_err("decode must fail for unsupported prefix size");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
@@ -184,6 +186,6 @@ async fn send_response_returns_encode_error() {
     let err = app
         .send_response(&mut Vec::new(), &FailingResp)
         .await
-        .expect_err("expected error");
+        .expect_err("send_response should fail when encode errors");
     assert!(matches!(err, wireframe::app::SendError::Serialize(_)));
 }
