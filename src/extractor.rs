@@ -38,15 +38,19 @@ impl MessageRequest {
     /// # Examples
     ///
     /// ```
-    /// use std::{any::TypeId, collections::HashMap, sync::Arc};
+    /// use wireframe::{
+    ///     app::WireframeApp,
+    ///     extractor::{MessageRequest, SharedState},
+    /// };
     ///
-    /// use wireframe::extractor::{MessageRequest, SharedState};
-    ///
-    /// let mut req = MessageRequest::default();
-    /// req.app_data.insert(
-    ///     TypeId::of::<u32>(),
-    ///     Arc::new(5u32) as Arc<dyn std::any::Any + Send + Sync>,
-    /// );
+    /// let _app = WireframeApp::new().unwrap().app_data(5u32);
+    /// // The framework populates the request with application data.
+    /// # use std::{any::TypeId, collections::HashMap, sync::Arc};
+    /// # let mut req = MessageRequest::default();
+    /// # req.app_data.insert(
+    /// #     TypeId::of::<u32>(),
+    /// #     Arc::new(5u32) as Arc<dyn std::any::Any + Send + Sync>,
+    /// # );
     /// let val: Option<SharedState<u32>> = req.state();
     /// assert_eq!(*val.unwrap(), 5);
     /// ```

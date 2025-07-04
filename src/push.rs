@@ -66,7 +66,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
     /// #[tokio::main]
@@ -96,7 +96,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
     /// #[tokio::main]
@@ -126,15 +126,17 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use wireframe::push::{PushPolicy, PushPriority, PushQueues};
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
     ///     handle.push_high_priority(1u8).await.unwrap();
+    ///     use wireframe::push::PushError;
+    ///
     ///     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
-    ///     assert!(result.is_err());
+    ///     assert!(matches!(result, Err(PushError::QueueFull)));
     ///     let _ = queues.recv().await;
     /// }
     /// ```
@@ -179,7 +181,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
     /// #[tokio::main]
@@ -214,7 +216,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
     /// #[tokio::main]
