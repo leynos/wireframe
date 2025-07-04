@@ -33,7 +33,9 @@ fn message_extractor_parses_and_advances() {
 /// Tests that `ConnectionInfo` correctly reports the peer socket address extracted from a
 /// `MessageRequest`.
 fn connection_info_reports_peer() {
-    let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+    let addr: SocketAddr = "127.0.0.1:12345"
+        .parse()
+        .expect("hard-coded socket address must be valid");
     let req = MessageRequest {
         peer_addr: Some(addr),
         ..Default::default()
