@@ -12,6 +12,23 @@ const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 const ERR_FRAME_TOO_LARGE: &str = "frame too large";
 const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
 
+#[derive(Copy, Clone)]
+enum PrefixErr {
+    UnsupportedSize,
+    Incomplete,
+}
+
+fn prefix_err(kind: PrefixErr) -> io::Error {
+    match kind {
+        PrefixErr::UnsupportedSize => {
+            io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX)
+        }
+        PrefixErr::Incomplete => {
+            io::Error::new(io::ErrorKind::UnexpectedEof, ERR_INCOMPLETE_PREFIX)
+        }
+    }
+}
+
 /// Checked conversion from `usize` to a specific prefix integer type.
 ///
 /// Returns `ERR_FRAME_TOO_LARGE` if the value does not fit in `T`.
@@ -39,16 +56,10 @@ use bytes::{Buf, BufMut, BytesMut};
 /// ```
 pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
     if !matches!(size, 1 | 2 | 4 | 8) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            ERR_UNSUPPORTED_PREFIX,
-        ));
+        return Err(prefix_err(PrefixErr::UnsupportedSize));
     }
     if bytes.len() < size {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            ERR_INCOMPLETE_PREFIX,
-        ));
+        return Err(prefix_err(PrefixErr::Incomplete));
     }
 
     let mut cur = io::Cursor::new(&bytes[..size]);
@@ -112,10 +123,7 @@ pub fn u64_to_bytes(
             out[..8].copy_from_slice(&checked_prefix_cast::<u64>(len)?.to_le_bytes());
         }
         _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                ERR_UNSUPPORTED_PREFIX,
-            ));
+            return Err(prefix_err(PrefixErr::UnsupportedSize));
         }
     }
 
@@ -311,7 +319,12 @@ impl FrameProcessor for LengthPrefixedProcessor {
             return Ok(None);
         }
         let len = self.format.read_len(&src[..self.format.bytes])?;
-        if src.len() < self.format.bytes + len {
+        let needed = self
+            .format
+            .bytes
+            .checked_add(len)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?;
+        if src.len() < needed {
             return Ok(None);
         }
         src.advance(self.format.bytes);
