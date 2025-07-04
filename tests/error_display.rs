@@ -7,10 +7,11 @@ use std::error::Error;
 
 use wireframe::{push::PushError, response::WireframeError};
 
-#[test]
-fn push_error_messages() {
-    assert_eq!(PushError::QueueFull.to_string(), "push queue full");
-    assert_eq!(PushError::Closed.to_string(), "push queue closed");
+#[rstest::rstest]
+#[case(PushError::QueueFull, "push queue full")]
+#[case(PushError::Closed,    "push queue closed")]
+fn push_error_messages(#[case] err: PushError, #[case] expected: &str) {
+    assert_eq!(err.to_string(), expected);
 }
 
 #[derive(Debug)]
