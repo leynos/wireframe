@@ -1,5 +1,7 @@
 //! Tests for Display implementations on error types.
 
+use std::error::Error;
+
 use wireframe::{push::PushError, response::WireframeError};
 
 #[test]
@@ -23,6 +25,12 @@ fn wireframe_error_messages() {
     let io = WireframeError::<ProtoErr>::Io(io_error);
     assert_eq!(io.to_string(), "transport error: socket closed");
 
+    let source = io.source().expect("io variant must have source");
+    assert_eq!(source.to_string(), "socket closed");
+
     let proto = WireframeError::Protocol(ProtoErr);
     assert_eq!(proto.to_string(), "protocol error: ProtoErr");
+
+    let source = proto.source().expect("protocol variant must have source");
+    assert_eq!(source.to_string(), "boom");
 }

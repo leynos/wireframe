@@ -99,11 +99,14 @@ impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
     }
 }
 
-impl<E: std::fmt::Debug> std::error::Error for WireframeError<E> {
+impl<E> std::error::Error for WireframeError<E>
+where
+    E: std::fmt::Debug + std::error::Error + 'static,
+{
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             WireframeError::Io(e) => Some(e),
-            WireframeError::Protocol(_e) => None,
+            WireframeError::Protocol(e) => Some(e),
         }
     }
 }
