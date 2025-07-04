@@ -9,7 +9,7 @@ use wireframe::{push::PushError, response::WireframeError};
 
 #[rstest::rstest]
 #[case(PushError::QueueFull, "push queue full")]
-#[case(PushError::Closed,    "push queue closed")]
+#[case(PushError::Closed, "push queue closed")]
 fn push_error_messages(#[case] err: PushError, #[case] expected: &str) {
     assert_eq!(err.to_string(), expected);
 }
