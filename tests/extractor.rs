@@ -34,7 +34,10 @@ fn message_extractor_parses_and_advances() {
 /// `MessageRequest`.
 fn connection_info_reports_peer() {
     let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
-    let req = MessageRequest { peer_addr: Some(addr), ..Default::default() };
+    let req = MessageRequest {
+        peer_addr: Some(addr),
+        ..Default::default()
+    };
     let mut payload = Payload::default();
     let info = ConnectionInfo::from_message_request(&req, &mut payload).unwrap();
     assert_eq!(info.peer_addr(), Some(addr));
