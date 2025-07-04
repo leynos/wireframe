@@ -45,6 +45,17 @@ pub enum PushError {
     Closed,
 }
 
+impl std::fmt::Display for PushError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QueueFull => f.write_str("push queue full"),
+            Self::Closed => f.write_str("push queue closed"),
+        }
+    }
+}
+
+impl std::error::Error for PushError {}
+
 pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,

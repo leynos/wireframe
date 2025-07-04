@@ -89,3 +89,21 @@ impl<E> WireframeError<E> {
     #[must_use]
     pub fn from_io(e: std::io::Error) -> Self { WireframeError::Io(e) }
 }
+
+impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WireframeError::Io(e) => write!(f, "transport error: {e}"),
+            WireframeError::Protocol(e) => write!(f, "protocol error: {e:?}"),
+        }
+    }
+}
+
+impl<E: std::fmt::Debug> std::error::Error for WireframeError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            WireframeError::Io(e) => Some(e),
+            WireframeError::Protocol(_e) => None,
+        }
+    }
+}
