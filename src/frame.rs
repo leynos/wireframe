@@ -137,6 +137,8 @@ pub(crate) fn u64_to_bytes(
         }
     }
 
+    out[size..].fill(0);
+
     Ok(size)
 }
 
@@ -200,7 +202,8 @@ impl LengthFormat {
     /// a `usize`.
     fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
         let len = bytes_to_u64(bytes, self.bytes, self.endianness)?;
-        usize::try_from(len).map_err(|_| io::Error::other(ERR_FRAME_TOO_LARGE))
+        usize::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))
     }
 
     /// Writes a length prefix to the destination buffer using the configured size and endianness.
@@ -363,7 +366,10 @@ mod tests {
         #[case] endianness: Endianness,
         #[case] expected: u64,
     ) {
-        assert_eq!(bytes_to_u64(&bytes, size, endianness).unwrap(), expected);
+        assert_eq!(
+            bytes_to_u64(&bytes, size, endianness).expect("bytes_to_u64 should succeed"),
+            expected
+        );
     }
 
     #[rstest]
@@ -379,7 +385,8 @@ mod tests {
         #[case] expected: Vec<u8>,
     ) {
         let mut buf = [0u8; 8];
-        let written = u64_to_bytes(value, size, endianness, &mut buf).unwrap();
+        let written =
+            u64_to_bytes(value, size, endianness, &mut buf).expect("u64_to_bytes should succeed");
         assert_eq!(written, size);
         assert_eq!(&buf[..written], expected.as_slice());
     }
