@@ -45,12 +45,8 @@ impl MessageRequest {
     ///
     /// let _app = WireframeApp::new().unwrap().app_data(5u32);
     /// // The framework populates the request with application data.
-    /// # use std::{any::TypeId, collections::HashMap, sync::Arc};
     /// # let mut req = MessageRequest::default();
-    /// # req.app_data.insert(
-    /// #     TypeId::of::<u32>(),
-    /// #     Arc::new(5u32) as Arc<dyn std::any::Any + Send + Sync>,
-    /// # );
+    /// # req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
     /// assert_eq!(*val.unwrap(), 5);
     /// ```
@@ -64,6 +60,30 @@ impl MessageRequest {
             .and_then(|data| data.clone().downcast::<T>().ok())
             .map(SharedState)
     }
+
+    /// Insert shared state of type `T` into the request.
+    ///
+    /// This replaces any existing value of the same type.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::extractor::{MessageRequest, SharedState};
+    ///
+    /// let mut req = MessageRequest::default();
+    /// req.insert_state(5u32);
+    /// let val: Option<SharedState<u32>> = req.state();
+    /// assert_eq!(*val.unwrap(), 5);
+    /// ```
+    pub fn insert_state<T>(&mut self, state: T)
+    where
+        T: Send + Sync + 'static,
+    {
+        self.app_data.insert(
+            TypeId::of::<T>(),
+            Arc::new(state) as Arc<dyn Any + Send + Sync>,
+        );
+    }
 }
 
 /// Raw payload buffer handed to extractors.
@@ -75,13 +95,13 @@ impl MessageRequest {
 ///
 /// let p1 = Payload::new(b"abc");
 /// let p2: Payload<'_> = b"xyz".as_slice().into();
-/// assert_eq!(p1.data, b"abc" as &[u8]);
-/// assert_eq!(p2.data, b"xyz" as &[u8]);
+/// assert_eq!(p1.as_ref(), b"abc" as &[u8]);
+/// assert_eq!(p2.as_ref(), b"xyz" as &[u8]);
 /// ```
 #[derive(Default)]
 pub struct Payload<'a> {
     /// Incoming bytes not yet processed.
-    pub data: &'a [u8],
+    data: &'a [u8],
 }
 
 impl<'a> Payload<'a> {
@@ -93,14 +113,20 @@ impl<'a> Payload<'a> {
     /// use wireframe::extractor::Payload;
     ///
     /// let payload = Payload::new(b"data");
-    /// assert_eq!(payload.data, b"data" as &[u8]);
+    /// assert_eq!(payload.as_ref(), b"data" as &[u8]);
     /// ```
     #[must_use]
+    #[inline]
     pub fn new(data: &'a [u8]) -> Self { Self { data } }
 }
 
 impl<'a> From<&'a [u8]> for Payload<'a> {
+    #[inline]
     fn from(data: &'a [u8]) -> Self { Self { data } }
+}
+
+impl AsRef<[u8]> for Payload<'_> {
+    fn as_ref(&self) -> &[u8] { self.data }
 }
 
 impl Payload<'_> {
@@ -116,7 +142,7 @@ impl Payload<'_> {
     ///
     /// let mut payload = Payload::new(b"abcd");
     /// payload.advance(2);
-    /// assert_eq!(payload.data, b"cd" as &[u8]);
+    /// assert_eq!(payload.as_ref(), b"cd" as &[u8]);
     /// ```
     pub fn advance(&mut self, count: usize) {
         let n = count.min(self.data.len());

@@ -234,8 +234,8 @@ impl FromMessageRequest for SessionToken {
         _req: &MessageRequest,
         payload: &mut Payload<'_>,
     ) -> Result<Self, Self::Error> {
-        let len = payload.data[0] as usize;
-        let token = std::str::from_utf8(&payload.data[1..=len]).unwrap().to_string();
+        let len = payload.as_ref()[0] as usize;
+        let token = std::str::from_utf8(&payload.as_ref()[1..=len]).unwrap().to_string();
         payload.advance(1 + len);
         Ok(Self(token))
     }
