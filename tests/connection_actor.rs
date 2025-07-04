@@ -70,6 +70,32 @@ async fn fairness_yields_low_after_burst(
 
 #[rstest]
 #[tokio::test]
+async fn fairness_disabled_processes_all_high_first(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    let fairness = FairnessConfig {
+        max_high_before_low: 0,
+        time_slice: None,
+    };
+
+    for n in 1..=3 {
+        handle.push_high_priority(n).await.unwrap();
+    }
+    handle.push_low_priority(4).await.unwrap();
+    handle.push_low_priority(5).await.unwrap();
+
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, None, shutdown_token);
+    actor.set_fairness(fairness);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    assert_eq!(out, vec![1, 2, 3, 4, 5]);
+}
+
+#[rstest]
+#[tokio::test]
 async fn shutdown_signal_precedence(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
