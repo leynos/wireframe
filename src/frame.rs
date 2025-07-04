@@ -393,7 +393,7 @@ mod tests {
         #[case] endianness: Endianness,
     ) {
         let err = bytes_to_u64(&bytes, size, endianness)
-            .expect_err("bytes_to_u64 should fail for short slice");
+            .expect_err("bytes_to_u64 must error for truncated prefix slice");
         assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
     }
 
@@ -401,7 +401,7 @@ mod tests {
     fn u64_to_bytes_large() {
         let mut buf = [0u8; 8];
         let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf)
-            .expect_err("u64_to_bytes should fail if value exceeds prefix size");
+            .expect_err("u64_to_bytes must fail if value exceeds 1-byte prefix");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 }
