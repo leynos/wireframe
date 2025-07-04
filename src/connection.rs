@@ -20,6 +20,19 @@ use crate::{
     response::{FrameStream, WireframeError},
 };
 
+/// Events returned by [`next_event`].
+///
+/// Only `Debug` is derived because `WireframeError<E>` does not implement
+/// `Clone` or `PartialEq`.
+#[derive(Debug)]
+enum Event<F, E> {
+    Shutdown,
+    High(Option<F>),
+    Low(Option<F>),
+    Response(Option<Result<F, WireframeError<E>>>),
+    Idle,
+}
+
 /// Configuration controlling fairness when draining push queues.
 #[derive(Clone, Copy)]
 pub struct FairnessConfig {
@@ -152,6 +165,44 @@ where
         Ok(())
     }
 
+    /// Await the next ready event using biased priority ordering.
+    ///
+    /// Shutdown is observed first, followed by high-priority pushes, then
+    /// low-priority pushes and finally the response stream. This mirrors the
+    /// original behaviour and matches the design documentation. The final
+    /// `else` branch prevents `tokio::select!` from panicking if all guards are
+    /// false.
+    ///
+    /// The `strict_priority_order` and `shutdown_signal_precedence` tests
+    /// assert that this ordering is preserved across refactors.
+    async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
+        let high_available = self.high_rx.is_some();
+        let low_available = self.low_rx.is_some();
+        let resp_available = self.response.is_some() && !state.is_shutting_down();
+
+        tokio::select! {
+            biased;
+
+            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => {
+                Event::Shutdown
+            }
+
+            res = Self::poll_optional(self.high_rx.as_mut(), Self::recv_push), if high_available => {
+                Event::High(res)
+            }
+
+            res = Self::poll_optional(self.low_rx.as_mut(), Self::recv_push), if low_available => {
+                Event::Low(res)
+            }
+
+            res = Self::poll_optional(self.response.as_mut(), |s| s.next()), if resp_available => {
+                Event::Response(res)
+            }
+
+            else => Event::Idle,
+        }
+    }
+
     /// Poll all sources and push available frames into `out`.
     ///
     /// This method polls the shutdown token, high- and low-priority queues,
@@ -163,33 +214,12 @@ where
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
-        let high_available = self.high_rx.is_some();
-        let low_available = self.low_rx.is_some();
-        let resp_available = self.response.is_some();
-
-        tokio::select! {
-            biased;
-
-            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => {
-                self.process_shutdown(state);
-            }
-
-            res = Self::poll_optional(self.high_rx.as_mut(), Self::recv_push), if high_available => {
-                self.process_high(res, state, out);
-            }
-
-            res = Self::poll_optional(self.low_rx.as_mut(), Self::recv_push), if low_available => {
-                self.process_low(res, state, out);
-            }
-
-            // `tokio::select!` is biased so the shutdown branch runs before
-            // this one. `process_shutdown` removes the response stream, making
-            // `resp_available` false on the next loop iteration. The explicit
-            // `!state.is_shutting_down()` check avoids polling the stream after
-            // shutdown has begun.
-            res = Self::poll_optional(self.response.as_mut(), |s| s.next()), if resp_available && !state.is_shutting_down() => {
-                self.process_response(res, state, out)?;
-            }
+        match self.next_event(state).await {
+            Event::Shutdown => self.process_shutdown(state),
+            Event::High(res) => self.process_high(res, state, out),
+            Event::Low(res) => self.process_low(res, state, out),
+            Event::Response(res) => self.process_response(res, state, out)?,
+            Event::Idle => {}
         }
 
         Ok(())
