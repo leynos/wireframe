@@ -37,7 +37,7 @@ impl MessageRequest {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use wireframe::{
     ///     app::WireframeApp,
     ///     extractor::{MessageRequest, SharedState},
@@ -81,7 +81,7 @@ impl Payload<'_> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use wireframe::extractor::Payload;
     ///
     /// let mut payload = Payload { data: b"abcd" };
@@ -97,7 +97,7 @@ impl Payload<'_> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use wireframe::extractor::Payload;
     ///
     /// let mut payload = Payload { data: b"bytes" };
@@ -140,7 +140,7 @@ impl<T: Send + Sync> SharedState<T> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```rust,no_run
     /// use std::sync::Arc;
     ///
     /// use wireframe::extractor::SharedState;
@@ -224,7 +224,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```rust,no_run
     /// use std::sync::Arc;
     ///
     /// use wireframe::extractor::SharedState;
@@ -290,7 +290,7 @@ impl ConnectionInfo {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use std::net::SocketAddr;
     ///
     /// use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
