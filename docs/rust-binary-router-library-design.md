@@ -1130,6 +1130,8 @@ examples are invaluable. They make the abstract design tangible and showcase how
   use byteorder::{BigEndian, ReadBytesExt};
   use std::io;
 
+  const MAX_FRAME_LEN: usize = 16 * 1024 * 1024; // 16 MiB upper limit
+
   pub struct LengthPrefixedCodec;
 
   impl Decoder for LengthPrefixedCodec {
@@ -1142,6 +1144,10 @@ examples are invaluable. They make the abstract design tangible and showcase how
           let length = (&src[..4])
               .read_u32::<BigEndian>()
               .expect("slice length checked") as usize;
+
+          if length > MAX_FRAME_LEN {
+              return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame too large"));
+          }
 
           if src.len() < 4 + length {
               src.reserve(4 + length - src.len());

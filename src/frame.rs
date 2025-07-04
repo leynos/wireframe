@@ -12,7 +12,10 @@ const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 const ERR_FRAME_TOO_LARGE: &str = "frame too large";
 const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
 
-fn cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
+/// Checked conversion from `usize` to a specific prefix integer type.
+///
+/// Returns `ERR_FRAME_TOO_LARGE` if the value does not fit in `T`.
+fn checked_prefix_cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
     T::try_from(len).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))
 }
 
@@ -29,12 +32,12 @@ use bytes::{Buf, BufMut, BytesMut};
 ///
 /// # Examples
 ///
-/// ```rust,no_run,ignore
-/// use crate::frame::{Endianness, bytes_to_u64};
+/// ```rust,no_run
+/// use wireframe::frame::{Endianness, bytes_to_u64};
 /// let buf = [0x00, 0x10, 0x20, 0x30];
 /// assert_eq!(bytes_to_u64(&buf, 2, Endianness::Big).unwrap(), 0x0010);
 /// ```
-pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
+pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
     if !matches!(size, 1 | 2 | 4 | 8) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -73,14 +76,14 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
 ///
 /// # Examples
 ///
-/// ```rust,no_run,ignore
-/// use crate::frame::{Endianness, u64_to_bytes};
+/// ```rust,no_run
+/// use wireframe::frame::{Endianness, u64_to_bytes};
 /// let mut buf = [0u8; 8];
 /// let written = u64_to_bytes(0x1234, 2, Endianness::Big, &mut buf).unwrap();
 /// assert_eq!(&buf[..written], [0x12, 0x34]);
 /// ```
 #[must_use = "length prefix byte count must be used"]
-pub(crate) fn u64_to_bytes(
+pub fn u64_to_bytes(
     len: usize,
     size: usize,
     endianness: Endianness,
@@ -88,25 +91,25 @@ pub(crate) fn u64_to_bytes(
 ) -> io::Result<usize> {
     match (size, endianness) {
         (1, _) => {
-            out[0] = cast::<u8>(len)?;
+            out[0] = checked_prefix_cast::<u8>(len)?;
         }
         (2, Endianness::Big) => {
-            out[..2].copy_from_slice(&cast::<u16>(len)?.to_be_bytes());
+            out[..2].copy_from_slice(&checked_prefix_cast::<u16>(len)?.to_be_bytes());
         }
         (2, Endianness::Little) => {
-            out[..2].copy_from_slice(&cast::<u16>(len)?.to_le_bytes());
+            out[..2].copy_from_slice(&checked_prefix_cast::<u16>(len)?.to_le_bytes());
         }
         (4, Endianness::Big) => {
-            out[..4].copy_from_slice(&cast::<u32>(len)?.to_be_bytes());
+            out[..4].copy_from_slice(&checked_prefix_cast::<u32>(len)?.to_be_bytes());
         }
         (4, Endianness::Little) => {
-            out[..4].copy_from_slice(&cast::<u32>(len)?.to_le_bytes());
+            out[..4].copy_from_slice(&checked_prefix_cast::<u32>(len)?.to_le_bytes());
         }
         (8, Endianness::Big) => {
-            out[..8].copy_from_slice(&cast::<u64>(len)?.to_be_bytes());
+            out[..8].copy_from_slice(&checked_prefix_cast::<u64>(len)?.to_be_bytes());
         }
         (8, Endianness::Little) => {
-            out[..8].copy_from_slice(&cast::<u64>(len)?.to_le_bytes());
+            out[..8].copy_from_slice(&checked_prefix_cast::<u64>(len)?.to_le_bytes());
         }
         _ => {
             return Err(io::Error::new(
