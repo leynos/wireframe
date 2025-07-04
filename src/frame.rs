@@ -19,7 +19,21 @@ use bytes::{Buf, BufMut, BytesMut};
 /// # Errors
 /// Returns [`io::ErrorKind::InvalidInput`] if `size` is unsupported or
 /// [`io::ErrorKind::UnexpectedEof`] if `bytes` is too short.
+///
+/// # Examples
+///
+/// ```rust,no_run,ignore
+/// use crate::frame::{Endianness, bytes_to_u64};
+/// let buf = [0x00, 0x10, 0x20, 0x30];
+/// assert_eq!(bytes_to_u64(&buf, 2, Endianness::Big).unwrap(), 0x0010);
+/// ```
 pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
+    if !matches!(size, 1 | 2 | 4 | 8) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            ERR_UNSUPPORTED_PREFIX,
+        ));
+    }
     if bytes.len() < size {
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
@@ -29,7 +43,7 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
 
     let slice = &bytes[..size];
     Ok(match (size, endianness) {
-        (1, _) => u64::from(u8::from_ne_bytes([slice[0]])),
+        (1, _) => u64::from(slice[0]),
         (2, Endianness::Big) => u64::from(u16::from_be_bytes(
             slice
                 .try_into()
@@ -76,6 +90,15 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
 /// # Errors
 /// Returns [`io::ErrorKind::InvalidInput`] if the size is unsupported or if
 /// `len` does not fit into the prefix.
+///
+/// # Examples
+///
+/// ```rust,no_run,ignore
+/// use crate::frame::{Endianness, u64_to_bytes};
+/// let mut buf = [0u8; 8];
+/// let written = u64_to_bytes(0x1234, 2, Endianness::Big, &mut buf).unwrap();
+/// assert_eq!(&buf[..written], [0x12, 0x34]);
+/// ```
 pub(crate) fn u64_to_bytes(
     len: usize,
     size: usize,
