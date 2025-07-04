@@ -363,6 +363,8 @@ mod tests {
     #[case(vec![0x34, 0x12], 2, Endianness::Little, 0x1234)]
     #[case(vec![0, 0, 0, 1], 4, Endianness::Big, 1)]
     #[case(vec![1, 0, 0, 0], 4, Endianness::Little, 1)]
+    #[case(vec![0, 0, 0, 0, 0, 0, 0, 1], 8, Endianness::Big, 1)]
+    #[case(vec![1, 0, 0, 0, 0, 0, 0, 0], 8, Endianness::Little, 1)]
     fn bytes_to_u64_ok(
         #[case] bytes: Vec<u8>,
         #[case] size: usize,
@@ -381,6 +383,8 @@ mod tests {
     #[case(0x1234usize, 2, Endianness::Little, vec![0x34, 0x12])]
     #[case(1usize, 4, Endianness::Big, vec![0, 0, 0, 1])]
     #[case(1usize, 4, Endianness::Little, vec![1, 0, 0, 0])]
+    #[case(1usize, 8, Endianness::Big, vec![0, 0, 0, 0, 0, 0, 0, 1])]
+    #[case(1usize, 8, Endianness::Little, vec![1, 0, 0, 0, 0, 0, 0, 0])]
     fn u64_to_bytes_ok(
         #[case] value: usize,
         #[case] size: usize,
@@ -408,10 +412,37 @@ mod tests {
     }
 
     #[rstest]
+    #[case(vec![0x01, 0x02, 0x03], 3, Endianness::Big)]
+    #[case(vec![0x01, 0x02, 0x03], 3, Endianness::Little)]
+    fn bytes_to_u64_unsupported(
+        #[case] bytes: Vec<u8>,
+        #[case] size: usize,
+        #[case] endianness: Endianness,
+    ) {
+        let err = bytes_to_u64(&bytes, size, endianness)
+            .expect_err("bytes_to_u64 must fail for unsupported size");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[rstest]
     fn u64_to_bytes_large() {
         let mut buf = [0u8; 8];
         let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf)
             .expect_err("u64_to_bytes must fail if value exceeds 1-byte prefix");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[rstest]
+    #[case(1usize, 3, Endianness::Big)]
+    #[case(1usize, 3, Endianness::Little)]
+    fn u64_to_bytes_unsupported(
+        #[case] value: usize,
+        #[case] size: usize,
+        #[case] endianness: Endianness,
+    ) {
+        let mut buf = [0u8; 8];
+        let err = u64_to_bytes(value, size, endianness, &mut buf)
+            .expect_err("u64_to_bytes must fail for unsupported size");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 }
