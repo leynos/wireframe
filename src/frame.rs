@@ -8,6 +8,11 @@ use std::{convert::TryInto, io};
 
 const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 const ERR_FRAME_TOO_LARGE: &str = "frame too large";
+const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
+
+fn cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
+    T::try_from(len).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))
+}
 
 use bytes::{Buf, BufMut, BytesMut};
 
@@ -37,7 +42,7 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
     if bytes.len() < size {
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
-            "incomplete length prefix",
+            ERR_INCOMPLETE_PREFIX,
         ));
     }
 
@@ -107,50 +112,25 @@ pub(crate) fn u64_to_bytes(
 ) -> io::Result<usize> {
     match (size, endianness) {
         (1, _) => {
-            out[0] = u8::try_from(len)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?;
+            out[0] = cast::<u8>(len)?;
         }
         (2, Endianness::Big) => {
-            out[..2].copy_from_slice(
-                &u16::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
-                    .to_be_bytes(),
-            );
+            out[..2].copy_from_slice(&cast::<u16>(len)?.to_be_bytes());
         }
         (2, Endianness::Little) => {
-            out[..2].copy_from_slice(
-                &u16::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
-                    .to_le_bytes(),
-            );
+            out[..2].copy_from_slice(&cast::<u16>(len)?.to_le_bytes());
         }
         (4, Endianness::Big) => {
-            out[..4].copy_from_slice(
-                &u32::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
-                    .to_be_bytes(),
-            );
+            out[..4].copy_from_slice(&cast::<u32>(len)?.to_be_bytes());
         }
         (4, Endianness::Little) => {
-            out[..4].copy_from_slice(
-                &u32::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
-                    .to_le_bytes(),
-            );
+            out[..4].copy_from_slice(&cast::<u32>(len)?.to_le_bytes());
         }
         (8, Endianness::Big) => {
-            out[..8].copy_from_slice(
-                &u64::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
-                    .to_be_bytes(),
-            );
+            out[..8].copy_from_slice(&cast::<u64>(len)?.to_be_bytes());
         }
         (8, Endianness::Little) => {
-            out[..8].copy_from_slice(
-                &u64::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?
-                    .to_le_bytes(),
-            );
+            out[..8].copy_from_slice(&cast::<u64>(len)?.to_le_bytes());
         }
         _ => {
             return Err(io::Error::new(
