@@ -2,8 +2,6 @@
 //!
 //! They verify successful extraction and error handling when state is missing.
 
-use std::{any::TypeId, collections::HashMap, sync::Arc};
-
 use wireframe::extractor::{
     ExtractError,
     FromMessageRequest,
@@ -14,15 +12,8 @@ use wireframe::extractor::{
 
 #[test]
 fn shared_state_extractor_returns_data() {
-    let mut map = HashMap::new();
-    map.insert(
-        TypeId::of::<u32>(),
-        Arc::new(5u32) as Arc<dyn std::any::Any + Send + Sync>,
-    );
-    let req = MessageRequest {
-        peer_addr: None,
-        app_data: map,
-    };
+    let mut req = MessageRequest::default();
+    req.insert_state(5u32);
     let mut payload = Payload::default();
     let extracted = SharedState::<u32>::from_message_request(&req, &mut payload).unwrap();
     assert_eq!(*extracted, 5);
