@@ -57,6 +57,7 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
         (4, Endianness::Little) => cur.read_u32::<LittleEndian>().map(u64::from),
         (8, Endianness::Big) => cur.read_u64::<BigEndian>(),
         (8, Endianness::Little) => cur.read_u64::<LittleEndian>(),
+        // size is validated above so this branch is unreachable
         _ => unreachable!(),
     }?;
     Ok(val)
