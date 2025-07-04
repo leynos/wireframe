@@ -34,6 +34,22 @@ impl MessageRequest {
     /// Retrieve shared state of type `T` if available.
     ///
     /// Returns `None` when no value of type `T` was registered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::{any::TypeId, collections::HashMap, sync::Arc};
+    ///
+    /// use wireframe::extractor::{MessageRequest, SharedState};
+    ///
+    /// let mut req = MessageRequest::default();
+    /// req.app_data.insert(
+    ///     TypeId::of::<u32>(),
+    ///     Arc::new(5u32) as Arc<dyn std::any::Any + Send + Sync>,
+    /// );
+    /// let val: Option<SharedState<u32>> = req.state();
+    /// assert_eq!(*val.unwrap(), 5);
+    /// ```
     #[must_use]
     pub fn state<T>(&self) -> Option<SharedState<T>>
     where
@@ -58,12 +74,33 @@ impl Payload<'_> {
     ///
     /// Consumes up to `count` bytes from the front of the slice, ensuring we
     /// never slice beyond the available buffer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::extractor::Payload;
+    ///
+    /// let mut payload = Payload { data: b"abcd" };
+    /// payload.advance(2);
+    /// assert_eq!(payload.data, b"cd" as &[u8]);
+    /// ```
     pub fn advance(&mut self, count: usize) {
         let n = count.min(self.data.len());
         self.data = &self.data[n..];
     }
 
     /// Returns the number of bytes remaining.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::extractor::Payload;
+    ///
+    /// let mut payload = Payload { data: b"bytes" };
+    /// assert_eq!(payload.remaining(), 5);
+    /// payload.advance(2);
+    /// assert_eq!(payload.remaining(), 3);
+    /// ```
     #[must_use]
     pub fn remaining(&self) -> usize { self.data.len() }
 }
@@ -246,6 +283,21 @@ pub struct ConnectionInfo {
 
 impl ConnectionInfo {
     /// Returns the peer's socket address for the current connection, if available.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::SocketAddr;
+    ///
+    /// use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
+    ///
+    /// let req = MessageRequest {
+    ///     peer_addr: Some("127.0.0.1:8080".parse::<SocketAddr>().unwrap()),
+    ///     ..Default::default()
+    /// };
+    /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default()).unwrap();
+    /// assert_eq!(info.peer_addr(), req.peer_addr);
+    /// ```
     #[must_use]
     pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
 }
