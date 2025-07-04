@@ -104,6 +104,7 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
 /// let written = u64_to_bytes(0x1234, 2, Endianness::Big, &mut buf).unwrap();
 /// assert_eq!(&buf[..written], [0x12, 0x34]);
 /// ```
+#[must_use = "length prefix byte count must be used"]
 pub(crate) fn u64_to_bytes(
     len: usize,
     size: usize,
