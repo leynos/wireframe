@@ -1,4 +1,7 @@
-//! Tests for Display implementations on error types.
+//! Tests for Display and Error trait implementations on error types.
+//!
+//! Verifies that error types provide human-readable messages via Display
+//! and correctly expose underlying error sources via Error::source.
 
 use std::error::Error;
 
