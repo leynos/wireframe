@@ -2,8 +2,8 @@
 //!
 //! Verifies that error types provide human-readable messages via Display
 //! and correctly expose underlying error sources via `Error::source`.
-//! Implementing these traits keeps logs clear for operators
-//! and surfaces cause chains so developers can diagnose issues.
+//! Implementing these traits keeps logs clear for operators,
+//! and surfaces causal chains so developers can diagnose issues.
 
 use std::error::Error;
 
