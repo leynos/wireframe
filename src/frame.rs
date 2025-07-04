@@ -4,9 +4,74 @@
 //! Implementations may use any framing strategy suitable for the
 //! underlying transport.
 
-use std::io;
+use std::{convert::TryInto, io};
 
 use bytes::{Buf, BufMut, BytesMut};
+
+/// Converts a byte slice into a `u64` according to the given prefix size and
+/// endianness.
+///
+/// Returns an error if the size is unsupported.
+fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
+    Ok(match (size, endianness) {
+        (1, _) => u64::from(u8::from_ne_bytes([bytes[0]])),
+        (2, Endianness::Big) => u64::from(u16::from_be_bytes(bytes[..2].try_into().unwrap())),
+        (2, Endianness::Little) => u64::from(u16::from_le_bytes(bytes[..2].try_into().unwrap())),
+        (4, Endianness::Big) => u64::from(u32::from_be_bytes(bytes[..4].try_into().unwrap())),
+        (4, Endianness::Little) => u64::from(u32::from_le_bytes(bytes[..4].try_into().unwrap())),
+        (8, Endianness::Big) => u64::from_be_bytes(bytes[..8].try_into().unwrap()),
+        (8, Endianness::Little) => u64::from_le_bytes(bytes[..8].try_into().unwrap()),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported length prefix size",
+            ));
+        }
+    })
+}
+
+/// Encodes an integer into bytes according to the given prefix size and
+/// endianness.
+///
+/// Returns an error if the integer does not fit into the requested size.
+fn u64_to_bytes(len: usize, size: usize, endianness: Endianness) -> io::Result<Vec<u8>> {
+    Ok(match (size, endianness) {
+        (1, _) => vec![
+            u8::try_from(len)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?,
+        ],
+        (2, Endianness::Big) => u16::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
+            .to_be_bytes()
+            .to_vec(),
+        (2, Endianness::Little) => u16::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
+            .to_le_bytes()
+            .to_vec(),
+        (4, Endianness::Big) => u32::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
+            .to_be_bytes()
+            .to_vec(),
+        (4, Endianness::Little) => u32::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
+            .to_le_bytes()
+            .to_vec(),
+        (8, Endianness::Big) => u64::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
+            .to_be_bytes()
+            .to_vec(),
+        (8, Endianness::Little) => u64::try_from(len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
+            .to_le_bytes()
+            .to_vec(),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported length prefix size",
+            ));
+        }
+    })
+}
 
 /// Byte order used for encoding and decoding length prefixes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,29 +132,7 @@ impl LengthFormat {
     /// Returns an error if the prefix size is unsupported or if the decoded length does not fit in
     /// a `usize`.
     fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
-        let len = match (self.bytes, self.endianness) {
-            (1, _) => u64::from(u8::from_ne_bytes([bytes[0]])),
-            (2, Endianness::Big) => u64::from(u16::from_be_bytes([bytes[0], bytes[1]])),
-            (2, Endianness::Little) => u64::from(u16::from_le_bytes([bytes[0], bytes[1]])),
-            (4, Endianness::Big) => {
-                u64::from(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-            }
-            (4, Endianness::Little) => {
-                u64::from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-            }
-            (8, Endianness::Big) => u64::from_be_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            ]),
-            (8, Endianness::Little) => u64::from_le_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            ]),
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "unsupported length prefix size",
-                ));
-            }
-        };
+        let len = bytes_to_u64(bytes, self.bytes, self.endianness)?;
         usize::try_from(len).map_err(|_| io::Error::other("frame too large"))
     }
 
@@ -106,48 +149,8 @@ impl LengthFormat {
     /// Returns an error if `len` exceeds the maximum value for the configured prefix size or if the
     /// prefix size is not supported.
     fn write_len(&self, len: usize, dst: &mut BytesMut) -> io::Result<()> {
-        match (self.bytes, self.endianness) {
-            (1, _) => dst.put_u8(
-                u8::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?,
-            ),
-            (2, Endianness::Big) => dst.put_slice(
-                &u16::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-                    .to_be_bytes(),
-            ),
-            (2, Endianness::Little) => dst.put_slice(
-                &u16::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-                    .to_le_bytes(),
-            ),
-            (4, Endianness::Big) => dst.put_slice(
-                &u32::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-                    .to_be_bytes(),
-            ),
-            (4, Endianness::Little) => dst.put_slice(
-                &u32::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-                    .to_le_bytes(),
-            ),
-            (8, Endianness::Big) => dst.put_slice(
-                &u64::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-                    .to_be_bytes(),
-            ),
-            (8, Endianness::Little) => dst.put_slice(
-                &u64::try_from(len)
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?
-                    .to_le_bytes(),
-            ),
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "unsupported length prefix size",
-                ));
-            }
-        }
+        let prefix = u64_to_bytes(len, self.bytes, self.endianness)?;
+        dst.put_slice(&prefix);
         Ok(())
     }
 }
