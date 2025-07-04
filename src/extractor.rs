@@ -73,6 +73,21 @@ pub struct Payload<'a> {
     pub data: &'a [u8],
 }
 
+impl<'a> Payload<'a> {
+    /// Creates a new `Payload` from the provided byte slice.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::extractor::Payload;
+    ///
+    /// let payload = Payload::new(b"data");
+    /// assert_eq!(payload.data, b"data" as &[u8]);
+    /// ```
+    #[must_use]
+    pub fn new(data: &'a [u8]) -> Self { Self { data } }
+}
+
 impl Payload<'_> {
     /// Advances the payload by `count` bytes.
     ///
@@ -84,7 +99,7 @@ impl Payload<'_> {
     /// ```rust,no_run
     /// use wireframe::extractor::Payload;
     ///
-    /// let mut payload = Payload { data: b"abcd" };
+    /// let mut payload = Payload::new(b"abcd");
     /// payload.advance(2);
     /// assert_eq!(payload.data, b"cd" as &[u8]);
     /// ```
@@ -100,7 +115,7 @@ impl Payload<'_> {
     /// ```rust,no_run
     /// use wireframe::extractor::Payload;
     ///
-    /// let mut payload = Payload { data: b"bytes" };
+    /// let mut payload = Payload::new(b"bytes");
     /// assert_eq!(payload.remaining(), 5);
     /// payload.advance(2);
     /// assert_eq!(payload.remaining(), 3);
