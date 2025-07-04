@@ -31,23 +31,35 @@ pub(crate) fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) ->
     Ok(match (size, endianness) {
         (1, _) => u64::from(u8::from_ne_bytes([slice[0]])),
         (2, Endianness::Big) => u64::from(u16::from_be_bytes(
-            slice.try_into().expect("slice length validated"),
+            slice
+                .try_into()
+                .expect("expected 2 bytes for u16::from_be_bytes"),
         )),
         (2, Endianness::Little) => u64::from(u16::from_le_bytes(
-            slice.try_into().expect("slice length validated"),
+            slice
+                .try_into()
+                .expect("expected 2 bytes for u16::from_le_bytes"),
         )),
         (4, Endianness::Big) => u64::from(u32::from_be_bytes(
-            slice.try_into().expect("slice length validated"),
+            slice
+                .try_into()
+                .expect("expected 4 bytes for u32::from_be_bytes"),
         )),
         (4, Endianness::Little) => u64::from(u32::from_le_bytes(
-            slice.try_into().expect("slice length validated"),
+            slice
+                .try_into()
+                .expect("expected 4 bytes for u32::from_le_bytes"),
         )),
-        (8, Endianness::Big) => {
-            u64::from_be_bytes(slice.try_into().expect("slice length validated"))
-        }
-        (8, Endianness::Little) => {
-            u64::from_le_bytes(slice.try_into().expect("slice length validated"))
-        }
+        (8, Endianness::Big) => u64::from_be_bytes(
+            slice
+                .try_into()
+                .expect("expected 8 bytes for u64::from_be_bytes"),
+        ),
+        (8, Endianness::Little) => u64::from_le_bytes(
+            slice
+                .try_into()
+                .expect("expected 8 bytes for u64::from_le_bytes"),
+        ),
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -380,14 +392,16 @@ mod tests {
         #[case] size: usize,
         #[case] endianness: Endianness,
     ) {
-        let err = bytes_to_u64(&bytes, size, endianness).expect_err("expected error");
+        let err = bytes_to_u64(&bytes, size, endianness)
+            .expect_err("bytes_to_u64 should fail for short slice");
         assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
     }
 
     #[rstest]
     fn u64_to_bytes_large() {
         let mut buf = [0u8; 8];
-        let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf).expect_err("expected error");
+        let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf)
+            .expect_err("u64_to_bytes should fail if value exceeds prefix size");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 }
