@@ -43,7 +43,7 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
     /// struct MyMessageType(u8);
     /// let bytes = vec![]; // serialized message bytes
-    /// let (_msg, consumed) = MyMessageType::from_bytes(&bytes).unwrap();
+    /// let (_msg, consumed) = MyMessageType::from_bytes(&bytes).expect("valid message bytes");
     /// assert!(consumed <= bytes.len());
     /// ```
     fn from_bytes(bytes: &[u8]) -> Result<(Self, usize), DecodeError>

@@ -95,9 +95,11 @@ where
 ///             .with_big_endian()
 ///             .with_fixed_int_encoding(),
 ///     )
-///     .unwrap();
+///     .expect("encoding example preamble");
 ///     let mut reader = BufReader::new(&data[..]);
-///     let (preamble, leftover) = read_preamble::<_, MyPreamble>(&mut reader).await.unwrap();
+///     let (preamble, leftover) = read_preamble::<_, MyPreamble>(&mut reader)
+///         .await
+///         .expect("valid preamble bytes");
 ///     assert_eq!(preamble.0, 42);
 ///     assert!(leftover.is_empty());
 /// }

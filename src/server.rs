@@ -115,7 +115,7 @@ where
     /// ```no_run
     /// # use wireframe::server::WireframeServer;
     /// # use wireframe::app::WireframeApp;
-    /// # let factory = || WireframeApp::new().unwrap();
+    /// # let factory = || WireframeApp::new().expect("app should initialise");
     /// #[derive(bincode::Decode)]
     /// # struct MyPreamble;
     /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
@@ -153,7 +153,7 @@ where
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().unwrap();
+    /// let factory = || WireframeApp::new().expect("app should initialise");
     /// let server = WireframeServer::new(factory).workers(4);
     /// assert_eq!(server.worker_count(), 4);
     /// let server = server.workers(0);
@@ -196,7 +196,7 @@ where
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().unwrap();
+    /// let factory = || WireframeApp::new().expect("app should initialise");
     /// let server = WireframeServer::new(factory);
     /// assert!(server.worker_count() >= 1);
     /// ```
@@ -234,9 +234,9 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().unwrap();
+    /// let factory = || WireframeApp::new().expect("app should initialise");
     /// let server = WireframeServer::new(factory);
-    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().expect("valid address");
     /// let server = server.bind(addr).expect("Failed to bind address");
     /// ```
     pub fn bind(mut self, addr: SocketAddr) -> io::Result<Self> {
@@ -282,10 +282,12 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     /// async fn run_server() -> std::io::Result<()> {
-    ///     let factory = || WireframeApp::new().unwrap();
-    ///     let server = WireframeServer::new(factory)
-    ///         .workers(4)
-    ///         .bind("127.0.0.1:8080".parse::<SocketAddr>().unwrap())?;
+    ///     let factory = || WireframeApp::new().expect("app should initialise");
+    ///     let server = WireframeServer::new(factory).workers(4).bind(
+    ///         "127.0.0.1:8080"
+    ///             .parse::<SocketAddr>()
+    ///             .expect("valid address"),
+    ///     )?;
     ///     server.run().await
     /// }
     /// ```
