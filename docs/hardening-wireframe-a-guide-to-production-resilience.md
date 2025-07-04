@@ -92,6 +92,61 @@ pub async fn run_connection(
 This pattern ensures that whether a connection ends due to a client disconnect,
 an error, or a server-wide shutdown, the task terminates cleanly and reliably.
 
+#### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant MainServer
+    participant TaskTracker
+    participant CancellationToken
+    participant WorkerTask
+
+    MainServer->>TaskTracker: spawn(worker_task(..., token, tracker))
+    loop For each worker
+        TaskTracker->>WorkerTask: Start worker_task
+    end
+    MainServer->>CancellationToken: Wait for shutdown signal
+    CancellationToken-->>WorkerTask: Signal cancellation
+    WorkerTask-->>TaskTracker: Complete and notify
+    MainServer->>TaskTracker: tracker.wait()
+    TaskTracker-->>MainServer: All tasks complete
+    MainServer->>CancellationToken: cancel()
+    MainServer->>TaskTracker: close()
+    MainServer->>TaskTracker: tracker.wait().await
+    TaskTracker-->>MainServer: Confirm shutdown complete
+```
+
+#### Class Diagram
+
+```mermaid
+classDiagram
+    class Server {
+        +listener
+        +factory
+        +on_preamble_success
+        +on_preamble_failure
+        +workers
+        +run(shutdown)
+    }
+    class TaskTracker {
+        +spawn(task)
+        +wait()
+        +close()
+    }
+    class CancellationToken {
+        +cancel()
+        +cancelled()
+    }
+    class WorkerTask {
+        +worker_task(listener, factory, on_success, on_failure, shutdown, tracker)
+    }
+    Server --> TaskTracker : uses
+    Server --> CancellationToken : uses
+    TaskTracker --> WorkerTask : spawns
+    WorkerTask --> CancellationToken : checks
+    WorkerTask --> TaskTracker : notifies
+```
+
 ## 3. Meticulous Resource Management
 
 Long-running servers are exquisitely sensitive to resource leaks. `wireframe`

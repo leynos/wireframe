@@ -45,6 +45,17 @@ pub enum PushError {
     Closed,
 }
 
+impl std::fmt::Display for PushError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QueueFull => f.write_str("push queue full"),
+            Self::Closed => f.write_str("push queue closed"),
+        }
+    }
+}
+
+impl std::error::Error for PushError {}
+
 pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
@@ -63,6 +74,21 @@ impl<F: FrameLike> PushHandle<F> {
     /// # Errors
     ///
     /// Returns [`PushError::Closed`] if the receiving end has been dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::{PushPriority, PushQueues};
+    ///
+    /// #[tokio::test]
+    /// async fn example() {
+    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     handle.push_high_priority(42u8).await.unwrap();
+    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///     assert_eq!(priority, PushPriority::High);
+    ///     assert_eq!(frame, 42);
+    /// }
+    /// ```
     pub async fn push_high_priority(&self, frame: F) -> Result<(), PushError> {
         self.0
             .high_prio_tx
@@ -78,6 +104,21 @@ impl<F: FrameLike> PushHandle<F> {
     /// # Errors
     ///
     /// Returns [`PushError::Closed`] if the receiving end has been dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::{PushPriority, PushQueues};
+    ///
+    /// #[tokio::test]
+    /// async fn example() {
+    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     handle.push_low_priority(10u8).await.unwrap();
+    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///     assert_eq!(priority, PushPriority::Low);
+    ///     assert_eq!(frame, 10);
+    /// }
+    /// ```
     pub async fn push_low_priority(&self, frame: F) -> Result<(), PushError> {
         self.0
             .low_prio_tx
@@ -93,6 +134,22 @@ impl<F: FrameLike> PushHandle<F> {
     /// Returns [`PushError::QueueFull`] if the queue is full and the policy is
     /// [`PushPolicy::ReturnErrorIfFull`]. Returns [`PushError::Closed`] if the
     /// receiving end has been dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
+    ///
+    /// #[tokio::test]
+    /// async fn example() {
+    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     handle.push_high_priority(1u8).await.unwrap();
+    ///
+    ///     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
+    ///     assert!(matches!(result, Err(PushError::QueueFull)));
+    ///     let _ = queues.recv().await;
+    /// }
+    /// ```
     pub fn try_push(
         &self,
         frame: F,
@@ -131,6 +188,21 @@ pub struct PushQueues<F> {
 impl<F: FrameLike> PushQueues<F> {
     /// Create a new set of queues with the specified bounds for each priority
     /// and return them along with a [`PushHandle`] for producers.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::{PushPriority, PushQueues};
+    ///
+    /// #[tokio::test]
+    /// async fn example() {
+    ///     let (mut queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    ///     handle.push_high_priority(7u8).await.unwrap();
+    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///     assert_eq!(priority, PushPriority::High);
+    ///     assert_eq!(frame, 7);
+    /// }
+    /// ```
     #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
@@ -151,6 +223,21 @@ impl<F: FrameLike> PushQueues<F> {
     /// Receive the next frame, preferring high priority frames when available.
     ///
     /// Returns `None` when both queues are closed and empty.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::{PushPriority, PushQueues};
+    ///
+    /// #[tokio::test]
+    /// async fn example() {
+    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     handle.push_high_priority(2u8).await.unwrap();
+    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///     assert_eq!(priority, PushPriority::High);
+    ///     assert_eq!(frame, 2);
+    /// }
+    /// ```
     pub async fn recv(&mut self) -> Option<(PushPriority, F)> {
         tokio::select! {
             biased;
@@ -163,6 +250,15 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// This is primarily used in tests to release resources when no actor is
     /// draining the queues.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::PushQueues;
+    ///
+    /// let (mut queues, _handle) = PushQueues::<u8>::bounded(1, 1);
+    /// queues.close();
+    /// ```
     pub fn close(&mut self) {
         self.high_priority_rx.close();
         self.low_priority_rx.close();

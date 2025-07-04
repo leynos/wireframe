@@ -28,9 +28,9 @@ pub type PreambleCallback<T> = Arc<
 pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 use tokio::{
     net::TcpListener,
-    sync::broadcast,
     time::{Duration, sleep},
 };
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
     app::WireframeApp,
@@ -115,7 +115,7 @@ where
     /// ```no_run
     /// # use wireframe::server::WireframeServer;
     /// # use wireframe::app::WireframeApp;
-    /// # let factory = || WireframeApp::new().unwrap();
+    /// # let factory = || WireframeApp::new().expect("Failed to initialise app");
     /// #[derive(bincode::Decode)]
     /// # struct MyPreamble;
     /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
@@ -153,7 +153,7 @@ where
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().unwrap();
+    /// let factory = || WireframeApp::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory).workers(4);
     /// assert_eq!(server.worker_count(), 4);
     /// let server = server.workers(0);
@@ -196,7 +196,7 @@ where
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().unwrap();
+    /// let factory = || WireframeApp::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory);
     /// assert!(server.worker_count() >= 1);
     /// ```
@@ -234,9 +234,9 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().unwrap();
+    /// let factory = || WireframeApp::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory);
-    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().expect("Failed to parse address");
     /// let server = server.bind(addr).expect("Failed to bind address");
     /// ```
     pub fn bind(mut self, addr: SocketAddr) -> io::Result<Self> {
@@ -282,10 +282,11 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     /// async fn run_server() -> std::io::Result<()> {
-    ///     let factory = || WireframeApp::new().unwrap();
-    ///     let server = WireframeServer::new(factory)
-    ///         .workers(4)
-    ///         .bind("127.0.0.1:8080".parse::<SocketAddr>().unwrap())?;
+    ///     let factory = || WireframeApp::new().expect("Failed to initialise app");
+    ///     let addr = "127.0.0.1:8080"
+    ///         .parse::<SocketAddr>()
+    ///         .expect("Failed to parse address");
+    ///     let server = WireframeServer::new(factory).workers(4).bind(addr)?;
     ///     server.run().await
     /// }
     /// ```
@@ -311,41 +312,29 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        // Reserve one slot per worker so lagged messages remain visible during
-        // debugging.
-        let (shutdown_tx, _) = broadcast::channel(self.workers.max(1));
 
-        // Spawn worker tasks, giving each its own shutdown receiver.
-        let mut handles = Vec::with_capacity(self.workers);
+        let shutdown_token = CancellationToken::new();
+        let tracker = TaskTracker::new();
+
         for _ in 0..self.workers {
             let listener = Arc::clone(&listener);
             let factory = self.factory.clone();
             let on_success = self.on_preamble_success.clone();
             let on_failure = self.on_preamble_failure.clone();
-            handles.push(tokio::spawn(worker_task(
-                listener,
-                factory,
-                on_success,
-                on_failure,
-                shutdown_tx.subscribe(),
-            )));
+            let token = shutdown_token.clone();
+            let t = tracker.clone();
+            tracker.spawn(worker_task(
+                listener, factory, on_success, on_failure, token, t,
+            ));
         }
-
-        let join_all = futures::future::join_all(handles);
-        tokio::pin!(join_all);
 
         tokio::select! {
-            () = shutdown => {
-                let _ = shutdown_tx.send(());
-            }
-            _ = &mut join_all => {}
+            () = shutdown => shutdown_token.cancel(),
+            () = tracker.wait() => {}
         }
 
-        for res in join_all.await {
-            if let Err(e) = res {
-                eprintln!("worker task failed: {e}");
-            }
-        }
+        tracker.close();
+        tracker.wait().await;
         Ok(())
     }
 }
@@ -360,8 +349,8 @@ async fn worker_task<F, T>(
     factory: F,
     on_success: Option<PreambleCallback<T>>,
     on_failure: Option<PreambleErrorCallback>,
-    // Each worker owns its shutdown receiver.
-    mut shutdown_rx: broadcast::Receiver<()>,
+    shutdown: CancellationToken,
+    tracker: TaskTracker,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // `Preamble` ensures `T` supports borrowed decoding.
@@ -370,12 +359,17 @@ async fn worker_task<F, T>(
     let mut delay = Duration::from_millis(10);
     loop {
         tokio::select! {
+            biased;
+
+            () = shutdown.cancelled() => break,
+
             res = listener.accept() => match res {
                 Ok((stream, _)) => {
                     let success = on_success.clone();
                     let failure = on_failure.clone();
                     let factory = factory.clone();
-                    tokio::spawn(process_stream(stream, factory, success, failure));
+                    let t = tracker.clone();
+                    t.spawn(process_stream(stream, factory, success, failure));
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
@@ -384,7 +378,6 @@ async fn worker_task<F, T>(
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
             },
-            _ = shutdown_rx.recv() => break,
         }
     }
 }
@@ -461,9 +454,9 @@ mod tests {
     use rstest::{fixture, rstest};
     use tokio::{
         net::TcpListener,
-        sync::broadcast,
         time::{Duration, timeout},
     };
+    use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
     use super::*;
 
@@ -813,14 +806,23 @@ mod tests {
     async fn test_worker_task_shutdown_signal(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let (tx, rx) = broadcast::channel(1);
+        let token = CancellationToken::new();
+        let tracker = TaskTracker::new();
         let listener = Arc::new(TcpListener::bind("127.0.0.1:0").await.unwrap());
 
-        let _ = tx.send(());
+        tracker.spawn(worker_task::<_, ()>(
+            listener,
+            factory,
+            None,
+            None,
+            token.clone(),
+            tracker.clone(),
+        ));
 
-        let task = tokio::spawn(worker_task::<_, ()>(listener, factory, None, None, rx));
+        token.cancel();
+        tracker.close();
 
-        let result = timeout(Duration::from_millis(100), task).await;
+        let result = timeout(Duration::from_millis(100), tracker.wait()).await;
         assert!(result.is_ok());
     }
 

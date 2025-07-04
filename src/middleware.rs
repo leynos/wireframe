@@ -8,52 +8,84 @@ use std::{convert::Infallible, sync::Arc};
 
 use async_trait::async_trait;
 
+/// Generic container for request and response frame data.
+#[derive(Debug, Default)]
+pub struct FrameContainer<F> {
+    frame: F,
+}
+
+impl<F> FrameContainer<F> {
+    /// Create a new container holding `frame` bytes.
+    #[must_use]
+    pub fn new(frame: F) -> Self { Self { frame } }
+
+    /// Borrow the inner frame data.
+    #[must_use]
+    pub fn frame(&self) -> &F { &self.frame }
+
+    /// Mutable access to the frame data.
+    #[must_use]
+    pub fn frame_mut(&mut self) -> &mut F { &mut self.frame }
+
+    /// Consume the container, returning the frame.
+    #[must_use]
+    pub fn into_inner(self) -> F { self.frame }
+}
+
 /// Incoming request wrapper passed through middleware.
 #[derive(Debug)]
 pub struct ServiceRequest {
-    frame: Vec<u8>,
+    inner: FrameContainer<Vec<u8>>,
 }
 
 impl ServiceRequest {
     /// Create a new [`ServiceRequest`] from raw frame bytes.
     #[must_use]
-    pub fn new(frame: Vec<u8>) -> Self { Self { frame } }
+    pub fn new(frame: Vec<u8>) -> Self {
+        Self {
+            inner: FrameContainer::new(frame),
+        }
+    }
 
     /// Borrow the underlying frame bytes.
     #[must_use]
-    pub fn frame(&self) -> &[u8] { &self.frame }
+    pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
 
     /// Mutable access to the inner frame bytes.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> { &mut self.frame }
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
 
     /// Consume the request, returning the inner frame bytes.
     #[must_use]
-    pub fn into_inner(self) -> Vec<u8> { self.frame }
+    pub fn into_inner(self) -> Vec<u8> { self.inner.into_inner() }
 }
 
 /// Response produced by a handler or middleware.
 #[derive(Debug, Default)]
 pub struct ServiceResponse {
-    frame: Vec<u8>,
+    inner: FrameContainer<Vec<u8>>,
 }
 
 impl ServiceResponse {
     /// Create a new [`ServiceResponse`] containing the given frame bytes.
     #[must_use]
-    pub fn new(frame: Vec<u8>) -> Self { Self { frame } }
+    pub fn new(frame: Vec<u8>) -> Self {
+        Self {
+            inner: FrameContainer::new(frame),
+        }
+    }
 
     /// Borrow the inner frame bytes.
     #[must_use]
-    pub fn frame(&self) -> &[u8] { &self.frame }
+    pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
 
     /// Mutable access to the response frame bytes.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> { &mut self.frame }
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
 
     /// Consume the response, yielding the raw frame bytes.
     #[must_use]
-    pub fn into_inner(self) -> Vec<u8> { self.frame }
+    pub fn into_inner(self) -> Vec<u8> { self.inner.into_inner() }
 }
 
 /// Continuation used by middleware to call the next service in the chain.

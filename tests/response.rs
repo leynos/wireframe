@@ -135,9 +135,12 @@ async fn send_response_propagates_write_error() {
     assert!(matches!(err, wireframe::app::SendError::Io(_)));
 }
 
-#[test]
-fn encode_fails_for_unsupported_prefix_size() {
-    let fmt = LengthFormat::new(3, Endianness::Big);
+#[rstest]
+#[case(0, Endianness::Big)]
+#[case(3, Endianness::Big)]
+#[case(5, Endianness::Little)]
+fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
+    let fmt = LengthFormat::new(bytes, endian);
     let processor = LengthPrefixedProcessor::new(fmt);
     let mut buf = BytesMut::new();
     let err = processor
@@ -146,14 +149,30 @@ fn encode_fails_for_unsupported_prefix_size() {
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
-#[test]
-fn decode_fails_for_unsupported_prefix_size() {
-    let fmt = LengthFormat::new(3, Endianness::Little);
+#[rstest]
+#[case(0, Endianness::Little)]
+#[case(3, Endianness::Little)]
+#[case(5, Endianness::Big)]
+fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
+    let fmt = LengthFormat::new(bytes, endian);
     let processor = LengthPrefixedProcessor::new(fmt);
-    let mut buf = BytesMut::from(&[0x00, 0x01, 0x02][..]);
+    let mut buf = BytesMut::from(vec![0u8; bytes].as_slice());
     let err = processor
         .decode(&mut buf)
         .expect_err("decode must fail for unsupported prefix size");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+}
+
+#[rstest]
+#[case(LengthFormat::new(1, Endianness::Big), 256)]
+#[case(LengthFormat::new(2, Endianness::Little), 65_536)]
+fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usize) {
+    let processor = LengthPrefixedProcessor::new(fmt);
+    let frame = vec![0u8; len];
+    let mut buf = BytesMut::new();
+    let err = processor
+        .encode(&frame, &mut buf)
+        .expect_err("expected error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
