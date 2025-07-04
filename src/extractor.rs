@@ -67,6 +67,17 @@ impl MessageRequest {
 }
 
 /// Raw payload buffer handed to extractors.
+///
+/// Create a `Payload` from a slice using [`Payload::new`] or `into`:
+///
+/// ```rust
+/// use wireframe::extractor::Payload;
+///
+/// let p1 = Payload::new(b"abc");
+/// let p2: Payload<'_> = b"xyz".as_slice().into();
+/// assert_eq!(p1.data, b"abc" as &[u8]);
+/// assert_eq!(p2.data, b"xyz" as &[u8]);
+/// ```
 #[derive(Default)]
 pub struct Payload<'a> {
     /// Incoming bytes not yet processed.
@@ -86,6 +97,10 @@ impl<'a> Payload<'a> {
     /// ```
     #[must_use]
     pub fn new(data: &'a [u8]) -> Self { Self { data } }
+}
+
+impl<'a> From<&'a [u8]> for Payload<'a> {
+    fn from(data: &'a [u8]) -> Self { Self { data } }
 }
 
 impl Payload<'_> {
