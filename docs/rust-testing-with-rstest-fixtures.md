@@ -119,6 +119,16 @@ libraries. This convention prevents testing utilities from being included in
 production binaries, which helps keep them small and reduces compile times for
 non-test builds.
 
+When leveraging Tokio's test utilities—for example `tokio::time::pause` or the
+I/O helpers in `tokio-test`—enable the `test-util` feature via a dev-only
+dependency:
+
+```toml
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["test-util"] }
+rstest = "0.18"
+```
+
 ### B. Your First Fixture: Defining with `#[fixture]`
 
 A fixture in `rstest` is essentially a Rust function that provides some data or

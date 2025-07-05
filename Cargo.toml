@@ -21,6 +21,7 @@ logtest = "^2.0"
 proptest = "^1.0"
 loom = "^0.7"
 async-stream = "0.3"
+tokio = { version = "1", default-features = false, features = ["test-util"] }
 
 [features]
 advanced-tests = []

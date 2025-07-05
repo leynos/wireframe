@@ -5,7 +5,10 @@
 
 use futures::stream;
 use rstest::{fixture, rstest};
-use tokio::time::{Duration, sleep, timeout};
+use tokio::{
+    sync::oneshot,
+    time::{Duration, sleep, timeout},
+};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
@@ -66,6 +69,83 @@ async fn fairness_yields_low_after_burst(
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert_eq!(out, vec![1, 2, 99, 3, 4, 5]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn fairness_disabled_processes_all_high_first(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    let fairness = FairnessConfig {
+        max_high_before_low: 0,
+        time_slice: None,
+    };
+
+    for n in 1..=3 {
+        let message = format!("failed to push high-priority frame {n}");
+        handle.push_high_priority(n).await.expect(&message);
+    }
+    handle
+        .push_low_priority(4)
+        .await
+        .expect("failed to push low-priority frame 4");
+    handle
+        .push_low_priority(5)
+        .await
+        .expect("failed to push low-priority frame 5");
+
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, None, shutdown_token);
+    actor.set_fairness(fairness);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+    assert_eq!(out, vec![1, 2, 3, 4, 5]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn fairness_yields_low_with_time_slice(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    // Use Tokio's virtual clock so timing-dependent fairness is deterministic.
+    tokio::time::pause();
+    let (queues, handle) = queues;
+    let fairness = FairnessConfig {
+        max_high_before_low: 0,
+        time_slice: Some(Duration::from_millis(10)),
+    };
+
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle.clone(), None, shutdown_token);
+    actor.set_fairness(fairness);
+
+    let (tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut out = Vec::new();
+        let _ = actor.run(&mut out).await;
+        let _ = tx.send(out);
+    });
+
+    handle.push_high_priority(1).await.unwrap();
+    tokio::time::advance(Duration::from_millis(5)).await;
+    handle.push_high_priority(2).await.unwrap();
+    tokio::time::advance(Duration::from_millis(15)).await;
+    handle.push_low_priority(42).await.unwrap();
+    for n in 3..=5 {
+        handle.push_high_priority(n).await.unwrap();
+    }
+    drop(handle);
+
+    let out = rx.await.unwrap();
+    assert!(out.contains(&42), "Low-priority item was not yielded");
+    let pos = out.iter().position(|x| *x == 42).unwrap();
+    assert!(
+        pos > 0 && pos < out.len() - 1,
+        "Low-priority item should be yielded in the middle"
+    );
 }
 
 #[rstest]
