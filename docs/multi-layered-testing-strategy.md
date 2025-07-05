@@ -15,12 +15,12 @@ reviewers. This approach ensures that we establish a baseline of correctness
 with simple tests before moving on to the more complex and subtle failure modes
 that can emerge in an asynchronous, high-concurrency system.
 
-Code coverage is measured with `cargo llvm-cov`. The workflow uses the
-`ratchet-coverage` action to fail if coverage drops, and uploads the resulting
-`lcov.info` to Codecov using a pinned version of the Codecov GitHub Action
-(`18283e04ce6e62d37312384ff67231eb8fd56d24`, corresponding to v5.4.3). The same
-report is also sent to CodeScene via the `upload-codescene-coverage@v1.2.0`
-action.
+Code coverage is measured with `cargo llvm-cov`. The `ratchet-coverage` action
+builds on this tool—not `cargo-tarpaulin`—and fails if coverage drops. The
+resulting `lcov.info` is uploaded to Codecov using a pinned version of the
+Codecov GitHub Action (`18283e04ce6e62d37312384ff67231eb8fd56d24`, corresponding
+to v5.4.3). The same report is also sent to CodeScene via the
+`upload-codescene-coverage@v1.2.0` action.
 
 ## 2. Layer 1: Foundational Correctness (Unit & Integration)
 
