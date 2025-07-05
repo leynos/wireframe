@@ -597,12 +597,12 @@ that would normally be dropped by the `PushPolicy::DropIfFull` or
 part of the application is then responsible for consuming from the DLQ to
 inspect, log, and potentially retry these failed messages.
 
-### 5.3 Typed Protocol Errors
+### 5.3 Typed protocol errors
 
 `WireframeError` distinguishes transport failures from protocol logic errors. A
 `WireframeError::Protocol(e)` returned from a handler will be forwarded to the
 `handle_error` callback on the installed `WireframeProtocol`. This allows the
-protocol implementation to serialise a domain-specific error frame before the
+protocol implementation to serialize a domain-specific error frame before the
 current command is terminated.
 
 ```mermaid
@@ -618,15 +618,15 @@ classDiagram
     }
 
     class ProtocolHooks {
-        +on_connection_setup: Option<OnConnectionSetupHook<F>>
-        +before_send: Option<BeforeSendHook<F>>
-        +on_command_end: Option<OnCommandEndHook>
-        +handle_error: Option<HandleErrorHook<E>>
+        +on_connection_setup : Option<OnConnectionSetupHook<F>>
+        +before_send        : Option<BeforeSendHook<F>>
+        +on_command_end     : Option<OnCommandEndHook>
+        +handle_error       : Option<HandleErrorHook<E>>
         +on_connection_setup(PushHandle<F>, &mut ConnectionContext)
-        +before_send(&mut F, &mut ConnectionContext)
-        +on_command_end(&mut ConnectionContext)
-        +handle_error(E, &mut ConnectionContext)
-        +from_protocol(protocol: Arc<P>)
+        +before_send       (&mut F, &mut ConnectionContext)
+        +on_command_end    (&mut ConnectionContext)
+        +handle_error      (E, &mut ConnectionContext)
+        +from_protocol     (protocol: Arc<P>)
         <<generic<F, E>>
     }
 

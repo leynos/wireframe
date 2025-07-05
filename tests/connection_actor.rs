@@ -144,6 +144,7 @@ async fn error_propagation_from_stream(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn protocol_error_logs_warning(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -229,6 +230,7 @@ use std::sync::{
 };
 
 use logtest::Logger;
+use serial_test::serial;
 use wireframe::{ConnectionContext, ProtocolHooks};
 
 /// Handle to the global logger with exclusive access.
