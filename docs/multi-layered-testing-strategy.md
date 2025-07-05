@@ -476,9 +476,9 @@ workload.
 1. **Throughput:** The number of messages per second in a simple
    request-response workload.
 
-1. **Latency:** The round-trip time for a single message.
+2. **Latency:** The round-trip time for a single message.
 
-1. **Push Latency:** The time from `push_handle.push()` to the client receiving
+3. **Push latency:** The time from `push_handle.push()` to the client receiving
    the frame.
 
 **Measurable Objective:** For small frames on [localhost](http://localhost):
