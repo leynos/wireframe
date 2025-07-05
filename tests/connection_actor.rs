@@ -110,6 +110,8 @@ async fn fairness_yields_low_with_time_slice(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
 ) {
+    // Use Tokio's virtual clock so timing-dependent fairness is deterministic.
+    tokio::time::pause();
     let (queues, handle) = queues;
     let fairness = FairnessConfig {
         max_high_before_low: 0,
@@ -128,9 +130,9 @@ async fn fairness_yields_low_with_time_slice(
     });
 
     handle.push_high_priority(1).await.unwrap();
-    sleep(Duration::from_millis(5)).await;
+    tokio::time::advance(Duration::from_millis(5)).await;
     handle.push_high_priority(2).await.unwrap();
-    sleep(Duration::from_millis(15)).await;
+    tokio::time::advance(Duration::from_millis(15)).await;
     handle.push_low_priority(42).await.unwrap();
     for n in 3..=5 {
         handle.push_high_priority(n).await.unwrap();
