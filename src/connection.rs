@@ -83,6 +83,7 @@ pub struct ConnectionActor<F, E> {
 impl<F, E> ConnectionActor<F, E>
 where
     F: FrameLike,
+    E: std::fmt::Debug,
 {
     /// Create a new `ConnectionActor` from the provided components.
     ///
@@ -365,6 +366,7 @@ where
                 out.push(frame);
             }
             Some(Err(WireframeError::Protocol(e))) => {
+                log::warn!("protocol error: {e:?}");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
                 self.hooks.on_command_end(&mut self.ctx);

@@ -37,17 +37,19 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// Called when a handler returns a [`WireframeError::Protocol`].
     ///
     /// ```no_run
-    /// # use wireframe::{ConnectionContext, WireframeProtocol, push::PushHandle};
-    /// # struct Proto;
-    /// # impl WireframeProtocol for Proto {
-    /// #     type Frame = (); type ProtocolError = &'static str;
-    /// #     fn handle_error(&self, error: Self::ProtocolError, _ctx: &mut ConnectionContext) {
-    /// #         eprintln!("error: {error}");
-    /// #     }
-    /// #     fn on_connection_setup(&self, _h: PushHandle<Self::Frame>, _c: &mut ConnectionContext) {}
-    /// #     fn before_send(&self, _f: &mut Self::Frame, _c: &mut ConnectionContext) {}
-    /// #     fn on_command_end(&self, _c: &mut ConnectionContext) {}
-    /// # }
+    /// use wireframe::{ConnectionContext, WireframeProtocol};
+    ///
+    /// struct MyProtocol;
+    ///
+    /// impl WireframeProtocol for MyProtocol {
+    ///     type Frame = Vec<u8>;
+    ///     type ProtocolError = String;
+    ///
+    ///     fn handle_error(&self, error: Self::ProtocolError, _ctx: &mut ConnectionContext) {
+    ///         eprintln!("Protocol error: {error}");
+    ///         // Custom handling here
+    ///     }
+    /// }
     /// ```
     fn handle_error(&self, _error: Self::ProtocolError, _ctx: &mut ConnectionContext) {}
 }

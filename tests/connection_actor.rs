@@ -144,6 +144,25 @@ async fn error_propagation_from_stream(
 
 #[rstest]
 #[tokio::test]
+async fn protocol_error_logs_warning(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+    mut logger: LoggerHandle,
+) {
+    let (queues, handle) = queues;
+    let stream = stream::iter(vec![Err(WireframeError::Protocol(TestError::Kaboom))]);
+    let mut actor: ConnectionActor<_, TestError> =
+        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    assert!(out.is_empty());
+    let record = logger.pop().expect("expected warning");
+    assert_eq!(record.level(), log::Level::Warn);
+    assert!(record.args().contains("protocol error"));
+}
+
+#[rstest]
+#[tokio::test]
 async fn io_error_terminates_connection(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -204,10 +223,45 @@ async fn push_queue_exhaustion_backpressure() {
 
 use std::sync::{
     Arc,
+    Mutex,
+    OnceLock,
     atomic::{AtomicUsize, Ordering},
 };
 
+use logtest::Logger;
 use wireframe::{ConnectionContext, ProtocolHooks};
+
+/// Handle to the global logger with exclusive access.
+struct LoggerHandle {
+    guard: std::sync::MutexGuard<'static, Logger>,
+}
+
+impl LoggerHandle {
+    fn new() -> Self {
+        static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
+
+        let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
+        let guard = logger
+            .lock()
+            .expect("failed to acquire global logger lock; a previous test may still hold it");
+
+        Self { guard }
+    }
+}
+
+impl std::ops::Deref for LoggerHandle {
+    type Target = Logger;
+
+    fn deref(&self) -> &Self::Target { &self.guard }
+}
+
+impl std::ops::DerefMut for LoggerHandle {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
+}
+
+#[allow(unused_braces)]
+#[fixture]
+fn logger() -> LoggerHandle { LoggerHandle::new() }
 
 #[rstest]
 #[tokio::test]
