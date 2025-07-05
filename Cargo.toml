@@ -11,6 +11,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 async-trait = "0.1"
 bytes = "1"
+byteorder = "1"
 log = "0.4"
 dashmap = "5"
 
@@ -22,6 +23,7 @@ proptest = "^1.0"
 loom = "^0.7"
 async-stream = "0.3"
 tokio = { version = "1", default-features = false, features = ["test-util"] }
+serial_test = "3.1"
 
 [features]
 advanced-tests = []

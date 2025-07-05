@@ -72,6 +72,22 @@ impl<F, E> From<Vec<F>> for Response<F, E> {
 }
 
 /// A generic error type for wireframe operations.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wireframe::response::WireframeError;
+///
+/// #[derive(Debug)]
+/// enum MyError {
+///     BadRequest,
+/// }
+///
+/// let proto_err: WireframeError<MyError> = MyError::BadRequest.into();
+/// let io_err: WireframeError<MyError> = WireframeError::from_io(std::io::Error::other("boom"));
+/// # drop(proto_err);
+/// # drop(io_err);
+/// ```
 #[derive(Debug)]
 pub enum WireframeError<E = ()> {
     /// An error in the underlying transport (e.g., socket closed).

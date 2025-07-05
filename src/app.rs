@@ -406,7 +406,7 @@ where
     ///
     /// If no protocol is installed, returns default (no-op) hooks.
     #[must_use]
-    pub fn protocol_hooks(&self) -> ProtocolHooks<Vec<u8>> {
+    pub fn protocol_hooks(&self) -> ProtocolHooks<Vec<u8>, ()> {
         self.protocol
             .as_ref()
             .map(|p| ProtocolHooks::from_protocol(&Arc::clone(p)))

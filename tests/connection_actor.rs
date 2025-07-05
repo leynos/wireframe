@@ -199,15 +199,66 @@ async fn error_propagation_from_stream(
         Ok(2u8),
         Err(WireframeError::Protocol(TestError::Kaboom)),
     ]);
+    let called = Arc::new(AtomicUsize::new(0));
+    let c = called.clone();
+    let hooks = ProtocolHooks {
+        handle_error: Some(Box::new(
+            move |_e: TestError, _ctx: &mut ConnectionContext| {
+                c.fetch_add(1, Ordering::SeqCst);
+            },
+        )),
+        ..ProtocolHooks::<u8, TestError>::default()
+    };
+    let mut actor: ConnectionActor<_, TestError> = ConnectionActor::with_hooks(
+        queues,
+        handle,
+        Some(Box::pin(stream)),
+        shutdown_token,
+        hooks,
+    );
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    assert_eq!(called.load(Ordering::SeqCst), 1);
+    assert_eq!(out, vec![1, 2]);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial]
+async fn protocol_error_logs_warning(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+    mut logger: LoggerHandle,
+) {
+    let (queues, handle) = queues;
+    let stream = stream::iter(vec![Err(WireframeError::Protocol(TestError::Kaboom))]);
     let mut actor: ConnectionActor<_, TestError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    assert!(out.is_empty());
+    let record = logger.pop().expect("expected warning");
+    assert_eq!(record.level(), log::Level::Warn);
+    assert!(record.args().contains("protocol error"));
+}
+
+#[rstest]
+#[tokio::test]
+async fn io_error_terminates_connection(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    let stream = stream::iter(vec![
+        Ok(1u8),
+        Err(WireframeError::Io(std::io::Error::other("fail"))),
+    ]);
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+    let mut out = Vec::new();
     let result = actor.run(&mut out).await;
-    assert!(matches!(
-        result,
-        Err(WireframeError::Protocol(TestError::Kaboom))
-    ));
-    assert_eq!(out, vec![1, 2]);
+    assert!(matches!(result, Err(WireframeError::Io(_))));
+    assert_eq!(out, vec![1]);
 }
 
 #[rstest]
@@ -253,10 +304,46 @@ async fn push_queue_exhaustion_backpressure() {
 
 use std::sync::{
     Arc,
+    Mutex,
+    OnceLock,
     atomic::{AtomicUsize, Ordering},
 };
 
+use logtest::Logger;
+use serial_test::serial;
 use wireframe::{ConnectionContext, ProtocolHooks};
+
+/// Handle to the global logger with exclusive access.
+struct LoggerHandle {
+    guard: std::sync::MutexGuard<'static, Logger>,
+}
+
+impl LoggerHandle {
+    fn new() -> Self {
+        static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
+
+        let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
+        let guard = logger
+            .lock()
+            .expect("failed to acquire global logger lock; a previous test may still hold it");
+
+        Self { guard }
+    }
+}
+
+impl std::ops::Deref for LoggerHandle {
+    type Target = Logger;
+
+    fn deref(&self) -> &Self::Target { &self.guard }
+}
+
+impl std::ops::DerefMut for LoggerHandle {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
+}
+
+#[allow(unused_braces)]
+#[fixture]
+fn logger() -> LoggerHandle { LoggerHandle::new() }
 
 #[rstest]
 #[tokio::test]
@@ -270,7 +357,7 @@ async fn before_send_hook_modifies_frames(
     let stream = stream::iter(vec![Ok(2u8)]);
     let hooks = ProtocolHooks {
         before_send: Some(Box::new(|f: &mut u8, _ctx: &mut ConnectionContext| *f += 1)),
-        ..ProtocolHooks::default()
+        ..ProtocolHooks::<u8, ()>::default()
     };
 
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
@@ -300,7 +387,7 @@ async fn on_command_end_hook_runs(
         on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
             c.fetch_add(1, Ordering::SeqCst);
         })),
-        ..ProtocolHooks::default()
+        ..ProtocolHooks::<u8, ()>::default()
     };
 
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(

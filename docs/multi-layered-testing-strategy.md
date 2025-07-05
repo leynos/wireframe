@@ -15,6 +15,11 @@ reviewers. This approach ensures that we establish a baseline of correctness
 with simple tests before moving on to the more complex and subtle failure modes
 that can emerge in an asynchronous, high-concurrency system.
 
+Code coverage is measured with `cargo tarpaulin`.  The CI workflow uploads the
+generated `lcov.info` report to Codecov using a pinned version of the Codecov
+GitHub Action (`18283e04ce6e62d37312384ff67231eb8fd56d24`, corresponding to
+v5.4.3) to make coverage visible across pull requests.
+
 ## 2. Layer 1: Foundational Correctness (Unit & Integration)
 
 **Objective:** To verify that each component behaves correctly in isolation and
@@ -473,7 +478,7 @@ workload.
 
 2. **Latency:** The round-trip time for a single message.
 
-3. **Push Latency:** The time from `push_handle.push()` to the client receiving
+3. **Push latency:** The time from `push_handle.push()` to the client receiving
    the frame.
 
 **Measurable Objective:** For small frames on [localhost](http://localhost):
