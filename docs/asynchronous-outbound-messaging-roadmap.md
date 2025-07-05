@@ -40,7 +40,7 @@ design documents.
 
 - [x] **Graceful shutdown** using `CancellationToken` and `TaskTracker`
   ([Resilience Guide §2][resilience-shutdown]).
-- [ ] **Typed `WireframeError`** for recoverable protocol errors
+- [x] **Typed `WireframeError`** for recoverable protocol errors
   ([Design §5][design-errors]).
 - [ ] **Per-connection rate limiting** on pushes via a token bucket
   ([Resilience Guide §4.1][resilience-rate]).
