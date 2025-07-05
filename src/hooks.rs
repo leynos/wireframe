@@ -33,6 +33,23 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 
     /// Invoked when a request/response cycle completes.
     fn on_command_end(&self, _ctx: &mut ConnectionContext) {}
+
+    /// Called when a handler returns a [`WireframeError::Protocol`].
+    ///
+    /// ```no_run
+    /// # use wireframe::{ConnectionContext, WireframeProtocol, push::PushHandle};
+    /// # struct Proto;
+    /// # impl WireframeProtocol for Proto {
+    /// #     type Frame = (); type ProtocolError = &'static str;
+    /// #     fn handle_error(&self, error: Self::ProtocolError, _ctx: &mut ConnectionContext) {
+    /// #         eprintln!("error: {error}");
+    /// #     }
+    /// #     fn on_connection_setup(&self, _h: PushHandle<Self::Frame>, _c: &mut ConnectionContext) {}
+    /// #     fn before_send(&self, _f: &mut Self::Frame, _c: &mut ConnectionContext) {}
+    /// #     fn on_command_end(&self, _c: &mut ConnectionContext) {}
+    /// # }
+    /// ```
+    fn handle_error(&self, _error: Self::ProtocolError, _ctx: &mut ConnectionContext) {}
 }
 
 /// Type alias for the `before_send` callback.
@@ -45,27 +62,33 @@ type OnConnectionSetupHook<F> =
 /// Type alias for the `on_command_end` callback.
 type OnCommandEndHook = Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>;
 
+/// Type alias for the `handle_error` callback.
+type HandleErrorHook<E> = Box<dyn FnMut(E, &mut ConnectionContext) + Send + 'static>;
+
 /// Callbacks used by the connection actor.
-pub struct ProtocolHooks<F> {
+pub struct ProtocolHooks<F, E> {
     /// Invoked when a connection is established.
     pub on_connection_setup: Option<OnConnectionSetupHook<F>>,
     /// Invoked before a frame is written to the socket.
     pub before_send: Option<BeforeSendHook<F>>,
     /// Invoked once a command completes.
     pub on_command_end: Option<OnCommandEndHook>,
+    /// Invoked when a handler returns a protocol error.
+    pub handle_error: Option<HandleErrorHook<E>>,
 }
 
-impl<F> Default for ProtocolHooks<F> {
+impl<F, E> Default for ProtocolHooks<F, E> {
     fn default() -> Self {
         Self {
             on_connection_setup: None,
             before_send: None,
             on_command_end: None,
+            handle_error: None,
         }
     }
 }
 
-impl<F> ProtocolHooks<F> {
+impl<F, E> ProtocolHooks<F, E> {
     /// Run the `on_connection_setup` hook if registered.
     pub fn on_connection_setup(&mut self, handle: PushHandle<F>, ctx: &mut ConnectionContext) {
         if let Some(hook) = self.on_connection_setup.take() {
@@ -86,10 +109,17 @@ impl<F> ProtocolHooks<F> {
         }
     }
 
+    /// Run the `handle_error` hook if registered.
+    pub fn handle_error(&mut self, error: E, ctx: &mut ConnectionContext) {
+        if let Some(hook) = &mut self.handle_error {
+            hook(error, ctx);
+        }
+    }
+
     /// Construct hooks from a [`WireframeProtocol`] implementation.
     pub fn from_protocol<P>(protocol: &Arc<P>) -> Self
     where
-        P: WireframeProtocol<Frame = F> + ?Sized,
+        P: WireframeProtocol<Frame = F, ProtocolError = E> + ?Sized,
     {
         let protocol_before = Arc::clone(protocol);
         let before = Box::new(move |frame: &mut F, ctx: &mut ConnectionContext| {
@@ -106,10 +136,16 @@ impl<F> ProtocolHooks<F> {
             protocol_setup.on_connection_setup(handle, ctx);
         }) as OnConnectionSetupHook<F>;
 
+        let protocol_error = Arc::clone(protocol);
+        let err = Box::new(move |e: P::ProtocolError, ctx: &mut ConnectionContext| {
+            protocol_error.handle_error(e, ctx);
+        }) as HandleErrorHook<P::ProtocolError>;
+
         Self {
             on_connection_setup: Some(setup),
             before_send: Some(before),
             on_command_end: Some(end),
+            handle_error: Some(err),
         }
     }
 }

@@ -73,7 +73,7 @@ pub struct ConnectionActor<F, E> {
     low_rx: Option<mpsc::Receiver<F>>,
     response: Option<FrameStream<F, E>>, // current streaming response
     shutdown: CancellationToken,
-    hooks: ProtocolHooks<F>,
+    hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
     fairness: FairnessConfig,
     high_counter: usize,
@@ -104,7 +104,13 @@ where
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
     ) -> Self {
-        Self::with_hooks(queues, handle, response, shutdown, ProtocolHooks::default())
+        Self::with_hooks(
+            queues,
+            handle,
+            response,
+            shutdown,
+            ProtocolHooks::<F, E>::default(),
+        )
     }
 
     /// Create a new `ConnectionActor` with custom protocol hooks.
@@ -114,7 +120,7 @@ where
         handle: PushHandle<F>,
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
-        mut hooks: ProtocolHooks<F>,
+        mut hooks: ProtocolHooks<F, E>,
     ) -> Self {
         let mut ctx = ConnectionContext;
         hooks.on_connection_setup(handle, &mut ctx);
@@ -147,7 +153,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns a [`WireframeError`] if the response stream yields an error.
+    /// Returns a [`WireframeError`] if the response stream yields an I/O error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
@@ -344,6 +350,9 @@ where
     }
 
     /// Push a frame from the response stream into `out` or handle completion.
+    ///
+    /// Protocol errors are passed to `handle_error` and do not terminate the
+    /// actor. I/O errors propagate to the caller.
     fn handle_response(
         &mut self,
         res: Option<Result<F, WireframeError<E>>>,
@@ -354,6 +363,11 @@ where
             Some(Ok(mut frame)) => {
                 self.hooks.before_send(&mut frame, &mut self.ctx);
                 out.push(frame);
+            }
+            Some(Err(WireframeError::Protocol(e))) => {
+                self.hooks.handle_error(e, &mut self.ctx);
+                state.mark_closed();
+                self.hooks.on_command_end(&mut self.ctx);
             }
             Some(Err(e)) => return Err(e),
             None => {
