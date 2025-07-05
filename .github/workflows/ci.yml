@@ -40,23 +40,18 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
       - name: Run coverage
-        run: cargo tarpaulin --out lcov
-      - name: Install CodeScene coverage tool
-        if: env.CS_ACCESS_TOKEN
-        run: |
-          set -euo pipefail
-          curl -fsSL -o install-cs-coverage-tool.sh https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
-          if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
-            echo "${CODESCENE_CLI_SHA256}  install-cs-coverage-tool.sh" | sha256sum -c -
-          fi
-          bash install-cs-coverage-tool.sh -y
-          rm install-cs-coverage-tool.sh
+        id: coverage
+        uses: leynos/shared-actions/.github/actions/ratchet-coverage@v1.2.1
+        with:
+          args: --workspace --lcov --output-path lcov.info
       - name: Upload coverage data to CodeScene
         if: env.CS_ACCESS_TOKEN
-        run: cs-coverage upload --format "lcov" --metric "line-coverage" "lcov.info"
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@v1.2.1
+        with:
+          format: lcov
+          access-token: ${{ env.CS_ACCESS_TOKEN }}
+          installer-checksum: ${{ env.CODESCENE_CLI_SHA256 }}
       - name: Upload coverage data to Codecov
         # v5.4.3
         uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24
