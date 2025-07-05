@@ -605,6 +605,67 @@ inspect, log, and potentially retry these failed messages.
 protocol implementation to serialise a domain-specific error frame before the
 current command is terminated.
 
+```mermaid
+classDiagram
+    class WireframeProtocol {
+        +on_connection_setup(PushHandle<Frame>, &mut ConnectionContext)
+        +before_send(&mut Frame, &mut ConnectionContext)
+        +on_command_end(&mut ConnectionContext)
+        +handle_error(ProtocolError, &mut ConnectionContext)
+        <<trait>>
+        type Frame
+        type ProtocolError
+    }
+
+    class ProtocolHooks {
+        +on_connection_setup: Option<OnConnectionSetupHook<F>>
+        +before_send: Option<BeforeSendHook<F>>
+        +on_command_end: Option<OnCommandEndHook>
+        +handle_error: Option<HandleErrorHook<E>>
+        +on_connection_setup(PushHandle<F>, &mut ConnectionContext)
+        +before_send(&mut F, &mut ConnectionContext)
+        +on_command_end(&mut ConnectionContext)
+        +handle_error(E, &mut ConnectionContext)
+        +from_protocol(protocol: Arc<P>)
+        <<generic<F, E>>
+    }
+
+    class ConnectionActor {
+        -hooks: ProtocolHooks<F, E>
+        +run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>>
+        +handle_response(res: Option<Result<F, WireframeError<E>>>, out: &mut Vec<F>, state: &mut State) -> Result<(), WireframeError<E>>
+        <<generic<F, E>>
+    }
+
+    WireframeProtocol <|.. ProtocolHooks : uses
+    ProtocolHooks <|-- ConnectionActor : member
+
+    class WireframeError {
+        <<enum<E=()>>
+        +Protocol(E)
+        +Io(std::io::Error)
+    }
+```
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant ConnectionActor
+    participant ProtocolHooks
+    participant Protocol
+
+    Client->>ConnectionActor: Send/receive frames
+    ConnectionActor->>ProtocolHooks: before_send / on_command_end
+    ConnectionActor->>Protocol: Process frame
+    Protocol-->>ConnectionActor: Result or ProtocolError
+    alt ProtocolError
+        ConnectionActor->>ProtocolHooks: handle_error(error, ctx)
+        ProtocolHooks-->>ConnectionActor: (handled, continue)
+    else IO Error
+        ConnectionActor-->>Client: Return WireframeError (terminates)
+    end
+```
+
 ## 6. Synergy with Other 1.0 Features
 
 This design is explicitly intended to work in concert with the other major
