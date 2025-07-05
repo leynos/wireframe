@@ -15,6 +15,9 @@ reviewers. This approach ensures that we establish a baseline of correctness
 with simple tests before moving on to the more complex and subtle failure modes
 that can emerge in an asynchronous, high-concurrency system.
 
+Code coverage is measured with `cargo tarpaulin`. The CI workflow uploads the
+generated `lcov.info` report to Codecov for visibility across pull requests.
+
 ## 2. Layer 1: Foundational Correctness (Unit & Integration)
 
 **Objective:** To verify that each component behaves correctly in isolation and
