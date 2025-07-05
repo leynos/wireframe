@@ -42,12 +42,12 @@ jobs:
         run: cargo test
       - name: Run coverage
         id: coverage
-        uses: leynos/shared-actions/.github/actions/ratchet-coverage@v1.2.0
+        uses: leynos/shared-actions/.github/actions/ratchet-coverage@v1.2.1
         with:
           args: --workspace --lcov --output-path lcov.info
       - name: Upload coverage data to CodeScene
         if: env.CS_ACCESS_TOKEN
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@v1.2.0
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@v1.2.1
         with:
           format: lcov
           access-token: ${{ env.CS_ACCESS_TOKEN }}
