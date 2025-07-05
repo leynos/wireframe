@@ -597,6 +597,14 @@ that would normally be dropped by the `PushPolicy::DropIfFull` or
 part of the application is then responsible for consuming from the DLQ to
 inspect, log, and potentially retry these failed messages.
 
+### 5.3 Typed Protocol Errors
+
+`WireframeError` distinguishes transport failures from protocol logic errors. A
+`WireframeError::Protocol(e)` returned from a handler will be forwarded to the
+`handle_error` callback on the installed `WireframeProtocol`. This allows the
+protocol implementation to serialise a domain-specific error frame before the
+current command is terminated.
+
 ## 6. Synergy with Other 1.0 Features
 
 This design is explicitly intended to work in concert with the other major
