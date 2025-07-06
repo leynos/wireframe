@@ -116,17 +116,24 @@ async fn fairness_disabled_ignores_arrival_order(
         time_slice: None,
     };
 
-    handle.push_low_priority(4).await.unwrap();
-    handle.push_low_priority(5).await.unwrap();
+    handle
+        .push_low_priority(4)
+        .await
+        .expect("failed to push low-priority frame 4");
+    handle
+        .push_low_priority(5)
+        .await
+        .expect("failed to push low-priority frame 5");
     for n in 1..=3 {
-        handle.push_high_priority(n).await.unwrap();
+        let message = format!("failed to push high-priority frame {n}");
+        handle.push_high_priority(n).await.expect(&message);
     }
 
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(out, vec![1, 2, 3, 4, 5]);
 }
 
