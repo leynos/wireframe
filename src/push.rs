@@ -6,8 +6,12 @@
 //! [`PushHandle`]. Queued frames are delivered in FIFO order within each
 //! priority level.
 
-use std::sync::{Arc, Weak};
+use std::{
+    sync::{Arc, Weak},
+    time::Duration,
+};
 
+use leaky_bucket::RateLimiter;
 use tokio::sync::mpsc;
 
 /// Messages can be sent through a [`PushHandle`].
@@ -17,6 +21,9 @@ use tokio::sync::mpsc;
 pub trait FrameLike: Send + 'static {}
 
 impl<T> FrameLike for T where T: Send + 'static {}
+
+/// Default maximum pushes allowed per second when no custom rate is specified.
+const DEFAULT_PUSH_RATE: usize = 100;
 
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +66,7 @@ impl std::error::Error for PushError {}
 pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
+    limiter: RateLimiter,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -67,9 +75,10 @@ pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 impl<F: FrameLike> PushHandle<F> {
     pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
-    /// Push a high-priority frame.
+    /// Push a high-priority frame subject to rate limiting.
     ///
-    /// Awaits if the queue is full.
+    /// The call awaits if the rate limiter has no available tokens or
+    /// the queue is full.
     ///
     /// # Errors
     ///
@@ -82,7 +91,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, 1);
     ///     handle.push_high_priority(42u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::High);
@@ -90,6 +99,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// }
     /// ```
     pub async fn push_high_priority(&self, frame: F) -> Result<(), PushError> {
+        self.0.limiter.acquire(1).await;
         self.0
             .high_prio_tx
             .send(frame)
@@ -97,9 +107,9 @@ impl<F: FrameLike> PushHandle<F> {
             .map_err(|_| PushError::Closed)
     }
 
-    /// Push a low-priority frame.
+    /// Push a low-priority frame subject to rate limiting.
     ///
-    /// Awaits if the queue is full.
+    /// Awaits if the rate limiter has no available tokens or the queue is full.
     ///
     /// # Errors
     ///
@@ -112,7 +122,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, 1);
     ///     handle.push_low_priority(10u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::Low);
@@ -120,6 +130,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// }
     /// ```
     pub async fn push_low_priority(&self, frame: F) -> Result<(), PushError> {
+        self.0.limiter.acquire(1).await;
         self.0
             .low_prio_tx
             .send(frame)
@@ -205,11 +216,45 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```
     #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
+        Self::bounded_with_rate(high_capacity, low_capacity, DEFAULT_PUSH_RATE)
+    }
+
+    /// Create queues with a custom rate limit in pushes per second.
+    ///
+    /// The limiter enforces fairness by allowing at most `rate` pushes
+    /// per second across all producers for the returned [`PushHandle`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::PushQueues;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let (mut queues, handle) = PushQueues::<u8>::bounded_with_rate(1, 1, 10);
+    ///     handle.push_low_priority(1u8).await.unwrap();
+    ///     let (_prio, frame) = queues.recv().await.unwrap();
+    ///     assert_eq!(frame, 1);
+    /// }
+    /// ```
+    #[must_use]
+    pub fn bounded_with_rate(
+        high_capacity: usize,
+        low_capacity: usize,
+        rate: usize,
+    ) -> (Self, PushHandle<F>) {
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
+        let limiter = RateLimiter::builder()
+            .initial(rate)
+            .refill(rate)
+            .interval(Duration::from_secs(1))
+            .max(rate)
+            .build();
         let inner = PushHandleInner {
             high_prio_tx: high_tx,
             low_prio_tx: low_tx,
+            limiter,
         };
         (
             Self {

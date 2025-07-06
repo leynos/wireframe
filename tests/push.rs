@@ -2,6 +2,7 @@
 //!
 //! They cover priority ordering, policy behaviour, and closed queue errors.
 
+use tokio::time::{self, Duration};
 use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
 
 #[tokio::test]
@@ -46,4 +47,34 @@ async fn push_queues_error_on_closed() {
 
     let res = handle.push_low_priority(24u8).await;
     assert!(matches!(res, Err(PushError::Closed)));
+}
+
+#[tokio::test]
+async fn rate_limiter_blocks_when_exceeded() {
+    time::pause();
+    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, 1);
+    handle.push_high_priority(1u8).await.unwrap();
+
+    let attempt = time::timeout(Duration::from_millis(10), handle.push_high_priority(2u8)).await;
+    assert!(attempt.is_err(), "second push should block");
+
+    time::advance(Duration::from_secs(1)).await;
+    handle.push_high_priority(3u8).await.unwrap();
+
+    let (_, first) = queues.recv().await.unwrap();
+    let (_, second) = queues.recv().await.unwrap();
+    assert_eq!((first, second), (1, 3));
+}
+
+#[tokio::test]
+async fn rate_limiter_allows_after_wait() {
+    time::pause();
+    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, 1);
+    handle.push_high_priority(1u8).await.unwrap();
+    time::advance(Duration::from_secs(1)).await;
+    handle.push_high_priority(2u8).await.unwrap();
+
+    let (_, a) = queues.recv().await.unwrap();
+    let (_, b) = queues.recv().await.unwrap();
+    assert_eq!((a, b), (1, 2));
 }
