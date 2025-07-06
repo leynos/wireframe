@@ -24,6 +24,8 @@ impl<T> FrameLike for T where T: Send + 'static {}
 
 /// Default maximum pushes allowed per second when no custom rate is specified.
 const DEFAULT_PUSH_RATE: usize = 100;
+/// Highest supported rate for [`PushQueues::bounded_with_rate`].
+const MAX_PUSH_RATE: usize = 10_000;
 
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -224,9 +226,21 @@ impl<F: FrameLike> PushQueues<F> {
         Self::bounded_with_rate(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE))
     }
 
-    /// Create queues without any rate limiting.
+    /// Create queues with no rate limiting.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::push::PushQueues;
+    ///
+    /// let (_queues, handle) = PushQueues::<u8>::bounded_no_rate_limit(1, 1);
+    /// let _ = handle;
+    /// ```
     #[must_use]
-    pub fn bounded_unlimited(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
+    pub fn bounded_no_rate_limit(
+        high_capacity: usize,
+        low_capacity: usize,
+    ) -> (Self, PushHandle<F>) {
         Self::bounded_with_rate(high_capacity, low_capacity, None)
     }
 
@@ -235,6 +249,10 @@ impl<F: FrameLike> PushQueues<F> {
     /// The limiter enforces fairness by allowing at most `rate` pushes
     /// per second across all producers for the returned [`PushHandle`].
     /// Pass `None` to disable rate limiting entirely.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rate` is zero or greater than [`MAX_PUSH_RATE`].
     ///
     /// # Examples
     ///
@@ -255,6 +273,13 @@ impl<F: FrameLike> PushQueues<F> {
         low_capacity: usize,
         rate: Option<usize>,
     ) -> (Self, PushHandle<F>) {
+        if let Some(r) = rate {
+            assert!(r > 0, "rate must be greater than zero");
+            assert!(
+                r <= MAX_PUSH_RATE,
+                "rate exceeds MAX_PUSH_RATE ({MAX_PUSH_RATE})"
+            );
+        }
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
         let limiter = rate.map(|r| {

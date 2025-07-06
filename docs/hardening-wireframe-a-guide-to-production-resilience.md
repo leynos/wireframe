@@ -245,7 +245,7 @@ use wireframe::push::PushQueues;
 let (queues, handle) = PushQueues::<Frame>::bounded_with_rate(8, 8, Some(100));
 
 // Passing `None` disables rate limiting entirely:
-let (_unlimited, _handle) = PushQueues::<Frame>::bounded_with_rate(8, 8, None);
+let (_unlimited, _handle) = PushQueues::<Frame>::bounded_no_rate_limit(8, 8);
 
 // Inside PushHandle::push()
 async fn push(&self, frame: Frame) -> Result<(), PushError> {

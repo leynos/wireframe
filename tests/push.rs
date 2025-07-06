@@ -128,7 +128,7 @@ async fn rate_limiter_shared_across_priorities() {
 #[tokio::test]
 async fn unlimited_queues_do_not_block() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_unlimited(1, 1);
+    let (mut queues, handle) = PushQueues::bounded_no_rate_limit(1, 1);
     handle.push_high_priority(1u8).await.unwrap();
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");
@@ -136,4 +136,28 @@ async fn unlimited_queues_do_not_block() {
     let (_, a) = queues.recv().await.unwrap();
     let (_, b) = queues.recv().await.unwrap();
     assert_eq!((a, b), (1, 2));
+}
+
+#[tokio::test]
+async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
+    time::pause();
+    let (mut queues, handle) = PushQueues::bounded_with_rate(4, 4, Some(3));
+
+    for i in 0u8..3 {
+        handle.push_high_priority(i).await.unwrap();
+    }
+
+    let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
+    assert!(
+        res.is_err(),
+        "Push exceeding burst capacity should be rate limited"
+    );
+
+    time::advance(Duration::from_secs(1)).await;
+    handle.push_high_priority(100).await.unwrap();
+
+    for expected in [0u8, 1u8, 2u8, 100u8] {
+        let (_, frame) = queues.recv().await.unwrap();
+        assert_eq!(frame, expected);
+    }
 }
