@@ -1164,6 +1164,12 @@ examples are invaluable. They make the abstract design tangible and showcase how
 
       fn encode(&mut self, item: T, dst: &mut BytesMut) -> Result<(), Self::Error> {
           let data = item.as_ref();
+          if data.len() > u32::MAX as usize {
+              return Err(io::Error::new(
+                  io::ErrorKind::InvalidInput,
+                  "payload exceeds 4 GiB limit",
+              ));
+          }
           dst.reserve(4 + data.len());
           dst.put_u32(data.len() as u32);
           dst.put_slice(data);
