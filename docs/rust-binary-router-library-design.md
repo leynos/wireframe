@@ -1121,7 +1121,8 @@ examples are invaluable. They make the abstract design tangible and showcase how
      ```
 
 1. **Frame Processor Implementation** (Simple length-prefixed framing using
-   `tokio-util`; invalid input or oversized frames return errors):
+   `tokio-util`; invalid input or oversized frames return `io::Error` from both
+   decode and encode):
 
 ```rust
 // Crate: my_frame_processor.rs
@@ -1140,18 +1141,17 @@ impl Decoder for LengthPrefixedCodec {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() < 4 { return Ok(None); } // Not enough data for length prefix
 
-        let length = (&src[..4]).get_u32() as usize;
+        let length = src.get_u32() as usize;
 
         if length > MAX_FRAME_LEN {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame too large"));
         }
 
-        if src.len() < 4 + length {
-            src.reserve(4 + length - src.len());
+        if src.len() < length {
+            src.reserve(length - src.len());
             return Ok(None); // Not enough data for full frame
         }
 
-        src.advance(4); // Consume length prefix
         Ok(Some(src.split_to(length)))
     }
 }
