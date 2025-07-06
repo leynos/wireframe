@@ -37,9 +37,11 @@ enum Event<F, E> {
 #[derive(Clone, Copy)]
 pub struct FairnessConfig {
     /// Number of consecutive high-priority frames to process before
-    /// checking the low-priority queue. A zero value disables the
-    /// counter and relies solely on `time_slice` for fairness,
-    /// preserving strict high-priority ordering otherwise.
+    /// checking the low-priority queue.
+    ///
+    /// A zero value disables the counter and relies solely on
+    /// `time_slice` for fairness, preserving strict high-priority
+    /// ordering otherwise.
     pub max_high_before_low: usize,
     /// Optional time slice after which the low-priority queue is checked
     /// if high-priority traffic has been continuous.
