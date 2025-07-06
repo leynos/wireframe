@@ -2,6 +2,7 @@
 //!
 //! They cover priority ordering, policy behaviour, and closed queue errors.
 
+use rstest::rstest;
 use tokio::time::{self, Duration};
 use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
 
@@ -49,17 +50,42 @@ async fn push_queues_error_on_closed() {
     assert!(matches!(res, Err(PushError::Closed)));
 }
 
+#[rstest]
+#[case::high(PushPriority::High, "second push should block")]
+#[case::low(PushPriority::Low, "")]
 #[tokio::test]
-async fn rate_limiter_blocks_when_exceeded() {
+async fn rate_limiter_blocks_when_exceeded(
+    #[case] priority: PushPriority,
+    #[case] message: &'static str,
+) {
     time::pause();
     let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1));
-    handle.push_high_priority(1u8).await.unwrap();
 
-    let attempt = time::timeout(Duration::from_millis(10), handle.push_high_priority(2u8)).await;
-    assert!(attempt.is_err(), "second push should block");
+    match priority {
+        PushPriority::High => handle.push_high_priority(1u8).await.unwrap(),
+        PushPriority::Low => handle.push_low_priority(1u8).await.unwrap(),
+    }
+
+    let attempt = match priority {
+        PushPriority::High => {
+            time::timeout(Duration::from_millis(10), handle.push_high_priority(2u8)).await
+        }
+        PushPriority::Low => {
+            time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await
+        }
+    };
+
+    if message.is_empty() {
+        assert!(attempt.is_err());
+    } else {
+        assert!(attempt.is_err(), "{message}");
+    }
 
     time::advance(Duration::from_secs(1)).await;
-    handle.push_high_priority(3u8).await.unwrap();
+    match priority {
+        PushPriority::High => handle.push_high_priority(3u8).await.unwrap(),
+        PushPriority::Low => handle.push_low_priority(3u8).await.unwrap(),
+    }
 
     let (_, first) = queues.recv().await.unwrap();
     let (_, second) = queues.recv().await.unwrap();
@@ -77,23 +103,6 @@ async fn rate_limiter_allows_after_wait() {
     let (_, a) = queues.recv().await.unwrap();
     let (_, b) = queues.recv().await.unwrap();
     assert_eq!((a, b), (1, 2));
-}
-
-#[tokio::test]
-async fn rate_limiter_applies_to_low_priority() {
-    time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1));
-    handle.push_low_priority(1u8).await.unwrap();
-
-    let attempt = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
-    assert!(attempt.is_err());
-
-    time::advance(Duration::from_secs(1)).await;
-    handle.push_low_priority(3u8).await.unwrap();
-
-    let (_, first) = queues.recv().await.unwrap();
-    let (_, second) = queues.recv().await.unwrap();
-    assert_eq!((first, second), (1, 3));
 }
 
 #[tokio::test]
