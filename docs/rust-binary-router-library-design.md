@@ -1121,14 +1121,13 @@ examples are invaluable. They make the abstract design tangible and showcase how
      ```
 
 1. **Frame Processor Implementation** (Simple length-prefixed framing using
-   `tokio-util`; demonstrates error propagation):
+   `tokio-util`; invalid input or oversized frames return errors):
 
 ```rust
 // Crate: my_frame_processor.rs
 use bytes::{BytesMut, Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{self, Cursor};
+use std::io;
 
 const MAX_FRAME_LEN: usize = 16 * 1024 * 1024; // 16 MiB upper limit
 
@@ -1141,8 +1140,7 @@ impl Decoder for LengthPrefixedCodec {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() < 4 { return Ok(None); } // Not enough data for length prefix
 
-        let mut length_cursor = Cursor::new(&src[..4]);
-        let length = length_cursor.read_u32::<BigEndian>()? as usize;
+        let length = (&src[..4]).get_u32() as usize;
 
         if length > MAX_FRAME_LEN {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame too large"));
