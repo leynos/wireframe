@@ -10,11 +10,17 @@ use wireframe::{
     message::Message as MessageTrait,
 };
 
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 #[fixture]
 fn request() -> MessageRequest { MessageRequest::default() }
 
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 #[fixture]
 fn empty_payload() -> Payload<'static> { Payload::default() }
 

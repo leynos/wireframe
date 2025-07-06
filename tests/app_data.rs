@@ -11,11 +11,17 @@ use wireframe::extractor::{
     SharedState,
 };
 
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 #[fixture]
 fn request() -> MessageRequest { MessageRequest::default() }
 
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 #[fixture]
 fn empty_payload() -> Payload<'static> { Payload::default() }
 
