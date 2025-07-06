@@ -66,7 +66,7 @@ impl std::error::Error for PushError {}
 pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
-    limiter: RateLimiter,
+    limiter: Option<RateLimiter>,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -91,7 +91,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, 1);
+    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, Some(1));
     ///     handle.push_high_priority(42u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::High);
@@ -99,7 +99,9 @@ impl<F: FrameLike> PushHandle<F> {
     /// }
     /// ```
     pub async fn push_high_priority(&self, frame: F) -> Result<(), PushError> {
-        self.0.limiter.acquire(1).await;
+        if let Some(ref limiter) = self.0.limiter {
+            limiter.acquire(1).await;
+        }
         self.0
             .high_prio_tx
             .send(frame)
@@ -122,7 +124,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, 1);
+    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, Some(1));
     ///     handle.push_low_priority(10u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::Low);
@@ -130,7 +132,9 @@ impl<F: FrameLike> PushHandle<F> {
     /// }
     /// ```
     pub async fn push_low_priority(&self, frame: F) -> Result<(), PushError> {
-        self.0.limiter.acquire(1).await;
+        if let Some(ref limiter) = self.0.limiter {
+            limiter.acquire(1).await;
+        }
         self.0
             .low_prio_tx
             .send(frame)
@@ -216,13 +220,20 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```
     #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
-        Self::bounded_with_rate(high_capacity, low_capacity, DEFAULT_PUSH_RATE)
+        Self::bounded_with_rate(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE))
+    }
+
+    /// Create queues without any rate limiting.
+    #[must_use]
+    pub fn bounded_unlimited(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
+        Self::bounded_with_rate(high_capacity, low_capacity, None)
     }
 
     /// Create queues with a custom rate limit in pushes per second.
     ///
     /// The limiter enforces fairness by allowing at most `rate` pushes
     /// per second across all producers for the returned [`PushHandle`].
+    /// Pass `None` to disable rate limiting entirely.
     ///
     /// # Examples
     ///
@@ -231,7 +242,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let (mut queues, handle) = PushQueues::<u8>::bounded_with_rate(1, 1, 10);
+    ///     let (mut queues, handle) = PushQueues::<u8>::bounded_with_rate(1, 1, Some(10));
     ///     handle.push_low_priority(1u8).await.unwrap();
     ///     let (_prio, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(frame, 1);
@@ -241,16 +252,18 @@ impl<F: FrameLike> PushQueues<F> {
     pub fn bounded_with_rate(
         high_capacity: usize,
         low_capacity: usize,
-        rate: usize,
+        rate: Option<usize>,
     ) -> (Self, PushHandle<F>) {
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
-        let limiter = RateLimiter::builder()
-            .initial(rate)
-            .refill(rate)
-            .interval(Duration::from_secs(1))
-            .max(rate)
-            .build();
+        let limiter = rate.map(|r| {
+            RateLimiter::builder()
+                .initial(r)
+                .refill(r)
+                .interval(Duration::from_secs(1))
+                .max(r)
+                .build()
+        });
         let inner = PushHandleInner {
             high_prio_tx: high_tx,
             low_prio_tx: low_tx,
