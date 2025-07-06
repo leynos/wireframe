@@ -6,8 +6,6 @@
 
 use std::io;
 
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-
 const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 const ERR_FRAME_TOO_LARGE: &str = "frame too large";
 const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
@@ -54,6 +52,10 @@ use bytes::{Buf, BufMut, BytesMut};
 /// let buf = [0x00, 0x10, 0x20, 0x30];
 /// assert_eq!(bytes_to_u64(&buf, 2, Endianness::Big).unwrap(), 0x0010);
 /// ```
+///
+/// # Panics
+/// Panics if a valid `size` is provided but `bytes` is shorter than `size`.
+/// This should never occur as the length check above guards against it.
 pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
     if !matches!(size, 1 | 2 | 4 | 8) {
         return Err(prefix_err(PrefixErr::UnsupportedSize));
@@ -62,18 +64,28 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
         return Err(prefix_err(PrefixErr::Incomplete));
     }
 
-    let mut cur = io::Cursor::new(&bytes[..size]);
     let val = match (size, endianness) {
-        (1, _) => cur.read_u8().map(u64::from),
-        (2, Endianness::Big) => cur.read_u16::<BigEndian>().map(u64::from),
-        (2, Endianness::Little) => cur.read_u16::<LittleEndian>().map(u64::from),
-        (4, Endianness::Big) => cur.read_u32::<BigEndian>().map(u64::from),
-        (4, Endianness::Little) => cur.read_u32::<LittleEndian>().map(u64::from),
-        (8, Endianness::Big) => cur.read_u64::<BigEndian>(),
-        (8, Endianness::Little) => cur.read_u64::<LittleEndian>(),
-        // size is validated above so this branch is unreachable
+        (1, _) => u64::from(bytes[0]),
+        (2, Endianness::Big) => u64::from(u16::from_be_bytes(
+            bytes[..2].try_into().expect("slice length checked"),
+        )),
+        (2, Endianness::Little) => u64::from(u16::from_le_bytes(
+            bytes[..2].try_into().expect("slice length checked"),
+        )),
+        (4, Endianness::Big) => u64::from(u32::from_be_bytes(
+            bytes[..4].try_into().expect("slice length checked"),
+        )),
+        (4, Endianness::Little) => u64::from(u32::from_le_bytes(
+            bytes[..4].try_into().expect("slice length checked"),
+        )),
+        (8, Endianness::Big) => {
+            u64::from_be_bytes(bytes[..8].try_into().expect("slice length checked"))
+        }
+        (8, Endianness::Little) => {
+            u64::from_le_bytes(bytes[..8].try_into().expect("slice length checked"))
+        }
         _ => unreachable!(),
-    }?;
+    };
     Ok(val)
 }
 
