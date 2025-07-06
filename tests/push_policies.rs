@@ -38,11 +38,17 @@ impl std::ops::DerefMut for LoggerHandle {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
 }
 
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 #[fixture]
 fn logger() -> LoggerHandle { LoggerHandle::new() }
 
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 #[fixture]
 fn rt() -> Runtime {
     tokio::runtime::Builder::new_current_thread()
