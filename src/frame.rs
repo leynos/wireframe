@@ -54,8 +54,10 @@ use bytes::{Buf, BufMut, BytesMut};
 /// ```
 ///
 /// # Panics
-/// Panics if a valid `size` is provided but `bytes` is shorter than `size`.
-/// This should never occur as the length check above guards against it.
+/// Panics in debug builds if a valid `size` is provided but `bytes` is shorter
+/// than `size`. The preceding length check ensures this cannot happen in
+/// release builds, but the assertion helps catch logic errors during
+/// development.
 pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Result<u64> {
     if !matches!(size, 1 | 2 | 4 | 8) {
         return Err(prefix_err(PrefixErr::UnsupportedSize));
@@ -63,6 +65,11 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     if bytes.len() < size {
         return Err(prefix_err(PrefixErr::Incomplete));
     }
+
+    debug_assert!(
+        bytes.len() >= size,
+        "prefix slice shorter than declared size"
+    );
 
     let val = match (size, endianness) {
         (1, _) => u64::from(bytes[0]),
