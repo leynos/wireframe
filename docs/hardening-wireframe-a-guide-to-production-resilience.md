@@ -239,19 +239,21 @@ token-bucket algorithm is ideal.
 **Implementation Sketch:**
 
 ```rust
-use async_rate_limiter::Limiter;
+use leaky_bucket::RateLimiter;
 use std::time::Duration;
 
 // This would be part of the connection's state.
-let limiter = Limiter::builder()
+let limiter = RateLimiter::builder()
     .interval(Duration::from_secs(1))
     .max(100) // Allow 100 pushes per second.
+    .refill(100)
+    .initial(100)
     .build();
 
 // Inside PushHandle::push()
 async fn push(&self, frame: F) -> Result<(), PushError> {
     // Before sending to the channel, wait for a token from the limiter.
-    self.limiter.wait().await;
+    self.limiter.acquire(1).await;
 
     self.tx.send(frame).await.map_err(|_| /*...*/)
 }
