@@ -75,6 +75,21 @@ pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 impl<F: FrameLike> PushHandle<F> {
     pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
+
+    /// Internal helper to push a frame with the requested priority.
+    ///
+    /// Waits on the rate limiter if configured and sends the frame to the
+    /// appropriate channel, mapping send errors to [`PushError`].
+    async fn push_with_priority(&self, frame: F, priority: PushPriority) -> Result<(), PushError> {
+        if let Some(ref limiter) = self.0.limiter {
+            limiter.acquire(1).await;
+        }
+        let tx = match priority {
+            PushPriority::High => &self.0.high_prio_tx,
+            PushPriority::Low => &self.0.low_prio_tx,
+        };
+        tx.send(frame).await.map_err(|_| PushError::Closed)
+    }
     /// Push a high-priority frame subject to rate limiting.
     ///
     /// The call awaits if the rate limiter has no available tokens or
@@ -99,14 +114,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// }
     /// ```
     pub async fn push_high_priority(&self, frame: F) -> Result<(), PushError> {
-        if let Some(ref limiter) = self.0.limiter {
-            limiter.acquire(1).await;
-        }
-        self.0
-            .high_prio_tx
-            .send(frame)
-            .await
-            .map_err(|_| PushError::Closed)
+        self.push_with_priority(frame, PushPriority::High).await
     }
 
     /// Push a low-priority frame subject to rate limiting.
@@ -132,14 +140,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// }
     /// ```
     pub async fn push_low_priority(&self, frame: F) -> Result<(), PushError> {
-        if let Some(ref limiter) = self.0.limiter {
-            limiter.acquire(1).await;
-        }
-        self.0
-            .low_prio_tx
-            .send(frame)
-            .await
-            .map_err(|_| PushError::Closed)
+        self.push_with_priority(frame, PushPriority::Low).await
     }
 
     /// Attempt to push a frame with the given priority and policy.
