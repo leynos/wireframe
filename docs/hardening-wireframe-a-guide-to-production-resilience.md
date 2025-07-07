@@ -239,19 +239,20 @@ token-bucket algorithm is ideal.
 **Implementation Sketch:**
 
 ```rust
-use async_rate_limiter::Limiter;
-use std::time::Duration;
+use wireframe::push::PushQueues;
 
-// This would be part of the connection's state.
-let limiter = Limiter::builder()
-    .interval(Duration::from_secs(1))
-    .max(100) // Allow 100 pushes per second.
-    .build();
+// Configure a connection to allow at most 100 pushes per second.
+let (queues, handle) = PushQueues::<Frame>::bounded_with_rate(8, 8, Some(100));
+
+// Passing `None` disables rate limiting entirely:
+let (_unlimited, _handle) = PushQueues::<Frame>::bounded_no_rate_limit(8, 8);
 
 // Inside PushHandle::push()
-async fn push(&self, frame: F) -> Result<(), PushError> {
-    // Before sending to the channel, wait for a token from the limiter.
-    self.limiter.wait().await;
+async fn push(&self, frame: Frame) -> Result<(), PushError> {
+    // If a limiter is configured, wait for a token before queuing the frame.
+    if let Some(ref limiter) = self.limiter {
+        limiter.acquire(1).await;
+    }
 
     self.tx.send(frame).await.map_err(|_| /*...*/)
 }

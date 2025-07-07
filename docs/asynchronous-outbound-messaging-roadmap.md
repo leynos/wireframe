@@ -42,7 +42,7 @@ design documents.
   ([Resilience Guide §2][resilience-shutdown]).
 - [x] **Typed `WireframeError`** for recoverable protocol errors
   ([Design §5][design-errors]).
-- [ ] **Per-connection rate limiting** on pushes via a token bucket
+- [x] **Per-connection rate limiting** on pushes via a token bucket
   ([Resilience Guide §4.1][resilience-rate]).
 - [ ] **Optional Dead Letter Queue** for full queues
   ([Design §5.2][design-dlq]).
