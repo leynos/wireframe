@@ -124,6 +124,13 @@ async fn queue_frames(
 #[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
 #[case(vec![Priority::High; 3])]
 #[case(vec![Priority::Low; 3])]
+#[case(vec![
+    Priority::High,
+    Priority::Low,
+    Priority::High,
+    Priority::Low,
+    Priority::High,
+])]
 #[tokio::test]
 async fn processes_all_priorities_in_order(
     #[case] order: Vec<Priority>,
