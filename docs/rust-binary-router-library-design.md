@@ -1128,6 +1128,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
 // Crate: my_frame_processor.rs
 use bytes::{BytesMut, Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
+use byteorder::{BigEndian, ByteOrder};
 use std::io;
 
 const MAX_FRAME_LEN: usize = 16 * 1024 * 1024; // 16 MiB upper limit
@@ -1141,17 +1142,17 @@ impl Decoder for LengthPrefixedCodec {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() < 4 { return Ok(None); } // Not enough data for length prefix
 
-        let length = src.get_u32() as usize;
+        let length = BigEndian::read_u32(&src[..4]) as usize;
 
         if length > MAX_FRAME_LEN {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame too large"));
         }
 
-        if src.len() < length {
-            src.reserve(length - src.len());
+        if src.len() < 4 + length {
+            src.reserve(4 + length - src.len());
             return Ok(None); // Not enough data for full frame
         }
-
+        src.advance(4); // Consume length prefix
         Ok(Some(src.split_to(length)))
     }
 }
