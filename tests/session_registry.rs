@@ -6,11 +6,17 @@ use wireframe::{
 };
 
 #[fixture]
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 fn registry() -> SessionRegistry<u8> { SessionRegistry::default() }
 
 #[fixture]
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) { PushQueues::bounded(1, 1) }
 
 /// Test that handles can be retrieved whilst the connection remains alive.

@@ -11,9 +11,9 @@ tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 async-trait = "0.1"
 bytes = "1"
-byteorder = "1"
 log = "0.4"
 dashmap = "5"
+leaky-bucket = "1.1"
 
 [dev-dependencies]
 rstest = "0.18.2"

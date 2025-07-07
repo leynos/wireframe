@@ -17,15 +17,24 @@ use wireframe::{
 };
 
 #[fixture]
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) { PushQueues::bounded(8, 8) }
 
 #[fixture]
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
 #[fixture]
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 fn empty_stream() -> Option<FrameStream<u8, ()>> { None }
 
 #[rstest]
@@ -71,9 +80,18 @@ async fn fairness_yields_low_after_burst(
     assert_eq!(out, vec![1, 2, 99, 3, 4, 5]);
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Priority {
+    High,
+    Low,
+}
+
 #[rstest]
+#[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
+#[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
 #[tokio::test]
 async fn fairness_disabled_processes_all_high_first(
+    #[case] order: Vec<Priority>,
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
 ) {
@@ -83,18 +101,22 @@ async fn fairness_disabled_processes_all_high_first(
         time_slice: None,
     };
 
-    for n in 1..=3 {
-        let message = format!("failed to push high-priority frame {n}");
-        handle.push_high_priority(n).await.expect(&message);
+    let mut highs = 1..=3;
+    let mut lows = 4..=5;
+    for priority in order {
+        match priority {
+            Priority::High => {
+                let n = highs.next().expect("ran out of high-priority frames");
+                let msg = format!("failed to push high-priority frame {n}");
+                handle.push_high_priority(n).await.expect(&msg);
+            }
+            Priority::Low => {
+                let n = lows.next().expect("ran out of low-priority frames");
+                let msg = format!("failed to push low-priority frame {n}");
+                handle.push_low_priority(n).await.expect(&msg);
+            }
+        }
     }
-    handle
-        .push_low_priority(4)
-        .await
-        .expect("failed to push low-priority frame 4");
-    handle
-        .push_low_priority(5)
-        .await
-        .expect("failed to push low-priority frame 5");
 
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
@@ -341,7 +363,10 @@ impl std::ops::DerefMut for LoggerHandle {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
 }
 
-#[allow(unused_braces)]
+#[allow(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
 #[fixture]
 fn logger() -> LoggerHandle { LoggerHandle::new() }
 
