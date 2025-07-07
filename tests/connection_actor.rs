@@ -89,6 +89,8 @@ enum Priority {
 #[rstest]
 #[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
 #[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
+#[case(vec![Priority::High, Priority::High, Priority::High])]
+#[case(vec![Priority::Low, Priority::Low, Priority::Low])]
 #[tokio::test]
 async fn fairness_disabled_processes_all_high_first(
     #[case] order: Vec<Priority>,
@@ -101,9 +103,13 @@ async fn fairness_disabled_processes_all_high_first(
         time_slice: None,
     };
 
-    let mut highs = 1..=3;
-    let mut lows = 4..=5;
-    for priority in order {
+    let high_count = order.iter().filter(|p| matches!(p, Priority::High)).count();
+    let low_count = order.len() - high_count;
+
+    let mut highs = (1u8..).take(high_count);
+    let start_low = u8::try_from(high_count).expect("too many high frames") + 1;
+    let mut lows = (start_low..).take(low_count);
+    for priority in &order {
         match priority {
             Priority::High => {
                 let n = highs.next().expect("ran out of high-priority frames");
@@ -123,7 +129,11 @@ async fn fairness_disabled_processes_all_high_first(
     actor.set_fairness(fairness);
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
-    assert_eq!(out, vec![1, 2, 3, 4, 5]);
+    let high_end = u8::try_from(high_count).expect("too many high frames");
+    let expected: Vec<u8> = (1..=high_end)
+        .chain(high_end + 1..=u8::try_from(order.len()).expect("order length"))
+        .collect();
+    assert_eq!(out, expected);
 }
 
 #[rstest]
