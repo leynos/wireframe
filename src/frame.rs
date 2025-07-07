@@ -6,8 +6,6 @@
 
 use std::io;
 
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-
 const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 const ERR_FRAME_TOO_LARGE: &str = "frame too large";
 const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
@@ -36,6 +34,13 @@ fn checked_prefix_cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
     T::try_from(len).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))
 }
 
+fn parse_bytes<const N: usize, F>(slice: &[u8], f: F) -> u64
+where
+    F: FnOnce([u8; N]) -> u64,
+{
+    f(slice[..N].try_into().expect("slice length checked"))
+}
+
 use bytes::{Buf, BufMut, BytesMut};
 
 /// Converts a byte slice into a `u64` according to `size` and `endianness`.
@@ -62,18 +67,16 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
         return Err(prefix_err(PrefixErr::Incomplete));
     }
 
-    let mut cur = io::Cursor::new(&bytes[..size]);
     let val = match (size, endianness) {
-        (1, _) => cur.read_u8().map(u64::from),
-        (2, Endianness::Big) => cur.read_u16::<BigEndian>().map(u64::from),
-        (2, Endianness::Little) => cur.read_u16::<LittleEndian>().map(u64::from),
-        (4, Endianness::Big) => cur.read_u32::<BigEndian>().map(u64::from),
-        (4, Endianness::Little) => cur.read_u32::<LittleEndian>().map(u64::from),
-        (8, Endianness::Big) => cur.read_u64::<BigEndian>(),
-        (8, Endianness::Little) => cur.read_u64::<LittleEndian>(),
-        // size is validated above so this branch is unreachable
+        (1, _) => u64::from(bytes[0]),
+        (2, Endianness::Big) => parse_bytes::<2, _>(bytes, |b| u16::from_be_bytes(b).into()),
+        (2, Endianness::Little) => parse_bytes::<2, _>(bytes, |b| u16::from_le_bytes(b).into()),
+        (4, Endianness::Big) => parse_bytes::<4, _>(bytes, |b| u32::from_be_bytes(b).into()),
+        (4, Endianness::Little) => parse_bytes::<4, _>(bytes, |b| u32::from_le_bytes(b).into()),
+        (8, Endianness::Big) => parse_bytes::<8, _>(bytes, u64::from_be_bytes),
+        (8, Endianness::Little) => parse_bytes::<8, _>(bytes, u64::from_le_bytes),
         _ => unreachable!(),
-    }?;
+    };
     Ok(val)
 }
 
