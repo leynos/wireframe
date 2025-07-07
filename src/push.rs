@@ -274,10 +274,10 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
     ) -> (Self, PushHandle<F>) {
         if let Some(r) = rate {
-            assert!(r > 0, "rate must be greater than zero");
+            assert!(r > 0, "rate must be greater than zero, got {r}");
             assert!(
                 r <= MAX_PUSH_RATE,
-                "rate exceeds MAX_PUSH_RATE ({MAX_PUSH_RATE})"
+                "rate must be <= {MAX_PUSH_RATE}, got {r}"
             );
         }
         let (high_tx, high_rx) = mpsc::channel(high_capacity);

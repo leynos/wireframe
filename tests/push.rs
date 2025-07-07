@@ -51,13 +51,10 @@ async fn push_queues_error_on_closed() {
 }
 
 #[rstest]
-#[case::high(PushPriority::High, "second push should block")]
-#[case::low(PushPriority::Low, "")]
+#[case::high(PushPriority::High)]
+#[case::low(PushPriority::Low)]
 #[tokio::test]
-async fn rate_limiter_blocks_when_exceeded(
-    #[case] priority: PushPriority,
-    #[case] message: &'static str,
-) {
+async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
     time::pause();
     let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1));
 
@@ -75,11 +72,7 @@ async fn rate_limiter_blocks_when_exceeded(
         }
     };
 
-    if message.is_empty() {
-        assert!(attempt.is_err());
-    } else {
-        assert!(attempt.is_err(), "{message}");
-    }
+    assert!(attempt.is_err(), "second push should block");
 
     time::advance(Duration::from_secs(1)).await;
     match priority {
