@@ -89,6 +89,13 @@ enum Priority {
 #[rstest]
 #[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
 #[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
+#[case(vec![
+    Priority::High,
+    Priority::Low,
+    Priority::High,
+    Priority::Low,
+    Priority::High,
+])]
 #[tokio::test]
 async fn fairness_disabled_processes_all_high_first(
     #[case] order: Vec<Priority>,
