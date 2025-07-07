@@ -86,13 +86,46 @@ enum Priority {
     Low,
 }
 
+/// Push frames in the given priority order and return the expected output
+/// sequence when fairness is disabled.
+async fn queue_frames(
+    order: &[Priority],
+    handle: &wireframe::push::PushHandle<u8>,
+    high_count: usize,
+) -> Vec<u8> {
+    let mut next_high = 1u8;
+    let mut next_low = u8::try_from(high_count).expect("too many high frames") + 1;
+
+    let mut highs = Vec::new();
+    let mut lows = Vec::new();
+
+    for priority in order {
+        match priority {
+            Priority::High => {
+                let msg = format!("failed to push high-priority frame {next_high}");
+                handle.push_high_priority(next_high).await.expect(&msg);
+                highs.push(next_high);
+                next_high += 1;
+            }
+            Priority::Low => {
+                let msg = format!("failed to push low-priority frame {next_low}");
+                handle.push_low_priority(next_low).await.expect(&msg);
+                lows.push(next_low);
+                next_low += 1;
+            }
+        }
+    }
+
+    highs.into_iter().chain(lows.into_iter()).collect()
+}
+
 #[rstest]
 #[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
 #[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
-#[case(vec![Priority::High, Priority::High, Priority::High])]
-#[case(vec![Priority::Low, Priority::Low, Priority::Low])]
+#[case(vec![Priority::High; 3])]
+#[case(vec![Priority::Low; 3])]
 #[tokio::test]
-async fn fairness_disabled_processes_all_high_first(
+async fn processes_all_priorities_in_order(
     #[case] order: Vec<Priority>,
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -104,35 +137,13 @@ async fn fairness_disabled_processes_all_high_first(
     };
 
     let high_count = order.iter().filter(|p| matches!(p, Priority::High)).count();
-    let low_count = order.len() - high_count;
-
-    let mut highs = (1u8..).take(high_count);
-    let start_low = u8::try_from(high_count).expect("too many high frames") + 1;
-    let mut lows = (start_low..).take(low_count);
-    for priority in &order {
-        match priority {
-            Priority::High => {
-                let n = highs.next().expect("ran out of high-priority frames");
-                let msg = format!("failed to push high-priority frame {n}");
-                handle.push_high_priority(n).await.expect(&msg);
-            }
-            Priority::Low => {
-                let n = lows.next().expect("ran out of low-priority frames");
-                let msg = format!("failed to push low-priority frame {n}");
-                handle.push_low_priority(n).await.expect(&msg);
-            }
-        }
-    }
+    let expected = queue_frames(&order, &handle, high_count).await;
 
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
-    let high_end = u8::try_from(high_count).expect("too many high frames");
-    let expected: Vec<u8> = (1..=high_end)
-        .chain(high_end + 1..=u8::try_from(order.len()).expect("order length"))
-        .collect();
     assert_eq!(out, expected);
 }
 
