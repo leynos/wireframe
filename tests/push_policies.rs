@@ -110,7 +110,8 @@ fn warn_and_drop_if_full_logs_warning(rt: Runtime, mut logger: LoggerHandle) {
 fn dropped_frame_goes_to_dlq(rt: Runtime) {
     rt.block_on(async {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-        let (mut queues, handle) = PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx));
+        let (mut queues, handle) =
+            PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
 
         handle.push_high_priority(1u8).await.unwrap();
         handle
@@ -130,7 +131,8 @@ fn dlq_full_logs_error(rt: Runtime, mut logger: LoggerHandle) {
         while logger.pop().is_some() {}
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
         dlq_tx.try_send(99u8).unwrap();
-        let (mut queues, handle) = PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx));
+        let (mut queues, handle) =
+            PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
 
         handle.push_high_priority(1u8).await.unwrap();
         handle
@@ -146,6 +148,36 @@ fn dlq_full_logs_error(rt: Runtime, mut logger: LoggerHandle) {
         while let Some(record) = logger.pop() {
             if record.level() == log::Level::Error {
                 assert!(record.args().contains("DLQ"));
+                found_error = true;
+                break;
+            }
+        }
+        assert!(found_error, "error log not found");
+    });
+}
+
+#[rstest]
+#[serial]
+fn dlq_closed_logs_error(rt: Runtime, mut logger: LoggerHandle) {
+    rt.block_on(async {
+        while logger.pop().is_some() {}
+        let (dlq_tx, dlq_rx) = mpsc::channel::<u8>(1);
+        drop(dlq_rx);
+        let (mut queues, handle) =
+            PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
+
+        handle.push_high_priority(1u8).await.unwrap();
+        handle
+            .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
+            .unwrap();
+
+        let (_, val) = queues.recv().await.unwrap();
+        assert_eq!(val, 1);
+
+        let mut found_error = false;
+        while let Some(record) = logger.pop() {
+            if record.level() == log::Level::Error {
+                assert!(record.args().contains("closed"));
                 found_error = true;
                 break;
             }

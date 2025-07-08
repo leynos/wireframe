@@ -56,7 +56,7 @@ async fn push_queues_error_on_closed() {
 #[tokio::test]
 async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1));
+    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1)).unwrap();
 
     match priority {
         PushPriority::High => handle.push_high_priority(1u8).await.unwrap(),
@@ -88,7 +88,7 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
 #[tokio::test]
 async fn rate_limiter_allows_after_wait() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1));
+    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1)).unwrap();
     handle.push_high_priority(1u8).await.unwrap();
     time::advance(Duration::from_secs(1)).await;
     handle.push_high_priority(2u8).await.unwrap();
@@ -101,7 +101,7 @@ async fn rate_limiter_allows_after_wait() {
 #[tokio::test]
 async fn rate_limiter_shared_across_priorities() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1));
+    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1)).unwrap();
     handle.push_high_priority(1u8).await.unwrap();
 
     let attempt = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
@@ -134,7 +134,7 @@ async fn unlimited_queues_do_not_block() {
 #[tokio::test]
 async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(4, 4, Some(3));
+    let (mut queues, handle) = PushQueues::bounded_with_rate(4, 4, Some(3)).unwrap();
 
     for i in 0u8..3 {
         handle.push_high_priority(i).await.unwrap();
