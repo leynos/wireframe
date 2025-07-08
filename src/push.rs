@@ -69,6 +69,7 @@ pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
     limiter: Option<RateLimiter>,
+    dlq_tx: Option<mpsc::Sender<F>>,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -151,20 +152,27 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// Returns [`PushError::QueueFull`] if the queue is full and the policy is
     /// [`PushPolicy::ReturnErrorIfFull`]. Returns [`PushError::Closed`] if the
-    /// receiving end has been dropped.
+    /// receiving end has been dropped. When [`PushPolicy::DropIfFull`] or
+    /// [`PushPolicy::WarnAndDropIfFull`] is used, a configured dead letter queue
+    /// receives the dropped frame.
     ///
     /// # Examples
     ///
     /// ```rust,no_run
+    /// use tokio::sync::mpsc;
     /// use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
+    ///     let (mut queues, handle) = PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx));
     ///     handle.push_high_priority(1u8).await.unwrap();
     ///
-    ///     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
-    ///     assert!(matches!(result, Err(PushError::QueueFull)));
+    ///     handle
+    ///         .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
+    ///         .unwrap();
+    ///
+    ///     assert_eq!(dlq_rx.recv().await.unwrap(), 2);
     ///     let _ = queues.recv().await;
     /// }
     /// ```
@@ -181,11 +189,17 @@ impl<F: FrameLike> PushHandle<F> {
 
         match tx.try_send(frame) {
             Ok(()) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(_f)) => match policy {
+            Err(mpsc::error::TrySendError::Full(f)) => match policy {
                 PushPolicy::ReturnErrorIfFull => Err(PushError::QueueFull),
-                PushPolicy::DropIfFull => Ok(()),
-                PushPolicy::WarnAndDropIfFull => {
-                    log::warn!("push queue full; dropping {priority:?} priority frame");
+                PushPolicy::DropIfFull | PushPolicy::WarnAndDropIfFull => {
+                    if matches!(policy, PushPolicy::WarnAndDropIfFull) {
+                        log::warn!("push queue full; dropping {priority:?} priority frame");
+                    }
+                    if let Some(dlq) = &self.0.dlq_tx
+                        && let Err(mpsc::error::TrySendError::Full(_)) = dlq.try_send(f)
+                    {
+                        log::error!("push queue and DLQ full; frame lost");
+                    }
                     Ok(())
                 }
             },
@@ -223,7 +237,7 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```
     #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
-        Self::bounded_with_rate(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE))
+        Self::bounded_with_rate_dlq(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None)
     }
 
     /// Create queues with no rate limiting.
@@ -241,7 +255,7 @@ impl<F: FrameLike> PushQueues<F> {
         high_capacity: usize,
         low_capacity: usize,
     ) -> (Self, PushHandle<F>) {
-        Self::bounded_with_rate(high_capacity, low_capacity, None)
+        Self::bounded_with_rate_dlq(high_capacity, low_capacity, None, None)
     }
 
     /// Create queues with a custom rate limit in pushes per second.
@@ -273,6 +287,47 @@ impl<F: FrameLike> PushQueues<F> {
         low_capacity: usize,
         rate: Option<usize>,
     ) -> (Self, PushHandle<F>) {
+        Self::bounded_with_rate_dlq(high_capacity, low_capacity, rate, None)
+    }
+
+    /// Create queues with a custom rate limit and optional dead letter queue.
+    ///
+    /// Frames that would be dropped by [`try_push`](PushHandle::try_push) when
+    /// using [`PushPolicy::DropIfFull`] or [`PushPolicy::WarnAndDropIfFull`]
+    /// are routed to `dlq` if provided.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rate` is zero or greater than [`MAX_PUSH_RATE`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tokio::sync::mpsc;
+    /// use wireframe::push::{PushPolicy, PushPriority, PushQueues};
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
+    ///     let (mut queues, handle) =
+    ///         PushQueues::<u8>::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx));
+    ///     handle.push_high_priority(1u8).await.unwrap();
+    ///     handle
+    ///         .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
+    ///         .unwrap();
+    ///
+    ///     let (_, val) = queues.recv().await.unwrap();
+    ///     assert_eq!(val, 1);
+    ///     assert_eq!(dlq_rx.recv().await.unwrap(), 2);
+    /// }
+    /// ```
+    #[must_use]
+    pub fn bounded_with_rate_dlq(
+        high_capacity: usize,
+        low_capacity: usize,
+        rate: Option<usize>,
+        dlq: Option<mpsc::Sender<F>>,
+    ) -> (Self, PushHandle<F>) {
         if let Some(r) = rate {
             assert!(r > 0, "rate must be greater than zero, got {r}");
             assert!(
@@ -294,6 +349,7 @@ impl<F: FrameLike> PushQueues<F> {
             high_prio_tx: high_tx,
             low_prio_tx: low_tx,
             limiter,
+            dlq_tx: dlq,
         };
         (
             Self {

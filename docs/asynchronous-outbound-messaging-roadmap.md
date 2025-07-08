@@ -44,7 +44,7 @@ design documents.
   ([Design §5][design-errors]).
 - [x] **Per-connection rate limiting** on pushes via a token bucket
   ([Resilience Guide §4.1][resilience-rate]).
-- [ ] **Optional Dead Letter Queue** for full queues
+- [x] **Optional Dead Letter Queue** for full queues
   ([Design §5.2][design-dlq]).
 
 ## 4. Observability and Quality Assurance
