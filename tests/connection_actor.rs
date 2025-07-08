@@ -130,14 +130,21 @@ async fn queue_frames_empty_input(queues: (PushQueues<u8>, wireframe::push::Push
 }
 
 #[rstest]
-#[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
-#[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
-#[case(vec![Priority::High; 3])]
-#[case(vec![Priority::Low; 3])]
 #[case(Vec::new())]
 #[case(vec![Priority::High])]
 #[case(vec![Priority::Low])]
 #[case(vec![Priority::High, Priority::Low])]
+#[case(vec![Priority::High; 3])]
+#[case(vec![Priority::Low; 3])]
+#[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
+#[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
+#[case(vec![
+    Priority::High,
+    Priority::Low,
+    Priority::High,
+    Priority::Low,
+    Priority::High,
+])]
 #[tokio::test]
 async fn processes_all_priorities_in_order(
     #[case] order: Vec<Priority>,
