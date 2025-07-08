@@ -119,11 +119,25 @@ async fn queue_frames(
     highs.into_iter().chain(lows.into_iter()).collect()
 }
 
+// Ensure the helper correctly handles edge cases without queued frames.
 #[rstest]
-#[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
-#[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
+#[tokio::test]
+async fn queue_frames_empty_input(queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>)) {
+    let (_, handle) = queues;
+    let priorities: &[Priority] = &[];
+    let result = queue_frames(priorities, &handle, 0).await;
+    assert!(result.is_empty(), "Expected empty output for empty input");
+}
+
+#[rstest]
+#[case(Vec::new())]
+#[case(vec![Priority::High])]
+#[case(vec![Priority::Low])]
+#[case(vec![Priority::High, Priority::Low])]
 #[case(vec![Priority::High; 3])]
 #[case(vec![Priority::Low; 3])]
+#[case(vec![Priority::High, Priority::High, Priority::High, Priority::Low, Priority::Low])]
+#[case(vec![Priority::Low, Priority::Low, Priority::High, Priority::High, Priority::High])]
 #[case(vec![
     Priority::High,
     Priority::Low,
