@@ -2,6 +2,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
+use futures::future::BoxFuture;
 use logtest::Logger;
 use rstest::{fixture, rstest};
 use serial_test::serial;
@@ -124,60 +125,58 @@ fn dropped_frame_goes_to_dlq(rt: Runtime) {
     });
 }
 
-#[rstest]
-#[serial]
-fn dlq_full_logs_error(rt: Runtime, mut logger: LoggerHandle) {
-    rt.block_on(async {
-        while logger.pop().is_some() {}
-        let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-        dlq_tx.try_send(99u8).unwrap();
-        let (mut queues, handle) =
-            PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
-
-        handle.push_high_priority(1u8).await.unwrap();
-        handle
-            .try_push(2u8, PushPriority::High, PushPolicy::WarnAndDropIfFull)
-            .unwrap();
-
-        let (_, val) = queues.recv().await.unwrap();
-        assert_eq!(val, 1);
-        assert_eq!(dlq_rx.recv().await.unwrap(), 99);
-        assert!(dlq_rx.try_recv().is_err());
-
-        let mut found_error = false;
-        while let Some(record) = logger.pop() {
-            if record.level() == log::Level::Error {
-                assert!(record.args().contains("DLQ"));
-                found_error = true;
-                break;
-            }
-        }
-        assert!(found_error, "error log not found");
-    });
+fn setup_dlq_full(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) {
+    tx.try_send(99).unwrap();
 }
 
+fn setup_dlq_closed(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(rx.take()); }
+
+fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> {
+    Box::pin(async move {
+        let receiver = rx.as_mut().expect("receiver missing");
+        assert_eq!(receiver.recv().await.unwrap(), 99);
+        assert!(receiver.try_recv().is_err());
+    })
+}
+
+fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { Box::pin(async {}) }
+
 #[rstest]
+#[case::dlq_full(setup_dlq_full, PushPolicy::WarnAndDropIfFull, "DLQ", assert_dlq_full)]
+#[case::dlq_closed(setup_dlq_closed, PushPolicy::DropIfFull, "closed", assert_dlq_closed)]
 #[serial]
-fn dlq_closed_logs_error(rt: Runtime, mut logger: LoggerHandle) {
+fn dlq_error_scenarios<Setup, AssertFn>(
+    rt: Runtime,
+    mut logger: LoggerHandle,
+    #[case] setup: Setup,
+    #[case] policy: PushPolicy,
+    #[case] expected: &str,
+    #[case] assertion: AssertFn,
+) where
+    Setup: FnOnce(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>),
+    AssertFn: FnOnce(&mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()>,
+{
     rt.block_on(async {
         while logger.pop().is_some() {}
-        let (dlq_tx, dlq_rx) = mpsc::channel::<u8>(1);
-        drop(dlq_rx);
+
+        let (dlq_tx, dlq_rx) = mpsc::channel(1);
+        let mut dlq_rx = Some(dlq_rx);
+        setup(&dlq_tx, &mut dlq_rx);
         let (mut queues, handle) =
             PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
 
         handle.push_high_priority(1u8).await.unwrap();
-        handle
-            .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-            .unwrap();
+        handle.try_push(2u8, PushPriority::High, policy).unwrap();
 
         let (_, val) = queues.recv().await.unwrap();
         assert_eq!(val, 1);
 
+        assertion(&mut dlq_rx).await;
+
         let mut found_error = false;
         while let Some(record) = logger.pop() {
             if record.level() == log::Level::Error {
-                assert!(record.args().contains("closed"));
+                assert!(record.args().contains(expected));
                 found_error = true;
                 break;
             }
