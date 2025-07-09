@@ -28,10 +28,12 @@ these rules to keep the documentation clear and consistent for developers.
 - Follow [markdownlint](https://github.com/DavidAnson/markdownlint)
   recommendations[^markdownlint].
 - Provide code blocks and lists using standard Markdown syntax.
-- Always use fenced code blocks with a language identifier; use `plaintext` for
-  non-code text.
+- Always provide a language identifier for fenced code blocks; use `plaintext`
+  for non-code text.
 - Use `-` as the first level bullet and renumber lists when items change.
 - Prefer inline links using `[text](url)` or angle brackets around the URL.
+- Ensure blank lines before and after bulleted lists and fenced blocks.
+- Ensure tables have a delimiter line below the header row.
 
 ## Expanding acronyms
 
@@ -54,7 +56,7 @@ fn add(a: i32, b: i32) -> i32 {
 }
 ```
 
-## API doc comments
+## API doc comments (Rust)
 
 Use doc comments to document public APIs. Keep them consistent with the contents
 of the manual.
@@ -104,4 +106,4 @@ flowchart TD
     C --> D[Merge]
 ```
 
-\[^markdownlint\]: A linter that enforces consistent Markdown formatting.
+[^markdownlint]: A linter that enforces consistent Markdown formatting.
