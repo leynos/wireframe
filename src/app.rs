@@ -227,10 +227,15 @@ where
     C: Send + 'static,
     E: Packet,
 {
+    /// Creates a new `WireframeApp` with no routes, services, middleware, or application data.
     ///
-    /// Initialises empty routes, services, middleware, and application data.
-    /// Sets the default frame processor and serializer, with no connection
-    /// lifecycle hooks.
+    /// The default frame processor and serializer are set, and no connection lifecycle hooks or dead letter queue are configured.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let app = WireframeApp::<_, (), Envelope>::default();
+    /// ```
     fn default() -> Self {
         Self {
             routes: HashMap::new(),
@@ -330,22 +335,29 @@ where
         Ok(self)
     }
 
-    /// Register a callback invoked when a new connection is established.
+    /// Registers an asynchronous callback to be invoked when a new connection is established.
     ///
-    /// The callback can perform authentication or other setup tasks and
-    /// returns connection-specific state stored for the connection's
-    /// lifetime.
+    /// The callback can perform authentication or setup tasks and returns connection-specific state,
+    /// which is stored for the lifetime of the connection. This method changes the connection state
+    /// type parameter from `C` to `C2`, so subsequent builder methods will operate on the new state type.
     ///
     /// # Type Parameters
     ///
-    /// This method changes the connection state type parameter from `C` to `C2`.
-    /// This means that any subsequent builder methods will operate on the new connection state type
-    /// `C2`. Be aware of this type transition when chaining builder methods.
+    /// - `C2`: The new connection state type returned by the setup callback.
     ///
-    /// # Errors
+    /// # Returns
     ///
-    /// This function always succeeds currently but uses [`Result`] for
-    /// consistency with other builder methods.
+    /// Returns a new `WireframeApp` builder with the updated connection state type.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe::WireframeApp;
+    ///
+    /// let app = WireframeApp::default()
+    ///     .on_connection_setup(|| async { /* perform setup */ 42 })
+    ///     .unwrap();
+    /// ```
     pub fn on_connection_setup<F, Fut, C2>(self, f: F) -> Result<WireframeApp<S, C2, E>>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
@@ -384,11 +396,21 @@ where
         Ok(self)
     }
 
-    /// Install a [`WireframeProtocol`] implementation.
+    /// Installs a custom `WireframeProtocol` for connection and frame lifecycle hooks.
     ///
-    /// The protocol defines hooks for connection setup, frame modification, and
-    /// command completion. It is wrapped in an [`Arc`] and stored for later use
-    /// by the connection actor.
+    /// The provided protocol is wrapped in an `Arc` and stored for use by the connection actor,
+    /// enabling custom behaviour for connection setup, frame modification, and command completion.
+    ///
+    /// # Returns
+    ///
+    /// The updated builder with the protocol installed.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let app = WireframeApp::default()
+    ///     .with_protocol(MyProtocol::new());
+    /// ```
     #[must_use]
     pub fn with_protocol<P>(mut self, protocol: P) -> Self
     where
@@ -398,7 +420,12 @@ where
         self
     }
 
-    /// Configure a Dead Letter Queue for dropped push frames.
+    /// Sets a Dead Letter Queue (DLQ) channel to receive dropped push frames.
+    ///
+    /// This allows the application to capture or forward push frames that could not be delivered,
+    /// by sending their raw bytes to the provided asynchronous channel.
+    ///
+    /// # Examples
     ///
     /// ```rust,no_run
     /// use tokio::sync::mpsc;
@@ -448,7 +475,15 @@ where
         self
     }
 
-    /// Replace the serializer used for messages.
+    /// Sets a custom serializer for message encoding and decoding, returning a new builder instance with the specified serializer.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use mycrate::{WireframeApp, BincodeSerializer};
+    ///
+    /// let app = WireframeApp::default().serializer(BincodeSerializer::default());
+    /// ```
     #[must_use]
     pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser, C, E>
     where

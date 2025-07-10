@@ -17,7 +17,18 @@ pub struct LoggerHandle {
 }
 
 impl LoggerHandle {
-    /// Acquire the global [`Logger`] instance.
+    /// Acquires exclusive access to the global logger instance for testing.
+    ///
+    /// Returns a handle that provides serialised, thread-safe access to a singleton
+    /// [`Logger`], ensuring that concurrent tests do not interfere with each other's
+    /// log capture. Panics if the logger mutex is poisoned.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let handle = LoggerHandle::new();
+    /// handle.clear(); // Clear previous logs before running a test.
+    /// ```
     pub fn new() -> Self {
         static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
 
@@ -31,16 +42,53 @@ impl LoggerHandle {
 impl std::ops::Deref for LoggerHandle {
     type Target = Logger;
 
-    fn deref(&self) -> &Self::Target { &self.guard }
+    /// Returns a reference to the underlying logger, enabling read-only access through the handle.
+///
+/// # Examples
+///
+/// ```no_run
+/// let handle = LoggerHandle::new();
+/// let logs = handle.logs();
+/// ```
+fn deref(&self) -> &Self::Target { &self.guard }
 }
 
 impl std::ops::DerefMut for LoggerHandle {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
+    /// Provides mutable access to the underlying `Logger` instance.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wireframe_testing::logging::LoggerHandle;
+///
+/// let mut handle = LoggerHandle::new();
+/// handle.clear(); // Mutably access the logger to clear captured logs
+/// ```
+fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
 }
 
+/// Provides a test fixture that returns exclusive access to the global logger.
+///
+/// This fixture ensures that each test receives a unique handle to the global
+/// logger, allowing safe capture and inspection of log output without
+/// interference from other tests.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wireframe_testing::logging::logger;
+///
+/// #[rstest::rstest]
+/// fn test_logging(logger: LoggerHandle) {
+///     logger.clear();
+///     // ... perform actions that produce logs ...
+///     let logs = logger.pop();
+///     assert!(logs.contains("expected log message"));
+/// }
+/// ```
 #[allow(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
+unused_braces,
+reason = "rustc false positive for single line rstest fixtures"
 )]
 #[fixture]
 pub fn logger() -> LoggerHandle { LoggerHandle::new() }

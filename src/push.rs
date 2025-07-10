@@ -73,6 +73,7 @@ pub enum PushConfigError {
 }
 
 impl std::fmt::Display for PushConfigError {
+    /// Formats a `PushConfigError` for display, providing details about the invalid rate value.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidRate(r) => {
@@ -139,9 +140,9 @@ impl<F: FrameLike> PushHandle<F> {
         self.push_with_priority(frame, PushPriority::High).await
     }
 
-    /// Push a low-priority frame subject to rate limiting.
+    /// Pushes a low-priority frame to the queue, applying rate limiting if configured.
     ///
-    /// Awaits if the rate limiter has no available tokens or the queue is full.
+    /// This method waits if the rate limiter has no available tokens or if the low-priority queue is full. The frame is sent with low priority and will be delivered after any high-priority frames.
     ///
     /// # Errors
     ///
@@ -154,7 +155,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, Some(1));
+    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, Some(1)).unwrap();
     ///     handle.push_low_priority(10u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::Low);
@@ -165,7 +166,17 @@ impl<F: FrameLike> PushHandle<F> {
         self.push_with_priority(frame, PushPriority::Low).await
     }
 
-    /// Send a frame to the configured dead letter queue if available.
+    /// Attempts to send a frame to the configured dead letter queue (DLQ), if present.
+    ///
+    /// If the DLQ is full or closed, logs an error indicating the frame was lost.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// // Assume `handle` is a PushHandle with a configured DLQ.
+    /// handle.route_to_dlq(frame);
+    /// // If the DLQ is full or closed, an error is logged and the frame is dropped.
+    /// ```
     fn route_to_dlq(&self, frame: F) {
         if let Some(dlq) = &self.0.dlq_tx {
             match dlq.try_send(frame) {
@@ -180,15 +191,13 @@ impl<F: FrameLike> PushHandle<F> {
         }
     }
 
-    /// Attempt to push a frame with the given priority and policy.
+    /// Attempts to push a frame to the queue with the specified priority and policy.
+    ///
+    /// If the queue is full, the behaviour depends on the provided policy: an error is returned, the frame is dropped, or a warning is logged and the frame is dropped. Dropped frames are routed to the dead letter queue if one is configured.
     ///
     /// # Errors
     ///
-    /// Returns [`PushError::QueueFull`] if the queue is full and the policy is
-    /// [`PushPolicy::ReturnErrorIfFull`]. Returns [`PushError::Closed`] if the
-    /// receiving end has been dropped. When [`PushPolicy::DropIfFull`] or
-    /// [`PushPolicy::WarnAndDropIfFull`] is used, a configured dead letter queue
-    /// receives the dropped frame.
+    /// Returns [`PushError::QueueFull`] if the queue is full and the policy is [`PushPolicy::ReturnErrorIfFull`]. Returns [`PushError::Closed`] if the receiving end has been dropped. When [`PushPolicy::DropIfFull`] or [`PushPolicy::WarnAndDropIfFull`] is used, a configured dead letter queue receives the dropped frame.
     ///
     /// # Examples
     ///
@@ -249,8 +258,9 @@ pub struct PushQueues<F> {
 }
 
 impl<F: FrameLike> PushQueues<F> {
-    /// Create a new set of queues with the specified bounds for each priority
-    /// and return them along with a [`PushHandle`] for producers.
+    /// Creates a new set of bounded push queues for high and low priority frames, returning the queues and a [`PushHandle`] for producers.
+    ///
+    /// The queues are rate-limited to the default push rate. Use this when you want simple bounded queues with prioritisation and default rate limiting.
     ///
     /// # Examples
     ///
@@ -270,13 +280,14 @@ impl<F: FrameLike> PushQueues<F> {
     /// # Panics
     ///
     /// Panics if an internal invariant is violated. This should never occur.
-    #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
         Self::bounded_with_rate_dlq(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None)
             .expect("DEFAULT_PUSH_RATE is always valid")
     }
 
-    /// Create queues with no rate limiting.
+    /// Creates high- and low-priority push queues with bounded capacity and no rate limiting.
+    ///
+    /// Returns a tuple containing the push queues and a handle for pushing frames. Both queues are bounded by the specified capacities, and no rate limiting is applied to frame pushes.
     ///
     /// # Examples
     ///
@@ -298,16 +309,17 @@ impl<F: FrameLike> PushQueues<F> {
         Self::bounded_with_rate_dlq(high_capacity, low_capacity, None, None).unwrap()
     }
 
-    /// Create queues with a custom rate limit in pushes per second.
+    /// Creates prioritised push queues with an optional global rate limit.
     ///
-    /// The limiter enforces fairness by allowing at most `rate` pushes
-    /// per second across all producers for the returned [`PushHandle`].
-    /// Pass `None` to disable rate limiting entirely.
+    /// The returned queues support high and low priority channels. If `rate` is
+    /// specified, it limits the total number of pushes per second across all
+    /// producers using the associated [`PushHandle`]. Passing `None` disables
+    /// rate limiting entirely.
     ///
     /// # Errors
     ///
-    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
-    /// than [`MAX_PUSH_RATE`].
+    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or exceeds
+    /// [`MAX_PUSH_RATE`].
     ///
     /// # Examples
     ///
@@ -330,16 +342,15 @@ impl<F: FrameLike> PushQueues<F> {
         Self::bounded_with_rate_dlq(high_capacity, low_capacity, rate, None)
     }
 
-    /// Create queues with a custom rate limit and optional dead letter queue.
+    /// Creates prioritised push queues with optional rate limiting and dead letter queue support.
     ///
-    /// Frames that would be dropped by [`try_push`](PushHandle::try_push) when
-    /// using [`PushPolicy::DropIfFull`] or [`PushPolicy::WarnAndDropIfFull`]
-    /// are routed to `dlq` if provided.
+    /// Frames that would be dropped by [`try_push`](PushHandle::try_push) under
+    /// [`PushPolicy::DropIfFull`] or [`PushPolicy::WarnAndDropIfFull`] are routed to the provided
+    /// dead letter queue (`dlq`) if supplied.
     ///
     /// # Errors
     ///
-    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
-    /// than [`MAX_PUSH_RATE`].
+    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or exceeds [`MAX_PUSH_RATE`].
     ///
     /// # Examples
     ///
