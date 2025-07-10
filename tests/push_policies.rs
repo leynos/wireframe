@@ -24,15 +24,23 @@ fn rt() -> Runtime {
 }
 
 #[rstest]
+#[case::drop_if_full(PushPolicy::DropIfFull, false, "push queue full")]
+#[case::warn_and_drop(PushPolicy::WarnAndDropIfFull, true, "push queue full")]
 #[serial(push_policies)]
-fn drop_if_full_discards_frame(rt: Runtime, mut logger: LoggerHandle) {
+fn push_policy_behaviour(
+    rt: Runtime,
+    mut logger: LoggerHandle,
+    #[case] policy: PushPolicy,
+    #[case] expect_warning: bool,
+    #[case] expected_msg: &str,
+) {
     rt.block_on(async {
         while logger.pop().is_some() {}
         let (mut queues, handle) = PushQueues::bounded(1, 1);
+
         handle.push_high_priority(1u8).await.unwrap();
-        handle
-            .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-            .unwrap();
+        handle.try_push(2u8, PushPriority::High, policy).unwrap();
+
         let (_, val) = queues.recv().await.unwrap();
         assert_eq!(val, 1);
         assert!(
@@ -41,41 +49,18 @@ fn drop_if_full_discards_frame(rt: Runtime, mut logger: LoggerHandle) {
                 .is_err()
         );
 
+        let mut found_warning = false;
         while let Some(record) = logger.pop() {
-            assert!(
-                !record.args().contains("push queue full"),
-                "unexpected log: {}",
-                record.args()
-            );
-        }
-    });
-}
-
-#[rstest]
-#[serial(push_policies)]
-fn warn_and_drop_if_full_logs_warning(rt: Runtime, mut logger: LoggerHandle) {
-    rt.block_on(async {
-        while logger.pop().is_some() {}
-        let (mut queues, handle) = PushQueues::bounded(1, 1);
-        handle.push_low_priority(3u8).await.unwrap();
-        handle
-            .try_push(4u8, PushPriority::Low, PushPolicy::WarnAndDropIfFull)
-            .unwrap();
-        let (_, val) = queues.recv().await.unwrap();
-        assert_eq!(val, 3);
-        assert!(
-            timeout(Duration::from_millis(20), queues.recv())
-                .await
-                .is_err()
-        );
-        let mut found = false;
-        while let Some(record) = logger.pop() {
-            if record.level() == log::Level::Warn && record.args().contains("push queue full") {
-                found = true;
-                break;
+            if record.level() == log::Level::Warn && record.args().contains(expected_msg) {
+                found_warning = true;
             }
         }
-        assert!(found, "warning log not found");
+
+        if expect_warning {
+            assert!(found_warning, "warning log not found");
+        } else {
+            assert!(!found_warning, "unexpected warning log found");
+        }
     });
 }
 
