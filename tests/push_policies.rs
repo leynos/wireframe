@@ -1,9 +1,6 @@
 //! Tests for push queue policy behaviour.
 
-use std::sync::{Mutex, OnceLock};
-
 use futures::future::BoxFuture;
-use logtest::Logger;
 use rstest::{fixture, rstest};
 use serial_test::serial;
 use tokio::{
@@ -12,41 +9,7 @@ use tokio::{
     time::{Duration, timeout},
 };
 use wireframe::push::{PushPolicy, PushPriority, PushQueues};
-
-/// Handle to the global logger with exclusive access.
-struct LoggerHandle {
-    guard: std::sync::MutexGuard<'static, Logger>,
-}
-
-impl LoggerHandle {
-    fn new() -> Self {
-        static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
-
-        let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
-        let guard = logger
-            .lock()
-            .expect("failed to acquire global logger lock; a previous test may still hold it");
-
-        Self { guard }
-    }
-}
-
-impl std::ops::Deref for LoggerHandle {
-    type Target = Logger;
-
-    fn deref(&self) -> &Self::Target { &self.guard }
-}
-
-impl std::ops::DerefMut for LoggerHandle {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.guard }
-}
-
-#[allow(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-#[fixture]
-fn logger() -> LoggerHandle { LoggerHandle::new() }
+use wireframe_testing::{LoggerHandle, logger};
 
 #[allow(
     unused_braces,
