@@ -1,8 +1,13 @@
+//! Logging utilities for test infrastructure.
+//!
+//! This module provides a global, thread-safe logger handle for capturing and
+//! inspecting log output during tests. The [`LoggerHandle`] ensures exclusive
+//! access to prevent interference between concurrent tests.
+
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use logtest::Logger;
 use rstest::fixture;
-
 /// Handle to the global logger with exclusive access.
 ///
 /// This guard ensures tests do not interfere with each other's log capture by
