@@ -32,5 +32,4 @@ pub use helpers::{
     run_app_with_frames_with_capacity,
     run_with_duplex_server,
 };
-
-pub use logging::{logger, LoggerHandle};
+pub use logging::{LoggerHandle, logger};

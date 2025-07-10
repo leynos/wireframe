@@ -35,7 +35,7 @@ impl std::ops::DerefMut for LoggerHandle {
 
 #[allow(
     unused_braces,
-    reason = "rustc false positive for single line rstest fixtures",
+    reason = "rustc false positive for single line rstest fixtures"
 )]
 #[fixture]
 pub fn logger() -> LoggerHandle { LoggerHandle::new() }
