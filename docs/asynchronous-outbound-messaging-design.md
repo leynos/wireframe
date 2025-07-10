@@ -597,6 +597,30 @@ that would normally be dropped by the `PushPolicy::DropIfFull` or
 part of the application is then responsible for consuming from the DLQ to
 inspect, log, and potentially retry these failed messages.
 
+The following sequence diagram illustrates how frames are routed when a DLQ is
+configured:
+
+```mermaid
+sequenceDiagram
+    participant Producer
+    participant PushHandle
+    participant HighPrioQueue
+    participant DLQ as DeadLetterQueue
+    Producer->>PushHandle: try_push(frame, priority, DropIfFull)
+    PushHandle->>HighPrioQueue: try_send(frame)
+    alt Queue full
+        PushHandle->>DLQ: try_send(frame)
+        alt DLQ full
+            PushHandle->>PushHandle: log error (frame lost)
+        else DLQ has space
+            DLQ-->>PushHandle: frame accepted
+        end
+    else Queue has space
+        HighPrioQueue-->>PushHandle: frame accepted
+    end
+    PushHandle-->>Producer: Ok or logs
+```
+
 ### 5.3 Typed protocol errors
 
 `WireframeError` distinguishes transport failures from protocol logic errors. A

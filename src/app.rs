@@ -14,7 +14,10 @@ use std::{
 };
 
 use bytes::BytesMut;
-use tokio::io::{self, AsyncWrite, AsyncWriteExt};
+use tokio::{
+    io::{self, AsyncWrite, AsyncWriteExt},
+    sync::mpsc,
+};
 
 use crate::{
     frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
@@ -82,6 +85,7 @@ pub struct WireframeApp<
     on_connect: Option<Arc<ConnectionSetup<C>>>,
     on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
     protocol: Option<Arc<dyn WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()>>>,
+    push_dlq: Option<mpsc::Sender<Vec<u8>>>,
 }
 
 /// Alias for asynchronous route handlers.
@@ -238,6 +242,7 @@ where
             on_connect: None,
             on_disconnect: None,
             protocol: None,
+            push_dlq: None,
         }
     }
 }
@@ -357,6 +362,7 @@ where
             on_connect: Some(Arc::new(move || Box::pin(f()))),
             on_disconnect: None,
             protocol: self.protocol,
+            push_dlq: self.push_dlq,
         })
     }
 
@@ -389,6 +395,25 @@ where
         P: WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()> + 'static,
     {
         self.protocol = Some(Arc::new(protocol));
+        self
+    }
+
+    /// Configure a Dead Letter Queue for dropped push frames.
+    ///
+    /// ```rust,no_run
+    /// use tokio::sync::mpsc;
+    /// use wireframe::app::WireframeApp;
+    ///
+    /// # fn build() -> WireframeApp { WireframeApp::new().unwrap() }
+    /// # fn main() {
+    /// let (tx, _rx) = mpsc::channel(16);
+    /// let app = build().with_push_dlq(tx);
+    /// # let _ = app;
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_push_dlq(mut self, dlq: mpsc::Sender<Vec<u8>>) -> Self {
+        self.push_dlq = Some(dlq);
         self
     }
 
@@ -439,6 +464,7 @@ where
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
             protocol: self.protocol,
+            push_dlq: self.push_dlq,
         }
     }
 
