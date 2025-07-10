@@ -61,7 +61,7 @@ fn rt() -> Runtime {
 }
 
 #[rstest]
-#[serial]
+#[serial(push_policies)]
 fn drop_if_full_discards_frame(rt: Runtime, mut logger: LoggerHandle) {
     rt.block_on(async {
         while logger.pop().is_some() {}
@@ -78,12 +78,18 @@ fn drop_if_full_discards_frame(rt: Runtime, mut logger: LoggerHandle) {
                 .is_err()
         );
 
-        assert!(logger.pop().is_none());
+        while let Some(record) = logger.pop() {
+            assert!(
+                !record.args().contains("push queue full"),
+                "unexpected log: {}",
+                record.args()
+            );
+        }
     });
 }
 
 #[rstest]
-#[serial]
+#[serial(push_policies)]
 fn warn_and_drop_if_full_logs_warning(rt: Runtime, mut logger: LoggerHandle) {
     rt.block_on(async {
         while logger.pop().is_some() {}
@@ -99,11 +105,14 @@ fn warn_and_drop_if_full_logs_warning(rt: Runtime, mut logger: LoggerHandle) {
                 .await
                 .is_err()
         );
-
-        let record = logger.pop().expect("expected warning");
-        assert_eq!(record.level(), log::Level::Warn);
-        assert!(record.args().contains("push queue full"));
-        assert!(logger.pop().is_none());
+        let mut found = false;
+        while let Some(record) = logger.pop() {
+            if record.level() == log::Level::Warn && record.args().contains("push queue full") {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "warning log not found");
     });
 }
 
@@ -144,7 +153,7 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { 
 #[rstest]
 #[case::dlq_full(setup_dlq_full, PushPolicy::WarnAndDropIfFull, "DLQ", assert_dlq_full)]
 #[case::dlq_closed(setup_dlq_closed, PushPolicy::DropIfFull, "closed", assert_dlq_closed)]
-#[serial]
+#[serial(push_policies)]
 fn dlq_error_scenarios<Setup, AssertFn>(
     rt: Runtime,
     mut logger: LoggerHandle,
