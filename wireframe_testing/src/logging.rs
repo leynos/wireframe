@@ -4,6 +4,7 @@
 //! inspecting log output during tests. The [`LoggerHandle`] ensures exclusive
 //! access to prevent interference between concurrent tests.
 //!
+//! # Examples
 //! ```
 //! use wireframe_testing::logger;
 //!
@@ -25,6 +26,7 @@ use rstest::fixture;
 /// serialising access to a [`logtest::Logger`]. Acquire it using [`logger`] or
 /// [`LoggerHandle::new`].
 ///
+/// # Examples
 /// ```
 /// use wireframe_testing::logger;
 ///
@@ -39,6 +41,7 @@ pub struct LoggerHandle {
 impl LoggerHandle {
     /// Acquire the global [`Logger`] instance.
     ///
+    /// # Examples
     /// ```
     /// use wireframe_testing::LoggerHandle;
     ///
