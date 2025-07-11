@@ -24,16 +24,13 @@ duplex and capable framework.
 
 The implementation must satisfy the following core requirements:
 
-<!-- markdownlint-disable MD013 -->
-
 | ID | Requirement                                                                                                          |
+| -- | ---------------------------------------------------------------------------------------------------------------------|
 | G1 | Allow a handler to send zero, one, or many frames for a single logical response.                                     |
 | G2 | Provide transparent back-pressure: writers must suspend when outbound capacity is exhausted.                         |
 | G3 | Integrate with protocol-specific sequencing rules (e.g., per-command counters) without hard-coding any one protocol. |
 | G4 | Keep the simple “single-frame reply” path untouched; upgrading should be optional and ergonomic.                     |
 | G5 | Work symmetrically for servers and clients built with wireframe.                                                     |
-
-<!-- markdownlint-enable MD013 -->
 
 ## 3. Core Architecture: Declarative Streaming
 
@@ -249,6 +246,7 @@ hang.
 <!-- markdownlint-disable MD013 -->
 
 | Category        | Objective                                                                                                                                        | Success Metric                                                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API Correctness | The Response enum and FrameStream type alias are implemented exactly as specified in this document.                                              | 100% of the public API surface is present and correctly typed.                                                                                             |
 | Functionality   | A handler returning a stream of N frames results in N frames being written to the socket in the correct order.                                   | A test suite confirms 100% frame delivery and strict ordering for Response::Vec and Response::Stream.                                                      |
 | Ergonomics      | The async-stream pattern is documented as the canonical approach for dynamic stream generation.                                                  | The official examples and documentation exclusively use the declarative Response model.                                                                    |
