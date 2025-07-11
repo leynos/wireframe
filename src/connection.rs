@@ -5,7 +5,10 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
-use std::future::Future;
+use std::{
+    future::Future,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use futures::StreamExt;
 use tokio::{
@@ -13,6 +16,10 @@ use tokio::{
     time::{Duration, Instant},
 };
 use tokio_util::sync::CancellationToken;
+use tracing::{info, info_span, warn};
+
+/// Global gauge tracking active connections.
+static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
 
 use crate::{
     hooks::{ConnectionContext, ProtocolHooks},
@@ -126,6 +133,8 @@ where
         mut hooks: ProtocolHooks<F, E>,
     ) -> Self {
         let mut ctx = ConnectionContext;
+        let current = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+        info!(wireframe_active_connections = current, "connection opened");
         hooks.on_connection_setup(handle, &mut ctx);
         Self {
             high_rx: Some(queues.high_priority_rx),
@@ -158,10 +167,14 @@ where
     ///
     /// Returns a [`WireframeError`] if the response stream yields an I/O error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
+        let span = info_span!("connection_actor");
+        let _enter = span.enter();
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
         // a hard shutdown and is required for the tests.
         if self.shutdown.is_cancelled() {
+            info!("connection aborted before start");
+            ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
             return Ok(());
         }
 
@@ -170,7 +183,8 @@ where
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
         }
-
+        info!("connection closed");
+        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -369,6 +383,7 @@ where
             }
             Some(Err(WireframeError::Protocol(e))) => {
                 log::warn!("protocol error: {e:?}");
+                warn!(error = ?e, "protocol error");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
                 self.hooks.on_command_end(&mut self.ctx);

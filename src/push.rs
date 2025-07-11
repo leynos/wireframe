@@ -13,6 +13,7 @@ use std::{
 
 use leaky_bucket::RateLimiter;
 use tokio::sync::mpsc;
+use tracing::{debug, error, warn};
 
 /// Messages can be sent through a [`PushHandle`].
 ///
@@ -110,7 +111,12 @@ impl<F: FrameLike> PushHandle<F> {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
         };
-        tx.send(frame).await.map_err(|_| PushError::Closed)
+        tx.send(frame)
+            .await
+            .map_err(|_| PushError::Closed)
+            .map(|()| {
+                debug!(?priority, "frame pushed");
+            })
     }
     /// Push a high-priority frame subject to rate limiting.
     ///
@@ -172,9 +178,11 @@ impl<F: FrameLike> PushHandle<F> {
                 Ok(()) => {}
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     log::error!("push queue and DLQ full; frame lost");
+                    error!("push queue and DLQ full; frame lost");
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     log::error!("DLQ closed; frame lost");
+                    error!("DLQ closed; frame lost");
                 }
             }
         }
@@ -229,6 +237,7 @@ impl<F: FrameLike> PushHandle<F> {
                 PushPolicy::DropIfFull | PushPolicy::WarnAndDropIfFull => {
                     if matches!(policy, PushPolicy::WarnAndDropIfFull) {
                         log::warn!("push queue full; dropping {priority:?} priority frame");
+                        warn!(?priority, "push queue full; dropping frame");
                     }
                     self.route_to_dlq(f);
                     Ok(())

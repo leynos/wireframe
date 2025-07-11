@@ -106,4 +106,4 @@ flowchart TD
     C --> D[Merge]
 ```
 
-[^markdownlint]: A linter that enforces consistent Markdown formatting.
+\[^markdownlint\]: A linter that enforces consistent Markdown formatting.
