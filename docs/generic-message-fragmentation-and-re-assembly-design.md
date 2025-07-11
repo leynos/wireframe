@@ -27,6 +27,7 @@ The implementation must satisfy the following core requirements:
 <!-- markdownlint-disable MD013 -->
 
 | ID | Goal                                                                                                                                                                                                                   |
+| -- | ------------------ |
 | G1 | Transparent inbound re-assembly → The router and handlers must always receive one complete, logical Frame.                                                                                                             |
 | G2 | Transparent outbound fragmentation when a payload exceeds a configurable, protocol-specific size.                                                                                                                      |
 | G3 | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
@@ -272,6 +273,7 @@ This feature is designed as a foundational layer that other features build upon.
 <!-- markdownlint-disable MD013 -->
 
 | Category        | Objective                                                                                                                                   | Success Metric                                                                                                                                                                    |
+| --------------- | --------- | -------------------- |
 | API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                       | 100% of the public API surface is present and correctly typed.                                                                                                                    |
 | Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly re-assembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a 64 MiB payload after being fragmented and re-assembled.                                                                   |
 | Multiplexing    | The adapter can correctly re-assemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly re-assembled messages, A and B.                                                                      |
