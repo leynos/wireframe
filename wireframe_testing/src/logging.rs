@@ -42,8 +42,11 @@ impl LoggerHandle {
     ///
     /// ```
     /// use wireframe_testing::LoggerHandle;
+    /// use log::warn;
     ///
-    /// let _log = LoggerHandle::new();
+    /// let mut log = LoggerHandle::new();
+    /// warn!("warned");
+    /// assert!(log.guard.pop().is_some());
     /// ```
     pub fn new() -> Self {
         static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
