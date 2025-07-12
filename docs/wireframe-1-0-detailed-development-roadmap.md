@@ -24,6 +24,7 @@ all public-facing features will be built.*
 | ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------- |
 | ------ | -------                        |
 | ------ | -------                        |
+| ------ | -------                        |
 | 1.1    | Core Response & Error Types    | Define the new `Response<F, E>` enum with `Single`, `Vec`, `Stream` and `Empty` variants. Implement the generic `WireframeError<E>` enum to distinguish between I/O and protocol errors.                             | Small  | -       |
 | 1.2    | Priority Push Channels         | Implement the internal dual-channel `mpsc` mechanism within the connection state to handle high-priority and low-priority pushed frames.                                                                             | Medium | -       |
 | 1.3    | Connection Actor Write Loop    | Convert per-request workers into stateful connection actors. Implement a `select!(biased; ...)` loop that polls for shutdown signals, high/low priority pushes and the handler response stream in that strict order. | Large  | #1.2    |
@@ -39,6 +40,7 @@ and intuitive.*
 
 | Item   | Name                              | Details                                                                                                                                                                                                         | Size   | Depends on       |
 | ------ | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
+| ------ | ----------------                  |
 | ------ | ----------------                  |
 | ------ | ----------------                  |
 | 2.1    | WireframeProtocol Trait & Builder | Define the cohesive `WireframeProtocol` trait to encapsulate all protocol-specific logic. Refactor the `WireframeApp` builder to use a fluent `.with_protocol(MyProtocol)` method instead of multiple closures. | Medium | #1.6             |
@@ -57,6 +59,7 @@ operation in a production environment. This phase moves the library from
 | Item   | Name                           | Details                                                                                                                                                                                              | Size   | Depends on |
 | ------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------- |
 | ------ | ----------                     |
+| ------ | ----------                     |
 | ------ | -------                        |
 | 3.1    | Graceful Shutdown              | Implement the server-wide graceful shutdown pattern. Use `tokio_util::sync::CancellationToken` for signalling and `tokio_util::task::TaskTracker` to ensure all connection actors terminate cleanly. | Large  | #1.3       |
 | 3.2    | Re-assembly DoS Protection     | Harden the `FragmentAdapter` by adding a non-optional, configurable timeout for partial message re-assembly and strictly enforcing the `max_message_size` limit to prevent memory exhaustion.        | Medium | #1.5       |
@@ -71,6 +74,7 @@ ready for a 1.0 release.*
 
 | Item   | Name                                  | Details                                                                                                                                                                                                                                                                      | Size   | Depends on |
 | ------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------- |
+| ------ | ----------                            |
 | ------ | ----------                            |
 | ------ | ----------                            |
 | 4.1    | Pervasive tracing instrumentation     | Instrument the entire library with `tracing`. Add `span!` calls for connection and request lifecycles and detailed `event!` calls for key state transitions (e.g., back-pressure applied, frame dropped, connection terminated).                                             | Large  | All        |
