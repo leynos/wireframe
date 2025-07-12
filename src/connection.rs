@@ -174,7 +174,6 @@ where
         // a hard shutdown and is required for the tests.
         if self.shutdown.is_cancelled() {
             info!("connection aborted before start");
-            ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
             return Ok(());
         }
 
@@ -184,7 +183,6 @@ where
             self.poll_sources(&mut state, out).await?;
         }
         info!("connection closed");
-        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -494,4 +492,8 @@ impl ActorState {
 
     /// Returns `true` when all sources have finished.
     fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
+}
+
+impl<F, E> Drop for ConnectionActor<F, E> {
+    fn drop(&mut self) { ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::SeqCst); }
 }

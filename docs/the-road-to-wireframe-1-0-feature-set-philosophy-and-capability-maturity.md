@@ -289,6 +289,28 @@ crate throughout its core.
 
   - `wireframe_reassembly_errors_total` (Counter)
 
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Connection
+    participant Tracing
+
+    Client->>Connection: Open connection
+    Connection->>Tracing: info!(wireframe_active_connections, "connection opened")
+    Note right of Connection: ACTIVE_CONNECTIONS += 1
+
+    Client->>Connection: Start run()
+    Connection->>Tracing: info_span!("connection_actor")
+
+    alt Shutdown before start
+        Connection->>Tracing: info!("connection aborted before start")
+        Note right of Connection: ACTIVE_CONNECTIONS -= 1
+    else Normal close
+        Connection->>Tracing: info!("connection closed")
+        Note right of Connection: ACTIVE_CONNECTIONS -= 1
+    end
+```
+
 ### D. A Comprehensive Quality Assurance Strategy
 
 To guarantee the correctness and stability of these new, complex features,
@@ -320,11 +342,11 @@ components.
 
 <!-- markdownlint-disable MD013 -->
 
-| Phase                       | Focus                                                        | Key Deliverables                                                                                                                            |
-| 1. Foundational Mechanics   | Implement the core, non-public machinery.                    | Internal actor loop with select!(biased!), dual-channel push plumbing, basic FragmentAdapter logic.                                         |
-| 2. Public APIs & Ergonomics | Expose functionality to users in a clean, idiomatic way.     | Fluent WireframeApp builder, WireframeProtocol trait, enhanced Response enum, FragmentStrategy trait, SessionRegistry with Weak references. |
-| 3. Production Hardening     | Add features for resilience and security.                    | CancellationToken-based graceful shutdown, re-assembly timeouts, per-connection rate limiting, optional Dead Letter Queue.                  |
-| 4. Maturity and Polish      | Focus on observability, advanced testing, and documentation. | Full tracing instrumentation, criterion benchmarks, loom and proptest test suites, comprehensive user guides and API documentation.         |
+| Phase | Focus | Key Deliverables |
+| 1. Foundational Mechanics | Implement the core, non-public machinery. | Internal actor loop with select!(biased!), dual-channel push plumbing, basic FragmentAdapter logic. |
+| 2. Public APIs & Ergonomics | Expose functionality to users in a clean, idiomatic way. | Fluent WireframeApp builder, WireframeProtocol trait, enhanced Response enum, FragmentStrategy trait, SessionRegistry with Weak references. |
+| 3. Production Hardening | Add features for resilience and security. | CancellationToken-based graceful shutdown, re-assembly timeouts, per-connection rate limiting, optional Dead Letter Queue. |
+| 4. Maturity and Polish | Focus on observability, advanced testing, and documentation. | Full tracing instrumentation, criterion benchmarks, loom and proptest test suites, comprehensive user guides and API documentation. |
 
 <!-- markdownlint-enable MD013 -->
 
