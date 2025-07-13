@@ -19,12 +19,11 @@ use wireframe_testing::{LoggerHandle, logger};
 )]
 #[fixture]
 fn rt() -> Runtime {
-    return {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("failed to build test runtime")
-    };
+fn rt() -> Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build test runtime")
 }
 
 /// Verifies how queue policies log and drop when the queue is full.
