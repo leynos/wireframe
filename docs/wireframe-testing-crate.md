@@ -8,8 +8,8 @@ frames, enabling fast tests without opening real network connections.
 
 The existing tests in [`tests/`](../tests) use helper functions such as
 `run_app_with_frame` and `run_app_with_frames` to feed length‑prefixed frames
-through an in‑memory duplex stream. These helpers simplify testing handlers by
-allowing assertions on encoded responses without spinning up a full server.
+through an in‑memory duplex stream. These helpers simplify testing handlers
+by allowing assertions on encoded responses without spinning up a full server.
 Encapsulating this logic in a dedicated crate keeps test code concise and
 reusable across projects.
 
@@ -50,7 +50,7 @@ The crate would live in a `wireframe_testing/` directory alongside the main
 ```rust
 use tokio::io::Result as IoResult;
 use wireframe::app::WireframeApp;
-use bincode::Encode;
+use serde::Serialize;
 
 /// Feed a single frame into `app` using an in-memory duplex stream.
 pub async fn drive_with_frame(app: WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>>;
@@ -61,12 +61,12 @@ pub async fn drive_with_frames(app: WireframeApp, frames: Vec<Vec<u8>>) -> IoRes
 /// Encode `msg` with `bincode`, wrap it in a frame, and drive the app.
 pub async fn drive_with_bincode<M>(app: WireframeApp, msg: M) -> IoResult<Vec<u8>>
 where
-    M: bincode::Encode;
+    M: Serialize;
 ```
 
 These functions mirror the behaviour of `run_app_with_frame` and
-`run_app_with_frames` found in the repository’s test utilities. They create a
-`tokio::io::duplex` stream, spawn the application as a background task, and
+`run_app_with_frames` found in the repository’s test utilities. They create
+a `tokio::io::duplex` stream, spawn the application as a background task, and
 write the provided frame(s) to the client side of the stream. After the app
 finishes processing, the helpers collect the bytes written back and return them
 for inspection.
@@ -78,8 +78,8 @@ these failure conditions directly.
 
 ### Custom Buffer Capacity
 
-A variant accepting a buffer `capacity` allows fine‑tuning the size of the
-in‑memory duplex channel, matching the existing
+A variant accepting a buffer `capacity` allows fine‑tuning the
+size of the in‑memory duplex channel, matching the existing
 `run_app_with_frame_with_capacity` and `run_app_with_frames_with_capacity`
 helpers.
 
@@ -106,13 +106,13 @@ pub async fn drive_with_frames_mut(app: &mut WireframeApp, frames: Vec<Vec<u8>>)
 ### Bincode Convenience Wrapper
 
 For most tests the input frame is preassembled from raw bytes. A small wrapper
-can accept any `bincode::Encode` value and perform the encoding and framing
-before delegating to `drive_with_frame`. This mirrors the patterns in
-`tests/routes.rs` where structs are converted to bytes with `BincodeSerializer`
-and then wrapped in a length‑prefixed frame.
+can accept any `serde::Serialize` value and perform the encoding and framing
+before delegating to `drive_with_frame`. This mirrors the patterns in `tests/
+routes.rs` where structs are converted to bytes with `BincodeSerializer` and
+then wrapped in a length‑prefixed frame.
 
 ```rust
-#[derive(bincode::Encode)]
+#[derive(serde::Serialize)]
 struct Ping(u8);
 
 let bytes = drive_with_bincode(app, Ping(1)).await.unwrap();
@@ -155,6 +155,6 @@ with prebuilt frames and their responses decoded for assertions.
 
 ## Next Steps
 
-Implement the crate in a new directory, export the helper functions, and migrate
-existing tests to use them. Additional fixtures (e.g., prebuilt frame
+Implement the crate in a new directory, export the helper functions, and
+migrate existing tests to use them. Additional fixtures (e.g., prebuilt frame
 processors) can be added over time as test coverage grows.
