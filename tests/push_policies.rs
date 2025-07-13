@@ -86,12 +86,12 @@ fn dropped_frame_goes_to_dlq(rt: Runtime) {
 }
 
 /// Preloads the DLQ to simulate a full queue.
-fn setup_dlq_full(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) {
+fn fill_dlq(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) {
     tx.try_send(99).unwrap();
 }
 
 /// Drops the receiver to simulate a closed DLQ channel.
-fn setup_dlq_closed(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(rx.take()); }
+fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(rx.take()); }
 
 /// Asserts that one message is queued and the DLQ then reports empty.
 fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> {
@@ -107,8 +107,8 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { 
 
 /// Parameterised checks for error logs when DLQ interactions fail.
 #[rstest]
-#[case::dlq_full(setup_dlq_full, PushPolicy::WarnAndDropIfFull, "DLQ", assert_dlq_full)]
-#[case::dlq_closed(setup_dlq_closed, PushPolicy::DropIfFull, "closed", assert_dlq_closed)]
+#[case::dlq_full(fill_dlq, PushPolicy::WarnAndDropIfFull, "DLQ", assert_dlq_full)]
+#[case::dlq_closed(close_dlq, PushPolicy::DropIfFull, "closed", assert_dlq_closed)]
 #[serial(push_policies)]
 fn dlq_error_scenarios<Setup, AssertFn>(
     rt: Runtime,

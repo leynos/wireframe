@@ -24,6 +24,9 @@ async fn frames_routed_to_correct_priority_queues() {
 }
 
 /// `try_push` honours the selected queue policy when full.
+///
+/// Using [`PushPolicy::ReturnErrorIfFull`] causes `try_push` to
+/// return `PushError::Full` once the queue is at capacity.
 #[tokio::test]
 async fn try_push_respects_policy() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);

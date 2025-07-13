@@ -32,6 +32,7 @@ use rstest::fixture;
 /// let mut log = logger();
 /// warn!("warned");
 /// assert!(log.pop().is_some());
+/// assert!(log.pop().is_none());
 /// ```
 pub struct LoggerHandle {
     guard: MutexGuard<'static, Logger>,
@@ -40,10 +41,14 @@ pub struct LoggerHandle {
 impl LoggerHandle {
     /// Acquire the global [`Logger`] instance.
     ///
-    /// ```
+    /// ```no_run
     /// use wireframe_testing::LoggerHandle;
+    /// # use log::info;
     ///
-    /// let _log = LoggerHandle::new();
+    /// let mut log = LoggerHandle::new();
+    /// info!("init");
+    /// assert!(log.pop().is_some());
+    /// assert!(log.pop().is_none());
     /// ```
     pub fn new() -> Self {
         static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
