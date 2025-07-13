@@ -12,8 +12,7 @@ use wireframe::push::{PushPolicy, PushPriority, PushQueues};
 use wireframe_testing::{LoggerHandle, logger};
 
 /// Builds a single-thread [`Runtime`] for async tests.
-#[allow(unfulfilled_lint_expectations)]
-#[expect(
+#[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
