@@ -18,7 +18,6 @@ use wireframe_testing::{LoggerHandle, logger};
 )]
 #[fixture]
 fn rt() -> Runtime {
-fn rt() -> Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
