@@ -11,6 +11,7 @@ use tokio::{
 use wireframe::push::{PushPolicy, PushPriority, PushQueues};
 use wireframe_testing::{LoggerHandle, logger};
 
+/// Builds a single-thread [`Runtime`] for async tests.
 #[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
@@ -23,6 +24,7 @@ fn rt() -> Runtime {
         .expect("failed to build test runtime")
 }
 
+/// Verifies how queue policies log and drop when the queue is full.
 #[rstest]
 #[case::drop_if_full(PushPolicy::DropIfFull, false, "push queue full")]
 #[case::warn_and_drop(PushPolicy::WarnAndDropIfFull, true, "push queue full")]
@@ -64,6 +66,7 @@ fn push_policy_behaviour(
     });
 }
 
+/// Dropped frames are forwarded to the dead letter queue.
 #[rstest]
 fn dropped_frame_goes_to_dlq(rt: Runtime) {
     rt.block_on(async {
@@ -82,12 +85,15 @@ fn dropped_frame_goes_to_dlq(rt: Runtime) {
     });
 }
 
-fn setup_dlq_full(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) {
+/// Preloads the DLQ to simulate a full queue.
+fn fill_dlq(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) {
     tx.try_send(99).unwrap();
 }
 
-fn setup_dlq_closed(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(rx.take()); }
+/// Drops the receiver to simulate a closed DLQ channel.
+fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(rx.take()); }
 
+/// Asserts that one message is queued and the DLQ then reports empty.
 fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> {
     Box::pin(async move {
         let receiver = rx.as_mut().expect("receiver missing");
@@ -96,11 +102,13 @@ fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> {
     })
 }
 
+/// Confirms no receiver is present when the DLQ is closed.
 fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { Box::pin(async {}) }
 
+/// Parameterised checks for error logs when DLQ interactions fail.
 #[rstest]
-#[case::dlq_full(setup_dlq_full, PushPolicy::WarnAndDropIfFull, "DLQ", assert_dlq_full)]
-#[case::dlq_closed(setup_dlq_closed, PushPolicy::DropIfFull, "closed", assert_dlq_closed)]
+#[case::dlq_full(fill_dlq, PushPolicy::WarnAndDropIfFull, "DLQ", assert_dlq_full)]
+#[case::dlq_closed(close_dlq, PushPolicy::DropIfFull, "closed", assert_dlq_closed)]
 #[serial(push_policies)]
 fn dlq_error_scenarios<Setup, AssertFn>(
     rt: Runtime,

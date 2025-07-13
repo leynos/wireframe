@@ -8,7 +8,7 @@
 //! use wireframe::app::WireframeApp;
 //! use wireframe_testing::drive_with_bincode;
 //!
-//! # async fn example(app: WireframeApp<_, _, ()>) {
+//! # async fn example(app: WireframeApp) {
 //! let bytes = drive_with_bincode(app, 42u8).await.unwrap();
 //! # }
 //! ```

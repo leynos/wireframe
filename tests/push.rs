@@ -6,6 +6,7 @@ use rstest::rstest;
 use tokio::time::{self, Duration};
 use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
 
+/// Frames are delivered to queues matching their push priority.
 #[tokio::test]
 async fn frames_routed_to_correct_priority_queues() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);
@@ -22,6 +23,10 @@ async fn frames_routed_to_correct_priority_queues() {
     assert_eq!(frame2, 1);
 }
 
+/// `try_push` honours the selected queue policy when full.
+///
+/// Using [`PushPolicy::ReturnErrorIfFull`] causes `try_push` to
+/// return `PushError::Full` once the queue is at capacity.
 #[tokio::test]
 async fn try_push_respects_policy() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);
@@ -37,6 +42,7 @@ async fn try_push_respects_policy() {
     assert_eq!(last, 3);
 }
 
+/// Push attempts return `Closed` when all queues have been shut down.
 #[tokio::test]
 async fn push_queues_error_on_closed() {
     let (queues, handle) = PushQueues::bounded(1, 1);
@@ -50,6 +56,7 @@ async fn push_queues_error_on_closed() {
     assert!(matches!(res, Err(PushError::Closed)));
 }
 
+/// A push beyond the configured rate is blocked.
 #[rstest]
 #[case::high(PushPriority::High)]
 #[case::low(PushPriority::Low)]
@@ -85,6 +92,7 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
     assert_eq!((first, second), (1, 3));
 }
 
+/// Exceeding the rate limit succeeds after the window has passed.
 #[tokio::test]
 async fn rate_limiter_allows_after_wait() {
     time::pause();
@@ -98,6 +106,7 @@ async fn rate_limiter_allows_after_wait() {
     assert_eq!((a, b), (1, 2));
 }
 
+/// The limiter counts pushes from all priority queues.
 #[tokio::test]
 async fn rate_limiter_shared_across_priorities() {
     time::pause();
@@ -118,6 +127,7 @@ async fn rate_limiter_shared_across_priorities() {
     assert_eq!(frame2, 2);
 }
 
+/// Unlimited queues never block pushes.
 #[tokio::test]
 async fn unlimited_queues_do_not_block() {
     time::pause();
@@ -131,6 +141,7 @@ async fn unlimited_queues_do_not_block() {
     assert_eq!((a, b), (1, 2));
 }
 
+/// A burst up to capacity succeeds and further pushes are blocked.
 #[tokio::test]
 async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     time::pause();
