@@ -301,9 +301,14 @@ async fn protocol_error_logs_warning(
     let mut out = Vec::new();
     actor.run(&mut out).await.unwrap();
     assert!(out.is_empty());
-    let record = logger.pop().expect("expected warning");
-    assert_eq!(record.level(), log::Level::Warn);
-    assert!(record.args().contains("protocol error"));
+    let mut found = false;
+    while let Some(record) = logger.pop() {
+        if record.level() == log::Level::Warn && record.args().contains("protocol error") {
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "warning log not found");
 }
 
 #[rstest]

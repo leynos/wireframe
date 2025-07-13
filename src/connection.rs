@@ -5,7 +5,10 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
-use std::future::Future;
+use std::{
+    future::Future,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use futures::StreamExt;
 use tokio::{
@@ -13,6 +16,25 @@ use tokio::{
     time::{Duration, Instant},
 };
 use tokio_util::sync::CancellationToken;
+use tracing::{info, info_span, warn};
+
+/// Global gauge tracking active connections.
+static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+
+/// RAII guard incrementing [`ACTIVE_CONNECTIONS`] on creation and
+/// decrementing it on drop.
+struct ActiveConnection;
+
+impl ActiveConnection {
+    fn new() -> Self {
+        ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for ActiveConnection {
+    fn drop(&mut self) { ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::Relaxed); }
+}
 
 use crate::{
     hooks::{ConnectionContext, ProtocolHooks},
@@ -75,6 +97,7 @@ pub struct ConnectionActor<F, E> {
     low_rx: Option<mpsc::Receiver<F>>,
     response: Option<FrameStream<F, E>>, // current streaming response
     shutdown: CancellationToken,
+    counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
     fairness: FairnessConfig,
@@ -126,12 +149,16 @@ where
         mut hooks: ProtocolHooks<F, E>,
     ) -> Self {
         let mut ctx = ConnectionContext;
+        let counter = ActiveConnection::new();
+        let current = ACTIVE_CONNECTIONS.load(Ordering::Relaxed);
+        info!(wireframe_active_connections = current, "connection opened");
         hooks.on_connection_setup(handle, &mut ctx);
         Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             response,
             shutdown,
+            counter: Some(counter),
             hooks,
             ctx,
             fairness: FairnessConfig::default(),
@@ -158,10 +185,14 @@ where
     ///
     /// Returns a [`WireframeError`] if the response stream yields an I/O error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
+        let span = info_span!("connection_actor");
+        let _enter = span.enter();
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
         // a hard shutdown and is required for the tests.
         if self.shutdown.is_cancelled() {
+            info!("connection aborted before start");
+            let _ = self.counter.take();
             return Ok(());
         }
 
@@ -170,7 +201,8 @@ where
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
         }
-
+        info!("connection closed");
+        let _ = self.counter.take();
         Ok(())
     }
 
@@ -368,7 +400,7 @@ where
                 out.push(frame);
             }
             Some(Err(WireframeError::Protocol(e))) => {
-                log::warn!("protocol error: {e:?}");
+                warn!(error = ?e, "protocol error");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
                 self.hooks.on_command_end(&mut self.ctx);
