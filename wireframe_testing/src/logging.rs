@@ -43,10 +43,10 @@ impl LoggerHandle {
     ///
     /// ```no_run
     /// use wireframe_testing::LoggerHandle;
-    /// # use log::info;
+    /// # use log::warn;
     ///
     /// let mut log = LoggerHandle::new();
-    /// info!("init");
+    /// warn!("warned");
     /// assert!(log.pop().is_some());
     /// assert!(log.pop().is_none());
     /// ```

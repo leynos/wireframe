@@ -57,6 +57,8 @@ async fn push_queues_error_on_closed() {
 }
 
 /// A push beyond the configured rate is blocked.
+/// Time is paused using [`tokio::time::pause`], so the test runs in a
+/// virtual-time context.
 #[rstest]
 #[case::high(PushPriority::High)]
 #[case::low(PushPriority::Low)]
@@ -107,6 +109,8 @@ async fn rate_limiter_allows_after_wait() {
 }
 
 /// The limiter counts pushes from all priority queues.
+/// The token bucket is shared, so pushes from one priority reduce
+/// the allowance for the other.
 #[tokio::test]
 async fn rate_limiter_shared_across_priorities() {
     time::pause();
@@ -142,6 +146,7 @@ async fn unlimited_queues_do_not_block() {
 }
 
 /// A burst up to capacity succeeds and further pushes are blocked.
+/// The maximum burst size equals the configured `capacity` parameter.
 #[tokio::test]
 async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     time::pause();
