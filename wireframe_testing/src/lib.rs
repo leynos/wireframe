@@ -2,7 +2,9 @@
 //! with in-memory streams during tests.
 //!
 //! These helpers spawn the application on a `tokio::io::duplex` stream and
-//! return all bytes written by the app for easy assertions.
+//! return all bytes written by the app for easy assertions. They work with any
+//! message implementing [`bincode::Encode`] – the example uses a simple `u8`
+//! value so no generics are required.
 //!
 //! ```rust
 //! use wireframe::app::WireframeApp;

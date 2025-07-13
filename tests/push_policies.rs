@@ -12,16 +12,19 @@ use wireframe::push::{PushPolicy, PushPriority, PushQueues};
 use wireframe_testing::{LoggerHandle, logger};
 
 /// Builds a single-thread [`Runtime`] for async tests.
-#[allow(
+#[allow(unfulfilled_lint_expectations)]
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
 #[fixture]
 fn rt() -> Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to build test runtime")
+    return {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build test runtime")
+    };
 }
 
 /// Verifies how queue policies log and drop when the queue is full.
