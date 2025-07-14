@@ -39,6 +39,7 @@ fn empty_stream() -> Option<FrameStream<u8, ()>> { None }
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn strict_priority_order(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -57,6 +58,7 @@ async fn strict_priority_order(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn fairness_yields_low_after_burst(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -122,6 +124,7 @@ async fn queue_frames(
 // Ensure the helper correctly handles edge cases without queued frames.
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn queue_frames_empty_input(queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>)) {
     let (_, handle) = queues;
     let priorities: &[Priority] = &[];
@@ -146,6 +149,7 @@ async fn queue_frames_empty_input(queues: (PushQueues<u8>, wireframe::push::Push
     Priority::High,
 ])]
 #[tokio::test]
+#[serial]
 async fn processes_all_priorities_in_order(
     #[case] order: Vec<Priority>,
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
@@ -170,6 +174,7 @@ async fn processes_all_priorities_in_order(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn fairness_yields_low_with_time_slice(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -214,6 +219,7 @@ async fn fairness_yields_low_with_time_slice(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn shutdown_signal_precedence(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -230,6 +236,7 @@ async fn shutdown_signal_precedence(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn complete_draining_of_sources(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -253,6 +260,7 @@ enum TestError {
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn error_propagation_from_stream(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -313,6 +321,7 @@ async fn protocol_error_logs_warning(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn io_error_terminates_connection(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -332,6 +341,7 @@ async fn io_error_terminates_connection(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn interleaved_shutdown_during_stream(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -360,6 +370,7 @@ async fn interleaved_shutdown_during_stream(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn push_queue_exhaustion_backpressure() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);
     handle.push_high_priority(1).await.unwrap();
@@ -382,6 +393,7 @@ use wireframe_testing::{LoggerHandle, logger};
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn before_send_hook_modifies_frames(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -409,6 +421,7 @@ async fn before_send_hook_modifies_frames(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn on_command_end_hook_runs(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
@@ -439,6 +452,7 @@ async fn on_command_end_hook_runs(
 
 #[rstest]
 #[tokio::test]
+#[serial]
 async fn graceful_shutdown_waits_for_tasks() {
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
