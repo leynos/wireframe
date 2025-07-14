@@ -170,6 +170,39 @@ async fn processes_all_priorities_in_order(
 
 #[rstest]
 #[tokio::test]
+async fn fairness_disabled_ignores_arrival_order(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    let fairness = FairnessConfig {
+        max_high_before_low: 0,
+        time_slice: None,
+    };
+
+    handle
+        .push_low_priority(4)
+        .await
+        .expect("failed to push low-priority frame 4");
+    handle
+        .push_low_priority(5)
+        .await
+        .expect("failed to push low-priority frame 5");
+    for n in 1..=3 {
+        let message = format!("failed to push high-priority frame {n}");
+        handle.push_high_priority(n).await.expect(&message);
+    }
+
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, None, shutdown_token);
+    actor.set_fairness(fairness);
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+    assert_eq!(out, vec![1, 2, 3, 4, 5]);
+}
+
+#[rstest]
+#[tokio::test]
 async fn fairness_yields_low_with_time_slice(
     queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
     shutdown_token: CancellationToken,
