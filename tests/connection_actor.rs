@@ -464,3 +464,45 @@ async fn graceful_shutdown_waits_for_tasks() {
             .is_ok()
     );
 }
+
+#[rstest]
+#[tokio::test]
+#[serial]
+async fn connection_count_decrements_on_abort(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+) {
+    let (queues, handle) = queues;
+    let token = CancellationToken::new();
+    token.cancel();
+
+    let before = wireframe::connection::active_connection_count();
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, token);
+    let during = wireframe::connection::active_connection_count();
+    assert_eq!(during, before + 1);
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    let after = wireframe::connection::active_connection_count();
+    assert_eq!(during - after, 1);
+}
+
+#[rstest]
+#[tokio::test]
+#[serial]
+async fn connection_count_decrements_on_close(
+    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    shutdown_token: CancellationToken,
+) {
+    let (queues, handle) = queues;
+    let before = wireframe::connection::active_connection_count();
+    let stream = stream::iter(vec![Ok(1u8)]);
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+    let during = wireframe::connection::active_connection_count();
+    assert_eq!(during, before + 1);
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.unwrap();
+    let after = wireframe::connection::active_connection_count();
+    assert_eq!(during - after, 1);
+}

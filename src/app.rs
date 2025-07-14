@@ -531,7 +531,7 @@ where
         let routes = self.build_chains().await;
 
         if let Err(e) = self.process_stream(&mut stream, &routes).await {
-            tracing::warn!("connection terminated with error: {e}");
+            tracing::warn!(error = ?e, "connection terminated with error");
         }
 
         if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
@@ -658,7 +658,7 @@ where
             }
             Err(e) => {
                 *deser_failures += 1;
-                tracing::warn!("failed to deserialize message: {e}");
+                tracing::warn!(error = ?e, "failed to deserialize message");
                 if *deser_failures >= MAX_DESER_FAILURES {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -678,11 +678,11 @@ where
                         msg: resp.into_inner(),
                     };
                     if let Err(e) = self.send_response(stream, &response).await {
-                        tracing::warn!("failed to send response: {e}");
+                        tracing::warn!(error = %e, "failed to send response");
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("handler error for id {}: {e}", env.id);
+                    tracing::warn!(id = env.id, error = ?e, "handler error");
                 }
             }
         } else {
