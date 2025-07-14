@@ -133,14 +133,15 @@ project:
 
 ## Markdown Guidance
 
-- Validate Markdown files using `markdownlint *.md **/*.md`.
-- Run `mdformat-all` after any documentation changes to format all Markdown
-  files and fix table markup.
-- Validate Markdown Mermaid diagrams using the `nixie` CLI. The tool is already
-  installed; run `nixie *.md **/*.md` directly instead of using `npx`.
+- Validate Markdown files using `make markdownlint`.
+- Run `make fmt` after any documentation changes to format all Markdown files
+  and fix table markup.
+- Validate Mermaid diagrams in Markdown files by running `make nixie`.
 - Markdown paragraphs and bullet points must be wrapped at 80 columns.
 - Code blocks must be wrapped at 120 columns.
 - Tables and headings must not be wrapped.
+- Use dashes (`-`) for list bullets.
+- Use GitHub-flavoured Markdown footnotes (`[^1]`) for references.
 
 ### Key Takeaway
 
