@@ -1,17 +1,49 @@
-.PHONY: lint test fmt
+.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie
 
-# Run Clippy lints across all targets and features, failing on warnings
-lint:
-	cargo clippy --all-targets --all-features -- -D warnings
+CRATE ?= wireframe
+CARGO ?= cargo
+BUILD_JOBS ?=
+CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
+MDLINT ?= markdownlint
+NIXIE ?= nixie
 
-# Execute tests with warnings treated as errors
-# --quiet ensures less verbose output on success
-# Use RUSTFLAGS to deny warnings at compile time
-# so new warnings cause failures
+build: target/debug/lib$(CRATE) ## Build debug binary
+release: target/release/lib$(CRATE) ## Build release binary
 
-test:
-	RUSTFLAGS="-D warnings" cargo test --quiet
+all: release ## Default target builds release binary
 
-# Format the entire workspace
-fmt:
-	cargo fmt --all
+clean: ## Remove build artifacts
+	$(CARGO) clean
+
+test: ## Run tests with warnings treated as errors
+	RUSTFLAGS="-D warnings" $(CARGO) test --all-targets --all-features $(BUILD_JOBS)
+
+# will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib
+target/%/lib$(CRATE).rlib: ## Build library in debug or release
+	$(CARGO) build $(BUILD_JOBS)                            \
+	  $(if $(findstring release,$(@)),--release)            \
+	  --lib
+	@# copy the .rlib into your own target tree
+	install -Dm644                                           \
+	  target/$(if $(findstring release,$(@)),release,debug)/lib$(CRATE).rlib \
+	  $@
+
+lint: ## Run Clippy with warnings denied
+	$(CARGO) clippy $(CLIPPY_FLAGS)
+
+fmt: ## Format Rust and Markdown sources
+	$(CARGO) fmt --all
+	mdformat-all
+
+check-fmt: ## Verify formatting
+	$(CARGO) fmt --all -- --check
+
+markdownlint: ## Lint Markdown files
+	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)
+
+nixie: ## Validate Mermaid diagrams
+	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(NIXIE)
+
+help: ## Show available targets
+	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
+	awk 'BEGIN {FS=":"; printf "Available targets:\n"} {printf "  %-20s %s\n", $$1, $$2}'
