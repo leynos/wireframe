@@ -13,6 +13,7 @@ use std::{
 
 use leaky_bucket::RateLimiter;
 use tokio::sync::mpsc;
+use tracing::{debug, error, warn};
 
 /// Messages can be sent through a [`PushHandle`].
 ///
@@ -110,7 +111,9 @@ impl<F: FrameLike> PushHandle<F> {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
         };
-        tx.send(frame).await.map_err(|_| PushError::Closed)
+        tx.send(frame).await.map_err(|_| PushError::Closed)?;
+        debug!(?priority, "frame pushed");
+        Ok(())
     }
     /// Push a high-priority frame subject to rate limiting.
     ///
@@ -166,15 +169,18 @@ impl<F: FrameLike> PushHandle<F> {
     }
 
     /// Send a frame to the configured dead letter queue if available.
-    fn route_to_dlq(&self, frame: F) {
+    fn route_to_dlq(&self, frame: F)
+    where
+        F: std::fmt::Debug,
+    {
         if let Some(dlq) = &self.0.dlq_tx {
             match dlq.try_send(frame) {
                 Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    log::error!("push queue and DLQ full; frame lost");
+                Err(mpsc::error::TrySendError::Full(f)) => {
+                    error!(?f, "push queue and DLQ full; frame lost");
                 }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    log::error!("DLQ closed; frame lost");
+                Err(mpsc::error::TrySendError::Closed(f)) => {
+                    error!(?f, "DLQ closed; frame lost");
                 }
             }
         }
@@ -216,7 +222,10 @@ impl<F: FrameLike> PushHandle<F> {
         frame: F,
         priority: PushPriority,
         policy: PushPolicy,
-    ) -> Result<(), PushError> {
+    ) -> Result<(), PushError>
+    where
+        F: std::fmt::Debug,
+    {
         let tx = match priority {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
@@ -228,7 +237,12 @@ impl<F: FrameLike> PushHandle<F> {
                 PushPolicy::ReturnErrorIfFull => Err(PushError::QueueFull),
                 PushPolicy::DropIfFull | PushPolicy::WarnAndDropIfFull => {
                     if matches!(policy, PushPolicy::WarnAndDropIfFull) {
-                        log::warn!("push queue full; dropping {priority:?} priority frame");
+                        warn!(
+                            ?priority,
+                            ?policy,
+                            dlq = self.0.dlq_tx.is_some(),
+                            "push queue full"
+                        );
                     }
                     self.route_to_dlq(f);
                     Ok(())

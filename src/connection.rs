@@ -5,7 +5,11 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
-use std::future::Future;
+use std::{
+    future::Future,
+    net::SocketAddr,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use futures::StreamExt;
 use tokio::{
@@ -13,11 +17,35 @@ use tokio::{
     time::{Duration, Instant},
 };
 use tokio_util::sync::CancellationToken;
+use tracing::{info, info_span, warn};
+
+/// Global gauge tracking active connections.
+static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+
+/// RAII guard incrementing [`ACTIVE_CONNECTIONS`] on creation and
+/// decrementing it on drop.
+struct ActiveConnection;
+
+impl ActiveConnection {
+    fn new() -> Self {
+        ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for ActiveConnection {
+    fn drop(&mut self) { ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::Relaxed); }
+}
+
+/// Return the current number of active connections.
+#[must_use]
+pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
+    session::ConnectionId,
 };
 
 /// Events returned by [`next_event`].
@@ -75,11 +103,14 @@ pub struct ConnectionActor<F, E> {
     low_rx: Option<mpsc::Receiver<F>>,
     response: Option<FrameStream<F, E>>, // current streaming response
     shutdown: CancellationToken,
+    counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
     fairness: FairnessConfig,
     high_counter: usize,
     high_start: Option<Instant>,
+    connection_id: Option<ConnectionId>,
+    peer_addr: Option<SocketAddr>,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -123,21 +154,33 @@ where
         handle: PushHandle<F>,
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
-        mut hooks: ProtocolHooks<F, E>,
+        hooks: ProtocolHooks<F, E>,
     ) -> Self {
-        let mut ctx = ConnectionContext;
-        hooks.on_connection_setup(handle, &mut ctx);
-        Self {
+        let ctx = ConnectionContext;
+        let counter = ActiveConnection::new();
+        let mut actor = Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             response,
             shutdown,
+            counter: Some(counter),
             hooks,
             ctx,
             fairness: FairnessConfig::default(),
             high_counter: 0,
             high_start: None,
-        }
+            connection_id: None,
+            peer_addr: None,
+        };
+        let current = ACTIVE_CONNECTIONS.load(Ordering::Relaxed);
+        info!(
+            wireframe_active_connections = current,
+            id = ?actor.connection_id,
+            peer = ?actor.peer_addr,
+            "connection opened"
+        );
+        actor.hooks.on_connection_setup(handle, &mut actor.ctx);
+        actor
     }
 
     /// Replace the fairness configuration.
@@ -158,10 +201,18 @@ where
     ///
     /// Returns a [`WireframeError`] if the response stream yields an I/O error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
+        let span = info_span!("connection_actor");
+        let _enter = span.enter();
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
         // a hard shutdown and is required for the tests.
         if self.shutdown.is_cancelled() {
+            info!(
+                id = ?self.connection_id,
+                peer = ?self.peer_addr,
+                "connection aborted before start"
+            );
+            let _ = self.counter.take();
             return Ok(());
         }
 
@@ -170,7 +221,12 @@ where
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
         }
-
+        info!(
+            id = ?self.connection_id,
+            peer = ?self.peer_addr,
+            "connection closed"
+        );
+        let _ = self.counter.take();
         Ok(())
     }
 
@@ -368,7 +424,7 @@ where
                 out.push(frame);
             }
             Some(Err(WireframeError::Protocol(e))) => {
-                log::warn!("protocol error: {e:?}");
+                warn!(error = ?e, "protocol error");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
                 self.hooks.on_command_end(&mut self.ctx);
