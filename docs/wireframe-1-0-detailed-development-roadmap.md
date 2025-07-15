@@ -20,12 +20,12 @@ public consumption.
 message processing. This phase establishes the internal architecture upon which
 all public-facing features will be built.*
 
-| Item | Name | Details | Size | Depends |
+| Item | Name | Details | Size | Depends on |
 | ---- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------- |
-| 1.1 | Core Response & Error Types | Define the new `Response<F, E>` enum with `Single`, `Vec`, `Stream` and `Empty` variants. Implement the generic `WireframeError<E>` enum to distinguish between I/O and protocol errors. | Small | - |
-| 1.2 | Priority Push Channels | Implement the internal dual-channel `mpsc` mechanism within the connection state to handle high-priority and low-priority pushed frames. | Medium | - |
+| 1.1 | Core Response & Error Types | Define the new `Response<F, E>` enum with `Single`, `Vec`, `Stream` and `Empty` variants. Implement the generic `WireframeError<E>` enum to distinguish between I/O and protocol errors. | Small | — |
+| 1.2 | Priority Push Channels | Implement the internal dual-channel `mpsc` mechanism within the connection state to handle high-priority and low-priority pushed frames. | Medium | — |
 | 1.3 | Connection Actor Write Loop | Convert per-request workers into stateful connection actors. Implement a `select!(biased; ...)` loop that polls for shutdown signals, high/low priority pushes and the handler response stream in that strict order. | Large | #1.2 |
-| 1.4 | Initial FragmentStrategy Trait | Define the initial `FragmentStrategy` trait and the `FragmentMeta` struct. Focus on the core methods: `decode_header` and `encode_header`. | Medium | - |
+| 1.4 | Initial FragmentStrategy Trait | Define the initial `FragmentStrategy` trait and the `FragmentMeta` struct. Focus on the core methods: `decode_header` and `encode_header`. | Medium | — |
 | 1.5 | Basic FragmentAdapter | Implement the `FragmentAdapter` as a `FrameProcessor`. Build the inbound reassembly logic for a single, non-multiplexed stream of fragments and the outbound logic for splitting a single large frame. | Large | #1.4 |
 | 1.6 | Internal Hook Plumbing | Add the invocation points for the protocol-specific hooks (`before_send`, `on_command_end`, etc.) within the connection actor, even if the public trait is not yet defined. | Small | #1.3 |
 
