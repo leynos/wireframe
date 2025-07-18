@@ -1,145 +1,241 @@
-# Roadmap Summary
+# Wireframe Combined Development Roadmap
 
-This document distills the key development goals from
-[rust-binary-router-library-design.md](rust-binary-router-library-design.md)
-after formatting. Line numbers below refer to that file.
+This document outlines the development roadmap for the Wireframe library, merging previous roadmap documents into a single source of truth. It details the planned features, enhancements, and the overall trajectory towards a stable and production-ready 1.0 release.
 
-## 1. Core Library Foundations
+## Guiding Principles
 
-- [ ] Lines 316-345 outline the layered architecture comprising the Transport
-  Layer Adapter, Framing Layer, Serialization engine, Routing engine, Handler
-  invocation, and Middleware chain.
+- **Ergonomics:** The library should be intuitive and easy to use.
 
-- [x] Implement derive macros or wrappers for message serialization (lines
-  329-333).
+- **Performance:** Maintain high performance and low overhead.
 
-- [ ] Build the Actix-inspired API around `WireframeApp` and `WireframeServer`
-  as described in lines 586-676.
+- **Extensibility:** Provide clear extension points, especially through middleware.
 
-  - [x] Implement `WireframeApp` builder. Clarify method signatures (`new`,
-    `route`, `service`, `wrap`), expose a consistent `Result<Self>` error
-    strategy, and allow registration calls in any order for ergonomic chaining.
+- **Robustness:** Ensure the library is resilient and handles errors gracefully.
 
-  - [x] Implement `WireframeServer`. Worker tasks are spawned using Tokio. Each
-    thread receives its own `WireframeApp` instance from a factory closure. A
-    Ctrl+C signal triggers graceful shutdown, notifying all workers to stop
-    accepting new connections.
+## Phase 1: Core Functionality & API (Complete)
 
-  - [x] Standardize supporting trait definitions. Provide naming conventions and
-    generic bounds for the `FrameProcessor` trait, state extractors and
-    middleware via `async_trait` and associated types.
+This phase established the foundational components of the Wireframe server and the request/response lifecycle.
 
-  - [x] Provide a minimal, runnable example. Include imports and an async `main`
-    so the snippet compiles out of the box.
+- [x] **Protocol Definition:**
 
-    ```rust
-    // No extra imports required
-    use wireframe::{
-        app::{Service, WireframeApp},
-        server::WireframeServer,
-    };
+  - [x] Define the basic frame structure for network communication (`src/frame.rs`).
 
-    use wireframe::app::Envelope;
-    async fn handler(_env: &Envelope) {}
+  - [x] Implement preamble validation for versioning and compatibility (`src/preamble.rs`, `tests/preamble.rs`).
 
-    #[tokio::main]
-    async fn main() -> std::io::Result<()> {
-        let factory = || {
-            WireframeApp::new()
-                .unwrap()
-                .route(1, Box::new(|env| Box::pin(handler(env))))
-                .unwrap()
-        };
+- [x] **Core Server Implementation:**
 
-        WireframeServer::new(factory)
-            .bind("127.0.0.1:7878".parse().unwrap())?
-            .run()
-            .await
-    }
-    ```
+  - [x] Implement the `Server` struct with `bind` and `run` methods (`src/server.rs`).
 
-- [x] Add connection preamble support. Provide generic parsing of connection
-  preambles with a Hotline handshake example in the tests. Invoke
-  user-configured callbacks on decode success or failure. See
-  [preamble-validator](preamble-validator.md).
+  - [x] Handle incoming TCP connections and spawn connection-handling tasks (`src/connection.rs`).
 
-- [x] Add response serialization and transmission. Encode handler responses
-  using the selected serialization format and write them back through the
-  framing layer.
+  - [x] Define `Request`, `Response`, and `Message` structs (`src/message.rs`, `src/response.rs`).
 
-- [x] Add connection lifecycle hooks. Integrate setup and teardown stages, so
-  sessions can hold state (such as a logged-in user ID) across messages.
+- [x] **Routing & Handlers:**
 
-## 2. Middleware and Extractors
+  - [x] Implement a basic routing mechanism to map requests to handler functions (`src/app.rs`).
 
-- [x] Develop a minimal middleware system and extractor traits for payloads,
-  connection metadata, and shared state.
-  - [x] Define `FromMessageRequest` for extractor types (lines 760-782). See
-    [`FromMessageRequest`][from-message-request] in
-    [`src/extractor.rs`](../src/extractor.rs).
+  - [x] Support handler functions with flexible, type-safe extractors (`src/extractor.rs`).
 
-  - [x] Provide built-in extractors `Message<T>`, `ConnectionInfo`, and
-    `SharedState<T>` (lines 792-840). `SharedState<T>` is defined in
-    [`src/extractor.rs`](../src/extractor.rs#L54-L87).
+- [x] **Error Handling:**
 
-  - [x] Support custom extractors implementing `FromMessageRequest` (lines
-    842-858). Refer again to [`src/extractor.rs`](../src/extractor.rs#L39-L52).
+  - [x] Establish a comprehensive set of error types.
 
-  - [x] Implement middleware using `Transform`/`Service` traits.
+  - [x] Implement `From` conversions for ergonomic error handling.
 
-  - [x] Implement `ServiceRequest` and `ServiceResponse` wrappers (lines
-    866-899) and introduce a `Next` helper to build the asynchronous call chain.
-    Trait definitions live in
-    [`src/middleware.rs`](../src/middleware.rs#L71-L84).
+  - [x] Ensure `Display` is implemented for all public error types (`tests/error_display.rs`).
 
-    - [x] Provide a `from_fn` helper for functional middleware.
-    - [x] Add tests verifying middleware can modify requests and observe
-      responses.
+- [x] **Basic Testing:**
 
-  - [x] Register middleware with `WireframeApp::wrap` and build the chain around
-    handlers, so the last registered middleware runs first on requests and first
-    on responses (lines 900-919). See the
-    [`wrap` method](../src/app.rs#L73-L84).
+  - [x] Develop a suite of integration tests for core request/response functionality (`tests/server.rs`, `tests/routes.rs`).
 
-  - [x] Document common middleware use cases like logging and authentication
-    (lines 920-935). Include a logging example using `from_fn`:
+## Phase 2: Middleware & Extensibility (Complete)
 
-    ```rust
-    use wireframe::middleware::from_fn;
+This phase focused on building the middleware system, a key feature for extensibility.
 
-    let logging = from_fn(|req, next| async move {
-        tracing::info!("received request: {:?}", req);
-        let mut res = next.call(req).await?;
-        tracing::info!("sending response: {:?}", res);
-        Ok(res)
-    });
-    ```
+- [x] **Middleware Trait:**
 
-## 3. Initial Examples and Documentation
+  - [x] Design and implement the `Middleware` trait (`src/middleware.rs`).
 
-- [x] Provide examples demonstrating routing, serialization, and middleware.
-  Document configuration and usage reflecting the API design section.
+  - [x] Define `Next` to allow middleware to pass control to the next in the chain.
 
-## 4. Extended Features
+- [x] **Middleware Integration:**
 
-- [ ] Add UDP and other transport implementations (lines 1366-1379).
-- [ ] Develop built-in `FrameProcessor` variants (lines 1381-1389).
-- [ ] Address schema evolution and versioning strategies
-  ([design](message-versioning.md), post-1.0, lines 1394-1409).
-- [ ] Investigate multiplexing and flow control mechanisms (lines 1411-1422).
+  - [x] Integrate the middleware processing loop into the `App` and `Connection` logic.
 
-## 5. Developer Tooling
+  - [x] Ensure middleware can modify requests and responses.
 
-- [ ] Create a CLI for protocol scaffolding and testing (lines 1424-1429).
-- [ ] Improve debugging support and expand documentation (lines 1430-1435).
-- [ ] Provide testing utilities for handlers. Offer simple ways to drive
-  handlers with raw frames for unit tests. Early examples live in
-  [`tests/server.rs`](../tests/server.rs); future helpers may reside in a
-  `wireframe-testing` crate.
+- [x] **Testing:**
 
-## 6. Community Engagement and Integration
+  - [x] Write tests to verify middleware functionality, including correct execution order (`tests/middleware.rs`, `tests/middleware_order.rs`).
 
-- [ ] Collaborate with `wire-rs` for trait derivation and future enhancements
-  (lines 1437-1442).
+## Phase 3: Push Messaging & Async Operations (Complete)
 
-[from-message-request]: ../src/extractor.rs#L39-L52
+This phase introduced capabilities for asynchronous, server-initiated communication and streaming.
+
+- [x] **Push Messaging:**
+
+  - [x] Implement the `Push` mechanism for sending messages from server to client without a direct request (`src/push.rs`).
+
+  - [x] Develop `PushPolicies` for broadcasting messages to all or a subset of clients.
+
+  - [x] Create tests for various push scenarios (`tests/push.rs`, `tests/push_policies.rs`).
+
+- [x] **Async Stream Responses:**
+
+  - [x] Enable handlers to return `impl Stream` of messages (`src/response.rs`).
+
+  - [x] Implement the client and server-side logic to handle streaming responses (`examples/async_stream.rs`, `tests/async_stream.rs`).
+
+## Phase 4: Advanced Connection Handling & State (Complete)
+
+This phase added sophisticated state management and improved connection lifecycle control.
+
+- [x] **Session Management:**
+
+  - [x] Implement a `Session` struct to hold connection-specific state (`src/session.rs`).
+
+  - [x] Create a `SessionRegistry` for managing all active sessions (`tests/session_registry.rs`).
+
+  - [x] Provide `State` and `Data` extractors for accessing shared and session-specific data.
+
+- [x] **Lifecycle Hooks:**
+
+  - [x] Implement `on_connect` and `on_disconnect` hooks for session initialisation and cleanup (`src/hooks.rs`).
+
+  - [x] Write tests to verify lifecycle hook behaviour (`tests/lifecycle.rs`).
+
+- [x] **Graceful Shutdown:**
+
+  - [x] Implement a graceful shutdown mechanism for the server, allowing active connections to complete their work.
+
+## Phase 5: Production Hardening & Observability (In Progress)
+
+This phase focuses on making the library robust, debuggable, and ready for production environments.
+
+- [x] **Logging:**
+
+  - [x] Integrate `tracing` throughout the library for structured, level-based logging.
+
+  - [x] Create a helper crate for test logging setup (`wireframe_testing/src/logging.rs`).
+
+- [ ] **Metrics & Observability:**
+
+  - [ ] Expose key operational metrics (e.g., active connections, messages per second, error rates).
+
+  - [ ] Provide an integration guide for popular monitoring systems (e.g., Prometheus).
+
+- [ ] **Advanced Error Handling:**
+
+  - [ ] Implement panic handlers in connection tasks to prevent a single connection from crashing the server.
+
+- [ ] **Testing:**
+
+  - [ ] Implement fuzz testing for the protocol parser (`tests/advanced/interaction_fuzz.rs`).
+
+  - [ ] Use `loom` for concurrency testing of shared state (`tests/advanced/concurrency_loom.rs`).
+
+## Phase 6: Application-Level Streaming (Multi-Packet Responses) (Priority Focus)
+
+This is the next major feature set. It enables a handler to return multiple, distinct messages over time in response to a single request, forming a logical stream.
+
+- [ ] **Protocol Enhancement:**
+
+  - [ ] Add a `correlation_id` field to the `Frame` header. For a request, this is the unique request ID. For each message in a multi-packet response, this ID must match the original request's ID.
+
+  - [ ] Define a mechanism to signal the end of a multi-packet stream, such as a frame with a specific flag and no payload.
+
+- [ ] **Core Library Implementation:**
+
+  - [ ] Introduce a `Response::MultiPacket` variant that contains a channel `Receiver<Message>`.
+
+  - [ ] Modify the `Connection` actor: upon receiving `Response::MultiPacket`, it should consume messages from the receiver and send each one as a `Frame`.
+
+  - [ ] Each sent frame must carry the correct `correlation_id` from the initial request.
+
+  - [ ] When the channel closes, send the end-of-stream marker frame.
+
+- [ ] **Ergonomics & API:**
+
+  - [ ] Provide a clean API for handlers to return a multi-packet response, likely by returning a `(Sender<Message>, Response)`.
+
+- [ ] **Testing:**
+
+  - [ ] Develop integration tests where a client sends one request and receives multiple, correlated response messages.
+
+  - [ ] Test that the end-of-stream marker is sent correctly and handled by the client.
+
+  - [ ] Test client-side handling of interleaved multi-packet responses from different requests.
+
+## Phase 7: Transport-Level Fragmentation & Reassembly
+
+This phase will handle the transport of a single message that is too large to fit into a single frame, making the process transparent to the application logic.
+
+- [ ] **Core Fragmentation & Reassembly (F&R) Layer:**
+
+  - [ ] Define a generic `Fragment` header or metadata containing `message_id`, `fragment_index`, and `is_last_fragment` fields.
+
+  - [ ] Implement a `Fragmenter` to split a large `Message` into multiple `Frame`s, each with a `Fragment` header.
+
+  - [ ] Implement a `Reassembler` on the receiving end to collect fragments and reconstruct the original `Message`.
+
+  - [ ] Manage a reassembly buffer with timeouts to prevent resource exhaustion from incomplete messages.
+
+- [ ] **Integration with Core Library:**
+
+  - [ ] Integrate the F&R layer into the `Connection` actor's read/write paths.
+
+  - [ ] Ensure the F&R logic is transparent to handler functions; they should continue to send and receive complete `Message` objects.
+
+- [ ] **Testing:**
+
+  - [ ] Create unit tests for the `Fragmenter` and `Reassembler`.
+
+  - [ ] Develop integration tests sending and receiving large messages that require fragmentation.
+
+  - [ ] Test edge cases: out-of-order fragments, duplicate fragments, and reassembly timeouts.
+
+## Phase 8: Advanced Features & Ecosystem (Future)
+
+This phase includes features that will broaden the library's applicability and ecosystem.
+
+- [ ] **Client Library:**
+
+  - [ ] Develop a dedicated, ergonomic Rust client library for Wireframe.
+
+- [ ] **Alternative Transports:**
+
+  - [ ] Abstract the transport layer to support protocols other than raw TCP (e.g., WebSockets, QUIC).
+
+- [ ] **Message Versioning:**
+
+  - [ ] Implement a formal message versioning system to allow for protocol evolution.
+
+- [ ] **Security:**
+
+  - [ ] Provide built-in middleware or guides for implementing TLS.
+
+## Phase 9: Documentation & Community (Ongoing)
+
+Continuous improvement of documentation and examples is essential for adoption and usability.
+
+- [x] **Initial Documentation:**
+
+  - [x] Write comprehensive doc comments for all public APIs.
+
+  - [x] Create a high-level `README.md` and a `docs/contents.md`.
+
+- [x] **Examples:**
+
+  - [x] Create a variety of examples demonstrating core features (`ping_pong`, `echo`, `metadata_routing`, `async_stream`).
+
+- [ ] **Website & User Guide:**
+
+  - [ ] Develop a dedicated website with a detailed user guide.
+
+  - [ ] Write tutorials for common use cases.
+
+- [ ] **API Documentation:**
+
+  - [ ] Ensure all public items have clear, useful documentation examples.
+
+  - [ ] Publish documentation to `docs.rs`.
