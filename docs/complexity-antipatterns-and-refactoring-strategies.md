@@ -200,7 +200,7 @@ development practices that prioritise short-term speed over long-term
 structural integrity. Rushed development cycles, lack of clear design, or
 cutting corners on maintenance can lead to the gradual accumulation of
 conditional logic within a single function. As new requirements or edge cases
-are handled, developers might add more
+are handled, developers might add more.
 
 `if` statements or loops to an existing method rather than stepping back to
 refactor and create appropriate abstractions.

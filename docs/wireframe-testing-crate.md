@@ -7,8 +7,8 @@ frames, enabling fast tests without opening real network connections.
 ## Motivation
 
 The existing tests in [`tests/`](../tests) use helper functions such as
-`run_app_with_frame` and `run_app_with_frames` to feed length‑prefixed frames
-through an in‑memory duplex stream. These helpers simplify testing handlers by
+`run_app_with_frame` and `run_app_with_frames` to feed length-prefixed frames
+through an in-memory duplex stream. These helpers simplify testing handlers by
 allowing assertions on encoded responses without spinning up a full server.
 Encapsulating this logic in a dedicated crate keeps test code concise and
 reusable across projects.
@@ -78,8 +78,8 @@ assert on these failure conditions directly.
 
 ### Custom Buffer Capacity
 
-A variant accepting a buffer `capacity` allows fine‑tuning the size of the
-in‑memory duplex channel, matching the existing
+A variant accepting a buffer `capacity` allows fine-tuning the size of the
+in-memory duplex channel, matching the existing
 `run_app_with_frame_with_capacity` and `run_app_with_frames_with_capacity`
 helpers.
 
@@ -109,7 +109,7 @@ For most tests the input frame is preassembled from raw bytes. A small wrapper
 can accept any `serde::Serialize` value and perform the encoding and framing
 before delegating to `drive_with_frame`. This mirrors the patterns in
 `tests/routes.rs`, where structs convert to bytes with `BincodeSerializer` and
-are then wrapped in a length‑prefixed frame.
+are then wrapped in a length-prefixed frame.
 
 ```rust
 #[derive(serde::Serialize)]
@@ -149,7 +149,7 @@ with prebuilt frames and their responses decoded for assertions.
 - **Isolation**: Handlers can be tested without spinning up a full server or
   opening sockets.
 - **Reusability**: Projects consuming `wireframe` can depend on
-  `wireframe_testing` in their dev‑dependencies to leverage the same helpers.
+  `wireframe_testing` in their dev-dependencies to leverage the same helpers.
 - **Clarity**: Abstracting the duplex stream logic keeps test cases focused on
   behaviour instead of transport details.
 

@@ -369,7 +369,7 @@ failure might obscure subsequent ones.
 
 ### B. Combinatorial Testing with `#[values]`: Generating Test Matrices
 
-The `#[values(...)]` attribute is used on test function arguments to generate
+The `#[values(…)]` attribute is used on test function arguments to generate
 tests for every possible combination of the provided values (the Cartesian
 product). This is particularly useful for testing interactions between
 different parameters or ensuring comprehensive coverage across various input

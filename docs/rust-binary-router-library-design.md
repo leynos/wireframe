@@ -20,8 +20,8 @@ known for its intuitive routing, data extraction, and middleware systems.4
 "wireframe" intends to adapt these successful patterns to the domain of binary
 protocols.
 
-A key aspect of the proposed design is the utilization of `wire-rs` 6 for
-message serialization and deserialization, contingent upon its ability to
+A key aspect of the proposed design is the utilization of `wire-rs`[^wire-rs]
+for message serialization and deserialization, contingent upon its ability to
 support or be augmented with derivable `Encode` and `Decode` traits. This,
 combined with a layered architecture and high-level abstractions, seeks to
 provide developers with a more declarative and less error-prone environment for
@@ -72,19 +72,20 @@ Effective and efficient binary serialization is fundamental to any library
 dealing with wire protocols. Several Rust crates offer solutions in this space,
 each with distinct characteristics.
 
-- `wire-rs`: The user query specifically suggests considering `wire-rs`.6 This
-  library provides an extensible interface for converting data to and from wire
-  protocols, supporting non-contiguous buffers and `no_std` environments. It
-  features `WireReader` and `WireWriter` for manual data reading and writing,
-  with explicit control over endianness.6 However, the available information
-  does not clearly indicate the presence or nature of derivable `Encode` and
-  `Decode` traits for automatic (de)serialization of complex types.6 The
-  ability to automatically generate (de)serialization logic via derive macros
-  is crucial for achieving "wireframe's" goal of reducing source code
-  complexity. If such derive macros are not a core feature of `wire-rs`,
-  "wireframe" would need to either contribute them, provide its own wrapper
-  traits that enable derivation while using `wire-rs` internally, or consider
-  alternative serialization libraries.
+- `wire-rs`: The user query specifically suggests considering
+  `wire-rs`.[^wire-rs] This library provides an extensible interface for
+  converting data to and from wire protocols, supporting non-contiguous buffers
+  and `no_std` environments. It features `WireReader` and `WireWriter` for
+  manual data reading and writing, with explicit control over
+  endianness.[^wire-rs] However, the available information does not clearly
+  indicate the presence or nature of derivable `Encode` and `Decode` traits for
+  automatic (de)serialization of complex types.[^wire-rs] The ability to
+  automatically generate (de)serialization logic via derive macros is crucial
+  for achieving "wireframe's" goal of reducing source code complexity. If such
+  derive macros are not a core feature of `wire-rs`, "wireframe" would need to
+  either contribute them, provide its own wrapper traits that enable derivation
+  while using `wire-rs` internally, or consider alternative serialization
+  libraries.
 
 - `bincode`: `bincode` is a widely used binary serialization library that
   integrates well with Serde.8 It offers high performance and configurable
@@ -1597,3 +1598,4 @@ integration with a (de)serialization library offering derivable traits and the
 Actix-like API components, along with gathering community feedback, will be
 crucial next steps to validate this approach and refine the library's features
 into a valuable tool for the Rust ecosystem.
+[^wire-rs]: <https://crates.io/crates/wire-rs>

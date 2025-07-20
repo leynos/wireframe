@@ -9,13 +9,12 @@ outages** (timeouts, connection resets, partial sends) and verify that the
 server handles them gracefully. However, inducing such failures reliably is
 tricky without a controlled test environment.
 
-In this tutorial, we demonstrate how to refactor and test `mxd`’s server
-components to **simulate unreliable network conditions**. We’ll introduce a
-transport abstraction to inject simulated failures, and use
-`tokio-test::io::Builder` for custom I/O streams. We’ll also leverage `rstest`
-for parameterized tests and `mockall` for mocking, where appropriate. The
-result will be a suite of tests ensuring `mxd`’s server remains stable even
-when the network is not.
+This tutorial demonstrates how to refactor and test `mxd`’s server components
+to **simulate unreliable network conditions**. The approach introduces a
+transport abstraction to inject failures and uses `tokio-test::io::Builder` for
+custom I/O streams. `rstest` is leveraged for parameterised tests and `mockall`
+is used for mocking where appropriate. The outcome is a suite of tests that
+ensures `mxd`’s server remains stable even when the network is not.
 
 ## Overview of `mxd`’s Server Networking
 
@@ -238,10 +237,9 @@ a similar approach for failure scenarios.
 
 **1. Simulating a Handshake Timeout:** In this scenario, the client connects
 but **never sends the handshake bytes**, causing the server’s 5-second timeout
-to elapse. To test this without an actual 5-second delay, we can take advantage
-of Tokio’s ability to **pause time** in tests. By annotating our test with
-`#[tokio::test(start_paused = true)]`, the Tokio runtime’s clock is frozen at
-start. We can then `.advance` the clock programmatically to trigger the timeout.
+to elapse. Testing without a real 5-second delay is possible by pausing the
+Tokio clock in tests via `#[tokio::test(start_paused = true)]`, then advancing
+the clock programmatically to trigger the timeout.
 
 Using `Builder`, we create a `reader` that yields **no data at all** (so the
 server will be stuck waiting), and after advancing time past 5 seconds, the

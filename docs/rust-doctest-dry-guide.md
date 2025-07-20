@@ -4,12 +4,12 @@
 
 To master the art of writing effective documentation tests in Rust, one must
 first understand the foundational principles upon which the `rustdoc` tool
-operates. Its behavior, particularly its testing mechanism, is not an arbitrary
-collection of features but a direct consequence of a deliberate design
-philosophy. The core of this philosophy is that every doctest should validate
-the public API of a crate from the perspective of an external user. This single
-principle dictates the entire compilation model and explains both the power and
-the inherent limitations of doctests.
+operates. Its behaviour, particularly its testing mechanism, is not an
+arbitrary collection of features but a direct consequence of a deliberate
+design philosophy. The core of this philosophy is that every doctest should
+validate the public API of a crate from the perspective of an external user.
+This single principle dictates the entire compilation model and explains both
+the power and the inherent limitations of doctests.
 
 ### 1.1 The "Separate Crate" Paradigm
 
@@ -106,9 +106,9 @@ Doctests reside within documentation comments. Rust recognizes two types:
   <!-- markdownlint-disable MD013 --> Within these comments, a code block is
   denoted by triple backticks
   (`). While rustdoc defaults to assuming the language is Rust, explicitly add the`
-  rust
+   rust
   ` language specifier for clarity.[^3] A doctest is considered to "pass" if it compiles successfully and runs to completion without panicking. To verify that a function produces a specific output, developers should use the standard assertion macros, such as `
-  assert!`,`assert_eq!`, and`assert_ne!`.[^3] <!-- markdownlint-enable MD013
+   assert!`,`assert_eq!`, and`assert_ne!`.[^3] <!-- markdownlint-enable MD013
   -->
 
 ### 2.2 The Philosophy of a Good Example
@@ -226,12 +226,12 @@ resolve this conflict. They allow the developer to inject the necessary
 boilerplate to satisfy the compiler without burdening the human reader with
 irrelevant details. Understanding them as clever workarounds, rather than as
 first-class language features, helps explain their sometimes quirky, text-based
-behavior.
+behaviour.
 
 ## Advanced Doctest Control and Attributes
 
 Beyond basic pass/fail checks, `rustdoc` provides a suite of attributes to
-control doctest behavior with fine-grained precision. These attributes, placed
+control doctest behaviour with fine-grained precision. These attributes, placed
 in the header of a code block (e.g., \`\`\`\`ignore\`), allow developers to
 handle expected failures, non-executable examples, and other complex scenarios.
 
@@ -241,13 +241,13 @@ Choosing the correct attribute is critical for communicating the intent of an
 example and ensuring the test suite provides meaningful feedback. The following
 table provides a comparative reference for the most common doctest attributes.
 
-| Attribute    | Action                                                              | Test Outcome                                                   | Primary Use Case & Caveats                                                                                                                                                                                                           |
-| ------------ | ------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ignore       | Skips both compilation and execution.                               | ignored                                                        | Use Case: For pseudo-code, examples known to be broken, or to temporarily disable a test. Caveat: Provides no guarantee that the code is even syntactically correct. Generally discouraged in favor of more specific attributes.[^3] |
-| should_panic | Compiles and runs the code. The test passes if the code panics.     | ok on panic, failed if it does not panic.                      | Use Case: Demonstrating functions that are designed to panic on invalid input (e.g., indexing out of bounds).                                                                                                                        |
-| compile_fail | Attempts to compile the code. The test passes if compilation fails. | ok on compilation failure, failed if it compiles successfully. | Use Case: Illustrating language rules, such as the borrow checker or type system constraints. Caveat: Highly brittle. A future Rust version might make the code valid, causing the test to unexpectedly fail.[^4]                    |
-| no_run       | Compiles the code but does not execute it.                          | ok if compilation succeeds.                                    | Use Case: Essential for examples with undesirable side effects in a test environment, such as network requests, filesystem I/O, or launching a GUI. Guarantees the example is valid Rust code without running it.[^5]                |
-| edition2021  | Compiles the code using the specified Rust edition's rules.         | ok on success.                                                 | Use Case: Demonstrating syntax or idioms that are specific to a particular Rust edition (e.g., edition2018, edition2021).[^4]                                                                                                        |
+| Attribute    | Action                                                              | Test Outcome                                                   | Primary Use Case & Caveats                                                                                                                                                                                                            |
+| ------------ | ------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ignore       | Skips both compilation and execution.                               | ignored                                                        | Use Case: For pseudocode, examples known to be broken, or to temporarily disable a test. Warning: Provides no guarantee that the code is even syntactically correct. Generally discouraged in favour of more specific attributes.[^3] |
+| should_panic | Compiles and runs the code. The test passes if the code panics.     | OK on panic, failed if it does not panic.                      | Use Case: Demonstrating functions that are designed to panic on invalid input (e.g., indexing out of bounds).                                                                                                                         |
+| compile_fail | Attempts to compile the code. The test passes if compilation fails. | OK on compilation failure, failed if it compiles successfully. | Use Case: Illustrating language rules, such as the borrow checker or type system constraints. Warning: Highly brittle. A future Rust version might make the code valid, causing the test to unexpectedly fail.[^4]                    |
+| no_run       | Compiles the code but does not execute it.                          | OK if compilation succeeds.                                    | Use Case: Essential for examples with undesirable side effects in a test environment, such as network requests, filesystem I/O, or launching a GUI. Guarantees the example is valid Rust code without running it.[^5]                 |
+| edition2021  | Compiles the code using the specified Rust edition's rules.         | OK on success.                                                 | Use Case: Demonstrating syntax or idioms that are specific to a particular Rust edition (e.g., edition2018, edition2021).[^4]                                                                                                         |
 
 ### 3.2 Detailed Attribute Breakdown
 
@@ -255,10 +255,10 @@ table provides a comparative reference for the most common doctest attributes.
   to do nothing with the code block. It is almost always better to either fix
   the example using hidden lines or use a more descriptive attribute like
   `no_run`.[^3] Its main legitimate use is for non-Rust code blocks or
-  illustrative pseudo-code.
+  illustrative pseudocode.
 
 - `should_panic`: This attribute inverts the normal test condition. It is used
-  to document and verify behavior that intentionally results in a panic. The
+  to document and verify behaviour that intentionally results in a panic. The
   test will fail if the code completes successfully or panics for a reason
   other than the one expected (if a specific panic message is asserted).[^3]
 
@@ -271,10 +271,10 @@ table provides a comparative reference for the most common doctest attributes.
 
 - `no_run`: This attribute strikes a crucial balance between test verification
   and practicality. For an example that demonstrates how to download a file
-  from the internet, you want to ensure the example code is syntactically
-  correct and uses the API properly, but you do not want your CI server to
-  actually perform a network request every time tests are run. `no_run`
-  provides this guarantee by compiling the code without executing it.[^5]
+  from the internet, the example code must be syntactically correct and use the
+  API properly, but it is undesirable for the CI server to perform a network
+  request during every test run. `no_run` provides this guarantee by compiling
+  the code without executing it.[^5]
 
 - `edition20xx`: This attribute allows an example to be tested against a
   specific Rust edition. This is important for crates that support multiple
@@ -537,7 +537,7 @@ its own purpose:
   from a completely external perspective, much like doctests. However, they are
   not constrained by the need to be readable documentation. They are suited for
   testing complex user workflows, interactions between multiple API entry
-  points, and the overall behavior of the library as a black box.[^6]
+  points, and the overall behaviour of the library as a black box.[^6]
 
 ### 6.2 The Unsolved Problem: Testing Private APIs
 
@@ -574,7 +574,7 @@ real-world challenges when working with doctests.
 
 - **The** `README.md` **Dilemma**: A project's `README.md` file serves multiple
   audiences. It needs to render cleanly on platforms like GitHub and
-  [crates.io](http://crates.io), where hidden lines (`#...`) look like ugly,
+  [crates.io](http://crates.io), where hidden lines (`#...`) loOK like ugly,
   commented-out code. At the same time, it should contain testable examples,
   which often require hidden lines for setup.[^11] The best practice is to
   avoid maintaining the README manually. Instead, use a tool like
@@ -607,7 +607,7 @@ mastering doctests:
 
 1. **Embrace the Model**: Always remember that a doctest is an external
    integration test compiled in a separate crate. This mental model explains
-   nearly all of its behavior.
+   nearly all of its behaviour.
 
 2. **Prioritize Clarity**: Write examples that teach the *why*, not just the
    *how*. Use hidden lines (`#`) ruthlessly to eliminate boilerplate and focus
@@ -638,7 +638,7 @@ accessed on July 15, 2025,
 <https://stackoverflow.com/questions/70111757/how-can-i-write-documentation-tests-for-private-modules>
 [^2]: Rustdoc doctests need fixing - Swatinem, accessed on July 15, 2025,
 <https://swatinem.de/blog/fix-rustdoc/>
-[^3]: Documentation tests - The rustdoc book - Rust Documentation, accessed on
+[^3]: Documentation tests - The rustdoc boOK - Rust Documentation, accessed on
 July 15, 2025, <https://doc.rust-lang.org/rustdoc/documentation-tests.html>
 [^4]: Documentation tests - - GitHub Pages, accessed on July 15, 2025,
 <https://ebarnard.github.io/2019-06-03-rust-smaller-trait-implementers-docs/rustdoc/documentation-tests.html>
@@ -663,7 +663,7 @@ accessed on July 15, 2025,
 <https://users.rust-lang.org/t/test-setup-for-doctests/50426>
 [^14]: quote_doctest - Rust - [Docs.rs](http://Docs.rs), accessed on July 15,
 2025, <https://docs.rs/quote-doctest>
-[^15]: Advanced features - The rustdoc book - Rust Documentation, accessed on
+[^15]: Advanced features - The rustdoc boOK - Rust Documentation, accessed on
        July 15, 2025, <https://doc.rust-lang.org/rustdoc/advanced-features.html>
 [^16]: rust - How can I conditionally execute a module-level doctest based …,
 accessed on July 15, 2025,
