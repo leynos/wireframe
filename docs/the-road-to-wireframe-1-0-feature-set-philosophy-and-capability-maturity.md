@@ -4,7 +4,7 @@
 
 The `wireframe` library began with a simple premise: to provide a fast, safe,
 and ergonomic toolkit for building request-response servers over custom binary
-protocols. Its success to date is rooted in a core philosophy that prioritises
+protocols. Its success to date is rooted in a core philosophy that prioritizes
 protocol-agnosticism, developer experience, and the full power of Rust's safety
 and performance guarantees.
 
@@ -100,7 +100,7 @@ about.
 The core of this actor is a `tokio::select!` loop that multiplexes frames from
 multiple sources onto the outbound socket. To ensure that time-sensitive
 control messages (like heartbeats or session notifications) are not delayed by
-large data transfers, this loop will be explicitly prioritised using
+large data transfers, this loop will be explicitly prioritized using
 `select!(biased;)`.
 
 The polling order will be:

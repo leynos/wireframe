@@ -18,7 +18,7 @@ running within the library's own context, but as an entirely separate,
 temporary crate.[^1] When a developer executes
 
 `cargo test --doc`, `rustdoc` initiates a multi-stage process for every code
-block found in the documentation comments 3:
+block found in the documentation comments[^3]:
 
 1. **Parsing and Extraction**: `rustdoc` first parses the source code of the
    library, resolving conditional compilation attributes (`#[cfg]`) to
@@ -241,7 +241,7 @@ Choosing the correct attribute is critical for communicating the intent of an
 example and ensuring the test suite provides meaningful feedback. The following
 table provides a comparative reference for the most common doctest attributes.
 
-| Attribute    | Action                                                              | Test Outcome                                                   | Primary Use Case & Caveats                                                                                                                                                                                                            |
+| Attribute    | Action                                                              | Test Outcome                                                   | Primary Use Case & Warnings                                                                                                                                                                                                           |
 | ------------ | ------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ignore       | Skips both compilation and execution.                               | ignored                                                        | Use Case: For pseudocode, examples known to be broken, or to temporarily disable a test. Warning: Provides no guarantee that the code is even syntactically correct. Generally discouraged in favour of more specific attributes.[^3] |
 | should_panic | Compiles and runs the code. The test passes if the code panics.     | OK on panic, failed if it does not panic.                      | Use Case: Demonstrating functions that are designed to panic on invalid input (e.g., indexing out of bounds).                                                                                                                         |
@@ -314,7 +314,7 @@ excluded from normal production builds and standard unit test runs, preventing
 any pollution of the final binary or the public API.
 
 The typical implementation pattern is to create a private helper module within
-your library:
+the library:
 
 Rust
 
@@ -543,7 +543,7 @@ its own purpose:
 
 As established, the `rustdoc` compilation model makes testing private items in
 doctests impossible by design.[^1] The community has developed several
-workarounds, but each comes with significant trade-offs 1:
+workarounds, but each comes with significant trade-offs[^1]:
 
 1. `ignore` **the test**: This allows the example to exist in the documentation
    but sacrifices the guarantee of correctness. It is the least desirable
@@ -574,12 +574,12 @@ real-world challenges when working with doctests.
 
 - **The** `README.md` **Dilemma**: A project's `README.md` file serves multiple
   audiences. It needs to render cleanly on platforms like GitHub and
-  [crates.io](http://crates.io), where hidden lines (`#...`) loOK like ugly,
+  [crates.io](http://crates.io), where hidden lines (`#...`) look like ugly,
   commented-out code. At the same time, it should contain testable examples,
   which often require hidden lines for setup.[^11] The best practice is to
   avoid maintaining the README manually. Instead, use a tool like
 
-  `cargo-readme`. This tool generates a `README.md` file from your crate-level
+  `cargo-readme`. This tool generates a `README.md` file from the crate-level
   documentation (in `lib.rs`), automatically stripping out the hidden lines.
   This provides a single source of truth that is both fully testable via
   `cargo test --doc` and produces a clean, professional README for external

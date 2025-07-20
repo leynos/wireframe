@@ -32,8 +32,9 @@ The core mechanism relies on two primitives from the `tokio` ecosystem:
 - `CancellationToken`**:** A single root token is created at server startup.
   This token is cloned and distributed to every spawned task, including
   connection actors and any user-defined background workers. When the server
-  needs to shut down (e.g., on receipt of `SIGINT`), it calls `.cancel()` on
-  the root token, a signal that is immediately visible to all clones.
+  needs to shut down (e.g., on receipt of `SIGINT`),
+  it calls `.cancel()` on the root token, a signal that is immediately visible
+  to all clones.
 
 - `TaskTracker`**:** The server uses a `TaskTracker` to `spawn` all tasks. After
   triggering cancellation, the main server task calls `tracker.close()` and

@@ -67,9 +67,9 @@ where
 These functions mirror the behaviour of `run_app_with_frame` and
 `run_app_with_frames` found in the repository’s test utilities. They create a
 `tokio::io::duplex` stream, spawn the application as a background task, and
-write the provided frame(s) to the client side of the stream. After the app
-finishes processing, the helpers collect the bytes written back and return them
-for inspection.
+write the provided frame(s) to the client side of the stream. After the
+application finishes processing, the helpers collect the bytes written back and
+return them for inspection.
 
 Any I/O errors surfaced by the duplex stream or failures while decoding a
 length prefix propagate through the returned `IoResult`. Malformed or truncated
@@ -107,9 +107,9 @@ pub async fn drive_with_frames_mut(app: &mut WireframeApp, frames: Vec<Vec<u8>>)
 
 For most tests the input frame is preassembled from raw bytes. A small wrapper
 can accept any `serde::Serialize` value and perform the encoding and framing
-before delegating to `drive_with_frame`. This mirrors the patterns in
-`tests/routes.rs`, where structs convert to bytes with `BincodeSerializer` and
-are then wrapped in a length-prefixed frame.
+before delegating to `drive_with_frame`. The approach mirrors patterns in
+`tests/routes.rs`, where structs convert to bytes with `BincodeSerializer`
+before being wrapped in a length-prefixed frame.
 
 ```rust
 #[derive(serde::Serialize)]

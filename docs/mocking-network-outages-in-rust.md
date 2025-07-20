@@ -98,9 +98,9 @@ scenario.
 ## Introducing a Testable Transport Abstraction
 
 Currently, `handle_client` is tied to a real `TcpStream`. To test network
-failures, we need to run `handle_client` (or its subroutines) with a *simulated
-stream*. We’ll achieve this by abstracting the transport layer behind a trait
-or generics, so that in tests we can substitute a mock stream object.
+failures, the function must run with a *simulated stream*. The design abstracts
+the transport layer behind a trait or generics, enabling tests to substitute a
+mock stream object.
 
 **Refactoring** `handle_client`**:** A straightforward approach is to make
 `handle_client` generic over the stream’s reader and writer. The Tokio docs
@@ -146,11 +146,10 @@ can apply this by splitting the logic:
    handshake logic will use the provided `reader` and `writer` as well.
 
 With this change, `client_handler` no longer assumes a real network
-`TcpStream`; we can pass in any in-memory or mock stream for testing.
-**Importantly**, the production code doesn’t lose functionality – we still
-create actual TCP listeners/streams, but we hand off to the generic handler.
-This refactor maintains the same behaviour while enabling injection of test
-streams.
+`TcpStream`; any in-memory or mock stream can be supplied for testing.
+**Importantly**, production code retains full functionality – actual TCP
+listeners/streams still hand off to the generic handler. The refactor maintains
+the same behaviour while enabling injection of test streams.
 
 *Example – generic handler signature:*
 
@@ -438,7 +437,7 @@ let test_reader = Builder::new()
 Here, after the handshake, any attempt by the server to read further will
 immediately get a `ConnectionReset` error. In `handle_client`, this is caught
 by the generic `Err(e)` arm (not EOF), and the function will return an error.
-We can assert that result is an `Err` and matches the expected kind.
+Assert that the result is an `Err` matching the expected kind.
 
 **6. Simulating Partial Write Failures:** So far, we’ve focused on read-side
 issues. But what if the server fails while **writing** to the client (for
@@ -497,10 +496,10 @@ deterministic test suite for network failures.
 
 ## Parameterizing Tests with `rstest`
 
-As the above examples show, many scenarios follow a similar pattern of setup
-and assertion. We can use the `rstest` crate to avoid repetitive code by
-parameterizing the scenarios. The `#[rstest]` attribute allows us to define
-multiple cases for a single test function.
+The preceding examples reveal a common pattern of setup and assertion across
+scenarios. Leveraging the `rstest` crate avoids repetitive code by
+parameterising the scenarios. The `#[rstest]` attribute defines multiple cases
+for a single test function.
 
 For instance, we might create a single test function
 `test_network_outage_scenarios` with parameters indicating the scenario type.
@@ -557,10 +556,10 @@ async fn test_network_outage_scenarios(scenario: Scenario) {
 }
 ```
 
-Above, each `case(...)` provides a different `Scenario` variant. The test
-builds the appropriate `test_reader`/`test_writer` and then invokes
-`client_handler`. We use a `should_error` flag to assert the expected outcome.
-This single parametrized test replaces multiple individual tests, reducing
+In the snippet above, each `case(...)` macro provides a different `Scenario`
+variant. The test builds the appropriate `test_reader`/`test_writer` and then
+invokes `client_handler`. A `should_error` flag asserts the expected outcome.
+This single parametrised test replaces multiple individual tests, reducing
 duplication. All scenarios still run in isolation with distinct setups, thanks
 to `rstest`.
 

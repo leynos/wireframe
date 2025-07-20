@@ -16,9 +16,9 @@ This report outlines the design of "wireframe," a novel Rust library aimed at
 substantially reducing source code complexity when building applications that
 handle arbitrary frame-based binary wire protocols. The design draws
 inspiration from the ergonomic API of Actix Web 4, a popular Rust web framework
-known for its intuitive routing, data extraction, and middleware systems.4
-"wireframe" intends to adapt these successful patterns to the domain of binary
-protocols.
+known for its intuitive routing, data extraction, and middleware
+systems.[^actix-web] "wireframe" intends to adapt these successful patterns to
+the domain of binary protocols.
 
 A key aspect of the proposed design is the utilization of `wire-rs`[^wire-rs]
 for message serialization and deserialization, contingent upon its ability to
@@ -1599,3 +1599,4 @@ Actix-like API components, along with gathering community feedback, will be
 crucial next steps to validate this approach and refine the library's features
 into a valuable tool for the Rust ecosystem.
 [^wire-rs]: <https://crates.io/crates/wire-rs>
+[^actix-web]: Actix Web 4 – <https://docs.rs/actix-web>
