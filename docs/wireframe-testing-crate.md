@@ -108,8 +108,8 @@ pub async fn drive_with_frames_mut(app: &mut WireframeApp, frames: Vec<Vec<u8>>)
 For most tests the input frame is preassembled from raw bytes. A small wrapper
 can accept any `serde::Serialize` value and perform the encoding and framing
 before delegating to `drive_with_frame`. This mirrors the patterns in
-`tests/ routes.rs` where structs are converted to bytes with
-`BincodeSerializer` and then wrapped in a length‑prefixed frame.
+`tests/routes.rs`, where structs convert to bytes with `BincodeSerializer` and
+are then wrapped in a length‑prefixed frame.
 
 ```rust
 #[derive(serde::Serialize)]

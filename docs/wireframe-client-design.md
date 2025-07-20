@@ -12,8 +12,8 @@ are intentionally generic: transport adapters, framing, serialization, routing,
 and middleware form a pipeline that is largely independent of server-specific
 logic. The design document outlines these layers, which process frames from raw
 bytes to typed messages and back
-again【F:docs/rust-binary-router-library-design.md†L316-L371】. By reusing
-these pieces, we can implement a lightweight client without duplicating
+again【F:docs/rust-binary-router-library-design.md†L316-L371】. Reusing these
+pieces enables the implementation of a lightweight client without duplicating
 protocol code.
 
 ## Core Components

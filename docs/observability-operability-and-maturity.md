@@ -37,10 +37,10 @@ first-class feature of `wireframe` 1.0.
 ### 2.1 The `tracing` Span Hierarchy
 
 `tracing`'s key innovation is the `span`, which represents a unit of work with
-a distinct beginning and end. By nesting spans, we can create a causal chain of
-events, allowing us to understand how work flows through the system, even
-across asynchronous boundaries and threads. `wireframe` will adopt a standard
-span hierarchy.
+a distinct beginning and end. Nesting spans creates a causal chain of events,
+enabling an understanding of how work flows through the system, even across
+asynchronous boundaries and threads. `wireframe` will adopt a standard span
+hierarchy.
 
 - `connection`**:** A root span for each TCP connection, created on `accept()`.
   It provides the top-level context for all activity on that connection.

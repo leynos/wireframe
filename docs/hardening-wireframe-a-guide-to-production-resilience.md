@@ -13,8 +13,8 @@ This document is targeted at implementers. It moves beyond theoretical
 discussion to provide concrete, actionable patterns and code for building a
 resilient system. The philosophy is simple: anticipate failure, manage
 resources meticulously, and provide clear mechanisms for control and recovery.
-We will cover three critical domains: coordinated shutdown, leak-proof resource
-management, and denial-of-service mitigation.
+This guide covers three critical domains: coordinated shutdown, leak-proof
+resource management, and denial-of-service mitigation.
 
 ## 2. Coordinated, Graceful Shutdown
 

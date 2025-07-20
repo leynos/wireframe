@@ -73,8 +73,8 @@ quality and developer productivity:
 - **Readability:** By injecting dependencies as function arguments, `rstest`
   makes the requirements of a test explicit and easy to understand. The test
   function's signature clearly documents what it needs to run. This allows
-  developers to "focus on the important stuff in your tests" by abstracting
-  away the setup details.
+  developers to focus on the important aspects of tests by abstracting away the
+  setup details.
 - **Reusability:** Fixtures defined with `rstest` are reusable components. A
   single fixture, such as one setting up a database connection or creating a
   complex data structure, can be used across multiple tests, eliminating
@@ -306,7 +306,7 @@ function will be executed five times, and each test will receive a fresh,
 independent instance of the fixture's result. This behaviour is crucial for
 test isolation. The `rstest` macro effectively desugars a test like
 `fn the_test(injected: i32)` into something conceptually similar to
-`#[test] fn the_test() { let injected = injected_fixture_func(); /*... */ }`
+`#[test] fn the_test() { let injected = injected_fixture_func(); /* … */ }`
 within the test body, implying a new call each time.
 
 Test isolation prevents the state from one test from inadvertently affecting

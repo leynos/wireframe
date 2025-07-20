@@ -313,10 +313,10 @@ tasks include building the Actix‑inspired API, implementing middleware and
 extractor traits, and providing example
 applications【F:docs/roadmap.md†L1-L24】.
 
-## License
+## Licence
 
-Wireframe is distributed under the terms of the ISC license. See
-[LICENSE](LICENSE) for details.
+Wireframe is distributed under the terms of the ISC licence. See
+[LICENCE](LICENSE) for details.
 
 [data-extraction-guide]:
 docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety

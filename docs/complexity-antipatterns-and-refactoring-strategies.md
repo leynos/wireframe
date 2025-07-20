@@ -196,7 +196,7 @@ much like a physical bumpy road slows down driving.
 ### B. How It Forms and Its Impact
 
 The Bumpy Road antipattern, like many software antipatterns, often emerges from
-development practices that prioritize short-term speed over long-term
+development practices that prioritise short-term speed over long-term
 structural integrity. Rushed development cycles, lack of clear design, or
 cutting corners on maintenance can lead to the gradual accumulation of
 conditional logic within a single function. As new requirements or edge cases
