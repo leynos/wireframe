@@ -5,8 +5,8 @@
 This document outlines the comprehensive testing strategy for the `wireframe`
 library, synthesising the test plans from the designs for server-initiated
 messages, streaming responses, and message fragmentation. A robust,
-multi-layered approach to testing is non-negotiable for a low-level library like
-`wireframe`, where correctness, resilience, and performance are paramount.
+multi-layered approach to testing is non-negotiable for a low-level library
+like `wireframe`, where correctness, resilience, and performance are paramount.
 
 The strategy is divided into four distinct layers, each building upon the last.
 This version has been enhanced with **concrete code examples** and **measurable
@@ -31,9 +31,9 @@ form the bedrock of our confidence in the library.
 This test verifies that when a handler returns a `Response::Stream`, all frames
 from that stream are written to the outbound buffer in the correct sequence.
 
-**Test Construction:** A mock connection actor is spawned, and a test handler is
-invoked that returns a stream of 10 distinct, identifiable frames. The actor's
-outbound write buffer is captured after the stream is fully processed.
+**Test Construction:** A mock connection actor is spawned, and a test handler
+is invoked that returns a stream of 10 distinct, identifiable frames. The
+actor's outbound write buffer is captured after the stream is fully processed.
 
 ```rust
 #[tokio::test]
@@ -57,14 +57,14 @@ async fn test_streaming_response_order() {
 
 **Expected Outcome & Measurable Objective:** The write buffer must contain all
 10 frames, correctly serialised, in the exact order they were sent. The
-`on_logical_response_end` hook must be called exactly once after the final frame
-is flushed. The objective is **100% frame delivery with strict ordering
+`on_logical_response_end` hook must be called exactly once after the final
+frame is flushed. The objective is **100% frame delivery with strict ordering
 confirmed.**
 
 ### 2.2 Push Handle: High-Volume Throughput
 
-This test ensures the `PushHandle` can sustain a high volume of messages without
-deadlocking or losing frames.
+This test ensures the `PushHandle` can sustain a high volume of messages
+without deadlocking or losing frames.
 
 **Test Construction:** A fake connection actor is spawned with a large buffer.
 Its `PushHandle` is cloned and moved into a `tokio::spawn` block that rapidly
@@ -197,9 +197,9 @@ async fn test_back_pressure() {
 ```
 
 **Expected Outcome & Measurable Objective:** The second `push()` call must be
-suspended until the first frame is drained from the queue. The objective is that
-**the second push call must take at least as long as the mock socket's stall
-time.**
+suspended until the first frame is drained from the queue. The objective is
+that **the second push call must take at least as long as the mock socket's
+stall time.**
 
 ### 3.2 Socket Write Failure: Error Propagation to Handles
 
@@ -229,10 +229,10 @@ async fn test_socket_write_failure() {
 
 ```
 
-**Expected Outcome & Measurable Objective:** The connection actor must terminate
-cleanly. Any subsequent calls on associated `PushHandle`s must immediately
-return a `BrokenPipe` error. The objective is that **failure propagation must
-occur within one scheduler tick.**
+**Expected Outcome & Measurable Objective:** The connection actor must
+terminate cleanly. Any subsequent calls on associated `PushHandle`s must
+immediately return a `BrokenPipe` error. The objective is that **failure
+propagation must occur within one scheduler tick.**
 
 ### 3.3 Graceful Shutdown: Co-ordinated Task Termination
 
@@ -240,8 +240,8 @@ This test ensures that a server-wide shutdown signal leads to the clean
 termination of all active connection tasks.
 
 **Test Construction:** `tokio_util::sync::CancellationToken` is used to signal
-shutdown to multiple spawned connection tasks. A `tokio_util::task::TaskTracker`
-waits for all tasks to complete.
+shutdown to multiple spawned connection tasks. A
+`tokio_util::task::TaskTracker` waits for all tasks to complete.
 
 ```rust
 #[tokio::test]
@@ -271,8 +271,8 @@ terminate. The main server task must exit cleanly. The objective is that
 
 ### 3.4 Fragmentation Limit: DoS Protection
 
-This test confirms that the `FragmentAdapter` protects against memory exhaustion
-by enforcing the `max_message_size`.
+This test confirms that the `FragmentAdapter` protects against memory
+exhaustion by enforcing the `max_message_size`.
 
 **Test Construction:** An adapter is configured with `max_message_size(1024)`.
 Fragments are decoded that would total more than this limit.
@@ -319,8 +319,8 @@ fn test_fragmentation_sequence_error() {
 
 **Expected Outcome & Measurable Objective:** The `decode()` method must return
 an `InvalidData` error upon detecting the sequence violation. The objective is
-that **the specific protocol error ("sequence gap", "duplicate sequence") should
-be identifiable from the error message.**
+that **the specific protocol error ("sequence gap", "duplicate sequence")
+should be identifiable from the error message.**
 
 ## 4. Layer 3: Advanced Correctness (Logic & Concurrency)
 
@@ -338,9 +338,9 @@ the `FragmentAdapter`.
 
 **Test Construction:** A `proptest` strategy generates a sequence of "actions"
 (e.g., `SendFragment(bytes)`, `SendCompleteFrame(bytes)`). The test runner
-applies these actions to both the real `FragmentAdapter` and a simple, validated
-"model" of its state. The test asserts that the model and the real adapter's
-state always agree.
+applies these actions to both the real `FragmentAdapter` and a simple,
+validated "model" of its state. The test asserts that the model and the real
+adapter's state always agree.
 
 ```rust
 proptest! {

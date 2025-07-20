@@ -13,9 +13,9 @@ In this tutorial, we demonstrate how to refactor and test `mxd`’s server
 components to **simulate unreliable network conditions**. We’ll introduce a
 transport abstraction to inject simulated failures, and use
 `tokio-test::io::Builder` for custom I/O streams. We’ll also leverage `rstest`
-for parameterized tests and `mockall` for mocking, where appropriate. The result
-will be a suite of tests ensuring `mxd`’s server remains stable even when the
-network is not.
+for parameterized tests and `mockall` for mocking, where appropriate. The
+result will be a suite of tests ensuring `mxd`’s server remains stable even
+when the network is not.
 
 ## Overview of `mxd`’s Server Networking
 
@@ -45,16 +45,16 @@ handles network I/O in its server:
   - On successful handshake, sends back a handshake OK reply and proceeds.
 
 - **Transaction Loop:** After handshake, `handle_client` creates a
-  `TransactionReader` and `TransactionWriter` (from the `transaction` module) to
-  handle the message framing. It then loops with `tokio::select!`, awaiting
+  `TransactionReader` and `TransactionWriter` (from the `transaction` module)
+  to handle the message framing. It then loops with `tokio::select!`, awaiting
   either:
 
   1. **Incoming Transaction:** `tx_reader.read_transaction()` which reads the
-     next complete request frame (possibly composed of multiple fragments). If a
-     transaction is received, it calls `handler::handle_request` to produce a
+     next complete request frame (possibly composed of multiple fragments). If
+     a transaction is received, it calls `handler::handle_request` to produce a
      response and writes the response back with `tx_writer.write_transaction`.
 
-  2. **Shutdown Signal:** A shared shutdown `watch` channel to break the loop on
+  1. **Shutdown Signal:** A shared shutdown `watch` channel to break the loop on
      server shutdown.
 
   The loop’s error handling is important for our tests:
@@ -100,8 +100,8 @@ scenario.
 
 Currently, `handle_client` is tied to a real `TcpStream`. To test network
 failures, we need to run `handle_client` (or its subroutines) with a *simulated
-stream*. We’ll achieve this by abstracting the transport layer behind a trait or
-generics, so that in tests we can substitute a mock stream object.
+stream*. We’ll achieve this by abstracting the transport layer behind a trait
+or generics, so that in tests we can substitute a mock stream object.
 
 **Refactoring** `handle_client`**:** A straightforward approach is to make
 `handle_client` generic over the stream’s reader and writer. The Tokio docs
@@ -146,11 +146,12 @@ can apply this by splitting the logic:
    generic over any `AsyncRead`/`AsyncWrite`, this works seamlessly. The
    handshake logic will use the provided `reader` and `writer` as well.
 
-With this change, `client_handler` no longer assumes a real network `TcpStream`;
-we can pass in any in-memory or mock stream for testing. **Importantly**, the
-production code doesn’t lose functionality – we still create actual TCP
-listeners/streams, but we hand off to the generic handler. This refactor
-maintains the same behaviour while enabling injection of test streams.
+With this change, `client_handler` no longer assumes a real network
+`TcpStream`; we can pass in any in-memory or mock stream for testing.
+**Importantly**, the production code doesn’t lose functionality – we still
+create actual TCP listeners/streams, but we hand off to the generic handler.
+This refactor maintains the same behaviour while enabling injection of test
+streams.
 
 *Example – generic handler signature:*
 
@@ -218,9 +219,10 @@ where
 }
 ```
 
-In the above pseudocode, we essentially mirrored the logic from `handle_client`,
-but on generic `reader`/`writer`. This refactoring sets the stage for injecting
-**simulated failures** in tests by providing custom `reader`/`writer` types.
+In the above pseudocode, we essentially mirrored the logic from
+`handle_client`, but on generic `reader`/`writer`. This refactoring sets the
+stage for injecting **simulated failures** in tests by providing custom
+`reader`/`writer` types.
 
 ## Simulating Network Failures with `tokio-test::io::Builder`
 
@@ -234,10 +236,10 @@ For example, the Tokio documentation demonstrates using `Builder` to simulate a
 simple echo conversation by preloading expected inputs and outputs. We will use
 a similar approach for failure scenarios.
 
-**1. Simulating a Handshake Timeout:** In this scenario, the client connects but
-**never sends the handshake bytes**, causing the server’s 5-second timeout to
-elapse. To test this without an actual 5-second delay, we can take advantage of
-Tokio’s ability to **pause time** in tests. By annotating our test with
+**1. Simulating a Handshake Timeout:** In this scenario, the client connects
+but **never sends the handshake bytes**, causing the server’s 5-second timeout
+to elapse. To test this without an actual 5-second delay, we can take advantage
+of Tokio’s ability to **pause time** in tests. By annotating our test with
 `#[tokio::test(start_paused = true)]`, the Tokio runtime’s clock is frozen at
 start. We can then `.advance` the clock programmatically to trigger the timeout.
 
@@ -273,11 +275,11 @@ async fn handshake_times_out() {
 ```
 
 In the above test, `Builder::new().build()` for the reader yields an I/O object
-that returns EOF immediately on reads (since no `.read` is queued). The server’s
-`read_exact` will wait, but after we advance the virtual clock 5+ seconds, the
-`timeout` will return `Err`, causing the server to write a timeout error reply.
-We expect the reply to be 8 bytes (`"TRTP"` + error code 3), which we queued as
-an expected write. The `test_writer` is configured with
+that returns EOF immediately on reads (since no `.read` is queued). The
+server’s `read_exact` will wait, but after we advance the virtual clock 5+
+seconds, the `timeout` will return `Err`, causing the server to write a timeout
+error reply. We expect the reply to be 8 bytes (`"TRTP"` + error code 3), which
+we queued as an expected write. The `test_writer` is configured with
 `.write(&expected_reply)` to assert that those exact bytes are written. If the
 server fails to write this or writes different bytes, the test will fail.
 Finally, we assert that `client_handler` returned `Ok(())` – it should return
@@ -314,9 +316,9 @@ async fn handshake_invalid_protocol() {
 In this test, we queue the handshake bytes `"WRNG..."` as the reader input. The
 server’s `parse_handshake` will return `HandshakeError::InvalidProtocol`.
 According to `handle_client`, this triggers sending an error reply with code=1
-and returning `Ok(())`. Our `test_writer` expects exactly those 8 bytes. We also
-appended `.read_eof()` after the handshake bytes to indicate the client closed
-the connection (this ensures the server’s next read sees EOF instead of
+and returning `Ok(())`. Our `test_writer` expects exactly those 8 bytes. We
+also appended `.read_eof()` after the handshake bytes to indicate the client
+closed the connection (this ensures the server’s next read sees EOF instead of
 hanging). The test verifies that `client_handler` completes without propagating
 an error (it handled the invalid handshake gracefully).
 
@@ -436,14 +438,14 @@ let test_reader = Builder::new()
 ```
 
 Here, after the handshake, any attempt by the server to read further will
-immediately get a `ConnectionReset` error. In `handle_client`, this is caught by
-the generic `Err(e)` arm (not EOF), and the function will return an error. We
-can assert that result is an `Err` and matches the expected kind.
+immediately get a `ConnectionReset` error. In `handle_client`, this is caught
+by the generic `Err(e)` arm (not EOF), and the function will return an error.
+We can assert that result is an `Err` and matches the expected kind.
 
 **6. Simulating Partial Write Failures:** So far, we’ve focused on read-side
 issues. But what if the server fails while **writing** to the client (for
-instance, the client disconnects just as the server sends a response)? In such a
-case, `TransactionWriter::write_transaction` might return an error (likely a
+instance, the client disconnects just as the server sends a response)? In such
+a case, `TransactionWriter::write_transaction` might return an error (likely a
 broken pipe). Our handler would propagate that error out.
 
 To test this, we need a writer that simulates an error on write. The `Builder`
@@ -497,8 +499,8 @@ deterministic test suite for network failures.
 
 ## Parameterizing Tests with `rstest`
 
-As the above examples show, many scenarios follow a similar pattern of setup and
-assertion. We can use the `rstest` crate to avoid repetitive code by
+As the above examples show, many scenarios follow a similar pattern of setup
+and assertion. We can use the `rstest` crate to avoid repetitive code by
 parameterizing the scenarios. The `#[rstest]` attribute allows us to define
 multiple cases for a single test function.
 
@@ -557,24 +559,25 @@ async fn test_network_outage_scenarios(scenario: Scenario) {
 }
 ```
 
-Above, each `case(...)` provides a different `Scenario` variant. The test builds
-the appropriate `test_reader`/`test_writer` and then invokes `client_handler`.
-We use a `should_error` flag to assert the expected outcome. This single
-parametrized test replaces multiple individual tests, reducing duplication. All
-scenarios still run in isolation with distinct setups, thanks to `rstest`.
+Above, each `case(...)` provides a different `Scenario` variant. The test
+builds the appropriate `test_reader`/`test_writer` and then invokes
+`client_handler`. We use a `should_error` flag to assert the expected outcome.
+This single parametrized test replaces multiple individual tests, reducing
+duplication. All scenarios still run in isolation with distinct setups, thanks
+to `rstest`.
 
 ## Using `mockall` for Additional Flexibility
 
 While `tokio-test::io::Builder` covers most needs, there are situations where
-explicit mocking might be useful. The `mockall` crate can generate mocks for our
-abstractions. For example, if we had defined a trait
+explicit mocking might be useful. The `mockall` crate can generate mocks for
+our abstractions. For example, if we had defined a trait
 `trait Transport: AsyncRead + AsyncWrite + Unpin {}` (or a trait with specific
 async methods for read/write), we could use `mockall` to create a
 `MockTransport` and program its behaviour (return errors on certain calls,
 etc.).
 
-However, mocking `AsyncRead/Write` directly can be complex. An easier target for
-mocking might be higher-level components:
+However, mocking `AsyncRead/Write` directly can be complex. An easier target
+for mocking might be higher-level components:
 
 - **Accept Loop Simulation:** We could define a trait for the listener:
 
@@ -593,10 +596,10 @@ mocking might be higher-level components:
   `accept_connections` logs the error and continues or exits properly.
 
 - **Isolating Business Logic:** In our `client_handler` tests above, we mostly
-  ignored the actual `handle_request` logic by using dummy minimal transactions.
-  If we wanted to focus purely on the network layer and not depend on real
-  database calls or command processing, we could abstract the request handling.
-  For example, introduce an interface:
+  ignored the actual `handle_request` logic by using dummy minimal
+  transactions. If we wanted to focus purely on the network layer and not
+  depend on real database calls or command processing, we could abstract the
+  request handling. For example, introduce an interface:
 
   ```rust
   trait RequestHandler {
@@ -655,8 +658,8 @@ demonstrated how to simulate timeouts, abrupt disconnects, and I/O errors for
 both reads and writes. With parameterized tests and careful use of mocks, the
 server’s resilience under adverse network conditions can be validated
 thoroughly. This not only prevents regressions but also documents the intended
-behaviour (for example, that a timeout should result in a specific error code to
-the client, or that an EOF is treated as a graceful shutdown).
+behaviour (for example, that a timeout should result in a specific error code
+to the client, or that an EOF is treated as a graceful shutdown).
 
 **In conclusion**, testing for network outages in async Rust requires a mix of
 clever abstractions and tools:

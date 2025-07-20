@@ -25,7 +25,7 @@ duplex and capable framework.
 The implementation must satisfy the following core requirements:
 
 | ID | Requirement                                                                                                          |
-| -- | ---------------------------------------------------------------------------------------------------------------------|
+| --- | -------------------------------------------------------------------------------------------------------------------- |
 | G1 | Allow a handler to send zero, one, or many frames for a single logical response.                                     |
 | G2 | Provide transparent back-pressure: writers must suspend when outbound capacity is exhausted.                         |
 | G3 | Integrate with protocol-specific sequencing rules (e.g., per-command counters) without hard-coding any one protocol. |
@@ -226,15 +226,15 @@ cancellation-safe, no frames will be lost; the stream will simply be dropped.
 
 Similarly, if a handler panics or returns early, the `Stream` object it created
 is simply dropped. The connection actor will see the stream end as if it had
-completed normally, ensuring no resources are leaked and the connection does not
-hang.
+completed normally, ensuring no resources are leaked and the connection does
+not hang.
 
 ## 7. Synergy with Other 1.0 Features
 
 - **Asynchronous Pushes:** The connection actor's prioritised write loop (as
-  defined in the outbound messaging design) will always poll for pushed messages
-  *before* polling the response stream. This ensures that urgent, out-of-band
-  messages are not starved by a long-running data stream.
+  defined in the outbound messaging design) will always poll for pushed
+  messages *before* polling the response stream. This ensures that urgent,
+  out-of-band messages are not starved by a long-running data stream.
 
 - **Message Fragmentation:** Streaming occurs at the logical frame level. The
   `FragmentAdapter` will operate at a lower layer, transparently splitting any

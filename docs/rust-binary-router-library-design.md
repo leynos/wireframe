@@ -4,20 +4,21 @@
 
 The development of applications requiring communication over custom binary wire
 protocols often involves significant complexities in source code. These
-complexities arise from manual data serialization and deserialization, intricate
-framing logic, stateful connection management, and the imperative dispatch of
-messages to appropriate handlers. Such low-level concerns can obscure the core
-application logic, increase development time, and introduce a higher propensity
-for errors. The Rust programming language, with its emphasis on safety,
-performance, and powerful compile-time abstractions, offers a promising
-foundation for mitigating these challenges.
+complexities arise from manual data serialization and deserialization,
+intricate framing logic, stateful connection management, and the imperative
+dispatch of messages to appropriate handlers. Such low-level concerns can
+obscure the core application logic, increase development time, and introduce a
+higher propensity for errors. The Rust programming language, with its emphasis
+on safety, performance, and powerful compile-time abstractions, offers a
+promising foundation for mitigating these challenges.
 
 This report outlines the design of "wireframe," a novel Rust library aimed at
 substantially reducing source code complexity when building applications that
-handle arbitrary frame-based binary wire protocols. The design draws inspiration
-from the ergonomic API of Actix Web 4, a popular Rust web framework known for
-its intuitive routing, data extraction, and middleware systems.4 "wireframe"
-intends to adapt these successful patterns to the domain of binary protocols.
+handle arbitrary frame-based binary wire protocols. The design draws
+inspiration from the ergonomic API of Actix Web 4, a popular Rust web framework
+known for its intuitive routing, data extraction, and middleware systems.4
+"wireframe" intends to adapt these successful patterns to the domain of binary
+protocols.
 
 A key aspect of the proposed design is the utilization of `wire-rs` 6 for
 message serialization and deserialization, contingent upon its ability to
@@ -61,9 +62,9 @@ common manual implementation pitfalls.
 
 ## 3. Literature Survey and Precedent Analysis
 
-A survey of the existing Rust ecosystem provides valuable context for the design
-of "wireframe," highlighting established patterns for serialization, protocol
-implementation, and API ergonomics.
+A survey of the existing Rust ecosystem provides valuable context for the
+design of "wireframe," highlighting established patterns for serialization,
+protocol implementation, and API ergonomics.
 
 ### 3.1. Binary Serialization Libraries in Rust
 
@@ -77,13 +78,13 @@ each with distinct characteristics.
   features `WireReader` and `WireWriter` for manual data reading and writing,
   with explicit control over endianness.6 However, the available information
   does not clearly indicate the presence or nature of derivable `Encode` and
-  `Decode` traits for automatic (de)serialization of complex types.6 The ability
-  to automatically generate (de)serialization logic via derive macros is crucial
-  for achieving "wireframe's" goal of reducing source code complexity. If such
-  derive macros are not a core feature of `wire-rs`, "wireframe" would need to
-  either contribute them, provide its own wrapper traits that enable derivation
-  while using `wire-rs` internally, or consider alternative serialization
-  libraries.
+  `Decode` traits for automatic (de)serialization of complex types.6 The
+  ability to automatically generate (de)serialization logic via derive macros
+  is crucial for achieving "wireframe's" goal of reducing source code
+  complexity. If such derive macros are not a core feature of `wire-rs`,
+  "wireframe" would need to either contribute them, provide its own wrapper
+  traits that enable derivation while using `wire-rs` internally, or consider
+  alternative serialization libraries.
 
 - `bincode`: `bincode` is a widely used binary serialization library that
   integrates well with Serde.8 It offers high performance and configurable
@@ -91,8 +92,8 @@ each with distinct characteristics.
   optional dependency and provides its own `Encode`/`Decode` traits that can be
   derived.11 Its flexibility and performance make it a strong candidate if
   `wire-rs` proves unsuitable for derivable (de)serialization. The choice
-  between fixed-width integers and Varint encoding offers trade-offs in terms of
-  size and speed.
+  between fixed-width integers and Varint encoding offers trade-offs in terms
+  of size and speed.
 
 - `postcard`: `postcard` is another Serde-compatible library, specifically
   designed for `no_std` and embedded environments, prioritizing resource
@@ -104,8 +105,8 @@ each with distinct characteristics.
   focus on minimalism and a simple specification is appealing.
 
 - `bin-proto`: `bin-proto` offers simple and fast structured bit-level binary
-  encoding and decoding.14 It provides `BitEncode` and `BitDecode` traits, along
-  with custom derive macros (e.g., `#`) for ease of use.14 It allows
+  encoding and decoding.14 It provides `BitEncode` and `BitDecode` traits,
+  along with custom derive macros (e.g., `#`) for ease of use.14 It allows
   fine-grained control over bit-level layout, such as specifying the number of
   bits for fields and enum discriminants.14 `bin-proto` also supports
   context-aware parsing, where deserialization logic can depend on external
@@ -130,10 +131,11 @@ network protocols, offering insights into effective abstractions.
   received from any I/O stream, with built-in support for TCP and UDP. Any type
   implementing its `Parcel` trait can be serialized. The derive macro handles
   the implementation for custom types, though it requires types to also
-  implement `Clone`, `Debug`, and `PartialEq`, which might be overly restrictive
-  for some use cases.16 The library also supports middleware for transforming
-  sent/received data. This library exemplifies the use of derive macros to
-  reduce boilerplate in protocol definitions, a core strategy for "wireframe".
+  implement `Clone`, `Debug`, and `PartialEq`, which might be overly
+  restrictive for some use cases.16 The library also supports middleware for
+  transforming sent/received data. This library exemplifies the use of derive
+  macros to reduce boilerplate in protocol definitions, a core strategy for
+  "wireframe".
 
 - `message-io`: This library provides abstractions for message-based network
   communication over various transports like TCP, UDP, and WebSockets. Notably,
@@ -154,9 +156,9 @@ network protocols, offering insights into effective abstractions.
   Although designed for RPC, its approach of defining service schemas directly
   in Rust code (using the `#[tarpc::service]` attribute to generate service
   traits and client/server boilerplate) is an interesting parallel to
-  "wireframe's" goal of reducing boilerplate for message handlers. Features like
-  pluggable transports and serde serialization further highlight its modern
-  design.
+  "wireframe's" goal of reducing boilerplate for message handlers. Features
+  like pluggable transports and serde serialization further highlight its
+  modern design.
 
 A clear pattern emerges from these libraries: the use of derive macros and
 trait-based designs is a prevalent and effective strategy in Rust for
@@ -187,34 +189,34 @@ query as a model for API aesthetics. Its design offers valuable lessons for
   `FromRequest` trait.4 Built-in extractors include `web::Path` for path
   parameters, `web::Json` for JSON payloads, `web::Query` for query parameters,
   and `web::Data` for accessing shared application state.21 Users can also
-  define custom extractors by implementing `FromRequest`.24 This system promotes
-  type safety and decouples data parsing and validation from the core handler
-  logic.
+  define custom extractors by implementing `FromRequest`.24 This system
+  promotes type safety and decouples data parsing and validation from the core
+  handler logic.
 
 - **Middleware**: Actix Web has a robust middleware system allowing developers
   to insert custom processing logic into the request/response lifecycle.
   Middleware is registered using `App::wrap()` and typically implements
   `Transform` and `Service` traits.26 Common use cases include logging 27,
-  authentication, and request/response modification. Middleware functions can be
-  simple `async fn`s when using `middleware::from_fn()`.
+  authentication, and request/response modification. Middleware functions can
+  be simple `async fn`s when using `middleware::from_fn()`.
 
 - **Application Structure and State**: Applications are built around an `App`
-  instance, which is then used to configure an `HttpServer`.4 Shared application
-  state can be managed using `web::Data<T>`, making state accessible to handlers
-  and middleware.21 For globally shared mutable state, careful use of `Arc` and
-  `Mutex` (or atomics) is required, initialized outside the `HttpServer::new`
-  closure.
+  instance, which is then used to configure an `HttpServer`.4 Shared
+  application state can be managed using `web::Data<T>`, making state
+  accessible to handlers and middleware.21 For globally shared mutable state,
+  careful use of `Arc` and `Mutex` (or atomics) is required, initialized
+  outside the `HttpServer::new` closure.
 
 The ergonomic success of Actix Web for web application development can be
 significantly attributed to these powerful and intuitive abstractions.
 Extractors, for example, cleanly separate the concern of deriving data from a
 request from the business logic within a handler.22 Middleware allows for
-modular implementation of cross-cutting concerns like logging or authentication,
-preventing handler functions from becoming cluttered.26 If "wireframe" can adapt
-these patterns—such as creating extractors for deserialized message payloads or
-connection-specific metadata, and a middleware system for binary message
-streams—it can achieve comparable benefits in reducing complexity and improving
-code organization for its users.
+modular implementation of cross-cutting concerns like logging or
+authentication, preventing handler functions from becoming cluttered.26 If
+"wireframe" can adapt these patterns—such as creating extractors for
+deserialized message payloads or connection-specific metadata, and a middleware
+system for binary message streams—it can achieve comparable benefits in
+reducing complexity and improving code organization for its users.
 
 ### 3.4. Key Learnings and Implications for "wireframe" Design
 
@@ -241,9 +243,9 @@ through the qualitative improvements offered by its abstractions. The design
 must clearly articulate how its features—such as declarative APIs, automatic
 code generation via macros, and separation of concerns inspired by Actix
 Web—lead to simpler, more maintainable code compared to hypothetical manual
-implementations of binary protocol handlers. This involves illustrating "before"
-(manual, complex, error-prone) versus "after" (wireframe, simplified, robust)
-scenarios through its API design and examples.
+implementations of binary protocol handlers. This involves illustrating
+"before" (manual, complex, error-prone) versus "after" (wireframe, simplified,
+robust) scenarios through its API design and examples.
 
 ## 4. "wireframe" Library Design
 
@@ -261,16 +263,16 @@ The development of "wireframe" adheres to the following principles:
   development. This is achieved through high-level abstractions, declarative
   APIs, and minimizing boilerplate code.
 - **Generality for Arbitrary Frame-Based Protocols**: The library must not be
-  opinionated about the specific content or structure of the binary protocols it
-  handles beyond the assumption of a frame-based structure. Users should be able
-  to define their own framing logic and message types.
+  opinionated about the specific content or structure of the binary protocols
+  it handles beyond the assumption of a frame-based structure. Users should be
+  able to define their own framing logic and message types.
 - **Performance**: Leveraging Rust's inherent performance characteristics is
-  crucial.2 While developer ergonomics is a primary focus, the design must avoid
-  introducing unnecessary overhead. Asynchronous operations, powered by a
+  crucial.2 While developer ergonomics is a primary focus, the design must
+  avoid introducing unnecessary overhead. Asynchronous operations, powered by a
   runtime like Tokio, are essential for efficient I/O and concurrency.
 - **Safety**: The library will harness Rust's strong type system and ownership
-  model to prevent common networking bugs, such as data races and use-after-free
-  errors, contributing to more reliable software.
+  model to prevent common networking bugs, such as data races and
+  use-after-free errors, contributing to more reliable software.
 - **Developer Ergonomics**: The API should be intuitive, well-documented, and
   easy to learn, particularly for developers familiar with patterns from Actix
   Web.
@@ -279,10 +281,10 @@ A potential tension exists between the goal of supporting "arbitrary" protocols
 and maintaining simplicity. An overly generic library might force users to
 implement many low-level details, negating the complexity reduction benefits.
 Conversely, an excessively opinionated library might not be flexible enough for
-diverse protocol needs. "wireframe" aims to strike a balance by providing robust
-conventions and helper traits for common protocol patterns (e.g., message
-ID-based routing, standard framing methods) while still allowing "escape
-hatches" for highly customized requirements. This involves identifying
+diverse protocol needs. "wireframe" aims to strike a balance by providing
+robust conventions and helper traits for common protocol patterns (e.g.,
+message ID-based routing, standard framing methods) while still allowing
+"escape hatches" for highly customized requirements. This involves identifying
 commonalities in frame-based binary protocols and offering streamlined
 abstractions for them, without precluding more bespoke implementations.
 
@@ -322,28 +324,30 @@ handling to be managed and customized independently.
   the transport layer into discrete logical units called "frames." Conversely,
   it serializes outgoing messages from the application into byte sequences
   suitable for transmission, adding any necessary framing information (e.g.,
-  length prefixes, delimiters). This layer will utilize user-defined or built-in
-  framing logic, potentially by implementing traits like Tokio's `Decoder` and
-  `Encoder`.
+  length prefixes, delimiters). This layer will utilize user-defined or
+  built-in framing logic, potentially by implementing traits like Tokio's
+  `Decoder` and `Encoder`.
 - **Deserialization/Serialization Engine**: This engine converts the byte
-  payload of incoming frames into strongly-typed Rust data structures (messages)
-  and serializes outgoing Rust messages into byte payloads for outgoing frames.
-  This is the primary role intended for `wire-rs` 6 or an alternative like
-  `bincode` 11 or `postcard`.12 A minimal wrapper trait in the library currently
-  exposes these derives under a convenient `Message` trait, providing `to_bytes`
-  and `from_bytes` helpers.
+  payload of incoming frames into strongly-typed Rust data structures
+  (messages) and serializes outgoing Rust messages into byte payloads for
+  outgoing frames. This is the primary role intended for `wire-rs` 6 or an
+  alternative like `bincode` 11 or `postcard`.12 A minimal wrapper trait in the
+  library currently exposes these derives under a convenient `Message` trait,
+  providing `to_bytes` and `from_bytes` helpers.
 - **Routing Engine**: After a message is deserialized (or at least a header
   containing an identifier is processed), the routing engine inspects it to
   determine which user-defined handler function is responsible for processing
   this type of message.
 - **Handler Invocation Logic**: This component is responsible for calling the
   appropriate user-defined handler function. It will manage the extraction of
-  necessary data (e.g., the message payload, connection information) and provide
-  it to the handler in a type-safe manner, inspired by Actix Web's extractors.
+  necessary data (e.g., the message payload, connection information) and
+  provide it to the handler in a type-safe manner, inspired by Actix Web's
+  extractors.
 - **Middleware/Interceptor Chain**: This allows for pre-processing of incoming
-  frames/messages before they reach the handler and post-processing of responses
-  (or frames generated by the handler) before they are serialized and sent. This
-  enables cross-cutting concerns like logging, authentication, or metrics.
+  frames/messages before they reach the handler and post-processing of
+  responses (or frames generated by the handler) before they are serialized and
+  sent. This enables cross-cutting concerns like logging, authentication, or
+  metrics.
 
 **Data Flow**:
 
@@ -360,9 +364,10 @@ handling to be managed and customized independently.
    Function**.
 7. **Outgoing**: If the handler produces a response message: a. The response
    passes through the **Middleware Chain (response path)**. b. The response
-   message is passed to the **Serialization Engine** to be converted into a byte
-   payload. c. This payload is given to the **Framing Layer** to be encapsulated
-   in a frame. d. The framed bytes are sent via the **Transport Layer Adapter**.
+   message is passed to the **Serialization Engine** to be converted into a
+   byte payload. c. This payload is given to the **Framing Layer** to be
+   encapsulated in a frame. d. The framed bytes are sent via the **Transport
+   Layer Adapter**.
 
 ```mermaid
 sequenceDiagram
@@ -384,16 +389,16 @@ sequenceDiagram
 
 This layered architecture mirrors the conceptual separation found in network
 protocol stacks, such as the OSI or TCP/IP models.28 Each component addresses a
-distinct set of problems. This modularity is fundamental to managing the overall
-complexity of the library and the applications built with it. It allows
+distinct set of problems. This modularity is fundamental to managing the
+overall complexity of the library and the applications built with it. It allows
 individual components, such as the framing mechanism or the serialization
 engine, to be potentially customized or even replaced by users with specific
 needs, without requiring modifications to other parts of the system.
 
 ### 4.3. Frame Definition and Processing
 
-To handle "arbitrary frame-based protocols," "wireframe" must provide a flexible
-way to define and process frames.
+To handle "arbitrary frame-based protocols," "wireframe" must provide a
+flexible way to define and process frames.
 
 - `FrameProcessor` **(or Tokio** `Decoder`**/**`Encoder` **integration)**: The
   core of frame handling will revolve around a user-implementable trait,
@@ -414,11 +419,11 @@ way to define and process frames.
     headers, length prefixes, or delimiters.
 
   "wireframe" could provide common `FrameProcessor` implementations (e.g., for
-  length-prefixed frames) as part of its standard library, simplifying setup for
-  common protocol types. The library ships with a `LengthPrefixedProcessor`. It
-  accepts a `LengthFormat` specifying the prefix size and byte order—for
-  example, `LengthFormat::u16_le()` or `LengthFormat::u32_be()`. Applications
-  configure it via
+  length-prefixed frames) as part of its standard library, simplifying setup
+  for common protocol types. The library ships with a
+  `LengthPrefixedProcessor`. It accepts a `LengthFormat` specifying the prefix
+  size and byte order—for example, `LengthFormat::u16_le()` or
+  `LengthFormat::u32_be()`. Applications configure it via
   `WireframeApp::frame_processor(LengthPrefixedProcessor::new(format))`. The
   `FrameProcessor` trait remains public, so custom implementations can be
   supplied when required.
@@ -486,11 +491,11 @@ sequenceDiagram
 
 This separation of framing logic via traits is crucial. Different binary
 protocols employ vastly different methods for delimiting messages on the wire.
-Some use fixed-size headers with length fields, others rely on special start/end
-byte sequences, and some might have no explicit framing beyond what the
-transport layer provides (e.g., UDP datagrams). A trait-based approach for frame
-processing, akin to how `tokio-util::codec` operates, endows "wireframe" with
-the necessary flexibility to adapt to this diversity without embedding
+Some use fixed-size headers with length fields, others rely on special
+start/end byte sequences, and some might have no explicit framing beyond what
+the transport layer provides (e.g., UDP datagrams). A trait-based approach for
+frame processing, akin to how `tokio-util::codec` operates, endows "wireframe"
+with the necessary flexibility to adapt to this diversity without embedding
 assumptions about any single framing strategy into its core.
 
 ### 4.4. Message Serialization and Deserialization
@@ -500,44 +505,45 @@ complexity that "wireframe" aims to simplify.
 
 - Primary Strategy: wire-rs with Derivable Traits:
 
-  The preferred approach is to utilize wire-rs 6 as the underlying serialization
-  and deserialization engine. However, this is critically dependent on wire-rs
-  supporting, or being extended to support, derivable Encode and Decode traits
-  (e.g., through #). The ability to automatically generate this logic from
-  struct/enum definitions is paramount. Manual serialization/deserialization
-  using WireReader::read_u32(), WireWriter::write_string(), etc., for every
-  field would not meet the complexity reduction goals.
+  The preferred approach is to utilize wire-rs 6 as the underlying
+  serialization and deserialization engine. However, this is critically
+  dependent on wire-rs supporting, or being extended to support, derivable
+  Encode and Decode traits (e.g., through #). The ability to automatically
+  generate this logic from struct/enum definitions is paramount. Manual
+  serialization/deserialization using WireReader::read_u32(),
+  WireWriter::write_string(), etc., for every field would not meet the
+  complexity reduction goals.
 
   If wire-rs itself does not offer derive macros, "wireframe" might need to
-  provide its own wrapper traits and derive macros that internally use wire-rs's
-  WireReader and WireWriter primitives but expose a user-friendly, derivable
-  interface.
+  provide its own wrapper traits and derive macros that internally use
+  wire-rs's WireReader and WireWriter primitives but expose a user-friendly,
+  derivable interface.
 
 - Alternative/Fallback Strategies:
 
   If wire-rs proves unsuitable (e.g., due to the difficulty of implementing
   derivable traits, performance characteristics not matching the needs, or
-  fundamental API incompatibilities), well-supported alternatives with excellent
-  Serde integration will be considered:
+  fundamental API incompatibilities), well-supported alternatives with
+  excellent Serde integration will be considered:
 
   - `bincode`: Offers high performance, configurability, and its own derivable
     `Encode`/`Decode` traits in version 2.x.10 It is a strong contender for
     general-purpose binary serialization.
   - `postcard`: Ideal for scenarios where serialized size is a primary concern,
     such as embedded systems, and also provides Serde-based derive macros.9 Its
-    simpler configuration might be an advantage.10 The choice would be guided by
-    the specific requirements of typical "wireframe" use cases.
+    simpler configuration might be an advantage.10 The choice would be guided
+    by the specific requirements of typical "wireframe" use cases.
 
 - Context-Aware Deserialization:
 
-  Some binary protocols require deserialization logic to vary based on preceding
-  data or external state. For instance, the interpretation of a field might
-  depend on the value of an earlier field in the same message or on the current
-  state of the connection. bin-proto hints at such capabilities with its context
-  parameter in BitDecode::decode.14 "wireframe" should aim to support this,
-  either through features in the chosen serialization library (e.g., wire-rs
-  supporting a context argument) or by layering this capability on top. This
-  could involve a multi-stage deserialization process:
+  Some binary protocols require deserialization logic to vary based on
+  preceding data or external state. For instance, the interpretation of a field
+  might depend on the value of an earlier field in the same message or on the
+  current state of the connection. bin-proto hints at such capabilities with
+  its context parameter in BitDecode::decode.14 "wireframe" should aim to
+  support this, either through features in the chosen serialization library
+  (e.g., wire-rs supporting a context argument) or by layering this capability
+  on top. This could involve a multi-stage deserialization process:
 
   1. Deserialize a generic frame header or a preliminary part of the message.
   2. Use information from this initial part to establish a context.
@@ -546,18 +552,19 @@ complexity that "wireframe" aims to simplify.
 The cornerstone of "reducing source code complexity" in this domain is the
 automation of serialization and deserialization. Manual implementation of this
 logic is not only tedious but also a frequent source of subtle bugs related to
-endianness, offset calculations, and data type mismatches. Libraries like Serde,
-and by extension `bincode` and `postcard`, have demonstrated the immense value
-of derive macros in Rust for automating these tasks.8 If "wireframe" were to
-force users into manual field-by-field reading and writing, it would fail to
+endianness, offset calculations, and data type mismatches. Libraries like
+Serde, and by extension `bincode` and `postcard`, have demonstrated the immense
+value of derive macros in Rust for automating these tasks.8 If "wireframe" were
+to force users into manual field-by-field reading and writing, it would fail to
 deliver on its primary promise. Therefore, ensuring a smooth, derivable
 (de)serialization experience is a non-negotiable aspect of its design.
 
 ### 4.5. Routing and Dispatch Mechanism
 
-Once a frame is received and its payload (or at least a routing-relevant header)
-is deserialized into a Rust message, "wireframe" needs an efficient and clear
-mechanism to dispatch this message to the appropriate user-defined handler.
+Once a frame is received and its payload (or at least a routing-relevant
+header) is deserialized into a Rust message, "wireframe" needs an efficient and
+clear mechanism to dispatch this message to the appropriate user-defined
+handler.
 
 - Route Definition:
 
@@ -578,7 +585,7 @@ mechanism to dispatch this message to the appropriate user-defined handler.
          //... other routes
      ```
 
-  2. **Attribute Macro on Handler Functions**:
+  1. **Attribute Macro on Handler Functions**:
 
      ```rust
      #
@@ -599,19 +606,19 @@ mechanism to dispatch this message to the appropriate user-defined handler.
 - Dispatch Logic:
 
   Internally, the router will maintain a mapping (e.g., using a HashMap or a
-  specialized dispatch table if the identifiers are dense integers) from message
-  identifiers to handler functions. Upon receiving a deserialized message, the
-  router extracts its identifier, looks up the corresponding handler, and
-  invokes it. The efficiency of this lookup is critical for high-throughput
-  systems that process a large number of messages per second.
+  specialized dispatch table if the identifiers are dense integers) from
+  message identifiers to handler functions. Upon receiving a deserialized
+  message, the router extracts its identifier, looks up the corresponding
+  handler, and invokes it. The efficiency of this lookup is critical for
+  high-throughput systems that process a large number of messages per second.
 
 - Dynamic Routing and Guards:
 
-  For more complex routing scenarios where the choice of handler might depend on
-  multiple fields within a message or the state of the connection, "wireframe"
-  could incorporate a "guard" system, analogous to Actix Web's route guards.
-  Guards would be functions that evaluate conditions on the incoming message or
-  connection context before a handler is chosen.
+  For more complex routing scenarios where the choice of handler might depend
+  on multiple fields within a message or the state of the connection,
+  "wireframe" could incorporate a "guard" system, analogous to Actix Web's
+  route guards. Guards would be functions that evaluate conditions on the
+  incoming message or connection context before a handler is chosen.
 
   ````rust
   Router::new()
@@ -623,9 +630,9 @@ mechanism to dispatch this message to the appropriate user-defined handler.
   ````
 
 The routing mechanism essentially implements a form of pattern matching or a
-state machine that operates on message identifiers. A clear, declarative API for
-this routing, as opposed to manual `match` statements over message types within
-a single monolithic receive loop, significantly simplifies the top-level
+state machine that operates on message identifiers. A clear, declarative API
+for this routing, as opposed to manual `match` statements over message types
+within a single monolithic receive loop, significantly simplifies the top-level
 structure of a protocol server. This declarative approach makes it easier for
 developers to understand the mapping between incoming messages and their
 respective processing logic, thereby improving the maintainability and
@@ -641,8 +648,8 @@ proposed API components.
 ### 5.1. Router Configuration and Service Definition
 
 Similar to Actix Web's `App` and `HttpServer` structure 4, "wireframe" will
-provide a builder pattern for configuring the application and a server component
-to run it.
+provide a builder pattern for configuring the application and a server
+component to run it.
 
 - `WireframeApp` **or** `Router` **Builder**: A central builder struct, let's
   call it `WireframeApp`, will serve as the primary point for configuring the
@@ -706,16 +713,16 @@ The WireframeApp builder would offer methods like:
 - .wrap(middleware_factory): Adds middleware to the processing pipeline.
 
 - **Server Initialization**: A `WireframeServer` component (analogous to
-  `HttpServer`) would take the configured `WireframeApp` factory (a closure that
-  creates an `App` instance per worker thread), bind to a network address, and
-  manage incoming connections, task spawning for each connection, and the
+  `HttpServer`) would take the configured `WireframeApp` factory (a closure
+  that creates an `App` instance per worker thread), bind to a network address,
+  and manage incoming connections, task spawning for each connection, and the
   overall server lifecycle. The default number of worker tasks matches the
   available CPU cores, falling back to a single worker if the count cannot be
   determined. This would likely be built on Tokio's networking and runtime
   primitives.
 
-This structural similarity to Actix Web is intentional. Developers familiar with
-Actix Web's application setup will find "wireframe's" approach intuitive,
+This structural similarity to Actix Web is intentional. Developers familiar
+with Actix Web's application setup will find "wireframe's" approach intuitive,
 reducing the learning curve. Actix Web is a widely adopted framework 5, and
 reusing its successful patterns makes "wireframe" feel like a natural extension
 for a different networking domain, rather than an entirely new and unfamiliar
@@ -755,8 +762,8 @@ messages and optionally producing responses.
     (analogous to Actix Web's `Responder` trait 4). This trait defines how the
     returned value is serialized and sent back to the client. When a handler
     yields such a value, `wireframe` encodes it using the application’s
-    configured serializer and passes the resulting bytes to the `FrameProcessor`
-    for transmission back to the peer.
+    configured serializer and passes the resulting bytes to the
+    `FrameProcessor` for transmission back to the peer.
   - `Result<ResponseType, ErrorType>`: For explicit error handling. If
     `Ok(response_message)`, the message is sent. If `Err(error_value)`, the
     error is processed by "wireframe's" error handling mechanism (see Section
@@ -765,8 +772,9 @@ messages and optionally producing responses.
     incoming message (e.g., broadcasting a message to other clients, or if the
     protocol is one-way for this message).
 
-The following table outlines core "wireframe" API components and their Actix Web
-analogies, illustrating how the "aesthetic sense" of Actix Web is translated:
+The following table outlines core "wireframe" API components and their Actix
+Web analogies, illustrating how the "aesthetic sense" of Actix Web is
+translated:
 
 #### Table 1: Core `wireframe` API Components and Actix Web Analogies
 
@@ -782,13 +790,13 @@ analogies, illustrating how the "aesthetic sense" of Actix Web is translated:
 | `WireframeMiddleware` (Transform) | `impl Transform`                       | Factory for middleware services that process messages/frames.                     |
 
 This mapping is valuable because it leverages existing mental models for
-developers familiar with Actix Web, thereby lowering the barrier to adoption for
-"wireframe". The use of `async fn` and extractor patterns directly contributes
-to cleaner, more readable, and more testable handler logic. By delegating tasks
-like data deserialization and access to connection metadata to extractors
-(similar to how Actix Web extractors handle HTTP-specific parsing 22),
-"wireframe" handler functions can remain focused on the core business logic
-associated with each message type.
+developers familiar with Actix Web, thereby lowering the barrier to adoption
+for "wireframe". The use of `async fn` and extractor patterns directly
+contributes to cleaner, more readable, and more testable handler logic. By
+delegating tasks like data deserialization and access to connection metadata to
+extractors (similar to how Actix Web extractors handle HTTP-specific parsing
+22), "wireframe" handler functions can remain focused on the core business
+logic associated with each message type.
 
 ### 5.3. Data Extraction and Type Safety
 
@@ -797,8 +805,8 @@ mechanism for accessing data from incoming messages and connection context
 within handlers.
 
 - `FromMessageRequest` **Trait**: A central trait, analogous to Actix Web's
-  `FromRequest` 24, will be defined. Types implementing `FromMessageRequest` can
-  be used as handler arguments.
+  `FromRequest` 24, will be defined. Types implementing `FromMessageRequest`
+  can be used as handler arguments.
 
   ```rust
   use wireframe::dev::{MessageRequest, Payload}; // Hypothetical types
@@ -821,9 +829,9 @@ instance of each type can exist; later registrations overwrite earlier ones.
 - **Built-in Extractors**: "wireframe" will provide several common extractors:
 
 - `Message<T>`: This would be the most common extractor. It attempts to
-  deserialize the incoming frame's payload into the specified type `T`. `T` must
-  implement the relevant deserialization trait (e.g., `Decode` from `wire-rs` or
-  `serde::Deserialize` if using `bincode`/`postcard`).
+  deserialize the incoming frame's payload into the specified type `T`. `T`
+  must implement the relevant deserialization trait (e.g., `Decode` from
+  `wire-rs` or `serde::Deserialize` if using `bincode`/`postcard`).
 
   ```rust
   async fn handle_user_update(update: Message<UserUpdateData>) -> Result<()> {
@@ -833,8 +841,8 @@ instance of each type can exist; later registrations overwrite earlier ones.
   ```
 
 - `ConnectionInfo`: Provides access to metadata about the current connection,
-  such as the peer's network address, a unique connection identifier assigned by
-  "wireframe", or transport-specific details.
+  such as the peer's network address, a unique connection identifier assigned
+  by "wireframe", or transport-specific details.
 
   ```rust
   async fn handle_connect_event(conn_info: ConnectionInfo) {
@@ -1030,8 +1038,8 @@ will provide a comprehensive error handling strategy.
     would include issues like malformed payloads, type mismatches, or data
     integrity failures (e.g., failed CRC checks if integrated at this level).
   - `RoutingError`: Errors related to message dispatch, such as a message
-    identifier not corresponding to any registered handler, or guards preventing
-    access.
+    identifier not corresponding to any registered handler, or guards
+    preventing access.
   - `HandlerError`: Errors explicitly returned by user-defined handler
     functions, indicating a problem in the application's business logic.
   - `IoError`: Errors from the underlying network I/O operations (e.g.,
@@ -1075,11 +1083,11 @@ will provide a comprehensive error handling strategy.
 - **Custom Error Responses**: If the specific binary protocol supports sending
   error messages back to the client, "wireframe" should provide a mechanism for
   handlers or middleware to return such protocol-specific error responses. This
-  might involve a special `Responder`-like trait for error types, similar to how
-  Actix Web's `ResponseError` trait allows custom types to be converted into
-  HTTP error responses.4 By default, unhandled errors or errors that cannot be
-  translated into a protocol-specific response might result in logging the error
-  and closing the connection.
+  might involve a special `Responder`-like trait for error types, similar to
+  how Actix Web's `ResponseError` trait allows custom types to be converted
+  into HTTP error responses.4 By default, unhandled errors or errors that
+  cannot be translated into a protocol-specific response might result in
+  logging the error and closing the connection.
 
 A well-defined error strategy is paramount for building resilient network
 applications. It simplifies debugging by providing clear information about the
@@ -1092,8 +1100,8 @@ informatively.
 ### 5.6. Illustrative API Usage Examples
 
 To demonstrate the intended simplicity and the Actix-Web-inspired API, concrete
-examples are invaluable. They make the abstract design tangible and showcase how
-"wireframe" aims to reduce source code complexity.
+examples are invaluable. They make the abstract design tangible and showcase
+how "wireframe" aims to reduce source code complexity.
 
 - **Example 1: Simple Echo Protocol**
 
@@ -1120,7 +1128,7 @@ examples are invaluable. They make the abstract design tangible and showcase how
      }
      ```
 
-1. **Frame Processor Implementation** (Simple length-prefixed framing using
+- **Frame Processor Implementation** (Simple length-prefixed framing using
    `tokio-util`; invalid input or oversized frames return `io::Error` from both
    decode and encode):
 
@@ -1175,9 +1183,9 @@ impl<T: AsRef<[u8]>> Encoder<T> for LengthPrefixedCodec {
 ```
 
 (Note: "wireframe" would abstract the direct use of `Encoder`/`Decoder` behind
-its own `FrameProcessor` trait or provide helpers.)
+its own `FrameProcessor` trait or provide helpers.) <!-- list break -->
 
-1. **Server Setup and Handler**:
+- **Server Setup and Handler**:
 
    ```rust
    // Crate: main.rs
@@ -1256,7 +1264,7 @@ simplify server implementation.
      // Assume ClientMessage and ServerMessage have associated IDs for routing/serialization
      ```
 
-  2. **Application State**:
+  1. **Application State**:
 
      ```rust
      // Crate: main.rs (or app_state.rs)
@@ -1271,7 +1279,7 @@ simplify server implementation.
      pub type SharedChatRoomState = wireframe::SharedState<Arc<Mutex<ChatRoomState>>>;
      ```
 
-  3. **Server Setup and Handlers**:
+  1. **Server Setup and Handlers**:
 
      ```rust
      // Crate: main.rs
@@ -1342,15 +1350,16 @@ simplify server implementation.
      }
      ```
 
-This chat example hints at how shared state (SharedChatRoomState) and connection
-information (ConnectionInfo) would be used, and how handlers might not always
-send a direct response but could trigger other actions (like broadcasting).
+This chat example hints at how shared state (SharedChatRoomState) and
+connection information (ConnectionInfo) would be used, and how handlers might
+not always send a direct response but could trigger other actions (like
+broadcasting).
 
 These examples, even if simplified, begin to illustrate how "wireframe" aims to
 abstract away the low-level details of network programming, allowing developers
 to focus on defining messages and implementing the logic for handling them. The
-clarity achieved by these abstractions is central to the goal of reducing source
-code complexity. Actix Web's "Hello, world!" 4 effectively showcases its
+clarity achieved by these abstractions is central to the goal of reducing
+source code complexity. Actix Web's "Hello, world!" 4 effectively showcases its
 simplicity; "wireframe" aims for similar illustrative power with its examples.
 
 ## 6. Addressing Source Code Complexity
@@ -1383,8 +1392,8 @@ choices aim to mitigate them.
   low-level networking details, (de)serialization code, and framing logic,
   making the codebase harder to understand, test, and modify.
 - **Error Handling**: Managing and propagating errors from various sources (I/O,
-  deserialization, framing, application logic) in a consistent and robust manner
-  can be challenging.
+  deserialization, framing, application logic) in a consistent and robust
+  manner can be challenging.
 
 **How "wireframe" Abstractions Simplify These Areas**:
 
@@ -1399,20 +1408,20 @@ choices aim to mitigate them.
 
 - Declarative Routing:
 
-  The proposed #[message_handler(...)] attribute macro or
-  WireframeApp::route(...) method provides a declarative way to map message
-  types or identifiers to handler functions. This replaces verbose manual
-  dispatch logic (e.g., large match statements) with clear, high-level
-  definitions, making the overall message flow easier to understand and manage.
+  The proposed #[message_handler(…)] attribute macro or WireframeApp::route(…)
+  method provides a declarative way to map message types or identifiers to
+  handler functions. This replaces verbose manual dispatch logic (e.g., large
+  match statements) with clear, high-level definitions, making the overall
+  message flow easier to understand and manage.
 
 - Extractors for Decoupled Data Access:
 
   Inspired by Actix Web, "wireframe" extractors (Message\<T>, ConnectionInfo,
-  SharedState\<T>, and custom extractors) decouple the process of obtaining data
-  for a handler from the handler's core business logic. Handlers simply declare
-  what data they need as function parameters, and "wireframe" takes care of
-  providing it. This makes handlers cleaner, more focused, and easier to test in
-  isolation.
+  SharedState\<T>, and custom extractors) decouple the process of obtaining
+  data for a handler from the handler's core business logic. Handlers simply
+  declare what data they need as function parameters, and "wireframe" takes
+  care of providing it. This makes handlers cleaner, more focused, and easier
+  to test in isolation.
 
 - Middleware for Modular Cross-Cutting Concerns:
 
@@ -1426,9 +1435,9 @@ choices aim to mitigate them.
 
   The WireframeServer component will abstract away the complexities of setting
   up network listeners (e.g., TCP listeners via Tokio), accepting incoming
-  connections, and managing the lifecycle of each connection (including reading,
-  writing, and handling disconnections). For each connection, it will typically
-  spawn an asynchronous task to handle message processing, isolating
+  connections, and managing the lifecycle of each connection (including
+  reading, writing, and handling disconnections). For each connection, it will
+  typically spawn an asynchronous task to handle message processing, isolating
   connection-specific logic. This frees the developer from writing significant
   networking boilerplate.
 
@@ -1441,19 +1450,19 @@ choices aim to mitigate them.
   message definitions or handler logic. The library itself can provide common
   framing implementations.
 
-These abstractions collectively contribute to code that is not only less verbose
-but also more readable, maintainable, and testable. By reducing complexity in
-these common areas, "wireframe" allows developers to concentrate more on the
-unique aspects of their application's protocol and business logic. This focus,
-in turn, can lead to faster development cycles and a lower incidence of bugs.
-While Rust's inherent safety features prevent many classes of memory-related
-errors 1, logical errors in protocol implementation remain a significant
-challenge. By providing well-tested, high-level abstractions for common but
-error-prone tasks like framing and (de)serialization, "wireframe" aims to help
-developers avoid entire categories of these logical bugs, leading to more robust
-systems. Ultimately, a simpler, more intuitive library enhances developer
-productivity and allows teams to build and iterate on binary protocol-based
-applications more effectively.
+These abstractions collectively contribute to code that is not only less
+verbose but also more readable, maintainable, and testable. By reducing
+complexity in these common areas, "wireframe" allows developers to concentrate
+more on the unique aspects of their application's protocol and business logic.
+This focus, in turn, can lead to faster development cycles and a lower
+incidence of bugs. While Rust's inherent safety features prevent many classes
+of memory-related errors 1, logical errors in protocol implementation remain a
+significant challenge. By providing well-tested, high-level abstractions for
+common but error-prone tasks like framing and (de)serialization, "wireframe"
+aims to help developers avoid entire categories of these logical bugs, leading
+to more robust systems. Ultimately, a simpler, more intuitive library enhances
+developer productivity and allows teams to build and iterate on binary
+protocol-based applications more effectively.
 
 ## 7. Future Development and Roadmap
 
@@ -1466,16 +1475,16 @@ applicability.
 
   - **UDP Support**: Explicit, first-class support for UDP-based protocols,
     adapting the routing and handler model to connectionless message passing.
-    This would involve a different server setup (e.g., `UdpWireframeServer`) and
-    potentially different extractor types relevant to datagrams (e.g., source
-    address).
+    This would involve a different server setup (e.g., `UdpWireframeServer`)
+    and potentially different extractor types relevant to datagrams (e.g.,
+    source address).
   - **Other Transports**: Exploration of support for other transport layers
     where frame-based binary messaging is relevant. While WebSockets are often
     text-based (JSON), they can carry binary messages; `message-io` lists Ws
     separately from `FramedTcp` 17, suggesting distinct handling.
   - **In-Process Communication**: Adapting "wireframe" concepts for efficient,
-    type-safe in-process message passing, perhaps using Tokio's MPSC channels as
-    a "transport."
+    type-safe in-process message passing, perhaps using Tokio's MPSC channels
+    as a "transport."
 
 - **Advanced Framing Options**:
 
@@ -1527,8 +1536,8 @@ applicability.
       protocol description language.
     - Basic protocol testing or debugging.
   - **Enhanced Debugging Support**: Features or integrations that make it easier
-    to inspect message flows, connection states, and errors within a "wireframe"
-    application.
+    to inspect message flows, connection states, and errors within a
+    "wireframe" application.
   - **More Examples and Documentation**: Continuously expanding the set of
     examples and detailed documentation for various use cases and advanced
     features.
@@ -1545,8 +1554,8 @@ library into a more comprehensive ecosystem for binary protocol development in
 Rust. Anticipating such enhancements demonstrates a commitment to the library's
 long-term viability and its potential to serve a growing range of user needs.
 Addressing common advanced requirements like schema evolution 10 or diverse
-transport needs early in the roadmap can guide architectural decisions to ensure
-future extensibility.
+transport needs early in the roadmap can guide architectural decisions to
+ensure future extensibility.
 
 ## 8. Conclusion
 
@@ -1577,8 +1586,8 @@ By adopting these strategies, "wireframe" seeks to improve developer
 productivity, enhance code maintainability, and allow applications to fully
 benefit from Rust's performance and safety guarantees. The design prioritizes
 creating an intuitive and familiar experience for developers, especially those
-with a background in Actix Web, while remaining flexible enough to accommodate a
-wide variety of binary protocols.
+with a background in Actix Web, while remaining flexible enough to accommodate
+a wide variety of binary protocols.
 
 The ultimate success of "wireframe" will depend on the effective execution of
 its primary goal—complexity reduction—while maintaining the robustness and

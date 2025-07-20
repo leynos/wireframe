@@ -16,12 +16,13 @@ network programming, `wireframe` must evolve.
 
 This document outlines the road to `wireframe` 1.0. It is a vision built upon
 three pillars of new functionality: **asynchronous duplex messaging**,
-**multi-packet streaming responses**, and **transparent message fragmentation**.
-More than just a list of features, this is a statement of capability maturity.
-It details a cohesive strategy for hardening the library with production-grade
-resilience, first-class observability, and a rigorous quality assurance process.
-The result will be a framework that is not only powerful and flexible but also
-exceptionally robust, debuggable, and a pleasure to use.
+**multi-packet streaming responses**, and **transparent message
+fragmentation**. More than just a list of features, this is a statement of
+capability maturity. It details a cohesive strategy for hardening the library
+with production-grade resilience, first-class observability, and a rigorous
+quality assurance process. The result will be a framework that is not only
+powerful and flexible but also exceptionally robust, debuggable, and a pleasure
+to use.
 
 ## II. The Core Feature Set: A Duplex Frame Highway
 
@@ -33,17 +34,17 @@ server-initiated, multi-part, or larger than a single network packet.
 ### A. Asynchronous, Bidirectional Messaging
 
 The strict "one frame in, one frame out" model is the primary limitation to be
-addressed. The 1.0 architecture will embrace a fully asynchronous, bidirectional
-communication model where any participant—client or server—can originate frames
-at any time. This is achieved through two tightly integrated features:
-server-initiated pushes and streaming responses.
+addressed. The 1.0 architecture will embrace a fully asynchronous,
+bidirectional communication model where any participant—client or server—can
+originate frames at any time. This is achieved through two tightly integrated
+features: server-initiated pushes and streaming responses.
 
 #### The Unified `Response` Enum and Declarative Handler Model
 
 To provide a clean, unified API, the handler return type will evolve. A more
-ergonomic, declarative approach replaces the previous imperative model. Handlers
-will return an enhanced `Response` enum, giving developers clear and efficient
-ways to express their intent.
+ergonomic, declarative approach replaces the previous imperative model.
+Handlers will return an enhanced `Response` enum, giving developers clear and
+efficient ways to express their intent.
 
 Rust
 
@@ -97,9 +98,9 @@ eliminating the need for complex locking and making the system easier to reason
 about.
 
 The core of this actor is a `tokio::select!` loop that multiplexes frames from
-multiple sources onto the outbound socket. To ensure that time-sensitive control
-messages (like heartbeats or session notifications) are not delayed by large
-data transfers, this loop will be explicitly prioritized using
+multiple sources onto the outbound socket. To ensure that time-sensitive
+control messages (like heartbeats or session notifications) are not delayed by
+large data transfers, this loop will be explicitly prioritized using
 `select!(biased;)`.
 
 The polling order will be:
@@ -129,8 +130,8 @@ fragments.
 
 The protocol-specific rules—how to parse a fragment header, determine the
 payload length, and identify the final fragment—are provided by the user via a
-`FragmentStrategy` trait. This keeps the core library completely agnostic of any
-specific wire format.
+`FragmentStrategy` trait. This keeps the core library completely agnostic of
+any specific wire format.
 
 The `FragmentStrategy` trait will be enhanced to be more expressive and
 context-aware:
@@ -164,8 +165,8 @@ pub trait FragmentStrategy: 'static + Send + Sync {
 #### Robust Re-assembly for Modern Protocols
 
 A critical enhancement to the initial design is support for multiplexing. The
-re-assembly logic will not assume that fragments arrive sequentially. By using a
-concurrent hash map (e.g., `dashmap::DashMap`) keyed by `msg_id`, the
+re-assembly logic will not assume that fragments arrive sequentially. By using
+a concurrent hash map (e.g., `dashmap::DashMap`) keyed by `msg_id`, the
 `FragmentAdapter` can re-assemble multiple logical messages concurrently on the
 same connection. This is essential for supporting modern protocols like HTTP/2
 or gRPC.
@@ -174,8 +175,8 @@ or gRPC.
 
 A feature-complete library is not necessarily a mature one. The road to
 `wireframe` 1.0 is paved with a deep commitment to the cross-cutting concerns
-that define production-ready software: hardening, ergonomics, observability, and
-quality assurance.
+that define production-ready software: hardening, ergonomics, observability,
+and quality assurance.
 
 ### A. Hardening and Resilience
 
@@ -246,8 +247,8 @@ expressive error-handling strategy.
 
 ### B. First-Class Developer Ergonomics
 
-A powerful library that is difficult to use will not be used. `wireframe` 1.0 is
-committed to an API that is intuitive, flexible, and idiomatic.
+A powerful library that is difficult to use will not be used. `wireframe` 1.0
+is committed to an API that is intuitive, flexible, and idiomatic.
 
 - **Fluent Builder API:** All configuration will be done through a fluent
   builder pattern (`WireframeApp::new().with_feature_x().with_config_y()`),
@@ -265,15 +266,16 @@ committed to an API that is intuitive, flexible, and idiomatic.
 
 ### C. Pervasive Observability
 
-A production system is a black box without good instrumentation. `wireframe` 1.0
-will treat observability as a first-class feature, integrating the `tracing`
-crate throughout its core.
+A production system is a black box without good instrumentation. `wireframe`
+1.0 will treat observability as a first-class feature, integrating the
+`tracing` crate throughout its core.
 
 - **Structured Logging and Tracing:** The entire lifecycle of a connection,
   request, and response will be wrapped in `tracing::span!`s. 83 This provides
-  invaluable, context-aware diagnostic information that correlates events across
-  asynchronous boundaries. Key events—such as frame receipt, back-pressure
-  application, and connection termination—will be logged with structured data.
+  invaluable, context-aware diagnostic information that correlates events
+  across asynchronous boundaries. Key events—such as frame receipt,
+  back-pressure application, and connection termination—will be logged with
+  structured data.
 
 - **Metrics and OpenTelemetry:** The structured data from `tracing` can be
   consumed by subscribers that export it as metrics. 88 This enables the
@@ -324,8 +326,8 @@ traditional unit and integration tests.
 
 - **Stateful Property Testing:** For validating complex, stateful protocol
   conversations (like fragmentation and re-assembly), `proptest` will be used.
-  This technique generates thousands of random-but-valid sequences of operations
-  to uncover edge cases that manual tests would miss.
+  This technique generates thousands of random-but-valid sequences of
+  operations to uncover edge cases that manual tests would miss.
 
 - **Concurrency Verification:** The `loom` crate will be used for permutation
   testing of concurrency hotspots, such as the connection actor's `select!`
@@ -342,11 +344,11 @@ components.
 
 <!-- markdownlint-disable MD013 -->
 
-| Phase | Focus | Key Deliverables |
-| 1. Foundational Mechanics | Implement the core, non-public machinery. | Internal actor loop with select!(biased!), dual-channel push plumbing, basic FragmentAdapter logic. |
-| 2. Public APIs & Ergonomics | Expose functionality to users in a clean, idiomatic way. | Fluent WireframeApp builder, WireframeProtocol trait, enhanced Response enum, FragmentStrategy trait, SessionRegistry with Weak references. |
-| 3. Production Hardening | Add features for resilience and security. | CancellationToken-based graceful shutdown, re-assembly timeouts, per-connection rate limiting, optional Dead Letter Queue. |
-| 4. Maturity and Polish | Focus on observability, advanced testing, and documentation. | Full tracing instrumentation, criterion benchmarks, loom and proptest test suites, comprehensive user guides and API documentation. |
+| Phase                       | Focus                                                        | Key Deliverables                                                                                                                            |
+| 1. Foundational Mechanics   | Implement the core, non-public machinery.                    | Internal actor loop with select!(biased!), dual-channel push plumbing, basic FragmentAdapter logic.                                         |
+| 2. Public APIs & Ergonomics | Expose functionality to users in a clean, idiomatic way.     | Fluent WireframeApp builder, WireframeProtocol trait, enhanced Response enum, FragmentStrategy trait, SessionRegistry with Weak references. |
+| 3. Production Hardening     | Add features for resilience and security.                    | CancellationToken-based graceful shutdown, re-assembly timeouts, per-connection rate limiting, optional Dead Letter Queue.                  |
+| 4. Maturity and Polish      | Focus on observability, advanced testing, and documentation. | Full tracing instrumentation, criterion benchmarks, loom and proptest test suites, comprehensive user guides and API documentation.         |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -355,7 +357,7 @@ components.
 The road to `wireframe` 1.0 is an ambitious one. It represents a significant
 evolution from a simple routing library to a comprehensive, production-grade
 framework for building sophisticated, asynchronous network services. By wedding
-a powerful new feature-set—duplex messaging, streaming, and fragmentation—with a
-deep commitment to the principles of resilience, observability, and developer
+a powerful new feature-set—duplex messaging, streaming, and fragmentation—with
+a deep commitment to the principles of resilience, observability, and developer
 ergonomics, `wireframe` will provide the Rust community with a best-in-class
 tool for tackling the challenges of modern network programming.

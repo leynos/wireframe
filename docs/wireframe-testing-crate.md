@@ -8,8 +8,8 @@ frames, enabling fast tests without opening real network connections.
 
 The existing tests in [`tests/`](../tests) use helper functions such as
 `run_app_with_frame` and `run_app_with_frames` to feed length‑prefixed frames
-through an in‑memory duplex stream. These helpers simplify testing handlers
-by allowing assertions on encoded responses without spinning up a full server.
+through an in‑memory duplex stream. These helpers simplify testing handlers by
+allowing assertions on encoded responses without spinning up a full server.
 Encapsulating this logic in a dedicated crate keeps test code concise and
 reusable across projects.
 
@@ -65,21 +65,21 @@ where
 ```
 
 These functions mirror the behaviour of `run_app_with_frame` and
-`run_app_with_frames` found in the repository’s test utilities. They create
-a `tokio::io::duplex` stream, spawn the application as a background task, and
+`run_app_with_frames` found in the repository’s test utilities. They create a
+`tokio::io::duplex` stream, spawn the application as a background task, and
 write the provided frame(s) to the client side of the stream. After the app
 finishes processing, the helpers collect the bytes written back and return them
 for inspection.
 
-Any I/O errors surfaced by the duplex stream or failures while decoding a length
-prefix propagate through the returned `IoResult`. Malformed or truncated frames
-therefore cause the future to resolve with an error, allowing tests to assert on
-these failure conditions directly.
+Any I/O errors surfaced by the duplex stream or failures while decoding a
+length prefix propagate through the returned `IoResult`. Malformed or truncated
+frames therefore cause the future to resolve with an error, allowing tests to
+assert on these failure conditions directly.
 
 ### Custom Buffer Capacity
 
-A variant accepting a buffer `capacity` allows fine‑tuning the
-size of the in‑memory duplex channel, matching the existing
+A variant accepting a buffer `capacity` allows fine‑tuning the size of the
+in‑memory duplex channel, matching the existing
 `run_app_with_frame_with_capacity` and `run_app_with_frames_with_capacity`
 helpers.
 
@@ -107,9 +107,9 @@ pub async fn drive_with_frames_mut(app: &mut WireframeApp, frames: Vec<Vec<u8>>)
 
 For most tests the input frame is preassembled from raw bytes. A small wrapper
 can accept any `serde::Serialize` value and perform the encoding and framing
-before delegating to `drive_with_frame`. This mirrors the patterns in `tests/
-routes.rs` where structs are converted to bytes with `BincodeSerializer` and
-then wrapped in a length‑prefixed frame.
+before delegating to `drive_with_frame`. This mirrors the patterns in
+`tests/ routes.rs` where structs are converted to bytes with
+`BincodeSerializer` and then wrapped in a length‑prefixed frame.
 
 ```rust
 #[derive(serde::Serialize)]

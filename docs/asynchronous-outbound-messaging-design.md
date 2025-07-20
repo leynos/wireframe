@@ -17,10 +17,10 @@ worker task—to push frames to a live connection at any time.
 
 Earlier releases spawned a short-lived worker per request. This approach made
 persistent state awkward and required extra synchronisation when multiple tasks
-needed to write to the same socket. The new design promotes each connection to a
-**stateful actor** that owns its context for the lifetime of the session. Actor
-state keeps sequencing rules and push queues local to one task, drastically
-simplifying concurrency while enabling unsolicited frames.
+needed to write to the same socket. The new design promotes each connection to
+a **stateful actor** that owns its context for the lifetime of the session.
+Actor state keeps sequencing rules and push queues local to one task,
+drastically simplifying concurrency while enabling unsolicited frames.
 
 This feature is a cornerstone of the "Road to Wireframe 1.0" and is designed to
 be synergistic with the planned streaming and fragmentation capabilities,
@@ -31,21 +31,21 @@ protocols.
 
 Only the queue management utilities in `src/push.rs` exist at present. The
 connection actor and its write loop are still to be implemented. The remaining
-sections describe how to build that actor from first principles using the biased
-`select!` loop presented in
-[Section 3](#3-core-architecture-the-connection-actor).
+sections describe how to build that actor from first principles using the
+biased `select!` loop presented in [Section
+3](#3-core-architecture-the-connection-actor).
 
 ## 2. Design Goals & Requirements
 
 The implementation must satisfy the following core requirements:
 
-| ID  | Requirement                                                                                                                                            |
+| ID | Requirement                                                                                                                                            |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| G1  | Any async task must be able to push frames to a live connection.                                                                                       |
-| G2  | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
-| G3  | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
-| G4  | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
-| G5  | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+| G1 | Any async task must be able to push frames to a live connection.                                                                                       |
+| G2 | Ordering-safety: Pushed frames must interleave correctly with normal request/response traffic and respect any per-message sequencing rules.            |
+| G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
+| G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
+| G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
 
 ## 3. Core Architecture: The Connection Actor
 
@@ -74,16 +74,16 @@ manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
    background messages like log forwarding or secondary status updates.
 
 The bounded nature of these channels provides an inherent and robust
-back-pressure mechanism. When a channel's buffer is full, any task attempting to
-push a new message will be asynchronously suspended until space becomes
+back-pressure mechanism. When a channel's buffer is full, any task attempting
+to push a new message will be asynchronously suspended until space becomes
 available.
 
 ### 3.2 The Prioritised Write Loop
 
-The connection actor's write logic will be implemented within a `tokio::select!`
-loop. Crucially, this loop will use the `biased` keyword to ensure a strict,
-deterministic polling order. This prevents high-volume yet critical control
-messages from being starved by large data streams.
+The connection actor's write logic will be implemented within a
+`tokio::select!` loop. Crucially, this loop will use the `biased` keyword to
+ensure a strict, deterministic polling order. This prevents high-volume yet
+critical control messages from being starved by large data streams.
 
 The polling order will be:
 
@@ -143,8 +143,8 @@ checks `low_priority_push_rx.try_recv()` and, if a frame is present, processes
 it and resets the counter.
 
 An optional time slice (for example 100 µs) can also be configured. When the
-elapsed time spent handling high-priority frames exceeds this slice, and the low
-queue is not empty, the actor yields to a low-priority frame. Application
+elapsed time spent handling high-priority frames exceeds this slice, and the
+low queue is not empty, the actor yields to a low-priority frame. Application
 builders expose `with_fairness(FairnessConfig)` where `FairnessConfig` groups
 the counter threshold and an optional `time_slice`. The counter defaults to 8
 while `time_slice` is disabled. Setting the counter to zero disables the
@@ -273,8 +273,8 @@ struct ActorState {
 }
 ```
 
-`total_sources` is calculated when the actor starts. Whenever a receiver returns
-`None`, it is set to `None` and `closed_sources` increments. When
+`total_sources` is calculated when the actor starts. Whenever a receiver
+returns `None`, it is set to `None` and `closed_sources` increments. When
 `closed_sources == total_sources` the loop exits. This consolidation clarifies
 progress through the actor lifecycle and reduces manual flag management.
 
@@ -587,8 +587,8 @@ clearly signalling to the producer task that the connection is gone.
 ### 5.2 Optional Dead Letter Queue (DLQ) for Critical Messages
 
 For applications where dropping a message is unacceptable (e.g., critical
-notifications, audit events), the framework will support an optional Dead Letter
-Queue.
+notifications, audit events), the framework will support an optional Dead
+Letter Queue.
 
 **Implementation:** The `WireframeApp` builder will provide a method,
 `with_push_dlq(mpsc::Sender<F>)`, to configure a DLQ. If provided, any frame
@@ -700,10 +700,10 @@ features of the 1.0 release.
   that urgent pushes can interrupt a long-running data stream.
 
 - **Message Fragmentation:** Pushes occur at the *logical frame* level. The
-  `FragmentAdapter` will operate at a lower layer in the `FrameProcessor` stack,
-  transparently splitting any large pushed frames before they are written to the
-  socket. The `PushHandle` and the application code that uses it remain
-  completely unaware of fragmentation.
+  `FragmentAdapter` will operate at a lower layer in the `FrameProcessor`
+  stack, transparently splitting any large pushed frames before they are
+  written to the socket. The `PushHandle` and the application code that uses it
+  remain completely unaware of fragmentation.
 
 ## 7. Use Cases
 
@@ -757,8 +757,8 @@ sequenceDiagram
 ### 7.3 Broker-Side MQTT `PUBLISH`
 
 An MQTT broker can deliver retained messages or fan-out new `PUBLISH` frames to
-all subscribed clients via their `PushHandle`s. The `try_push` method allows the
-broker to drop non-critical messages when a subscriber falls behind.
+all subscribed clients via their `PushHandle`s. The `try_push` method allows
+the broker to drop non-critical messages when a subscriber falls behind.
 
 ```mermaid
 sequenceDiagram

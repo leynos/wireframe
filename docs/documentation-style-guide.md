@@ -58,8 +58,8 @@ fn add(a: i32, b: i32) -> i32 {
 
 ## API doc comments (Rust)
 
-Use doc comments to document public APIs. Keep them consistent with the contents
-of the manual.
+Use doc comments to document public APIs. Keep them consistent with the
+contents of the manual.
 
 - Begin each block with `///`.
 - Keep the summary line short, followed by further detail.
@@ -94,10 +94,10 @@ pub fn add(a: i32, b: i32) -> i32 {
 
 ## Diagrams and images
 
-Where it adds clarity, include [Mermaid](https://mermaid.js.org/) diagrams. When
-embedding figures, use `![alt text](path/to/image)` and provide concise alt text
-describing the content. Add a short description before each Mermaid diagram so
-screen readers can understand it.
+Where it adds clarity, include [Mermaid](https://mermaid.js.org/) diagrams.
+When embedding figures, use `![alt text](path/to/image)` and provide concise
+alt text describing the content. Add a short description before each Mermaid
+diagram so screen readers can understand it.
 
 ```mermaid
 flowchart TD

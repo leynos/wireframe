@@ -68,8 +68,8 @@ fallback handler can respond with an error.
 ### 4. Compatibility Checks
 
 Handlers for newer versions can implement `From<OldVersion>` to convert legacy
-messages. A helper `ensure_compatible` function will attempt the conversion when
-a mismatched version is received.
+messages. A helper `ensure_compatible` function will attempt the conversion
+when a mismatched version is received.
 
 ```rust
 async fn handle_login_v2(req: Message<LoginV2>) { /* ... */ }
@@ -83,9 +83,9 @@ app.version_guard(1).route(MessageId::Login, |m: Message<LoginV1>| {
 ### 5. Handshake Negotiation
 
 During the optional connection preamble, both sides can exchange the highest
-protocol version they support. The server selects a version and stores it in the
-connection state so extractors and middleware can access it. If no compatible
-version exists, the connection is rejected early.
+protocol version they support. The server selects a version and stores it in
+the connection state so extractors and middleware can access it. If no
+compatible version exists, the connection is rejected early.
 
 ## Future Work
 
