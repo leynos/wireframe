@@ -578,8 +578,9 @@ Sometimes a fixture's function name might be long and descriptive, but a
 shorter or different name is preferred for the argument in a test or another
 fixture. The `#[from(original_fixture_name)]` attribute on an argument allows
 renaming. This is particularly useful when destructuring the result of a
+fixture.
 
-```fixture.
+```rust
 use rstest::*;
 
 #[fixture]
