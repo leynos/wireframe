@@ -11,7 +11,8 @@ The library currently focuses on server development. However, the core layers
 are intentionally generic: transport adapters, framing, serialization, routing,
 and middleware form a pipeline that is largely independent of server-specific
 logic. The design document outlines these layers, which process frames from raw
-bytes to typed messages and back[^router-design]. Reusing these pieces enables
+bytes to typed messages and back[^router-design].
+Reusing these pieces enables
 the implementation of a lightweight client without duplicating protocol code.
 
 ## Core Components

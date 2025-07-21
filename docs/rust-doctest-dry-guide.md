@@ -148,9 +148,7 @@ function within the doctest that returns a Result. This leverages the
 Termination trait, which is implemented for Result. The surrounding boilerplate
 can then be hidden from the rendered documentation.
 
-Rust
-
-```
+```Rust
 /// # Examples
 ///
 /// ```
@@ -174,9 +172,7 @@ rustdoc provides a lesser-known but more concise shorthand for this exact
 scenario. If a code block ends with the literal token (()), rustdoc will
 automatically wrap the code in a main function that returns a Result.
 
-Rust
-
-```
+```Rust
 /// # Examples
 ///
 /// ```
@@ -214,7 +210,7 @@ primary use cases include:
    on the API item being documented.[^3]
 
 3. **Hiding** `use` **Statements**: While often useful to show which types are
-   involved, `use` statements can sometimes be hidden to de-clutter simple
+   involved, `use` statements can sometimes be hidden to declutter simple
    examples.
 
 The existence of features like hidden lines and the `(())` shorthand reveals a
@@ -316,9 +312,7 @@ any pollution of the final binary or the public API.
 The typical implementation pattern is to create a private helper module within
 the library:
 
-Rust
-
-```
+```Rust
 // In lib.rs or a submodule
 
 /// A function that requires a complex environment to test.
@@ -404,9 +398,7 @@ builds.[^13]
 
 **The Pattern**:
 
-Rust
-
-```
+```Rust
 /// A socket that is only available on Unix platforms.
 #[cfg(any(target_os = "unix", doc))]
 pub struct UnixSocket;
@@ -440,9 +432,7 @@ Pattern 1: #\[cfg\] Inside the Code Block
 This pattern involves placing a #\[cfg\] attribute directly on the code within
 the doctest itself.
 
-Rust
-
-```
+```Rust
 /// This example only runs if the "serde" feature is enabled.
 ///
 /// ```
@@ -466,9 +456,7 @@ A more explicit and accurate pattern uses the cfg_attr attribute to
 conditionally add the ignore flag to the doctest's header. This is typically
 done with inner doc comments (//!).
 
-Rust
-
-```
+```Rust
 //! #![cfg_attr(not(feature = "serde"), doc = "```ignore")]
 //! #![cfg_attr(feature = "serde", doc = "```")]
 //! // Example code that requires the "serde" feature.
@@ -492,9 +480,7 @@ feature-gated items in the generated documentation. This is achieved with the
 `#[doc(cfg(...))]` attribute, which requires enabling the
 `#![feature(doc_cfg)]` feature gate at the crate root.
 
-Rust
-
-```
+```Rust
 // At the crate root (lib.rs)
 #![feature(doc_cfg)]
 
@@ -526,7 +512,7 @@ its own purpose:
   time. They should be easy to read and focused on illustrating a single
   concept.[^6]
 
-- **Unit Tests (**`#[test]` **in** `src/`**)**: These are for testing the
+- **Unit tests (`#[test]` in `src/`)**: These are for testing the
   nitty-gritty details of the implementation. They are placed in submodules
   within the source files (often `mod tests {... }`) and are compiled only with
   `#[cfg(test)]`. Because they live inside the crate, they can access private

@@ -289,8 +289,11 @@ Here are a few examples illustrating different kinds of fixtures:
 
   #[rstest]
   fn test_add_to_repository(mut empty_repository: impl Repository) {
-      empty_repository.add_item("item1", "Test Item");
-      assert_eq!(empty_repository.get_item_name("item1"), Some("Test Item".to_string()));
+    empty_repository.add_item("item1", "Test Item");
+    assert_eq!(
+        empty_repository.get_item_name("item1"),
+        Some("Test Item".to_string())
+    );
   }
 
   ```
@@ -404,7 +407,8 @@ fn test_state_transitions(
     # initial_state: State,
     #[values(Event::Process, Event::Error, Event::Fatal)] event: Event
 ) {
-    // In a real test, you'd have more specific assertions based on expected_next_state
+    // In a real test, you'd have more specific assertions
+    // based on `expected_next_state`.
     let next_state = initial_state.process(event);
     println!("Testing: {:?} + {:?} -> {:?}", initial_state, event, next_state);
     // For demonstration, a generic assertion:
@@ -445,7 +449,11 @@ use rstest::*;
 // fn db_connection() -> UserDb { UserDb::new() }
 
 // #[rstest]
-// fn test_user_retrieval(db_connection: UserDb, #[case] user_id: u32, #[case] expected_name: Option<&str>) {
+// fn test_user_retrieval(
+//     db_connection: UserDb,
+//     #[case] user_id: u32,
+//     #[case] expected_name: Option<&str>,
+// ) {
 //     let user = db_connection.fetch_user(user_id);
 //     assert_eq!(user.map(|u| u.name), expected_name.map(String::from));
 // }
@@ -483,7 +491,10 @@ fn derived_value(base_value: i32) -> i32 {
 }
 
 #[fixture]
-fn configured_item(derived_value: i32, #[default("item_")] prefix: String) -> String {
+fn configured_item(
+    derived_value: i32,
+    #[default("item_")] prefix: String,
+) -> String {
     format!("{}{}", prefix, derived_value)
 }
 
@@ -493,7 +504,9 @@ fn test_composed_fixture(configured_item: String) {
 }
 
 #[rstest]
-fn test_composed_fixture_with_override(#[with("special_")] configured_item: String) {
+fn test_composed_fixture_with_override(
+    #[with("special_")] configured_item: String,
+) {
     assert_eq!(configured_item, "special_20");
 }
 ```
@@ -565,9 +578,8 @@ Sometimes a fixture's function name might be long and descriptive, but a
 shorter or different name is preferred for the argument in a test or another
 fixture. The `#[from(original_fixture_name)]` attribute on an argument allows
 renaming. This is particularly useful when destructuring the result of a
-fixture.
 
-```rust
+```fixture.
 use rstest::*;
 
 #[fixture]
@@ -576,12 +588,16 @@ fn complex_user_data_fixture() -> (String, u32, String) {
 }
 
 #[rstest]
-fn test_with_renamed_fixture(#[from(complex_user_data_fixture)] user_info: (String, u32, String)) {
+fn test_with_renamed_fixture(
+    #[from(complex_user_data_fixture)] user_info: (String, u32, String),
+) {
     assert_eq!(user_info.0, "Alice");
 }
 
 #[rstest]
-fn test_with_destructured_fixture(#[from(complex_user_data_fixture)] (name, _, _): (String, u32, String)) {
+fn test_with_destructured_fixture(
+    #[from(complex_user_data_fixture)] (name, _, _): (String, u32, String),
+) {
     assert_eq!(name, "Alice");
 }
 ```
