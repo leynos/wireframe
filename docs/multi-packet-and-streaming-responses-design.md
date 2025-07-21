@@ -73,9 +73,7 @@ The public API is designed for clarity, performance, and ergonomic flexibility.
 The `Response` enum is the primary return type for all handlers. It is enhanced
 to provide optimised paths for common response patterns.
 
-Rust
-
-```
+```Rust
 use futures_core::stream::Stream;
 use std::pin::Pin;
 
@@ -111,9 +109,7 @@ To enable more robust error handling, a generic error enum will be introduced.
 This allows the framework and protocol implementations to distinguish between
 unrecoverable transport failures and logical, protocol-level errors.
 
-Rust
-
-```
+```Rust
 /// A generic error type for wireframe operations.
 #
 pub enum WireframeError<E> {
@@ -143,9 +139,7 @@ The following examples illustrate how developers will use the new API.
 
 Existing code continues to work without modification, fulfilling goal **G4**.
 
-Rust
-
-```
+```Rust
 async fn handle_ping(_req: Request) -> Result<Response<MyFrame, MyError>, MyError> {
     // `MyFrame` implements `Into<Response<...>>`
     Ok(build_pong_frame().into())
@@ -157,9 +151,7 @@ async fn handle_ping(_req: Request) -> Result<Response<MyFrame, MyError>, MyErro
 For simple, fixed-size multi-part responses, like a MySQL result set header,
 `Response::Vec` is both ergonomic and performant.
 
-Rust
-
-```
+```Rust
 async fn handle_select_headers(_req: Request) -> Result<Response<MySqlFrame, MyError>, MyError> {
     // Pre-build frames for: column-count, column-def, EOF
     let frames = vec!;
@@ -172,9 +164,7 @@ async fn handle_select_headers(_req: Request) -> Result<Response<MySqlFrame, MyE
 For large or dynamically generated result sets, like a PostgreSQL `COPY OUT`
 command, `async-stream` provides an intuitive way to generate the stream.
 
-Rust
-
-```
+```Rust
 use async_stream::try_stream;
 
 async fn handle_copy_out(req: PgCopyRequest) -> Result<Response<PgFrame, PgError>, PgError> {

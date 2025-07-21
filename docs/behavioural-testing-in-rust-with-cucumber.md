@@ -988,9 +988,7 @@ update the specification.
 
 **Worked Example (GitHub Actions):**
 
-YAML
-
-```yaml
+```YAML
 # .github/workflows/ci.yml
 name: Rust CI
 

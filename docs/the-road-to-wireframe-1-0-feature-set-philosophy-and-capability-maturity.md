@@ -46,9 +46,7 @@ ergonomic, declarative approach replaces the previous imperative model.
 Handlers will return an enhanced `Response` enum, giving developers clear and
 efficient ways to express their intent.
 
-Rust
-
-```
+```Rust
 pub enum Response<F = Frame, E = MyProtocolError> {
     /// A single frame, as before.
     Single(F),
@@ -68,9 +66,7 @@ generating frames with minimal API complexity. The project recommends
 `async-stream` as the canonical method for constructing `Response::Stream`
 values.
 
-Rust
-
-```
+```Rust
 // Example of a declarative handler using async-stream
 async fn handle_large_query(req: Request) -> io::Result<Response<MyFrame>> {
     let stream = async_stream::try_stream! {
@@ -136,9 +132,7 @@ any specific wire format.
 The `FragmentStrategy` trait will be enhanced to be more expressive and
 context-aware:
 
-Rust
-
-```
+```Rust
 /// Metadata decoded from a single fragment's header.
 pub struct FragmentMeta {
     pub payload_len: usize,

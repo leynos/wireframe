@@ -1,9 +1,9 @@
 # Wireframe
 
 **Wireframe** is an experimental Rust library that simplifies building servers
-and clients for custom binary protocols. The design borrows heavily from [Actix
-Web](https://actix.rs/) to provide a familiar, declarative API for routing,
-extractors, and middleware.
+and clients for custom binary protocols. The design borrows heavily from
+[Actix Web](https://actix.rs/) to provide a familiar, declarative API for
+routing, extractors, and middleware.
 
 ## Motivation
 

@@ -32,8 +32,8 @@ protocols.
 Only the queue management utilities in `src/push.rs` exist at present. The
 connection actor and its write loop are still to be implemented. The remaining
 sections describe how to build that actor from first principles using the
-biased `select!` loop presented in [Section
-3](#3-core-architecture-the-connection-actor).
+biased `select!` loop presented in
+[Section 3](#3-core-architecture-the-connection-actor).
 
 ## 2. Design Goals & Requirements
 
@@ -162,7 +162,6 @@ The flow diagram below summarises the fairness logic.
 after N high-priority frames.</description>
 
 <!-- markdownlint-enable MD033 -->
-
 ```mermaid
 flowchart TD
     A[Start select! loop] --> B{High-priority frame available?}

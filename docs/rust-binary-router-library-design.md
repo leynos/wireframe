@@ -621,14 +621,14 @@ handler.
   route guards. Guards would be functions that evaluate conditions on the
   incoming message or connection context before a handler is chosen.
 
-  ````rust
+  ```rust
   Router::new()
     .message_guarded(
          MessageType::GenericCommand,
          <!-- markdownlint-disable-next-line MD013 -->
          | msg_header: &CommandHeader | msg_header.sub_type == CommandSubType::Special, handle_special_command ).message(MessageType::GenericCommand, handle_generic_command) // Fallback ``` |
 
-  ````
+  ```
 
 The routing mechanism essentially implements a form of pattern matching or a
 state machine that operates on message identifiers. A clear, declarative API
@@ -878,9 +878,8 @@ and verifying a session token from a custom frame header) to be encapsulated
 into reusable components. This further reduces code duplication across multiple
 handlers and keeps the handler functions lean and focused on their specific
 business tasks, mirroring the benefits seen with Actix Web's `FromRequest`
-trait.
 
-```mermaid
+```trait.
 classDiagram
     class FromMessageRequest {
         <<trait>>
@@ -1052,9 +1051,8 @@ will provide a comprehensive error handling strategy.
 - `WireframeError`: A top-level public error enum will be defined to encompass
   all possible errors that can occur within the "wireframe" system. This
   provides a single error type that users can match on for top-level error
-  management.
 
-  ```rust
+```management.
   pub enum WireframeError {
       Io(std::io::Error),
       Framing(FramingError),

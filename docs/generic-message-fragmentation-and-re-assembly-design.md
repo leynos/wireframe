@@ -56,9 +56,7 @@ interleaved fragments from different logical messages on the same connection.
 To support this, the `FragmentAdapter` will not maintain a single re-assembly
 state, but a map of concurrent re-assembly processes.
 
-Rust
-
-```
+```Rust
 use dashmap::DashMap;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
@@ -101,9 +99,7 @@ inject their specific fragmentation rules into the generic `FragmentAdapter`.
 The trait is designed to be context-aware and expressive, allowing it to model
 a wide range of protocols.
 
-Rust
-
-```
+```Rust
 use bytes::BytesMut;
 use std::io;
 
@@ -162,9 +158,7 @@ pub trait FragmentStrategy: 'static + Send + Sync {
 Developers will enable fragmentation by adding the `FragmentAdapter` to their
 `FrameProcessor` chain via the `WireframeApp` builder.
 
-Rust
-
-```
+```Rust
 // Example: Configuring a server for MySQL-style fragmentation.
 WireframeServer::new(|| {
     WireframeApp::new()

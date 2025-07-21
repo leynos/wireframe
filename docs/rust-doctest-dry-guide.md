@@ -95,7 +95,7 @@ clear, illustrative, and robust.
 
 ### 2.1 The Anatomy of a Doctest
 
-Doctests reside within documentation comments. Rust recognises two types:
+Doctests reside within documentation comments. Rust recognizes two types:
 
 - **Outer doc comments (`///`)**: These document the item that follows them
   (e.g., a function, struct, or module). This is the most common type.[^7]
@@ -243,7 +243,7 @@ table provides a comparative reference for the most common doctest attributes.
 | should_panic | Compiles and runs the code. The test passes if the code panics.     | OK on panic, failed if it does not panic.                      | Use Case: Demonstrating functions that are designed to panic on invalid input (e.g., indexing out of bounds).                                                                                                                         |
 | compile_fail | Attempts to compile the code. The test passes if compilation fails. | OK on compilation failure, failed if it compiles successfully. | Use Case: Illustrating language rules, such as the borrow checker or type system constraints. Warning: Highly brittle. A future Rust version might make the code valid, causing the test to unexpectedly fail.[^4]                    |
 | no_run       | Compiles the code but does not execute it.                          | OK if compilation succeeds.                                    | Use Case: Essential for examples with undesirable side effects in a test environment, such as network requests, filesystem I/O, or launching a GUI. Guarantees the example is valid Rust code without running it.[^5]                 |
-| edition2021  | Compiles the code using the specified Rust edition's rules.         | OK on success.                                                 | Use Case: Demonstrating syntax or idioms that are specific to a particular Rust edition (e.g., edition2018, edition2021).[^4]                                                                                                         |
+| edition20xx  | Compiles the code using the specified Rust edition's rules.         | OK on success.                                                 | Use Case: Demonstrating syntax or idioms that are specific to a particular Rust edition (e.g., edition2018, edition2021).[^4]                                                                                                         |
 
 ### 3.2 Detailed Attribute Breakdown
 

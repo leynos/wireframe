@@ -131,7 +131,7 @@ tokio = { version = "1", default-features = false, features = ["test-util"] }
 rstest = "0.18"
 ```
 
-### B. Your First Fixture: Defining with `#[fixture]`
+### B. First Fixture: Defining with `#[fixture]`
 
 A fixture in `rstest` is essentially a Rust function that provides some data or
 performs some setup action, with its result being injectable into tests. To
@@ -1029,7 +1029,7 @@ readable and maintainable.
 
 For tests that need to process data from multiple input files, `rstest`
 provides the `#[files("glob_pattern")]` attribute. This attribute can be used
-on a test function argument to inject file paths that match a given glob
+to inject file paths into a test function argument that match a given glob
 pattern. The argument type is typically `PathBuf`. It can also inject file
 contents directly as `&str` or `&[u8]` by specifying a mode, e.g.,
 `#[files("glob_pattern", mode = "str")]`. Additional attributes like
@@ -1041,7 +1041,7 @@ use rstest::*;
 use std::path::PathBuf;
 use std::fs;
 
-// Assume you have files in `tests/test_data/` like `file1.txt`, `file2.json`
+// Assume files exist in `tests/test_data/` like `file1.txt`, `file2.json`
 
 #[rstest]
 #[files("tests/test_data/*.txt")] // Injects PathBuf for each.txt file

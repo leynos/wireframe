@@ -19,9 +19,8 @@ reusable across projects.
   - `Cargo.toml` enabling the `tokio` and `rstest` dependencies used by the
     helpers.
   - `src/lib.rs` exposing asynchronous functions for driving apps with raw
-    frames.
 
-```toml
+```frames.
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
 
@@ -81,9 +80,8 @@ assert on these failure conditions directly.
 A variant accepting a buffer `capacity` allows fine-tuning the size of the
 in-memory duplex channel, matching the existing
 `run_app_with_frame_with_capacity` and `run_app_with_frames_with_capacity`
-helpers.
 
-```rust
+```helpers.
 pub async fn drive_with_frame_with_capacity(
     app: WireframeApp,
     frame: Vec<u8>,

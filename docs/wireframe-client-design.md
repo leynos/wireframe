@@ -11,9 +11,8 @@ The library currently focuses on server development. However, the core layers
 are intentionally generic: transport adapters, framing, serialization, routing,
 and middleware form a pipeline that is largely independent of server-specific
 logic. The design document outlines these layers, which process frames from raw
-bytes to typed messages and back[^router-design].
-Reusing these pieces enables
-the implementation of a lightweight client without duplicating protocol code.
+bytes to typed messages and back[^1]. Reusing these pieces enables the
+implementation of a lightweight client without duplicating protocol code.
 
 ## Core Components
 
@@ -93,5 +92,5 @@ extensions might include:
 By leveraging the existing abstractions for framing and serialization, client
 support can share most of the server’s implementation while providing a small
 ergonomic API.
-[^router-design]: See [wireframe router
+[^1]: See [wireframe router
                   design](rust-binary-router-library-design.md#implementation-details).
