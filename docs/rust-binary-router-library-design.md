@@ -88,13 +88,13 @@ each with distinct characteristics.
   libraries.
 
 - `bincode`: `bincode` is a widely used binary serialization library that
-  integrates well with Serde.8 It offers high performance and configurable
-  options for endianness and integer encoding.10 `bincode` 2.0 makes Serde an
-  optional dependency and provides its own `Encode`/`Decode` traits that can be
-  derived.11 Its flexibility and performance make it a strong candidate if
-  `wire-rs` proves unsuitable for derivable (de)serialization. The choice
-  between fixed-width integers and Varint encoding offers trade-offs in terms
-  of size and speed.
+  integrates well with Serde.[^serde] It offers high performance and
+  configurable options for endianness and integer encoding.[^bincode-perf]
+  `bincode` 2.0 makes Serde an optional dependency and provides its own
+  `Encode`/`Decode` traits that can be derived.[^bincode-derive] Its
+  flexibility and performance make it a strong candidate if `wire-rs` proves
+  unsuitable for derivable (de)serialization. The choice between fixed-width
+  integers and Varint encoding offers trade-offs in terms of size and speed.
 
 - `postcard`: `postcard` is another Serde-compatible library, specifically
   designed for `no_std` and embedded environments, prioritizing resource
@@ -509,9 +509,9 @@ complexity that "wireframe" aims to simplify.
   The preferred approach is to utilize wire-rs 6 as the underlying
   serialization and deserialization engine. However, this is critically
   dependent on wire-rs supporting, or being extended to support, derivable
-  Encode and Decode traits (e.g., through #). The ability to automatically
-  generate this logic from struct/enum definitions is paramount. Manual
-  serialization/deserialization using WireReader::read_u32(),
+  Encode and Decode traits (e.g., through `wireframe_derive`). The ability to
+  automatically generate this logic from struct/enum definitions is paramount.
+  Manual serialization/deserialization using WireReader::read_u32(),
   WireWriter::write_string(), etc., for every field would not meet the
   complexity reduction goals.
 
@@ -1602,3 +1602,7 @@ into a valuable tool for the Rust ecosystem.
 [^actix-web]: Actix Web 4 – <https://docs.rs/actix-web>
 [^perf]: See *Rust Performance Book* –
          <https://nnethercote.github.io/perf-book/>
+[^serde]: Serde framework – <https://serde.rs>
+[^bincode-perf]: *bincode* configuration – <https://docs.rs/bincode>
+[^bincode-derive]: Derivable traits in *bincode* 2 –
+                   <https://docs.rs/bincode/latest>

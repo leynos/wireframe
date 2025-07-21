@@ -83,8 +83,8 @@ WireframeServer::new(|| {
 ```
 
 This example showcases how derive macros and the framing abstraction simplify a
-binary protocol
-server【F:docs/rust-binary-router-library-design.md†L1126-L1156】.
+binary protocol server
+【F:docs/rust-binary-router-library-design.md†L1126-L1156】.
 
 ## Custom Envelopes
 
