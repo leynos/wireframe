@@ -71,7 +71,7 @@ CI/CD cycle, a common pain point in the Rust community.[^2]
 The architectural purity of the `rustdoc` model—its insistence on simulating an
 external user—creates a fundamental trade-off. On one hand, it provides an
 unparalleled guarantee that the public documentation is accurate and that the
-examples work as advertised, creating true "living documentation".[^8] On the
+examples work as advertised, creating true "living documentation".[^7] On the
 other hand, this same purity prevents the use of doctests for verifying
 documentation of internal, private APIs. This forces a bifurcation of
 documentation strategy. Public-facing documentation can be tied directly to
@@ -95,33 +95,33 @@ clear, illustrative, and robust.
 
 ### 2.1 The Anatomy of a Doctest
 
-Doctests reside within documentation comments. Rust recognizes two types:
+Doctests reside within documentation comments. Rust recognises two types:
 
-- **Outer doc comments (**`///`**)**: These document the item that follows them
-  (e.g., a function, struct, or module). This is the most common type.[^8]
+- **Outer doc comments (`///`)**: These document the item that follows them
+  (e.g., a function, struct, or module). This is the most common type.[^7]
 
-- **Inner doc comments (**`//!`**)**: These document the item they are inside
-  of (e.g., a module or the crate itself). They are typically used at the top
-  of `lib.rs` or `mod.rs` to provide crate- or module-level documentation.[^9]
-  <!-- markdownlint-disable MD013 --> Within these comments, a code block is
-  denoted by triple backticks
-  (`). While rustdoc defaults to assuming the language is Rust, explicitly add the`
-   rust
-  ` language specifier for clarity.[^3] A doctest is considered to "pass" if it compiles successfully and runs to completion without panicking. To verify that a function produces a specific output, developers should use the standard assertion macros, such as `
-   assert!`,`assert_eq!`, and`assert_ne!`.[^3] <!-- markdownlint-enable MD013
-  -->
+- **Inner doc comments (`//!`)**: These document the item they are inside
+  (e.g., a module or the crate itself). They are typically used at the top of
+  `lib.rs` or `mod.rs` to provide crate- or module-level documentation.[^8]
+
+<!-- markdownlint-disable MD013 --> Within these comments, a code block is
+denoted by triple back-ticks (```). While `rustdoc` defaults to Rust syntax,
+explicitly add the `rust` language specifier for clarity.[^3] A doctest
+"passes" when it compiles and runs without panicking. To assert specific
+outcomes, use the standard macros `assert!`, `assert_eq!`, and
+`assert_ne!`.[^3] <!-- markdownlint-enable MD013 -->
 
 ### 2.2 The Philosophy of a Good Example
 
 The purpose of a documentation example extends beyond merely demonstrating
 syntax. A reader can typically be expected to understand the mechanics of
 calling a function or instantiating a struct. A truly valuable example
-illustrates *why* and in *what context* an item should be used.[^10] It should
+illustrates *why* and in *what context* an item should be used.[^9] It should
 tell a small story or solve a miniature problem that illuminates the item's
 purpose. For instance, an example for
 
 `String::clone()` should not just show `hello.clone();`, but should demonstrate
-a scenario where ownership rules necessitate creating a copy.[^10]
+a scenario where ownership rules necessitate creating a copy.[^9]
 
 To achieve this, examples must be clear and concise. Any code that is not
 directly relevant to the point being made—such as complex setup, boilerplate,
@@ -138,7 +138,7 @@ returns a `Result` or `Option`. This mismatch leads to a compilation error.[^3]
 
 Using `.unwrap()` or `.expect()` in examples is strongly discouraged. It is
 considered an anti-pattern because users often copy example code verbatim, and
-encouraging panicking on errors is contrary to robust application design.[^10]
+encouraging panicking on errors is contrary to robust application design.[^9]
 Instead, two canonical solutions exist.
 
 Solution 1: The Explicit main Function
@@ -166,7 +166,7 @@ Rust
 ```
 
 In this pattern, the reader only sees the core, fallible code, while the test
-itself is a complete, well-behaved program.[^10]
+itself is a complete, well-behaved program.[^9]
 
 Solution 2: The Implicit Result-Returning main
 
@@ -206,7 +206,7 @@ primary use cases include:
 1. **Hiding** `main` **Wrappers**: As demonstrated in the error-handling
    examples, the entire `fn main() -> Result<...> {... }` and `Ok(())`
    scaffolding can be hidden, presenting the user with only the relevant
-   code.[^10]
+   code.[^9]
 
 2. **Hiding Setup Code**: If an example requires some preliminary setup—like
    creating a temporary file, defining a helper struct for the test, or
@@ -221,7 +221,7 @@ The existence of features like hidden lines and the `(())` shorthand reveals a
 core tension in `rustdoc`'s design. The compilation model is rigid: every test
 must be a valid, standalone program.[^2] However, the ideal documentation
 example is often just a small, illustrative snippet that is not a valid program
-on its own.[^10] These ergonomic features are pragmatic "patches" designed to
+on its own.[^9] These ergonomic features are pragmatic "patches" designed to
 resolve this conflict. They allow the developer to inject the necessary
 boilerplate to satisfy the compiler without burdening the human reader with
 irrelevant details. Understanding them as clever workarounds, rather than as
@@ -305,7 +305,7 @@ flag provided by `rustdoc`: `doctest`. A common mistake is to try to place
 shared test logic in a block guarded by `#[cfg(test)]`. This will not work,
 because `rustdoc` does not enable the `test` configuration flag during its
 compilation process; `#[cfg(test)]` is reserved for unit and integration tests
-run directly by `cargo test`.[^12]
+run directly by `cargo test`.[^11]
 
 Instead, `rustdoc` sets its own unique `doctest` flag. By guarding a module or
 function with `#[cfg(doctest)]`, developers can write helper code that is
@@ -364,7 +364,7 @@ pub struct TestContext { /*... */ }
 
 This pattern is the most effective way to achieve DRY doctests. It centralizes
 setup logic, improves maintainability, and cleanly separates testing concerns
-from production code.[^12]
+from production code.[^11]
 
 ### 4.3 Advanced DRY: Programmatic Doctest Generation
 
@@ -378,7 +378,7 @@ Crates like `quote-doctest` address this by allowing developers to
 programmatically construct a doctest from a `TokenStream`. This enables the
 generation of doctests from the same source of truth that generates the code
 they are intended to test, representing the ultimate application of the DRY
-principle in this domain.[^14]
+principle in this domain.[^12]
 
 ## Conditional Compilation Strategies for Doctests
 
@@ -400,7 +400,7 @@ a Windows machine).
 **The Mechanism**: `rustdoc` always invokes the compiler with the `--cfg doc`
 flag set. By adding `doc` to an item's `#[cfg]` attribute, a developer can
 instruct the compiler to include that item specifically for documentation
-builds.[^15]
+builds.[^13]
 
 **The Pattern**:
 
@@ -421,7 +421,7 @@ This distinction highlights the "cfg duality." The `#[cfg(doc)]` attribute
 controls the *table of contents* of the documentation; it determines which
 items are parsed and rendered. The actual compilation of a doctest, however,
 happens in a separate, later stage. In that stage, the `doc` cfg is *not*
-passed to the compiler.[^15] The compiler only sees the host
+passed to the compiler.[^13] The compiler only sees the host
 
 `cfg` (e.g., `target_os = "windows"`), so the `UnixSocket` type is not
 available, and the test fails to compile. `#[cfg(doc)]` affects what is
@@ -458,7 +458,7 @@ Rust
 When the `"serde"` feature is disabled, the code inside the block is compiled
 out. The doctest becomes an empty program that runs, does nothing, and is
 reported as `ok`. While simple to write, this can be misleading, as the test
-suite reports a "pass" for a test that was effectively skipped.[^16]
+suite reports a "pass" for a test that was effectively skipped.[^14]
 
 Pattern 2: cfg_attr to Conditionally ignore the Test
 
@@ -483,7 +483,7 @@ With this pattern, if the `"serde"` feature is disabled, the test is marked as
 the feature is enabled, the `ignore` is omitted, and the test runs normally.
 This approach provides clearer feedback but is significantly more verbose and
 less ergonomic, especially when applied to outer (`///`) doc comments, as the
-`cfg_attr` must be applied to every single line of the comment.[^16]
+`cfg_attr` must be applied to every single line of the comment.[^14]
 
 ### 5.3 Displaying Feature Requirements in Docs: `#[doc(cfg(...))]`
 
@@ -507,7 +507,7 @@ pub fn function_requiring_serde() { /*... */ }
 This will render a banner in the documentation for `function_requiring_serde`
 that reads, "This is only available when the `serde` feature is enabled." This
 attribute is purely for documentation generation and is independent of, but
-often used alongside, the conditional test execution patterns.[^16]
+often used alongside, the conditional test execution patterns.[^14]
 
 ## Doctests in the Wider Project Ecosystem
 
@@ -576,25 +576,25 @@ real-world challenges when working with doctests.
   audiences. It needs to render cleanly on platforms like GitHub and
   [crates.io](http://crates.io), where hidden lines (`#...`) look like ugly,
   commented-out code. At the same time, it should contain testable examples,
-  which often require hidden lines for setup.[^11] The best practice is to
+  which often require hidden lines for setup.[^10] The best practice is to
   avoid maintaining the README manually. Instead, use a tool like
 
   `cargo-readme`. This tool generates a `README.md` file from the crate-level
   documentation (in `lib.rs`), automatically stripping out the hidden lines.
   This provides a single source of truth that is both fully testable via
   `cargo test --doc` and produces a clean, professional README for external
-  sites.[^11]
+  sites.[^10]
 
 - **Developer Ergonomics in IDEs**: Writing code inside documentation comments
   can be a subpar experience. IDEs and tools like `rust-analyzer` often provide
   limited or no autocompletion, real-time error checking, or refactoring
-  support for code within a comment block.[^18] A common and effective workflow
+  support for code within a comment block.[^15] A common and effective workflow
   to mitigate this is to first write and debug the example as a standard
 
   `#[test]` function in a temporary file or test module. This allows the
   developer to leverage the full power of the IDE. Once the code is working
   correctly, it can be copied into the doc comment, and the necessary
-  formatting (`///`, `#`, etc.) can be applied.[^18]
+  formatting (`///`, `#`, etc.) can be applied.[^15]
 
 ## Conclusion and Recommendations
 
@@ -605,9 +605,9 @@ have evolved to manage its constraints, developers can write doctests that are
 effective, ergonomic, and maintainable. To summarize the key principles for
 mastering doctests:
 
-1. **Embrace the Model**: Always remember that a doctest is an external
-   integration test compiled in a separate crate. This mental model explains
-   nearly all of its behaviour.
+1. **Embrace the Model**: Treat a doctest as an external integration test
+   compiled in a separate crate; this mental model explains nearly all of its
+   behaviour.
 
 2. **Prioritize Clarity**: Write examples that teach the *why*, not just the
    *how*. Use hidden lines (`#`) ruthlessly to eliminate boilerplate and focus
@@ -647,29 +647,29 @@ July 15, 2025, <https://doc.rust-lang.org/rustdoc/documentation-tests.html>
 [^6]: How to organize your Rust tests - LogRocket Blog, accessed on July 15,
 2025, <https://blog.logrocket.com/how-to-organize-rust-tests/>
 <https://www.reddit.com/r/rust/comments/qk77iu/best_way_to_organise_tests_in_rust/>
-[^8]: Writing Rust Documentation - DEV Community, accessed on July 15, 2025,
+[^7]: Writing Rust Documentation - DEV Community, accessed on July 15, 2025,
 <https://dev.to/gritmax/writing-rust-documentation-5hn5>
-[^9]: The rustdoc book, accessed on July 15, 2025,
+[^8]: The rustdoc book, accessed on July 15, 2025,
 <https://doc.rust-lang.org/rustdoc/what-is-rustdoc.html>
-[^10]: Documentation - Rust API Guidelines, accessed on July 15, 2025,
+[^9]: Documentation - Rust API Guidelines, accessed on July 15, 2025,
 <https://rust-lang.github.io/api-guidelines/documentation.html>
-[^11]: Best practice for doc testing README - help - The Rust Programming
+[^10]: Best practice for doc testing README - help - The Rust Programming
        Language Forum, accessed on July 15, 2025,
        <https://users.rust-lang.org/t/best-practice-for-doc-testing-readme/114862>
-[^12]: Compile_fail doc test ignored in cfg(test) - help - The Rust Programming
+[^11]: Compile_fail doc test ignored in cfg(test) - help - The Rust Programming
 Language Forum, accessed on July 15, 2025,
 <https://users.rust-lang.org/t/compile-fail-doc-test-ignored-in-cfg-test/124927>
 accessed on July 15, 2025,
 <https://users.rust-lang.org/t/test-setup-for-doctests/50426>
-[^14]: quote_doctest - Rust - [Docs.rs](http://Docs.rs), accessed on July 15,
+[^12]: quote_doctest - Rust - [Docs.rs](http://Docs.rs), accessed on July 15,
 2025, <https://docs.rs/quote-doctest>
-[^15]: Advanced features - The rustdoc boOK - Rust Documentation, accessed on
+[^13]: Advanced features - The rustdoc boOK - Rust Documentation, accessed on
        July 15, 2025, <https://doc.rust-lang.org/rustdoc/advanced-features.html>
-[^16]: rust - How can I conditionally execute a module-level doctest based …,
+[^14]: rust - How can I conditionally execute a module-level doctest based …,
 accessed on July 15, 2025,
 <https://stackoverflow.com/questions/50312190/how-can-i-conditionally-execute-a-module-level-doctest-based-on-a-feature-flag>
  have doctests?, accessed on July 15, 2025,
 <https://stackoverflow.com/questions/38292741/how-would-one-achieve-conditional-compilation-with-rust-projects-that-have-docte>
-[^18]: How do you write your doc tests? : r/rust - Reddit, accessed on July 15,
+[^15]: How do you write your doc tests? : r/rust - Reddit, accessed on July 15,
 2025,
 <https://www.reddit.com/r/rust/comments/ke438a/how_do_you_write_your_doc_tests/>

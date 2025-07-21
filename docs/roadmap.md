@@ -128,7 +128,7 @@ lifecycle control.
 - [x] **Lifecycle Hooks:**
 
   - [x] Implement `on_connect` and `on_disconnect` hooks for session
-    initialisation and cleanup (`src/hooks.rs`).
+    initialization and cleanup (`src/hooks.rs`).
 
   - [x] Write tests to verify lifecycle hook behaviour (`tests/lifecycle.rs`).
 
