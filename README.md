@@ -316,7 +316,7 @@ applications【F:docs/roadmap.md†L1-L24】.
 ## Licence
 
 Wireframe is distributed under the terms of the ISC licence. See
-[LICENCE](LICENSE) for details.
+[LICENSE](LICENSE) for details.
 
 [data-extraction-guide]:
 docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety
