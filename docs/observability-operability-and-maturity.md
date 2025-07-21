@@ -2,11 +2,12 @@
 
 ## 1. Introduction: Beyond Functional Correctness
 
-A library is functionally correct when it performs its specified tasks according
-to its API. A library is *mature* when it anticipates the realities of its
-operational environment. For a low-level networking framework like `wireframe`,
-this means acknowledging that production systems are complex, failures are
-inevitable, and visibility into runtime behaviour is non-negotiable.
+A library is functionally correct when it performs its specified tasks
+according to its API. A library is *mature* when it anticipates the realities
+of its operational environment. For a low-level networking framework like
+`wireframe`, this means acknowledging that production systems are complex,
+failures are inevitable, and visibility into runtime behaviour is
+non-negotiable.
 
 This guide details the cross-cutting strategies that will elevate `wireframe`
 from a simple toolkit to a production-grade, operationally mature framework. It
@@ -35,9 +36,9 @@ first-class feature of `wireframe` 1.0.
 
 ### 2.1 The `tracing` Span Hierarchy
 
-`tracing`'s key innovation is the `span`, which represents a unit of work with a
-distinct beginning and end. By nesting spans, we can create a causal chain of
-events, allowing us to understand how work flows through the system, even across
+`tracing`'s key innovation is the `span`, which represents a unit of work with
+a distinct beginning and end. Nesting spans creates a causal chain of events,
+enabling an understanding of how work flows through the system, even across
 asynchronous boundaries and threads. `wireframe` will adopt a standard span
 hierarchy.
 
@@ -78,15 +79,15 @@ async fn run_connection_actor(
 
 ```
 
-**Measurable Objective:** Every spawned task and connection actor in the library
-must be instrumented with a `tracing` span containing relevant, queryable
-identifiers (e.g., `connection_id`, `peer_addr`).
+**Measurable Objective:** Every spawned task and connection actor in the
+library must be instrumented with a `tracing` span containing relevant,
+queryable identifiers (e.g., `connection_id`, `peer_addr`).
 
 ### 2.2 Structured Lifecycle Events
 
 Within each span, we will emit structured events at critical points in the
-connection lifecycle. Using structured key-value pairs (`field = value`) instead
-of simple strings allows logs to be automatically parsed, queried, and
+connection lifecycle. Using structured key-value pairs (`field = value`)
+instead of simple strings allows logs to be automatically parsed, queried, and
 aggregated by modern logging platforms.
 
 **Implementation Example:** Logging key events.
@@ -187,9 +188,9 @@ must exit with a success code.
 
 ### 3.2 Intelligent Error Handling with Typed Errors
 
-Conflating unrecoverable transport errors with recoverable protocol errors makes
-robust error handling impossible. `wireframe` will provide a generic error enum
-to give developers the necessary information to react intelligently.
+Conflating unrecoverable transport errors with recoverable protocol errors
+makes robust error handling impossible. `wireframe` will provide a generic
+error enum to give developers the necessary information to react intelligently.
 
 **Implementation:**
 
@@ -208,19 +209,19 @@ pub enum WireframeError<E> {
 ```
 
 When a handler's response stream yields a `WireframeError::Protocol(e)`, the
-connection actor can pass this typed error to a protocol-specific callback. This
-allows the implementation to serialize a proper error frame (e.g., an SQL error
-code) and send it to the client before terminating the current operation, rather
-than just abruptly closing the connection.
+connection actor can pass this typed error to a protocol-specific callback.
+This allows the implementation to serialize a proper error frame (e.g., an SQL
+error code) and send it to the client before terminating the current operation,
+rather than just abruptly closing the connection.
 
 ### 3.3 Resilient Messaging with Dead Letter Queues (DLQ)
 
 For applications where dropping a pushed message is not an option (e.g.,
 critical audit logs), `wireframe` will support an optional Dead Letter Queue.
 
-**Implementation:** The `WireframeApp` builder will accept an `mpsc::Sender` for
-a DLQ. If a push fails because the primary queue is full, the frame is routed to
-this sender instead of being dropped.
+**Implementation:** The `WireframeApp` builder will accept an `mpsc::Sender`
+for a DLQ. If a push fails because the primary queue is full, the frame is
+routed to this sender instead of being dropped.
 
 ```rust
 // Inside PushHandle, when try_send fails with a full queue
@@ -292,8 +293,8 @@ abstraction model.
 ### 4.2 A Commitment to Quality Assurance
 
 A mature library demonstrates its commitment to quality through a rigorous and
-multi-faceted testing strategy that goes beyond simple unit tests. `wireframe`'s
-QA process will be a core part of its development.
+multi-faceted testing strategy that goes beyond simple unit tests.
+`wireframe`'s QA process will be a core part of its development.
 
 - **Stateful Property Testing (**`proptest`**):** For verifying complex,
   stateful protocol conversations, ensuring that thousands of random-but-valid
@@ -305,8 +306,8 @@ QA process will be a core part of its development.
   cannot.
 
 - **Performance Benchmarking (**`criterion`**):** To quantify the performance
-  impact of new features and prevent regressions, a comprehensive suite of micro
-  and macro benchmarks will be maintained.
+  impact of new features and prevent regressions, a comprehensive suite of
+  micro and macro benchmarks will be maintained.
 
 For more detailed information and comprehensive, worked examples of these
 testing methodologies, please refer to the companion document, *Wireframe: A

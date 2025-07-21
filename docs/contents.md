@@ -29,8 +29,11 @@ reference when navigating the project's design and architecture material.
 - [Wireframe 1.0 roadmap](wireframe-1-0-detailed-development-roadmap.md)
   Detailed tasks leading to Wireframe 1.0.
 - [Project roadmap](roadmap.md) High-level development roadmap.
-- [1.0 philosophy](the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md)
-  Philosophy and feature set for Wireframe 1.0.
+<!-- markdownlint-disable-next-line MD013 -->
+- [1.0 philosophy][philosophy] Philosophy and feature set for Wireframe 1.0.
+
+[philosophy]:
+the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 
 ## Testing
 

@@ -83,7 +83,8 @@ WireframeServer::new(|| {
 ```
 
 This example showcases how derive macros and the framing abstraction simplify a
-binary protocol server【F:docs/rust-binary-router-library-design.md†L1126-L1156】.
+binary protocol
+server【F:docs/rust-binary-router-library-design.md†L1126-L1156】.
 
 ## Custom Envelopes
 
@@ -187,10 +188,10 @@ let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 
 ## Session Registry
 
-The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for active
-connections. Background tasks can look up a handle by \[`ConnectionId`\] to send
-frames asynchronously without keeping the connection alive. Stale entries are
-removed automatically when looked up and found to be dead. Call
+The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for
+active connections. Background tasks can look up a handle by \[`ConnectionId`\]
+to send frames asynchronously without keeping the connection alive. Stale
+entries are removed automatically when looked up and found to be dead. Call
 `active_handles()` to iterate over live sessions for broadcast or diagnostics.
 
 ```rust
@@ -219,8 +220,8 @@ access app state or expose peer information.
 
 Custom extractors let you centralize parsing and validation logic that would
 otherwise be duplicated across handlers. A session token parser, for example,
-can verify the token before any route-specific code executes
-[Design Guide: Data Extraction and Type Safety][data-extraction-guide].
+can verify the token before any route-specific code executes [Design Guide:
+Data Extraction and Type Safety][data-extraction-guide].
 
 ```rust
 use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
@@ -309,11 +310,13 @@ production use.
 
 Development priorities are tracked in [docs/roadmap.md](docs/roadmap.md). Key
 tasks include building the Actix‑inspired API, implementing middleware and
-extractor traits, and providing example applications【F:docs/roadmap.md†L1-L24】.
+extractor traits, and providing example
+applications【F:docs/roadmap.md†L1-L24】.
 
-## License
+## Licence
 
-Wireframe is distributed under the terms of the ISC license. See
+Wireframe is distributed under the terms of the ISC licence. See
 [LICENSE](LICENSE) for details.
 
-[data-extraction-guide]: docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety
+[data-extraction-guide]:
+docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety

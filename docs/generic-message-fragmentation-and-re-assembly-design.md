@@ -10,14 +10,14 @@ which processes one inbound frame to one logical frame, cannot handle this.
 
 This document details the design for a generic, protocol-agnostic fragmentation
 and re-assembly layer. The core philosophy is to treat this as a **transparent
-middleware**. Application-level code, such as handlers, should remain unaware of
-the underlying fragmentation, dealing only with complete, logical messages. This
-new layer will be responsible for automatically splitting oversized outbound
-frames and meticulously re-assembling inbound fragments into a single, coherent
-message before they reach the router.
+middleware**. Application-level code, such as handlers, should remain unaware
+of the underlying fragmentation, dealing only with complete, logical messages.
+This new layer will be responsible for automatically splitting oversized
+outbound frames and meticulously re-assembling inbound fragments into a single,
+coherent message before they reach the router.
 
-This feature is a critical component of the "Road to Wireframe 1.0," designed to
-seamlessly integrate with and underpin the streaming and server-push
+This feature is a critical component of the "Road to Wireframe 1.0," designed
+to seamlessly integrate with and underpin the streaming and server-push
 capabilities.
 
 ## 2. Design Goals & Requirements
@@ -27,7 +27,7 @@ The implementation must satisfy the following core requirements:
 <!-- markdownlint-disable MD013 -->
 
 | ID | Goal                                                                                                                                                                                                                   |
-| -- | ------------------ |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | G1 | Transparent inbound re-assembly → The router and handlers must always receive one complete, logical Frame.                                                                                                             |
 | G2 | Transparent outbound fragmentation when a payload exceeds a configurable, protocol-specific size.                                                                                                                      |
 | G3 | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
@@ -51,14 +51,12 @@ uncompressed data, as required by most protocol specifications.
 
 ### 3.1 State Management for Multiplexing
 
-A critical requirement for modern protocols is the ability to handle interleaved
-fragments from different logical messages on the same connection. To support
-this, the `FragmentAdapter` will not maintain a single re-assembly state, but a
-map of concurrent re-assembly processes.
+A critical requirement for modern protocols is the ability to handle
+interleaved fragments from different logical messages on the same connection.
+To support this, the `FragmentAdapter` will not maintain a single re-assembly
+state, but a map of concurrent re-assembly processes.
 
-Rust
-
-```
+```Rust
 use dashmap::DashMap;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
@@ -98,12 +96,10 @@ inject their specific fragmentation rules into the generic `FragmentAdapter`.
 
 ### 4.1 Trait Definition
 
-The trait is designed to be context-aware and expressive, allowing it to model a
-wide range of protocols.
+The trait is designed to be context-aware and expressive, allowing it to model
+a wide range of protocols.
 
-Rust
-
-```
+```Rust
 use bytes::BytesMut;
 use std::io;
 
@@ -162,9 +158,7 @@ pub trait FragmentStrategy: 'static + Send + Sync {
 Developers will enable fragmentation by adding the `FragmentAdapter` to their
 `FrameProcessor` chain via the `WireframeApp` builder.
 
-Rust
-
-```
+```Rust
 // Example: Configuring a server for MySQL-style fragmentation.
 WireframeServer::new(|| {
     WireframeApp::new()
@@ -181,8 +175,8 @@ WireframeServer::new(|| {
 
 ### 5.1 Inbound Path (Re-assembly)
 
-The re-assembly logic is the most complex part of the feature and must be robust
-against errors and attacks.
+The re-assembly logic is the most complex part of the feature and must be
+robust against errors and attacks.
 
 1. **Header Decoding:** The adapter reads from the socket buffer and calls
    `strategy.decode_header()`. If it returns `Ok(None)`, it waits for more data.
@@ -220,8 +214,8 @@ against errors and attacks.
      - The new payload is appended to the buffer.
 
    - **Final Fragment:** If `meta.is_final` is true, the full payload is
-     extracted from the `PartialMessage`, the entry is removed from the map, and
-     the complete logical frame is passed down the processor chain.
+     extracted from the `PartialMessage`, the entry is removed from the map,
+     and the complete logical frame is passed down the processor chain.
 
 4. **Timeout Handling:** A separate, low-priority background task within the
    `FragmentAdapter` will periodically iterate over the `reassembly_buffers`,
@@ -273,7 +267,7 @@ This feature is designed as a foundational layer that other features build upon.
 <!-- markdownlint-disable MD013 -->
 
 | Category        | Objective                                                                                                                                   | Success Metric                                                                                                                                                                    |
-| --------------- | --------- | -------------------- |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                       | 100% of the public API surface is present and correctly typed.                                                                                                                    |
 | Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly re-assembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a 64 MiB payload after being fragmented and re-assembled.                                                                   |
 | Multiplexing    | The adapter can correctly re-assemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly re-assembled messages, A and B.                                                                      |

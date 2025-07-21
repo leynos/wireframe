@@ -4,22 +4,22 @@
 
 For a low-level networking library like `wireframe`, resilience is not an
 optional extra; it is a core, non-functional requirement. A library that is
-functionally correct but brittle under load, susceptible to resource exhaustion,
-or unable to terminate cleanly is not fit for production. This guide details the
-comprehensive strategy for hardening `wireframe`, transforming it into a
-framework that is robust by default.
+functionally correct but brittle under load, susceptible to resource
+exhaustion, or unable to terminate cleanly is not fit for production. This
+guide details the comprehensive strategy for hardening `wireframe`,
+transforming it into a framework that is robust by default.
 
 This document is targeted at implementers. It moves beyond theoretical
 discussion to provide concrete, actionable patterns and code for building a
-resilient system. The philosophy is simple: anticipate failure, manage resources
-meticulously, and provide clear mechanisms for control and recovery. We will
-cover three critical domains: coordinated shutdown, leak-proof resource
-management, and denial-of-service mitigation.
+resilient system. The philosophy is simple: anticipate failure, manage
+resources meticulously, and provide clear mechanisms for control and recovery.
+This guide covers three critical domains: coordinated shutdown, leak-proof
+resource management, and denial-of-service mitigation.
 
 ## 2. Coordinated, Graceful Shutdown
 
-A network service that cannot shut down cleanly leaks resources, corrupts state,
-and provides a poor experience for clients. `wireframe` will implement a
+A network service that cannot shut down cleanly leaks resources, corrupts
+state, and provides a poor experience for clients. `wireframe` will implement a
 canonical, proactive shutdown pattern, ensuring that termination is an orderly
 and reliable process.
 
@@ -29,21 +29,21 @@ The core mechanism relies on two primitives from the `tokio` ecosystem:
 `tokio_util::sync::CancellationToken` for signalling and
 `tokio_util::task::TaskTracker` for synchronisation.
 
-- `CancellationToken`**:** A single root token is created at server startup.
+- `CancellationToken`: A single root token is created at server startup.
   This token is cloned and distributed to every spawned task, including
   connection actors and any user-defined background workers. When the server
-  needs to shut down (e.g., on receipt of `SIGINT`), it calls `.cancel()` on the
-  root token, a signal that is immediately visible to all clones.
+  needs to shut down (e.g., on receipt of `SIGINT`), it calls `.cancel()` on
+  the root token, a signal that is immediately visible to all clones.
 
-- `TaskTracker`**:** The server uses a `TaskTracker` to `spawn` all tasks. After
-  triggering cancellation, the main server task calls `tracker.close()` and then
-  `tracker.wait().await`. This call will only resolve once every single tracked
-  task has completed, guaranteeing that no tasks are orphaned.
+- `TaskTracker`: The server uses a `TaskTracker` to `spawn` all tasks. After
+  triggering cancellation, the main server task calls `tracker.close()` and
+  then `tracker.wait().await`. This call will only resolve once every single
+  tracked task has completed, guaranteeing that no tasks are orphaned.
 
 ### 2.2 Implementation in the Connection Actor
 
-Every long-running loop within `wireframe` must be made cancellation-aware. This
-is achieved by adding a high-priority branch to every `select!` macro.
+Every long-running loop within `wireframe` must be made cancellation-aware.
+This is achieved by adding a high-priority branch to every `select!` macro.
 
 #### Example: The Main Connection Actor Loop
 
@@ -307,8 +307,8 @@ pub enum WireframeError<E> {
 
 When the connection actor receives a `WireframeError::Protocol(e)` from a
 response stream, it can pass this typed error to a protocol-specific callback.
-This allows the protocol implementation to serialize a proper error frame (e.g.,
-an SQL error code) to send to the client before terminating the current
+This allows the protocol implementation to serialize a proper error frame
+(e.g., an SQL error code) to send to the client before terminating the current
 operation, rather than just abruptly closing the connection.
 
 ### 5.2 Dead Letter Queues (DLQ) for Guaranteed Pushing

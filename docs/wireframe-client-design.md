@@ -1,9 +1,9 @@
 # Client Support in Wireframe
 
-This document proposes an initial design for adding client-side protocol support
-to `wireframe`. The goal is to reuse the existing framing, serialization, and
-message abstractions while providing a small API for connecting to a server and
-exchanging messages.
+This document proposes an initial design for adding client-side protocol
+support to `wireframe`. The goal is to reuse the existing framing,
+serialization, and message abstractions while providing a small API for
+connecting to a server and exchanging messages.
 
 ## Motivation
 
@@ -11,16 +11,15 @@ The library currently focuses on server development. However, the core layers
 are intentionally generic: transport adapters, framing, serialization, routing,
 and middleware form a pipeline that is largely independent of server-specific
 logic. The design document outlines these layers, which process frames from raw
-bytes to typed messages and back
-again【F:docs/rust-binary-router-library-design.md†L316-L371】. By reusing these
-pieces, we can implement a lightweight client without duplicating protocol code.
+bytes to typed messages and back[^1]. Reusing these pieces enables the
+implementation of a lightweight client without duplicating protocol code.
 
 ## Core Components
 
 ### `WireframeClient`
 
-A new `WireframeClient` type manages a single connection to a server. It mirrors
-`WireframeServer` but operates in the opposite direction:
+A new `WireframeClient` type manages a single connection to a server. It
+mirrors `WireframeServer` but operates in the opposite direction:
 
 - Connect to a `TcpStream`.
 - Optionally, send a preamble using the existing `Preamble` helpers.
@@ -93,3 +92,5 @@ extensions might include:
 By leveraging the existing abstractions for framing and serialization, client
 support can share most of the server’s implementation while providing a small
 ergonomic API.
+[^1]: See [wireframe router
+                  design](rust-binary-router-library-design.md#implementation-details).
