@@ -878,8 +878,9 @@ and verifying a session token from a custom frame header) to be encapsulated
 into reusable components. This further reduces code duplication across multiple
 handlers and keeps the handler functions lean and focused on their specific
 business tasks, mirroring the benefits seen with Actix Web's `FromRequest`
+trait.
 
-```trait.
+```mermaid
 classDiagram
     class FromMessageRequest {
         <<trait>>
@@ -1051,8 +1052,9 @@ will provide a comprehensive error handling strategy.
 - `WireframeError`: A top-level public error enum will be defined to encompass
   all possible errors that can occur within the "wireframe" system. This
   provides a single error type that users can match on for top-level error
+  management.
 
-```management.
+```rust
   pub enum WireframeError {
       Io(std::io::Error),
       Framing(FramingError),
