@@ -214,7 +214,7 @@ primary use cases include:
    on the API item being documented.[^3]
 
 3. **Hiding** `use` **Statements**: While often useful to show which types are
-   involved, `use` statements can sometimes be hidden to de-clutter very simple
+   involved, `use` statements can sometimes be hidden to de-clutter simple
    examples.
 
 The existence of features like hidden lines and the `(())` shorthand reveals a
@@ -557,8 +557,8 @@ workarounds, but each comes with significant trade-offs[^1]:
 3. **Use** `cfg_attr` **to conditionally make items public**: This involves
    adding an attribute like
    `#[cfg_attr(feature = "doctest-private", visibility::make(pub))]` to every
-   private item you wish to test. While robust, it is highly invasive and adds
-   significant boilerplate throughout the codebase.
+   private item that requires testing. While robust, it is highly invasive and
+   adds significant boilerplate throughout the codebase.
 
 The expert recommendation is to acknowledge this limitation and not fight the
 tool. Do not compromise a clean API design for the sake of doctests. Use

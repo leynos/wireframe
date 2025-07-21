@@ -268,9 +268,9 @@ The development of "wireframe" adheres to the following principles:
   it handles beyond the assumption of a frame-based structure. Users should be
   able to define their own framing logic and message types.
 - **Performance**: Leveraging Rust's inherent performance characteristics is
-  crucial.2 While developer ergonomics is a primary focus, the design must
-  avoid introducing unnecessary overhead. Asynchronous operations, powered by a
-  runtime like Tokio, are essential for efficient I/O and concurrency.
+  crucial.[^perf] While developer ergonomics is a primary focus, the design
+  must avoid introducing unnecessary overhead. Asynchronous operations, powered
+  by a runtime like Tokio, are essential for efficient I/O and concurrency.
 - **Safety**: The library will harness Rust's strong type system and ownership
   model to prevent common networking bugs, such as data races and
   use-after-free errors, contributing to more reliable software.
@@ -329,7 +329,7 @@ handling to be managed and customized independently.
   built-in framing logic, potentially by implementing traits like Tokio's
   `Decoder` and `Encoder`.
 - **Deserialization/Serialization Engine**: This engine converts the byte
-  payload of incoming frames into strongly-typed Rust data structures
+  payload of incoming frames into strongly typed Rust data structures
   (messages) and serializes outgoing Rust messages into byte payloads for
   outgoing frames. This is the primary role intended for `wire-rs` 6 or an
   alternative like `bincode` 11 or `postcard`.12 A minimal wrapper trait in the
@@ -1600,3 +1600,5 @@ crucial next steps to validate this approach and refine the library's features
 into a valuable tool for the Rust ecosystem.
 [^wire-rs]: <https://crates.io/crates/wire-rs>
 [^actix-web]: Actix Web 4 – <https://docs.rs/actix-web>
+[^perf]: See *Rust Performance Book* –
+         <https://nnethercote.github.io/perf-book/>

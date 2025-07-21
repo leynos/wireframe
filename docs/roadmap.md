@@ -171,7 +171,7 @@ production environments.
   - [ ] Use `loom` for concurrency testing of shared state
     (`tests/advanced/concurrency_loom.rs`).
 
-## Phase 6: Application-Level Streaming (Multi-Packet Responses) (Priority Focus)
+## Phase 6: Multi-Packet Streaming Responses (Priority Focus)
 
 This is the next major feature set. It enables a handler to return multiple,
 distinct messages over time in response to a single request, forming a logical
