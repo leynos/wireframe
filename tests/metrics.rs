@@ -1,23 +1,51 @@
-use metrics_util::debugging::DebuggingRecorder;
-use tokio_util::sync::CancellationToken;
-use wireframe::{connection::ConnectionActor, push::PushQueues};
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
-#[tokio::test]
-async fn outbound_frame_metric_increments() {
+fn snapshotter() -> (Snapshotter, DebuggingRecorder) {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
-    recorder.install().expect("install");
+    (snapshotter, recorder)
+}
 
-    let (queues, handle) = PushQueues::<u8>::bounded(1, 1);
-    handle.push_high_priority(1).await.unwrap();
-    let token = CancellationToken::new();
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, token);
-    let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+#[test]
+fn outbound_frame_metric_increments() {
+    let (snapshotter, recorder) = snapshotter();
+    metrics::with_local_recorder(&recorder, || {
+        wireframe::metrics::inc_frames(wireframe::metrics::Direction::Outbound);
+    });
 
     let metrics = snapshotter.snapshot().into_vec();
     let found = metrics
         .iter()
         .any(|(k, ..)| k.key().name() == wireframe::metrics::FRAMES_PROCESSED);
     assert!(found, "frames_processed metric not recorded");
+}
+
+#[test]
+fn inbound_frame_metric_increments() {
+    let (snapshotter, recorder) = snapshotter();
+    metrics::with_local_recorder(&recorder, || {
+        wireframe::metrics::inc_frames(wireframe::metrics::Direction::Inbound);
+    });
+
+    let metrics = snapshotter.snapshot().into_vec();
+    let found = metrics.iter().any(|(k, _, _, v)| {
+        k.key().name() == wireframe::metrics::FRAMES_PROCESSED
+            && k.key().labels().any(|l| l.key() == "direction" && l.value() == "inbound")
+            && matches!(v, DebugValue::Counter(c) if *c > 0)
+    });
+    assert!(found, "inbound frames metric not recorded");
+}
+
+#[test]
+fn error_metric_increments() {
+    let (snapshotter, recorder) = snapshotter();
+    metrics::with_local_recorder(&recorder, || {
+        wireframe::metrics::inc_deser_errors();
+    });
+
+    let metrics = snapshotter.snapshot().into_vec();
+    let found = metrics
+        .iter()
+        .any(|(k, ..)| k.key().name() == wireframe::metrics::ERRORS_TOTAL);
+    assert!(found, "error metric not recorded");
 }

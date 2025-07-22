@@ -285,18 +285,9 @@ A production system is a black box without good instrumentation. `wireframe`
 
   - `wireframe_reassembly_errors_total` (Counter)
 
-Metrics are emitted using the `metrics` crate. A `PrometheusBuilder` can
-install a global recorder so external systems may scrape the values. The
-example below exposes a minimal recorder:
-
-```rust
-use metrics_exporter_prometheus::PrometheusBuilder;
-
-let handle = PrometheusBuilder::new()
-    .install_recorder()
-    .expect("install recorder");
-println!("{}", handle.render());
-```
+Metrics are emitted using the optional `metrics` feature. See
+[`wireframe::metrics`] for a Prometheus recorder example. All instrumentation
+is gated behind this feature so users can opt out if metrics are unnecessary.
 
 ```mermaid
 sequenceDiagram

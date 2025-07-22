@@ -434,7 +434,7 @@ where
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
                 self.hooks.on_command_end(&mut self.ctx);
-                crate::metrics::inc_errors();
+                crate::metrics::inc_handler_errors();
             }
             Some(Err(e)) => return Err(e),
             None => {
