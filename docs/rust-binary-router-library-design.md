@@ -16,12 +16,12 @@ This report outlines the design of "wireframe," a novel Rust library aimed at
 substantially reducing source code complexity when building applications that
 handle arbitrary frame-based binary wire protocols. The design draws
 inspiration from the ergonomic API of Actix Web 4, a popular Rust web framework
-known for its intuitive routing, data extraction, and middleware
-systems.[^actix-web] "wireframe" intends to adapt these successful patterns to
-the domain of binary protocols.
+known for its intuitive routing, data extraction, and middleware systems.[^1]
+"wireframe" intends to adapt these successful patterns to the domain of binary
+protocols.
 
-A key aspect of the proposed design is the utilization of `wire-rs`[^wire-rs]
-for message serialization and deserialization, contingent upon its ability to
+A key aspect of the proposed design is the utilization of `wire-rs`[^2] for
+message serialization and deserialization, contingent upon its ability to
 support or be augmented with derivable `Encode` and `Decode` traits. This,
 combined with a layered architecture and high-level abstractions, seeks to
 provide developers with a more declarative and less error-prone environment for
@@ -73,25 +73,24 @@ dealing with wire protocols. Several Rust crates offer solutions in this space,
 each with distinct characteristics.
 
 - `wire-rs`: The user query specifically suggests considering
-  `wire-rs`.[^wire-rs] This library provides an extensible interface for
-  converting data to and from wire protocols, supporting non-contiguous buffers
-  and `no_std` environments. It features `WireReader` and `WireWriter` for
-  manual data reading and writing, with explicit control over
-  endianness.[^wire-rs] However, the available information does not clearly
-  indicate the presence or nature of derivable `Encode` and `Decode` traits for
-  automatic (de)serialization of complex types.[^wire-rs] The ability to
-  automatically generate (de)serialization logic via derive macros is crucial
-  for achieving "wireframe's" goal of reducing source code complexity. If such
-  derive macros are not a core feature of `wire-rs`, "wireframe" would need to
-  either contribute them, provide its own wrapper traits that enable derivation
-  while using `wire-rs` internally, or consider alternative serialization
-  libraries.
+  `wire-rs`.[^2] This library provides an extensible interface for converting
+  data to and from wire protocols, supporting non-contiguous buffers and
+  `no_std` environments. It features `WireReader` and `WireWriter` for manual
+  data reading and writing, with explicit control over endianness.[^2] However,
+  the available information does not clearly indicate the presence or nature of
+  derivable `Encode` and `Decode` traits for automatic (de)serialization of
+  complex types.[^2] The ability to automatically generate (de)serialization
+  logic via derive macros is crucial for achieving "wireframe's" goal of
+  reducing source code complexity. If such derive macros are not a core feature
+  of `wire-rs`, "wireframe" would need to either contribute them, provide its
+  own wrapper traits that enable derivation while using `wire-rs` internally,
+  or consider alternative serialization libraries.
 
 - `bincode`: `bincode` is a widely used binary serialization library that
-  integrates well with Serde.8 It offers high performance and configurable
-  options for endianness and integer encoding.10 `bincode` 2.0 makes Serde an
+  integrates well with Serde.[^3] It offers high performance and configurable
+  options for endianness and integer encoding.[^4] `bincode` 2.0 makes Serde an
   optional dependency and provides its own `Encode`/`Decode` traits that can be
-  derived.11 Its flexibility and performance make it a strong candidate if
+  derived.[^5] Its flexibility and performance make it a strong candidate if
   `wire-rs` proves unsuitable for derivable (de)serialization. The choice
   between fixed-width integers and Varint encoding offers trade-offs in terms
   of size and speed.
@@ -268,9 +267,9 @@ The development of "wireframe" adheres to the following principles:
   it handles beyond the assumption of a frame-based structure. Users should be
   able to define their own framing logic and message types.
 - **Performance**: Leveraging Rust's inherent performance characteristics is
-  crucial.[^perf] While developer ergonomics is a primary focus, the design
-  must avoid introducing unnecessary overhead. Asynchronous operations, powered
-  by a runtime like Tokio, are essential for efficient I/O and concurrency.
+  crucial.[^6] While developer ergonomics is a primary focus, the design must
+  avoid introducing unnecessary overhead. Asynchronous operations, powered by a
+  runtime like Tokio, are essential for efficient I/O and concurrency.
 - **Safety**: The library will harness Rust's strong type system and ownership
   model to prevent common networking bugs, such as data races and
   use-after-free errors, contributing to more reliable software.
@@ -509,9 +508,9 @@ complexity that "wireframe" aims to simplify.
   The preferred approach is to utilize wire-rs 6 as the underlying
   serialization and deserialization engine. However, this is critically
   dependent on wire-rs supporting, or being extended to support, derivable
-  Encode and Decode traits (e.g., through #). The ability to automatically
-  generate this logic from struct/enum definitions is paramount. Manual
-  serialization/deserialization using WireReader::read_u32(),
+  `Encode`/`Decode` traits (e.g., through `wireframe_derive`). The ability to
+  automatically generate this logic from struct/enum definitions is paramount.
+  Manual serialization/deserialization using WireReader::read_u32(),
   WireWriter::write_string(), etc., for every field would not meet the
   complexity reduction goals.
 
@@ -1598,7 +1597,9 @@ integration with a (de)serialization library offering derivable traits and the
 Actix-like API components, along with gathering community feedback, will be
 crucial next steps to validate this approach and refine the library's features
 into a valuable tool for the Rust ecosystem.
-[^wire-rs]: <https://crates.io/crates/wire-rs>
-[^actix-web]: Actix Web 4 – <https://docs.rs/actix-web>
-[^perf]: See *Rust Performance Book* –
-         <https://nnethercote.github.io/perf-book/>
+[^1]: Actix Web 4 – <https://docs.rs/actix-web>
+[^2]: <https://crates.io/crates/wire-rs>
+[^3]: Serde framework – <https://serde.rs>
+[^4]: *bincode* configuration – <https://docs.rs/bincode>
+[^5]: Derivable traits in *bincode* 2 – <https://docs.rs/bincode>
+[^6]: See *Rust Performance Book* – <https://nnethercote.github.io/perf-book/>

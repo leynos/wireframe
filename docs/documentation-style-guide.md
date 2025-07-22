@@ -26,12 +26,13 @@ these rules to keep the documentation clear and consistent for developers.
 ## Markdown rules
 
 - Follow [markdownlint](https://github.com/DavidAnson/markdownlint)
-  recommendations[^markdownlint].
+  recommendations[^1].
 - Provide code blocks and lists using standard Markdown syntax.
 - Always provide a language identifier for fenced code blocks; use `plaintext`
   for non-code text.
 - Use `-` as the first level bullet and renumber lists when items change.
-- Prefer inline links using `[text](url)` or angle brackets around the URL.
+- Prefer inline links using `[text](url)` or angle brackets around the URL;
+  avoid reference-style links like `[foo][bar]`.
 - Ensure blank lines before and after bulleted lists and fenced blocks.
 - Ensure tables have a delimiter line below the header row.
 
@@ -45,7 +46,8 @@ these rules to keep the documentation clear and consistent for developers.
 - Wrap paragraphs at 80 columns.
 - Wrap code at 120 columns.
 - Do not wrap tables.
-- Use footnotes referenced with `[^label]`.
+- Use sequentially numbered footnotes referenced with `[^1]` and place
+  definitions at the end of the file.
 
 ## Example snippet
 
@@ -106,4 +108,4 @@ flowchart TD
     C --> D[Merge]
 ```
 
-[^markdownlint]: A linter that enforces consistent Markdown formatting.
+[^1]: A linter that enforces consistent Markdown formatting.
