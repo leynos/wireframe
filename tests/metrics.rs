@@ -32,6 +32,7 @@ fn inbound_frame_metric_increments() {
     });
 
     let metrics = snapshotter.snapshot().into_vec();
+
     let found = metrics.iter().any(|(k, _, _, v)| {
         k.key().name() == wireframe::metrics::FRAMES_PROCESSED
             && k.key()

@@ -287,7 +287,7 @@ A production system is a black box without good instrumentation. `wireframe`
 
 Metrics are emitted using the optional `metrics` feature. See
 [`wireframe::metrics`] for a Prometheus recorder example. All instrumentation
-is gated behind this feature so users can opt out if metrics are unnecessary.
+is gated behind this feature, so users can opt out if metrics are unnecessary.
 
 ```mermaid
 sequenceDiagram
