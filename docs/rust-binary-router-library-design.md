@@ -509,7 +509,7 @@ complexity that "wireframe" aims to simplify.
   The preferred approach is to utilize wire-rs 6 as the underlying
   serialization and deserialization engine. However, this is critically
   dependent on wire-rs supporting, or being extended to support, derivable
-  Encode and Decode traits (e.g., through `wireframe_derive`). The ability to
+  `Encode`/`Decode` traits (e.g., through `wireframe_derive`). The ability to
   automatically generate this logic from struct/enum definitions is paramount.
   Manual serialization/deserialization using WireReader::read_u32(),
   WireWriter::write_string(), etc., for every field would not meet the
@@ -1604,5 +1604,4 @@ into a valuable tool for the Rust ecosystem.
          <https://nnethercote.github.io/perf-book/>
 [^serde]: Serde framework – <https://serde.rs>
 [^bincode-perf]: *bincode* configuration – <https://docs.rs/bincode>
-[^bincode-derive]: Derivable traits in *bincode* 2 –
-                   <https://docs.rs/bincode/latest>
+[^bincode-derive]: Derivable traits in *bincode* 2 – <https://docs.rs/bincode>
