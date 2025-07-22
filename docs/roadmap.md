@@ -150,12 +150,12 @@ production environments.
   - [x] Create a helper crate for test logging setup
     (`wireframe_testing/src/logging.rs`).
 
-- [ ] **Metrics & Observability:**
+- [x] **Metrics & Observability:**
 
-  - [ ] Expose key operational metrics (e.g., active connections, messages per
+  - [x] Expose key operational metrics (e.g., active connections, messages per
     second, error rates).
 
-  - [ ] Provide an integration guide for popular monitoring systems (e.g.,
+  - [x] Provide an integration guide for popular monitoring systems (e.g.,
     Prometheus).
 
 - [ ] **Advanced Error Handling:**

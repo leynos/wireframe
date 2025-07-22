@@ -29,12 +29,16 @@ struct ActiveConnection;
 impl ActiveConnection {
     fn new() -> Self {
         ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+        crate::metrics::inc_connections();
         Self
     }
 }
 
 impl Drop for ActiveConnection {
-    fn drop(&mut self) { ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::Relaxed); }
+    fn drop(&mut self) {
+        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::Relaxed);
+        crate::metrics::dec_connections();
+    }
 }
 
 /// Return the current number of active connections.
@@ -322,6 +326,7 @@ where
         let mut frame = frame;
         self.hooks.before_send(&mut frame, &mut self.ctx);
         out.push(frame);
+        crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
     }
 
     /// Common logic for handling closed receivers.
@@ -422,12 +427,14 @@ where
             Some(Ok(mut frame)) => {
                 self.hooks.before_send(&mut frame, &mut self.ctx);
                 out.push(frame);
+                crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
             }
             Some(Err(WireframeError::Protocol(e))) => {
                 warn!(error = ?e, "protocol error");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
                 self.hooks.on_command_end(&mut self.ctx);
+                crate::metrics::inc_errors();
             }
             Some(Err(e)) => return Err(e),
             None => {

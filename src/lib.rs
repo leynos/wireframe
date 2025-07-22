@@ -12,6 +12,7 @@ pub mod extractor;
 pub mod frame;
 pub mod hooks;
 pub mod message;
+pub mod metrics;
 pub mod middleware;
 pub mod preamble;
 pub mod push;
@@ -22,5 +23,6 @@ pub mod session;
 
 pub use connection::ConnectionActor;
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
+pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
 pub use response::{FrameStream, Response, WireframeError};
 pub use session::{ConnectionId, SessionRegistry};
