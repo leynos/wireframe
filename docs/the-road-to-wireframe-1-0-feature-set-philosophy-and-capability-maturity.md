@@ -285,6 +285,25 @@ A production system is a black box without good instrumentation. `wireframe`
 
   - `wireframe_reassembly_errors_total` (Counter)
 
+```mermaid
+erDiagram
+    CONNECTIONS_ACTIVE ||--o{ FRAMES_PROCESSED : tracks
+    CONNECTIONS_ACTIVE {
+        string name
+        float value
+    }
+    FRAMES_PROCESSED {
+        string name
+        int value
+        string direction
+    }
+    ERRORS_TOTAL {
+        string name
+        int value
+    }
+    CONNECTIONS_ACTIVE ||--o{ ERRORS_TOTAL : tracks
+```
+
 Metrics are emitted using the optional `metrics` feature. See
 [`wireframe::metrics`] for a Prometheus recorder example. All instrumentation
 is gated behind this feature, so users can opt out if metrics are unnecessary.
