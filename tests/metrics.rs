@@ -1,3 +1,7 @@
+//! Tests for `wireframe` metrics helpers.
+//!
+//! These tests verify that counters and gauges update as expected using
+//! `metrics_util::debugging::DebuggingRecorder`.
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
 fn snapshotter() -> (Snapshotter, DebuggingRecorder) {
@@ -30,7 +34,9 @@ fn inbound_frame_metric_increments() {
     let metrics = snapshotter.snapshot().into_vec();
     let found = metrics.iter().any(|(k, _, _, v)| {
         k.key().name() == wireframe::metrics::FRAMES_PROCESSED
-            && k.key().labels().any(|l| l.key() == "direction" && l.value() == "inbound")
+            && k.key()
+                .labels()
+                .any(|l| l.key() == "direction" && l.value() == "inbound")
             && matches!(v, DebugValue::Counter(c) if *c > 0)
     });
     assert!(found, "inbound frames metric not recorded");
