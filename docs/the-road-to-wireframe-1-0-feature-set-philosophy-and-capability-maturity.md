@@ -285,6 +285,9 @@ A production system is a black box without good instrumentation. `wireframe`
 
   - `wireframe_reassembly_errors_total` (Counter)
 
+The following entity–relationship diagram summarises how the core metrics
+relate.
+
 ```mermaid
 erDiagram
     CONNECTIONS_ACTIVE ||--o{ FRAMES_PROCESSED : tracks

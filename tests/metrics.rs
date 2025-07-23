@@ -4,7 +4,8 @@
 //! `metrics_util::debugging::DebuggingRecorder`.
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
-fn snapshotter() -> (Snapshotter, DebuggingRecorder) {
+/// Creates a debugging recorder and snapshotter for metrics testing.
+fn debugging_recorder_setup() -> (Snapshotter, DebuggingRecorder) {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     (snapshotter, recorder)
@@ -12,27 +13,30 @@ fn snapshotter() -> (Snapshotter, DebuggingRecorder) {
 
 #[test]
 fn outbound_frame_metric_increments() {
-    let (snapshotter, recorder) = snapshotter();
+    let (snapshotter, recorder) = debugging_recorder_setup();
     metrics::with_local_recorder(&recorder, || {
         wireframe::metrics::inc_frames(wireframe::metrics::Direction::Outbound);
     });
 
     let metrics = snapshotter.snapshot().into_vec();
-    let found = metrics
-        .iter()
-        .any(|(k, ..)| k.key().name() == wireframe::metrics::FRAMES_PROCESSED);
-    assert!(found, "frames_processed metric not recorded");
+    let found = metrics.iter().any(|(k, _, _, v)| {
+        k.key().name() == wireframe::metrics::FRAMES_PROCESSED
+            && k.key()
+                .labels()
+                .any(|l| l.key() == "direction" && l.value() == "outbound")
+            && matches!(v, DebugValue::Counter(c) if *c > 0)
+    });
+    assert!(found, "outbound frames metric not recorded");
 }
 
 #[test]
 fn inbound_frame_metric_increments() {
-    let (snapshotter, recorder) = snapshotter();
+    let (snapshotter, recorder) = debugging_recorder_setup();
     metrics::with_local_recorder(&recorder, || {
         wireframe::metrics::inc_frames(wireframe::metrics::Direction::Inbound);
     });
 
     let metrics = snapshotter.snapshot().into_vec();
-
     let found = metrics.iter().any(|(k, _, _, v)| {
         k.key().name() == wireframe::metrics::FRAMES_PROCESSED
             && k.key()
@@ -45,14 +49,15 @@ fn inbound_frame_metric_increments() {
 
 #[test]
 fn error_metric_increments() {
-    let (snapshotter, recorder) = snapshotter();
+    let (snapshotter, recorder) = debugging_recorder_setup();
     metrics::with_local_recorder(&recorder, || {
         wireframe::metrics::inc_deser_errors();
     });
 
     let metrics = snapshotter.snapshot().into_vec();
-    let found = metrics
-        .iter()
-        .any(|(k, ..)| k.key().name() == wireframe::metrics::ERRORS_TOTAL);
+    let found = metrics.iter().any(|(k, _, _, v)| {
+        k.key().name() == wireframe::metrics::ERRORS_TOTAL
+            && matches!(v, DebugValue::Counter(c) if *c > 0)
+    });
     assert!(found, "error metric not recorded");
 }
