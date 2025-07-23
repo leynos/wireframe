@@ -467,6 +467,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
+    #[allow(dead_code)]
     struct EmptyPreamble;
 
     #[fixture]

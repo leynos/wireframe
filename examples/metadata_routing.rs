@@ -60,6 +60,7 @@ impl FrameMetadata for HeaderSerializer {
 struct Ping;
 
 #[derive(bincode::Decode, bincode::Encode)]
+#[allow(dead_code)]
 struct Pong;
 
 #[tokio::main]
