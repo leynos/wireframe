@@ -32,6 +32,7 @@ fn outbound_frame_metric_increments() {
 #[test]
 fn inbound_frame_metric_increments() {
     let (snapshotter, recorder) = debugging_recorder_setup();
+
     metrics::with_local_recorder(&recorder, || {
         wireframe::metrics::inc_frames(wireframe::metrics::Direction::Inbound);
     });
@@ -44,6 +45,7 @@ fn inbound_frame_metric_increments() {
                 .any(|l| l.key() == "direction" && l.value() == "inbound")
             && matches!(v, DebugValue::Counter(c) if *c > 0)
     });
+
     assert!(found, "inbound frames metric not recorded");
 }
 
