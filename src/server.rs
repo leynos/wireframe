@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "test helper for unused preamble type")]
     struct EmptyPreamble;
 
     #[fixture]
