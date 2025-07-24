@@ -160,7 +160,7 @@ production environments.
 
 - [ ] **Advanced Error Handling:**
 
-  - [ ] Implement panic handlers in connection tasks to prevent a single
+  - [x] Implement panic handlers in connection tasks to prevent a single
     connection from crashing the server.
 
 - [ ] **Testing:**

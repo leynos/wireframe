@@ -369,7 +369,17 @@ async fn worker_task<F, T>(
                     let failure = on_failure.clone();
                     let factory = factory.clone();
                     let t = tracker.clone();
-                    t.spawn(process_stream(stream, factory, success, failure));
+                    t.spawn(async move {
+                        use futures::FutureExt as _;
+                        if let Err(panic) = std::panic::AssertUnwindSafe(
+                            process_stream(stream, factory, success, failure),
+                        )
+                        .catch_unwind()
+                        .await
+                        {
+                            tracing::error!(?panic, "connection task panicked");
+                        }
+                    });
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
@@ -453,7 +463,8 @@ mod tests {
     use bincode::{Decode, Encode};
     use rstest::{fixture, rstest};
     use tokio::{
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
+        sync::oneshot,
         time::{Duration, timeout},
     };
     use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -868,5 +879,38 @@ mod tests {
     #[test]
     fn test_server_debug_compilation_guard() {
         assert!(cfg!(debug_assertions));
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn connection_panic_is_caught(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let factory = move || {
+            factory()
+                .on_connection_setup(|| async { panic!("boom") })
+                .unwrap()
+        };
+        let server = WireframeServer::new(factory)
+            .workers(1)
+            .bind("127.0.0.1:0".parse().unwrap())
+            .expect("bind");
+        let addr = server.local_addr().unwrap();
+
+        let (tx, rx) = oneshot::channel();
+        let handle = tokio::spawn(async move {
+            server
+                .run_with_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        TcpStream::connect(addr).await.unwrap();
+        TcpStream::connect(addr).await.unwrap();
+
+        let _ = tx.send(());
+        handle.await.unwrap();
     }
 }

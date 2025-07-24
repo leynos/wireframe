@@ -162,6 +162,9 @@ This ensures that resources are cleaned up correctly even in the case of panics
 or early returns from user code, relying on the RAII (Resource Acquisition Is
 Initialization) pattern for safety.
 
+Connection tasks are wrapped with `catch_unwind` to log and discard panics.
+This prevents a single faulty connection from terminating the entire server.
+
 ### 3.2 Leak-Proof Registries with `Weak`/`Arc`
 
 A global `SessionRegistry` that stores `PushHandle`s to active connections is a
