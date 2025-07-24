@@ -28,6 +28,7 @@ async-stream = "0.3"
 tokio = { version = "1", default-features = false, features = ["test-util"] }
 serial_test = "3.1"
 metrics-util = "0.20"
+metrics-exporter-prometheus = "0.17"
 
 [features]
 default = ["metrics"]

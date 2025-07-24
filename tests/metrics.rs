@@ -32,11 +32,9 @@ fn outbound_frame_metric_increments() {
 #[test]
 fn inbound_frame_metric_increments() {
     let (snapshotter, recorder) = debugging_recorder_setup();
-
     metrics::with_local_recorder(&recorder, || {
         wireframe::metrics::inc_frames(wireframe::metrics::Direction::Inbound);
     });
-
     let metrics = snapshotter.snapshot().into_vec();
     let found = metrics.iter().any(|(k, _, _, v)| {
         k.key().name() == wireframe::metrics::FRAMES_PROCESSED
