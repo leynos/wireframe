@@ -15,6 +15,8 @@ log = "0.4"
 dashmap = "5"
 leaky-bucket = "1.1"
 tracing = { version = ">=0.1.40, <0.2.0", features = ["log", "log-always"] }
+metrics = { version = "0.24", optional = true }
+metrics-exporter-prometheus = { version = "0.17", optional = true, features = ["http-listener"] }
 
 [dev-dependencies]
 rstest = "0.18.2"
@@ -25,9 +27,14 @@ loom = "^0.7"
 async-stream = "0.3"
 tokio = { version = "1", default-features = false, features = ["test-util"] }
 serial_test = "3.1"
+metrics-util = "0.20"
+metrics-exporter-prometheus = "0.17"
 
 [features]
+default = ["metrics"]
+metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
 advanced-tests = []
 
 [lints.clippy]
 pedantic = "warn"
+

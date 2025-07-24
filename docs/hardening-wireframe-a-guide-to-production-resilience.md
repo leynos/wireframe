@@ -347,6 +347,13 @@ A separate part of the application is then responsible for consuming from the
 DLQ's receiver to inspect, log, and re-process these failed messages, ensuring
 zero message loss even under transient high load.
 
+## 5. Metrics and Observability
+
+Operational visibility is critical in production. `wireframe` updates counters
+and gauges through the optional `metrics` feature. See the documentation for
+`wireframe::metrics` for a Prometheus recorder example. The exposed metrics
+include processed frame counts, error totals and the active connection gauge.
+
 By systematically implementing these hardening strategies, `wireframe` will
 provide the guarantees of stability, security, and reliability expected of a
 foundational piece of network infrastructure.

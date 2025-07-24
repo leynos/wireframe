@@ -651,6 +651,7 @@ where
     {
         // Parse the frame first; routing is handled below to avoid duplicating
         // logic on the success path.
+        crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
         let (env, _) = match self.parse_envelope(frame) {
             Ok(result) => {
                 *deser_failures = 0;
@@ -659,6 +660,7 @@ where
             Err(e) => {
                 *deser_failures += 1;
                 tracing::warn!(error = ?e, "failed to deserialize message");
+                crate::metrics::inc_deser_errors();
                 if *deser_failures >= MAX_DESER_FAILURES {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -679,14 +681,17 @@ where
                     };
                     if let Err(e) = self.send_response(stream, &response).await {
                         tracing::warn!(error = %e, "failed to send response");
+                        crate::metrics::inc_handler_errors();
                     }
                 }
                 Err(e) => {
                     tracing::warn!(id = env.id, error = ?e, "handler error");
+                    crate::metrics::inc_handler_errors();
                 }
             }
         } else {
             tracing::warn!("no handler for message id {}", env.id);
+            crate::metrics::inc_handler_errors();
         }
 
         Ok(())

@@ -466,7 +466,9 @@ mod tests {
         message: String,
     }
 
+    /// Test helper preamble carrying no data.
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
+    #[expect(dead_code, reason = "test helper for unused preamble type")]
     struct EmptyPreamble;
 
     #[fixture]
