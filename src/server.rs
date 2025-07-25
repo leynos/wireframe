@@ -369,6 +369,8 @@ async fn worker_task<F, T>(
                     let failure = on_failure.clone();
                     let factory = factory.clone();
                     let t = tracker.clone();
+                    // Capture peer address for better error context
+                    let peer_addr = stream.peer_addr().ok();
                     t.spawn(async move {
                         use futures::FutureExt as _;
                         if let Err(panic) = std::panic::AssertUnwindSafe(
@@ -377,7 +379,11 @@ async fn worker_task<F, T>(
                         .catch_unwind()
                         .await
                         {
-                            tracing::error!(?panic, "connection task panicked");
+                            tracing::error!(
+                                ?panic,
+                                ?peer_addr,
+                                "connection task panicked"
+                            );
                         }
                     });
                     delay = Duration::from_millis(10);
