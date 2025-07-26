@@ -238,6 +238,9 @@ expressive error-handling strategy.
   push fails due to a full queue, the frame can be routed to a separate "dead
   letter" channel for later inspection, logging, or reprocessing, enhancing the
   system's overall resilience.
+- **Panic Handling:** Connection tasks are wrapped in a panic handler using
+  `catch_unwind`. A misbehaving connection can no longer terminate the entire
+  server.
 
 ### B. First-Class Developer Ergonomics
 

@@ -6,7 +6,16 @@ edition = "2024"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "2"
-tokio = { version = "1", default-features = false, features = ["net", "signal", "rt-multi-thread", "macros", "sync", "time", "io-util"] }
+tokio = { version = "1", default-features = false, features = [
+    "net",
+    "signal",
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "io-util",
+    "test-util",
+] }
 tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 async-trait = "0.1"
@@ -25,8 +34,9 @@ logtest = "^2.0"
 proptest = "^1.0"
 loom = "^0.7"
 async-stream = "0.3"
-tokio = { version = "1", default-features = false, features = ["test-util"] }
 serial_test = "3.1"
+# Permit compatible bug fixes but block breaking updates
+cucumber = ">=0.20, <0.21"
 metrics-util = "0.20"
 metrics-exporter-prometheus = "0.17"
 
@@ -38,3 +48,6 @@ advanced-tests = []
 [lints.clippy]
 pedantic = "warn"
 
+[[test]]
+name = "cucumber"
+harness = false # Cucumber defines its own async main
