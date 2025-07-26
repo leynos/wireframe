@@ -51,3 +51,4 @@ pedantic = "warn"
 [[test]]
 name = "cucumber"
 harness = false # Cucumber defines its own async main
+required-features = ["advanced-tests"]
