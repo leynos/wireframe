@@ -28,6 +28,7 @@ pub type PreambleCallback<T> = Arc<
 pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 use tokio::{
     net::TcpListener,
+    sync::oneshot,
     time::{Duration, sleep},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -57,6 +58,7 @@ where
     workers: usize,
     on_preamble_success: Option<PreambleCallback<T>>,
     on_preamble_failure: Option<PreambleErrorCallback>,
+    ready_tx: Option<oneshot::Sender<()>>,
     _preamble: PhantomData<T>,
 }
 
@@ -92,6 +94,7 @@ where
             workers,
             on_preamble_success: None,
             on_preamble_failure: None,
+            ready_tx: None,
             _preamble: PhantomData,
         }
     }
@@ -132,6 +135,7 @@ where
             workers: self.workers,
             on_preamble_success: None,
             on_preamble_failure: None,
+            ready_tx: None,
             _preamble: PhantomData,
         }
     }
@@ -186,6 +190,14 @@ where
         H: Fn(&DecodeError) + Send + Sync + 'static,
     {
         self.on_preamble_failure = Some(Arc::new(handler));
+        self
+    }
+
+    /// Configure a channel used to signal when the server is ready to accept
+    /// connections.
+    #[must_use]
+    pub fn ready_signal(mut self, tx: oneshot::Sender<()>) -> Self {
+        self.ready_tx = Some(tx);
         self
     }
 
@@ -312,6 +324,9 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
+        if let Some(tx) = self.ready_tx {
+            let _ = tx.send(());
+        }
 
         let shutdown_token = CancellationToken::new();
         let tracker = TaskTracker::new();
@@ -369,7 +384,26 @@ async fn worker_task<F, T>(
                     let failure = on_failure.clone();
                     let factory = factory.clone();
                     let t = tracker.clone();
-                    t.spawn(process_stream(stream, factory, success, failure));
+                    // Capture peer address for better error context
+                    let peer_addr = stream.peer_addr().ok();
+                    t.spawn(async move {
+                        use futures::FutureExt as _;
+                        if let Err(panic) = std::panic::AssertUnwindSafe(
+                            process_stream(stream, factory, success, failure),
+                        )
+                        .catch_unwind()
+                        .await
+                        {
+                            let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                                (*s).to_string()
+                            } else if let Some(s) = panic.downcast_ref::<String>() {
+                                s.clone()
+                            } else {
+                                format!("{panic:?}")
+                            };
+                            tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
+                        }
+                    });
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
@@ -453,7 +487,8 @@ mod tests {
     use bincode::{Decode, Encode};
     use rstest::{fixture, rstest};
     use tokio::{
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
+        sync::oneshot,
         time::{Duration, timeout},
     };
     use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -868,5 +903,43 @@ mod tests {
     #[test]
     fn test_server_debug_compilation_guard() {
         assert!(cfg!(debug_assertions));
+    }
+
+    /// Ensure the server survives panicking connection tasks.
+    #[rstest]
+    #[tokio::test]
+    async fn connection_panic_is_caught(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let app_factory = move || {
+            factory()
+                .on_connection_setup(|| async { panic!("boom") })
+                .unwrap()
+        };
+        let server = WireframeServer::new(app_factory)
+            .workers(1)
+            .bind("127.0.0.1:0".parse().unwrap())
+            .expect("bind");
+        let addr = server.local_addr().unwrap();
+
+        let (tx, rx) = oneshot::channel();
+        let handle = tokio::spawn(async move {
+            server
+                .run_with_shutdown(async {
+                    let _ = rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        TcpStream::connect(addr)
+            .await
+            .expect("first connection should succeed");
+        TcpStream::connect(addr)
+            .await
+            .expect("second connection should succeed after panic");
+
+        let _ = tx.send(());
+        handle.await.unwrap();
     }
 }
