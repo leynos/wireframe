@@ -158,9 +158,9 @@ production environments.
   - [x] Provide an integration guide for popular monitoring systems (e.g.,
     Prometheus).
 
-- [ ] **Advanced Error Handling:**
+- [x] **Advanced Error Handling:**
 
-  - [ ] Implement panic handlers in connection tasks to prevent a single
+  - [x] Implement panic handlers in connection tasks to prevent a single
     connection from crashing the server.
 
 - [ ] **Testing:**
