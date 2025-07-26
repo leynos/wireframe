@@ -8,10 +8,7 @@ use cucumber::{given, then, when};
 use crate::world::PanicWorld;
 
 #[given("a running wireframe server with a panic in connection setup")]
-async fn start_server(world: &mut PanicWorld) {
-    world.start_panic_server();
-    std::future::ready(()).await;
-}
+async fn start_server(world: &mut PanicWorld) { world.start_panic_server().await; }
 
 #[when("I connect to the server")]
 #[when("I connect to the server again")]

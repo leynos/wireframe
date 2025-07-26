@@ -48,7 +48,9 @@ advanced-tests = []
 [lints.clippy]
 pedantic = "warn"
 
+# The Cucumber test runner defines its own async main function,
+# so the standard test harness must be disabled.
 [[test]]
 name = "cucumber"
-harness = false # Cucumber defines its own async main
+harness = false
 required-features = ["advanced-tests"]

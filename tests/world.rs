@@ -25,7 +25,7 @@ impl PanicWorld {
     ///
     /// # Panics
     /// Panics if binding the server fails or the server task fails.
-    pub fn start_panic_server(&mut self) {
+    pub async fn start_panic_server(&mut self) {
         let factory = || {
             WireframeApp::new()
                 .expect("Failed to create WireframeApp")
@@ -39,16 +39,20 @@ impl PanicWorld {
 
         self.addr = Some(server.local_addr().expect("Failed to get server address"));
         let (tx, rx) = oneshot::channel();
+        let (ready_tx, ready_rx) = oneshot::channel();
         self.shutdown = Some(tx);
 
         self.handle = Some(tokio::spawn(async move {
             server
+                .ready_signal(ready_tx)
                 .run_with_shutdown(async {
                     let _ = rx.await;
                 })
                 .await
                 .expect("Server task failed");
         }));
+
+        ready_rx.await.expect("Server did not signal ready");
     }
 
     /// Connect to the running server once.

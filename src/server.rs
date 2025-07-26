@@ -28,6 +28,7 @@ pub type PreambleCallback<T> = Arc<
 pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 use tokio::{
     net::TcpListener,
+    sync::oneshot,
     time::{Duration, sleep},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -57,6 +58,7 @@ where
     workers: usize,
     on_preamble_success: Option<PreambleCallback<T>>,
     on_preamble_failure: Option<PreambleErrorCallback>,
+    ready_tx: Option<oneshot::Sender<()>>,
     _preamble: PhantomData<T>,
 }
 
@@ -92,6 +94,7 @@ where
             workers,
             on_preamble_success: None,
             on_preamble_failure: None,
+            ready_tx: None,
             _preamble: PhantomData,
         }
     }
@@ -132,6 +135,7 @@ where
             workers: self.workers,
             on_preamble_success: None,
             on_preamble_failure: None,
+            ready_tx: None,
             _preamble: PhantomData,
         }
     }
@@ -186,6 +190,14 @@ where
         H: Fn(&DecodeError) + Send + Sync + 'static,
     {
         self.on_preamble_failure = Some(Arc::new(handler));
+        self
+    }
+
+    /// Configure a channel used to signal when the server is ready to accept
+    /// connections.
+    #[must_use]
+    pub fn ready_signal(mut self, tx: oneshot::Sender<()>) -> Self {
+        self.ready_tx = Some(tx);
         self
     }
 
@@ -312,6 +324,9 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
+        if let Some(tx) = self.ready_tx {
+            let _ = tx.send(());
+        }
 
         let shutdown_token = CancellationToken::new();
         let tracker = TaskTracker::new();
@@ -379,11 +394,14 @@ async fn worker_task<F, T>(
                         .catch_unwind()
                         .await
                         {
-                            tracing::error!(
-                                ?panic,
-                                ?peer_addr,
-                                "connection task panicked"
-                            );
+                            let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                                (*s).to_string()
+                            } else if let Some(s) = panic.downcast_ref::<String>() {
+                                s.clone()
+                            } else {
+                                format!("{panic:?}")
+                            };
+                            tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
                         }
                     });
                     delay = Duration::from_millis(10);
@@ -887,17 +905,18 @@ mod tests {
         assert!(cfg!(debug_assertions));
     }
 
+    /// Ensure the server survives panicking connection tasks.
     #[rstest]
     #[tokio::test]
     async fn connection_panic_is_caught(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let factory = move || {
+        let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
                 .unwrap()
         };
-        let server = WireframeServer::new(factory)
+        let server = WireframeServer::new(app_factory)
             .workers(1)
             .bind("127.0.0.1:0".parse().unwrap())
             .expect("bind");
@@ -913,8 +932,12 @@ mod tests {
                 .unwrap();
         });
 
-        TcpStream::connect(addr).await.unwrap();
-        TcpStream::connect(addr).await.unwrap();
+        TcpStream::connect(addr)
+            .await
+            .expect("first connection should succeed");
+        TcpStream::connect(addr)
+            .await
+            .expect("second connection should succeed after panic");
 
         let _ = tx.send(());
         handle.await.unwrap();
