@@ -17,6 +17,7 @@ pub struct PanicWorld {
     pub addr: Option<SocketAddr>,
     pub attempts: usize,
     pub shutdown: Option<Sender<()>>,
+    pub handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl PanicWorld {
@@ -24,7 +25,7 @@ impl PanicWorld {
     ///
     /// # Panics
     /// Panics if binding the server fails or the server task fails.
-    pub async fn start_panic_server(&mut self) {
+    pub fn start_panic_server(&mut self) {
         let factory = || {
             WireframeApp::new()
                 .expect("Failed to create WireframeApp")
@@ -40,16 +41,14 @@ impl PanicWorld {
         let (tx, rx) = oneshot::channel();
         self.shutdown = Some(tx);
 
-        tokio::spawn(async move {
+        self.handle = Some(tokio::spawn(async move {
             server
                 .run_with_shutdown(async {
                     let _ = rx.await;
                 })
                 .await
                 .expect("Server task failed");
-        });
-
-        tokio::task::yield_now().await;
+        }));
     }
 
     /// Connect to the running server once.
@@ -72,6 +71,8 @@ impl PanicWorld {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
-        tokio::task::yield_now().await;
+        if let Some(handle) = self.handle.take() {
+            handle.await.expect("Server task join failed");
+        }
     }
 }
