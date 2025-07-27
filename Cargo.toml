@@ -38,6 +38,7 @@ serial_test = "3.1"
 # Permit compatible bug fixes but block breaking updates
 cucumber = ">=0.20, <0.21"
 metrics-util = "0.20"
+tracing-test = "0.2"
 metrics-exporter-prometheus = "0.17"
 
 [features]

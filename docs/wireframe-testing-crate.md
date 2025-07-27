@@ -151,6 +151,25 @@ with prebuilt frames and their responses decoded for assertions.
 - **Clarity**: Abstracting the duplex stream logic keeps test cases focused on
   behaviour instead of transport details.
 
+### Capturing Logs in Tests
+
+The `wireframe_testing` crate exposes a [`LoggerHandle`] fixture for asserting
+log output. Acquire it in a test and call `clear()` to discard any records from
+fixture setup. Records can then be inspected using `pop()`:
+
+```rust
+use wireframe_testing::logger;
+
+#[tokio::test]
+async fn captures_logs() {
+    let mut logs = logger();
+    logs.clear();
+    log::error!(target = "demo", key = 1, "boom");
+    let record = logs.pop().unwrap();
+    assert_eq!(record.target(), "demo");
+}
+```
+
 ## Next Steps
 
 Implement the crate in a new directory, export the helper functions, and
