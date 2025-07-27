@@ -58,6 +58,18 @@ where
     workers: usize,
     on_preamble_success: Option<PreambleCallback<T>>,
     on_preamble_failure: Option<PreambleErrorCallback>,
+    /// Channel used to notify when the server is ready.
+    ///
+    /// # Thread Safety
+    /// This sender is `Send` and may be moved between threads safely.
+    ///
+    /// # Single-use Semantics
+    /// A `oneshot::Sender` can transmit only one readiness notification. After
+    /// sending, the sender is consumed and cannot be reused.
+    ///
+    /// # Implications
+    /// Because only one notification may be sent, a new `ready_tx` must be
+    /// provided each time the server is started.
     ready_tx: Option<oneshot::Sender<()>>,
     _preamble: PhantomData<T>,
 }
@@ -195,6 +207,9 @@ where
 
     /// Configure a channel used to signal when the server is ready to accept
     /// connections.
+    ///
+    /// The provided `oneshot::Sender` is consumed after the first signal. Use a
+    /// fresh sender for each server run.
     #[must_use]
     pub fn ready_signal(mut self, tx: oneshot::Sender<()>) -> Self {
         self.ready_tx = Some(tx);
@@ -324,8 +339,10 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        if let Some(tx) = self.ready_tx {
-            let _ = tx.send(());
+        if let Some(tx) = self.ready_tx
+            && tx.send(()).is_err()
+        {
+            tracing::warn!("Failed to send readiness signal: receiver dropped");
         }
 
         let shutdown_token = CancellationToken::new();
@@ -351,6 +368,23 @@ where
         tracker.close();
         tracker.wait().await;
         Ok(())
+    }
+}
+
+async fn catch_and_log_unwind<Fut>(fut: Fut, peer_addr: Option<std::net::SocketAddr>)
+where
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    use futures::FutureExt as _;
+    if let Err(panic) = std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+        let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = panic.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            format!("{panic:?}")
+        };
+        tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
     }
 }
 
@@ -386,24 +420,10 @@ async fn worker_task<F, T>(
                     let t = tracker.clone();
                     // Capture peer address for better error context
                     let peer_addr = stream.peer_addr().ok();
-                    t.spawn(async move {
-                        use futures::FutureExt as _;
-                        if let Err(panic) = std::panic::AssertUnwindSafe(
-                            process_stream(stream, factory, success, failure),
-                        )
-                        .catch_unwind()
-                        .await
-                        {
-                            let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                                (*s).to_string()
-                            } else if let Some(s) = panic.downcast_ref::<String>() {
-                                s.clone()
-                            } else {
-                                format!("{panic:?}")
-                            };
-                            tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
-                        }
-                    });
+                    t.spawn(catch_and_log_unwind(
+                        process_stream(stream, factory, success, failure),
+                        peer_addr,
+                    ));
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
