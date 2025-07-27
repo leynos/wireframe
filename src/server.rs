@@ -339,10 +339,11 @@ where
         S: futures::Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        if let Some(tx) = self.ready_tx
-            && tx.send(()).is_err()
-        {
-            tracing::warn!("Failed to send readiness signal: receiver dropped");
+        if let Some(tx) = self.ready_tx {
+            let result = tx.send(());
+            if result.is_err() {
+                tracing::warn!("Failed to send readiness signal: receiver dropped");
+            }
         }
 
         let shutdown_token = CancellationToken::new();
@@ -368,23 +369,6 @@ where
         tracker.close();
         tracker.wait().await;
         Ok(())
-    }
-}
-
-async fn catch_and_log_unwind<Fut>(fut: Fut, peer_addr: Option<std::net::SocketAddr>)
-where
-    Fut: std::future::Future<Output = ()> + Send + 'static,
-{
-    use futures::FutureExt as _;
-    if let Err(panic) = std::panic::AssertUnwindSafe(fut).catch_unwind().await {
-        let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
-            (*s).to_string()
-        } else if let Some(s) = panic.downcast_ref::<String>() {
-            s.clone()
-        } else {
-            format!("{panic:?}")
-        };
-        tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
     }
 }
 
@@ -420,10 +404,22 @@ async fn worker_task<F, T>(
                     let t = tracker.clone();
                     // Capture peer address for better error context
                     let peer_addr = stream.peer_addr().ok();
-                    t.spawn(catch_and_log_unwind(
-                        process_stream(stream, factory, success, failure),
-                        peer_addr,
-                    ));
+                    t.spawn(async move {
+                        use futures::FutureExt as _;
+                        let fut = std::panic::AssertUnwindSafe(
+                            process_stream(stream, factory, success, failure),
+                        )
+                        .catch_unwind();
+
+                        if let Err(panic) = fut.await {
+                            let panic_msg = panic
+                                .downcast_ref::<&str>()
+                                .copied()
+                                .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                                .unwrap_or("<non-string panic>");
+                            tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
+                        }
+                    });
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
