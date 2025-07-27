@@ -907,6 +907,14 @@ mod tests {
     }
 
     /// Ensure the server survives panicking connection tasks.
+    ///
+    /// The test spawns a server with a connection setup callback that
+    /// immediately panics. A [`LoggerHandle`] fixture captures log records so the
+    /// panic message and peer address can be asserted. A first client
+    /// connection triggers the panic and writes dummy preamble bytes to ensure
+    /// the panic is logged. A second connection verifies the server continues
+    /// accepting new clients after the failure. Finally, the logs are scanned
+    /// for the expected error entry containing `peer_addr` and `panic=boom`.
     #[rstest]
     #[tokio::test]
     async fn connection_panic_is_caught(
