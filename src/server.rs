@@ -492,6 +492,7 @@ mod tests {
         time::{Duration, timeout},
     };
     use tokio_util::{sync::CancellationToken, task::TaskTracker};
+    use wireframe_testing::{LoggerHandle, logger};
 
     use super::*;
 
@@ -910,7 +911,9 @@ mod tests {
     #[tokio::test]
     async fn connection_panic_is_caught(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        mut logger: LoggerHandle,
     ) {
+        while logger.pop().is_some() {}
         let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
@@ -932,14 +935,33 @@ mod tests {
                 .unwrap();
         });
 
-        TcpStream::connect(addr)
+        let first = TcpStream::connect(addr)
             .await
             .expect("first connection should succeed");
+        let peer_addr = first.local_addr().unwrap();
+        first.writable().await.unwrap();
+        first.try_write(&[0; 8]).unwrap();
+        drop(first);
         TcpStream::connect(addr)
             .await
             .expect("second connection should succeed after panic");
 
         let _ = tx.send(());
         handle.await.unwrap();
+
+        let mut found = false;
+        while let Some(record) = logger.pop() {
+            if record.level() == log::Level::Error
+                && record.args().contains("connection task panicked")
+                && record
+                    .args()
+                    .contains(&format!("peer_addr=Some({peer_addr})"))
+                && record.args().contains("panic=boom")
+            {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "panic log not found");
     }
 }
