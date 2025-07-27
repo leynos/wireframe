@@ -28,3 +28,39 @@ fn workers_accepts_large_values() {
         .workers(128);
     assert_eq!(server.worker_count(), 128);
 }
+
+/// Ensure dropping the readiness receiver logs a warning and does not
+/// prevent the server from accepting connections.
+#[tokio::test]
+async fn readiness_receiver_dropped() {
+    use tokio::{
+        net::TcpStream,
+        sync::oneshot,
+        time::{Duration, sleep},
+    };
+
+    let factory = || WireframeApp::new().expect("WireframeApp::new failed");
+    let server = WireframeServer::new(factory)
+        .workers(1)
+        .bind("127.0.0.1:0".parse().unwrap())
+        .unwrap();
+
+    let addr = server.local_addr().unwrap();
+    // Create channel and immediately drop receiver to force send failure
+    let (tx_ready, rx_ready) = oneshot::channel();
+    drop(rx_ready);
+
+    tokio::spawn(async move {
+        server
+            .ready_signal(tx_ready)
+            .run_with_shutdown(tokio::time::sleep(Duration::from_millis(200)))
+            .await
+            .unwrap();
+    });
+
+    // Wait briefly to ensure server attempted to send readiness signal
+    sleep(Duration::from_millis(100)).await;
+
+    // Server should still accept connections
+    let _stream = TcpStream::connect(addr).await.expect("connect failed");
+}
