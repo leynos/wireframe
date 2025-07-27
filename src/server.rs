@@ -492,7 +492,7 @@ mod tests {
         time::{Duration, timeout},
     };
     use tokio_util::{sync::CancellationToken, task::TaskTracker};
-    use wireframe_testing::{LoggerHandle, logger};
+    use tracing_test::traced_test;
 
     use super::*;
 
@@ -909,19 +909,18 @@ mod tests {
     /// Ensure the server survives panicking connection tasks.
     ///
     /// The test spawns a server with a connection setup callback that
-    /// immediately panics. A [`LoggerHandle`] fixture captures log records so the
-    /// panic message and peer address can be asserted. A first client
+    /// immediately panics. Logs are captured so the panic message and peer
+    /// address can be asserted. A first client
     /// connection triggers the panic and writes dummy preamble bytes to ensure
     /// the panic is logged. A second connection verifies the server continues
     /// accepting new clients after the failure. Finally, the logs are scanned
     /// for the expected error entry containing `peer_addr` and `panic=boom`.
     #[rstest]
+    #[traced_test]
     #[tokio::test]
     async fn connection_panic_is_caught(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        mut logger: LoggerHandle,
     ) {
-        while logger.pop().is_some() {}
         let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
@@ -946,7 +945,6 @@ mod tests {
         let first = TcpStream::connect(addr)
             .await
             .expect("first connection should succeed");
-        let peer_addr = first.local_addr().unwrap();
         first.writable().await.unwrap();
         first.try_write(&[0; 8]).unwrap();
         drop(first);
@@ -957,19 +955,16 @@ mod tests {
         let _ = tx.send(());
         handle.await.unwrap();
 
-        let mut found = false;
-        while let Some(record) = logger.pop() {
-            if record.level() == log::Level::Error
-                && record.args().contains("connection task panicked")
-                && record
-                    .args()
-                    .contains(&format!("peer_addr=Some({peer_addr})"))
-                && record.args().contains("panic=boom")
-            {
-                found = true;
-                break;
-            }
-        }
-        assert!(found, "panic log not found");
+        logs_assert(|lines: &[&str]| {
+            lines
+                .iter()
+                .find(|line| {
+                    line.contains("connection task panicked")
+                        && line.contains("panic=boom")
+                        && line.contains("peer_addr=Some(")
+                })
+                .map(|_| ())
+                .ok_or_else(|| "panic log not found".to_string())
+        });
     }
 }

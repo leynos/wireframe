@@ -58,6 +58,9 @@ impl LoggerHandle {
 
         Self { guard }
     }
+
+    /// Remove all currently buffered log records.
+    pub fn clear(&mut self) { while self.pop().is_some() {} }
 }
 
 impl std::ops::Deref for LoggerHandle {
