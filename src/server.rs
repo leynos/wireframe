@@ -912,9 +912,11 @@ mod tests {
     /// immediately panics. Logs are captured so the panic message and peer
     /// address can be asserted. A first client
     /// connection triggers the panic and writes dummy preamble bytes to ensure
-    /// the panic is logged. A second connection verifies the server continues
-    /// accepting new clients after the failure. Finally, the logs are scanned
-    /// for the expected error entry containing `peer_addr` and `panic=boom`.
+    /// the panic is logged. The client's peer address is captured before
+    /// dropping the connection so the error log can be validated. A second
+    /// connection verifies the server continues accepting new clients after the
+    /// failure. Finally, the logs are scanned for the expected error entry
+    /// containing `peer_addr` and `panic=boom`.
     #[rstest]
     #[traced_test]
     #[tokio::test]
@@ -945,6 +947,7 @@ mod tests {
         let first = TcpStream::connect(addr)
             .await
             .expect("first connection should succeed");
+        let peer_addr = first.local_addr().expect("first connection peer address");
         first.writable().await.unwrap();
         first.try_write(&[0; 8]).unwrap();
         drop(first);
@@ -955,13 +958,15 @@ mod tests {
         let _ = tx.send(());
         handle.await.unwrap();
 
+        tokio::task::yield_now().await;
+
         logs_assert(|lines: &[&str]| {
             lines
                 .iter()
                 .find(|line| {
                     line.contains("connection task panicked")
                         && line.contains("panic=boom")
-                        && line.contains("peer_addr=Some(")
+                        && line.contains(&format!("peer_addr=Some({peer_addr})"))
                 })
                 .map(|_| ())
                 .ok_or_else(|| "panic log not found".to_string())
