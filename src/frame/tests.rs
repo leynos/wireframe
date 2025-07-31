@@ -14,6 +14,10 @@ use super::{conversion::*, format::*};
 #[case(vec![1, 0, 0, 0], 4, Endianness::Little, 1)]
 #[case(vec![0, 0, 0, 0, 0, 0, 0, 1], 8, Endianness::Big, 1)]
 #[case(vec![1, 0, 0, 0, 0, 0, 0, 0], 8, Endianness::Little, 1)]
+#[case(vec![0xFF], 1, Endianness::Big, 0xFF)]
+#[case(vec![0xFF, 0xFF], 2, Endianness::Big, 0xFFFF)]
+#[case(vec![0xFF, 0xFF, 0xFF, 0xFF], 4, Endianness::Big, 0xFFFF_FFFF)]
+#[case(vec![0xFF; 8], 8, Endianness::Big, 0xFFFF_FFFF_FFFF_FFFF)]
 fn bytes_to_u64_ok(
     #[case] bytes: Vec<u8>,
     #[case] size: usize,
@@ -67,6 +71,14 @@ fn bytes_to_u64_unsupported(
 fn u64_to_bytes_large() {
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+}
+
+#[test]
+fn u64_to_bytes_zero_length() {
+    let mut buf = [0u8; 8];
+    let err = u64_to_bytes(0, 0, Endianness::Big, &mut buf)
+        .expect_err("u64_to_bytes must fail if length is zero");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
