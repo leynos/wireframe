@@ -23,7 +23,7 @@ bytes = "1"
 log = "0.4"
 dashmap = "5"
 leaky-bucket = "1.1"
-tracing = { version = ">=0.1.40, <0.2.0", features = ["log", "log-always"] }
+tracing = { version = "^0.1.40", features = ["log", "log-always"] }
 metrics = { version = "0.24", optional = true }
 metrics-exporter-prometheus = { version = "0.17", optional = true, features = ["http-listener"] }
 
@@ -36,7 +36,7 @@ loom = "^0.7"
 async-stream = "0.3"
 serial_test = "3.1"
 # Permit compatible bug fixes but block breaking updates
-cucumber = ">=0.20, <0.21"
+cucumber = "^0.20"
 metrics-util = "0.20"
 tracing-test = "0.2"
 metrics-exporter-prometheus = "0.17"
