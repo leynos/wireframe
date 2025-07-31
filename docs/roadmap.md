@@ -24,7 +24,7 @@ the request/response lifecycle.
 - [x] **Protocol Definition:**
 
   - [x] Define the basic frame structure for network communication
-    (`src/frame.rs`).
+    (`src/frame/mod.rs`).
 
   - [x] Implement preamble validation for versioning and compatibility
     (`src/preamble.rs`, `tests/preamble.rs`).
