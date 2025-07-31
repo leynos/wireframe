@@ -31,7 +31,8 @@ fn shared_state_extractor_returns_data(
     mut empty_payload: Payload<'static>,
 ) {
     request.insert_state(5u32);
-    let extracted = SharedState::<u32>::from_message_request(&request, &mut empty_payload).unwrap();
+    let extracted = SharedState::<u32>::from_message_request(&request, &mut empty_payload)
+        .expect("failed to extract shared state");
     assert_eq!(*extracted, 5);
 }
 
@@ -42,6 +43,6 @@ fn missing_shared_state_returns_error(
 ) {
     let err = SharedState::<u32>::from_message_request(&request, &mut empty_payload)
         .err()
-        .unwrap();
+        .expect("missing state error expected");
     assert!(matches!(err, ExtractError::MissingState(_)));
 }

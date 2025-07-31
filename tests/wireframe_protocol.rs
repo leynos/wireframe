@@ -51,7 +51,9 @@ async fn builder_produces_protocol_hooks() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::new().unwrap().with_protocol(protocol);
+    let app = WireframeApp::new()
+        .expect("failed to create app")
+        .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
 
     let (queues, handle) = PushQueues::bounded(1, 1);
@@ -73,11 +75,16 @@ async fn connection_actor_uses_protocol_from_builder() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::new().unwrap().with_protocol(protocol);
+    let app = WireframeApp::new()
+        .expect("failed to create app")
+        .with_protocol(protocol);
 
     let hooks = app.protocol_hooks();
     let (queues, handle) = PushQueues::bounded(8, 8);
-    handle.push_high_priority(vec![1]).await.unwrap();
+    handle
+        .push_high_priority(vec![1])
+        .await
+        .expect("push failed");
     let stream = stream::iter(vec![Ok(vec![2u8])]);
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
         queues,
@@ -87,7 +94,7 @@ async fn connection_actor_uses_protocol_from_builder() {
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
 
     assert_eq!(out, vec![vec![1, 1], vec![2, 1]]);
     assert_eq!(counter.load(Ordering::SeqCst), 2);

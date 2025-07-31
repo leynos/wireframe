@@ -41,7 +41,7 @@ async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
     let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
-        .unwrap()
+        .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
             1,
@@ -53,8 +53,8 @@ async fn handler_receives_message_and_echoes_response() {
                 })
             }),
         )
-        .unwrap();
-    let msg_bytes = Echo(42).to_bytes().unwrap();
+        .expect("route registration failed");
+    let msg_bytes = Echo(42).to_bytes().expect("encode failed");
     let env = TestEnvelope {
         id: 1,
         msg: msg_bytes,
@@ -67,12 +67,12 @@ async fn handler_receives_message_and_echoes_response() {
     let mut buf = BytesMut::from(&out[..]);
     let frame = LengthPrefixedProcessor::default()
         .decode(&mut buf)
-        .unwrap()
-        .unwrap();
+        .expect("decode failed")
+        .expect("frame missing");
     let (resp_env, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frame)
-        .unwrap();
-    let (echo, _) = Echo::from_bytes(&resp_env.msg).unwrap();
+        .expect("deserialize failed");
+    let (echo, _) = Echo::from_bytes(&resp_env.msg).expect("decode echo failed");
     assert_eq!(echo, Echo(42));
     assert_eq!(called.load(Ordering::SeqCst), 1);
 }
@@ -80,26 +80,28 @@ async fn handler_receives_message_and_echoes_response() {
 #[tokio::test]
 async fn multiple_frames_processed_in_sequence() {
     let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
-        .unwrap()
+        .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
             1,
             std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
         )
-        .unwrap();
+        .expect("route registration failed");
 
     let frames: Vec<Vec<u8>> = (1u8..=2)
         .map(|id| {
-            let msg_bytes = Echo(id).to_bytes().unwrap();
+            let msg_bytes = Echo(id).to_bytes().expect("encode failed");
             let env = TestEnvelope {
                 id: 1,
                 msg: msg_bytes,
             };
-            let env_bytes = BincodeSerializer.serialize(&env).unwrap();
+            let env_bytes = BincodeSerializer
+                .serialize(&env)
+                .expect("serialization failed");
             let mut framed = BytesMut::new();
             LengthPrefixedProcessor::default()
                 .encode(&env_bytes, &mut framed)
-                .unwrap();
+                .expect("encode failed");
             framed.to_vec()
         })
         .collect();
@@ -111,20 +113,20 @@ async fn multiple_frames_processed_in_sequence() {
     let mut buf = BytesMut::from(&out[..]);
     let first = LengthPrefixedProcessor::default()
         .decode(&mut buf)
-        .unwrap()
-        .unwrap();
+        .expect("decode failed")
+        .expect("frame missing");
     let (env1, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&first)
-        .unwrap();
-    let (echo1, _) = Echo::from_bytes(&env1.msg).unwrap();
+        .expect("deserialize failed");
+    let (echo1, _) = Echo::from_bytes(&env1.msg).expect("decode echo failed");
     let second = LengthPrefixedProcessor::default()
         .decode(&mut buf)
-        .unwrap()
-        .unwrap();
+        .expect("decode failed")
+        .expect("frame missing");
     let (env2, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&second)
-        .unwrap();
-    let (echo2, _) = Echo::from_bytes(&env2.msg).unwrap();
+        .expect("deserialize failed");
+    let (echo2, _) = Echo::from_bytes(&env2.msg).expect("decode echo failed");
     assert_eq!(echo1, Echo(1));
     assert_eq!(echo2, Echo(2));
 }
