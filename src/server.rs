@@ -423,7 +423,7 @@ async fn worker_task<F, T>(
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
-                    eprintln!("accept error: {e}");
+                    tracing::warn!(error = ?e, "accept error");
                     sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
@@ -472,7 +472,7 @@ async fn process_stream<F, T>(
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
-                eprintln!("preamble callback error: {e}");
+                tracing::error!(error = ?e, "preamble callback error");
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
@@ -703,7 +703,7 @@ mod tests {
                 })
             })
             .on_preamble_decode_failure(|_: &DecodeError| {
-                eprintln!("Preamble decode failed");
+                tracing::warn!("Preamble decode failed");
             })
             .bind(free_port)
             .expect("Failed to bind");
