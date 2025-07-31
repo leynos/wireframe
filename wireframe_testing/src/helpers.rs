@@ -188,85 +188,25 @@ where
     drive_with_frame(app, framed.to_vec()).await
 }
 
-/// Run `app` with a single input `frame` using the default buffer capacity.
+/// Run `app` with the provided `frames`.
+///
+/// When `capacity` is `None` the default buffer size is used.
 ///
 /// # Errors
 ///
 /// Returns any I/O errors encountered while interacting with the in-memory
 /// duplex stream.
-pub async fn run_app_with_frame<S, C, E>(
-    app: WireframeApp<S, C, E>,
-    frame: Vec<u8>,
-) -> io::Result<Vec<u8>>
-where
-    S: TestSerializer,
-    C: Send + 'static,
-    E: Packet,
-{
-    run_app_with_frame_with_capacity(app, frame, DEFAULT_CAPACITY).await
-}
-
-/// Drive `app` with a single frame using a duplex buffer of `capacity` bytes.
-///
-/// # Errors
-///
-/// Propagates any I/O errors from the in-memory connection.
-///
-/// # Panics
-///
-/// Panics if the spawned task running the application panics.
-pub async fn run_app_with_frame_with_capacity<S, C, E>(
-    app: WireframeApp<S, C, E>,
-    frame: Vec<u8>,
-    capacity: usize,
-) -> io::Result<Vec<u8>>
-where
-    S: TestSerializer,
-    C: Send + 'static,
-    E: Packet,
-{
-    run_app_with_frames_with_capacity(app, vec![frame], capacity).await
-}
-
-/// Run `app` with multiple input `frames` using the default buffer capacity.
-///
-/// # Errors
-///
-/// Returns any I/O errors encountered while interacting with the in-memory
-/// duplex stream.
-#[allow(dead_code)]
-pub async fn run_app_with_frames<S, C, E>(
+pub async fn run_app<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
+    capacity: Option<usize>,
 ) -> io::Result<Vec<u8>>
 where
     S: TestSerializer,
     C: Send + 'static,
     E: Packet,
 {
-    run_app_with_frames_with_capacity(app, frames, DEFAULT_CAPACITY).await
-}
-
-/// Drive `app` with multiple frames using a duplex buffer of `capacity` bytes.
-///
-/// # Errors
-///
-/// Propagates any I/O errors from the in-memory connection.
-///
-/// # Panics
-///
-/// Panics if the spawned task running the application panics.
-pub async fn run_app_with_frames_with_capacity<S, C, E>(
-    app: WireframeApp<S, C, E>,
-    frames: Vec<Vec<u8>>,
-    capacity: usize,
-) -> io::Result<Vec<u8>>
-where
-    S: TestSerializer,
-    C: Send + 'static,
-    E: Packet,
-{
-    let (mut client, server) = duplex(capacity);
+    let (mut client, server) = duplex(capacity.unwrap_or(DEFAULT_CAPACITY));
     let server_task = tokio::spawn(async move {
         app.handle_connection(server).await;
     });
@@ -279,8 +219,13 @@ where
     let mut buf = Vec::new();
     client.read_to_end(&mut buf).await?;
 
-    server_task.await.unwrap();
-    Ok(buf)
+    match server_task.await {
+        Ok(_) => Ok(buf),
+        Err(e) => Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("server task failed: {e}"),
+        )),
+    }
 }
 
 /// Run `app` against an empty duplex stream.
