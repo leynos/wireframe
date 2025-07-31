@@ -70,18 +70,32 @@ pub fn u64_to_bytes(
         ));
     }
 
-    let prefix_bytes = match (size, endianness) {
-        (1, _) => checked_prefix_cast::<u8>(len)?.to_ne_bytes().to_vec(),
-        (2, Endianness::Big) => checked_prefix_cast::<u16>(len)?.to_be_bytes().to_vec(),
-        (2, Endianness::Little) => checked_prefix_cast::<u16>(len)?.to_le_bytes().to_vec(),
-        (4, Endianness::Big) => checked_prefix_cast::<u32>(len)?.to_be_bytes().to_vec(),
-        (4, Endianness::Little) => checked_prefix_cast::<u32>(len)?.to_le_bytes().to_vec(),
-        (8, Endianness::Big) => checked_prefix_cast::<u64>(len)?.to_be_bytes().to_vec(),
-        (8, Endianness::Little) => checked_prefix_cast::<u64>(len)?.to_le_bytes().to_vec(),
+    match (size, endianness) {
+        (1, _) => {
+            out[..1].copy_from_slice(&checked_prefix_cast::<u8>(len)?.to_ne_bytes());
+        }
+        (2, Endianness::Big) => {
+            out[..2].copy_from_slice(&checked_prefix_cast::<u16>(len)?.to_be_bytes());
+        }
+        (2, Endianness::Little) => {
+            out[..2].copy_from_slice(&checked_prefix_cast::<u16>(len)?.to_le_bytes());
+        }
+        (4, Endianness::Big) => {
+            out[..4].copy_from_slice(&checked_prefix_cast::<u32>(len)?.to_be_bytes());
+        }
+        (4, Endianness::Little) => {
+            out[..4].copy_from_slice(&checked_prefix_cast::<u32>(len)?.to_le_bytes());
+        }
+        (8, Endianness::Big) => {
+            out[..8].copy_from_slice(&checked_prefix_cast::<u64>(len)?.to_be_bytes());
+        }
+        (8, Endianness::Little) => {
+            out[..8].copy_from_slice(&checked_prefix_cast::<u64>(len)?.to_le_bytes());
+        }
         _ => unreachable!(),
-    };
+    }
 
-    out[..size].copy_from_slice(&prefix_bytes);
+    out[size..].fill(0);
 
     Ok(size)
 }

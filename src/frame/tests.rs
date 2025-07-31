@@ -94,3 +94,16 @@ fn u64_to_bytes_unsupported(
     let err = u64_to_bytes(value, size, endianness, &mut buf).unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
+
+#[rstest]
+#[case(0x1234usize, 4, Endianness::Big)]
+#[case(0x1234usize, 4, Endianness::Little)]
+fn u64_to_bytes_zeroes_remainder(
+    #[case] value: usize,
+    #[case] size: usize,
+    #[case] endianness: Endianness,
+) {
+    let mut buf = [0xaau8; 8];
+    u64_to_bytes(value, size, endianness, &mut buf).unwrap();
+    assert!(buf[size..].iter().all(|&b| b == 0));
+}
