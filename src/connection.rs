@@ -65,6 +65,12 @@ enum Event<F, E> {
     Idle,
 }
 
+#[derive(Clone, Copy)]
+enum Queue {
+    High,
+    Low,
+}
+
 /// Configuration controlling fairness when draining push queues.
 #[derive(Clone, Copy)]
 pub struct FairnessConfig {
@@ -302,22 +308,39 @@ where
 
     /// Handle the result of polling the high-priority queue.
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        if let Some(frame) = res {
-            self.process_frame_common(frame, out);
-            self.after_high(out, state);
-        } else {
-            Self::handle_closed_receiver(&mut self.high_rx, state);
-            self.reset_high_counter();
-        }
+        self.process_push(res, Queue::High, state, out);
     }
 
     /// Handle the result of polling the low-priority queue.
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        if let Some(frame) = res {
-            self.process_frame_common(frame, out);
-            self.after_low();
-        } else {
-            Self::handle_closed_receiver(&mut self.low_rx, state);
+        self.process_push(res, Queue::Low, state, out);
+    }
+
+    /// Handle the result of polling a push queue.
+    fn process_push(
+        &mut self,
+        res: Option<F>,
+        queue: Queue,
+        state: &mut ActorState,
+        out: &mut Vec<F>,
+    ) {
+        match res {
+            Some(frame) => {
+                self.process_frame_common(frame, out);
+                match queue {
+                    Queue::High => self.after_high(out, state),
+                    Queue::Low => self.after_low(),
+                }
+            }
+            None => match queue {
+                Queue::High => {
+                    Self::handle_closed_receiver(&mut self.high_rx, state);
+                    self.reset_high_counter();
+                }
+                Queue::Low => {
+                    Self::handle_closed_receiver(&mut self.low_rx, state);
+                }
+            },
         }
     }
 
