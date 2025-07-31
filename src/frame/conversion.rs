@@ -56,6 +56,10 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
 /// # Errors
 /// Returns [`io::ErrorKind::InvalidInput`] if the size is unsupported or if
 /// `len` does not fit into the prefix.
+///
+/// # Panics
+/// Panics if shifting `value` leaves bits outside the `u8` range. This cannot
+/// occur for valid prefix sizes and checked values.
 #[must_use = "length prefix byte count must be used"]
 pub fn u64_to_bytes(
     len: usize,
@@ -70,27 +74,37 @@ pub fn u64_to_bytes(
         ));
     }
 
-    match (size, endianness) {
-        (1, _) => {
-            out[..1].copy_from_slice(&checked_prefix_cast::<u8>(len)?.to_ne_bytes());
+    let write_bytes = |value: u64, e: Endianness, size: usize, out: &mut [u8]| match e {
+        Endianness::Big => {
+            for (i, b) in out.iter_mut().enumerate().take(size) {
+                let shift = 8 * (size - 1 - i);
+                *b = u8::try_from((value >> shift) & 0xff).expect("masked < 256");
+            }
         }
-        (2, Endianness::Big) => {
-            out[..2].copy_from_slice(&checked_prefix_cast::<u16>(len)?.to_be_bytes());
+        Endianness::Little => {
+            for (i, b) in out.iter_mut().enumerate().take(size) {
+                let shift = 8 * i;
+                *b = u8::try_from((value >> shift) & 0xff).expect("masked < 256");
+            }
         }
-        (2, Endianness::Little) => {
-            out[..2].copy_from_slice(&checked_prefix_cast::<u16>(len)?.to_le_bytes());
+    };
+
+    match size {
+        1 => {
+            let v: u8 = checked_prefix_cast(len)?;
+            write_bytes(u64::from(v), endianness, 1, &mut out[..1]);
         }
-        (4, Endianness::Big) => {
-            out[..4].copy_from_slice(&checked_prefix_cast::<u32>(len)?.to_be_bytes());
+        2 => {
+            let v: u16 = checked_prefix_cast(len)?;
+            write_bytes(u64::from(v), endianness, 2, &mut out[..2]);
         }
-        (4, Endianness::Little) => {
-            out[..4].copy_from_slice(&checked_prefix_cast::<u32>(len)?.to_le_bytes());
+        4 => {
+            let v: u32 = checked_prefix_cast(len)?;
+            write_bytes(u64::from(v), endianness, 4, &mut out[..4]);
         }
-        (8, Endianness::Big) => {
-            out[..8].copy_from_slice(&checked_prefix_cast::<u64>(len)?.to_be_bytes());
-        }
-        (8, Endianness::Little) => {
-            out[..8].copy_from_slice(&checked_prefix_cast::<u64>(len)?.to_le_bytes());
+        8 => {
+            let v: u64 = checked_prefix_cast(len)?;
+            write_bytes(v, endianness, 8, &mut out[..8]);
         }
         _ => unreachable!(),
     }
