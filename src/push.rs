@@ -85,6 +85,11 @@ impl std::fmt::Display for PushConfigError {
 
 impl std::error::Error for PushConfigError {}
 
+/// Shared state for [`PushHandle`] clones.
+///
+/// Holds the per-priority send channels, optional rate limiter and
+/// optional dead letter queue. Wrapped in an [`Arc`] so handles can be
+/// cloned cheaply.
 pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
