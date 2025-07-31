@@ -31,8 +31,8 @@ async fn handle_retrieved_while_alive(
     registry.insert(id, &handle);
 
     let retrieved = registry.get(&id).expect("handle should be present");
-    retrieved.push_high_priority(7).await.unwrap();
-    let (_, val) = queues.recv().await.unwrap();
+    retrieved.push_high_priority(7).await.expect("push failed");
+    let (_, val) = queues.recv().await.expect("recv failed");
     assert_eq!(val, 7);
 }
 

@@ -572,8 +572,11 @@ mod tests {
     #[fixture]
     fn free_port() -> SocketAddr {
         let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-        let listener = std::net::TcpListener::bind(addr).unwrap();
-        listener.local_addr().unwrap()
+        let listener =
+            std::net::TcpListener::bind(addr).expect("failed to bind free port listener");
+        listener
+            .local_addr()
+            .expect("failed to read free port listener address")
     }
 
     fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F>
@@ -649,7 +652,9 @@ mod tests {
         free_port: SocketAddr,
     ) {
         let server = bind_server(factory, free_port);
-        let bound_addr = server.local_addr().unwrap();
+        let bound_addr = server
+            .local_addr()
+            .expect("bound server should return local address");
         assert_eq!(bound_addr.ip(), free_port.ip());
     }
 
@@ -681,7 +686,10 @@ mod tests {
         let server = bind_server(factory, free_port);
         let local_addr = server.local_addr();
         assert!(local_addr.is_some());
-        assert_eq!(local_addr.unwrap().ip(), free_port.ip());
+        assert_eq!(
+            local_addr.expect("local address missing").ip(),
+            free_port.ip()
+        );
     }
 
     #[rstest]
@@ -800,7 +808,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server run timed out").is_ok());
     }
 
     #[rstest]
@@ -827,7 +835,7 @@ mod tests {
         let elapsed = start.elapsed();
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server run timed out").is_ok());
         assert!(elapsed < Duration::from_millis(500));
     }
 
@@ -862,7 +870,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server run timed out").is_ok());
     }
 
     #[rstest]
@@ -903,7 +911,11 @@ mod tests {
     ) {
         let token = CancellationToken::new();
         let tracker = TaskTracker::new();
-        let listener = Arc::new(TcpListener::bind("127.0.0.1:0").await.unwrap());
+        let listener = Arc::new(
+            TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("failed to bind test listener"),
+        );
 
         tracker.spawn(accept_loop::<_, ()>(
             listener,
@@ -944,15 +956,18 @@ mod tests {
         let addr1 = free_port;
         let addr2 = {
             let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-            let listener = std::net::TcpListener::bind(addr).unwrap();
-            listener.local_addr().unwrap()
+            let listener =
+                std::net::TcpListener::bind(addr).expect("failed to bind second listener");
+            listener
+                .local_addr()
+                .expect("failed to get second listener address")
         };
 
         let server = server.bind(addr1).expect("Failed to bind first address");
-        let first_local_addr = server.local_addr().unwrap();
+        let first_local_addr = server.local_addr().expect("first bound address missing");
 
         let server = server.bind(addr2).expect("Failed to bind second address");
-        let second_local_addr = server.local_addr().unwrap();
+        let second_local_addr = server.local_addr().expect("second bound address missing");
 
         assert_ne!(first_local_addr.port(), second_local_addr.port());
         assert_eq!(second_local_addr.ip(), addr2.ip());
@@ -1032,13 +1047,19 @@ mod tests {
         let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
-                .unwrap()
+                .expect("failed to install panic setup callback")
         };
         let server = WireframeServer::new(app_factory)
             .workers(1)
-            .bind("127.0.0.1:0".parse().unwrap())
+            .bind(
+                "127.0.0.1:0"
+                    .parse()
+                    .expect("hard-coded socket address must be valid"),
+            )
             .expect("bind");
-        let addr = server.local_addr().unwrap();
+        let addr = server
+            .local_addr()
+            .expect("failed to retrieve server address");
 
         let (tx, rx) = oneshot::channel();
         let handle = tokio::spawn(async move {
@@ -1047,22 +1068,27 @@ mod tests {
                     let _ = rx.await;
                 })
                 .await
-                .unwrap();
+                .expect("server run failed");
         });
 
         let first = TcpStream::connect(addr)
             .await
             .expect("first connection should succeed");
         let peer_addr = first.local_addr().expect("first connection peer address");
-        first.writable().await.unwrap();
-        first.try_write(&[0; 8]).unwrap();
+        first
+            .writable()
+            .await
+            .expect("connection not writable after connect");
+        first
+            .try_write(&[0; 8])
+            .expect("failed to write dummy bytes");
         drop(first);
         TcpStream::connect(addr)
             .await
             .expect("second connection should succeed after panic");
 
         let _ = tx.send(());
-        handle.await.unwrap();
+        handle.await.expect("server join error");
 
         tokio::task::yield_now().await;
 

@@ -11,11 +11,17 @@ use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
 async fn frames_routed_to_correct_priority_queues() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);
 
-    handle.push_low_priority(1u8).await.unwrap();
-    handle.push_high_priority(2u8).await.unwrap();
+    handle
+        .push_low_priority(1u8)
+        .await
+        .expect("push low priority failed");
+    handle
+        .push_high_priority(2u8)
+        .await
+        .expect("push high priority failed");
 
-    let (prio1, frame1) = queues.recv().await.unwrap();
-    let (prio2, frame2) = queues.recv().await.unwrap();
+    let (prio1, frame1) = queues.recv().await.expect("recv failed");
+    let (prio2, frame2) = queues.recv().await.expect("recv failed");
 
     assert_eq!(prio1, PushPriority::High);
     assert_eq!(frame1, 2);
@@ -31,14 +37,20 @@ async fn frames_routed_to_correct_priority_queues() {
 async fn try_push_respects_policy() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);
 
-    handle.push_high_priority(1u8).await.unwrap();
+    handle
+        .push_high_priority(1u8)
+        .await
+        .expect("push high priority failed");
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
     assert!(result.is_err());
 
     // drain queue to allow new push
     let _ = queues.recv().await;
-    handle.push_high_priority(3u8).await.unwrap();
-    let (_, last) = queues.recv().await.unwrap();
+    handle
+        .push_high_priority(3u8)
+        .await
+        .expect("push high priority failed");
+    let (_, last) = queues.recv().await.expect("recv failed");
     assert_eq!(last, 3);
 }
 
@@ -65,11 +77,18 @@ async fn push_queues_error_on_closed() {
 #[tokio::test]
 async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1)).unwrap();
+    let (mut queues, handle) =
+        PushQueues::bounded_with_rate(2, 2, Some(1)).expect("queue creation failed");
 
     match priority {
-        PushPriority::High => handle.push_high_priority(1u8).await.unwrap(),
-        PushPriority::Low => handle.push_low_priority(1u8).await.unwrap(),
+        PushPriority::High => handle
+            .push_high_priority(1u8)
+            .await
+            .expect("push high priority failed"),
+        PushPriority::Low => handle
+            .push_low_priority(1u8)
+            .await
+            .expect("push low priority failed"),
     }
 
     let attempt = match priority {
@@ -85,12 +104,18 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
 
     time::advance(Duration::from_secs(1)).await;
     match priority {
-        PushPriority::High => handle.push_high_priority(3u8).await.unwrap(),
-        PushPriority::Low => handle.push_low_priority(3u8).await.unwrap(),
+        PushPriority::High => handle
+            .push_high_priority(3u8)
+            .await
+            .expect("push high priority failed"),
+        PushPriority::Low => handle
+            .push_low_priority(3u8)
+            .await
+            .expect("push low priority failed"),
     }
 
-    let (_, first) = queues.recv().await.unwrap();
-    let (_, second) = queues.recv().await.unwrap();
+    let (_, first) = queues.recv().await.expect("recv failed");
+    let (_, second) = queues.recv().await.expect("recv failed");
     assert_eq!((first, second), (1, 3));
 }
 
@@ -98,13 +123,20 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
 #[tokio::test]
 async fn rate_limiter_allows_after_wait() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1)).unwrap();
-    handle.push_high_priority(1u8).await.unwrap();
+    let (mut queues, handle) =
+        PushQueues::bounded_with_rate(2, 2, Some(1)).expect("queue creation failed");
+    handle
+        .push_high_priority(1u8)
+        .await
+        .expect("push high priority failed");
     time::advance(Duration::from_secs(1)).await;
-    handle.push_high_priority(2u8).await.unwrap();
+    handle
+        .push_high_priority(2u8)
+        .await
+        .expect("push high priority failed");
 
-    let (_, a) = queues.recv().await.unwrap();
-    let (_, b) = queues.recv().await.unwrap();
+    let (_, a) = queues.recv().await.expect("recv failed");
+    let (_, b) = queues.recv().await.expect("recv failed");
     assert_eq!((a, b), (1, 2));
 }
 
@@ -114,17 +146,24 @@ async fn rate_limiter_allows_after_wait() {
 #[tokio::test]
 async fn rate_limiter_shared_across_priorities() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(2, 2, Some(1)).unwrap();
-    handle.push_high_priority(1u8).await.unwrap();
+    let (mut queues, handle) =
+        PushQueues::bounded_with_rate(2, 2, Some(1)).expect("queue creation failed");
+    handle
+        .push_high_priority(1u8)
+        .await
+        .expect("push high priority failed");
 
     let attempt = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(attempt.is_err(), "second push should block across queues");
 
     time::advance(Duration::from_secs(1)).await;
-    handle.push_low_priority(2u8).await.unwrap();
+    handle
+        .push_low_priority(2u8)
+        .await
+        .expect("push low priority failed");
 
-    let (prio1, frame1) = queues.recv().await.unwrap();
-    let (prio2, frame2) = queues.recv().await.unwrap();
+    let (prio1, frame1) = queues.recv().await.expect("recv failed");
+    let (prio2, frame2) = queues.recv().await.expect("recv failed");
     assert_eq!(prio1, PushPriority::High);
     assert_eq!(frame1, 1);
     assert_eq!(prio2, PushPriority::Low);
@@ -136,12 +175,15 @@ async fn rate_limiter_shared_across_priorities() {
 async fn unlimited_queues_do_not_block() {
     time::pause();
     let (mut queues, handle) = PushQueues::bounded_no_rate_limit(1, 1);
-    handle.push_high_priority(1u8).await.unwrap();
+    handle
+        .push_high_priority(1u8)
+        .await
+        .expect("push high priority failed");
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");
 
-    let (_, a) = queues.recv().await.unwrap();
-    let (_, b) = queues.recv().await.unwrap();
+    let (_, a) = queues.recv().await.expect("recv failed");
+    let (_, b) = queues.recv().await.expect("recv failed");
     assert_eq!((a, b), (1, 2));
 }
 
@@ -150,10 +192,14 @@ async fn unlimited_queues_do_not_block() {
 #[tokio::test]
 async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_with_rate(4, 4, Some(3)).unwrap();
+    let (mut queues, handle) =
+        PushQueues::bounded_with_rate(4, 4, Some(3)).expect("queue creation failed");
 
     for i in 0u8..3 {
-        handle.push_high_priority(i).await.unwrap();
+        handle
+            .push_high_priority(i)
+            .await
+            .expect("push high priority failed");
     }
 
     let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
@@ -163,10 +209,13 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     );
 
     time::advance(Duration::from_secs(1)).await;
-    handle.push_high_priority(100).await.unwrap();
+    handle
+        .push_high_priority(100)
+        .await
+        .expect("push high priority failed");
 
     for expected in [0u8, 1u8, 2u8, 100u8] {
-        let (_, frame) = queues.recv().await.unwrap();
+        let (_, frame) = queues.recv().await.expect("recv failed");
         assert_eq!(frame, expected);
     }
 }

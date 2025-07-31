@@ -24,7 +24,10 @@ fn bytes_to_u64_ok(
     #[case] endianness: Endianness,
     #[case] expected: u64,
 ) {
-    assert_eq!(bytes_to_u64(&bytes, size, endianness).unwrap(), expected);
+    assert_eq!(
+        bytes_to_u64(&bytes, size, endianness).expect("failed to convert"),
+        expected
+    );
 }
 
 #[rstest]
@@ -42,7 +45,7 @@ fn u64_to_bytes_ok(
     #[case] expected: Vec<u8>,
 ) {
     let mut buf = [0u8; 8];
-    let written = u64_to_bytes(value, size, endianness, &mut buf).unwrap();
+    let written = u64_to_bytes(value, size, endianness, &mut buf).expect("failed to encode u64");
     assert_eq!(written, size);
     assert_eq!(&buf[..written], expected.as_slice());
 }

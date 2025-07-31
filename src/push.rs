@@ -309,7 +309,8 @@ impl<F: FrameLike> PushQueues<F> {
         high_capacity: usize,
         low_capacity: usize,
     ) -> (Self, PushHandle<F>) {
-        Self::bounded_with_rate_dlq(high_capacity, low_capacity, None, None).unwrap()
+        Self::bounded_with_rate_dlq(high_capacity, low_capacity, None, None)
+            .expect("bounded_no_rate_limit should not fail")
     }
 
     /// Create queues with a custom rate limit in pushes per second.

@@ -454,7 +454,7 @@ where
     let mut buf = Vec::new();
     client.read_to_end(&mut buf).await?;
 
-    server_task.await.unwrap();
+    server_task.await.expect("server task panicked");
     Ok(buf)
 }
 
