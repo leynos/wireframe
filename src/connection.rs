@@ -252,21 +252,13 @@ where
         tokio::select! {
             biased;
 
-            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => {
-                Event::Shutdown
-            }
+            () = Self::await_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
 
-            res = Self::poll_optional(self.high_rx.as_mut(), Self::recv_push), if high_available => {
-                Event::High(res)
-            }
+            res = Self::poll_high_priority(self.high_rx.as_mut()), if high_available => Event::High(res),
 
-            res = Self::poll_optional(self.low_rx.as_mut(), Self::recv_push), if low_available => {
-                Event::Low(res)
-            }
+            res = Self::poll_low_priority(self.low_rx.as_mut()), if low_available => Event::Low(res),
 
-            res = Self::poll_optional(self.response.as_mut(), |s| s.next()), if resp_available => {
-                Event::Response(res)
-            }
+            res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
 
             else => Event::Idle,
         }
@@ -283,7 +275,18 @@ where
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
-        match self.next_event(state).await {
+        let event = self.next_event(state).await;
+        self.handle_event(event, state, out)
+    }
+
+    /// Dispatch the given event to the appropriate handler.
+    fn handle_event(
+        &mut self,
+        event: Event<F, E>,
+        state: &mut ActorState,
+        out: &mut Vec<F>,
+    ) -> Result<(), WireframeError<E>> {
+        match event {
             Event::Shutdown => self.process_shutdown(state),
             Event::High(res) => self.process_high(res, state, out),
             Event::Low(res) => self.process_low(res, state, out),
@@ -474,6 +477,26 @@ where
                 None
             }
         }
+    }
+
+    /// Await shutdown cancellation on the provided token.
+    async fn await_shutdown(token: CancellationToken) { Self::wait_shutdown(token).await; }
+
+    /// Poll the high-priority queue.
+    async fn poll_high_priority(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
+        Self::poll_optional(rx, Self::recv_push).await
+    }
+
+    /// Poll the low-priority queue.
+    async fn poll_low_priority(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
+        Self::poll_optional(rx, Self::recv_push).await
+    }
+
+    /// Poll the streaming response.
+    async fn poll_response(
+        resp: Option<&mut FrameStream<F, E>>,
+    ) -> Option<Result<F, WireframeError<E>>> {
+        Self::poll_optional(resp, |s| s.next()).await
     }
 }
 
