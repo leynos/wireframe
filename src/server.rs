@@ -229,9 +229,7 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub const fn worker_count(&self) -> usize {
-        self.workers
-    }
+    pub const fn worker_count(&self) -> usize { self.workers }
 
     /// Get the socket address the server is bound to, if available.
     #[must_use]
@@ -509,10 +507,10 @@ async fn process_stream<F, T>(
     let peer_addr = stream.peer_addr().ok();
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            if let Some(handler) = on_success.as_ref() {
-                if let Err(e) = handler(&preamble, &mut stream).await {
-                    tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
-                }
+            if let Some(handler) = on_success.as_ref()
+                && let Err(e) = handler(&preamble, &mut stream).await
+            {
+                tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
