@@ -43,7 +43,28 @@ where
     Fut: std::future::Future<Output = ()> + Send,
 {
     let (mut client, server) = duplex(capacity);
-    let server_fut = server_fn(server);
+
+    let server_fut = async {
+        use futures::FutureExt as _;
+        let result = std::panic::AssertUnwindSafe(server_fn(server))
+            .catch_unwind()
+            .await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(panic) => {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("<non-string panic>");
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("server task failed: {msg}"),
+                ))
+            }
+        }
+    };
+
     let client_fut = async {
         for frame in &frames {
             client.write_all(frame).await?;
@@ -55,8 +76,8 @@ where
         io::Result::Ok(buf)
     };
 
-    let ((), buf) = tokio::join!(server_fut, client_fut);
-    buf
+    let ((), buf) = tokio::try_join!(server_fut, client_fut)?;
+    Ok(buf)
 }
 
 pub async fn drive_with_frame<S, C, E>(

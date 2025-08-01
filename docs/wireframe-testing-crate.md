@@ -68,8 +68,10 @@ These functions mirror the behaviour of `run_app_with_frame` and
 `tokio::io::duplex` stream, run the application on the server half, and write
 the provided frame(s) to the client side. All helpers delegate to a single
 internal function that handles this I/O plumbing, ensuring consistent
-behaviour. After the application finishes processing the input frames, the
-bytes written back are collected for inspection.
+behaviour. Should the application panic, the panic message is returned as an
+`io::Error` beginning with `server task failed`, helping surface failures in
+tests. After the application finishes processing the input frames, the bytes
+written back are collected for inspection.
 
 Any I/O errors surfaced by the duplex stream or failures while decoding a
 length prefix propagate through the returned `IoResult`. Malformed or truncated
