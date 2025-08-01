@@ -193,8 +193,8 @@ let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for
 active connections. Background tasks can look up a handle by \[`ConnectionId`\]
 to send frames asynchronously without keeping the connection alive. Stale
-entries are removed automatically when looked up and found to be dead. Call
-`active_handles()` to iterate over live sessions for broadcast or diagnostics.
+entries are pruned on lookup and when calling `active_handles()`. Use `prune()`
+if you only need to remove dead entries without collecting handles.
 
 ```rust
 use wireframe::{

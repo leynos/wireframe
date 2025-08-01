@@ -58,10 +58,10 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// Remove a handle, typically on connection teardown.
     pub fn remove(&self, id: &ConnectionId) { self.0.remove(id); }
 
-    /// Drop entries whose connections have terminated.
+    /// Remove all stale weak references without returning any handles.
     pub fn prune(&self) { self.0.retain(|_, weak| weak.strong_count() > 0); }
 
-    /// Return a list of all live connection IDs and their handles.
+    /// Prune stale weak references, then collect the remaining live handles.
     #[must_use]
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
         let mut handles = Vec::new();
