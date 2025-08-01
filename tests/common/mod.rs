@@ -3,7 +3,13 @@
 //! Provides fixtures for a basic [`WireframeApp`] factory and an unused
 //! local port. These helpers reduce duplication across test modules.
 
-use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
+
+/// Create a TCP listener bound to a free local port.
+pub fn unused_listener() -> StdTcpListener {
+    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+    StdTcpListener::bind(addr).expect("failed to bind port")
+}
 
 use rstest::fixture;
 use wireframe::app::WireframeApp;
@@ -23,7 +29,7 @@ pub fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
     reason = "rustc false positive for single line rstest fixtures"
 )]
 pub fn unused_port() -> SocketAddr {
-    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-    let listener = TcpListener::bind(addr).expect("failed to bind port");
-    listener.local_addr().expect("failed to obtain local addr")
+    unused_listener()
+        .local_addr()
+        .expect("failed to obtain local addr")
 }

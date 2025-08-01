@@ -11,7 +11,7 @@ use wireframe::{app::WireframeApp, server::WireframeServer};
 
 #[path = "common/mod.rs"]
 mod common;
-use common::unused_port;
+use common::unused_listener;
 
 #[derive(Debug)]
 struct PanicServer {
@@ -28,11 +28,11 @@ impl PanicServer {
                 .on_connection_setup(|| async { panic!("boom") })
                 .expect("Failed to set connection setup callback")
         };
+        let listener = unused_listener();
         let server = WireframeServer::new(factory)
             .workers(1)
-            .bind(unused_port())
+            .bind_listener(listener)
             .expect("bind");
-
         let addr = server.local_addr().expect("Failed to get server address");
         let (tx_shutdown, rx_shutdown) = oneshot::channel();
         let (tx_ready, rx_ready) = oneshot::channel();
@@ -84,7 +84,9 @@ impl PanicWorld {
     ///
     /// # Panics
     /// Panics if binding the server fails or the server task fails.
-    pub async fn start_panic_server(&mut self) { self.server.replace(PanicServer::spawn().await); }
+    pub async fn start_panic_server(&mut self) {
+        self.server.replace(PanicServer::spawn().await);
+    }
 
     /// Connect to the running server once.
     ///
