@@ -6,7 +6,7 @@
 use bincode::config;
 use bytes::BytesMut;
 use rstest::fixture;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, duplex};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
@@ -32,6 +32,53 @@ impl<T> TestSerializer for T where
 }
 
 const DEFAULT_CAPACITY: usize = 4096;
+
+async fn drive_internal<F, Fut>(
+    server_fn: F,
+    frames: Vec<Vec<u8>>,
+    capacity: usize,
+) -> io::Result<Vec<u8>>
+where
+    F: FnOnce(DuplexStream) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    let (mut client, server) = duplex(capacity);
+
+    let server_fut = async {
+        use futures::FutureExt as _;
+        let result = std::panic::AssertUnwindSafe(server_fn(server))
+            .catch_unwind()
+            .await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(panic) => {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("<non-string panic>");
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("server task failed: {msg}"),
+                ))
+            }
+        }
+    };
+
+    let client_fut = async {
+        for frame in &frames {
+            client.write_all(frame).await?;
+        }
+        client.shutdown().await?;
+
+        let mut buf = Vec::new();
+        client.read_to_end(&mut buf).await?;
+        io::Result::Ok(buf)
+    };
+
+    let ((), buf) = tokio::try_join!(server_fut, client_fut)?;
+    Ok(buf)
+}
 
 /// Drive `app` with a single length-prefixed `frame` and return the bytes
 /// produced by the server.
@@ -134,26 +181,12 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    let (mut client, server) = duplex(capacity);
-    let server_task = tokio::spawn(async move {
-        app.handle_connection(server).await;
-    });
-
-    for frame in &frames {
-        client.write_all(frame).await?;
-    }
-    client.shutdown().await?;
-
-    let mut buf = Vec::new();
-    client.read_to_end(&mut buf).await?;
-
-    match server_task.await {
-        Ok(_) => Ok(buf),
-        Err(e) => Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("server task failed: {e}"),
-        )),
-    }
+    drive_internal(
+        |server| async move { app.handle_connection(server).await },
+        frames,
+        capacity,
+    )
+    .await
 }
 
 /// Feed a single frame into a mutable `app`, allowing the instance to be reused
@@ -248,22 +281,12 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    let (mut client, server) = duplex(capacity);
-
-    let server_fut = app.handle_connection(server);
-    let client_fut = async {
-        for frame in &frames {
-            client.write_all(frame).await?;
-        }
-        client.shutdown().await?;
-
-        let mut buf = Vec::new();
-        client.read_to_end(&mut buf).await?;
-        io::Result::Ok(buf)
-    };
-
-    let ((), buf) = tokio::join!(server_fut, client_fut);
-    buf
+    drive_internal(
+        |server| async { app.handle_connection(server).await },
+        frames,
+        capacity,
+    )
+    .await
 }
 
 /// Encode `msg` using bincode, frame it and drive `app`.
