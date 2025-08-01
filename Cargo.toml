@@ -39,7 +39,6 @@ serial_test = "3.2.0"
 cucumber = "0.20.2"
 metrics-util = "0.20.0"
 tracing-test = "0.2.5"
-metrics-exporter-prometheus = "0.17.2"
 
 [features]
 default = ["metrics"]
