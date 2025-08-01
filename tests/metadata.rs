@@ -18,7 +18,7 @@ fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S>
 where
     S: TestSerializer,
 {
-    WireframeApp::new()
+    WireframeApp::<_, _, Envelope>::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())
         .serializer(serializer)

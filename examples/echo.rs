@@ -5,12 +5,15 @@
 
 use std::io;
 
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    server::WireframeServer,
+};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let factory = || {
-        WireframeApp::new()
+        WireframeApp::<_, _, Envelope>::new()
             .unwrap()
             .route(
                 1,

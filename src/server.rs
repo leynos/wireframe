@@ -130,7 +130,7 @@ where
     /// ```no_run
     /// # use wireframe::server::WireframeServer;
     /// # use wireframe::app::WireframeApp;
-    /// # let factory = || WireframeApp::new().expect("Failed to initialise app");
+    /// # let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// #[derive(bincode::Decode)]
     /// # struct MyPreamble;
     /// let server = WireframeServer::new(factory).with_preamble::<MyPreamble>();
@@ -169,7 +169,7 @@ where
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().expect("Failed to initialise app");
+    /// let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory).workers(4);
     /// assert_eq!(server.worker_count(), 4);
     /// let server = server.workers(0);
@@ -223,7 +223,7 @@ where
     /// ```no_run
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().expect("Failed to initialise app");
+    /// let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory);
     /// assert!(server.worker_count() >= 1);
     /// ```
@@ -261,7 +261,7 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let factory = || WireframeApp::new().expect("Failed to initialise app");
+    /// let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory);
     /// let addr: SocketAddr = "127.0.0.1:8080".parse().expect("Failed to parse address");
     /// let server = server.bind(addr).expect("Failed to bind address");
@@ -309,7 +309,7 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     /// async fn run_server() -> std::io::Result<()> {
-    ///     let factory = || WireframeApp::new().expect("Failed to initialise app");
+    ///     let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     ///     let addr = "127.0.0.1:8080"
     ///         .parse::<SocketAddr>()
     ///         .expect("Failed to parse address");
@@ -453,7 +453,7 @@ async fn worker_task<F, T>(
 /// # use wireframe::app::WireframeApp;
 /// # async fn example() {
 /// let stream: TcpStream = unimplemented!();
-/// let factory = || WireframeApp::new();
+/// let factory = || WireframeApp::<_, _, Envelope>::new();
 /// // process_stream::<_, ()>(stream, factory, None, None).await;
 /// # }
 /// ```

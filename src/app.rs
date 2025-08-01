@@ -247,27 +247,32 @@ where
     }
 }
 
-impl WireframeApp<BincodeSerializer, (), Envelope> {
-    /// Construct a new empty application builder.
-    ///
-    /// # Errors
-    ///
-    /// This function currently never returns an error but uses the
-    /// [`Result`] type for forward compatibility.
-    pub fn new() -> Result<Self> { Ok(Self::default()) }
+fn builder_new<E>() -> WireframeApp<BincodeSerializer, (), E>
+where
+    E: Packet,
+{
+    WireframeApp::<BincodeSerializer, (), E>::default()
 }
 
 impl<E> WireframeApp<BincodeSerializer, (), E>
 where
     E: Packet,
 {
-    /// Construct a new application builder using a custom envelope type.
+    /// Construct a new empty application builder using the provided envelope type.
     ///
     /// # Errors
     ///
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
-    pub fn new_with_envelope() -> Result<Self> { Ok(Self::default()) }
+    pub fn new() -> Result<Self> { Ok(builder_new::<E>()) }
+
+    /// Deprecated alias for [`WireframeApp::new`].
+    ///
+    /// # Errors
+    ///
+    /// This function currently never returns an error but uses [`Result`] for
+    /// forward compatibility.
+    pub fn new_with_envelope() -> Result<Self> { Self::new() }
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -404,7 +409,7 @@ where
     /// use tokio::sync::mpsc;
     /// use wireframe::app::WireframeApp;
     ///
-    /// # fn build() -> WireframeApp { WireframeApp::new().unwrap() }
+    /// # fn build() -> WireframeApp { WireframeApp::<_, _, Envelope>::new().unwrap() }
     /// # fn main() {
     /// let (tx, _rx) = mpsc::channel(16);
     /// let app = build().with_push_dlq(tx);

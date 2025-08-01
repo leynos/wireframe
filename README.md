@@ -82,14 +82,18 @@ WireframeServer::new(|| {
 .await
 ```
 
-This example showcases how derive macros and the framing abstraction simplify a binary protocol server. See the [full example](docs/rust-binary-router-library-design.md#5-6-illustrative-api-usage-examples) <!-- markdownlint-disable-line MD013 --> in the design document for further details.
+This example showcases how derive macros and the framing abstraction simplify a
+binary protocol server. See the
+[full example](docs/rust-binary-router-library-design.md#5-6-illustrative-api-usage-examples)
+ <!-- markdownlint-disable-line MD013 --> in the design document for further
+details.
 
 ## Custom Envelopes
 
 `WireframeApp` defaults to a simple `Envelope` containing a message ID and raw
 payload bytes. Applications can supply their own envelope type by calling
-`WireframeApp::<_, _, MyEnv>::new_with_envelope()`. The custom type must
-implement the `Packet` trait:
+`WireframeApp::<_, _, MyEnv>::new()`. The custom type must implement the
+`Packet` trait:
 
 ```rust
 use wireframe::app::{Packet, WireframeApp};
@@ -103,7 +107,7 @@ impl Packet for MyEnv {
     fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
 }
 
-let app = WireframeApp::<_, _, MyEnv>::new_with_envelope()
+let app = WireframeApp::<_, _, MyEnv>::new()
     .unwrap()
     .route(1, std::sync::Arc::new(|env: &MyEnv| Box::pin(async move { /* ... */ })))
     .unwrap();
