@@ -252,24 +252,40 @@ where
         tokio::select! {
             biased;
 
-            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => {
-                Event::Shutdown
-            }
+            event = Self::handle_shutdown(self.shutdown.clone()), if state.is_active() => { event }
 
-            res = Self::poll_optional(self.high_rx.as_mut(), Self::recv_push), if high_available => {
-                Event::High(res)
-            }
+            event = Self::handle_high(self.high_rx.as_mut()), if high_available => { event }
 
-            res = Self::poll_optional(self.low_rx.as_mut(), Self::recv_push), if low_available => {
-                Event::Low(res)
-            }
+            event = Self::handle_low(self.low_rx.as_mut()), if low_available => { event }
 
-            res = Self::poll_optional(self.response.as_mut(), |s| s.next()), if resp_available => {
-                Event::Response(res)
-            }
+            event = Self::poll_response_stream(self.response.as_mut()), if resp_available => { event }
 
             else => Event::Idle,
         }
+    }
+
+    /// Await cancellation and emit a shutdown event.
+    async fn handle_shutdown(token: CancellationToken) -> Event<F, E> {
+        Self::wait_shutdown(token).await;
+        Event::Shutdown
+    }
+
+    /// Poll the high-priority queue.
+    async fn handle_high(rx: Option<&mut mpsc::Receiver<F>>) -> Event<F, E> {
+        let res = Self::poll_optional(rx, Self::recv_push).await;
+        Event::High(res)
+    }
+
+    /// Poll the low-priority queue.
+    async fn handle_low(rx: Option<&mut mpsc::Receiver<F>>) -> Event<F, E> {
+        let res = Self::poll_optional(rx, Self::recv_push).await;
+        Event::Low(res)
+    }
+
+    /// Poll the streaming response if attached.
+    async fn poll_response_stream(stream: Option<&mut FrameStream<F, E>>) -> Event<F, E> {
+        let res = Self::poll_optional(stream, |s| s.next()).await;
+        Event::Response(res)
     }
 
     /// Poll all sources and push available frames into `out`.
