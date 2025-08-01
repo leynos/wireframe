@@ -19,9 +19,7 @@ use wireframe::{
     unused_braces,
     reason = "Clippy is wrong here; this is not a redundant block"
 )]
-pub fn processor() -> LengthPrefixedProcessor {
-    LengthPrefixedProcessor::default()
-}
+pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -45,12 +43,10 @@ const DEFAULT_CAPACITY: usize = 4096;
 /// with `"server task failed"`.
 ///
 /// ```rust
-/// use tokio::io::{self, DuplexStream, AsyncWriteExt};
+/// use tokio::io::{self, AsyncWriteExt, DuplexStream};
 /// use wireframe_testing::helpers::drive_internal;
 ///
-/// async fn echo(mut server: DuplexStream) {
-///     let _ = server.write_all(&[1, 2]).await;
-/// }
+/// async fn echo(mut server: DuplexStream) { let _ = server.write_all(&[1, 2]).await; }
 ///
 /// # async fn demo() -> io::Result<()> {
 /// let bytes = drive_internal(echo, vec![vec![0]], 64).await?;
