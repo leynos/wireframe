@@ -64,23 +64,15 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// Return a list of all live connection IDs and their handles.
     #[must_use]
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
-        let mut stale = Vec::new();
-        let handles = self
-            .0
-            .iter()
-            .filter_map(|entry| {
-                let id = *entry.key();
-                if let Some(inner) = entry.value().upgrade() {
-                    Some((id, PushHandle::from_arc(inner)))
-                } else {
-                    stale.push(id);
-                    None
-                }
-            })
-            .collect();
-        for id in stale {
-            self.0.remove_if(&id, |_, weak| weak.strong_count() == 0);
-        }
+        let mut handles = Vec::new();
+        self.0.retain(|id, weak| {
+            if let Some(inner) = weak.upgrade() {
+                handles.push((*id, PushHandle::from_arc(inner)));
+                true
+            } else {
+                false
+            }
+        });
         handles
     }
 
