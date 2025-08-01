@@ -229,7 +229,9 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub const fn worker_count(&self) -> usize { self.workers }
+    pub const fn worker_count(&self) -> usize {
+        self.workers
+    }
 
     /// Get the socket address the server is bound to, if available.
     #[must_use]
@@ -423,7 +425,8 @@ async fn worker_task<F, T>(
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
-                    tracing::warn!(error = ?e, "accept error");
+                    let local_addr = listener.local_addr().ok();
+                    tracing::warn!(error = ?e, ?local_addr, "accept error");
                     sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
@@ -467,12 +470,13 @@ async fn process_stream<F, T>(
     // `Preamble` ensures `T` supports borrowed decoding.
     T: Preamble,
 {
+    let peer_addr = stream.peer_addr().ok();
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            if let Some(handler) = on_success.as_ref()
-                && let Err(e) = handler(&preamble, &mut stream).await
-            {
-                tracing::error!(error = ?e, "preamble callback error");
+            if let Some(handler) = on_success.as_ref() {
+                if let Err(e) = handler(&preamble, &mut stream).await {
+                    tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
+                }
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
@@ -520,7 +524,7 @@ mod tests {
 
     /// Test helper preamble carrying no data.
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    #[expect(dead_code, reason = "test helper for unused preamble type")]
+    #[allow(dead_code)]
     struct EmptyPreamble;
 
     #[fixture]
@@ -702,8 +706,8 @@ mod tests {
                     Ok(())
                 })
             })
-            .on_preamble_decode_failure(|_: &DecodeError| {
-                tracing::warn!("Preamble decode failed");
+            .on_preamble_decode_failure(|err: &DecodeError| {
+                tracing::warn!(error = ?err, "Preamble decode failed");
             })
             .bind(free_port)
             .expect("Failed to bind");

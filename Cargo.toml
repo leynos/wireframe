@@ -24,6 +24,7 @@ log = "0.4"
 dashmap = "5"
 leaky-bucket = "1.1"
 tracing = { version = ">=0.1.40, <0.2.0", features = ["log", "log-always"] }
+tracing-subscriber = "0.3"
 metrics = { version = "0.24", optional = true }
 metrics-exporter-prometheus = { version = "0.17", optional = true, features = ["http-listener"] }
 
