@@ -4,7 +4,9 @@ use std::io;
 
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
-use rstest::{fixture, rstest};
+mod common;
+use common::{factory, unused_port};
+use rstest::rstest;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, duplex},
     net::TcpStream,
@@ -32,11 +34,6 @@ impl HotlinePreamble {
         }
         Ok(())
     }
-}
-
-#[fixture]
-fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
-    || WireframeApp::new().expect("WireframeApp::new failed")
 }
 
 /// Create a server configured with `HotlinePreamble` handlers.
@@ -68,9 +65,7 @@ where
     Fut: std::future::Future<Output = ()>,
     B: FnOnce(std::net::SocketAddr) -> Fut,
 {
-    let server = server
-        .bind("127.0.0.1:0".parse().expect("hard-coded socket addr"))
-        .expect("bind");
+    let server = server.bind(unused_port()).expect("bind");
     let addr = server.local_addr().expect("addr");
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
