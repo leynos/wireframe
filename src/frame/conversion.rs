@@ -58,8 +58,9 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
 /// `len` does not fit into the prefix.
 ///
 /// # Panics
-/// Panics if shifting `value` leaves bits outside the `u8` range. This cannot
-/// occur for valid prefix sizes and checked values.
+/// Panics if the bit-shifting within the `write_bytes` closure leaves bits of
+/// `value` outside the `u8` range. This cannot occur for valid prefix sizes and
+/// checked values.
 #[must_use = "length prefix byte count must be used"]
 pub fn u64_to_bytes(
     len: usize,
