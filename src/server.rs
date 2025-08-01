@@ -384,7 +384,13 @@ fn spawn_connection_task<F, T>(
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
 {
-    let peer_addr = stream.peer_addr().ok();
+    let peer_addr = match stream.peer_addr() {
+        Ok(addr) => Some(addr),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to retrieve peer address");
+            None
+        }
+    };
     tracker.spawn(async move {
         use futures::FutureExt as _;
         let fut =
