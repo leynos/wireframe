@@ -449,11 +449,10 @@ async fn accept_loop<F, T>(
     }
 }
 
-/// Runs a worker task that accepts incoming TCP connections and processes them
-/// asynchronously.
+/// Worker task that delegates connection acceptance to `accept_loop`.
 ///
-/// Each accepted connection is handled in a separate task, with optional callbacks for preamble
-/// decode success or failure. The worker listens for shutdown signals to terminate gracefully.
+/// This function serves as an entry point for worker tasks, passing all parameters
+/// to `accept_loop` which handles the actual connection acceptance and processing.
 async fn worker_task<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
