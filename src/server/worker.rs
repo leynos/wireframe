@@ -135,7 +135,12 @@ async fn process_stream<F, T>(
 
 #[cfg(test)]
 mod tests {
-    use rstest::{fixture, rstest};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use rstest::rstest;
     use tokio::{
         net::TcpListener,
         time::{Duration, timeout},
@@ -144,19 +149,21 @@ mod tests {
 
     use super::*;
 
-    #[fixture]
-    fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
-        || WireframeApp::default()
-    }
-
     #[rstest]
     #[tokio::test]
-    async fn test_worker_task_shutdown_signal(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
+    async fn test_worker_task_shutdown_signal() {
         let token = CancellationToken::new();
         let tracker = TaskTracker::new();
         let listener = Arc::new(TcpListener::bind("127.0.0.1:0").await.unwrap());
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let factory = {
+            let call_count = call_count.clone();
+            move || {
+                call_count.fetch_add(1, Ordering::SeqCst);
+                WireframeApp::default()
+            }
+        };
 
         tracker.spawn(worker_task::<_, ()>(
             listener,
@@ -172,5 +179,6 @@ mod tests {
 
         let result = timeout(Duration::from_millis(100), tracker.wait()).await;
         assert!(result.is_ok());
+        assert_eq!(call_count.load(Ordering::SeqCst), 0);
     }
 }

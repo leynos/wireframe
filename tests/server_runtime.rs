@@ -164,7 +164,7 @@ async fn test_method_chaining(
             })
         })
         .on_preamble_decode_failure(|_: &DecodeError| {
-            eprintln!("Preamble decode failed");
+            tracing::error!("Preamble decode failed");
         })
         .bind(free_port)
         .expect("Failed to bind");

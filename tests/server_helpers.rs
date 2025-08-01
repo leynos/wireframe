@@ -22,8 +22,8 @@ pub fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
 #[fixture]
 pub fn free_port() -> SocketAddr {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-    let listener = std::net::TcpListener::bind(addr).unwrap();
-    listener.local_addr().unwrap()
+    let listener = std::net::TcpListener::bind(addr).expect("Failed to bind to localhost:0");
+    listener.local_addr().expect("Failed to get local address")
 }
 
 /// Create a server bound to the provided address for testing.
