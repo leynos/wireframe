@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-bincode = "2"
-tokio = { version = "1", default-features = false, features = [
+serde = { version = "1.0.219", features = ["derive"] }
+bincode = "2.0.1"
+tokio = { version = "1.46.1", default-features = false, features = [
     "net",
     "signal",
     "rt-multi-thread",
@@ -16,30 +16,30 @@ tokio = { version = "1", default-features = false, features = [
     "io-util",
     "test-util",
 ] }
-tokio-util = { version = "0.7", features = ["rt"] }
-futures = "0.3"
-async-trait = "0.1"
-bytes = "1"
-log = "0.4"
-dashmap = "5"
-leaky-bucket = "1.1"
-tracing = { version = "^0.1.40", features = ["log", "log-always"] }
-metrics = { version = "0.24", optional = true }
-metrics-exporter-prometheus = { version = "0.17", optional = true, features = ["http-listener"] }
+tokio-util = { version = "0.7.15", features = ["rt"] }
+futures = "0.3.31"
+async-trait = "0.1.88"
+bytes = "1.10.1"
+log = "0.4.27"
+dashmap = "5.5.3"
+leaky-bucket = "1.1.2"
+tracing = { version = "0.1.41", features = ["log", "log-always"] }
+metrics = { version = "0.24.2", optional = true }
+metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = ["http-listener"] }
 
 [dev-dependencies]
 rstest = "0.18.2"
 wireframe_testing = { path = "./wireframe_testing" }
-logtest = "^2.0"
-proptest = "^1.0"
-loom = "^0.7"
-async-stream = "0.3"
-serial_test = "3.1"
+logtest = "2.0.0"
+proptest = "1.7.0"
+loom = "0.7.2"
+async-stream = "0.3.6"
+serial_test = "3.2.0"
 # Permit compatible bug fixes but block breaking updates
-cucumber = "^0.20"
-metrics-util = "0.20"
-tracing-test = "0.2"
-metrics-exporter-prometheus = "0.17"
+cucumber = "0.20.2"
+metrics-util = "0.20.0"
+tracing-test = "0.2.5"
+metrics-exporter-prometheus = "0.17.2"
 
 [features]
 default = ["metrics"]
