@@ -1,7 +1,7 @@
 //! Tests for [`WireframeServer`] configuration.
 
 mod common;
-use common::{factory, unused_port};
+use common::{factory, unused_listener};
 use wireframe::server::WireframeServer;
 
 #[test]
@@ -39,9 +39,11 @@ async fn readiness_receiver_dropped() {
         time::{Duration, sleep},
     };
 
+    let listener = unused_listener();
+    let _addr = listener.local_addr().unwrap();
     let server = WireframeServer::new(factory())
         .workers(1)
-        .bind(unused_port())
+        .bind_listener(listener)
         .unwrap();
 
     let addr = server.local_addr().expect("local addr missing");

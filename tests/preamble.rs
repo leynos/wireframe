@@ -5,7 +5,7 @@ use std::io;
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
 mod common;
-use common::{factory, unused_port};
+use common::{factory, unused_listener};
 use rstest::rstest;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, duplex},
@@ -65,7 +65,9 @@ where
     Fut: std::future::Future<Output = ()>,
     B: FnOnce(std::net::SocketAddr) -> Fut,
 {
-    let server = server.bind(unused_port()).expect("bind");
+    let listener = unused_listener();
+    let _addr = listener.local_addr().expect("addr");
+    let server = server.bind_listener(listener).expect("bind");
     let addr = server.local_addr().expect("addr");
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {

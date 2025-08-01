@@ -229,7 +229,9 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub const fn worker_count(&self) -> usize { self.workers }
+    pub const fn worker_count(&self) -> usize {
+        self.workers
+    }
 
     /// Get the socket address the server is bound to, if available.
     #[must_use]
@@ -270,6 +272,17 @@ where
         let std_listener = StdTcpListener::bind(addr)?;
         std_listener.set_nonblocking(true)?;
         let listener = TcpListener::from_std(std_listener)?;
+        self.listener = Some(Arc::new(listener));
+        Ok(self)
+    }
+
+    /// Bind the server to an existing standard TCP listener.
+    ///
+    /// # Errors
+    /// Returns an [`io::Error`] if configuring the listener fails.
+    pub fn bind_listener(mut self, listener: StdTcpListener) -> io::Result<Self> {
+        listener.set_nonblocking(true)?;
+        let listener = TcpListener::from_std(listener)?;
         self.listener = Some(Arc::new(listener));
         Ok(self)
     }
