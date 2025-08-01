@@ -7,8 +7,8 @@ use std::{
     },
 };
 
-use bincode::{Decode, Encode, error::DecodeError};
-use rstest::{fixture, rstest};
+use bincode::error::DecodeError;
+use rstest::rstest;
 use tokio::{
     net::TcpStream,
     sync::oneshot,
@@ -16,29 +16,11 @@ use tokio::{
 };
 use tracing_test::traced_test;
 use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe_testing::{LoggerHandle, logger};
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-struct TestPreamble {
-    id: u32,
-    message: String,
-}
+use crate::server_helpers::{TestPreamble, factory, free_port};
 
-/// Test helper preamble carrying no data.
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-#[expect(dead_code, reason = "test helper for unused preamble type")]
-struct EmptyPreamble;
-
-#[fixture]
-fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
-    || WireframeApp::default()
-}
-
-#[fixture]
-fn free_port() -> SocketAddr {
-    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-    let listener = std::net::TcpListener::bind(addr).unwrap();
-    listener.local_addr().unwrap()
-}
+mod server_helpers;
 
 #[rstest]
 #[tokio::test]
@@ -100,6 +82,8 @@ async fn test_multiple_worker_creation(
 
     assert!(result.is_ok());
     assert!(result.unwrap().is_ok());
+    // no connections handled, factory should not be called
+    assert_eq!(call_count.load(Ordering::SeqCst), 0);
 }
 
 #[rstest]
@@ -133,7 +117,6 @@ fn test_preamble_callbacks_reset_on_type_change(
     assert!(!server.has_preamble_failure());
 }
 
-#[rstest]
 #[rstest]
 fn test_extreme_worker_counts(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
     let server = WireframeServer::new(factory);
@@ -189,6 +172,7 @@ fn test_server_debug_compilation_guard() {
 #[tokio::test]
 async fn connection_panic_is_caught(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    mut logger: LoggerHandle,
 ) {
     let app_factory = move || {
         factory()
@@ -223,4 +207,22 @@ async fn connection_panic_is_caught(
 
     let _ = tx.send(());
     handle.await.unwrap();
+
+    let mut found_task = false;
+    let mut found_msg = false;
+    let mut found_addr = false;
+    while let Some(record) = logger.pop() {
+        if record.args().contains("connection task panicked") {
+            found_task = true;
+        }
+        if record.args().contains("boom") {
+            found_msg = true;
+        }
+        if record.args().contains("peer_addr") {
+            found_addr = true;
+        }
+    }
+    assert!(found_task);
+    assert!(found_msg);
+    assert!(found_addr);
 }

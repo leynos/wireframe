@@ -66,7 +66,7 @@ pub async fn worker_task<F, T>(
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
-                    eprintln!("accept error: {e}");
+                    tracing::error!(error = %e, "accept error");
                     sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
@@ -100,7 +100,7 @@ pub async fn worker_task<F, T>(
 /// // process_stream::<_, ()>(stream, factory, None, None).await;
 /// # }
 /// ```
-pub(crate) async fn process_stream<F, T>(
+async fn process_stream<F, T>(
     mut stream: tokio::net::TcpStream,
     factory: F,
     on_success: Option<PreambleCallback<T>>,
@@ -115,7 +115,7 @@ pub(crate) async fn process_stream<F, T>(
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
-                eprintln!("preamble callback error: {e}");
+                tracing::error!(error = %e, "preamble callback error");
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.

@@ -7,49 +7,14 @@ use std::{
     },
 };
 
-use bincode::{Decode, Encode, error::DecodeError};
-use rstest::{fixture, rstest};
+use bincode::error::DecodeError;
+use rstest::rstest;
 use tokio::time::{Duration, timeout};
 use wireframe::{app::WireframeApp, server::WireframeServer};
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-struct TestPreamble {
-    id: u32,
-    message: String,
-}
+use crate::server_helpers::{TestPreamble, bind_server, factory, free_port, server_with_preamble};
 
-/// Test helper preamble carrying no data.
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-#[expect(dead_code, reason = "test helper for unused preamble type")]
-struct EmptyPreamble;
-
-#[fixture]
-fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
-    || WireframeApp::default()
-}
-
-#[fixture]
-fn free_port() -> SocketAddr {
-    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-    let listener = std::net::TcpListener::bind(addr).unwrap();
-    listener.local_addr().unwrap()
-}
-
-fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F>
-where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-{
-    WireframeServer::new(factory)
-        .bind(addr)
-        .expect("Failed to bind")
-}
-
-fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
-where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-{
-    WireframeServer::new(factory).with_preamble::<TestPreamble>()
-}
+mod server_helpers;
 
 #[rstest]
 fn test_new_server_creation(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
@@ -114,9 +79,12 @@ async fn test_bind_invalid_address(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
     let server = WireframeServer::new(factory);
-    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 1);
+    // Binding to a privileged port typically requires elevated privileges.
+    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 80);
     let result = server.bind(addr);
-    assert!(result.is_ok() || result.is_err());
+    if !cfg!(target_os = "windows") && std::env::var("USER").is_ok_and(|u| u != "root") {
+        assert!(result.is_err(), "Expected bind to privileged port to fail");
+    }
 }
 
 #[rstest]
