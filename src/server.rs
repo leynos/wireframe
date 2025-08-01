@@ -440,7 +440,8 @@ async fn accept_loop<F, T>(
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
-                    eprintln!("accept error: {e}");
+                    let local_addr = listener.local_addr().ok();
+                    tracing::warn!(error = ?e, ?local_addr, "accept error");
                     sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
@@ -503,12 +504,13 @@ async fn process_stream<F, T>(
     // `Preamble` ensures `T` supports borrowed decoding.
     T: Preamble,
 {
+    let peer_addr = stream.peer_addr().ok();
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
-                eprintln!("preamble callback error: {e}");
+                tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
@@ -556,7 +558,7 @@ mod tests {
 
     /// Test helper preamble carrying no data.
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    #[expect(dead_code, reason = "test helper for unused preamble type")]
+    #[allow(dead_code)]
     struct EmptyPreamble;
 
     #[fixture]
@@ -738,8 +740,8 @@ mod tests {
                     Ok(())
                 })
             })
-            .on_preamble_decode_failure(|_: &DecodeError| {
-                eprintln!("Preamble decode failed");
+            .on_preamble_decode_failure(|err: &DecodeError| {
+                tracing::warn!(error = ?err, "Preamble decode failed");
             })
             .bind(free_port)
             .expect("Failed to bind");
