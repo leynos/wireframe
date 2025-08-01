@@ -407,7 +407,7 @@ where
     ///
     /// ```rust,no_run
     /// use tokio::sync::mpsc;
-    /// use wireframe::app::WireframeApp;
+    /// use wireframe::app::{Envelope, WireframeApp};
     ///
     /// # fn build() -> WireframeApp { WireframeApp::<_, _, Envelope>::new().unwrap() }
     /// # fn main() {

@@ -87,7 +87,10 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// use wireframe::{
+    ///     app::{Envelope, WireframeApp},
+    ///     server::WireframeServer,
+    /// };
     ///
     /// let server = WireframeServer::new(|| WireframeApp::default());
     /// assert!(server.worker_count() >= 1);
@@ -129,7 +132,7 @@ where
     ///
     /// ```no_run
     /// # use wireframe::server::WireframeServer;
-    /// # use wireframe::app::WireframeApp;
+    /// # use wireframe::app::{Envelope, WireframeApp};
     /// # let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// #[derive(bincode::Decode)]
     /// # struct MyPreamble;
@@ -167,7 +170,10 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// use wireframe::{
+    ///     app::{Envelope, WireframeApp},
+    ///     server::WireframeServer,
+    /// };
     ///
     /// let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory).workers(4);
@@ -221,7 +227,10 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// use wireframe::{
+    ///     app::{Envelope, WireframeApp},
+    ///     server::WireframeServer,
+    /// };
     ///
     /// let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory);
@@ -259,7 +268,10 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// use wireframe::{
+    ///     app::{Envelope, WireframeApp},
+    ///     server::WireframeServer,
+    /// };
     ///
     /// let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     /// let server = WireframeServer::new(factory);
@@ -307,7 +319,10 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// use wireframe::{
+    ///     app::{Envelope, WireframeApp},
+    ///     server::WireframeServer,
+    /// };
     /// async fn run_server() -> std::io::Result<()> {
     ///     let factory = || WireframeApp::<_, _, Envelope>::new().expect("Failed to initialise app");
     ///     let addr = "127.0.0.1:8080"
@@ -450,7 +465,7 @@ async fn worker_task<F, T>(
 /// ```no_run
 /// # use std::sync::Arc;
 /// # use tokio::net::TcpStream;
-/// # use wireframe::app::WireframeApp;
+/// # use wireframe::app::{Envelope, WireframeApp};
 /// # async fn example() {
 /// let stream: TcpStream = unimplemented!();
 /// let factory = || WireframeApp::<_, _, Envelope>::new();

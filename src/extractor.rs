@@ -39,7 +39,7 @@ impl MessageRequest {
     ///
     /// ```rust,no_run
     /// use wireframe::{
-    ///     app::WireframeApp,
+    ///     app::{Envelope, WireframeApp},
     ///     extractor::{MessageRequest, SharedState},
     /// };
     ///
