@@ -258,7 +258,7 @@ where
 
             event = Self::handle_low(self.low_rx.as_mut()), if low_available => { event }
 
-            event = Self::poll_response_stream(self.response.as_mut()), if resp_available => { event }
+            event = Self::handle_response_stream(self.response.as_mut()), if resp_available => { event }
 
             else => Event::Idle,
         }
@@ -270,22 +270,34 @@ where
         Event::Shutdown
     }
 
+    /// Poll `opt` with `f` and convert the result using `map`.
+    #[inline]
+    async fn handle_event<'a, T, Fut, R>(
+        opt: Option<&'a mut T>,
+        f: impl FnOnce(&'a mut T) -> Fut + Send + 'a,
+        map: impl FnOnce(Option<R>) -> Event<F, E> + Send,
+    ) -> Event<F, E>
+    where
+        T: Send + 'a,
+        Fut: Future<Output = Option<R>> + Send + 'a,
+    {
+        let res = Self::poll_optional(opt, f).await;
+        map(res)
+    }
+
     /// Poll the high-priority queue.
     async fn handle_high(rx: Option<&mut mpsc::Receiver<F>>) -> Event<F, E> {
-        let res = Self::poll_optional(rx, Self::recv_push).await;
-        Event::High(res)
+        Self::handle_event(rx, Self::recv_push, Event::High).await
     }
 
     /// Poll the low-priority queue.
     async fn handle_low(rx: Option<&mut mpsc::Receiver<F>>) -> Event<F, E> {
-        let res = Self::poll_optional(rx, Self::recv_push).await;
-        Event::Low(res)
+        Self::handle_event(rx, Self::recv_push, Event::Low).await
     }
 
     /// Poll the streaming response if attached.
-    async fn poll_response_stream(stream: Option<&mut FrameStream<F, E>>) -> Event<F, E> {
-        let res = Self::poll_optional(stream, |s| s.next()).await;
-        Event::Response(res)
+    async fn handle_response_stream(stream: Option<&mut FrameStream<F, E>>) -> Event<F, E> {
+        Self::handle_event(stream, |s| s.next(), Event::Response).await
     }
 
     /// Poll all sources and push available frames into `out`.
