@@ -29,11 +29,10 @@ protocols.
 
 ### Implementation Status
 
-Only the queue management utilities in `src/push.rs` exist at present. The
-connection actor and its write loop are still to be implemented. The remaining
-sections describe how to build that actor from first principles using the
-biased `select!` loop presented in
-[Section 3](#3-core-architecture-the-connection-actor).
+An initial connection actor with its biased write loop is implemented in
+`src/connection.rs`. The remaining sections explain the rationale behind this
+design and possible refinements. See
+[Section 3](#3-core-architecture-the-connection-actor) for details.
 
 ## 2. Design Goals & Requirements
 
