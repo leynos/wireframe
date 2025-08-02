@@ -12,10 +12,7 @@ use std::{
 };
 
 use futures::StreamExt;
-use tokio::{
-    sync::mpsc,
-    time::{Duration, Instant},
-};
+use tokio::{sync::mpsc, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, info_span, warn};
 
@@ -46,6 +43,7 @@ impl Drop for ActiveConnection {
 pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
+    fairness::Fairness,
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
@@ -66,7 +64,7 @@ enum Event<F, E> {
 }
 
 /// Configuration controlling fairness when draining push queues.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FairnessConfig {
     /// Number of consecutive high-priority frames to process before
     /// checking the low-priority queue.
@@ -110,9 +108,7 @@ pub struct ConnectionActor<F, E> {
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
-    fairness: FairnessConfig,
-    high_counter: usize,
-    high_start: Option<Instant>,
+    fairness: Fairness,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
 }
@@ -170,9 +166,7 @@ where
             counter: Some(counter),
             hooks,
             ctx,
-            fairness: FairnessConfig::default(),
-            high_counter: 0,
-            high_start: None,
+            fairness: Fairness::new(FairnessConfig::default()),
             connection_id: None,
             peer_addr: None,
         };
@@ -188,7 +182,7 @@ where
     }
 
     /// Replace the fairness configuration.
-    pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness = fairness; }
+    pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness.set_config(fairness); }
 
     /// Set or replace the current streaming response.
     pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) { self.response = stream; }
@@ -335,7 +329,7 @@ where
             self.after_high(out, state);
         } else {
             Self::handle_closed_receiver(&mut self.high_rx, state);
-            self.reset_high_counter();
+            self.fairness.reset();
         }
     }
 
@@ -397,12 +391,9 @@ where
 
     /// Update counters and opportunistically drain the low-priority queue.
     fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
-        self.high_counter += 1;
-        if self.high_counter == 1 {
-            self.high_start = Some(Instant::now());
-        }
+        self.fairness.after_high();
 
-        if self.should_yield_to_low_priority()
+        if self.fairness.should_yield()
             && let Some(rx) = &mut self.low_rx
         {
             match rx.try_recv() {
@@ -420,26 +411,8 @@ where
         }
     }
 
-    /// Determine if processing should yield to the low-priority queue.
-    fn should_yield_to_low_priority(&self) -> bool {
-        let threshold_hit = self.fairness.max_high_before_low > 0
-            && self.high_counter >= self.fairness.max_high_before_low;
-        let time_hit = self
-            .fairness
-            .time_slice
-            .zip(self.high_start)
-            .is_some_and(|(slice, start)| start.elapsed() >= slice);
-        threshold_hit || time_hit
-    }
-
     /// Reset counters after processing a low-priority frame.
-    fn after_low(&mut self) { self.reset_high_counter(); }
-
-    /// Clear the burst counter and associated timestamp.
-    fn reset_high_counter(&mut self) {
-        self.high_counter = 0;
-        self.high_start = None;
-    }
+    fn after_low(&mut self) { self.fairness.after_low(); }
 
     /// Push a frame from the response stream into `out` or handle completion.
     ///

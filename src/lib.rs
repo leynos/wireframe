@@ -9,6 +9,7 @@ pub mod serializer;
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;
 pub mod extractor;
+mod fairness;
 pub mod frame;
 pub mod hooks;
 pub mod message;
