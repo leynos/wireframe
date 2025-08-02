@@ -416,7 +416,7 @@ impl<F> SessionRegistry<F> {
         if handle.is_none() {
             self.0.remove_if(id, |_, weak| weak.strong_count() == 0);
         }
-        handle.map(PushHandle)
+        handle.map(PushHandle::from_arc)
     }
 
     /// Inserts a new handle into the registry.
@@ -433,16 +433,24 @@ impl<F> SessionRegistry<F> {
 
     /// Returns all live session handles for broadcast or diagnostics.
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
-        self.0
-            .iter()
-            .filter_map(|entry| {
-                let id = *entry.key();
-                entry.value().upgrade().map(|h| (id, PushHandle(h)))
-            })
-            .collect()
+        let mut handles = Vec::new();
+        self.0.retain(|id, weak| {
+            if let Some(inner) = weak.upgrade() {
+                handles.push((*id, PushHandle::from_arc(inner)));
+                true
+            } else {
+                false
+            }
+        });
+        handles
     }
 }
 ```
+
+`active_handles()` prunes stale entries as it collects the remaining live
+handles. Call `prune()` from a maintenance task when you only need to clean up
+dead sessions. Separating pruning from collection may reduce contention under
+heavy concurrency.
 
 The diagram below summarises the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak
