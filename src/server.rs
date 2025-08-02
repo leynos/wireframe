@@ -229,7 +229,9 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub const fn worker_count(&self) -> usize { self.workers }
+    pub const fn worker_count(&self) -> usize {
+        self.workers
+    }
 
     /// Get the socket address the server is bound to, if available.
     #[must_use]
@@ -469,10 +471,10 @@ async fn process_stream<F, T>(
 {
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            if let Some(handler) = on_success.as_ref()
-                && let Err(e) = handler(&preamble, &mut stream).await
-            {
-                eprintln!("preamble callback error: {e}");
+            if let Some(handler) = on_success.as_ref() {
+                if let Err(e) = handler(&preamble, &mut stream).await {
+                    eprintln!("preamble callback error: {e}");
+                }
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
@@ -520,7 +522,7 @@ mod tests {
 
     /// Test helper preamble carrying no data.
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    #[expect(dead_code, reason = "test helper for unused preamble type")]
+    #[allow(dead_code)]
     struct EmptyPreamble;
 
     #[fixture]
