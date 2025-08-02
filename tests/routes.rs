@@ -40,7 +40,7 @@ struct Echo(u8);
 async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
-    let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
+    let app = WireframeApp::<_, _, TestEnvelope>::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
@@ -79,7 +79,7 @@ async fn handler_receives_message_and_echoes_response() {
 
 #[tokio::test]
 async fn multiple_frames_processed_in_sequence() {
-    let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
+    let app = WireframeApp::<_, _, TestEnvelope>::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())
         .route(

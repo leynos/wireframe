@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     ConnectionContext,
     WireframeProtocol,
-    app::WireframeApp,
+    app::{Envelope, WireframeApp},
     connection::ConnectionActor,
     push::PushQueues,
 };
@@ -51,7 +51,9 @@ async fn builder_produces_protocol_hooks() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::new().unwrap().with_protocol(protocol);
+    let app = WireframeApp::<_, _, Envelope>::new()
+        .unwrap()
+        .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
 
     let (queues, handle) = PushQueues::bounded(1, 1);
@@ -73,7 +75,9 @@ async fn connection_actor_uses_protocol_from_builder() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::new().unwrap().with_protocol(protocol);
+    let app = WireframeApp::<_, _, Envelope>::new()
+        .unwrap()
+        .with_protocol(protocol);
 
     let hooks = app.protocol_hooks();
     let (queues, handle) = PushQueues::bounded(8, 8);

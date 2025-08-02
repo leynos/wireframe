@@ -68,7 +68,7 @@ struct Pong;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let app = WireframeApp::new()
+    let app = WireframeApp::<_, _, Envelope>::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())
         .serializer(HeaderSerializer)

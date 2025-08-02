@@ -7,7 +7,10 @@ use std::net::SocketAddr;
 
 use cucumber::World;
 use tokio::{net::TcpStream, sync::oneshot};
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    server::WireframeServer,
+};
 
 #[derive(Debug)]
 struct PanicServer {
@@ -19,7 +22,7 @@ struct PanicServer {
 impl PanicServer {
     async fn spawn() -> Self {
         let factory = || {
-            WireframeApp::new()
+            WireframeApp::<_, _, Envelope>::new()
                 .expect("Failed to create WireframeApp")
                 .on_connection_setup(|| async { panic!("boom") })
                 .expect("Failed to set connection setup callback")

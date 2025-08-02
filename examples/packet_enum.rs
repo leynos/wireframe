@@ -78,7 +78,7 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let factory = || {
-        WireframeApp::new()
+        WireframeApp::<_, _, Envelope>::new()
             .expect("Failed to create WireframeApp")
             .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()))
             .wrap(DecodeMiddleware)

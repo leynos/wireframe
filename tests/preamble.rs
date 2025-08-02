@@ -11,7 +11,11 @@ use tokio::{
     sync::oneshot,
     time::{Duration, timeout},
 };
-use wireframe::{app::WireframeApp, preamble::read_preamble, server::WireframeServer};
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    preamble::read_preamble,
+    server::WireframeServer,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 struct HotlinePreamble {
@@ -36,7 +40,7 @@ impl HotlinePreamble {
 
 #[fixture]
 fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
-    || WireframeApp::new().expect("WireframeApp::new failed")
+    || WireframeApp::<_, _, Envelope>::new().expect("WireframeApp::new failed")
 }
 
 /// Create a server configured with `HotlinePreamble` handlers.

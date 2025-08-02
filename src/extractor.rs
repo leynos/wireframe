@@ -39,11 +39,13 @@ impl MessageRequest {
     ///
     /// ```rust,no_run
     /// use wireframe::{
-    ///     app::WireframeApp,
+    ///     app::{Envelope, WireframeApp},
     ///     extractor::{MessageRequest, SharedState},
     /// };
     ///
-    /// let _app = WireframeApp::new().unwrap().app_data(5u32);
+    /// let _app = WireframeApp::<_, _, Envelope>::new()
+    ///     .unwrap()
+    ///     .app_data(5u32);
     /// // The framework populates the request with application data.
     /// # let mut req = MessageRequest::default();
     /// # req.insert_state(5u32);
