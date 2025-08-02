@@ -40,17 +40,22 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
 /// and that the response can be decoded and deserialised back to its original value asynchronously.
 async fn send_response_encodes_and_frames() {
     let app = WireframeApp::new()
-        .unwrap()
+        .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .serializer(BincodeSerializer);
 
     let mut out = Vec::new();
-    app.send_response(&mut out, &TestResp(7)).await.unwrap();
+    app.send_response(&mut out, &TestResp(7))
+        .await
+        .expect("send_response failed");
 
     let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::from(&out[..]);
-    let frame = processor.decode(&mut buf).unwrap().unwrap();
-    let (decoded, _) = TestResp::from_bytes(&frame).unwrap();
+    let frame = processor
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (decoded, _) = TestResp::from_bytes(&frame).expect("deserialize failed");
     assert_eq!(decoded, TestResp(7));
 }
 
@@ -62,7 +67,7 @@ async fn send_response_encodes_and_frames() {
 async fn length_prefixed_decode_requires_complete_header() {
     let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
-    assert!(processor.decode(&mut buf).unwrap().is_none());
+    assert!(processor.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
 }
 
@@ -74,7 +79,7 @@ async fn length_prefixed_decode_requires_complete_header() {
 async fn length_prefixed_decode_requires_full_frame() {
     let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
-    assert!(processor.decode(&mut buf).unwrap().is_none());
+    assert!(processor.decode(&mut buf).expect("decode failed").is_none());
     // buffer should retain bytes since frame isn't complete
     assert_eq!(buf.len(), 6);
 }
@@ -115,16 +120,19 @@ fn custom_length_roundtrip(
 ) {
     let processor = LengthPrefixedProcessor::new(fmt);
     let mut buf = BytesMut::new();
-    processor.encode(&frame, &mut buf).unwrap();
+    processor.encode(&frame, &mut buf).expect("encode failed");
     assert_eq!(&buf[..prefix.len()], &prefix[..]);
-    let decoded = processor.decode(&mut buf).unwrap().unwrap();
+    let decoded = processor
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
     assert_eq!(decoded, frame);
 }
 
 #[tokio::test]
 async fn send_response_propagates_write_error() {
     let app = WireframeApp::new()
-        .unwrap()
+        .expect("route registration failed")
         .frame_processor(LengthPrefixedProcessor::default());
 
     let mut writer = FailingWriter;
@@ -182,7 +190,7 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
 /// This test sends a `FailingResp` using `send_response` and asserts that the resulting
 /// error is of the `Serialize` variant, indicating a failure during response encoding.
 async fn send_response_returns_encode_error() {
-    let app = WireframeApp::new().unwrap();
+    let app = WireframeApp::new().expect("failed to create app");
     let err = app
         .send_response(&mut Vec::new(), &FailingResp)
         .await

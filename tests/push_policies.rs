@@ -40,10 +40,15 @@ fn push_policy_behaviour(
         while logger.pop().is_some() {}
         let (mut queues, handle) = PushQueues::bounded(1, 1);
 
-        handle.push_high_priority(1u8).await.unwrap();
-        handle.try_push(2u8, PushPriority::High, policy).unwrap();
+        handle
+            .push_high_priority(1u8)
+            .await
+            .expect("push high priority failed");
+        handle
+            .try_push(2u8, PushPriority::High, policy)
+            .expect("try_push failed");
 
-        let (_, val) = queues.recv().await.unwrap();
+        let (_, val) = queues.recv().await.expect("recv failed");
         assert_eq!(val, 1);
         assert!(
             timeout(Duration::from_millis(20), queues.recv())
@@ -71,23 +76,26 @@ fn push_policy_behaviour(
 fn dropped_frame_goes_to_dlq(rt: Runtime) {
     rt.block_on(async {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-        let (mut queues, handle) =
-            PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
+        let (mut queues, handle) = PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx))
+            .expect("queue creation failed");
 
-        handle.push_high_priority(1u8).await.unwrap();
+        handle
+            .push_high_priority(1u8)
+            .await
+            .expect("push high priority failed");
         handle
             .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-            .unwrap();
+            .expect("try_push failed");
 
-        let (_, val) = queues.recv().await.unwrap();
+        let (_, val) = queues.recv().await.expect("recv failed");
         assert_eq!(val, 1);
-        assert_eq!(dlq_rx.recv().await.unwrap(), 2);
+        assert_eq!(dlq_rx.recv().await.expect("dlq recv failed"), 2);
     });
 }
 
 /// Preloads the DLQ to simulate a full queue.
 fn fill_dlq(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) {
-    tx.try_send(99).unwrap();
+    tx.try_send(99).expect("send failed");
 }
 
 /// Drops the receiver to simulate a closed DLQ channel.
@@ -97,7 +105,7 @@ fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(r
 fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> {
     Box::pin(async move {
         let receiver = rx.as_mut().expect("receiver missing");
-        assert_eq!(receiver.recv().await.unwrap(), 99);
+        assert_eq!(receiver.recv().await.expect("dlq recv failed"), 99);
         assert!(receiver.try_recv().is_err());
     })
 }
@@ -127,13 +135,18 @@ fn dlq_error_scenarios<Setup, AssertFn>(
         let (dlq_tx, dlq_rx) = mpsc::channel(1);
         let mut dlq_rx = Some(dlq_rx);
         setup(&dlq_tx, &mut dlq_rx);
-        let (mut queues, handle) =
-            PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
+        let (mut queues, handle) = PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx))
+            .expect("queue creation failed");
 
-        handle.push_high_priority(1u8).await.unwrap();
-        handle.try_push(2u8, PushPriority::High, policy).unwrap();
+        handle
+            .push_high_priority(1u8)
+            .await
+            .expect("push high priority failed");
+        handle
+            .try_push(2u8, PushPriority::High, policy)
+            .expect("try_push failed");
 
-        let (_, val) = queues.recv().await.unwrap();
+        let (_, val) = queues.recv().await.expect("recv failed");
         assert_eq!(val, 1);
 
         assertion(&mut dlq_rx).await;

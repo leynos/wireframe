@@ -120,6 +120,17 @@ let bytes = drive_with_bincode(app, Ping(1)).await.unwrap();
 assert_eq!(bytes, [0, 1]);
 ```
 
+### Helper macros
+
+Two small macros, `push_expect!` and `recv_expect!`, reduce boilerplate in test
+code. They await a future and panic with a message including the call site when
+the future resolves to an error.
+
+```rust
+push_expect!(handle.push_high_priority(42));
+let (_, frame) = recv_expect!(queues.recv());
+```
+
 ## Example Usage
 
 ```rust
