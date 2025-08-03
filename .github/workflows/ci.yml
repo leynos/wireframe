@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
   build-test:
@@ -11,55 +13,27 @@ jobs:
       contents: read
     env:
       CARGO_TERM_COLOR: always
-      CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-      CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}
       BUILD_PROFILE: debug
     steps:
       - uses: actions/checkout@v4
-      - name: Install rust
-        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
-        with:
-          override: true
-          components: rustfmt, clippy
-      - name: Cache ~/.cargo and target/
-        # v2.7.8
-        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/${{ env.BUILD_PROFILE }}
-          key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@c6559452842af6a83b83429129dccaf910e34562
       - name: Format
-        run: cargo fmt --all -- --check
+        run: make check-fmt
       - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Test
-        run: cargo test
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
-      - name: Run coverage
-        run: cargo tarpaulin --out lcov
-      - name: Install CodeScene coverage tool
-        if: env.CS_ACCESS_TOKEN
-        run: |
-          set -euo pipefail
-          curl -fsSL -o install-cs-coverage-tool.sh https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
-          if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
-            echo "${CODESCENE_CLI_SHA256}  install-cs-coverage-tool.sh" | sha256sum -c -
-          fi
-          bash install-cs-coverage-tool.sh -y
-          rm install-cs-coverage-tool.sh
-      - name: Upload coverage data to CodeScene
-        if: env.CS_ACCESS_TOKEN
-        run: cs-coverage upload --format "lcov" --metric "line-coverage" "lcov.info"
-      - name: Upload coverage data to Codecov
-        # v5.4.3
-        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24
+        run: make lint
+      - name: Test and Measure Coverage
+        uses: leynos/shared-actions/.github/actions/generate-coverage@c6559452842af6a83b83429129dccaf910e34562
         with:
-          files: lcov.info
-
+          output-path: lcov.info
+          format: lcov
+      - name: Upload coverage data to CodeScene
+        env:
+          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+        if: ${{ env.CS_ACCESS_TOKEN }}
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@c6559452842af6a83b83429129dccaf910e34562
+        
+        with:
+          format: lcov
+          access-token: ${{ env.CS_ACCESS_TOKEN }}
+          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
