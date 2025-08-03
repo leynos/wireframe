@@ -43,7 +43,9 @@ impl Drop for ActiveConnection {
 
 /// Return the current number of active connections.
 #[must_use]
-pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
+pub fn active_connection_count() -> u64 {
+    ACTIVE_CONNECTIONS.load(Ordering::Relaxed)
+}
 
 use crate::{
     hooks::{ConnectionContext, ProtocolHooks},
@@ -65,10 +67,16 @@ enum Event<F, E> {
     Idle,
 }
 
-#[derive(Clone, Copy)]
-enum Queue {
-    High,
-    Low,
+/// Context for processing frames during actor execution.
+struct ProcessContext<'a, F> {
+    state: &'a mut ActorState,
+    out: &'a mut Vec<F>,
+}
+
+impl<'a, F> ProcessContext<'a, F> {
+    fn new(state: &'a mut ActorState, out: &'a mut Vec<F>) -> Self {
+        Self { state, out }
+    }
 }
 
 /// Configuration controlling fairness when draining push queues.
@@ -194,14 +202,20 @@ where
     }
 
     /// Replace the fairness configuration.
-    pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness = fairness; }
+    pub fn set_fairness(&mut self, fairness: FairnessConfig) {
+        self.fairness = fairness;
+    }
 
     /// Set or replace the current streaming response.
-    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) { self.response = stream; }
+    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
+        self.response = stream;
+    }
 
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
-    pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.shutdown.clone()
+    }
 
     /// Drive the actor until all sources are exhausted or shutdown is triggered.
     ///
@@ -289,11 +303,13 @@ where
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
-        match self.next_event(state).await {
-            Event::Shutdown => self.process_shutdown(state),
-            Event::High(res) => self.process_high(res, state, out),
-            Event::Low(res) => self.process_low(res, state, out),
-            Event::Response(res) => self.process_response(res, state, out)?,
+        let mut ctx = ProcessContext::new(state, out);
+
+        match self.next_event(ctx.state).await {
+            Event::Shutdown => self.process_shutdown(ctx.state),
+            Event::High(res) => self.process_high(res, &mut ctx),
+            Event::Low(res) => self.process_low(res, &mut ctx),
+            Event::Response(res) => self.process_response(res, ctx.state, ctx.out)?,
             Event::Idle => {}
         }
 
@@ -307,40 +323,40 @@ where
     }
 
     /// Handle the result of polling the high-priority queue.
-    fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_push(res, Queue::High, state, out);
+    fn process_high(&mut self, res: Option<F>, ctx: &mut ProcessContext<F>) {
+        self.process_push(res, ctx, Self::after_high, |this, state| {
+            Self::handle_closed_receiver(&mut this.high_rx, state);
+            this.reset_high_counter();
+        });
     }
 
     /// Handle the result of polling the low-priority queue.
-    fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_push(res, Queue::Low, state, out);
+    fn process_low(&mut self, res: Option<F>, ctx: &mut ProcessContext<F>) {
+        self.process_push(
+            res,
+            ctx,
+            |this, _, _| this.after_low(),
+            |this, state| Self::handle_closed_receiver(&mut this.low_rx, state),
+        );
     }
 
     /// Handle the result of polling a push queue.
-    fn process_push(
+    fn process_push<OnSome, OnNone>(
         &mut self,
         res: Option<F>,
-        queue: Queue,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) {
+        ctx: &mut ProcessContext<F>,
+        on_some: OnSome,
+        on_none: OnNone,
+    ) where
+        OnSome: FnOnce(&mut Self, &mut Vec<F>, &mut ActorState),
+        OnNone: FnOnce(&mut Self, &mut ActorState),
+    {
         match res {
             Some(frame) => {
-                self.process_frame_common(frame, out);
-                match queue {
-                    Queue::High => self.after_high(out, state),
-                    Queue::Low => self.after_low(),
-                }
+                self.process_frame_common(frame, ctx.out);
+                on_some(self, ctx.out, ctx.state);
             }
-            None => match queue {
-                Queue::High => {
-                    Self::handle_closed_receiver(&mut self.high_rx, state);
-                    self.reset_high_counter();
-                }
-                Queue::Low => {
-                    Self::handle_closed_receiver(&mut self.low_rx, state);
-                }
-            },
+            None => on_none(self, ctx.state),
         }
     }
 
@@ -397,19 +413,19 @@ where
             self.high_start = Some(Instant::now());
         }
 
-        if self.should_yield_to_low_priority()
-            && let Some(rx) = &mut self.low_rx
-        {
-            match rx.try_recv() {
-                Ok(mut frame) => {
-                    self.hooks.before_send(&mut frame, &mut self.ctx);
-                    out.push(frame);
-                    self.after_low();
-                }
-                Err(mpsc::error::TryRecvError::Empty) => {}
-                Err(mpsc::error::TryRecvError::Disconnected) => {
-                    self.low_rx = None;
-                    state.mark_closed();
+        if self.should_yield_to_low_priority() {
+            if let Some(rx) = &mut self.low_rx {
+                match rx.try_recv() {
+                    Ok(mut frame) => {
+                        self.hooks.before_send(&mut frame, &mut self.ctx);
+                        out.push(frame);
+                        self.after_low();
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => {}
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        self.low_rx = None;
+                        state.mark_closed();
+                    }
                 }
             }
         }
@@ -428,7 +444,9 @@ where
     }
 
     /// Reset counters after processing a low-priority frame.
-    fn after_low(&mut self) { self.reset_high_counter(); }
+    fn after_low(&mut self) {
+        self.reset_high_counter();
+    }
 
     /// Clear the burst counter and associated timestamp.
     fn reset_high_counter(&mut self) {
@@ -471,11 +489,15 @@ where
 
     /// Await cancellation on the provided shutdown token.
     #[inline]
-    async fn wait_shutdown(token: CancellationToken) { token.cancelled_owned().await; }
+    async fn wait_shutdown(token: CancellationToken) {
+        token.cancelled_owned().await;
+    }
 
     /// Receive the next frame from a push queue.
     #[inline]
-    async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
+    async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> {
+        rx.recv().await
+    }
 
     /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
     #[expect(
@@ -558,11 +580,17 @@ impl ActorState {
     }
 
     /// Returns `true` while the actor is actively processing sources.
-    fn is_active(&self) -> bool { matches!(self.run_state, RunState::Active) }
+    fn is_active(&self) -> bool {
+        matches!(self.run_state, RunState::Active)
+    }
 
     /// Returns `true` once shutdown has begun.
-    fn is_shutting_down(&self) -> bool { matches!(self.run_state, RunState::ShuttingDown) }
+    fn is_shutting_down(&self) -> bool {
+        matches!(self.run_state, RunState::ShuttingDown)
+    }
 
     /// Returns `true` when all sources have finished.
-    fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
+    fn is_done(&self) -> bool {
+        matches!(self.run_state, RunState::Finished)
+    }
 }
