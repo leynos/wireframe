@@ -97,7 +97,9 @@ pub(crate) struct PushHandleInner<F> {
 pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 impl<F: FrameLike> PushHandle<F> {
-    pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
+    pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self {
+        Self(arc)
+    }
 
     /// Internal helper to push a frame with the requested priority.
     ///
@@ -253,7 +255,9 @@ impl<F: FrameLike> PushHandle<F> {
     }
 
     /// Downgrade to a `Weak` reference for storage in a registry.
-    pub(crate) fn downgrade(&self) -> Weak<PushHandleInner<F>> { Arc::downgrade(&self.0) }
+    pub(crate) fn downgrade(&self) -> Weak<PushHandleInner<F>> {
+        Arc::downgrade(&self.0)
+    }
 }
 
 /// Receiver ends of the push queues stored by the connection actor.
@@ -387,10 +391,10 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        if let Some(r) = rate {
-            if r == 0 || r > MAX_PUSH_RATE {
-                return Err(PushConfigError::InvalidRate(r));
-            }
+        if let Some(r) = rate.filter(|r| *r == 0 || *r > MAX_PUSH_RATE) {
+            // Reject unsupported rates early to avoid building queues that cannot
+            // be used. The bounds prevent runaway resource consumption.
+            return Err(PushConfigError::InvalidRate(r));
         }
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
