@@ -4,7 +4,9 @@ use std::io;
 
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
-use rstest::{fixture, rstest};
+mod common;
+use common::{factory, unused_listener};
+use rstest::rstest;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, duplex},
     net::TcpStream,
@@ -32,11 +34,6 @@ impl HotlinePreamble {
         }
         Ok(())
     }
-}
-
-#[fixture]
-fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
-    || WireframeApp::new().expect("WireframeApp::new failed")
 }
 
 /// Create a server configured with `HotlinePreamble` handlers.
@@ -68,7 +65,9 @@ where
     Fut: std::future::Future<Output = ()>,
     B: FnOnce(std::net::SocketAddr) -> Fut,
 {
-    let server = server.bind("127.0.0.1:0".parse().unwrap()).expect("bind");
+    let listener = unused_listener();
+    let _addr = listener.local_addr().expect("addr");
+    let server = server.bind_listener(listener).expect("bind");
     let addr = server.local_addr().expect("addr");
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
@@ -77,25 +76,25 @@ where
                 let _ = shutdown_rx.await;
             })
             .await
-            .unwrap();
+            .expect("server run failed");
     });
 
     block(addr).await;
     let _ = shutdown_tx.send(());
-    handle.await.unwrap();
+    handle.await.expect("server join failed");
 }
 
 #[tokio::test]
 async fn parse_valid_preamble() {
     let (mut client, mut server) = duplex(64);
     let bytes = b"TRTPHOTL\x00\x01\x00\x02";
-    client.write_all(bytes).await.unwrap();
-    client.shutdown().await.unwrap();
+    client.write_all(bytes).await.expect("write failed");
+    client.shutdown().await.expect("shutdown failed");
     let (p, _) = read_preamble::<_, HotlinePreamble>(&mut server)
         .await
         .expect("valid preamble");
     eprintln!("decoded: {p:?}");
-    p.validate().unwrap();
+    p.validate().expect("preamble validation failed");
     assert_eq!(p.magic, HotlinePreamble::MAGIC);
     assert_eq!(p.min_version, 1);
     assert_eq!(p.client_version, 2);
@@ -105,8 +104,8 @@ async fn parse_valid_preamble() {
 async fn invalid_magic_is_error() {
     let (mut client, mut server) = duplex(64);
     let bytes = b"WRONGMAG\x00\x01\x00\x02";
-    client.write_all(bytes).await.unwrap();
-    client.shutdown().await.unwrap();
+    client.write_all(bytes).await.expect("write failed");
+    client.shutdown().await.expect("shutdown failed");
     let (preamble, _) = read_preamble::<_, HotlinePreamble>(&mut server)
         .await
         .expect("decoded");
@@ -140,7 +139,7 @@ async fn server_triggers_expected_callback(
                 let success_tx = success_tx.clone();
                 let clone = p.clone();
                 Box::pin(async move {
-                    if let Some(tx) = success_tx.lock().unwrap().take() {
+                    if let Some(tx) = success_tx.lock().expect("lock poisoned").take() {
                         let _ = tx.send(clone);
                     }
                     Ok(())
@@ -150,7 +149,7 @@ async fn server_triggers_expected_callback(
         {
             let failure_tx = failure_tx.clone();
             move |_| {
-                if let Some(tx) = failure_tx.lock().unwrap().take() {
+                if let Some(tx) = failure_tx.lock().expect("lock poisoned").take() {
                     let _ = tx.send(());
                 }
             }
@@ -158,9 +157,9 @@ async fn server_triggers_expected_callback(
     );
 
     with_running_server(server, |addr| async move {
-        let mut stream = TcpStream::connect(addr).await.unwrap();
-        stream.write_all(bytes).await.unwrap();
-        stream.shutdown().await.unwrap();
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        stream.write_all(bytes).await.expect("write failed");
+        stream.shutdown().await.expect("shutdown failed");
     })
     .await;
 
@@ -200,8 +199,8 @@ async fn success_callback_can_write_response(
         factory,
         |_, stream| {
             Box::pin(async move {
-                stream.write_all(b"ACK").await.unwrap();
-                stream.flush().await.unwrap();
+                stream.write_all(b"ACK").await.expect("write failed");
+                stream.flush().await.expect("flush failed");
                 Ok(())
             })
         },
@@ -209,11 +208,11 @@ async fn success_callback_can_write_response(
     );
 
     with_running_server(server, |addr| async move {
-        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
         let bytes = b"TRTPHOTL\x00\x01\x00\x02";
-        stream.write_all(bytes).await.unwrap();
+        stream.write_all(bytes).await.expect("write failed");
         let mut buf = [0u8; 3];
-        stream.read_exact(&mut buf).await.unwrap();
+        stream.read_exact(&mut buf).await.expect("read failed");
         assert_eq!(&buf, b"ACK");
     })
     .await;

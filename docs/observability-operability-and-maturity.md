@@ -34,6 +34,14 @@ structured, context-aware diagnostics. The `tracing` crate is the de facto
 standard for this in the async Rust ecosystem, and its integration is a
 first-class feature of `wireframe` 1.0.
 
+Before any work begins, install a global `tracing` subscriber:
+
+```rust
+tracing_subscriber::fmt::init();
+```
+
+Without a subscriber, `tracing` events from `wireframe` will be dropped.
+
 ### 2.1 The `tracing` Span Hierarchy
 
 `tracing`'s key innovation is the `span`, which represents a unit of work with

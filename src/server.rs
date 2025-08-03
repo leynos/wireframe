@@ -274,6 +274,17 @@ where
         Ok(self)
     }
 
+    /// Bind the server to an existing standard TCP listener.
+    ///
+    /// # Errors
+    /// Returns an [`io::Error`] if configuring the listener fails.
+    pub fn bind_listener(mut self, listener: StdTcpListener) -> io::Result<Self> {
+        listener.set_nonblocking(true)?;
+        let listener = TcpListener::from_std(listener)?;
+        self.listener = Some(Arc::new(listener));
+        Ok(self)
+    }
+
     /// Run the server until a shutdown signal is received.
     ///
     /// Each worker accepts connections concurrently and would
@@ -440,7 +451,8 @@ async fn accept_loop<F, T>(
                     delay = Duration::from_millis(10);
                 }
                 Err(e) => {
-                    eprintln!("accept error: {e}");
+                    let local_addr = listener.local_addr().ok();
+                    tracing::warn!(error = ?e, ?local_addr, "accept error");
                     sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
@@ -503,12 +515,18 @@ async fn process_stream<F, T>(
     // `Preamble` ensures `T` supports borrowed decoding.
     T: Preamble,
 {
+    let peer_addr = stream.peer_addr().ok();
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            if let Some(handler) = on_success.as_ref()
-                && let Err(e) = handler(&preamble, &mut stream).await
-            {
-                eprintln!("preamble callback error: {e}");
+            if let Some(handler) = on_success.as_ref() {
+                match handler(&preamble, &mut stream).await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        // Log and continue processing if the callback fails; connection
+                        // handling should not halt due to diagnostic hooks.
+                        tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
+                    }
+                }
             }
             let stream = RewindStream::new(leftover, stream);
             // Hand the connection to the application for processing.
@@ -554,11 +572,6 @@ mod tests {
         message: String,
     }
 
-    /// Test helper preamble carrying no data.
-    #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    #[expect(dead_code, reason = "test helper for unused preamble type")]
-    struct EmptyPreamble;
-
     #[fixture]
     fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
         || WireframeApp::default()
@@ -567,8 +580,11 @@ mod tests {
     #[fixture]
     fn free_port() -> SocketAddr {
         let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-        let listener = std::net::TcpListener::bind(addr).unwrap();
-        listener.local_addr().unwrap()
+        let listener =
+            std::net::TcpListener::bind(addr).expect("failed to bind free port listener");
+        listener
+            .local_addr()
+            .expect("failed to read free port listener address")
     }
 
     fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F>
@@ -644,7 +660,9 @@ mod tests {
         free_port: SocketAddr,
     ) {
         let server = bind_server(factory, free_port);
-        let bound_addr = server.local_addr().unwrap();
+        let bound_addr = server
+            .local_addr()
+            .expect("bound server should return local address");
         assert_eq!(bound_addr.ip(), free_port.ip());
     }
 
@@ -676,7 +694,10 @@ mod tests {
         let server = bind_server(factory, free_port);
         let local_addr = server.local_addr();
         assert!(local_addr.is_some());
-        assert_eq!(local_addr.unwrap().ip(), free_port.ip());
+        assert_eq!(
+            local_addr.expect("local address missing").ip(),
+            free_port.ip()
+        );
     }
 
     #[rstest]
@@ -738,8 +759,8 @@ mod tests {
                     Ok(())
                 })
             })
-            .on_preamble_decode_failure(|_: &DecodeError| {
-                eprintln!("Preamble decode failed");
+            .on_preamble_decode_failure(|err: &DecodeError| {
+                tracing::warn!(error = ?err, "Preamble decode failed");
             })
             .bind(free_port)
             .expect("Failed to bind");
@@ -795,7 +816,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server run timed out").is_ok());
     }
 
     #[rstest]
@@ -822,7 +843,7 @@ mod tests {
         let elapsed = start.elapsed();
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server run timed out").is_ok());
         assert!(elapsed < Duration::from_millis(500));
     }
 
@@ -857,7 +878,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server run timed out").is_ok());
     }
 
     #[rstest]
@@ -898,7 +919,11 @@ mod tests {
     ) {
         let token = CancellationToken::new();
         let tracker = TaskTracker::new();
-        let listener = Arc::new(TcpListener::bind("127.0.0.1:0").await.unwrap());
+        let listener = Arc::new(
+            TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("failed to bind test listener"),
+        );
 
         tracker.spawn(accept_loop::<_, ()>(
             listener,
@@ -939,15 +964,18 @@ mod tests {
         let addr1 = free_port;
         let addr2 = {
             let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-            let listener = std::net::TcpListener::bind(addr).unwrap();
-            listener.local_addr().unwrap()
+            let listener =
+                std::net::TcpListener::bind(addr).expect("failed to bind second listener");
+            listener
+                .local_addr()
+                .expect("failed to get second listener address")
         };
 
         let server = server.bind(addr1).expect("Failed to bind first address");
-        let first_local_addr = server.local_addr().unwrap();
+        let first_local_addr = server.local_addr().expect("first bound address missing");
 
         let server = server.bind(addr2).expect("Failed to bind second address");
-        let second_local_addr = server.local_addr().unwrap();
+        let second_local_addr = server.local_addr().expect("second bound address missing");
 
         assert_ne!(first_local_addr.port(), second_local_addr.port());
         assert_eq!(second_local_addr.ip(), addr2.ip());
@@ -1027,13 +1055,19 @@ mod tests {
         let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
-                .unwrap()
+                .expect("failed to install panic setup callback")
         };
         let server = WireframeServer::new(app_factory)
             .workers(1)
-            .bind("127.0.0.1:0".parse().unwrap())
+            .bind(
+                "127.0.0.1:0"
+                    .parse()
+                    .expect("hard-coded socket address must be valid"),
+            )
             .expect("bind");
-        let addr = server.local_addr().unwrap();
+        let addr = server
+            .local_addr()
+            .expect("failed to retrieve server address");
 
         let (tx, rx) = oneshot::channel();
         let handle = tokio::spawn(async move {
@@ -1042,22 +1076,27 @@ mod tests {
                     let _ = rx.await;
                 })
                 .await
-                .unwrap();
+                .expect("server run failed");
         });
 
         let first = TcpStream::connect(addr)
             .await
             .expect("first connection should succeed");
         let peer_addr = first.local_addr().expect("first connection peer address");
-        first.writable().await.unwrap();
-        first.try_write(&[0; 8]).unwrap();
+        first
+            .writable()
+            .await
+            .expect("connection not writable after connect");
+        first
+            .try_write(&[0; 8])
+            .expect("failed to write dummy bytes");
         drop(first);
         TcpStream::connect(addr)
             .await
             .expect("second connection should succeed after panic");
 
         let _ = tx.send(());
-        handle.await.unwrap();
+        handle.await.expect("server join error");
 
         tokio::task::yield_now().await;
 

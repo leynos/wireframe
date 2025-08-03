@@ -9,6 +9,10 @@ use cucumber::World;
 use tokio::{net::TcpStream, sync::oneshot};
 use wireframe::{app::WireframeApp, server::WireframeServer};
 
+#[path = "common/mod.rs"]
+mod common;
+use common::unused_listener;
+
 #[derive(Debug)]
 struct PanicServer {
     addr: SocketAddr,
@@ -24,11 +28,11 @@ impl PanicServer {
                 .on_connection_setup(|| async { panic!("boom") })
                 .expect("Failed to set connection setup callback")
         };
+        let listener = unused_listener();
         let server = WireframeServer::new(factory)
             .workers(1)
-            .bind("127.0.0.1:0".parse().expect("Failed to parse address"))
+            .bind_listener(listener)
             .expect("bind");
-
         let addr = server.local_addr().expect("Failed to get server address");
         let (tx_shutdown, rx_shutdown) = oneshot::channel();
         let (tx_ready, rx_ready) = oneshot::channel();

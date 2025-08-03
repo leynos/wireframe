@@ -50,11 +50,11 @@ where
     let teardown_cb = call_counting_callback(teardown, ());
 
     WireframeApp::<_, _, E>::new_with_envelope()
-        .unwrap()
+        .expect("failed to create app")
         .on_connection_setup(move || setup_cb(()))
-        .unwrap()
+        .expect("setup callback")
         .on_connection_teardown(teardown_cb)
-        .unwrap()
+        .expect("teardown callback")
 }
 
 #[tokio::test]
@@ -75,9 +75,9 @@ async fn setup_without_teardown_runs() {
     let cb = call_counting_callback(&setup_count, ());
 
     let app = WireframeApp::new()
-        .unwrap()
+        .expect("failed to create app")
         .on_connection_setup(move || cb(()))
-        .unwrap();
+        .expect("setup callback");
 
     run_with_duplex_server(app).await;
 
@@ -90,9 +90,9 @@ async fn teardown_without_setup_does_not_run() {
     let cb = call_counting_callback(&teardown_count, ());
 
     let app = WireframeApp::new()
-        .unwrap()
+        .expect("failed to create app")
         .on_connection_teardown(cb)
-        .unwrap();
+        .expect("teardown callback");
 
     run_with_duplex_server(app).await;
 
@@ -121,19 +121,23 @@ async fn helpers_propagate_connection_state() {
     let app = wireframe_app_with_lifecycle_callbacks::<StateEnvelope>(&setup, &teardown, 7)
         .frame_processor(processor())
         .route(1, Arc::new(|_: &StateEnvelope| Box::pin(async {})))
-        .unwrap();
+        .expect("route registration failed");
 
     let env = StateEnvelope {
         id: 1,
         msg: vec![1],
     };
-    let bytes = BincodeSerializer.serialize(&env).unwrap();
+    let bytes = BincodeSerializer
+        .serialize(&env)
+        .expect("failed to serialise envelope");
     let mut frame = BytesMut::new();
     LengthPrefixedProcessor::default()
         .encode(&bytes, &mut frame)
-        .unwrap();
+        .expect("encode should succeed");
 
-    let out = run_app_with_frame(app, frame.to_vec()).await.unwrap();
+    let out = run_app_with_frame(app, frame.to_vec())
+        .await
+        .expect("app run failed");
     assert!(!out.is_empty());
     assert_eq!(setup.load(Ordering::SeqCst), 1);
     assert_eq!(teardown.load(Ordering::SeqCst), 1);

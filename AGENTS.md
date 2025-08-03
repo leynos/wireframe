@@ -28,11 +28,10 @@
   examples demonstrating the usage and outcome of the function. Test
   documentation should omit examples where the example serves only to reiterate
   the test logic.
-- **Keep file size managable.** No single code file may be longer than 400
-  lines.
-  Long switch statements or dispatch tables should be broken up by feature and
-  constituents colocated with targets. Large blocks of test data should be
-  moved to external data files.
+- **Keep file size manageable.** No single code file may be longer than 400
+  lines.  Long switch statements or dispatch tables should be broken up by
+  feature and constituents colocated with targets. Large blocks of test data
+  should be moved to external data files.
 
 ## Documentation Maintenance
 
