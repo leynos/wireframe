@@ -140,7 +140,9 @@ impl std::error::Error for SendError {
 }
 
 impl From<io::Error> for SendError {
-    fn from(e: io::Error) -> Self { SendError::Io(e) }
+    fn from(e: io::Error) -> Self {
+        SendError::Io(e)
+    }
 }
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
@@ -198,19 +200,29 @@ pub struct Envelope {
 impl Envelope {
     /// Create a new [`Envelope`] with the provided id and payload.
     #[must_use]
-    pub fn new(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    pub fn new(id: u32, msg: Vec<u8>) -> Self {
+        Self { id, msg }
+    }
 
     /// Consume the envelope, returning its id and payload bytes.
     #[must_use]
-    pub fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    pub fn into_parts(self) -> (u32, Vec<u8>) {
+        (self.id, self.msg)
+    }
 }
 
 impl Packet for Envelope {
-    fn id(&self) -> u32 { self.id }
+    fn id(&self) -> u32 {
+        self.id
+    }
 
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    fn into_parts(self) -> (u32, Vec<u8>) {
+        (self.id, self.msg)
+    }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    fn from_parts(id: u32, msg: Vec<u8>) -> Self {
+        Self { id, msg }
+    }
 }
 
 /// Number of idle polls before terminating a connection.
@@ -247,27 +259,51 @@ where
     }
 }
 
-impl WireframeApp<BincodeSerializer, (), Envelope> {
-    /// Construct a new empty application builder.
-    ///
-    /// # Errors
-    ///
-    /// This function currently never returns an error but uses the
-    /// [`Result`] type for forward compatibility.
-    pub fn new() -> Result<Self> { Ok(Self::default()) }
-}
-
 impl<E> WireframeApp<BincodeSerializer, (), E>
 where
     E: Packet,
 {
-    /// Construct a new application builder using a custom envelope type.
+    /// Construct a new empty application builder.
     ///
     /// # Errors
     ///
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
-    pub fn new_with_envelope() -> Result<Self> { Ok(Self::default()) }
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::{Packet, WireframeApp};
+    ///
+    /// #[derive(bincode::Encode, bincode::BorrowDecode)]
+    /// struct MyEnv { id: u32, data: Vec<u8> }
+    ///
+    /// impl Packet for MyEnv {
+    ///     fn id(&self) -> u32 { self.id }
+    ///     fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.data) }
+    ///     fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
+    /// }
+    ///
+    /// let app = WireframeApp::<_, _, MyEnv>::new()
+    ///     .expect("failed to create app");
+    /// ```
+    pub fn new() -> Result<Self> {
+        Ok(Self::default())
+    }
+
+    /// Construct a new application builder using a custom envelope type.
+    ///
+    /// Deprecated: call [`WireframeApp::new`] with explicit envelope type
+    /// parameters.
+    ///
+    /// # Errors
+    ///
+    /// This function currently never returns an error but uses [`Result`] for
+    /// forward compatibility.
+    #[deprecated(note = "use `WireframeApp::<_, _, E>::new()` instead")]
+    pub fn new_with_envelope() -> Result<Self> {
+        Self::new()
+    }
 }
 
 impl<S, C, E> WireframeApp<S, C, E>

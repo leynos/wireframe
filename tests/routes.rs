@@ -25,11 +25,17 @@ struct TestEnvelope {
 }
 
 impl wireframe::app::Packet for TestEnvelope {
-    fn id(&self) -> u32 { self.id }
+    fn id(&self) -> u32 {
+        self.id
+    }
 
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    fn into_parts(self) -> (u32, Vec<u8>) {
+        (self.id, self.msg)
+    }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    fn from_parts(id: u32, msg: Vec<u8>) -> Self {
+        Self { id, msg }
+    }
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
@@ -40,7 +46,7 @@ struct Echo(u8);
 async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
-    let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
+    let app = WireframeApp::<_, _, TestEnvelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
@@ -79,7 +85,7 @@ async fn handler_receives_message_and_echoes_response() {
 
 #[tokio::test]
 async fn multiple_frames_processed_in_sequence() {
-    let app = WireframeApp::<_, _, TestEnvelope>::new_with_envelope()
+    let app = WireframeApp::<_, _, TestEnvelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(

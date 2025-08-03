@@ -14,11 +14,8 @@ use futures::stream;
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    ConnectionContext,
-    WireframeProtocol,
-    app::WireframeApp,
-    connection::ConnectionActor,
-    push::PushQueues,
+    ConnectionContext, WireframeProtocol,
+    app::{Envelope, WireframeApp}, connection::ConnectionActor, push::PushQueues,
 };
 
 struct TestProtocol {
@@ -37,7 +34,9 @@ impl WireframeProtocol for TestProtocol {
         self.counter.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) { frame.push(1); }
+    fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {
+        frame.push(1);
+    }
 
     fn on_command_end(&self, _ctx: &mut ConnectionContext) {
         self.counter.fetch_add(1, Ordering::SeqCst);
@@ -51,7 +50,7 @@ async fn builder_produces_protocol_hooks() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::new()
+    let app = WireframeApp::<_, _, Envelope>::new()
         .expect("failed to create app")
         .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
@@ -75,7 +74,7 @@ async fn connection_actor_uses_protocol_from_builder() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::new()
+    let app = WireframeApp::<_, _, Envelope>::new()
         .expect("failed to create app")
         .with_protocol(protocol);
 

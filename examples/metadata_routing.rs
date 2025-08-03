@@ -67,7 +67,7 @@ async fn main() -> io::Result<()> {
         .serializer(HeaderSerializer)
         .route(
             1,
-            Arc::new(|_env| {
+            Arc::new(|_env: &Envelope| {
                 Box::pin(async move {
                     println!("received ping message");
                 })
@@ -76,7 +76,7 @@ async fn main() -> io::Result<()> {
         .unwrap()
         .route(
             2,
-            Arc::new(|_env| {
+            Arc::new(|_env: &Envelope| {
                 Box::pin(async move {
                     println!("received pong message");
                 })
