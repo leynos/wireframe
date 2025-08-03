@@ -31,31 +31,27 @@ impl<T> TestSerializer for T where
 {
 }
 
-const DEFAULT_CAPACITY: usize = 4096;
-
-macro_rules! forward_default {
-    (
-        $(#[$docs:meta])* $vis:vis fn $name:ident(
-            $app:ident : $app_ty:ty,
-            $arg:ident : $arg_ty:ty
-        ) -> $ret:ty
-        => $inner:ident($app_expr:ident, $arg_expr:expr)
-    ) => {
-        $(#[$docs])*
-        $vis async fn $name<S, C, E>(
-            $app: $app_ty,
-            $arg: $arg_ty,
-        ) -> $ret
-        where
-            S: TestSerializer,
-            C: Send + 'static,
-            E: Packet,
-        {
-            $inner($app_expr, $arg_expr, DEFAULT_CAPACITY).await
-        }
-    };
-}
-
+/// Run `server_fn` against a duplex stream, writing each `frame` to the client
+/// half and returning the bytes produced by the server.
+///
+/// The server function receives the server half of a `tokio::io::duplex`
+/// connection. Every provided frame is written to the client side in order and
+/// the collected output is returned once the server task completes. If the
+/// server panics, the panic message is surfaced as an `io::Error` beginning
+/// with `"server task failed"`.
+///
+/// ```rust
+/// use tokio::io::{self, AsyncWriteExt, DuplexStream};
+/// use wireframe_testing::helpers::drive_internal;
+///
+/// async fn echo(mut server: DuplexStream) { let _ = server.write_all(&[1, 2]).await; }
+///
+/// # async fn demo() -> io::Result<()> {
+/// let bytes = drive_internal(echo, vec![vec![0]], 64).await?;
+/// assert_eq!(bytes, [1, 2]);
+/// # Ok(())
+/// # }
+/// ```
 async fn drive_internal<F, Fut>(
     server_fn: F,
     frames: Vec<Vec<u8>>,
@@ -101,6 +97,31 @@ where
 
     let ((), buf) = tokio::try_join!(server_fut, client_fut)?;
     Ok(buf)
+}
+
+const DEFAULT_CAPACITY: usize = 4096;
+
+macro_rules! forward_default {
+    (
+        $(#[$docs:meta])* $vis:vis fn $name:ident(
+            $app:ident : $app_ty:ty,
+            $arg:ident : $arg_ty:ty
+        ) -> $ret:ty
+        => $inner:ident($app_expr:ident, $arg_expr:expr)
+    ) => {
+        $(#[$docs])*
+        $vis async fn $name<S, C, E>(
+            $app: $app_ty,
+            $arg: $arg_ty,
+        ) -> $ret
+        where
+            S: TestSerializer,
+            C: Send + 'static,
+            E: Packet,
+        {
+            $inner($app_expr, $arg_expr, DEFAULT_CAPACITY).await
+        }
+    };
 }
 
 macro_rules! forward_with_capacity {
