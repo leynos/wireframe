@@ -19,11 +19,11 @@ where
     S: TestSerializer,
 {
     WireframeApp::new()
-        .unwrap()
+        .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .serializer(serializer)
         .route(1, Arc::new(|_| Box::pin(async {})))
-        .unwrap()
+        .expect("route registration failed")
 }
 
 struct CountingSerializer(Arc<AtomicUsize>);

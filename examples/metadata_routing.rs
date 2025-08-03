@@ -59,13 +59,6 @@ impl FrameMetadata for HeaderSerializer {
 #[derive(bincode::Decode, bincode::Encode)]
 struct Ping;
 
-#[derive(bincode::Decode, bincode::Encode)]
-#[expect(
-    dead_code,
-    reason = "placeholder for demonstration of metadata routing"
-)]
-struct Pong;
-
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let app = WireframeApp::new()

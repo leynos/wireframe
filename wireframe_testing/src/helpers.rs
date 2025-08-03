@@ -454,7 +454,7 @@ where
     let mut buf = Vec::new();
     client.read_to_end(&mut buf).await?;
 
-    server_task.await.unwrap();
+    server_task.await.expect("server task panicked");
     Ok(buf)
 }
 
@@ -485,4 +485,36 @@ where
 {
     let (_client, server) = duplex(64);
     app.handle_connection(server).await;
+}
+
+/// Await the provided future and panic with context on failure.
+///
+/// In debug builds, the generated message includes the call site for easier
+/// troubleshooting.
+#[macro_export]
+macro_rules! push_expect {
+    ($fut:expr) => {{
+        $fut.await
+            .expect(concat!("push failed at ", file!(), ":", line!()))
+    }};
+    ($fut:expr, $msg:expr) => {{
+        let m = ::std::format!("{msg} at {}:{}", file!(), line!(), msg = $msg);
+        $fut.await.expect(&m)
+    }};
+}
+
+/// Await the provided future and panic with context on failure.
+///
+/// In debug builds, the generated message includes the call site for easier
+/// troubleshooting.
+#[macro_export]
+macro_rules! recv_expect {
+    ($fut:expr) => {{
+        $fut.await
+            .expect(concat!("recv failed at ", file!(), ":", line!()))
+    }};
+    ($fut:expr, $msg:expr) => {{
+        let m = ::std::format!("{msg} at {}:{}", file!(), line!(), msg = $msg);
+        $fut.await.expect(&m)
+    }};
 }

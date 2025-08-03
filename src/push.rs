@@ -318,7 +318,12 @@ impl<F: FrameLike> PushQueues<F> {
         high_capacity: usize,
         low_capacity: usize,
     ) -> (Self, PushHandle<F>) {
-        Self::bounded_with_rate_dlq(high_capacity, low_capacity, None, None).unwrap()
+        // `bounded_with_rate_dlq` only fails when given an invalid rate. Passing
+        // `None` disables rate limiting entirely so the call is infallible. The
+        // debug assertion guards against future regressions.
+        let result = Self::bounded_with_rate_dlq(high_capacity, low_capacity, None, None);
+        debug_assert!(result.is_ok(), "bounded_no_rate_limit should not fail");
+        result.expect("bounded_no_rate_limit should not fail")
     }
 
     /// Create queues with a custom rate limit in pushes per second.
@@ -391,9 +396,9 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        if let Some(r) = rate
-            && (r == 0 || r > MAX_PUSH_RATE)
-        {
+        if let Some(r) = rate.filter(|r| *r == 0 || *r > MAX_PUSH_RATE) {
+            // Reject unsupported rates early to avoid building queues that cannot
+            // be used. The bounds prevent runaway resource consumption.
             return Err(PushConfigError::InvalidRate(r));
         }
         let (high_tx, high_rx) = mpsc::channel(high_capacity);

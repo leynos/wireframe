@@ -15,6 +15,7 @@ use wireframe::{
     push::PushQueues,
     response::{FrameStream, WireframeError},
 };
+use wireframe_testing::push_expect;
 
 #[fixture]
 #[allow(
@@ -45,14 +46,14 @@ async fn strict_priority_order(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    handle.push_low_priority(2).await.unwrap();
-    handle.push_high_priority(1).await.unwrap();
+    push_expect!(handle.push_low_priority(2), "push low-priority");
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(3u8)]);
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(out, vec![1, 2, 3]);
 }
 
@@ -70,15 +71,15 @@ async fn fairness_yields_low_after_burst(
     };
 
     for n in 1..=5 {
-        handle.push_high_priority(n).await.unwrap();
+        push_expect!(handle.push_high_priority(n), "push high-priority");
     }
-    handle.push_low_priority(99).await.unwrap();
+    push_expect!(handle.push_low_priority(99), "push low-priority");
 
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(out, vec![1, 2, 99, 3, 4, 5]);
 }
 
@@ -104,14 +105,18 @@ async fn queue_frames(
     for priority in order {
         match priority {
             Priority::High => {
-                let msg = format!("failed to push high-priority frame {next_high}");
-                handle.push_high_priority(next_high).await.expect(&msg);
+                push_expect!(
+                    handle.push_high_priority(next_high),
+                    format!("push high-priority frame {next_high}")
+                );
                 highs.push(next_high);
                 next_high += 1;
             }
             Priority::Low => {
-                let msg = format!("failed to push low-priority frame {next_low}");
-                handle.push_low_priority(next_low).await.expect(&msg);
+                push_expect!(
+                    handle.push_low_priority(next_low),
+                    format!("push low-priority frame {next_low}")
+                );
                 lows.push(next_low);
                 next_low += 1;
             }
@@ -198,19 +203,22 @@ async fn fairness_yields_low_with_time_slice(
         let _ = tx.send(out);
     });
 
-    handle.push_high_priority(1).await.unwrap();
+    push_expect!(handle.push_high_priority(1), "push high-priority");
     tokio::time::advance(Duration::from_millis(5)).await;
-    handle.push_high_priority(2).await.unwrap();
+    push_expect!(handle.push_high_priority(2), "push high-priority");
     tokio::time::advance(Duration::from_millis(15)).await;
-    handle.push_low_priority(42).await.unwrap();
+    push_expect!(handle.push_low_priority(42), "push low-priority");
     for n in 3..=5 {
-        handle.push_high_priority(n).await.unwrap();
+        push_expect!(handle.push_high_priority(n), "push high-priority");
     }
     drop(handle);
 
-    let out = rx.await.unwrap();
+    let out = rx.await.expect("actor output missing");
     assert!(out.contains(&42), "Low-priority item was not yielded");
-    let pos = out.iter().position(|x| *x == 42).unwrap();
+    let pos = out
+        .iter()
+        .position(|x| *x == 42)
+        .expect("value 42 should be present");
     assert!(
         pos > 0 && pos < out.len() - 1,
         "Low-priority item should be yielded in the middle"
@@ -230,7 +238,7 @@ async fn shutdown_signal_precedence(
         ConnectionActor::new(queues, handle, None, shutdown_token);
     // drop the handle after actor creation to mimic early disconnection
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert!(out.is_empty());
 }
 
@@ -242,14 +250,14 @@ async fn complete_draining_of_sources(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    handle.push_high_priority(1).await.unwrap();
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(2u8), Ok(3u8)]);
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     // drop handle after actor setup
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(out, vec![1, 2, 3]);
 }
 
@@ -289,7 +297,7 @@ async fn error_propagation_from_stream(
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(called.load(Ordering::SeqCst), 1);
     assert_eq!(out, vec![1, 2]);
 }
@@ -307,7 +315,7 @@ async fn protocol_error_logs_warning(
     let mut actor: ConnectionActor<_, TestError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert!(out.is_empty());
     let mut found = false;
     while let Some(record) = logger.pop() {
@@ -364,7 +372,7 @@ async fn interleaved_shutdown_during_stream(
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert!(!out.is_empty() && out.len() < 5);
 }
 
@@ -373,7 +381,7 @@ async fn interleaved_shutdown_during_stream(
 #[serial]
 async fn push_queue_exhaustion_backpressure() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);
-    handle.push_high_priority(1).await.unwrap();
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let blocked = timeout(Duration::from_millis(50), handle.push_high_priority(2)).await;
     assert!(blocked.is_err());
@@ -399,7 +407,7 @@ async fn before_send_hook_modifies_frames(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    handle.push_high_priority(1).await.unwrap();
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(2u8)]);
     let hooks = ProtocolHooks {
@@ -415,7 +423,7 @@ async fn before_send_hook_modifies_frames(
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(out, vec![2, 3]);
 }
 
@@ -446,7 +454,7 @@ async fn on_command_end_hook_runs(
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 
@@ -495,7 +503,7 @@ async fn connection_count_decrements_on_abort(
     assert_eq!(during, before + 1);
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     let after = wireframe::connection::active_connection_count();
     assert_eq!(during - after, 1);
 }
@@ -516,7 +524,7 @@ async fn connection_count_decrements_on_close(
     assert_eq!(during, before + 1);
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.unwrap();
+    actor.run(&mut out).await.expect("actor run failed");
     let after = wireframe::connection::active_connection_count();
     assert_eq!(during - after, 1);
 }

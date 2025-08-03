@@ -42,10 +42,14 @@ async fn readiness_receiver_dropped() {
     let factory = || WireframeApp::new().expect("WireframeApp::new failed");
     let server = WireframeServer::new(factory)
         .workers(1)
-        .bind("127.0.0.1:0".parse().unwrap())
-        .unwrap();
+        .bind(
+            "127.0.0.1:0"
+                .parse()
+                .expect("hard-coded socket address must be valid"),
+        )
+        .expect("bind failed");
 
-    let addr = server.local_addr().unwrap();
+    let addr = server.local_addr().expect("local addr missing");
     // Create channel and immediately drop receiver to force send failure
     let (tx_ready, rx_ready) = oneshot::channel();
     drop(rx_ready);
@@ -55,7 +59,7 @@ async fn readiness_receiver_dropped() {
             .ready_signal(tx_ready)
             .run_with_shutdown(tokio::time::sleep(Duration::from_millis(200)))
             .await
-            .unwrap();
+            .expect("server run failed");
     });
 
     // Wait briefly to ensure server attempted to send readiness signal

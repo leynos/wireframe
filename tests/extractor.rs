@@ -35,10 +35,11 @@ struct TestMsg(u8);
 #[rstest]
 fn message_extractor_parses_and_advances(request: MessageRequest) {
     let msg = TestMsg(42);
-    let bytes = msg.to_bytes().unwrap();
+    let bytes = msg.to_bytes().expect("failed to serialise message");
     let mut payload = Payload::new(bytes.as_slice());
 
-    let extracted = Message::<TestMsg>::from_message_request(&request, &mut payload).unwrap();
+    let extracted = Message::<TestMsg>::from_message_request(&request, &mut payload)
+        .expect("failed to extract TestMsg from payload");
     assert_eq!(*extracted, msg);
     assert_eq!(payload.remaining(), 0);
 }
@@ -51,7 +52,8 @@ fn connection_info_reports_peer(mut request: MessageRequest, mut empty_payload: 
         .parse()
         .expect("hard-coded socket address must be valid");
     request.peer_addr = Some(addr);
-    let info = ConnectionInfo::from_message_request(&request, &mut empty_payload).unwrap();
+    let info = ConnectionInfo::from_message_request(&request, &mut empty_payload)
+        .expect("failed to build ConnectionInfo");
     assert_eq!(info.peer_addr(), Some(addr));
 }
 
@@ -66,7 +68,7 @@ fn shared_state_extractor(mut request: MessageRequest, mut empty_payload: Payloa
 
     let state =
         wireframe::extractor::SharedState::<u8>::from_message_request(&request, &mut empty_payload)
-            .unwrap();
+            .expect("failed to extract shared state");
     assert_eq!(*state, 42);
 }
 
