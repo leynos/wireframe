@@ -103,7 +103,6 @@ where
     Ok(buf)
 }
 
-
 macro_rules! forward_with_capacity {
     (
         $(#[$docs:meta])* $vis:vis fn $name:ident(
