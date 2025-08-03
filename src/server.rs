@@ -561,11 +561,6 @@ mod tests {
         message: String,
     }
 
-    /// Test helper preamble carrying no data.
-    #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    // Used only in doctest to illustrate an empty preamble.
-    struct EmptyPreamble;
-
     #[fixture]
     fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
         || WireframeApp::default()
