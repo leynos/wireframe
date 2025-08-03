@@ -251,9 +251,9 @@ where
 
             () = Self::await_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
 
-            res = Self::poll_high_priority(self.high_rx.as_mut()), if high_available => Event::High(res),
+            res = Self::poll_priority(self.high_rx.as_mut()), if high_available => Event::High(res),
 
-            res = Self::poll_low_priority(self.low_rx.as_mut()), if low_available => Event::Low(res),
+            res = Self::poll_priority(self.low_rx.as_mut()), if low_available => Event::Low(res),
 
             res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
 
@@ -494,13 +494,8 @@ where
     /// Await shutdown cancellation on the provided token.
     async fn await_shutdown(token: CancellationToken) { Self::wait_shutdown(token).await; }
 
-    /// Poll the high-priority queue.
-    async fn poll_high_priority(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
-        Self::poll_optional(rx, Self::recv_push).await
-    }
-
-    /// Poll the low-priority queue.
-    async fn poll_low_priority(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
+    /// Poll whichever priority queue is provided.
+    async fn poll_priority(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
         Self::poll_optional(rx, Self::recv_push).await
     }
 
