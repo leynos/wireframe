@@ -560,7 +560,10 @@ mod tests {
 
     /// Test helper preamble carrying no data.
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    #[allow(dead_code)] // used only in doctest to illustrate an empty preamble
+    #[allow(
+        dead_code,
+        reason = "used only in doctest to illustrate an empty preamble"
+    )]
     struct EmptyPreamble;
 
     #[fixture]

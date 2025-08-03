@@ -19,7 +19,9 @@ use wireframe::{
     unused_braces,
     reason = "Clippy is wrong here; this is not a redundant block"
 )]
-pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
+pub fn processor() -> LengthPrefixedProcessor {
+    LengthPrefixedProcessor::default()
+}
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -399,7 +401,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
-#[allow(dead_code)]
+#[allow(dead_code, reason = "used in documentation examples")]
 pub async fn run_app_with_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
