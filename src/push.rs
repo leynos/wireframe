@@ -90,8 +90,7 @@ impl std::error::Error for PushConfigError {}
 /// Holds the high- and low-priority channels alongside an optional rate
 /// limiter and dead-letter queue sender used when pushes are discarded.
 ///
-/// - `high_prio_tx` – channel for frames that must be sent before any
-///   low-priority traffic.
+/// - `high_prio_tx` – channel for frames that must be sent before any low-priority traffic.
 /// - `low_prio_tx` – channel for best-effort frames.
 /// - `limiter` – optional rate-limiter enforcing global push throughput.
 /// - `dlq_tx` – optional dead-letter queue for discarded frames.
