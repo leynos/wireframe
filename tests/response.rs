@@ -132,7 +132,7 @@ fn custom_length_roundtrip(
 #[tokio::test]
 async fn send_response_propagates_write_error() {
     let app = WireframeApp::new()
-        .expect("route registration failed")
+        .expect("app creation failed")
         .frame_processor(LengthPrefixedProcessor::default());
 
     let mut writer = FailingWriter;
