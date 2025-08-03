@@ -6,12 +6,11 @@ frames, enabling fast tests without opening real network connections.
 
 ## Motivation
 
-The existing tests in [`tests/`](../tests) use helper functions such as
-`run_app_with_frame` and `run_app_with_frames` to feed length-prefixed frames
-through an in-memory duplex stream. These helpers simplify testing handlers by
-allowing assertions on encoded responses without spinning up a full server.
-Encapsulating this logic in a dedicated crate keeps test code concise and
-reusable across projects.
+The existing tests in [`tests/`](../tests) use a helper function `run_app` to
+feed length-prefixed frames through an in-memory duplex stream. This helper
+simplifies testing handlers by allowing assertions on encoded responses without
+spinning up a full server. Encapsulating this logic in a dedicated crate keeps
+test code concise and reusable across projects.
 
 ## Crate Layout
 
@@ -63,15 +62,15 @@ where
     M: Serialize;
 ```
 
-These functions mirror the behaviour of `run_app_with_frame` and
-`run_app_with_frames` found in the repository’s test utilities. They create a
-`tokio::io::duplex` stream, run the application on the server half, and write
-the provided frame(s) to the client side. All helpers delegate to a single
-internal function that handles this I/O plumbing, ensuring consistent
-behaviour. Should the application panic, the panic message is returned as an
-`io::Error` beginning with `server task failed`, helping surface failures in
-tests. After the application finishes processing the input frames, the bytes
-written back are collected for inspection.
+These functions mirror the behaviour of the `run_app` helper found in the
+repository’s test utilities. They create a `tokio::io::duplex` stream, run the
+application on the server half, and write the provided frame(s) to the client
+side. All helpers delegate to a single internal function that handles this I/O
+plumbing, ensuring consistent behaviour. Should the application panic, the
+panic message is returned as an `io::Error` beginning with
+`server task failed`, helping surface failures in tests. After the application
+finishes processing the input frames, the bytes written back are collected for
+inspection.
 
 Any I/O errors surfaced by the duplex stream or failures while decoding a
 length prefix propagate through the returned `IoResult`. Malformed or truncated
@@ -81,8 +80,7 @@ assert on these failure conditions directly.
 ### Custom Buffer Capacity
 
 A variant accepting a buffer `capacity` allows fine-tuning the size of the
-in-memory duplex channel, matching the existing
-`run_app_with_frame_with_capacity` and `run_app_with_frames_with_capacity`
+in-memory duplex channel, matching the existing `run_app` helper.
 
 ```helpers.
 pub async fn drive_with_frame_with_capacity(
@@ -167,7 +165,7 @@ with prebuilt frames and their responses decoded for assertions.
 
 ### Capturing Logs in Tests
 
-The `wireframe_testing` crate exposes a [`LoggerHandle`] fixture for asserting
+The `wireframe_testing` crate exposes a \[`LoggerHandle`\] fixture for asserting
 log output. Acquire it in a test and call `clear()` to discard any records from
 fixture setup. Records can then be inspected using `pop()`:
 

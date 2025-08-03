@@ -19,7 +19,9 @@ use wireframe::{
     unused_braces,
     reason = "Clippy is wrong here; this is not a redundant block"
 )]
-pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
+pub fn processor() -> LengthPrefixedProcessor {
+    LengthPrefixedProcessor::default()
+}
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -327,31 +329,11 @@ where
 ///
 /// # Errors
 ///
-/// Returns any I/O errors encountered while interacting with the in-memory
-/// duplex stream.
+/// Run `app` with input `frames` using an optional duplex buffer `capacity`.
 ///
-/// ```rust
-/// # use wireframe_testing::{run_app_with_frame, processor};
-/// # use wireframe::app::WireframeApp;
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-/// let out = run_app_with_frame(app, vec![1]).await?;
-/// # Ok(())
-/// # }
-/// ```
-pub async fn run_app_with_frame<S, C, E>(
-    app: WireframeApp<S, C, E>,
-    frame: Vec<u8>,
-) -> io::Result<Vec<u8>>
-where
-    S: TestSerializer,
-    C: Send + 'static,
-    E: Packet,
-{
-    run_app_with_frame_with_capacity(app, frame, DEFAULT_CAPACITY).await
-}
-
-/// Drive `app` with a single frame using a duplex buffer of `capacity` bytes.
+/// When `capacity` is `None`, a buffer of [`DEFAULT_CAPACITY`] bytes is used.
+/// Frames are written to the client side in order and the bytes emitted by the
+/// server are collected for inspection.
 ///
 /// # Errors
 ///
@@ -362,89 +344,27 @@ where
 /// Panics if the spawned task running the application panics.
 ///
 /// ```rust
-/// # use wireframe_testing::{run_app_with_frame_with_capacity, processor};
+/// # use wireframe_testing::{processor, run_app};
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> tokio::io::Result<()> {
 /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-/// let out = run_app_with_frame_with_capacity(app, vec![1], 128).await?;
+/// let out = run_app(app, vec![vec![1]], None).await?;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn run_app_with_frame_with_capacity<S, C, E>(
-    app: WireframeApp<S, C, E>,
-    frame: Vec<u8>,
-    capacity: usize,
-) -> io::Result<Vec<u8>>
-where
-    S: TestSerializer,
-    C: Send + 'static,
-    E: Packet,
-{
-    run_app_with_frames_with_capacity(app, vec![frame], capacity).await
-}
-
-/// Run `app` with multiple input `frames` using the default buffer capacity.
-///
-/// # Errors
-///
-/// Returns any I/O errors encountered while interacting with the in-memory
-/// duplex stream.
-///
-/// ```rust
-/// # use wireframe_testing::{run_app_with_frames, processor};
-/// # use wireframe::app::WireframeApp;
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-/// let out = run_app_with_frames(app, vec![vec![1], vec![2]]).await?;
-/// # Ok(())
-/// # }
-/// ```
-#[allow(dead_code)]
-pub async fn run_app_with_frames<S, C, E>(
+pub async fn run_app<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
+    capacity: Option<usize>,
 ) -> io::Result<Vec<u8>>
 where
     S: TestSerializer,
     C: Send + 'static,
     E: Packet,
 {
-    run_app_with_frames_with_capacity(app, frames, DEFAULT_CAPACITY).await
-}
-
-/// Drive `app` with multiple frames using a duplex buffer of `capacity` bytes.
-///
-/// # Errors
-///
-/// Propagates any I/O errors from the in-memory connection.
-///
-/// # Panics
-///
-/// Panics if the spawned task running the application panics.
-///
-/// ```rust
-/// # use wireframe_testing::{run_app_with_frames_with_capacity, processor};
-/// # use wireframe::app::WireframeApp;
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-/// let out = run_app_with_frames_with_capacity(app, vec![vec![1], vec![2]], 64).await?;
-/// # Ok(())
-/// # }
-/// ```
-pub async fn run_app_with_frames_with_capacity<S, C, E>(
-    app: WireframeApp<S, C, E>,
-    frames: Vec<Vec<u8>>,
-    capacity: usize,
-) -> io::Result<Vec<u8>>
-where
-    S: TestSerializer,
-    C: Send + 'static,
-    E: Packet,
-{
+    let capacity = capacity.unwrap_or(DEFAULT_CAPACITY);
     let (mut client, server) = duplex(capacity);
-    let server_task = tokio::spawn(async move {
-        app.handle_connection(server).await;
-    });
+    let server_task = tokio::spawn(async move { app.handle_connection(server).await });
 
     for frame in &frames {
         client.write_all(frame).await?;
