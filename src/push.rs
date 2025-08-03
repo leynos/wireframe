@@ -89,6 +89,12 @@ impl std::error::Error for PushConfigError {}
 ///
 /// Holds the high- and low-priority channels alongside an optional rate
 /// limiter and dead-letter queue sender used when pushes are discarded.
+///
+/// - `high_prio_tx` – channel for frames that must be sent before any
+///   low-priority traffic.
+/// - `low_prio_tx` – channel for best-effort frames.
+/// - `limiter` – optional rate-limiter enforcing global push throughput.
+/// - `dlq_tx` – optional dead-letter queue for discarded frames.
 pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
@@ -101,9 +107,7 @@ pub(crate) struct PushHandleInner<F> {
 pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 impl<F: FrameLike> PushHandle<F> {
-    pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self {
-        Self(arc)
-    }
+    pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
 
     /// Internal helper to push a frame with the requested priority.
     ///
@@ -259,9 +263,7 @@ impl<F: FrameLike> PushHandle<F> {
     }
 
     /// Downgrade to a `Weak` reference for storage in a registry.
-    pub(crate) fn downgrade(&self) -> Weak<PushHandleInner<F>> {
-        Arc::downgrade(&self.0)
-    }
+    pub(crate) fn downgrade(&self) -> Weak<PushHandleInner<F>> { Arc::downgrade(&self.0) }
 }
 
 /// Receiver ends of the push queues stored by the connection actor.
