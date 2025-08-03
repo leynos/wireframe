@@ -40,7 +40,9 @@ impl Drop for ActiveConnection {
 
 /// Return the current number of active connections.
 #[must_use]
-pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
+pub fn active_connection_count() -> u64 {
+    ACTIVE_CONNECTIONS.load(Ordering::Relaxed)
+}
 
 use crate::{
     fairness::Fairness,
@@ -185,11 +187,15 @@ where
     pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness.set_config(fairness); }
 
     /// Set or replace the current streaming response.
-    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) { self.response = stream; }
+    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
+        self.response = stream;
+    }
 
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
-    pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.shutdown.clone()
+    }
 
     /// Drive the actor until all sources are exhausted or shutdown is triggered.
     ///
@@ -402,11 +408,6 @@ where
                     out.push(frame);
                     self.after_low();
                 }
-                Err(mpsc::error::TryRecvError::Empty) => {}
-                Err(mpsc::error::TryRecvError::Disconnected) => {
-                    self.low_rx = None;
-                    state.mark_closed();
-                }
             }
         }
     }
@@ -449,11 +450,15 @@ where
 
     /// Await cancellation on the provided shutdown token.
     #[inline]
-    async fn wait_shutdown(token: CancellationToken) { token.cancelled_owned().await; }
+    async fn wait_shutdown(token: CancellationToken) {
+        token.cancelled_owned().await;
+    }
 
     /// Receive the next frame from a push queue.
     #[inline]
-    async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
+    async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> {
+        rx.recv().await
+    }
 
     /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
     #[expect(
@@ -536,11 +541,17 @@ impl ActorState {
     }
 
     /// Returns `true` while the actor is actively processing sources.
-    fn is_active(&self) -> bool { matches!(self.run_state, RunState::Active) }
+    fn is_active(&self) -> bool {
+        matches!(self.run_state, RunState::Active)
+    }
 
     /// Returns `true` once shutdown has begun.
-    fn is_shutting_down(&self) -> bool { matches!(self.run_state, RunState::ShuttingDown) }
+    fn is_shutting_down(&self) -> bool {
+        matches!(self.run_state, RunState::ShuttingDown)
+    }
 
     /// Returns `true` when all sources have finished.
-    fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
+    fn is_done(&self) -> bool {
+        matches!(self.run_state, RunState::Finished)
+    }
 }

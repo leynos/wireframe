@@ -15,27 +15,34 @@ use wireframe::{
     push::PushQueues,
     response::{FrameStream, WireframeError},
 };
+use wireframe_testing::push_expect;
 
 #[fixture]
 #[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) { PushQueues::bounded(8, 8) }
+fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
+    PushQueues::bounded(8, 8)
+}
 
 #[fixture]
 #[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn shutdown_token() -> CancellationToken { CancellationToken::new() }
+fn shutdown_token() -> CancellationToken {
+    CancellationToken::new()
+}
 
 #[fixture]
 #[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn empty_stream() -> Option<FrameStream<u8, ()>> { None }
+fn empty_stream() -> Option<FrameStream<u8, ()>> {
+    None
+}
 
 #[rstest]
 #[tokio::test]
@@ -45,14 +52,8 @@ async fn strict_priority_order(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    handle
-        .push_low_priority(2)
-        .await
-        .expect("push low priority failed");
-    handle
-        .push_high_priority(1)
-        .await
-        .expect("push high priority failed");
+    push_expect!(handle.push_low_priority(2), "push low-priority");
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(3u8)]);
     let mut actor: ConnectionActor<_, ()> =
@@ -76,15 +77,9 @@ async fn fairness_yields_low_after_burst(
     };
 
     for n in 1..=5 {
-        handle
-            .push_high_priority(n)
-            .await
-            .expect("push high priority failed");
+        push_expect!(handle.push_high_priority(n), "push high-priority");
     }
-    handle
-        .push_low_priority(99)
-        .await
-        .expect("push low priority failed");
+    push_expect!(handle.push_low_priority(99), "push low-priority");
 
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
@@ -116,14 +111,18 @@ async fn queue_frames(
     for priority in order {
         match priority {
             Priority::High => {
-                let msg = format!("failed to push high-priority frame {next_high}");
-                handle.push_high_priority(next_high).await.expect(&msg);
+                push_expect!(
+                    handle.push_high_priority(next_high),
+                    format!("push high-priority frame {next_high}")
+                );
                 highs.push(next_high);
                 next_high += 1;
             }
             Priority::Low => {
-                let msg = format!("failed to push low-priority frame {next_low}");
-                handle.push_low_priority(next_low).await.expect(&msg);
+                push_expect!(
+                    handle.push_low_priority(next_low),
+                    format!("push low-priority frame {next_low}")
+                );
                 lows.push(next_low);
                 next_low += 1;
             }
@@ -210,25 +209,13 @@ async fn fairness_yields_low_with_time_slice(
         let _ = tx.send(out);
     });
 
-    handle
-        .push_high_priority(1)
-        .await
-        .expect("push high priority failed");
+    push_expect!(handle.push_high_priority(1), "push high-priority");
     tokio::time::advance(Duration::from_millis(5)).await;
-    handle
-        .push_high_priority(2)
-        .await
-        .expect("push high priority failed");
+    push_expect!(handle.push_high_priority(2), "push high-priority");
     tokio::time::advance(Duration::from_millis(15)).await;
-    handle
-        .push_low_priority(42)
-        .await
-        .expect("push low priority failed");
+    push_expect!(handle.push_low_priority(42), "push low-priority");
     for n in 3..=5 {
-        handle
-            .push_high_priority(n)
-            .await
-            .expect("push high priority failed");
+        push_expect!(handle.push_high_priority(n), "push high-priority");
     }
     drop(handle);
 
@@ -269,10 +256,7 @@ async fn complete_draining_of_sources(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    handle
-        .push_high_priority(1)
-        .await
-        .expect("push high priority failed");
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(2u8), Ok(3u8)]);
     let mut actor: ConnectionActor<_, ()> =
@@ -403,10 +387,7 @@ async fn interleaved_shutdown_during_stream(
 #[serial]
 async fn push_queue_exhaustion_backpressure() {
     let (mut queues, handle) = PushQueues::bounded(1, 1);
-    handle
-        .push_high_priority(1)
-        .await
-        .expect("push high priority failed");
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let blocked = timeout(Duration::from_millis(50), handle.push_high_priority(2)).await;
     assert!(blocked.is_err());
@@ -432,10 +413,7 @@ async fn before_send_hook_modifies_frames(
     shutdown_token: CancellationToken,
 ) {
     let (queues, handle) = queues;
-    handle
-        .push_high_priority(1)
-        .await
-        .expect("push high priority failed");
+    push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(2u8)]);
     let hooks = ProtocolHooks {

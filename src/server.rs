@@ -229,7 +229,9 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub const fn worker_count(&self) -> usize { self.workers }
+    pub const fn worker_count(&self) -> usize {
+        self.workers
+    }
 
     /// Get the socket address the server is bound to, if available.
     #[must_use]
