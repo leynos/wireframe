@@ -522,7 +522,7 @@ mod tests {
 
     /// Test helper preamble carrying no data.
     #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-    #[allow(dead_code)] // test helper for unused preamble type
+    #[allow(dead_code, reason = "test helper for unused preamble type")]
     struct EmptyPreamble;
 
     #[fixture]

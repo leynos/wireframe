@@ -40,7 +40,10 @@ const PING_ID: u32 = 1;
 ///
 /// The middleware chain generates the actual response, so this
 /// handler intentionally performs no work.
-#[allow(clippy::unused_async)]
+#[allow(
+    clippy::unused_async,
+    reason = "example handler intentionally performs no work"
+)]
 async fn ping_handler() {}
 
 struct PongMiddleware;

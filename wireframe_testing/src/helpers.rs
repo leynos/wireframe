@@ -19,7 +19,9 @@ use wireframe::{
     unused_braces,
     reason = "Clippy is wrong here; this is not a redundant block"
 )]
-pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
+pub fn processor() -> LengthPrefixedProcessor {
+    LengthPrefixedProcessor::default()
+}
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -234,7 +236,7 @@ where
 ///
 /// Returns any I/O errors encountered while interacting with the in-memory
 /// duplex stream.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "unused outside integration tests")]
 pub async fn run_app_with_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
