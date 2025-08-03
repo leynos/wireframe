@@ -85,6 +85,15 @@ impl std::fmt::Display for PushConfigError {
 
 impl std::error::Error for PushConfigError {}
 
+/// Shared state for [`PushHandle`].
+///
+/// Holds the high- and low-priority channels alongside an optional rate
+/// limiter and dead-letter queue sender used when pushes are discarded.
+///
+/// - `high_prio_tx` – channel for frames that must be sent before any low-priority traffic.
+/// - `low_prio_tx` – channel for best-effort frames.
+/// - `limiter` – optional rate-limiter enforcing global push throughput.
+/// - `dlq_tx` – optional dead-letter queue for discarded frames.
 pub(crate) struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
