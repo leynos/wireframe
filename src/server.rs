@@ -274,6 +274,17 @@ where
         Ok(self)
     }
 
+    /// Bind the server to an existing standard TCP listener.
+    ///
+    /// # Errors
+    /// Returns an [`io::Error`] if configuring the listener fails.
+    pub fn bind_listener(mut self, listener: StdTcpListener) -> io::Result<Self> {
+        listener.set_nonblocking(true)?;
+        let listener = TcpListener::from_std(listener)?;
+        self.listener = Some(Arc::new(listener));
+        Ok(self)
+    }
+
     /// Run the server until a shutdown signal is received.
     ///
     /// Each worker accepts connections concurrently and would
