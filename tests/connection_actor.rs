@@ -22,27 +22,21 @@ use wireframe_testing::push_expect;
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
-    PushQueues::bounded(8, 8)
-}
+fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) { PushQueues::bounded(8, 8) }
 
 #[fixture]
 #[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn shutdown_token() -> CancellationToken {
-    CancellationToken::new()
-}
+fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
 #[fixture]
 #[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn empty_stream() -> Option<FrameStream<u8, ()>> {
-    None
-}
+fn empty_stream() -> Option<FrameStream<u8, ()>> { None }
 
 #[rstest]
 #[tokio::test]
