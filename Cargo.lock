@@ -2842,6 +2842,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytes",
+ "futures",
  "log",
  "logtest",
  "metrics-util",
