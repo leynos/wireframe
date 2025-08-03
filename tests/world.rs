@@ -84,9 +84,7 @@ impl PanicWorld {
     ///
     /// # Panics
     /// Panics if binding the server fails or the server task fails.
-    pub async fn start_panic_server(&mut self) {
-        self.server.replace(PanicServer::spawn().await);
-    }
+    pub async fn start_panic_server(&mut self) { self.server.replace(PanicServer::spawn().await); }
 
     /// Connect to the running server once.
     ///
