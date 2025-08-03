@@ -2832,6 +2832,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "tracing-test",
  "wireframe_testing",
 ]
