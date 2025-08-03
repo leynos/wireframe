@@ -12,7 +12,10 @@ use std::{
 };
 
 use futures::StreamExt;
-use tokio::{sync::mpsc, time::Duration};
+use tokio::{
+    sync::mpsc::{self, error::TryRecvError},
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, info_span, warn};
 
@@ -393,14 +396,19 @@ where
     fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
         self.fairness.after_high();
 
-        if self.fairness.should_yield()
-            && let Some(rx) = &mut self.low_rx
-        {
-            match rx.try_recv() {
-                Ok(mut frame) => {
-                    self.hooks.before_send(&mut frame, &mut self.ctx);
-                    out.push(frame);
-                    self.after_low();
+        if self.fairness.should_yield() {
+            let res = self.low_rx.as_mut().map(mpsc::Receiver::try_recv);
+            if let Some(res) = res {
+                match res {
+                    Ok(mut frame) => {
+                        self.hooks.before_send(&mut frame, &mut self.ctx);
+                        out.push(frame);
+                        self.after_low();
+                    }
+                    Err(TryRecvError::Empty) => {}
+                    Err(TryRecvError::Disconnected) => {
+                        Self::handle_closed_receiver(&mut self.low_rx, state);
+                    }
                 }
             }
         }
