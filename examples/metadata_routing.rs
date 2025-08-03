@@ -60,10 +60,7 @@ impl FrameMetadata for HeaderSerializer {
 struct Ping;
 
 #[derive(bincode::Decode, bincode::Encode)]
-#[expect(
-    dead_code,
-    reason = "placeholder for demonstration of metadata routing"
-)]
+#[allow(dead_code)] // placeholder for demonstration of metadata routing
 struct Pong;
 
 #[tokio::main]
