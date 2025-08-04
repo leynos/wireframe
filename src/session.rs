@@ -92,8 +92,9 @@ impl<F: FrameLike> SessionRegistry<F> {
 
     /// Prune stale weak references, then collect the remaining live handles.
     ///
-    /// This holds per-bucket write locks while iterating. Use [`prune`] from a
-    /// maintenance task when only cleanup is required.
+    /// This method mutates the registry. Use [`prune`] from a maintenance task
+    /// to clean up without collecting handles. `DashMap::retain` holds
+    /// per-bucket write locks while iterating.
     #[must_use]
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
         self.retain_and_collect(|id, inner| (id, PushHandle::from_arc(inner)))
@@ -101,8 +102,9 @@ impl<F: FrameLike> SessionRegistry<F> {
 
     /// Prune stale weak references, then return the IDs of the live connections.
     ///
-    /// This holds per-bucket write locks while iterating. Use [`prune`] from a
-    /// maintenance task when only cleanup is required.
+    /// This method mutates the registry. Use [`prune`] from a maintenance task
+    /// to clean up without collecting handles. `DashMap::retain` holds
+    /// per-bucket write locks while iterating.
     #[must_use]
     pub fn active_ids(&self) -> Vec<ConnectionId> {
         self.retain_and_collect(|id, _| id)

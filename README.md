@@ -193,9 +193,10 @@ let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for
 active connections. Background tasks can look up a handle by \[`ConnectionId`\]
 to send frames asynchronously without keeping the connection alive. Entries are
-pruned on lookup and when calling `active_handles()`. Invoke `prune()` from a
-maintenance task when only removal of dead entries is required, without
-collecting handles.
+pruned on lookup and when calling `active_handles()`. `DashMap::retain` holds
+per-bucket write locks while collecting, so heavy traffic may experience
+contention. Invoke `prune()` from a maintenance task when only removal of dead
+entries is required, without collecting handles.
 
 ```rust
 use wireframe::{

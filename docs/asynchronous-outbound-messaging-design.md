@@ -411,12 +411,12 @@ impl<F> SessionRegistry<F> {
     /// Entries whose handles have been dropped are removed lazily.
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
         let guard = self.0.get(id);
-        let handle = guard.as_ref().and_then(|w| w.upgrade());
+        let inner = guard.as_ref().and_then(|w| w.upgrade());
         drop(guard);
-        if handle.is_none() {
+        if inner.is_none() {
             self.0.remove_if(id, |_, weak| weak.strong_count() == 0);
         }
-        handle.map(PushHandle::from_arc)
+        inner.map(|inner| PushHandle::from_arc(inner))
     }
 
     /// Inserts a new handle into the registry.
@@ -448,10 +448,11 @@ impl<F> SessionRegistry<F> {
 ```
 
 `active_handles()` prunes stale entries as it collects the remaining live
-handles. Maintenance tasks may call `prune()` when only cleanup of dead sessions
-is required. `DashMap::retain` acquires per-bucket write locks, so collecting
-and pruning in one pass may increase contention under heavy concurrency compared
-with invoking `prune()` from a maintenance task.
+handles. When a side-effect free snapshot is needed, `prune()` can be called
+separately before iterating. `DashMap::retain` acquires per-bucket write locks,
+so pruning while collecting may contend more than the previous post-collection
+`remove_if` sweep. Maintenance tasks may instead invoke `prune()` to avoid this
+contention.
 
 The diagram below summarises the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak
