@@ -17,7 +17,7 @@ use wireframe::{
     frame::{FrameProcessor, LengthPrefixedProcessor},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{processor, run_app_with_frame, run_with_duplex_server};
+use wireframe_testing::{processor, run_app, run_with_duplex_server};
 
 fn call_counting_callback<R, A>(
     counter: &Arc<AtomicUsize>,
@@ -135,7 +135,7 @@ async fn helpers_propagate_connection_state() {
         .encode(&bytes, &mut frame)
         .expect("encode should succeed");
 
-    let out = run_app_with_frame(app, frame.to_vec())
+    let out = run_app(app, vec![frame.to_vec()], None)
         .await
         .expect("app run failed");
     assert!(!out.is_empty());
