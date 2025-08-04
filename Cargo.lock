@@ -2832,6 +2832,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "tracing-test",
  "wireframe_testing",
 ]
@@ -2842,6 +2843,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytes",
+ "futures",
  "log",
  "logtest",
  "metrics-util",

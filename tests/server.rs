@@ -40,7 +40,6 @@ async fn readiness_receiver_dropped() {
     };
 
     let listener = unused_listener();
-    let _addr = listener.local_addr().unwrap();
     let server = WireframeServer::new(factory())
         .workers(1)
         .bind_listener(listener)
