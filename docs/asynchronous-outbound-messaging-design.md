@@ -447,10 +447,10 @@ impl<F> SessionRegistry<F> {
 ```
 
 `active_handles()` prunes stale entries as it collects the remaining live
-handles. Invoke `prune()` from a maintenance task when only cleanup of dead
-sessions is required. `DashMap::retain` acquires per-bucket write locks, so
-collecting and pruning in one pass may increase contention under heavy
-concurrency compared with a dedicated `remove_if` cleanup.
+handles. Maintenance tasks may call `prune()` when only cleanup of dead sessions
+is required. `DashMap::retain` acquires per-bucket write locks, so collecting
+and pruning in one pass may increase contention under heavy concurrency
+compared with a dedicated `remove_if` cleanup.
 
 The diagram below summarises the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak
