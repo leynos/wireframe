@@ -14,8 +14,11 @@ use futures::stream;
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    ConnectionContext, WireframeProtocol,
-    app::{Envelope, WireframeApp}, connection::ConnectionActor, push::PushQueues,
+    app::{Envelope, WireframeApp},
+    connection::ConnectionActor,
+    push::PushQueues,
+    ConnectionContext,
+    WireframeProtocol,
 };
 
 struct TestProtocol {

@@ -140,9 +140,7 @@ impl std::error::Error for SendError {
 }
 
 impl From<io::Error> for SendError {
-    fn from(e: io::Error) -> Self {
-        SendError::Io(e)
-    }
+    fn from(e: io::Error) -> Self { SendError::Io(e) }
 }
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
@@ -200,29 +198,19 @@ pub struct Envelope {
 impl Envelope {
     /// Create a new [`Envelope`] with the provided id and payload.
     #[must_use]
-    pub fn new(id: u32, msg: Vec<u8>) -> Self {
-        Self { id, msg }
-    }
+    pub fn new(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
 
     /// Consume the envelope, returning its id and payload bytes.
     #[must_use]
-    pub fn into_parts(self) -> (u32, Vec<u8>) {
-        (self.id, self.msg)
-    }
+    pub fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
 }
 
 impl Packet for Envelope {
-    fn id(&self) -> u32 {
-        self.id
-    }
+    fn id(&self) -> u32 { self.id }
 
-    fn into_parts(self) -> (u32, Vec<u8>) {
-        (self.id, self.msg)
-    }
+    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self {
-        Self { id, msg }
-    }
+    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
 }
 
 /// Number of idle polls before terminating a connection.

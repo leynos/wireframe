@@ -106,17 +106,11 @@ struct StateEnvelope {
 }
 
 impl wireframe::app::Packet for StateEnvelope {
-    fn id(&self) -> u32 {
-        self.id
-    }
+    fn id(&self) -> u32 { self.id }
 
-    fn into_parts(self) -> (u32, Vec<u8>) {
-        (self.id, self.msg)
-    }
+    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self {
-        Self { id, msg }
-    }
+    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
 }
 
 #[tokio::test]
