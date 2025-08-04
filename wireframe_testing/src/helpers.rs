@@ -150,24 +150,36 @@ macro_rules! forward_with_capacity {
     };
 }
 
-forward_default! {
-    /// Drive `app` with a single length-prefixed `frame` and return the bytes
-    /// produced by the server.
-    ///
-    /// The app runs on an in-memory duplex stream so tests need not open real
-    /// sockets.
-    ///
-    /// ```rust
-    /// # use wireframe_testing::{drive_with_frame, processor};
-    /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-    /// let bytes = drive_with_frame(app, vec![1, 2, 3]).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn drive_with_frame(app: WireframeApp<S, C, E>, frame: Vec<u8>) -> io::Result<Vec<u8>>
-    => drive_with_frame_with_capacity(app, frame)
+/// Drive `app` with a single length-prefixed `frame` and return the bytes
+/// produced by the server.
+///
+/// The app runs on an in-memory duplex stream so tests need not open real
+/// sockets.
+///
+/// # Errors
+///
+/// Returns any I/O errors encountered while interacting with the in-memory
+/// duplex stream.
+///
+/// ```rust
+/// # use wireframe_testing::{drive_with_frame, processor};
+/// # use wireframe::app::WireframeApp;
+/// # async fn demo() -> tokio::io::Result<()> {
+/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// let bytes = drive_with_frame(app, vec![1, 2, 3]).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn drive_with_frame<S, C, E>(
+    app: WireframeApp<S, C, E>,
+    frame: Vec<u8>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    drive_with_frame_with_capacity(app, frame, DEFAULT_CAPACITY).await
 }
 
 forward_with_capacity! {
