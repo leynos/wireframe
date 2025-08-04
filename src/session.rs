@@ -4,7 +4,7 @@
 //! allowing asynchronous tasks to send frames to live connections without
 //! preventing their cleanup. Dead entries can be pruned opportunistically or
 //! lazily at lookup time.
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 
 use dashmap::DashMap;
 
@@ -15,17 +15,23 @@ use crate::push::{FrameLike, PushHandle, PushHandleInner};
 pub struct ConnectionId(u64);
 
 impl From<u64> for ConnectionId {
-    fn from(value: u64) -> Self { Self(value) }
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
 }
 
 impl ConnectionId {
     /// Create a new [`ConnectionId`] with the provided value.
     #[must_use]
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
 
     /// Return the inner `u64` representation.
     #[must_use]
-    pub fn as_u64(&self) -> u64 { self.0 }
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
 }
 
 impl std::fmt::Display for ConnectionId {
@@ -39,6 +45,22 @@ impl std::fmt::Display for ConnectionId {
 pub struct SessionRegistry<F>(DashMap<ConnectionId, Weak<PushHandleInner<F>>>);
 
 impl<F: FrameLike> SessionRegistry<F> {
+    /// Retain live entries and collect data from each upgraded handle.
+    fn retain_and_collect<T>(
+        &self,
+        mut map: impl FnMut(ConnectionId, Arc<PushHandleInner<F>>) -> T,
+    ) -> Vec<T> {
+        let mut out = Vec::with_capacity(self.0.len());
+        self.0.retain(|id, weak| match weak.upgrade() {
+            Some(inner) => {
+                out.push(map(*id, inner));
+                true
+            }
+            None => false,
+        });
+        out
+    }
+
     /// Retrieve a `PushHandle` for `id` if the connection is still alive.
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
         let guard = self.0.get(id);
@@ -56,13 +78,17 @@ impl<F: FrameLike> SessionRegistry<F> {
     }
 
     /// Remove a handle, typically on connection teardown.
-    pub fn remove(&self, id: &ConnectionId) { self.0.remove(id); }
+    pub fn remove(&self, id: &ConnectionId) {
+        self.0.remove(id);
+    }
 
     /// Remove all stale weak references without returning any handles.
     ///
     /// `DashMap::retain` acquires per-bucket write locks, so other operations
     /// may contend briefly while the registry is pruned.
-    pub fn prune(&self) { self.0.retain(|_, weak| weak.strong_count() > 0); }
+    pub fn prune(&self) {
+        self.0.retain(|_, weak| weak.strong_count() > 0);
+    }
 
     /// Prune stale weak references, then collect the remaining live handles.
     ///
@@ -70,16 +96,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// maintenance task when only cleanup is required.
     #[must_use]
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
-        let mut handles = Vec::with_capacity(self.0.len());
-        self.0.retain(|id, weak| {
-            if let Some(inner) = weak.upgrade() {
-                handles.push((*id, PushHandle::from_arc(inner)));
-                true
-            } else {
-                false
-            }
-        });
-        handles
+        self.retain_and_collect(|id, inner| (id, PushHandle::from_arc(inner)))
     }
 
     /// Prune stale weak references, then return the IDs of the live connections.
@@ -88,15 +105,6 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// maintenance task when only cleanup is required.
     #[must_use]
     pub fn active_ids(&self) -> Vec<ConnectionId> {
-        let mut ids = Vec::with_capacity(self.0.len());
-        self.0.retain(|id, weak| {
-            if weak.strong_count() > 0 {
-                ids.push(*id);
-                true
-            } else {
-                false
-            }
-        });
-        ids
+        self.retain_and_collect(|id, _| id)
     }
 }
