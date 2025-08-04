@@ -286,6 +286,14 @@ fragmentation layer must be hardened.
   assemblies, which are purged if they are not completed within the time limit
   (e.g., 30 seconds).
 
+### 4.3 Correlation ID Validation
+
+Each frame's header carries a `correlation_id` linking it to a request. Servers
+must verify that outbound frames echo the identifier from the triggering
+request. A mismatch is a protocol error and should terminate the stream. This
+check prevents malicious peers from injecting frames into unrelated
+conversations and simplifies debugging by providing a stable audit trail.
+
 ## 5. Advanced Resilience Patterns
 
 For applications requiring the highest levels of reliability, `wireframe` will

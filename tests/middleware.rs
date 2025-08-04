@@ -29,7 +29,9 @@ where
 {
     type Output = ModifyService<S>;
 
-    async fn transform(&self, service: S) -> Self::Output { ModifyService { inner: service } }
+    async fn transform(&self, service: S) -> Self::Output {
+        ModifyService { inner: service }
+    }
 }
 
 #[async_trait]
@@ -54,7 +56,7 @@ async fn middleware_modifies_request_and_response() {
     let mw = ModifyMiddleware;
     let wrapped = mw.transform(service).await;
 
-    let request = ServiceRequest::new(vec![1, 2, 3]);
+    let request = ServiceRequest::new(vec![1, 2, 3], 0);
     let response = wrapped.call(request).await.expect("middleware call failed");
     assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
 }

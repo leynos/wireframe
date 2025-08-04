@@ -111,6 +111,14 @@ The polling order will be:
 4. **Handler Response Stream:** For frames belonging to the current
    request-response cycle.
 
+#### Correlation Identifiers
+
+Every frame header now carries a `correlation_id` that ties it to the
+originating request. Clients set a unique identifier on each request and the
+server mirrors this value on every frame in the response stream. This mechanism
+allows out-of-order or multi-part replies to be reassembled reliably without
+relying on transport sequencing.
+
 ### B. Transparent Message Fragmentation & Re-assembly
 
 Many real-world protocols split large logical messages into smaller physical

@@ -17,47 +17,69 @@ pub struct FrameContainer<F> {
 impl<F> FrameContainer<F> {
     /// Create a new container holding `frame` bytes.
     #[must_use]
-    pub fn new(frame: F) -> Self { Self { frame } }
+    pub fn new(frame: F) -> Self {
+        Self { frame }
+    }
 
     /// Borrow the inner frame data.
     #[must_use]
-    pub fn frame(&self) -> &F { &self.frame }
+    pub fn frame(&self) -> &F {
+        &self.frame
+    }
 
     /// Mutable access to the frame data.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut F { &mut self.frame }
+    pub fn frame_mut(&mut self) -> &mut F {
+        &mut self.frame
+    }
 
     /// Consume the container, returning the frame.
     #[must_use]
-    pub fn into_inner(self) -> F { self.frame }
+    pub fn into_inner(self) -> F {
+        self.frame
+    }
 }
 
 /// Incoming request wrapper passed through middleware.
 #[derive(Debug)]
 pub struct ServiceRequest {
     inner: FrameContainer<Vec<u8>>,
+    correlation_id: u32,
 }
 
 impl ServiceRequest {
-    /// Create a new [`ServiceRequest`] from raw frame bytes.
+    /// Create a new [`ServiceRequest`] from raw frame bytes and correlation id.
     #[must_use]
-    pub fn new(frame: Vec<u8>) -> Self {
+    pub fn new(frame: Vec<u8>, correlation_id: u32) -> Self {
         Self {
             inner: FrameContainer::new(frame),
+            correlation_id,
         }
     }
 
     /// Borrow the underlying frame bytes.
     #[must_use]
-    pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
+    pub fn frame(&self) -> &[u8] {
+        self.inner.frame().as_slice()
+    }
 
     /// Mutable access to the inner frame bytes.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> {
+        self.inner.frame_mut()
+    }
 
     /// Consume the request, returning the inner frame bytes.
     #[must_use]
-    pub fn into_inner(self) -> Vec<u8> { self.inner.into_inner() }
+    pub fn into_inner(self) -> Vec<u8> {
+        self.inner.into_inner()
+    }
+
+    /// Return the correlation identifier associated with this request.
+    #[must_use]
+    pub fn correlation_id(&self) -> u32 {
+        self.correlation_id
+    }
 }
 
 /// Response produced by a handler or middleware.
@@ -77,15 +99,21 @@ impl ServiceResponse {
 
     /// Borrow the inner frame bytes.
     #[must_use]
-    pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
+    pub fn frame(&self) -> &[u8] {
+        self.inner.frame().as_slice()
+    }
 
     /// Mutable access to the response frame bytes.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
+    pub fn frame_mut(&mut self) -> &mut Vec<u8> {
+        self.inner.frame_mut()
+    }
 
     /// Consume the response, yielding the raw frame bytes.
     #[must_use]
-    pub fn into_inner(self) -> Vec<u8> { self.inner.into_inner() }
+    pub fn into_inner(self) -> Vec<u8> {
+        self.inner.into_inner()
+    }
 }
 
 /// Continuation used by middleware to call the next service in the chain.
@@ -120,7 +148,9 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub fn new(service: &'a S) -> Self { Self { service } }
+    pub fn new(service: &'a S) -> Self {
+        Self { service }
+    }
 
     /// Call the next service with the provided request.
     ///
@@ -171,7 +201,9 @@ pub struct FromFn<F> {
 
 impl<F> FromFn<F> {
     /// Construct middleware from the provided asynchronous function.
-    pub fn new(f: F) -> Self { Self { f } }
+    pub fn new(f: F) -> Self {
+        Self { f }
+    }
 }
 
 /// Convenience constructor to build middleware from an async function.
@@ -200,7 +232,9 @@ impl<F> FromFn<F> {
 /// # }
 /// let mw = from_fn(logging);
 /// ```
-pub fn from_fn<F>(f: F) -> FromFn<F> { FromFn::new(f) }
+pub fn from_fn<F>(f: F) -> FromFn<F> {
+    FromFn::new(f)
+}
 
 /// Service wrapper that applies a middleware function to requests.
 ///
@@ -281,7 +315,9 @@ impl<E: Packet> HandlerService<E> {
 
     /// Returns the route identifier associated with this service.
     #[must_use]
-    pub const fn id(&self) -> u32 { self.id }
+    pub const fn id(&self) -> u32 {
+        self.id
+    }
 }
 
 struct RouteService<E: Packet> {
@@ -297,9 +333,10 @@ impl<E: Packet> Service for RouteService<E> {
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         // The handler only borrows the envelope, allowing us to consume it
         // afterwards to extract the response payload.
-        let env = E::from_parts(self.id, req.into_inner());
+        let corr = req.correlation_id();
+        let env = E::from_parts(self.id, corr, req.into_inner());
         (self.handler.as_ref())(&env).await;
-        let (_, bytes) = env.into_parts();
+        let (_, _, bytes) = env.into_parts();
         Ok(ServiceResponse::new(bytes))
     }
 }

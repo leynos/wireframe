@@ -177,9 +177,9 @@ This is the next major feature set. It enables a handler to return multiple,
 distinct messages over time in response to a single request, forming a logical
 stream.
 
-- [ ] **Protocol Enhancement:**
+- [x] **Protocol Enhancement:**
 
-  - [ ] Add a `correlation_id` field to the `Frame` header. For a request, this
+  - [x] Add a `correlation_id` field to the `Frame` header. For a request, this
     is the unique request ID. For each message in a multi-packet response, this
     ID must match the original request's ID.
 
@@ -194,7 +194,7 @@ stream.
   - [ ] Modify the `Connection` actor: upon receiving `Response::MultiPacket`,
     it should consume messages from the receiver and send each one as a `Frame`.
 
-  - [ ] Each sent frame must carry the correct `correlation_id` from the
+  - [x] Each sent frame must carry the correct `correlation_id` from the
     initial request.
 
   - [ ] When the channel closes, send the end-of-stream marker frame.

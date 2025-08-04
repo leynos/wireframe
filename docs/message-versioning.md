@@ -45,6 +45,7 @@ Extend `Envelope` with an optional `version` field:
 ```rust
 pub struct Envelope {
     id: u32,
+    correlation_id: u32,
     version: Option<u16>,
     msg: Vec<u8>,
 }

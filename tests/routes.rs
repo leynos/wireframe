@@ -21,15 +21,29 @@ use wireframe_testing::{drive_with_bincode, drive_with_frames};
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestEnvelope {
     id: u32,
+    correlation_id: u32,
     msg: Vec<u8>,
 }
 
 impl wireframe::app::Packet for TestEnvelope {
-    fn id(&self) -> u32 { self.id }
+    fn id(&self) -> u32 {
+        self.id
+    }
+    fn correlation_id(&self) -> u32 {
+        self.correlation_id
+    }
 
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    fn into_parts(self) -> (u32, u32, Vec<u8>) {
+        (self.id, self.correlation_id, self.msg)
+    }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    fn from_parts(id: u32, correlation_id: u32, msg: Vec<u8>) -> Self {
+        Self {
+            id,
+            correlation_id,
+            msg,
+        }
+    }
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
@@ -57,6 +71,7 @@ async fn handler_receives_message_and_echoes_response() {
     let msg_bytes = Echo(42).to_bytes().expect("encode failed");
     let env = TestEnvelope {
         id: 1,
+        correlation_id: 0,
         msg: msg_bytes,
     };
 
@@ -93,6 +108,7 @@ async fn multiple_frames_processed_in_sequence() {
             let msg_bytes = Echo(id).to_bytes().expect("encode failed");
             let env = TestEnvelope {
                 id: 1,
+                correlation_id: 0,
                 msg: msg_bytes,
             };
             let env_bytes = BincodeSerializer

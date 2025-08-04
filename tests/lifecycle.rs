@@ -102,15 +102,29 @@ async fn teardown_without_setup_does_not_run() {
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct StateEnvelope {
     id: u32,
+    correlation_id: u32,
     msg: Vec<u8>,
 }
 
 impl wireframe::app::Packet for StateEnvelope {
-    fn id(&self) -> u32 { self.id }
+    fn id(&self) -> u32 {
+        self.id
+    }
+    fn correlation_id(&self) -> u32 {
+        self.correlation_id
+    }
 
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    fn into_parts(self) -> (u32, u32, Vec<u8>) {
+        (self.id, self.correlation_id, self.msg)
+    }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    fn from_parts(id: u32, correlation_id: u32, msg: Vec<u8>) -> Self {
+        Self {
+            id,
+            correlation_id,
+            msg,
+        }
+    }
 }
 
 #[tokio::test]
@@ -125,6 +139,7 @@ async fn helpers_propagate_connection_state() {
 
     let env = StateEnvelope {
         id: 1,
+        correlation_id: 0,
         msg: vec![1],
     };
     let bytes = BincodeSerializer

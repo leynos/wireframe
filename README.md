@@ -99,12 +99,15 @@ implement the `Packet` trait:
 use wireframe::app::{Packet, WireframeApp};
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
-struct MyEnv { id: u32, data: Vec<u8> }
+struct MyEnv { id: u32, correlation_id: u32, data: Vec<u8> }
 
 impl Packet for MyEnv {
     fn id(&self) -> u32 { self.id }
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.data) }
-    fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
+    fn correlation_id(&self) -> u32 { self.correlation_id }
+    fn into_parts(self) -> (u32, u32, Vec<u8>) { (self.id, self.correlation_id, self.data) }
+    fn from_parts(id: u32, correlation_id: u32, data: Vec<u8>) -> Self {
+        Self { id, correlation_id, data }
+    }
 }
 
 let app = WireframeApp::<_, _, MyEnv>::new_with_envelope()

@@ -140,7 +140,9 @@ impl std::error::Error for SendError {
 }
 
 impl From<io::Error> for SendError {
-    fn from(e: io::Error) -> Self { SendError::Io(e) }
+    fn from(e: io::Error) -> Self {
+        SendError::Io(e)
+    }
 }
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
@@ -156,21 +158,21 @@ impl From<io::Error> for SendError {
 /// #[derive(bincode::Decode, bincode::Encode)]
 /// struct CustomEnvelope {
 ///     id: u32,
+///     correlation_id: u32,
 ///     payload: Vec<u8>,
 ///     timestamp: u64,
 /// }
 ///
 /// impl Packet for CustomEnvelope {
 ///     fn id(&self) -> u32 { self.id }
+///     fn correlation_id(&self) -> u32 { self.correlation_id }
 ///
-///     fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.payload) }
+///     fn into_parts(self) -> (u32, u32, Vec<u8>) {
+///         (self.id, self.correlation_id, self.payload)
+///     }
 ///
-///     fn from_parts(id: u32, msg: Vec<u8>) -> Self {
-///         Self {
-///             id,
-///             payload: msg,
-///             timestamp: 0,
-///         }
+///     fn from_parts(id: u32, correlation_id: u32, msg: Vec<u8>) -> Self {
+///         Self { id, correlation_id, payload: msg, timestamp: 0 }
 ///     }
 /// }
 /// ```
@@ -178,11 +180,14 @@ pub trait Packet: Message + Send + Sync + 'static {
     /// Return the message identifier used for routing.
     fn id(&self) -> u32;
 
-    /// Consume the packet and return its identifier and payload bytes.
-    fn into_parts(self) -> (u32, Vec<u8>);
+    /// Return the request correlation identifier.
+    fn correlation_id(&self) -> u32;
 
-    /// Construct a new packet from an id and raw payload bytes.
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self;
+    /// Consume the packet and return its identifiers and payload bytes.
+    fn into_parts(self) -> (u32, u32, Vec<u8>);
+
+    /// Construct a new packet from identifiers and raw payload bytes.
+    fn from_parts(id: u32, correlation_id: u32, msg: Vec<u8>) -> Self;
 }
 
 /// Basic envelope type used by [`handle_connection`].
@@ -192,25 +197,48 @@ pub trait Packet: Message + Send + Sync + 'static {
 #[derive(bincode::Decode, bincode::Encode)]
 pub struct Envelope {
     pub(crate) id: u32,
+    pub(crate) correlation_id: u32,
     pub(crate) msg: Vec<u8>,
 }
 
 impl Envelope {
-    /// Create a new [`Envelope`] with the provided id and payload.
+    /// Create a new [`Envelope`] with the provided id, correlation id and payload.
     #[must_use]
-    pub fn new(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    pub fn new(id: u32, correlation_id: u32, msg: Vec<u8>) -> Self {
+        Self {
+            id,
+            correlation_id,
+            msg,
+        }
+    }
 
-    /// Consume the envelope, returning its id and payload bytes.
+    /// Consume the envelope, returning identifiers and payload bytes.
     #[must_use]
-    pub fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    pub fn into_parts(self) -> (u32, u32, Vec<u8>) {
+        (self.id, self.correlation_id, self.msg)
+    }
 }
 
 impl Packet for Envelope {
-    fn id(&self) -> u32 { self.id }
+    fn id(&self) -> u32 {
+        self.id
+    }
 
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    fn correlation_id(&self) -> u32 {
+        self.correlation_id
+    }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    fn into_parts(self) -> (u32, u32, Vec<u8>) {
+        (self.id, self.correlation_id, self.msg)
+    }
+
+    fn from_parts(id: u32, correlation_id: u32, msg: Vec<u8>) -> Self {
+        Self {
+            id,
+            correlation_id,
+            msg,
+        }
+    }
 }
 
 /// Number of idle polls before terminating a connection.
@@ -254,7 +282,9 @@ impl WireframeApp<BincodeSerializer, (), Envelope> {
     ///
     /// This function currently never returns an error but uses the
     /// [`Result`] type for forward compatibility.
-    pub fn new() -> Result<Self> { Ok(Self::default()) }
+    pub fn new() -> Result<Self> {
+        Ok(Self::default())
+    }
 }
 
 impl<E> WireframeApp<BincodeSerializer, (), E>
@@ -267,7 +297,9 @@ where
     ///
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
-    pub fn new_with_envelope() -> Result<Self> { Ok(Self::default()) }
+    pub fn new_with_envelope() -> Result<Self> {
+        Ok(Self::default())
+    }
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -672,11 +704,12 @@ where
         };
 
         if let Some(service) = routes.get(&env.id) {
-            let request = ServiceRequest::new(env.msg);
+            let request = ServiceRequest::new(env.msg, env.correlation_id);
             match service.call(request).await {
                 Ok(resp) => {
                     let response = Envelope {
                         id: env.id,
+                        correlation_id: env.correlation_id,
                         msg: resp.into_inner(),
                     };
                     if let Err(e) = self.send_response(stream, &response).await {
