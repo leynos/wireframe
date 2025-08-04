@@ -80,7 +80,8 @@ assert on these failure conditions directly.
 ### Custom Buffer Capacity
 
 A variant accepting a buffer `capacity` allows fine-tuning the size of the
-in-memory duplex channel, matching the existing `run_app` helper.
+in-memory duplex channel, matching the existing `run_app` helper. The value
+must be greater than zero and does not exceed 10 MB.
 
 ```helpers.
 pub async fn drive_with_frame_with_capacity(
@@ -165,9 +166,9 @@ with prebuilt frames and their responses decoded for assertions.
 
 ### Capturing Logs in Tests
 
-The `wireframe_testing` crate exposes a \[`LoggerHandle`\] fixture for asserting
-log output. Acquire it in a test and call `clear()` to discard any records from
-fixture setup. Records can then be inspected using `pop()`:
+The `wireframe_testing` crate exposes a \[`LoggerHandle`\] fixture for
+asserting log output. Acquire it in a test and call `clear()` to discard any
+records from fixture setup. Records can then be inspected using `pop()`:
 
 ```rust
 use wireframe_testing::logger;

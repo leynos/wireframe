@@ -34,6 +34,7 @@ impl<T> TestSerializer for T where
 }
 
 const DEFAULT_CAPACITY: usize = 4096;
+const MAX_CAPACITY: usize = 1024 * 1024 * 10; // 10MB limit
 
 async fn drive_internal<F, Fut>(
     server_fn: F,
@@ -325,10 +326,6 @@ where
     drive_with_frame(app, framed.to_vec()).await
 }
 
-/// Run `app` with a single input `frame` using the default buffer capacity.
-///
-/// # Errors
-///
 /// Run `app` with input `frames` using an optional duplex buffer `capacity`.
 ///
 /// When `capacity` is `None`, a buffer of [`DEFAULT_CAPACITY`] bytes is used.
@@ -337,11 +334,9 @@ where
 ///
 /// # Errors
 ///
-/// Propagates any I/O errors from the in-memory connection.
-///
-/// # Panics
-///
-/// Panics if the spawned task running the application panics.
+/// Returns an error if `capacity` is zero or exceeds [`MAX_CAPACITY`]. Any
+/// panic in the application task or I/O error on the duplex stream is also
+/// surfaced as an error.
 ///
 /// ```rust
 /// # use wireframe_testing::{processor, run_app};
@@ -363,6 +358,19 @@ where
     E: Packet,
 {
     let capacity = capacity.unwrap_or(DEFAULT_CAPACITY);
+    if capacity == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "capacity must be greater than zero",
+        ));
+    }
+    if capacity > MAX_CAPACITY {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("capacity must not exceed {MAX_CAPACITY} bytes"),
+        ));
+    }
+
     let (mut client, server) = duplex(capacity);
     let server_task = tokio::spawn(async move { app.handle_connection(server).await });
 
@@ -374,7 +382,13 @@ where
     let mut buf = Vec::new();
     client.read_to_end(&mut buf).await?;
 
-    server_task.await.expect("server task panicked");
+    if let Err(e) = server_task.await {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("server task failed: {e}"),
+        ));
+    }
+
     Ok(buf)
 }
 
