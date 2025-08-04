@@ -432,7 +432,7 @@ impl<F> SessionRegistry<F> {
 
     /// Returns all live session handles for broadcast or diagnostics.
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
-        let mut handles = Vec::new();
+        let mut handles = Vec::with_capacity(self.0.len());
         self.0.retain(|id, weak| {
             if let Some(inner) = weak.upgrade() {
                 handles.push((*id, PushHandle::from_arc(inner)));
@@ -447,9 +447,10 @@ impl<F> SessionRegistry<F> {
 ```
 
 `active_handles()` prunes stale entries as it collects the remaining live
-handles. Call `prune()` from a maintenance task when you only need to clean up
-dead sessions. Separating pruning from collection may reduce contention under
-heavy concurrency.
+handles. Invoke `prune()` from a maintenance task when only cleanup of dead
+sessions is required. `DashMap::retain` acquires per-bucket write locks, so
+collecting and pruning in one pass may increase contention under heavy
+concurrency compared with a dedicated `remove_if` cleanup.
 
 The diagram below summarises the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak

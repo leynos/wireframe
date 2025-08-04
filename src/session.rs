@@ -59,12 +59,18 @@ impl<F: FrameLike> SessionRegistry<F> {
     pub fn remove(&self, id: &ConnectionId) { self.0.remove(id); }
 
     /// Remove all stale weak references without returning any handles.
+    ///
+    /// `DashMap::retain` acquires per-bucket write locks, so other operations
+    /// may contend briefly while the registry is pruned.
     pub fn prune(&self) { self.0.retain(|_, weak| weak.strong_count() > 0); }
 
     /// Prune stale weak references, then collect the remaining live handles.
+    ///
+    /// This holds per-bucket write locks while iterating. Use [`prune`] from a
+    /// maintenance task when only cleanup is required.
     #[must_use]
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
-        let mut handles = Vec::new();
+        let mut handles = Vec::with_capacity(self.0.len());
         self.0.retain(|id, weak| {
             if let Some(inner) = weak.upgrade() {
                 handles.push((*id, PushHandle::from_arc(inner)));
