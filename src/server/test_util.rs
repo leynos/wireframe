@@ -5,9 +5,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use bincode::{Decode, Encode};
 use rstest::fixture;
 
-use crate::app::WireframeApp;
-
 use super::WireframeServer;
+use crate::app::WireframeApp;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct TestPreamble {

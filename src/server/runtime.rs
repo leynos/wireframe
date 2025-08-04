@@ -67,7 +67,7 @@ where
             let on_failure = self.on_preamble_failure.clone();
             let token = shutdown_token.clone();
             let t = tracker.clone();
-            tracker.spawn(worker_task(
+            tracker.spawn(accept_loop(
                 listener, factory, on_success, on_failure, token, t,
             ));
         }
@@ -81,20 +81,6 @@ where
         tracker.wait().await;
         Ok(())
     }
-}
-
-async fn worker_task<F, T>(
-    listener: Arc<TcpListener>,
-    factory: F,
-    on_success: Option<PreambleCallback<T>>,
-    on_failure: Option<PreambleErrorCallback>,
-    shutdown: CancellationToken,
-    tracker: TaskTracker,
-) where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
-{
-    accept_loop(listener, factory, on_success, on_failure, shutdown, tracker).await;
 }
 
 pub(super) async fn accept_loop<F, T>(

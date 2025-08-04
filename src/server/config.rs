@@ -25,9 +25,7 @@ where
     /// server.
     #[must_use]
     pub fn new(factory: F) -> Self {
-        let workers = std::thread::available_parallelism()
-            .map_or(1, std::num::NonZeroUsize::get)
-            .max(1);
+        let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
         Self {
             factory,
             listener: None,
@@ -116,21 +114,22 @@ where
     ///
     /// # Errors
     /// Returns an `io::Error` if binding or configuring the listener fails.
-    pub fn bind(mut self, addr: SocketAddr) -> io::Result<Self> {
+    pub fn bind(self, addr: SocketAddr) -> io::Result<Self> {
         let std_listener = StdTcpListener::bind(addr)?;
-        std_listener.set_nonblocking(true)?;
-        let listener = TcpListener::from_std(std_listener)?;
-        self.listener = Some(Arc::new(listener));
-        Ok(self)
+        self.bind_std_listener(std_listener)
     }
 
     /// Bind the server to an existing standard TCP listener.
     ///
     /// # Errors
     /// Returns an [`io::Error`] if configuring the listener fails.
-    pub fn bind_listener(mut self, listener: StdTcpListener) -> io::Result<Self> {
-        listener.set_nonblocking(true)?;
-        let listener = TcpListener::from_std(listener)?;
+    pub fn bind_listener(self, listener: StdTcpListener) -> io::Result<Self> {
+        self.bind_std_listener(listener)
+    }
+
+    fn bind_std_listener(mut self, std_listener: StdTcpListener) -> io::Result<Self> {
+        std_listener.set_nonblocking(true)?;
+        let listener = TcpListener::from_std(std_listener)?;
         self.listener = Some(Arc::new(listener));
         Ok(self)
     }
@@ -157,9 +156,7 @@ mod tests {
     fn expected_default_worker_count() -> usize {
         // Mirror the default worker logic to keep tests aligned with
         // `WireframeServer::new`.
-        std::thread::available_parallelism()
-            .map_or(1, std::num::NonZeroUsize::get)
-            .max(1)
+        std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
     }
 
     #[rstest]
@@ -214,12 +211,6 @@ mod tests {
         let server = server.bind(free_port).expect("Failed to bind");
         let local_addr = server.local_addr().expect("local address missing");
         assert_eq!(local_addr.ip(), free_port.ip());
-    }
-
-    #[rstest]
-    fn test_bind_invalid_address() {
-        let addr: Result<std::net::SocketAddr, _> = "256.0.0.1:8080".parse();
-        assert!(addr.is_err());
     }
 
     #[rstest]

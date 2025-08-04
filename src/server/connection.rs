@@ -1,5 +1,7 @@
 //! Connection handling for [`WireframeServer`].
 
+use std::net::SocketAddr;
+
 use futures::FutureExt;
 use tokio::net::TcpStream;
 use tokio_util::task::TaskTracker;
@@ -30,9 +32,10 @@ pub(super) fn spawn_connection_task<F, T>(
         }
     };
     tracker.spawn(async move {
-        let fut =
-            std::panic::AssertUnwindSafe(process_stream(stream, factory, on_success, on_failure))
-                .catch_unwind();
+        let fut = std::panic::AssertUnwindSafe(process_stream(
+            stream, peer_addr, factory, on_success, on_failure,
+        ))
+        .catch_unwind();
 
         if let Err(panic) = fut.await {
             let panic_msg = panic
@@ -47,6 +50,7 @@ pub(super) fn spawn_connection_task<F, T>(
 
 async fn process_stream<F, T>(
     mut stream: TcpStream,
+    peer_addr: Option<SocketAddr>,
     factory: F,
     on_success: Option<PreambleCallback<T>>,
     on_failure: Option<PreambleErrorCallback>,
@@ -54,7 +58,6 @@ async fn process_stream<F, T>(
     F: Fn() -> WireframeApp + Send + Sync + 'static,
     T: Preamble,
 {
-    let peer_addr = stream.peer_addr().ok();
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
             if let Some(handler) = on_success.as_ref()
@@ -69,6 +72,12 @@ async fn process_stream<F, T>(
         Err(err) => {
             if let Some(handler) = on_failure.as_ref() {
                 handler(&err);
+            } else {
+                tracing::error!(
+                    error = ?err,
+                    ?peer_addr,
+                    "preamble decode failed and no failure handler set"
+                );
             }
         }
     }
