@@ -19,7 +19,9 @@ use wireframe::{
     unused_braces,
     reason = "Clippy is wrong here; this is not a redundant block"
 )]
-pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
+pub fn processor() -> LengthPrefixedProcessor {
+    LengthPrefixedProcessor::default()
+}
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -155,6 +157,11 @@ macro_rules! forward_with_capacity {
 ///
 /// The app runs on an in-memory duplex stream so tests need not open real
 /// sockets.
+///
+/// # Errors
+///
+/// Returns any I/O errors encountered while interacting with the in-memory
+/// duplex stream.
 ///
 /// ```rust
 /// # use wireframe_testing::{drive_with_frame, processor};
