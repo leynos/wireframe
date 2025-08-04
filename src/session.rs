@@ -15,23 +15,17 @@ use crate::push::{FrameLike, PushHandle, PushHandleInner};
 pub struct ConnectionId(u64);
 
 impl From<u64> for ConnectionId {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
+    fn from(value: u64) -> Self { Self(value) }
 }
 
 impl ConnectionId {
     /// Create a new [`ConnectionId`] with the provided value.
     #[must_use]
-    pub fn new(id: u64) -> Self {
-        Self(id)
-    }
+    pub fn new(id: u64) -> Self { Self(id) }
 
     /// Return the inner `u64` representation.
     #[must_use]
-    pub fn as_u64(&self) -> u64 {
-        self.0
-    }
+    pub fn as_u64(&self) -> u64 { self.0 }
 }
 
 impl std::fmt::Display for ConnectionId {
@@ -78,17 +72,13 @@ impl<F: FrameLike> SessionRegistry<F> {
     }
 
     /// Remove a handle, typically on connection teardown.
-    pub fn remove(&self, id: &ConnectionId) {
-        self.0.remove(id);
-    }
+    pub fn remove(&self, id: &ConnectionId) { self.0.remove(id); }
 
     /// Remove all stale weak references without returning any handles.
     ///
     /// `DashMap::retain` acquires per-bucket write locks, so other operations
     /// may contend briefly while the registry is pruned.
-    pub fn prune(&self) {
-        self.0.retain(|_, weak| weak.strong_count() > 0);
-    }
+    pub fn prune(&self) { self.0.retain(|_, weak| weak.strong_count() > 0); }
 
     /// Prune stale weak references, then collect the remaining live handles.
     ///
@@ -106,7 +96,5 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// to clean up without collecting handles. `DashMap::retain` holds
     /// per-bucket write locks while iterating.
     #[must_use]
-    pub fn active_ids(&self) -> Vec<ConnectionId> {
-        self.retain_and_collect(|id, _| id)
-    }
+    pub fn active_ids(&self) -> Vec<ConnectionId> { self.retain_and_collect(|id, _| id) }
 }
