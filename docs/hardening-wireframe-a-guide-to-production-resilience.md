@@ -212,9 +212,9 @@ The solution is to store non-owning `Weak` pointers in the registry.
    impl<F> SessionRegistry<F> {
        pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
            self.0.get(id)
-               .and_then(|weak_ref| weak_ref.upgrade()) // Attempt to get a strong reference.
-               .map(PushHandle) // If successful, wrap it in our public type.
-       }
+                .and_then(|weak_ref| weak_ref.upgrade()) // Attempt to get a strong reference.
+                .map(PushHandle::from_arc) // If successful, wrap it in our public type.
+        }
 
        // Optional: A method to periodically sweep for dead entries.
        pub fn prune(&self) {

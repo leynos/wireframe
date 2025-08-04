@@ -84,9 +84,9 @@ WireframeServer::new(|| {
 
 This example showcases how derive macros and the framing abstraction simplify a
 binary protocol server. See the
+<!-- markdownlint-disable-next-line MD013 -->
 [full example](docs/rust-binary-router-library-design.md#5-6-illustrative-api-usage-examples)
- <!-- markdownlint-disable-line MD013 --> in the design document for further
-details.
+ in the design document for further details.
 
 ## Custom Envelopes
 
@@ -192,9 +192,11 @@ let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 
 The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for
 active connections. Background tasks can look up a handle by \[`ConnectionId`\]
-to send frames asynchronously without keeping the connection alive. Stale
-entries are removed automatically when looked up and found to be dead. Call
-`active_handles()` to iterate over live sessions for broadcast or diagnostics.
+to send frames asynchronously without keeping the connection alive. Entries are
+pruned on lookup and when calling `active_handles()`. `DashMap::retain` holds
+per-bucket write locks while collecting, so heavy traffic may experience
+contention. Invoke `prune()` from a maintenance task when only removal of dead
+entries is required, without collecting handles.
 
 ```rust
 use wireframe::{
