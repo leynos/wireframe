@@ -434,14 +434,12 @@ impl<F> SessionRegistry<F> {
     /// Returns all live session handles for broadcast or diagnostics.
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
         let mut handles = Vec::with_capacity(self.0.len());
-        self.0.retain(|id, weak| {
-            if let Some(inner) = weak.upgrade() {
-                handles.push((*id, PushHandle::from_arc(inner)));
-                true
-            } else {
-                false
+        for entry in self.0.iter() {
+            let id = *entry.key();
+            if let Some(h) = entry.value().upgrade() {
+                handles.push((id, PushHandle(h)));
             }
-        });
+        }
         handles
     }
 }
