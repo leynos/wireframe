@@ -57,10 +57,10 @@ async fn process_stream<F, T>(
     let peer_addr = stream.peer_addr().ok();
     match read_preamble::<_, T>(&mut stream).await {
         Ok((preamble, leftover)) => {
-            if let Some(handler) = on_success.as_ref() {
-                if let Err(e) = handler(&preamble, &mut stream).await {
-                    tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
-                }
+            if let Some(handler) = on_success.as_ref()
+                && let Err(e) = handler(&preamble, &mut stream).await
+            {
+                tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
             }
             let stream = RewindStream::new(leftover, stream);
             let app = (factory)();
@@ -87,7 +87,10 @@ mod tests {
     use super::*;
     use crate::{
         app::WireframeApp,
-        server::{test_util::{factory, free_port}, WireframeServer},
+        server::{
+            WireframeServer,
+            test_util::{factory, free_port},
+        },
     };
 
     /// Panics in connection handlers are logged and do not tear down the worker.

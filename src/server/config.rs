@@ -104,9 +104,7 @@ where
     /// Returns the configured number of worker tasks for the server.
     #[inline]
     #[must_use]
-    pub const fn worker_count(&self) -> usize {
-        self.workers
-    }
+    pub const fn worker_count(&self) -> usize { self.workers }
 
     /// Get the socket address the server is bound to, if available.
     #[must_use]
@@ -149,8 +147,20 @@ mod tests {
 
     use super::*;
     use crate::server::test_util::{
-        TestPreamble, bind_server, factory, free_port, server_with_preamble,
+        TestPreamble,
+        bind_server,
+        factory,
+        free_port,
+        server_with_preamble,
     };
+
+    fn expected_default_worker_count() -> usize {
+        // Mirror the default worker logic to keep tests aligned with
+        // `WireframeServer::new`.
+        std::thread::available_parallelism()
+            .map_or(1, std::num::NonZeroUsize::get)
+            .max(1)
+    }
 
     #[rstest]
     fn test_new_server_creation(
@@ -166,10 +176,7 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
         let server = WireframeServer::new(factory);
-        let expected = std::thread::available_parallelism()
-            .map_or(1, std::num::NonZeroUsize::get)
-            .max(1);
-        assert_eq!(server.worker_count(), expected);
+        assert_eq!(server.worker_count(), expected_default_worker_count());
     }
 
     #[rstest]
@@ -191,10 +198,10 @@ mod tests {
     ) {
         let server = WireframeServer::new(factory);
         let server_with_preamble = server.with_preamble::<TestPreamble>();
-        let expected = std::thread::available_parallelism()
-            .map_or(1, std::num::NonZeroUsize::get)
-            .max(1);
-        assert_eq!(server_with_preamble.worker_count(), expected);
+        assert_eq!(
+            server_with_preamble.worker_count(),
+            expected_default_worker_count(),
+        );
     }
 
     #[rstest]

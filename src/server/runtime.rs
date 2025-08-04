@@ -5,13 +5,17 @@ use std::{io, sync::Arc};
 use futures::Future;
 use tokio::{
     net::TcpListener,
-    select, signal,
+    select,
+    signal,
     time::{Duration, sleep},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{
-    PreambleCallback, PreambleErrorCallback, WireframeServer, connection::spawn_connection_task,
+    PreambleCallback,
+    PreambleErrorCallback,
+    WireframeServer,
+    connection::spawn_connection_task,
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
@@ -47,10 +51,10 @@ where
         S: Future<Output = ()> + Send,
     {
         let listener = self.listener.expect("`bind` must be called before `run`");
-        if let Some(tx) = self.ready_tx {
-            if tx.send(()).is_err() {
-                tracing::warn!("Failed to send readiness signal: receiver dropped");
-            }
+        if let Some(tx) = self.ready_tx
+            && tx.send(()).is_err()
+        {
+            tracing::warn!("Failed to send readiness signal: receiver dropped");
         }
 
         let shutdown_token = CancellationToken::new();
@@ -213,9 +217,7 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
-    async fn test_multiple_worker_creation(
-        free_port: std::net::SocketAddr,
-    ) {
+    async fn test_multiple_worker_creation(free_port: std::net::SocketAddr) {
         let call_count = Arc::new(AtomicUsize::new(0));
         let clone = call_count.clone();
         let factory = move || {
