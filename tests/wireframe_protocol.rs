@@ -14,7 +14,8 @@ use futures::stream;
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    ConnectionContext, WireframeProtocol,
+    ConnectionContext,
+    WireframeProtocol,
     app::{Envelope, WireframeApp},
     connection::ConnectionActor,
     push::PushQueues,
@@ -36,9 +37,7 @@ impl WireframeProtocol for TestProtocol {
         self.counter.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {
-        frame.push(1);
-    }
+    fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) { frame.push(1); }
 
     fn on_command_end(&self, _ctx: &mut ConnectionContext) {
         self.counter.fetch_add(1, Ordering::SeqCst);

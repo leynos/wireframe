@@ -264,7 +264,10 @@ where
     /// use wireframe::app::{Packet, WireframeApp};
     ///
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
-    /// struct MyEnv { id: u32, data: Vec<u8> }
+    /// struct MyEnv {
+    ///     id: u32,
+    ///     data: Vec<u8>,
+    /// }
     ///
     /// impl Packet for MyEnv {
     ///     fn id(&self) -> u32 { self.id }
@@ -272,12 +275,9 @@ where
     ///     fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
     /// }
     ///
-    /// let app = WireframeApp::<_, _, MyEnv>::new()
-    ///     .expect("failed to create app");
+    /// let app = WireframeApp::<_, _, MyEnv>::new().expect("failed to create app");
     /// ```
-    pub fn new() -> Result<Self> {
-        Ok(Self::default())
-    }
+    pub fn new() -> Result<Self> { Ok(Self::default()) }
 
     /// Construct a new application builder using a custom envelope type.
     ///
@@ -289,9 +289,7 @@ where
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
     #[deprecated(note = "use `WireframeApp::<_, _, E>::new()` instead")]
-    pub fn new_with_envelope() -> Result<Self> {
-        Self::new()
-    }
+    pub fn new_with_envelope() -> Result<Self> { Self::new() }
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
