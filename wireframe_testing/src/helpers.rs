@@ -19,9 +19,7 @@ use wireframe::{
     unused_braces,
     reason = "Clippy is wrong here; this is not a redundant block"
 )]
-pub fn processor() -> LengthPrefixedProcessor {
-    LengthPrefixedProcessor::default()
-}
+pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -32,7 +30,6 @@ impl<T> TestSerializer for T where
     T: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
 {
 }
-
 
 /// Run `server_fn` against a duplex stream, writing each `frame` to the client
 /// half and returning the bytes produced by the server.

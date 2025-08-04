@@ -22,8 +22,16 @@ pub mod helpers;
 pub mod logging;
 
 pub use helpers::{
-    TestSerializer, drive_with_bincode, drive_with_frame, drive_with_frame_mut,
-    drive_with_frame_with_capacity, drive_with_frames, drive_with_frames_mut,
-    drive_with_frames_with_capacity, processor, run_app, run_with_duplex_server,
+    TestSerializer,
+    drive_with_bincode,
+    drive_with_frame,
+    drive_with_frame_mut,
+    drive_with_frame_with_capacity,
+    drive_with_frames,
+    drive_with_frames_mut,
+    drive_with_frames_with_capacity,
+    processor,
+    run_app,
+    run_with_duplex_server,
 };
 pub use logging::{LoggerHandle, logger};
