@@ -5,7 +5,10 @@
 
 use std::io;
 
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    server::WireframeServer,
+};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -14,7 +17,7 @@ async fn main() -> io::Result<()> {
             .unwrap()
             .route(
                 1,
-                std::sync::Arc::new(|_| {
+                std::sync::Arc::new(|_: &Envelope| {
                     Box::pin(async move {
                         println!("echo request received");
                         // `WireframeApp` automatically echoes the envelope back.

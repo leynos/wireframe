@@ -49,7 +49,7 @@ where
     let setup_cb = call_counting_callback(setup, state);
     let teardown_cb = call_counting_callback(teardown, ());
 
-    WireframeApp::<_, _, E>::new_with_envelope()
+    WireframeApp::<_, _, E>::new()
         .expect("failed to create app")
         .on_connection_setup(move || setup_cb(()))
         .expect("setup callback")
@@ -74,7 +74,7 @@ async fn setup_without_teardown_runs() {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&setup_count, ());
 
-    let app = WireframeApp::new()
+    let app = WireframeApp::<_, _, Envelope>::new()
         .expect("failed to create app")
         .on_connection_setup(move || cb(()))
         .expect("setup callback");
@@ -89,7 +89,7 @@ async fn teardown_without_setup_does_not_run() {
     let teardown_count = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&teardown_count, ());
 
-    let app = WireframeApp::new()
+    let app = WireframeApp::<_, _, Envelope>::new()
         .expect("failed to create app")
         .on_connection_teardown(cb)
         .expect("teardown callback");
