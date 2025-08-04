@@ -147,6 +147,19 @@ project:
 - Prefer `.expect()` over `.unwrap()`.
 - Use `concat!()` to combine long string literals rather than escaping newlines
   with a backslash.
+- Prefer single line versions of functions where appropriate. I.e.,
+
+  ```
+  pub fn new(id: u64) -> Self { Self(id) }
+  ```
+
+  Instead of:
+
+  ```
+  pub fn new(id: u64) -> Self {
+      Self(id)
+  }
+  ```
 
 ### Dependency Management
 

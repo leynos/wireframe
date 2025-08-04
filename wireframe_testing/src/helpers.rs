@@ -100,6 +100,7 @@ where
 }
 
 const DEFAULT_CAPACITY: usize = 4096;
+const MAX_CAPACITY: usize = 1024 * 1024 * 10; // 10MB limit
 
 macro_rules! forward_default {
     (
@@ -149,24 +150,36 @@ macro_rules! forward_with_capacity {
     };
 }
 
-forward_default! {
-    /// Drive `app` with a single length-prefixed `frame` and return the bytes
-    /// produced by the server.
-    ///
-    /// The app runs on an in-memory duplex stream so tests need not open real
-    /// sockets.
-    ///
-    /// ```rust
-    /// # use wireframe_testing::{drive_with_frame, processor};
-    /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-    /// let bytes = drive_with_frame(app, vec![1, 2, 3]).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn drive_with_frame(app: WireframeApp<S, C, E>, frame: Vec<u8>) -> io::Result<Vec<u8>>
-    => drive_with_frame_with_capacity(app, frame)
+/// Drive `app` with a single length-prefixed `frame` and return the bytes
+/// produced by the server.
+///
+/// The app runs on an in-memory duplex stream so tests need not open real
+/// sockets.
+///
+/// # Errors
+///
+/// Returns any I/O errors encountered while interacting with the in-memory
+/// duplex stream.
+///
+/// ```rust
+/// # use wireframe_testing::{drive_with_frame, processor};
+/// # use wireframe::app::WireframeApp;
+/// # async fn demo() -> tokio::io::Result<()> {
+/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// let bytes = drive_with_frame(app, vec![1, 2, 3]).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn drive_with_frame<S, C, E>(
+    app: WireframeApp<S, C, E>,
+    frame: Vec<u8>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    drive_with_frame_with_capacity(app, frame, DEFAULT_CAPACITY).await
 }
 
 forward_with_capacity! {
@@ -348,106 +361,53 @@ where
     drive_with_frame(app, framed.to_vec()).await
 }
 
-forward_default! {
-    /// Run `app` with a single input `frame` using the default buffer capacity.
-    ///
-    /// # Errors
-    ///
-    /// Returns any I/O errors encountered while interacting with the in-memory
-    /// duplex stream.
-    ///
-    /// ```rust
-    /// # use wireframe_testing::{run_app_with_frame, processor};
-    /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-    /// let out = run_app_with_frame(app, vec![1]).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn run_app_with_frame(app: WireframeApp<S, C, E>, frame: Vec<u8>) -> io::Result<Vec<u8>>
-    => run_app_with_frame_with_capacity(app, frame)
-}
-
-forward_with_capacity! {
-    /// Drive `app` with a single frame using a duplex buffer of `capacity` bytes.
-    ///
-    /// # Errors
-    ///
-    /// Propagates any I/O errors from the in-memory connection.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the spawned task running the application panics.
-    ///
-    /// ```rust
-    /// # use wireframe_testing::{run_app_with_frame_with_capacity, processor};
-    /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-    /// let out = run_app_with_frame_with_capacity(app, vec![1], 128).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn run_app_with_frame_with_capacity(app: WireframeApp<S, C, E>, frame: Vec<u8>, capacity: usize) -> io::Result<Vec<u8>>
-    => run_app_with_frames_with_capacity(app, vec![frame], capacity)
-}
-
-forward_default! {
-    #[allow(dead_code)]
-    /// Run `app` with multiple input `frames` using the default buffer capacity.
-    ///
-    /// # Errors
-    ///
-    /// Returns any I/O errors encountered while interacting with the in-memory
-    /// duplex stream.
-    ///
-    /// ```rust
-    /// # use wireframe_testing::{run_app_with_frames, processor};
-    /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-    /// let out = run_app_with_frames(app, vec![vec![1], vec![2]]).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn run_app_with_frames(app: WireframeApp<S, C, E>, frames: Vec<Vec<u8>>) -> io::Result<Vec<u8>>
-    => run_app_with_frames_with_capacity(app, frames)
-}
-
-/// Drive `app` with multiple frames using a duplex buffer of `capacity` bytes.
+/// Run `app` with input `frames` using an optional duplex buffer `capacity`.
+///
+/// When `capacity` is `None`, a buffer of [`DEFAULT_CAPACITY`] bytes is used.
+/// Frames are written to the client side in order and the bytes emitted by the
+/// server are collected for inspection.
 ///
 /// # Errors
 ///
-/// Propagates any I/O errors from the in-memory connection.
-///
-/// # Panics
-///
-/// Panics if the spawned task running the application panics.
+/// Returns an error if `capacity` is zero or exceeds [`MAX_CAPACITY`]. Any
+/// panic in the application task or I/O error on the duplex stream is also
+/// surfaced as an error.
 ///
 /// ```rust
-/// # use wireframe_testing::{run_app_with_frames_with_capacity, processor};
+/// # use wireframe_testing::{processor, run_app};
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> tokio::io::Result<()> {
 /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
-/// let out = run_app_with_frames_with_capacity(app, vec![vec![1], vec![2]], 64).await?;
+/// let out = run_app(app, vec![vec![1]], None).await?;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn run_app_with_frames_with_capacity<S, C, E>(
+pub async fn run_app<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
-    capacity: usize,
+    capacity: Option<usize>,
 ) -> io::Result<Vec<u8>>
 where
     S: TestSerializer,
     C: Send + 'static,
     E: Packet,
 {
+    let capacity = capacity.unwrap_or(DEFAULT_CAPACITY);
+    if capacity == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "capacity must be greater than zero",
+        ));
+    }
+    if capacity > MAX_CAPACITY {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("capacity must not exceed {MAX_CAPACITY} bytes"),
+        ));
+    }
+
     let (mut client, server) = duplex(capacity);
-    let server_task = tokio::spawn(async move {
-        app.handle_connection(server).await;
-    });
+    let server_task = tokio::spawn(async move { app.handle_connection(server).await });
 
     for frame in &frames {
         client.write_all(frame).await?;
@@ -457,7 +417,13 @@ where
     let mut buf = Vec::new();
     client.read_to_end(&mut buf).await?;
 
-    server_task.await.expect("server task panicked");
+    if let Err(e) = server_task.await {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("server task failed: {e}"),
+        ));
+    }
+
     Ok(buf)
 }
 
