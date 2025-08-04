@@ -82,12 +82,21 @@ impl<F: FrameLike> SessionRegistry<F> {
         handles
     }
 
-    /// Return the IDs of all live connections.
+    /// Prune stale weak references, then return the IDs of the live connections.
+    ///
+    /// This holds per-bucket write locks while iterating. Use [`prune`] from a
+    /// maintenance task when only cleanup is required.
     #[must_use]
     pub fn active_ids(&self) -> Vec<ConnectionId> {
-        self.active_handles()
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect()
+        let mut ids = Vec::with_capacity(self.0.len());
+        self.0.retain(|id, weak| {
+            if weak.strong_count() > 0 {
+                ids.push(*id);
+                true
+            } else {
+                false
+            }
+        });
+        ids
     }
 }
