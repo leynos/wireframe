@@ -40,6 +40,30 @@ impl<F> FrameContainer<F> {
     }
 }
 
+macro_rules! forward_frame_methods {
+    ($t:ident) => {
+        impl $t {
+            /// Borrow the inner frame bytes.
+            #[must_use]
+            pub fn frame(&self) -> &[u8] {
+                self.inner.frame().as_slice()
+            }
+
+            /// Mutable access to the inner frame bytes.
+            #[must_use]
+            pub fn frame_mut(&mut self) -> &mut Vec<u8> {
+                self.inner.frame_mut()
+            }
+
+            /// Consume the container, returning the raw frame bytes.
+            #[must_use]
+            pub fn into_inner(self) -> Vec<u8> {
+                self.inner.into_inner()
+            }
+        }
+    };
+}
+
 /// Incoming request wrapper passed through middleware.
 #[derive(Debug)]
 pub struct ServiceRequest {
@@ -55,24 +79,6 @@ impl ServiceRequest {
             inner: FrameContainer::new(frame),
             correlation_id,
         }
-    }
-
-    /// Borrow the underlying frame bytes.
-    #[must_use]
-    pub fn frame(&self) -> &[u8] {
-        self.inner.frame().as_slice()
-    }
-
-    /// Mutable access to the inner frame bytes.
-    #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> {
-        self.inner.frame_mut()
-    }
-
-    /// Consume the request, returning the inner frame bytes.
-    #[must_use]
-    pub fn into_inner(self) -> Vec<u8> {
-        self.inner.into_inner()
     }
 
     /// Return the correlation identifier associated with this request.
@@ -96,25 +102,10 @@ impl ServiceResponse {
             inner: FrameContainer::new(frame),
         }
     }
-
-    /// Borrow the inner frame bytes.
-    #[must_use]
-    pub fn frame(&self) -> &[u8] {
-        self.inner.frame().as_slice()
-    }
-
-    /// Mutable access to the response frame bytes.
-    #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> {
-        self.inner.frame_mut()
-    }
-
-    /// Consume the response, yielding the raw frame bytes.
-    #[must_use]
-    pub fn into_inner(self) -> Vec<u8> {
-        self.inner.into_inner()
-    }
 }
+
+forward_frame_methods!(ServiceRequest);
+forward_frame_methods!(ServiceResponse);
 
 /// Continuation used by middleware to call the next service in the chain.
 pub struct Next<'a, S>

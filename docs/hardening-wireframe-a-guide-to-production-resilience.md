@@ -290,9 +290,11 @@ fragmentation layer must be hardened.
 
 Each frame's header carries a `correlation_id` linking it to a request. Servers
 must verify that outbound frames echo the identifier from the triggering
-request. A mismatch is a protocol error and should terminate the stream. This
-check prevents malicious peers from injecting frames into unrelated
-conversations and simplifies debugging by providing a stable audit trail.
+request. A mismatch is a protocol error and must terminate the stream. The
+server ought to log the offending identifier and close the connection to
+prevent cross-stream confusion. This check prevents malicious peers from
+injecting frames into unrelated conversations and simplifies debugging by
+providing a stable audit trail.
 
 ## 5. Advanced Resilience Patterns
 

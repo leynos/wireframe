@@ -52,6 +52,8 @@ impl FrameMetadata for HeaderSerializer {
         // `parse` receives the complete frame because `LengthPrefixedProcessor`
         // ensures `src` contains exactly one message. Returning `src.len()` is
         // therefore correct for this demo.
+        // Using 0 as the correlation_id here because there is no correlation
+        // tracking in this example. Update if correlation semantics change.
         Ok((Envelope::new(id, 0, payload), src.len()))
     }
 }

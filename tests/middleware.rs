@@ -5,13 +5,14 @@
 use async_trait::async_trait;
 use wireframe::middleware::{Next, Service, ServiceRequest, ServiceResponse, Transform};
 
-struct EchoService;
+struct EchoService(u32);
 
 #[async_trait]
 impl Service for EchoService {
     type Error = std::convert::Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+        assert_eq!(req.correlation_id(), self.0);
         Ok(ServiceResponse::new(req.into_inner()))
     }
 }
@@ -52,11 +53,12 @@ where
 
 #[tokio::test]
 async fn middleware_modifies_request_and_response() {
-    let service = EchoService;
+    let corr_id = 7;
+    let service = EchoService(corr_id);
     let mw = ModifyMiddleware;
     let wrapped = mw.transform(service).await;
 
-    let request = ServiceRequest::new(vec![1, 2, 3], 0);
+    let request = ServiceRequest::new(vec![1, 2, 3], corr_id);
     let response = wrapped.call(request).await.expect("middleware call failed");
     assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
 }

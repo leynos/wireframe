@@ -117,7 +117,9 @@ Every frame header now carries a `correlation_id` that ties it to the
 originating request. Clients set a unique identifier on each request and the
 server mirrors this value on every frame in the response stream. This mechanism
 allows out-of-order or multi-part replies to be reassembled reliably without
-relying on transport sequencing.
+relying on transport sequencing. Implementations must reject any frame whose
+identifier diverges from the original request, logging the mismatch and closing
+the connection.
 
 ### B. Transparent Message Fragmentation & Re-assembly
 

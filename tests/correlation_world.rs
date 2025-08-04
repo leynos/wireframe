@@ -1,7 +1,7 @@
 //! World state for correlation id behavioural tests.
 
 use cucumber::World;
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet},
@@ -30,17 +30,14 @@ impl CorrelationWorld {
         self.correlation_id = id;
     }
 
-    /// Run the connection actor and capture emitted frames.
+    /// Run the connection actor with supplied frames and capture output.
     ///
     /// # Panics
     /// Panics if the actor fails to run.
-    pub async fn run_actor(&mut self) {
-        let (queues, handle) = PushQueues::bounded(1, 1);
-        let stream_frames = stream::iter(vec![
-            Ok::<Envelope, ()>(Envelope::new(1, self.correlation_id, vec![1])),
-            Ok::<Envelope, ()>(Envelope::new(1, self.correlation_id, vec![2])),
-        ])
-        .map(|r: Result<Envelope, ()>| r.map_err(WireframeError::from));
+    pub async fn run_actor_with_frames(&mut self, frames: Vec<Envelope>, queue_capacity: usize) {
+        let (queues, handle) = PushQueues::bounded(queue_capacity, queue_capacity);
+        let stream_frames = stream::iter(frames.into_iter().map(Ok::<Envelope, ()>))
+            .map(|r| r.map_err(WireframeError::from));
         let shutdown = CancellationToken::new();
         let mut actor: ConnectionActor<Envelope, ()> =
             ConnectionActor::new(queues, handle, Some(Box::pin(stream_frames)), shutdown);
@@ -49,14 +46,29 @@ impl CorrelationWorld {
         self.frames = out;
     }
 
+    /// Run the connection actor using two sequential frames with the current
+    /// correlation identifier.
+    #[allow(dead_code)]
+    pub async fn run_actor(&mut self) {
+        self.run_actor_with_frames(
+            vec![
+                Envelope::new(1, self.correlation_id, vec![1]),
+                Envelope::new(1, self.correlation_id, vec![2]),
+            ],
+            1,
+        )
+        .await;
+    }
+
     /// Assert that all captured frames carry the expected correlation id.
     ///
     /// # Panics
     /// Panics if any frame has a mismatched identifier.
     pub fn assert_ids(&self) {
-        assert!(self
-            .frames
-            .iter()
-            .all(|f| f.correlation_id() == self.correlation_id));
+        assert!(
+            self.frames
+                .iter()
+                .all(|f| f.correlation_id() == self.correlation_id)
+        );
     }
 }
