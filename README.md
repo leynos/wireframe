@@ -83,10 +83,9 @@ WireframeServer::new(|| {
 ```
 
 This example showcases how derive macros and the framing abstraction simplify a
-binary protocol server. See the
+binary protocol server. See the <!-- markdownlint-disable-next-line MD013 -->
 [full example](docs/rust-binary-router-library-design.md#5-6-illustrative-api-usage-examples)
- <!-- markdownlint-disable-line MD013 --> in the design document for further
-details.
+ in the design document for further details.
 
 ## Custom Envelopes
 
