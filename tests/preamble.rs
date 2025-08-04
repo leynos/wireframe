@@ -66,7 +66,6 @@ where
     B: FnOnce(std::net::SocketAddr) -> Fut,
 {
     let listener = unused_listener();
-    let _addr = listener.local_addr().expect("addr");
     let server = server.bind_listener(listener).expect("bind");
     let addr = server.local_addr().expect("addr");
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
