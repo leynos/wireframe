@@ -12,6 +12,7 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{
+    Bound,
     PreambleCallback,
     PreambleErrorCallback,
     WireframeServer,
@@ -19,7 +20,10 @@ use super::{
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
-impl<F, T> WireframeServer<F, T>
+const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
+
+impl<F, T> WireframeServer<F, T, Bound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
@@ -43,15 +47,21 @@ where
     /// # Errors
     ///
     /// Returns an [`io::Error`] if accepting a connection fails during runtime.
-    ///
-    /// # Panics
-    /// Panics if [`bind`](Self::bind) was not called beforehand.
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> io::Result<()>
     where
         S: Future<Output = ()> + Send,
     {
-        let listener = self.listener.expect("`bind` must be called before `run`");
-        if let Some(tx) = self.ready_tx
+        let WireframeServer {
+            factory,
+            workers,
+            on_preamble_success,
+            on_preamble_failure,
+            ready_tx,
+            state: Bound { listener },
+            ..
+        } = self;
+
+        if let Some(tx) = ready_tx
             && tx.send(()).is_err()
         {
             tracing::warn!("Failed to send readiness signal: receiver dropped");
@@ -60,11 +70,11 @@ where
         let shutdown_token = CancellationToken::new();
         let tracker = TaskTracker::new();
 
-        for _ in 0..self.workers {
+        for _ in 0..workers {
             let listener = Arc::clone(&listener);
-            let factory = self.factory.clone();
-            let on_success = self.on_preamble_success.clone();
-            let on_failure = self.on_preamble_failure.clone();
+            let factory = factory.clone();
+            let on_success = on_preamble_success.clone();
+            let on_failure = on_preamble_failure.clone();
             let token = shutdown_token.clone();
             let t = tracker.clone();
             tracker.spawn(accept_loop(
@@ -94,7 +104,7 @@ pub(super) async fn accept_loop<F, T>(
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
 {
-    let mut delay = Duration::from_millis(10);
+    let mut delay = ACCEPT_RETRY_INITIAL_DELAY;
     loop {
         select! {
             biased;
@@ -110,13 +120,13 @@ pub(super) async fn accept_loop<F, T>(
                         on_failure.clone(),
                         &tracker,
                     );
-                    delay = Duration::from_millis(10);
+                    delay = ACCEPT_RETRY_INITIAL_DELAY;
                 }
                 Err(e) => {
                     let local_addr = listener.local_addr().ok();
                     tracing::warn!(error = ?e, ?local_addr, "accept error");
                     sleep(delay).await;
-                    delay = (delay * 2).min(Duration::from_secs(1));
+                    delay = (delay * 2).min(ACCEPT_RETRY_MAX_DELAY);
                 }
             },
         }
@@ -138,31 +148,6 @@ mod tests {
 
     use super::*;
     use crate::server::test_util::{bind_server, factory, free_port};
-
-    #[rstest]
-    #[should_panic(expected = "`bind` must be called before `run`")]
-    #[tokio::test]
-    async fn test_run_without_bind_panics(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
-        let server = WireframeServer::new(factory);
-        let _ = timeout(Duration::from_millis(100), server.run()).await;
-    }
-
-    #[rstest]
-    #[should_panic(expected = "`bind` must be called before `run`")]
-    #[tokio::test]
-    async fn test_run_with_shutdown_without_bind_panics(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
-        let server = WireframeServer::new(factory);
-        let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
-        let _ = timeout(
-            Duration::from_millis(100),
-            server.run_with_shutdown(shutdown_future),
-        )
-        .await;
-    }
 
     #[rstest]
     #[tokio::test]

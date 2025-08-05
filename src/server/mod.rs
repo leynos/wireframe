@@ -33,7 +33,15 @@ pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 /// closure. The server listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop
 /// accepting new connections.
-pub struct WireframeServer<F, T = ()>
+#[doc(hidden)]
+pub struct Unbound;
+
+#[doc(hidden)]
+pub struct Bound {
+    pub(crate) listener: Arc<TcpListener>,
+}
+
+pub struct WireframeServer<F, T = (), S = Unbound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // `Preamble` covers types implementing `BorrowDecode` for any lifetime,
@@ -41,7 +49,6 @@ where
     T: Preamble,
 {
     pub(crate) factory: F,
-    pub(crate) listener: Option<Arc<TcpListener>>,
     pub(crate) workers: usize,
     pub(crate) on_preamble_success: Option<PreambleCallback<T>>,
     pub(crate) on_preamble_failure: Option<PreambleErrorCallback>,
@@ -58,6 +65,7 @@ where
     /// Because only one notification may be sent, a new `ready_tx` must be
     /// provided each time the server is started.
     pub(crate) ready_tx: Option<oneshot::Sender<()>>,
+    pub(crate) state: S,
     pub(crate) _preamble: PhantomData<T>,
 }
 
