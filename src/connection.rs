@@ -46,7 +46,7 @@ impl Drop for ActiveConnection {
 pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
-    fairness::Fairness,
+    fairness::FairnessTracker,
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
@@ -111,7 +111,7 @@ pub struct ConnectionActor<F, E> {
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
-    fairness: Fairness,
+    fairness: FairnessTracker,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
 }
@@ -169,7 +169,7 @@ where
             counter: Some(counter),
             hooks,
             ctx,
-            fairness: Fairness::new(FairnessConfig::default()),
+            fairness: FairnessTracker::new(FairnessConfig::default()),
             connection_id: None,
             peer_addr: None,
         };
@@ -369,9 +369,9 @@ where
 
     /// Update counters and opportunistically drain the low-priority queue.
     fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
-        self.fairness.after_high();
+        self.fairness.record_high_priority();
 
-        if self.fairness.should_yield() {
+        if self.fairness.should_yield_to_low_priority() {
             let res = self.low_rx.as_mut().map(mpsc::Receiver::try_recv);
             if let Some(res) = res {
                 match res {
@@ -390,7 +390,7 @@ where
     }
 
     /// Reset counters after processing a low-priority frame.
-    fn after_low(&mut self) { self.fairness.after_low(); }
+    fn after_low(&mut self) { self.fairness.record_low_priority(); }
 
     /// Push a frame from the response stream into `out` or handle completion.
     ///
