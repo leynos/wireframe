@@ -108,6 +108,32 @@ where
     #[inline]
     #[must_use]
     pub const fn worker_count(&self) -> usize { self.workers }
+
+    /// Delegate binding to [`bind_std_listener`] after extracting fields.
+    ///
+    /// The public `bind` and `bind_listener` methods merely prepare the
+    /// [`StdTcpListener`] before calling this helper.
+    fn bind_with_std_listener(
+        self,
+        std_listener: StdTcpListener,
+    ) -> io::Result<WireframeServer<F, T, Bound>> {
+        let Self {
+            factory,
+            workers,
+            on_preamble_success,
+            on_preamble_failure,
+            ready_tx,
+            ..
+        } = self;
+        bind_std_listener(
+            factory,
+            workers,
+            on_preamble_success,
+            on_preamble_failure,
+            ready_tx,
+            std_listener,
+        )
+    }
 }
 
 impl<F, T> WireframeServer<F, T, Unbound>
@@ -125,29 +151,18 @@ where
     /// Returns an `io::Error` if binding or configuring the listener fails.
     pub fn bind(self, addr: SocketAddr) -> io::Result<WireframeServer<F, T, Bound>> {
         let std_listener = StdTcpListener::bind(addr)?;
-        bind_std_listener(
-            self.factory,
-            self.workers,
-            self.on_preamble_success,
-            self.on_preamble_failure,
-            self.ready_tx,
-            std_listener,
-        )
+        self.bind_with_std_listener(std_listener)
     }
 
     /// Bind the server to an existing standard TCP listener.
     ///
     /// # Errors
     /// Returns an [`io::Error`] if configuring the listener fails.
-    pub fn bind_listener(self, listener: StdTcpListener) -> io::Result<WireframeServer<F, T, Bound>> {
-        bind_std_listener(
-            self.factory,
-            self.workers,
-            self.on_preamble_success,
-            self.on_preamble_failure,
-            self.ready_tx,
-            listener,
-        )
+    pub fn bind_listener(
+        self,
+        listener: StdTcpListener,
+    ) -> io::Result<WireframeServer<F, T, Bound>> {
+        self.bind_with_std_listener(listener)
     }
 }
 
@@ -166,14 +181,7 @@ where
     /// Returns an `io::Error` if binding or configuring the listener fails.
     pub fn bind(self, addr: SocketAddr) -> io::Result<Self> {
         let std_listener = StdTcpListener::bind(addr)?;
-        bind_std_listener(
-            self.factory,
-            self.workers,
-            self.on_preamble_success,
-            self.on_preamble_failure,
-            self.ready_tx,
-            std_listener,
-        )
+        self.bind_with_std_listener(std_listener)
     }
 
     /// Rebind the server to an existing standard TCP listener.
@@ -181,14 +189,7 @@ where
     /// # Errors
     /// Returns an [`io::Error`] if configuring the listener fails.
     pub fn bind_listener(self, listener: StdTcpListener) -> io::Result<Self> {
-        bind_std_listener(
-            self.factory,
-            self.workers,
-            self.on_preamble_success,
-            self.on_preamble_failure,
-            self.ready_tx,
-            listener,
-        )
+        self.bind_with_std_listener(listener)
     }
 }
 
@@ -213,16 +214,21 @@ where
         on_preamble_success,
         on_preamble_failure,
         ready_tx,
-        state: Bound { listener: Arc::new(listener) },
+        state: Bound {
+            listener: Arc::new(listener),
+        },
         _preamble: PhantomData,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        net::SocketAddr,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
     };
 
     use rstest::rstest;
@@ -237,8 +243,7 @@ mod tests {
     };
 
     fn expected_default_worker_count() -> usize {
-        // Mirror the default worker logic to keep tests aligned with
-        // `WireframeServer::new`.
+        // Mirror the default worker logic to keep tests aligned with `WireframeServer::new`.
         std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
     }
 
@@ -247,8 +252,7 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
         let server = WireframeServer::new(factory);
-        assert!(server.worker_count() >= 1);
-        assert!(server.local_addr().is_none());
+        assert!(server.worker_count() >= 1 && server.local_addr().is_none());
     }
 
     #[rstest]
@@ -263,36 +267,33 @@ mod tests {
     fn test_workers_configuration(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let server = WireframeServer::new(factory);
-        let server = server.workers(4);
+        let mut server = WireframeServer::new(factory);
+        server = server.workers(4);
         assert_eq!(server.worker_count(), 4);
-        let server = server.workers(100);
+        server = server.workers(100);
         assert_eq!(server.worker_count(), 100);
-        let server = server.workers(0);
-        assert_eq!(server.worker_count(), 1);
+        assert_eq!(server.workers(0).worker_count(), 1);
     }
 
     #[rstest]
     fn test_with_preamble_type_conversion(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let server = WireframeServer::new(factory);
-        let server_with_preamble = server.with_preamble::<TestPreamble>();
-        assert_eq!(
-            server_with_preamble.worker_count(),
-            expected_default_worker_count(),
-        );
+        let server = WireframeServer::new(factory).with_preamble::<TestPreamble>();
+        assert_eq!(server.worker_count(), expected_default_worker_count());
     }
 
     #[rstest]
     #[tokio::test]
     async fn test_bind_success(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_port: SocketAddr,
     ) {
-        let server = WireframeServer::new(factory);
-        let server = server.bind(free_port).expect("Failed to bind");
-        let local_addr = server.local_addr().expect("local address missing");
+        let local_addr = WireframeServer::new(factory)
+            .bind(free_port)
+            .expect("Failed to bind")
+            .local_addr()
+            .expect("local address missing");
         assert_eq!(local_addr.ip(), free_port.ip());
     }
 
@@ -300,20 +301,17 @@ mod tests {
     fn test_local_addr_before_bind(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let server = WireframeServer::new(factory);
-        assert!(server.local_addr().is_none());
+        assert!(WireframeServer::new(factory).local_addr().is_none());
     }
 
     #[rstest]
     #[tokio::test]
     async fn test_local_addr_after_bind(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_port: SocketAddr,
     ) {
-        let server = bind_server(factory, free_port);
-        let local_addr = server.local_addr();
-        assert!(local_addr.is_some());
-        assert_eq!(local_addr.unwrap().ip(), free_port.ip());
+        let local_addr = bind_server(factory, free_port).local_addr().unwrap();
+        assert_eq!(local_addr.ip(), free_port.ip());
     }
 
     #[rstest]
@@ -355,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn test_method_chaining(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_port: SocketAddr,
     ) {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
@@ -374,19 +372,19 @@ mod tests {
             .expect("Failed to bind");
         assert_eq!(server.worker_count(), 2);
         assert!(server.local_addr().is_some());
-        assert!(server.on_preamble_success.is_some());
-        assert!(server.on_preamble_failure.is_some());
+        assert!(server.on_preamble_success.is_some() && server.on_preamble_failure.is_some());
     }
 
     #[rstest]
     #[tokio::test]
     async fn test_server_configuration_persistence(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_port: SocketAddr,
     ) {
-        let server = WireframeServer::new(factory).workers(5);
-        assert_eq!(server.worker_count(), 5);
-        let server = server.bind(free_port).expect("Failed to bind");
+        let server = WireframeServer::new(factory)
+            .workers(5)
+            .bind(free_port)
+            .expect("Failed to bind");
         assert_eq!(server.worker_count(), 5);
         assert!(server.local_addr().is_some());
     }
@@ -398,41 +396,41 @@ mod tests {
         let server = WireframeServer::new(factory)
             .on_preamble_decode_success(|&(), _| Box::pin(async { Ok(()) }))
             .on_preamble_decode_failure(|_: &DecodeError| {});
-        assert!(server.on_preamble_success.is_some());
-        assert!(server.on_preamble_failure.is_some());
+        assert!(server.on_preamble_success.is_some() && server.on_preamble_failure.is_some());
         let server = server.with_preamble::<TestPreamble>();
-        assert!(server.on_preamble_success.is_none());
-        assert!(server.on_preamble_failure.is_none());
+        assert!(server.on_preamble_success.is_none() && server.on_preamble_failure.is_none());
     }
 
     #[rstest]
     fn test_extreme_worker_counts(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let server = WireframeServer::new(factory);
-        let server = server.workers(usize::MAX);
+        let mut server = WireframeServer::new(factory);
+        server = server.workers(usize::MAX);
         assert_eq!(server.worker_count(), usize::MAX);
-        let server = server.workers(0);
-        assert_eq!(server.worker_count(), 1);
+        assert_eq!(server.workers(0).worker_count(), 1);
     }
 
     #[rstest]
     #[tokio::test]
     async fn test_bind_to_multiple_addresses(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_port: SocketAddr,
     ) {
-        let server = WireframeServer::new(factory);
-        let addr1 = free_port;
         let addr2 = {
-            let addr = SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0);
-            let listener =
-                std::net::TcpListener::bind(addr).expect("failed to bind second listener");
+            let listener = std::net::TcpListener::bind(SocketAddr::new(
+                std::net::Ipv4Addr::LOCALHOST.into(),
+                0,
+            ))
+            .expect("failed to bind second listener");
             listener
                 .local_addr()
                 .expect("failed to get second listener address")
         };
-        let server = server.bind(addr1).expect("Failed to bind first address");
+        let server = WireframeServer::new(factory);
+        let server = server
+            .bind(free_port)
+            .expect("Failed to bind first address");
         let first = server.local_addr().expect("first bound address missing");
         let server = server.bind(addr2).expect("Failed to bind second address");
         let second = server.local_addr().expect("second bound address missing");
