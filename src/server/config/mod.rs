@@ -28,9 +28,18 @@ where
 {
     /// Create a new `WireframeServer` from the given application factory.
     ///
-    /// The worker count defaults to the number of available CPU cores (or 1 if this cannot be
-    /// determined). The TCP listener is unset; call [`bind`](Self::bind) before running the
-    /// server.
+    /// The worker count defaults to the number of available CPU cores (or 1 if
+    /// this cannot be determined). The TCP listener is unset; call
+    /// [`bind`](Self::bind) before running the server.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default());
+    /// assert!(server.worker_count() >= 1);
+    /// ```
     #[must_use]
     pub fn new(factory: F) -> Self {
         let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
@@ -50,9 +59,24 @@ impl<F, S> WireframeServer<F, (), S>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Converts the server to use a custom preamble type for incoming connections.
+    /// Converts the server to use a custom preamble type for incoming
+    /// connections.
     ///
-    /// Calling this method drops any previously configured preamble decode callbacks.
+    /// Calling this method drops any previously configured preamble decode
+    /// callbacks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bincode::{Decode, Encode};
+    /// use wireframe::{app::WireframeApp, preamble::Preamble, server::WireframeServer};
+    ///
+    /// #[derive(Encode, Decode)]
+    /// struct MyPreamble;
+    /// impl Preamble for MyPreamble {}
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default()).with_preamble::<MyPreamble>();
+    /// ```
     #[must_use]
     pub fn with_preamble<P>(self) -> WireframeServer<F, P, S>
     where

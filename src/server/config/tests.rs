@@ -1,7 +1,12 @@
 //! Tests for server configuration utilities.
+//!
+//! This module exercises the `WireframeServer` builder, covering worker counts,
+//! binding behaviour, preamble handling, callback registration, and method
+//! chaining. Fixtures from `test_util` provide shared setup and parameterised
+//! cases via `rstest`.
 
 use std::{
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -19,15 +24,11 @@ use crate::server::test_util::{
     server_with_preamble,
 };
 
-fn expected_default_worker_count() -> usize {
-    // Mirror the default worker logic to keep tests aligned with `WireframeServer::new`.
-    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
-}
-
 #[rstest]
 fn test_new_server_creation(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
     let server = WireframeServer::new(factory);
-    assert!(server.worker_count() >= 1 && server.local_addr().is_none());
+    assert!(server.worker_count() >= 1);
+    assert!(server.local_addr().is_none());
 }
 
 #[rstest]
@@ -35,7 +36,8 @@ fn test_new_server_default_worker_count(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
     let server = WireframeServer::new(factory);
-    assert_eq!(server.worker_count(), expected_default_worker_count());
+    let expected = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    assert_eq!(server.worker_count(), expected);
 }
 
 #[rstest]
@@ -53,7 +55,8 @@ fn test_with_preamble_type_conversion(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
     let server = WireframeServer::new(factory).with_preamble::<TestPreamble>();
-    assert_eq!(server.worker_count(), expected_default_worker_count());
+    let expected = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    assert_eq!(server.worker_count(), expected);
 }
 
 #[rstest]
@@ -96,7 +99,7 @@ async fn test_preamble_callback_registration(
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
     let server = server_with_preamble(factory);
-    let _server = match callback_type {
+    let server = match callback_type {
         "success" => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
             let c = c.clone();
             Box::pin(async move {
@@ -109,7 +112,39 @@ async fn test_preamble_callback_registration(
         }),
         _ => unreachable!("invalid case"),
     };
-    assert_eq!(counter.load(Ordering::SeqCst), 0);
+
+    match callback_type {
+        "success" => {
+            let cb = server
+                .on_preamble_success
+                .as_ref()
+                .expect("callback not registered");
+            let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+            let listener = tokio::net::TcpListener::bind(addr)
+                .await
+                .expect("bind temporary listener");
+            let addr = listener.local_addr().expect("read listener addr");
+            let mut stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("connect stream");
+            drop(listener);
+            let preamble = TestPreamble {
+                id: 0,
+                message: String::new(),
+            };
+            cb(&preamble, &mut stream).await.expect("callback failed");
+        }
+        "failure" => {
+            let cb = server
+                .on_preamble_failure
+                .as_ref()
+                .expect("callback not registered");
+            cb(&DecodeError::OtherString(String::from("err")));
+        }
+        _ => unreachable!("invalid case"),
+    }
+
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 
 #[rstest]
