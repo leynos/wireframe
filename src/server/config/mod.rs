@@ -1,9 +1,9 @@
 //! Configuration utilities for [`WireframeServer`].
 //!
 //! Provides a fluent builder for configuring `WireframeServer` instances.
-//! The builder exposes worker count tuning, preamble callbacks, and TCP
-//! binding. Phantom types capture the bind state at compile time so invalid
-//! transitions, such as rebinding an uninitialised server, fail to compile.
+//! The builder exposes worker count tuning, preamble callbacks, ready-signal
+//! configuration, and TCP binding. The server holds an optional listener so it
+//! may be constructed unbound and later bound via [`bind`](WireframeServer::bind).
 
 use core::marker::PhantomData;
 use std::{
@@ -16,13 +16,13 @@ use bincode::error::DecodeError;
 use futures::future::BoxFuture;
 use tokio::{net::TcpListener, sync::oneshot};
 
-use super::{Bound, PreambleCallback, PreambleErrorCallback, Unbound, WireframeServer};
+use super::WireframeServer;
 use crate::{app::WireframeApp, preamble::Preamble};
 
 #[cfg(test)]
 mod tests;
 
-impl<F> WireframeServer<F, (), Unbound>
+impl<F> WireframeServer<F, ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
@@ -49,15 +49,16 @@ where
             on_preamble_success: None,
             on_preamble_failure: None,
             ready_tx: None,
-            state: Unbound,
+            listener: None,
             _preamble: PhantomData,
         }
     }
 }
 
-impl<F, S> WireframeServer<F, (), S>
+impl<F, T> WireframeServer<F, T>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
 {
     /// Converts the server to use a custom preamble type for incoming
     /// connections.
@@ -78,7 +79,7 @@ where
     /// let server = WireframeServer::new(|| WireframeApp::default()).with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
-    pub fn with_preamble<P>(self) -> WireframeServer<F, P, S>
+    pub fn with_preamble<P>(self) -> WireframeServer<F, P>
     where
         P: Preamble,
     {
@@ -88,17 +89,11 @@ where
             on_preamble_success: None,
             on_preamble_failure: None,
             ready_tx: None,
-            state: self.state,
+            listener: self.listener,
             _preamble: PhantomData,
         }
     }
-}
 
-impl<F, T, S> WireframeServer<F, T, S>
-where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
-{
     /// Set the number of worker tasks to spawn for the server.
     #[must_use]
     pub fn workers(mut self, count: usize) -> Self {
@@ -141,113 +136,29 @@ where
     #[must_use]
     pub const fn worker_count(&self) -> usize { self.workers }
 
-    /// Delegate binding to [`bind_std_listener`] after extracting fields.
-    ///
-    /// The public `bind` and `bind_listener` methods merely prepare the
-    /// [`StdTcpListener`] before calling this helper.
-    fn bind_with_std_listener(
-        self,
-        std_listener: StdTcpListener,
-    ) -> io::Result<WireframeServer<F, T, Bound>> {
-        let Self {
-            factory,
-            workers,
-            on_preamble_success,
-            on_preamble_failure,
-            ready_tx,
-            ..
-        } = self;
-        bind_std_listener(
-            factory,
-            workers,
-            on_preamble_success,
-            on_preamble_failure,
-            ready_tx,
-            std_listener,
-        )
-    }
-}
-
-impl<F, T> WireframeServer<F, T, Unbound>
-where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
-{
-    /// Get the socket address the server is bound to, if available.
+    /// Returns the bound address, or `None` if not yet bound.
     #[must_use]
-    pub const fn local_addr(&self) -> Option<SocketAddr> { None }
-
-    /// Bind the server to the given address and create a listener.
-    ///
-    /// # Errors
-    /// Returns an `io::Error` if binding or configuring the listener fails.
-    pub fn bind(self, addr: SocketAddr) -> io::Result<WireframeServer<F, T, Bound>> {
-        let std_listener = StdTcpListener::bind(addr)?;
-        self.bind_with_std_listener(std_listener)
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        self.listener.as_ref().and_then(|l| l.local_addr().ok())
     }
 
-    /// Bind the server to an existing standard TCP listener.
-    ///
-    /// # Errors
-    /// Returns an [`io::Error`] if configuring the listener fails.
-    pub fn bind_listener(
-        self,
-        listener: StdTcpListener,
-    ) -> io::Result<WireframeServer<F, T, Bound>> {
-        self.bind_with_std_listener(listener)
-    }
-}
-
-impl<F, T> WireframeServer<F, T, Bound>
-where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
-{
-    /// Get the socket address the server is bound to.
-    #[must_use]
-    pub fn local_addr(&self) -> Option<SocketAddr> { self.state.listener.local_addr().ok() }
-
-    /// Rebind the server to a new address.
+    /// Bind to a fresh address.
     ///
     /// # Errors
     /// Returns an `io::Error` if binding or configuring the listener fails.
     pub fn bind(self, addr: SocketAddr) -> io::Result<Self> {
-        let std_listener = StdTcpListener::bind(addr)?;
-        self.bind_with_std_listener(std_listener)
+        let std = StdTcpListener::bind(addr)?;
+        self.bind_listener(std)
     }
 
-    /// Rebind the server to an existing standard TCP listener.
+    /// Bind to an existing `StdTcpListener`.
     ///
     /// # Errors
-    /// Returns an [`io::Error`] if configuring the listener fails.
-    pub fn bind_listener(self, listener: StdTcpListener) -> io::Result<Self> {
-        self.bind_with_std_listener(listener)
+    /// Returns an `io::Error` if configuring the listener fails.
+    pub fn bind_listener(mut self, std: StdTcpListener) -> io::Result<Self> {
+        std.set_nonblocking(true)?;
+        let tokio = TcpListener::from_std(std)?;
+        self.listener = Some(Arc::new(tokio));
+        Ok(self)
     }
-}
-
-fn bind_std_listener<F, T>(
-    factory: F,
-    workers: usize,
-    on_preamble_success: Option<PreambleCallback<T>>,
-    on_preamble_failure: Option<PreambleErrorCallback>,
-    ready_tx: Option<oneshot::Sender<()>>,
-    std_listener: StdTcpListener,
-) -> io::Result<WireframeServer<F, T, Bound>>
-where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
-{
-    std_listener.set_nonblocking(true)?;
-    let listener = TcpListener::from_std(std_listener)?;
-    Ok(WireframeServer {
-        factory,
-        workers,
-        on_preamble_success,
-        on_preamble_failure,
-        ready_tx,
-        state: Bound {
-            listener: Arc::new(listener),
-        },
-        _preamble: PhantomData,
-    })
 }
