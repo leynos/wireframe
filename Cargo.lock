@@ -2829,6 +2829,7 @@ dependencies = [
  "rstest",
  "serde",
  "serial_test",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-util",
  "tracing",

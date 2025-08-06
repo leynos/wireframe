@@ -1,6 +1,6 @@
 //! Runtime control for [`WireframeServer`].
 
-use std::{io, sync::Arc};
+use std::sync::Arc;
 
 use futures::Future;
 use tokio::{
@@ -12,10 +12,12 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{
+    Bound,
     PreambleCallback,
     PreambleErrorCallback,
     WireframeServer,
     connection::spawn_connection_task,
+    error::ServerError,
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
@@ -49,7 +51,7 @@ impl Default for BackoffConfig {
     }
 }
 
-impl<F, T> WireframeServer<F, T>
+impl<F, T> WireframeServer<F, T, Bound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
@@ -74,8 +76,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`io::Error`] if accepting a connection fails.
-    pub async fn run(self) -> io::Result<()> {
+    /// Returns a [`ServerError`] if runtime initialisation fails.
+    pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
             let _ = signal::ctrl_c().await;
         })
@@ -113,8 +115,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`io::Error`] if accepting a connection fails during runtime.
-    pub async fn run_with_shutdown<S>(self, shutdown: S) -> io::Result<()>
+    /// Returns a [`ServerError`] if runtime initialisation fails.
+    pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
     where
         S: Future<Output = ()> + Send,
     {
@@ -124,12 +126,9 @@ where
             on_preamble_success,
             on_preamble_failure,
             ready_tx,
-            listener,
-            backoff_config,
+            state: Bound { listener },
             ..
         } = self;
-
-        let listener = listener.ok_or_else(|| io::Error::other("listener not bound"))?;
 
         if let Some(tx) = ready_tx
             && tx.send(()).is_err()

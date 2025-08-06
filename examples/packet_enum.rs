@@ -3,7 +3,7 @@
 //! The application defines an enum representing different packet variants and
 //! shows how to dispatch handlers based on the variant received.
 
-use std::{collections::HashMap, future::Future, io, pin::Pin};
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use async_trait::async_trait;
 use wireframe::{
@@ -76,7 +76,7 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 }
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let factory = || {
         WireframeApp::new()
             .expect("Failed to create WireframeApp")
@@ -92,5 +92,6 @@ async fn main() -> io::Result<()> {
     WireframeServer::new(factory)
         .bind(addr.parse().expect("Invalid server address"))?
         .run()
-        .await
+        .await?;
+    Ok(())
 }

@@ -5,9 +5,10 @@ use std::net::{Ipv4Addr, SocketAddr};
 use bincode::{Decode, Encode};
 use rstest::fixture;
 
-use super::WireframeServer;
+use super::{Bound, WireframeServer};
 use crate::app::WireframeApp;
 
+#[allow(dead_code, reason = "Used in builder tests via fixtures")]
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct TestPreamble {
     pub id: u32,
@@ -28,7 +29,7 @@ pub fn free_port() -> SocketAddr {
         .expect("failed to read free port listener address")
 }
 
-pub fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F, ()>
+pub fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F, (), Bound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
@@ -37,6 +38,7 @@ where
         .expect("Failed to bind")
 }
 
+#[allow(dead_code, reason = "Only used in configuration tests")]
 pub fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,

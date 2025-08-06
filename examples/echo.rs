@@ -3,15 +3,13 @@
 //! The application listens for incoming frames and simply echoes each
 //! envelope back to the client.
 
-use std::io;
-
 use wireframe::{
     app::{Envelope, WireframeApp},
     server::WireframeServer,
 };
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let factory = || {
         WireframeApp::new()
             .unwrap()
@@ -30,5 +28,6 @@ async fn main() -> io::Result<()> {
     WireframeServer::new(factory)
         .bind("127.0.0.1:7878".parse().unwrap())?
         .run()
-        .await
+        .await?;
+    Ok(())
 }

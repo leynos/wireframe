@@ -1,102 +1,36 @@
 //! Configuration utilities for [`WireframeServer`].
 //!
 //! Provides a fluent builder for configuring `WireframeServer` instances.
-//! The builder exposes worker count tuning, preamble callbacks, ready-signal
-//! configuration, and TCP binding. The server holds an optional listener so it
-//! may be constructed unbound and later bound via [`bind`](WireframeServer::bind).
+//! The builder exposes worker count tuning, preamble callbacks,
+//! ready-signal configuration, and TCP binding. The server may be constructed
+//! unbound and later bound via [`bind`](WireframeServer::bind).
 
 use core::marker::PhantomData;
-use std::{
-    io,
-    net::{SocketAddr, TcpListener as StdTcpListener},
-    sync::Arc,
-    time::Duration,
-};
+use tokio::sync::oneshot;
 
-use bincode::error::DecodeError;
-use futures::future::BoxFuture;
-use tokio::{net::TcpListener, sync::oneshot};
+use super::{ServerState, Unbound, WireframeServer};
+use crate::{app::WireframeApp, preamble::Preamble, server::Bound};
 
-use super::WireframeServer;
-use crate::{app::WireframeApp, preamble::Preamble};
+mod binding;
+mod preamble;
 
-#[cfg(test)]
-mod tests;
-
-impl<F> WireframeServer<F, ()>
+impl<F> WireframeServer<F, (), Unbound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    /// Create a new `WireframeServer` from the given application factory.
-    ///
-    /// The worker count defaults to the number of available CPU cores (or 1 if
-    /// this cannot be determined). The TCP listener is unset; call
-    /// [`bind`](Self::bind) before running the server.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default());
-    /// assert!(server.worker_count() >= 1);
-    /// ```
     #[must_use]
     pub fn new(factory: F) -> Self {
         let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-        Self {
-            factory,
-            workers,
-            on_preamble_success: None,
-            on_preamble_failure: None,
-            ready_tx: None,
-            listener: None,
-            backoff_config: super::runtime::BackoffConfig::default(),
-            _preamble: PhantomData,
-        }
+        Self { factory, workers, on_preamble_success: None, on_preamble_failure: None, ready_tx: None, state: Unbound, _preamble: PhantomData }
     }
 }
 
-impl<F, T> WireframeServer<F, T>
+impl<F, T, S> WireframeServer<F, T, S>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
+    S: ServerState,
 {
-    /// Converts the server to use a custom preamble type for incoming
-    /// connections.
-    ///
-    /// Calling this method drops any previously configured preamble decode
-    /// callbacks.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use bincode::{Decode, Encode};
-    /// use wireframe::{app::WireframeApp, preamble::Preamble, server::WireframeServer};
-    ///
-    /// #[derive(Encode, Decode)]
-    /// struct MyPreamble;
-    /// impl Preamble for MyPreamble {}
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default()).with_preamble::<MyPreamble>();
-    /// ```
-    #[must_use]
-    pub fn with_preamble<P>(self) -> WireframeServer<F, P>
-    where
-        P: Preamble,
-    {
-        WireframeServer {
-            factory: self.factory,
-            workers: self.workers,
-            on_preamble_success: None,
-            on_preamble_failure: None,
-            ready_tx: None,
-            listener: self.listener,
-            backoff_config: self.backoff_config,
-            _preamble: PhantomData,
-        }
-    }
-
     /// Set the number of worker tasks to spawn for the server.
     ///
     /// # Examples
@@ -110,60 +44,6 @@ where
     #[must_use]
     pub fn workers(mut self, count: usize) -> Self {
         self.workers = count.max(1);
-        self
-    }
-
-    /// Register a callback invoked when the connection preamble decodes successfully.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::sync::Arc;
-    ///
-    /// use bincode::{Decode, Encode};
-    /// use futures::FutureExt;
-    /// use wireframe::{app::WireframeApp, preamble::Preamble, server::WireframeServer};
-    ///
-    /// #[derive(Encode, Decode)]
-    /// struct MyPreamble;
-    /// impl Preamble for MyPreamble {}
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())
-    ///     .with_preamble::<MyPreamble>()
-    ///     .on_preamble_decode_success(|_preamble: &MyPreamble, _stream| async { Ok(()) }.boxed());
-    /// ```
-    #[must_use]
-    pub fn on_preamble_decode_success<H>(mut self, handler: H) -> Self
-    where
-        H: for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.on_preamble_success = Some(Arc::new(handler));
-        self
-    }
-
-    /// Register a callback invoked when the connection preamble fails to decode.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use bincode::error::DecodeError;
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default()).on_preamble_decode_failure(
-    ///     |_error: &DecodeError| {
-    ///         eprintln!("Failed to decode preamble");
-    ///     },
-    /// );
-    /// ```
-    #[must_use]
-    pub fn on_preamble_decode_failure<H>(mut self, handler: H) -> Self
-    where
-        H: Fn(&DecodeError) + Send + Sync + 'static,
-    {
-        self.on_preamble_failure = Some(Arc::new(handler));
         self
     }
 
@@ -260,79 +140,5 @@ where
         let tokio = TcpListener::from_std(std)?;
         self.listener = Some(Arc::new(tokio));
         Ok(self)
-    }
-
-    /// Configure the exponential backoff parameters for accept loop retries.
-    ///
-    /// # Behaviour
-    /// - If `initial_delay > max_delay`, the values are swapped.
-    /// - `initial_delay` is clamped to at least 1 millisecond.
-    /// - `max_delay` is raised to be at least `initial_delay` to preserve invariants.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())
-    ///     .accept_backoff(Duration::from_millis(5), Duration::from_millis(500));
-    /// ```
-    #[must_use]
-    pub fn accept_backoff(mut self, initial_delay: Duration, max_delay: Duration) -> Self {
-        let (mut a, mut b) = (initial_delay, max_delay);
-        if a > b {
-            core::mem::swap(&mut a, &mut b);
-        }
-        let init = a.max(Duration::from_millis(1));
-        let maxd = b.max(init);
-
-        self.backoff_config.initial_delay = init;
-        self.backoff_config.max_delay = maxd;
-        self
-    }
-
-    /// Configure the initial delay for accept loop retries.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())
-    ///     .accept_initial_delay(Duration::from_millis(5));
-    /// ```
-    #[must_use]
-    pub fn accept_initial_delay(mut self, delay: Duration) -> Self {
-        self.backoff_config.initial_delay = delay.max(Duration::from_millis(1));
-        if self.backoff_config.initial_delay > self.backoff_config.max_delay {
-            self.backoff_config.max_delay = self.backoff_config.initial_delay;
-        }
-        self
-    }
-
-    /// Configure the maximum delay cap for accept loop retries.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())
-    ///     .accept_max_delay(Duration::from_millis(500));
-    /// ```
-    #[must_use]
-    pub fn accept_max_delay(mut self, delay: Duration) -> Self {
-        if delay < self.backoff_config.initial_delay {
-            self.backoff_config.max_delay = self.backoff_config.initial_delay;
-        } else {
-            self.backoff_config.max_delay = delay;
-        }
-        self
     }
 }
