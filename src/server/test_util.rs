@@ -5,7 +5,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use bincode::{Decode, Encode};
 use rstest::fixture;
 
-use super::{Bound, WireframeServer};
+use super::WireframeServer;
 use crate::app::WireframeApp;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -28,7 +28,7 @@ pub fn free_port() -> SocketAddr {
         .expect("failed to read free port listener address")
 }
 
-pub fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F, (), Bound>
+pub fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F, ()>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {

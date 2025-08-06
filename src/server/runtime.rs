@@ -12,7 +12,6 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{
-    Bound,
     PreambleCallback,
     PreambleErrorCallback,
     WireframeServer,
@@ -23,7 +22,7 @@ use crate::{app::WireframeApp, preamble::Preamble};
 const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
 
-impl<F, T> WireframeServer<F, T, Bound>
+impl<F, T> WireframeServer<F, T>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
@@ -57,9 +56,11 @@ where
             on_preamble_success,
             on_preamble_failure,
             ready_tx,
-            state: Bound { listener },
+            listener,
             ..
         } = self;
+
+        let listener = listener.ok_or_else(|| io::Error::other("listener not bound"))?;
 
         if let Some(tx) = ready_tx
             && tx.send(()).is_err()
