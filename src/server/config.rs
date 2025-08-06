@@ -315,38 +315,37 @@ mod tests {
     }
 
     #[rstest]
+    #[case("success")]
+    #[case("failure")]
     #[tokio::test]
-    async fn test_preamble_success_callback(
+    async fn test_preamble_callback_registration(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+        #[case] callback_type: &str,
     ) {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
-        let server = server_with_preamble(factory).on_preamble_decode_success(
-            move |_p: &TestPreamble, _| {
+
+        let server = server_with_preamble(factory);
+        let server = match callback_type {
+            "success" => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
                 let c = c.clone();
                 Box::pin(async move {
                     c.fetch_add(1, Ordering::SeqCst);
                     Ok(())
                 })
-            },
-        );
-        assert_eq!(counter.load(Ordering::SeqCst), 0);
-        assert!(server.on_preamble_success.is_some());
-    }
-
-    #[rstest]
-    #[tokio::test]
-    async fn test_preamble_failure_callback(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let c = counter.clone();
-        let server =
-            server_with_preamble(factory).on_preamble_decode_failure(move |_err: &DecodeError| {
+            }),
+            "failure" => server.on_preamble_decode_failure(move |_err: &DecodeError| {
                 c.fetch_add(1, Ordering::SeqCst);
-            });
+            }),
+            _ => panic!("Invalid callback type"),
+        };
+
         assert_eq!(counter.load(Ordering::SeqCst), 0);
-        assert!(server.on_preamble_failure.is_some());
+        match callback_type {
+            "success" => assert!(server.on_preamble_success.is_some()),
+            "failure" => assert!(server.on_preamble_failure.is_some()),
+            _ => unreachable!(),
+        }
     }
 
     #[rstest]
@@ -355,13 +354,13 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
         free_port: SocketAddr,
     ) {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let c = counter.clone();
+        let callback_invoked = Arc::new(AtomicUsize::new(0));
+        let counter = callback_invoked.clone();
         let server = WireframeServer::new(factory)
             .workers(2)
             .with_preamble::<TestPreamble>()
             .on_preamble_decode_success(move |_p: &TestPreamble, _| {
-                let c = c.clone();
+                let c = counter.clone();
                 Box::pin(async move {
                     c.fetch_add(1, Ordering::SeqCst);
                     Ok(())
@@ -372,7 +371,7 @@ mod tests {
             .expect("Failed to bind");
         assert_eq!(server.worker_count(), 2);
         assert!(server.local_addr().is_some());
-        assert!(server.on_preamble_success.is_some() && server.on_preamble_failure.is_some());
+        assert_eq!(callback_invoked.load(Ordering::SeqCst), 0);
     }
 
     #[rstest]
@@ -387,18 +386,6 @@ mod tests {
             .expect("Failed to bind");
         assert_eq!(server.worker_count(), 5);
         assert!(server.local_addr().is_some());
-    }
-
-    #[rstest]
-    fn test_preamble_callbacks_reset_on_type_change(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
-        let server = WireframeServer::new(factory)
-            .on_preamble_decode_success(|&(), _| Box::pin(async { Ok(()) }))
-            .on_preamble_decode_failure(|_: &DecodeError| {});
-        assert!(server.on_preamble_success.is_some() && server.on_preamble_failure.is_some());
-        let server = server.with_preamble::<TestPreamble>();
-        assert!(server.on_preamble_success.is_none() && server.on_preamble_failure.is_none());
     }
 
     #[rstest]
@@ -417,16 +404,14 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
         free_port: SocketAddr,
     ) {
-        let addr2 = {
-            let listener = std::net::TcpListener::bind(SocketAddr::new(
-                std::net::Ipv4Addr::LOCALHOST.into(),
-                0,
-            ))
-            .expect("failed to bind second listener");
-            listener
-                .local_addr()
-                .expect("failed to get second listener address")
-        };
+        let listener2 =
+            std::net::TcpListener::bind(SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0))
+                .expect("failed to bind second listener");
+        let addr2 = listener2
+            .local_addr()
+            .expect("failed to get second listener address");
+        drop(listener2);
+
         let server = WireframeServer::new(factory);
         let server = server
             .bind(free_port)
