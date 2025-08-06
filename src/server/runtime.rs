@@ -31,6 +31,20 @@ where
     ///
     /// Spawns the configured number of worker tasks and awaits Ctrl+C for shutdown.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let server =
+    ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 8080).into())?;
+    /// server.run().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns an [`io::Error`] if accepting a connection fails.
@@ -42,6 +56,33 @@ where
     }
 
     /// Run the server until the `shutdown` future resolves.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokio::sync::oneshot;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let server =
+    ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 0).into())?;
+    ///
+    /// let (tx, rx) = oneshot::channel::<()>();
+    /// let handle = tokio::spawn(async move {
+    ///     server
+    ///         .run_with_shutdown(async {
+    ///             let _ = rx.await;
+    ///         })
+    ///         .await
+    /// });
+    ///
+    /// // Signal shutdown
+    /// let _ = tx.send(());
+    /// handle.await??;
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///
