@@ -64,7 +64,7 @@ async fn middleware_applied_in_reverse_order() {
 
     let (mut client, server) = duplex(256);
 
-    let env = Envelope::new(1, vec![b'X']);
+    let env = Envelope::new(1, 7, vec![b'X']);
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).expect("serialization failed");
     // Use the default 4-byte big-endian length prefix for framing
@@ -88,6 +88,6 @@ async fn middleware_applied_in_reverse_order() {
     let (resp, _) = serializer
         .deserialize::<Envelope>(&frame)
         .expect("deserialize failed");
-    let (_, bytes) = resp.into_parts();
+    let (_, _, bytes) = resp.into_parts();
     assert_eq!(bytes, vec![b'X', b'A', b'B', b'B', b'A']);
 }

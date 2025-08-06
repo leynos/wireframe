@@ -7,7 +7,10 @@ mod steps;
 mod world;
 
 use cucumber::World;
-use world::PanicWorld;
+use world::{CorrelationWorld, PanicWorld};
 
 #[tokio::main]
-async fn main() { PanicWorld::run("tests/features").await; }
+async fn main() {
+    PanicWorld::run("tests/features/connection_panic.feature").await;
+    CorrelationWorld::run("tests/features/correlation_id.feature").await;
+}

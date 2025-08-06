@@ -179,7 +179,7 @@ stream.
 
 - [ ] **Protocol Enhancement:**
 
-  - [ ] Add a `correlation_id` field to the `Frame` header. For a request, this
+  - [x] Add a `correlation_id` field to the `Frame` header. For a request, this
     is the unique request ID. For each message in a multi-packet response, this
     ID must match the original request's ID.
 

@@ -83,8 +83,7 @@ WireframeServer::new(|| {
 ```
 
 This example showcases how derive macros and the framing abstraction simplify a
-binary protocol server. See the
-<!-- markdownlint-disable-next-line MD013 -->
+binary protocol server. See the <!-- markdownlint-disable-next-line MD013 -->
 [full example](docs/rust-binary-router-library-design.md#5-6-illustrative-api-usage-examples)
  in the design document for further details.
 
@@ -99,12 +98,15 @@ payload bytes. Applications can supply their own envelope type by calling
 use wireframe::app::{Packet, WireframeApp};
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
-struct MyEnv { id: u32, data: Vec<u8> }
+struct MyEnv { id: u32, correlation_id: u64, data: Vec<u8> }
 
 impl Packet for MyEnv {
     fn id(&self) -> u32 { self.id }
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.data) }
-    fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
+    fn correlation_id(&self) -> u64 { self.correlation_id }
+    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.data) }
+    fn from_parts(id: u32, correlation_id: u64, data: Vec<u8>) -> Self {
+        Self { id, correlation_id, data }
+    }
 }
 
 let app = WireframeApp::<_, _, MyEnv>::new()

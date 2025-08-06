@@ -59,6 +59,10 @@ pub enum Response<F = Frame, E = MyProtocolError> {
 }
 ```
 
+Every frame header now carries a 64-bit `correlation_id`. This value is set by
+the request and echoed on each message in a multi-packet response so clients
+can tie fragments back to their origin.
+
 This design is powered by the `async-stream` crate, which allows developers to
 write imperative-looking logic that generates a declarative `Stream` object. It
 provides the best of both worlds: the intuitive feel of a `for` loop for

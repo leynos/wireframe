@@ -36,20 +36,26 @@ impl<F> FrameContainer<F> {
 #[derive(Debug)]
 pub struct ServiceRequest {
     inner: FrameContainer<Vec<u8>>,
+    correlation_id: u64,
 }
 
 impl ServiceRequest {
     /// Create a new [`ServiceRequest`] from raw frame bytes.
     #[must_use]
-    pub fn new(frame: Vec<u8>) -> Self {
+    pub fn new(frame: Vec<u8>, correlation_id: u64) -> Self {
         Self {
             inner: FrameContainer::new(frame),
+            correlation_id,
         }
     }
 
     /// Borrow the underlying frame bytes.
     #[must_use]
     pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
+
+    /// Return the correlation identifier associated with this request.
+    #[must_use]
+    pub fn correlation_id(&self) -> u64 { self.correlation_id }
 
     /// Mutable access to the inner frame bytes.
     #[must_use]
@@ -297,9 +303,9 @@ impl<E: Packet> Service for RouteService<E> {
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         // The handler only borrows the envelope, allowing us to consume it
         // afterwards to extract the response payload.
-        let env = E::from_parts(self.id, req.into_inner());
+        let env = E::from_parts(self.id, req.correlation_id(), req.into_inner());
         (self.handler.as_ref())(&env).await;
-        let (_, bytes) = env.into_parts();
+        let (_, _, bytes) = env.into_parts();
         Ok(ServiceResponse::new(bytes))
     }
 }
