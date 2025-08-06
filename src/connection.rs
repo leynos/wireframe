@@ -390,7 +390,7 @@ where
     }
 
     /// Reset counters after processing a low-priority frame.
-    fn after_low(&mut self) { self.fairness.record_low_priority(); }
+    fn after_low(&mut self) { self.fairness.reset(); }
 
     /// Push a frame from the response stream into `out` or handle completion.
     ///

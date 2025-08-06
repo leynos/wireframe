@@ -10,13 +10,13 @@ use tokio::time::Instant;
 use crate::connection::FairnessConfig;
 
 /// Time source used by [`FairnessTracker`].
-pub(crate) trait Clock: Copy {
+pub(crate) trait Clock: Clone {
     /// Return the current instant.
     fn now(&self) -> Instant;
 }
 
 /// Clock implementation backed by [`tokio::time`].
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct TokioClock;
 
 impl Clock for TokioClock {
@@ -71,8 +71,6 @@ impl<C: Clock> FairnessTracker<C> {
         false
     }
 
-    pub(crate) fn record_low_priority(&mut self) { self.clear(); }
-
     pub(crate) fn reset(&mut self) { self.clear(); }
 
     fn clear(&mut self) {
@@ -83,8 +81,10 @@ impl<C: Clock> FairnessTracker<C> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use rstest::rstest;
-    use tokio::time::{self, Duration};
+    use tokio::time::{Duration, Instant};
 
     use super::*;
 
@@ -112,21 +112,45 @@ mod tests {
         let mut fairness = FairnessTracker::new(cfg);
         fairness.record_high_priority();
         assert!(fairness.should_yield_to_low_priority());
-        fairness.record_low_priority();
+        fairness.reset();
         assert!(!fairness.should_yield_to_low_priority());
     }
 
+    #[derive(Clone, Debug)]
+    struct MockClock {
+        now: Arc<Mutex<Instant>>,
+    }
+
+    impl MockClock {
+        fn new(start: Instant) -> Self {
+            Self {
+                now: Arc::new(Mutex::new(start)),
+            }
+        }
+
+        fn advance(&self, dur: Duration) {
+            let mut now = self.now.lock().expect("lock poisoned");
+            *now += dur;
+        }
+    }
+
+    impl Clock for MockClock {
+        fn now(&self) -> Instant { *self.now.lock().expect("lock poisoned") }
+    }
+
     #[rstest]
-    #[tokio::test]
-    async fn time_slice_triggers_yield() {
-        time::pause();
+    #[test]
+    fn time_slice_triggers_yield() {
+        let start = Instant::now();
+        let clock = MockClock::new(start);
         let cfg = FairnessConfig {
             max_high_before_low: 0,
             time_slice: Some(Duration::from_millis(5)),
         };
-        let mut fairness = FairnessTracker::new(cfg);
+        let mut fairness = FairnessTracker::with_clock(cfg, clock.clone());
         fairness.record_high_priority();
-        time::advance(Duration::from_millis(6)).await;
+        assert!(!fairness.should_yield_to_low_priority());
+        clock.advance(Duration::from_millis(5));
         assert!(fairness.should_yield_to_low_priority());
     }
 }
