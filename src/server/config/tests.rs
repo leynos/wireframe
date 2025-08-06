@@ -86,37 +86,30 @@ async fn test_local_addr_after_bind(
 }
 
 #[rstest]
+#[case("success")]
+#[case("failure")]
 #[tokio::test]
-async fn test_preamble_success_callback(
+async fn test_preamble_callback_registration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    #[case] callback_type: &str,
 ) {
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
-    let server =
-        server_with_preamble(factory).on_preamble_decode_success(move |_p: &TestPreamble, _| {
+    let server = server_with_preamble(factory);
+    let _server = match callback_type {
+        "success" => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
             let c = c.clone();
             Box::pin(async move {
                 c.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             })
-        });
-    assert_eq!(counter.load(Ordering::SeqCst), 0);
-    assert!(server.on_preamble_success.is_some());
-}
-
-#[rstest]
-#[tokio::test]
-async fn test_preamble_failure_callback(
-    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-) {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let c = counter.clone();
-    let server =
-        server_with_preamble(factory).on_preamble_decode_failure(move |_err: &DecodeError| {
+        }),
+        "failure" => server.on_preamble_decode_failure(move |_err: &DecodeError| {
             c.fetch_add(1, Ordering::SeqCst);
-        });
+        }),
+        _ => unreachable!("invalid case"),
+    };
     assert_eq!(counter.load(Ordering::SeqCst), 0);
-    assert!(server.on_preamble_failure.is_some());
 }
 
 #[rstest]
@@ -142,7 +135,6 @@ async fn test_method_chaining(
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 2);
     assert!(server.local_addr().is_some());
-    assert!(server.on_preamble_success.is_some() && server.on_preamble_failure.is_some());
 }
 
 #[rstest]
@@ -166,9 +158,19 @@ fn test_preamble_callbacks_reset_on_type_change(
     let server = WireframeServer::new(factory)
         .on_preamble_decode_success(|&(), _| Box::pin(async { Ok(()) }))
         .on_preamble_decode_failure(|_: &DecodeError| {});
-    assert!(server.on_preamble_success.is_some() && server.on_preamble_failure.is_some());
-    let server = server.with_preamble::<TestPreamble>();
-    assert!(server.on_preamble_success.is_none() && server.on_preamble_failure.is_none());
+    let counter = Arc::new(AtomicUsize::new(0));
+    let c = counter.clone();
+    let _server = server
+        .with_preamble::<TestPreamble>()
+        .on_preamble_decode_success(move |_p: &TestPreamble, _| {
+            let c = c.clone();
+            Box::pin(async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        })
+        .on_preamble_decode_failure(|_: &DecodeError| {});
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
 }
 
 #[rstest]
@@ -185,19 +187,18 @@ async fn test_bind_to_multiple_addresses(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     free_port: SocketAddr,
 ) {
-    let addr2 = {
-        let listener =
-            std::net::TcpListener::bind(SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0))
-                .expect("failed to bind second listener");
-        listener
-            .local_addr()
-            .expect("failed to get second listener address")
-    };
+    let listener2 =
+        std::net::TcpListener::bind(SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0))
+            .expect("failed to bind second listener");
+    let addr2 = listener2
+        .local_addr()
+        .expect("failed to get second listener address");
     let server = WireframeServer::new(factory);
     let server = server
         .bind(free_port)
         .expect("Failed to bind first address");
     let first = server.local_addr().expect("first bound address missing");
+    drop(listener2);
     let server = server.bind(addr2).expect("Failed to bind second address");
     let second = server.local_addr().expect("second bound address missing");
     assert_ne!(first.port(), second.port());

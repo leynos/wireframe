@@ -1,4 +1,9 @@
 //! Configuration utilities for [`WireframeServer`].
+//!
+//! Provides a fluent builder for configuring `WireframeServer` instances.
+//! The builder exposes worker count tuning, preamble callbacks, and TCP
+//! binding. Phantom types capture the bind state at compile time so invalid
+//! transitions, such as rebinding an uninitialised server, fail to compile.
 
 use core::marker::PhantomData;
 use std::{
@@ -196,7 +201,6 @@ where
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn bind_std_listener<F, T>(
     factory: F,
     workers: usize,
