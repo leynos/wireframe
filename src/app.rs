@@ -195,10 +195,15 @@ pub trait Packet: Message + Send + Sync + 'static {
 ///
 /// Incoming frames are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
-#[derive(bincode::Decode, bincode::Encode, Debug)]
-pub struct Envelope {
+#[derive(bincode::Decode, bincode::Encode, Copy, Clone, Debug)]
+pub struct PacketHeader {
     pub(crate) id: u32,
     pub(crate) correlation_id: u64,
+}
+
+#[derive(bincode::Decode, bincode::Encode, Debug)]
+pub struct Envelope {
+    pub(crate) header: PacketHeader,
     pub(crate) msg: Vec<u8>,
 }
 
@@ -207,30 +212,28 @@ impl Envelope {
     #[must_use]
     pub fn new(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
         Self {
-            id,
-            correlation_id,
+            header: PacketHeader { id, correlation_id },
             msg,
         }
     }
 
-    /// Consume the envelope, returning its identifiers and payload bytes.
+    /// Consume the envelope, returning its header and payload bytes.
     #[must_use]
-    pub fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.msg) }
+    pub fn into_parts(self) -> (PacketHeader, Vec<u8>) { (self.header, self.msg) }
 }
 
 impl Packet for Envelope {
-    fn id(&self) -> u32 { self.id }
+    fn id(&self) -> u32 { self.header.id }
 
-    fn correlation_id(&self) -> u64 { self.correlation_id }
+    fn correlation_id(&self) -> u64 { self.header.correlation_id }
 
-    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.msg) }
+    fn into_parts(self) -> (u32, u64, Vec<u8>) {
+        let (header, msg) = Envelope::into_parts(self);
+        (header.id, header.correlation_id, msg)
+    }
 
     fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
-        Self {
-            id,
-            correlation_id,
-            msg,
-        }
+        Envelope::new(id, correlation_id, msg)
     }
 }
 
@@ -722,27 +725,24 @@ where
             }
         };
 
-        if let Some(service) = routes.get(&env.id) {
-            let request = ServiceRequest::new(env.msg, env.correlation_id);
+        if let Some(service) = routes.get(&env.header.id) {
+            let request = ServiceRequest::new(env.msg, env.header.correlation_id);
             match service.call(request).await {
                 Ok(resp) => {
-                    let response = Envelope {
-                        id: env.id,
-                        correlation_id: env.correlation_id,
-                        msg: resp.into_inner(),
-                    };
+                    let response =
+                        Envelope::new(env.header.id, env.header.correlation_id, resp.into_inner());
                     if let Err(e) = self.send_response(stream, &response).await {
                         tracing::warn!(error = %e, "failed to send response");
                         crate::metrics::inc_handler_errors();
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(id = env.id, error = ?e, "handler error");
+                    tracing::warn!(id = env.header.id, error = ?e, "handler error");
                     crate::metrics::inc_handler_errors();
                 }
             }
         } else {
-            tracing::warn!("no handler for message id {}", env.id);
+            tracing::warn!("no handler for message id {}", env.header.id);
             crate::metrics::inc_handler_errors();
         }
 

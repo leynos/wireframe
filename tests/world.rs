@@ -125,10 +125,13 @@ pub struct CorrelationWorld {
 impl CorrelationWorld {
     pub fn set_cid(&mut self, cid: u64) { self.cid = cid; }
 
-    #[allow(clippy::must_use_candidate)]
+    #[must_use]
     pub fn cid(&self) -> u64 { self.cid }
 
-    #[allow(clippy::missing_panics_doc)]
+    /// Run the connection actor and collect frames for later verification.
+    ///
+    /// # Panics
+    /// Panics if the actor fails to run successfully.
     pub async fn process(&mut self) {
         let cid = self.cid;
         let stream: FrameStream<Envelope> = Box::pin(try_stream! {
@@ -141,7 +144,11 @@ impl CorrelationWorld {
         actor.run(&mut self.frames).await.expect("actor run failed");
     }
 
-    #[allow(clippy::missing_panics_doc)]
+    /// Verify that all received frames carry the expected correlation id.
+    ///
+    /// # Panics
+    /// Panics if any frame has a `correlation_id` that does not match the
+    /// expected value.
     pub fn verify(&self) {
         assert!(self.frames.iter().all(|f| f.correlation_id() == self.cid));
     }
