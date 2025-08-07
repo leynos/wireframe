@@ -60,7 +60,7 @@ impl FrameMetadata for HeaderSerializer {
 struct Ping;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> io::Result<()> {
     let app = WireframeApp::new()
         .unwrap()
         .frame_processor(LengthPrefixedProcessor::default())

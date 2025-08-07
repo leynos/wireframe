@@ -66,7 +66,7 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn main() -> Result<(), wireframe::server::error::ServerError> {
     /// let server =
     ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 8080).into())?;
     /// server.run().await?;
@@ -93,7 +93,7 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn main() -> Result<(), wireframe::server::error::ServerError> {
     /// let server =
     ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 0).into())?;
     ///

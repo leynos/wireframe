@@ -5,11 +5,11 @@
 
 use wireframe::{
     app::{Envelope, WireframeApp},
-    server::WireframeServer,
+    server::{WireframeServer, error::ServerError},
 };
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), ServerError> {
     let factory = || {
         WireframeApp::new()
             .unwrap()

@@ -11,7 +11,7 @@ use wireframe::{
     frame::{LengthFormat, LengthPrefixedProcessor},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
-    server::WireframeServer,
+    server::{WireframeServer, error::ServerError},
 };
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
@@ -76,7 +76,7 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), ServerError> {
     let factory = || {
         WireframeApp::new()
             .expect("Failed to create WireframeApp")

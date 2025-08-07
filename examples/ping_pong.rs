@@ -11,7 +11,7 @@ use wireframe::{
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
-    server::WireframeServer,
+    server::{WireframeServer, error::ServerError},
 };
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
@@ -136,14 +136,14 @@ fn build_app() -> AppResult<WireframeApp> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), ServerError> {
     let factory = || build_app().expect("app build failed");
 
     let default_addr = "127.0.0.1:7878";
     let addr_str = std::env::args()
         .nth(1)
         .unwrap_or_else(|| default_addr.into());
-    let addr: SocketAddr = addr_str.parse()?;
+    let addr: SocketAddr = addr_str.parse().expect("invalid address");
     WireframeServer::new(factory).bind(addr)?.run().await?;
     Ok(())
 }

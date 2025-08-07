@@ -2,7 +2,6 @@
 
 use core::marker::PhantomData;
 use std::{
-    io,
     net::{SocketAddr, TcpListener as StdTcpListener},
     sync::Arc,
 };
@@ -10,7 +9,7 @@ use std::{
 use tokio::net::TcpListener;
 
 use super::{Bound, Unbound, WireframeServer};
-use crate::{app::WireframeApp, preamble::Preamble};
+use crate::{app::WireframeApp, preamble::Preamble, server::error::ServerError};
 
 impl<F, T> WireframeServer<F, T, Unbound>
 where
@@ -50,9 +49,9 @@ where
     /// ```
     ///
     /// # Errors
-    /// Returns an `io::Error` if binding or configuring the listener fails.
-    pub fn bind(self, addr: SocketAddr) -> io::Result<WireframeServer<F, T, Bound>> {
-        let std = StdTcpListener::bind(addr)?;
+    /// Returns a [`ServerError`] if binding or configuring the listener fails.
+    pub fn bind(self, addr: SocketAddr) -> Result<WireframeServer<F, T, Bound>, ServerError> {
+        let std = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
         self.bind_listener(std)
     }
 
@@ -73,10 +72,13 @@ where
     /// ```
     ///
     /// # Errors
-    /// Returns an `io::Error` if configuring the listener fails.
-    pub fn bind_listener(self, std: StdTcpListener) -> io::Result<WireframeServer<F, T, Bound>> {
-        std.set_nonblocking(true)?;
-        let tokio = TcpListener::from_std(std)?;
+    /// Returns a [`ServerError`] if configuring the listener fails.
+    pub fn bind_listener(
+        self,
+        std: StdTcpListener,
+    ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
+        std.set_nonblocking(true).map_err(ServerError::Bind)?;
+        let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
         Ok(WireframeServer {
             factory: self.factory,
             workers: self.workers,
@@ -133,9 +135,9 @@ where
     /// ```
     ///
     /// # Errors
-    /// Returns an `io::Error` if binding or configuring the listener fails.
-    pub fn bind(self, addr: SocketAddr) -> io::Result<Self> {
-        let std = StdTcpListener::bind(addr)?;
+    /// Returns a [`ServerError`] if binding or configuring the listener fails.
+    pub fn bind(self, addr: SocketAddr) -> Result<Self, ServerError> {
+        let std = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
         self.bind_listener(std)
     }
 
@@ -158,10 +160,10 @@ where
     /// ```
     ///
     /// # Errors
-    /// Returns an `io::Error` if configuring the listener fails.
-    pub fn bind_listener(self, std: StdTcpListener) -> io::Result<Self> {
-        std.set_nonblocking(true)?;
-        let tokio = TcpListener::from_std(std)?;
+    /// Returns a [`ServerError`] if configuring the listener fails.
+    pub fn bind_listener(self, std: StdTcpListener) -> Result<Self, ServerError> {
+        std.set_nonblocking(true).map_err(ServerError::Bind)?;
+        let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
         Ok(WireframeServer {
             factory: self.factory,
             workers: self.workers,
