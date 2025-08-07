@@ -2,8 +2,10 @@
 //!
 //! Provides a fluent builder for configuring `WireframeServer` instances.
 //! The builder exposes worker count tuning, preamble callbacks,
-//! ready-signal configuration, and TCP binding. The server may be constructed
-//! unbound and later bound via [`bind`](WireframeServer::bind).
+//! ready-signal configuration, and TCP binding via the `binding`
+//! module. Preamble behaviour is customised through the `preamble`
+//! module. The server may be constructed unbound and later bound using
+//! the `binding` module's `bind` functions.
 
 use core::marker::PhantomData;
 use tokio::sync::oneshot;
@@ -11,8 +13,8 @@ use tokio::sync::oneshot;
 use super::{ServerState, Unbound, WireframeServer};
 use crate::{app::WireframeApp, preamble::Preamble};
 
-mod binding;
-mod preamble;
+pub mod binding;
+pub mod preamble;
 
 impl<F> WireframeServer<F, (), Unbound>
 where
@@ -22,7 +24,8 @@ where
     ///
     /// The worker count defaults to the number of available CPU cores (or 1 if
     /// this cannot be determined). The server is initially unbound; call
-    /// `bind` (available on unbound servers) before running the server.
+    /// `bind` (provided by the `binding` module for unbound servers) before
+    /// running the server.
     ///
     /// # Examples
     ///
