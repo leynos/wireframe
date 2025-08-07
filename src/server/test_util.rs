@@ -8,7 +8,11 @@ use rstest::fixture;
 use super::{Bound, WireframeServer};
 use crate::app::WireframeApp;
 
-#[allow(dead_code, reason = "Used in builder tests via fixtures")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "Used in builder tests via fixtures")
+)]
+#[cfg_attr(test, allow(dead_code, reason = "Used in builder tests via fixtures"))]
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct TestPreamble {
     pub id: u32,
@@ -38,7 +42,11 @@ where
         .expect("Failed to bind")
 }
 
-#[allow(dead_code, reason = "Only used in configuration tests")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "Only used in configuration tests")
+)]
+#[cfg_attr(test, allow(dead_code, reason = "Only used in configuration tests"))]
 pub fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
