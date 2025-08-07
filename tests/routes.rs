@@ -21,15 +21,24 @@ use wireframe_testing::{drive_with_bincode, drive_with_frames};
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestEnvelope {
     id: u32,
+    correlation_id: u64,
     msg: Vec<u8>,
 }
 
 impl wireframe::app::Packet for TestEnvelope {
     fn id(&self) -> u32 { self.id }
 
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    fn correlation_id(&self) -> u64 { self.correlation_id }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.msg) }
+
+    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+        Self {
+            id,
+            correlation_id,
+            msg,
+        }
+    }
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
@@ -57,6 +66,7 @@ async fn handler_receives_message_and_echoes_response() {
     let msg_bytes = Echo(42).to_bytes().expect("encode failed");
     let env = TestEnvelope {
         id: 1,
+        correlation_id: 99,
         msg: msg_bytes,
     };
 
@@ -72,6 +82,7 @@ async fn handler_receives_message_and_echoes_response() {
     let (resp_env, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frame)
         .expect("deserialize failed");
+    assert_eq!(resp_env.correlation_id, 99);
     let (echo, _) = Echo::from_bytes(&resp_env.msg).expect("decode echo failed");
     assert_eq!(echo, Echo(42));
     assert_eq!(called.load(Ordering::SeqCst), 1);
@@ -93,6 +104,7 @@ async fn multiple_frames_processed_in_sequence() {
             let msg_bytes = Echo(id).to_bytes().expect("encode failed");
             let env = TestEnvelope {
                 id: 1,
+                correlation_id: u64::from(id),
                 msg: msg_bytes,
             };
             let env_bytes = BincodeSerializer
@@ -127,6 +139,8 @@ async fn multiple_frames_processed_in_sequence() {
         .deserialize::<TestEnvelope>(&second)
         .expect("deserialize failed");
     let (echo2, _) = Echo::from_bytes(&env2.msg).expect("decode echo failed");
+    assert_eq!(env1.correlation_id, 1);
+    assert_eq!(env2.correlation_id, 2);
     assert_eq!(echo1, Echo(1));
     assert_eq!(echo2, Echo(2));
 }

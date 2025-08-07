@@ -5,9 +5,17 @@
 
 use std::net::SocketAddr;
 
+use async_stream::try_stream;
 use cucumber::World;
 use tokio::{net::TcpStream, sync::oneshot};
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use tokio_util::sync::CancellationToken;
+use wireframe::{
+    app::{Envelope, Packet, WireframeApp},
+    connection::ConnectionActor,
+    push::PushQueues,
+    response::FrameStream,
+    server::WireframeServer,
+};
 
 #[path = "common/mod.rs"]
 mod common;
@@ -105,5 +113,43 @@ impl PanicWorld {
         // dropping PanicServer will shut it down
         self.server.take();
         tokio::task::yield_now().await;
+    }
+}
+
+#[derive(Debug, Default, World)]
+pub struct CorrelationWorld {
+    cid: u64,
+    frames: Vec<Envelope>,
+}
+
+impl CorrelationWorld {
+    pub fn set_cid(&mut self, cid: u64) { self.cid = cid; }
+
+    #[must_use]
+    pub fn cid(&self) -> u64 { self.cid }
+
+    /// Run the connection actor and collect frames for later verification.
+    ///
+    /// # Panics
+    /// Panics if the actor fails to run successfully.
+    pub async fn process(&mut self) {
+        let cid = self.cid;
+        let stream: FrameStream<Envelope> = Box::pin(try_stream! {
+            yield Envelope::new(1, cid, vec![1]);
+            yield Envelope::new(1, cid, vec![2]);
+        });
+        let (queues, handle) = PushQueues::bounded(1, 1);
+        let shutdown = CancellationToken::new();
+        let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
+        actor.run(&mut self.frames).await.expect("actor run failed");
+    }
+
+    /// Verify that all received frames carry the expected correlation id.
+    ///
+    /// # Panics
+    /// Panics if any frame has a `correlation_id` that does not match the
+    /// expected value.
+    pub fn verify(&self) {
+        assert!(self.frames.iter().all(|f| f.correlation_id() == self.cid));
     }
 }

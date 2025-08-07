@@ -3,4 +3,5 @@
 //! This module exposes all Given-When-Then steps used by the
 //! behaviour-driven tests under `tests/features`.
 
+mod correlation_steps;
 mod panic_steps;

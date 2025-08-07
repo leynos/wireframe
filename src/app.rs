@@ -163,9 +163,12 @@ impl From<io::Error> for SendError {
 /// impl Packet for CustomEnvelope {
 ///     fn id(&self) -> u32 { self.id }
 ///
-///     fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.payload) }
+///     fn correlation_id(&self) -> u64 { 0 }
 ///
-///     fn from_parts(id: u32, msg: Vec<u8>) -> Self {
+///     fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, 0, self.payload) }
+///
+///     fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+///         let _ = correlation_id;
 ///         Self {
 ///             id,
 ///             payload: msg,
@@ -178,39 +181,60 @@ pub trait Packet: Message + Send + Sync + 'static {
     /// Return the message identifier used for routing.
     fn id(&self) -> u32;
 
-    /// Consume the packet and return its identifier and payload bytes.
-    fn into_parts(self) -> (u32, Vec<u8>);
+    /// Return the correlation identifier tying this frame to a request.
+    fn correlation_id(&self) -> u64;
 
-    /// Construct a new packet from an id and raw payload bytes.
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self;
+    /// Consume the packet and return its identifier, correlation id and payload bytes.
+    fn into_parts(self) -> (u32, u64, Vec<u8>);
+
+    /// Construct a new packet from id, correlation id and raw payload bytes.
+    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self;
 }
 
 /// Basic envelope type used by [`handle_connection`].
 ///
 /// Incoming frames are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
-#[derive(bincode::Decode, bincode::Encode)]
-pub struct Envelope {
+#[derive(bincode::Decode, bincode::Encode, Copy, Clone, Debug)]
+pub struct PacketHeader {
     pub(crate) id: u32,
+    pub(crate) correlation_id: u64,
+}
+
+#[derive(bincode::Decode, bincode::Encode, Debug)]
+pub struct Envelope {
+    pub(crate) header: PacketHeader,
     pub(crate) msg: Vec<u8>,
 }
 
 impl Envelope {
-    /// Create a new [`Envelope`] with the provided id and payload.
+    /// Create a new [`Envelope`] with the provided identifiers and payload.
     #[must_use]
-    pub fn new(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    pub fn new(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+        Self {
+            header: PacketHeader { id, correlation_id },
+            msg,
+        }
+    }
 
-    /// Consume the envelope, returning its id and payload bytes.
+    /// Consume the envelope, returning its header and payload bytes.
     #[must_use]
-    pub fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    pub fn into_parts(self) -> (PacketHeader, Vec<u8>) { (self.header, self.msg) }
 }
 
 impl Packet for Envelope {
-    fn id(&self) -> u32 { self.id }
+    fn id(&self) -> u32 { self.header.id }
 
-    fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.msg) }
+    fn correlation_id(&self) -> u64 { self.header.correlation_id }
 
-    fn from_parts(id: u32, msg: Vec<u8>) -> Self { Self { id, msg } }
+    fn into_parts(self) -> (u32, u64, Vec<u8>) {
+        let (header, msg) = Envelope::into_parts(self);
+        (header.id, header.correlation_id, msg)
+    }
+
+    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+        Envelope::new(id, correlation_id, msg)
+    }
 }
 
 /// Number of idle polls before terminating a connection.
@@ -266,13 +290,21 @@ where
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
     /// struct MyEnv {
     ///     id: u32,
+    ///     correlation_id: u64,
     ///     data: Vec<u8>,
     /// }
     ///
     /// impl Packet for MyEnv {
     ///     fn id(&self) -> u32 { self.id }
-    ///     fn into_parts(self) -> (u32, Vec<u8>) { (self.id, self.data) }
-    ///     fn from_parts(id: u32, data: Vec<u8>) -> Self { Self { id, data } }
+    ///     fn correlation_id(&self) -> u64 { self.correlation_id }
+    ///     fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.data) }
+    ///     fn from_parts(id: u32, correlation_id: u64, data: Vec<u8>) -> Self {
+    ///         Self {
+    ///             id,
+    ///             correlation_id,
+    ///             data,
+    ///         }
+    ///     }
     /// }
     ///
     /// let app = WireframeApp::<_, _, MyEnv>::new().expect("failed to create app");
@@ -693,26 +725,24 @@ where
             }
         };
 
-        if let Some(service) = routes.get(&env.id) {
-            let request = ServiceRequest::new(env.msg);
+        if let Some(service) = routes.get(&env.header.id) {
+            let request = ServiceRequest::new(env.msg, env.header.correlation_id);
             match service.call(request).await {
                 Ok(resp) => {
-                    let response = Envelope {
-                        id: env.id,
-                        msg: resp.into_inner(),
-                    };
+                    let response =
+                        Envelope::new(env.header.id, env.header.correlation_id, resp.into_inner());
                     if let Err(e) = self.send_response(stream, &response).await {
                         tracing::warn!(error = %e, "failed to send response");
                         crate::metrics::inc_handler_errors();
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(id = env.id, error = ?e, "handler error");
+                    tracing::warn!(id = env.header.id, error = ?e, "handler error");
                     crate::metrics::inc_handler_errors();
                 }
             }
         } else {
-            tracing::warn!("no handler for message id {}", env.id);
+            tracing::warn!("no handler for message id {}", env.header.id);
             crate::metrics::inc_handler_errors();
         }
 

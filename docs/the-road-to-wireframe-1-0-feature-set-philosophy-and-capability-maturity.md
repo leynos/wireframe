@@ -59,6 +59,10 @@ pub enum Response<F = Frame, E = MyProtocolError> {
 }
 ```
 
+Each frame header now carries a 64-bit `correlation_id`. Requests set this
+value, and every packet in a multi-part response repeats it, so clients can
+match frames to the originating request.
+
 This design is powered by the `async-stream` crate, which allows developers to
 write imperative-looking logic that generates a declarative `Stream` object. It
 provides the best of both worlds: the intuitive feel of a `for` loop for
