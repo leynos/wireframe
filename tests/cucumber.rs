@@ -1,7 +1,8 @@
-//! Cucumber test runner for panic resilience integration tests.
+//! Cucumber test runner for integration tests.
 //!
-//! Runs behavioural tests defined in `tests/features/` using the
-//! `PanicWorld` test context to verify server panic handling.
+//! Runs behavioural tests defined in `tests/features/` using appropriate
+//! test contexts to verify server panic handling and correlation ID
+//! propagation.
 
 mod steps;
 mod world;
