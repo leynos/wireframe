@@ -60,7 +60,7 @@ impl<T, F> PreambleSuccessHandler<T> for F where
 pub type PreambleCallback<T> = Arc<dyn PreambleSuccessHandler<T>>;
 
 /// Callback invoked when decoding a connection preamble fails.
-pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
+pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync + 'static>;
 
 /// Tokio-based server for [`WireframeApp`] instances.
 ///
@@ -106,7 +106,7 @@ where
 }
 
 /// Marker indicating the server has not yet bound a listener.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Unbound;
 
 /// Marker indicating the server is bound to a TCP listener.
