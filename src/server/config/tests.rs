@@ -209,6 +209,53 @@ fn test_accept_backoff_configuration(
     assert_eq!(server.backoff_config.max_delay, max);
 }
 
+#[test]
+fn test_accept_exponential_backoff_behavior() {
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
+
+    let initial = Duration::from_millis(10);
+    let max = Duration::from_millis(80);
+    let mut backoff = initial;
+    let mut delays = Vec::new();
+    let attempts = 5;
+
+    let start = Instant::now();
+    let mut last = start;
+
+    for _i in 0..attempts {
+        thread::sleep(backoff);
+        let now = Instant::now();
+        let elapsed = now.duration_since(last);
+        delays.push(elapsed);
+        last = now;
+
+        backoff = std::cmp::min(backoff * 2, max);
+    }
+
+    let expected_delays = [
+        initial,
+        std::cmp::min(initial * 2, max),
+        std::cmp::min(initial * 4, max),
+        std::cmp::min(initial * 8, max),
+        max,
+    ];
+
+    for (i, (actual, expected)) in delays.iter().zip(expected_delays.iter()).enumerate() {
+        assert!(
+            *actual >= *expected,
+            "Delay {i} was {actual:?}, expected at least {expected:?}"
+        );
+        let max_expected = *expected + Duration::from_millis(20);
+        assert!(
+            *actual < max_expected,
+            "Delay {i} was {actual:?}, expected less than {max_expected:?}"
+        );
+    }
+}
+
 #[rstest]
 fn test_accept_initial_delay_configuration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
