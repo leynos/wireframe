@@ -58,12 +58,18 @@ where
     /// provided each time the server is started.
     pub(crate) ready_tx: Option<oneshot::Sender<()>>,
     pub(crate) listener: Option<Arc<TcpListener>>,
+    /// Configuration for exponential backoff when `accept()` fails.
+    /// Defaults to 10ms initial delay with 1s maximum.
+    pub(crate) backoff_config: runtime::BackoffConfig,
     pub(crate) _preamble: PhantomData<T>,
 }
 
 mod config;
 mod connection;
 mod runtime;
+
+/// Re-exported configuration types for server backoff behavior.
+pub use runtime::BackoffConfig;
 
 #[cfg(test)]
 pub(crate) mod test_util;

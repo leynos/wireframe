@@ -10,6 +10,7 @@ use std::{
     io,
     net::{SocketAddr, TcpListener as StdTcpListener},
     sync::Arc,
+    time::Duration,
 };
 
 use bincode::error::DecodeError;
@@ -50,6 +51,7 @@ where
             on_preamble_failure: None,
             ready_tx: None,
             listener: None,
+            backoff_config: super::runtime::BackoffConfig::default(),
             _preamble: PhantomData,
         }
     }
@@ -90,6 +92,7 @@ where
             on_preamble_failure: None,
             ready_tx: None,
             listener: self.listener,
+            backoff_config: self.backoff_config,
             _preamble: PhantomData,
         }
     }
@@ -257,5 +260,79 @@ where
         let tokio = TcpListener::from_std(std)?;
         self.listener = Some(Arc::new(tokio));
         Ok(self)
+    }
+
+    /// Configure the exponential backoff parameters for accept loop retries.
+    ///
+    /// # Behaviour
+    /// - If `initial_delay > max_delay`, the values are swapped.
+    /// - `initial_delay` is clamped to at least 1 millisecond.
+    /// - `max_delay` is raised to be at least `initial_delay` to preserve invariants.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default())
+    ///     .accept_backoff(Duration::from_millis(5), Duration::from_millis(500));
+    /// ```
+    #[must_use]
+    pub fn accept_backoff(mut self, initial_delay: Duration, max_delay: Duration) -> Self {
+        let (mut a, mut b) = (initial_delay, max_delay);
+        if a > b {
+            core::mem::swap(&mut a, &mut b);
+        }
+        let init = a.max(Duration::from_millis(1));
+        let maxd = b.max(init);
+
+        self.backoff_config.initial_delay = init;
+        self.backoff_config.max_delay = maxd;
+        self
+    }
+
+    /// Configure the initial delay for accept loop retries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default())
+    ///     .accept_initial_delay(Duration::from_millis(5));
+    /// ```
+    #[must_use]
+    pub fn accept_initial_delay(mut self, delay: Duration) -> Self {
+        self.backoff_config.initial_delay = delay.max(Duration::from_millis(1));
+        if self.backoff_config.initial_delay > self.backoff_config.max_delay {
+            self.backoff_config.max_delay = self.backoff_config.initial_delay;
+        }
+        self
+    }
+
+    /// Configure the maximum delay cap for accept loop retries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default())
+    ///     .accept_max_delay(Duration::from_millis(500));
+    /// ```
+    #[must_use]
+    pub fn accept_max_delay(mut self, delay: Duration) -> Self {
+        if delay < self.backoff_config.initial_delay {
+            self.backoff_config.max_delay = self.backoff_config.initial_delay;
+        } else {
+            self.backoff_config.max_delay = delay;
+        }
+        self
     }
 }
