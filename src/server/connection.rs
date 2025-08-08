@@ -215,46 +215,41 @@ mod tests {
 
     /// Panics increment the connection panic counter.
     #[rstest]
-    fn connection_panic_metric_increments(
+    #[tokio::test]
+    async fn connection_panic_metric_increments(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
-        metrics::with_local_recorder(&recorder, move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("rt build");
-            rt.block_on(async {
-                let app_factory = move || {
-                    factory()
-                        .on_connection_setup(|| async { panic!("boom") })
-                        .unwrap()
-                };
-                let tracker = TaskTracker::new();
-                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-                let addr = listener.local_addr().unwrap();
+        recorder.install().expect("recorder install");
 
-                let handle = tokio::spawn({
-                    let tracker = tracker.clone();
-                    let app_factory = app_factory;
-                    async move {
-                        let (stream, _) = listener.accept().await.unwrap();
-                        spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
-                        tracker.close();
-                        tracker.wait().await;
-                    }
-                });
+        let app_factory = move || {
+            factory()
+                .on_connection_setup(|| async { panic!("boom") })
+                .unwrap()
+        };
+        let tracker = TaskTracker::new();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
 
-                let client = TcpStream::connect(addr).await.unwrap();
-                client.writable().await.unwrap();
-                client.try_write(&[0; 8]).unwrap();
-                drop(client);
-
-                handle.await.unwrap();
-                tokio::task::yield_now().await;
-            });
+        let task = tokio::spawn({
+            let tracker = tracker.clone();
+            let app_factory = app_factory;
+            async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
+                tracker.close();
+                tracker.wait().await;
+            }
         });
+
+        let client = TcpStream::connect(addr).await.unwrap();
+        client.writable().await.unwrap();
+        client.try_write(&[0; 8]).unwrap();
+        drop(client);
+
+        task.await.unwrap();
+        tokio::task::yield_now().await;
 
         let metrics = snapshotter.snapshot().into_vec();
         let found = metrics.iter().any(|(k, _, _, v)| {

@@ -70,9 +70,14 @@ fn connection_panic_metric_increments() {
     });
 
     let metrics = snapshotter.snapshot().into_vec();
-    let found = metrics.iter().any(|(k, _, _, v)| {
-        k.key().name() == wireframe::metrics::CONNECTION_PANICS
-            && matches!(v, DebugValue::Counter(c) if *c > 0)
-    });
-    assert!(found, "panic metric not recorded");
+    let count = metrics
+        .iter()
+        .find_map(|(k, _, _, v)| {
+            (k.key().name() == wireframe::metrics::CONNECTION_PANICS).then_some(match v {
+                DebugValue::Counter(c) => *c,
+                _ => 0,
+            })
+        })
+        .unwrap_or(0);
+    assert_eq!(1, count, "panic metric not recorded");
 }
