@@ -498,6 +498,41 @@ frame processing, akin to how `tokio-util::codec` operates, endows "wireframe"
 with the necessary flexibility to adapt to this diversity without embedding
 assumptions about any single framing strategy into its core.
 
+#### 4.3.1 Packet Abstraction
+
+The library defines a `Packet` trait to represent transport frames. Frames can
+be decomposed into `PacketParts` for efficient handling and re-assembly.
+`Envelope` is the default implementation used by `wireframe`.
+
+```mermaid
+classDiagram
+    class Packet {
+        +id() u32
+        +correlation_id() Option<u64>
+        +into_parts() PacketParts
+        +from_parts(parts: PacketParts) Self
+    }
+    class PacketParts {
+        +id: u32
+        +correlation_id: Option<u64>
+        +msg: Vec<u8>
+    }
+    class Envelope {
+        +id: u32
+        +correlation_id: Option<u64>
+        +msg: Vec<u8>
+        +new(id: u32, correlation_id: Option<u64>, msg: Vec<u8>)
+        +into_parts() PacketParts
+    }
+    Packet <|.. Envelope
+    PacketParts <.. Envelope : uses
+    PacketParts <.. Packet : uses
+```
+
+`Envelope` implements `Packet`, carrying payload and metadata through the
+system. `PacketParts` avoids repetitive tuple unpacking when frames are split
+into constituent pieces.
+
 ### 4.4. Message Serialization and Deserialization
 
 The conversion of frame payloads to and from Rust types is a critical source of
