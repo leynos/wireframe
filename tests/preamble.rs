@@ -1,6 +1,9 @@
 //! Tests for connection preamble reading.
 
-use std::io;
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
 
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
@@ -220,82 +223,72 @@ async fn success_callback_can_write_response(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 struct OtherPreamble(u8);
 
+type Holder = Arc<Mutex<Option<oneshot::Sender<()>>>>;
+
+fn channel_holder() -> (Holder, oneshot::Receiver<()>) {
+    let (tx, rx) = oneshot::channel();
+    (Arc::new(Mutex::new(Some(tx))), rx)
+}
+
+fn success_cb<P>(
+    holder: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+) -> impl for<'a> Fn(&'a P, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>> + Send + Sync + 'static
+{
+    move |_, _| {
+        let holder = holder.clone();
+        Box::pin(async move {
+            if let Some(tx) = holder.lock().expect("lock").take() {
+                let _ = tx.send(());
+            }
+            Ok(())
+        })
+    }
+}
+
+fn failure_cb(
+    holder: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+) -> impl Fn(&DecodeError) + Send + Sync + 'static {
+    move |_| {
+        if let Some(tx) = holder.lock().expect("lock").take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
 #[rstest]
 #[tokio::test]
 async fn callbacks_dropped_when_overriding_preamble(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
-    let (hotline_success_tx, hotline_success_rx) = tokio::sync::oneshot::channel::<()>();
-    let (hotline_failure_tx, hotline_failure_rx) = tokio::sync::oneshot::channel::<()>();
-    let (other_success_tx, other_success_rx) = tokio::sync::oneshot::channel::<()>();
-    let (other_failure_tx, other_failure_rx) = tokio::sync::oneshot::channel::<()>();
-
-    let hotline_success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(hotline_success_tx)));
-    let hotline_failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(hotline_failure_tx)));
-    let other_success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(other_success_tx)));
-    let other_failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(other_failure_tx)));
+    let (hotline_success, hotline_success_rx) = channel_holder();
+    let (hotline_failure, hotline_failure_rx) = channel_holder();
+    let (other_success, other_success_rx) = channel_holder();
+    let (other_failure, other_failure_rx) = channel_holder();
 
     let server = WireframeServer::new(factory.clone())
         .with_preamble::<HotlinePreamble>()
-        .on_preamble_decode_success({
-            let hotline_success_tx = hotline_success_tx.clone();
-            move |_, _| {
-                let hotline_success_tx = hotline_success_tx.clone();
-                Box::pin(async move {
-                    if let Some(tx) = hotline_success_tx.lock().expect("lock").take() {
-                        let _ = tx.send(());
-                    }
-                    Ok(())
-                })
-            }
-        })
-        .on_preamble_decode_failure({
-            let hotline_failure_tx = hotline_failure_tx.clone();
-            move |_| {
-                if let Some(tx) = hotline_failure_tx.lock().expect("lock").take() {
-                    let _ = tx.send(());
-                }
-            }
-        })
+        .on_preamble_decode_success(success_cb::<HotlinePreamble>(hotline_success.clone()))
+        .on_preamble_decode_failure(failure_cb(hotline_failure.clone()))
         .with_preamble::<OtherPreamble>()
-        .on_preamble_decode_success({
-            let other_success_tx = other_success_tx.clone();
-            move |_: &OtherPreamble, _| {
-                let other_success_tx = other_success_tx.clone();
-                Box::pin(async move {
-                    if let Some(tx) = other_success_tx.lock().expect("lock").take() {
-                        let _ = tx.send(());
-                    }
-                    Ok(())
-                })
-            }
-        })
-        .on_preamble_decode_failure({
-            let other_failure_tx = other_failure_tx.clone();
-            move |_: &DecodeError| {
-                if let Some(tx) = other_failure_tx.lock().expect("lock").take() {
-                    let _ = tx.send(());
-                }
-            }
-        });
+        .on_preamble_decode_success(success_cb::<OtherPreamble>(other_success.clone()))
+        .on_preamble_decode_failure(failure_cb(other_failure.clone()));
 
     with_running_server(server, |addr| async move {
         let mut stream = TcpStream::connect(addr).await.expect("connect failed");
         let config = bincode::config::standard()
             .with_big_endian()
             .with_fixed_int_encoding();
-        let mut bytes = bincode::encode_to_vec(OtherPreamble(1), config).unwrap();
+        let mut bytes = bincode::encode_to_vec(OtherPreamble(1), config).expect("encode preamble");
         bytes.resize(8, 0);
         stream.write_all(&bytes).await.expect("write failed");
         stream.shutdown().await.expect("shutdown failed");
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        // Wait for the success callback before shutting down the server.
+        timeout(Duration::from_secs(1), other_success_rx)
+            .await
+            .expect("timeout waiting for other success")
+            .expect("other success send");
     })
     .await;
-
-    timeout(Duration::from_secs(1), other_success_rx)
-        .await
-        .expect("timeout waiting for other success")
-        .expect("other success send");
     assert!(
         timeout(Duration::from_millis(500), other_failure_rx)
             .await

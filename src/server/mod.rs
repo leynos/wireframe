@@ -51,6 +51,8 @@ where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // `Preamble` covers types implementing `BorrowDecode` for any lifetime,
     // enabling decoding of borrowed data without external context.
+    // `()` already satisfies this bound via `bincode`, so servers default to
+    // having no preamble.
     T: Preamble,
     S: ServerState,
 {
