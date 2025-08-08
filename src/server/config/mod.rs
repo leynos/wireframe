@@ -302,7 +302,7 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())(important - comment)
+    /// let server = WireframeServer::new(|| WireframeApp::default())
     ///     .accept_initial_delay(Duration::from_millis(5));
     /// ```
     #[must_use]
@@ -323,7 +323,7 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())(important - comment)
+    /// let server = WireframeServer::new(|| WireframeApp::default())
     ///     .accept_max_delay(Duration::from_millis(500));
     /// ```
     #[must_use]
