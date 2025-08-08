@@ -259,3 +259,23 @@ fn test_initial_delay_exceeds_default_max(
     assert_eq!(server.backoff_config.initial_delay, Duration::from_secs(2));
     assert_eq!(server.backoff_config.max_delay, Duration::from_secs(2));
 }
+
+#[rstest]
+fn test_accept_backoff_parameter_swapping(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let server = WireframeServer::new(factory.clone())
+        .accept_backoff(Duration::from_millis(5), Duration::from_millis(1));
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        Duration::from_millis(1)
+    );
+    assert_eq!(server.backoff_config.max_delay, Duration::from_millis(5));
+
+    let server = WireframeServer::new(factory).accept_backoff(Duration::ZERO, Duration::ZERO);
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        Duration::from_millis(1)
+    );
+    assert_eq!(server.backoff_config.max_delay, Duration::from_millis(1));
+}
