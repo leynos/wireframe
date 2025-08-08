@@ -38,7 +38,7 @@ pub(super) fn spawn_connection_task<F, T>(
         .catch_unwind();
 
         if let Err(panic) = fut.await {
-            crate::metrics::inc_connection_panics(peer_addr);
+            crate::metrics::inc_connection_panics();
             let panic_msg = panic
                 .downcast_ref::<&str>()
                 .copied()

@@ -15,8 +15,6 @@
 //! println!("{}", handle.render());
 //! ```
 
-use std::net::SocketAddr;
-
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge};
 
@@ -86,16 +84,7 @@ pub fn inc_handler_errors() {}
 
 /// Record a panicking connection task.
 #[cfg(feature = "metrics")]
-pub fn inc_connection_panics(peer_addr: Option<SocketAddr>) {
-    match peer_addr {
-        Some(addr) => {
-            counter!(CONNECTION_PANICS, "peer_addr" => addr.to_string()).increment(1);
-        }
-        None => {
-            counter!(CONNECTION_PANICS, "peer_addr" => "unknown").increment(1);
-        }
-    }
-}
+pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
 
 #[cfg(not(feature = "metrics"))]
-pub fn inc_connection_panics(_peer_addr: Option<SocketAddr>) {}
+pub fn inc_connection_panics() {}
