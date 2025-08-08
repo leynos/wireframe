@@ -13,7 +13,7 @@ use std::{
 
 use bytes::BytesMut;
 use wireframe::{
-    app::{Envelope, Packet, WireframeApp},
+    app::{Envelope, Packet, PacketParts, WireframeApp},
     frame::{FrameProcessor, LengthPrefixedProcessor},
     serializer::{BincodeSerializer, Serializer},
 };
@@ -102,22 +102,28 @@ async fn teardown_without_setup_does_not_run() {
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct StateEnvelope {
     id: u32,
-    correlation_id: u64,
+    correlation_id: Option<u64>,
     msg: Vec<u8>,
 }
 
-impl wireframe::app::Packet for StateEnvelope {
+impl Packet for StateEnvelope {
     fn id(&self) -> u32 { self.id }
 
-    fn correlation_id(&self) -> u64 { self.correlation_id }
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
-    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.msg) }
+    fn into_parts(self) -> PacketParts {
+        PacketParts {
+            id: self.id,
+            correlation_id: self.correlation_id,
+            msg: self.msg,
+        }
+    }
 
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+    fn from_parts(parts: PacketParts) -> Self {
         Self {
-            id,
-            correlation_id,
-            msg,
+            id: parts.id,
+            correlation_id: parts.correlation_id,
+            msg: parts.msg,
         }
     }
 }
@@ -134,7 +140,7 @@ async fn helpers_propagate_connection_state() {
 
     let env = StateEnvelope {
         id: 1,
-        correlation_id: 0,
+        correlation_id: Some(0),
         msg: vec![1],
     };
     let bytes = BincodeSerializer

@@ -163,15 +163,20 @@ impl From<io::Error> for SendError {
 /// impl Packet for CustomEnvelope {
 ///     fn id(&self) -> u32 { self.id }
 ///
-///     fn correlation_id(&self) -> u64 { 0 }
+///     fn correlation_id(&self) -> Option<u64> { None }
 ///
-///     fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, 0, self.payload) }
+///     fn into_parts(self) -> PacketParts {
+///         PacketParts {
+///             id: self.id,
+///             correlation_id: None,
+///             msg: self.payload,
+///         }
+///     }
 ///
-///     fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
-///         let _ = correlation_id;
+///     fn from_parts(parts: PacketParts) -> Self {
 ///         Self {
-///             id,
-///             payload: msg,
+///             id: parts.id,
+///             payload: parts.msg,
 ///             timestamp: 0,
 ///         }
 ///     }
@@ -182,58 +187,65 @@ pub trait Packet: Message + Send + Sync + 'static {
     fn id(&self) -> u32;
 
     /// Return the correlation identifier tying this frame to a request.
-    fn correlation_id(&self) -> u64;
+    fn correlation_id(&self) -> Option<u64>;
 
     /// Consume the packet and return its identifier, correlation id and payload bytes.
-    fn into_parts(self) -> (u32, u64, Vec<u8>);
+    fn into_parts(self) -> PacketParts;
 
-    /// Construct a new packet from id, correlation id and raw payload bytes.
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self;
+    /// Construct a new packet from raw parts.
+    fn from_parts(parts: PacketParts) -> Self;
+}
+
+/// Component values extracted from or used to build a [`Packet`].
+#[derive(Debug)]
+pub struct PacketParts {
+    pub id: u32,
+    pub correlation_id: Option<u64>,
+    pub msg: Vec<u8>,
 }
 
 /// Basic envelope type used by [`handle_connection`].
 ///
-/// Incoming frames are deserialized into an `Envelope` containing the
+/// Incoming frames are deserialised into an `Envelope` containing the
 /// message identifier and raw payload bytes.
-#[derive(bincode::Decode, bincode::Encode, Copy, Clone, Debug)]
-pub struct PacketHeader {
-    pub(crate) id: u32,
-    pub(crate) correlation_id: u64,
-}
-
 #[derive(bincode::Decode, bincode::Encode, Debug)]
 pub struct Envelope {
-    pub(crate) header: PacketHeader,
+    pub(crate) id: u32,
+    pub(crate) correlation_id: Option<u64>,
     pub(crate) msg: Vec<u8>,
 }
 
 impl Envelope {
     /// Create a new [`Envelope`] with the provided identifiers and payload.
     #[must_use]
-    pub fn new(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+    pub fn new(id: u32, correlation_id: Option<u64>, msg: Vec<u8>) -> Self {
         Self {
-            header: PacketHeader { id, correlation_id },
+            id,
+            correlation_id,
             msg,
         }
     }
 
-    /// Consume the envelope, returning its header and payload bytes.
+    /// Consume the envelope, returning its parts.
     #[must_use]
-    pub fn into_parts(self) -> (PacketHeader, Vec<u8>) { (self.header, self.msg) }
+    pub fn into_parts(self) -> PacketParts {
+        PacketParts {
+            id: self.id,
+            correlation_id: self.correlation_id,
+            msg: self.msg,
+        }
+    }
 }
 
 impl Packet for Envelope {
-    fn id(&self) -> u32 { self.header.id }
+    fn id(&self) -> u32 { self.id }
 
-    fn correlation_id(&self) -> u64 { self.header.correlation_id }
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
-    fn into_parts(self) -> (u32, u64, Vec<u8>) {
-        let (header, msg) = Envelope::into_parts(self);
-        (header.id, header.correlation_id, msg)
-    }
+    fn into_parts(self) -> PacketParts { Envelope::into_parts(self) }
 
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
-        Envelope::new(id, correlation_id, msg)
+    fn from_parts(parts: PacketParts) -> Self {
+        Envelope::new(parts.id, parts.correlation_id, parts.msg)
     }
 }
 
@@ -290,19 +302,25 @@ where
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
     /// struct MyEnv {
     ///     id: u32,
-    ///     correlation_id: u64,
+    ///     correlation_id: Option<u64>,
     ///     data: Vec<u8>,
     /// }
     ///
     /// impl Packet for MyEnv {
     ///     fn id(&self) -> u32 { self.id }
-    ///     fn correlation_id(&self) -> u64 { self.correlation_id }
-    ///     fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.data) }
-    ///     fn from_parts(id: u32, correlation_id: u64, data: Vec<u8>) -> Self {
+    ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    ///     fn into_parts(self) -> PacketParts {
+    ///         PacketParts {
+    ///             id: self.id,
+    ///             correlation_id: self.correlation_id,
+    ///             msg: self.data,
+    ///         }
+    ///     }
+    ///     fn from_parts(parts: PacketParts) -> Self {
     ///         Self {
-    ///             id,
-    ///             correlation_id,
-    ///             data,
+    ///             id: parts.id,
+    ///             correlation_id: parts.correlation_id,
+    ///             data: parts.msg,
     ///         }
     ///     }
     /// }
@@ -725,24 +743,24 @@ where
             }
         };
 
-        if let Some(service) = routes.get(&env.header.id) {
-            let request = ServiceRequest::new(env.msg, env.header.correlation_id);
+        if let Some(service) = routes.get(&env.id) {
+            let request = ServiceRequest::new(env.msg, env.correlation_id);
             match service.call(request).await {
                 Ok(resp) => {
-                    let response =
-                        Envelope::new(env.header.id, env.header.correlation_id, resp.into_inner());
+                    let correlation_id = resp.correlation_id().or(env.correlation_id);
+                    let response = Envelope::new(env.id, correlation_id, resp.into_inner());
                     if let Err(e) = self.send_response(stream, &response).await {
-                        tracing::warn!(error = %e, "failed to send response");
+                        tracing::warn!(id = env.id, correlation_id = ?correlation_id, error = %e, "failed to send response");
                         crate::metrics::inc_handler_errors();
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(id = env.header.id, error = ?e, "handler error");
+                    tracing::warn!(id = env.id, correlation_id = ?env.correlation_id, error = ?e, "handler error");
                     crate::metrics::inc_handler_errors();
                 }
             }
         } else {
-            tracing::warn!("no handler for message id {}", env.header.id);
+            tracing::warn!(id = env.id, correlation_id = ?env.correlation_id, "no handler for message id");
             crate::metrics::inc_handler_errors();
         }
 

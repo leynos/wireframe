@@ -12,7 +12,8 @@ impl Service for EchoService {
     type Error = std::convert::Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-        Ok(ServiceResponse::new(req.into_inner()))
+        let cid = req.correlation_id();
+        Ok(ServiceResponse::new(req.into_inner(), cid))
     }
 }
 
@@ -54,7 +55,20 @@ async fn middleware_modifies_request_and_response() {
     let mw = ModifyMiddleware;
     let wrapped = mw.transform(service).await;
 
-    let request = ServiceRequest::new(vec![1, 2, 3], 0);
+    let request = ServiceRequest::new(vec![1, 2, 3], Some(0));
     let response = wrapped.call(request).await.expect("middleware call failed");
     assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
+}
+
+#[tokio::test]
+async fn test_modify_middleware_preserves_nonzero_correlation_id() {
+    let service = EchoService;
+    let mw = ModifyMiddleware;
+    let wrapped = mw.transform(service).await;
+
+    let correlation_id = Some(42);
+    let request = ServiceRequest::new(vec![4, 5, 6], correlation_id);
+    let response = wrapped.call(request).await.expect("middleware call failed");
+    assert_eq!(response.frame(), &[4, 5, 6, b'!', b'?']);
+    assert_eq!(response.correlation_id(), correlation_id);
 }
