@@ -170,7 +170,7 @@ async fn server_triggers_expected_callback(
                 .expect("success send");
             assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
             assert!(
-                timeout(Duration::from_millis(100), failure_rx)
+                timeout(Duration::from_millis(500), failure_rx)
                     .await
                     .is_err()
             );
@@ -181,7 +181,7 @@ async fn server_triggers_expected_callback(
                 .expect("timeout waiting for failure")
                 .expect("failure send");
             assert!(
-                timeout(Duration::from_millis(100), success_rx)
+                timeout(Duration::from_millis(500), success_rx)
                     .await
                     .is_err()
             );
@@ -227,9 +227,13 @@ async fn callbacks_dropped_when_overriding_preamble(
 ) {
     let (hotline_success_tx, hotline_success_rx) = tokio::sync::oneshot::channel::<()>();
     let (hotline_failure_tx, hotline_failure_rx) = tokio::sync::oneshot::channel::<()>();
+    let (other_success_tx, other_success_rx) = tokio::sync::oneshot::channel::<()>();
+    let (other_failure_tx, other_failure_rx) = tokio::sync::oneshot::channel::<()>();
 
     let hotline_success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(hotline_success_tx)));
     let hotline_failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(hotline_failure_tx)));
+    let other_success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(other_success_tx)));
+    let other_failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(other_failure_tx)));
 
     let server = WireframeServer::new(factory.clone())
         .with_preamble::<HotlinePreamble>()
@@ -253,28 +257,59 @@ async fn callbacks_dropped_when_overriding_preamble(
                 }
             }
         })
-        .with_preamble::<OtherPreamble>();
+        .with_preamble::<OtherPreamble>()
+        .on_preamble_decode_success({
+            let other_success_tx = other_success_tx.clone();
+            move |_: &OtherPreamble, _| {
+                let other_success_tx = other_success_tx.clone();
+                Box::pin(async move {
+                    if let Some(tx) = other_success_tx.lock().expect("lock").take() {
+                        let _ = tx.send(());
+                    }
+                    Ok(())
+                })
+            }
+        })
+        .on_preamble_decode_failure({
+            let other_failure_tx = other_failure_tx.clone();
+            move |_: &DecodeError| {
+                if let Some(tx) = other_failure_tx.lock().expect("lock").take() {
+                    let _ = tx.send(());
+                }
+            }
+        });
 
     with_running_server(server, |addr| async move {
         let mut stream = TcpStream::connect(addr).await.expect("connect failed");
         let config = bincode::config::standard()
             .with_big_endian()
             .with_fixed_int_encoding();
-        let bytes = bincode::encode_to_vec(OtherPreamble(1), config).unwrap();
+        let mut bytes = bincode::encode_to_vec(OtherPreamble(1), config).unwrap();
+        bytes.resize(8, 0);
         stream.write_all(&bytes).await.expect("write failed");
         stream.shutdown().await.expect("shutdown failed");
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     })
     .await;
 
+    timeout(Duration::from_secs(1), other_success_rx)
+        .await
+        .expect("timeout waiting for other success")
+        .expect("other success send");
     assert!(
-        timeout(Duration::from_millis(100), hotline_success_rx)
+        timeout(Duration::from_millis(500), other_failure_rx)
+            .await
+            .is_err(),
+        "other failure callback invoked",
+    );
+    assert!(
+        timeout(Duration::from_millis(500), hotline_success_rx)
             .await
             .is_err(),
         "hotline success callback invoked",
     );
     assert!(
-        timeout(Duration::from_millis(100), hotline_failure_rx)
+        timeout(Duration::from_millis(500), hotline_failure_rx)
             .await
             .is_err(),
         "hotline failure callback invoked",

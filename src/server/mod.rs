@@ -15,15 +15,26 @@ use crate::{app::WireframeApp, preamble::Preamble};
 
 /// Handler invoked when a connection preamble decodes successfully.
 ///
-/// The handler may perform asynchronous I/O on the provided stream before the
+/// Implementors may perform asynchronous I/O on the provided stream before the
 /// connection is handed off to [`WireframeApp`].
-pub type PreambleSuccessHandler<T> = dyn for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+pub trait PreambleSuccessHandler<T>:
+    for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
     + Send
     + Sync
-    + 'static;
+    + 'static
+{
+}
+
+impl<T, F> PreambleSuccessHandler<T> for F where
+    F: for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+        + Send
+        + Sync
+        + 'static
+{
+}
 
 /// Callback invoked when a connection preamble decodes successfully.
-pub type PreambleCallback<T> = Arc<PreambleSuccessHandler<T>>;
+pub type PreambleCallback<T> = Arc<dyn PreambleSuccessHandler<T>>;
 
 /// Callback invoked when decoding a connection preamble fails.
 pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
@@ -64,21 +75,22 @@ where
     pub(crate) _preamble: PhantomData<T>,
 }
 
-/// Marker type for an unbound server.
+/// Marker indicating the server has not yet bound a listener.
 pub struct Unbound;
 
-/// Marker type for a bound server holding a listener.
+/// Marker indicating the server is bound to a TCP listener.
 pub struct Bound {
     pub(crate) listener: Arc<TcpListener>,
 }
 
-/// Trait implemented by binding state markers.
+/// Trait implemented by [`Unbound`] and [`Bound`] to model binding typestate.
 pub trait ServerState {}
 
 impl ServerState for Unbound {}
 impl ServerState for Bound {}
 
 mod config;
+pub use config::{binding, preamble};
 mod connection;
 pub mod error;
 mod runtime;

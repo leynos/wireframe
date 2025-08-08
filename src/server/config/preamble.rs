@@ -1,13 +1,15 @@
 //! Preamble configuration for [`WireframeServer`].
 
 use core::marker::PhantomData;
-use std::io;
 
 use bincode::error::DecodeError;
-use futures::future::BoxFuture;
 
 use super::WireframeServer;
-use crate::{app::WireframeApp, preamble::Preamble, server::ServerState};
+use crate::{
+    app::WireframeApp,
+    preamble::Preamble,
+    server::{PreambleSuccessHandler, ServerState},
+};
 
 impl<F, T, S> WireframeServer<F, T, S>
 where
@@ -71,7 +73,7 @@ where
         /// ```
         on_preamble_decode_success,
         on_preamble_success,
-        for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>> + Send + Sync + 'static
+        PreambleSuccessHandler<T>
     );
 
     builder_callback!(
