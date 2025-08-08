@@ -1,17 +1,43 @@
 //! Configuration utilities for [`WireframeServer`].
 //!
 //! Provides a fluent builder for configuring `WireframeServer` instances.
-//! The builder exposes worker count tuning, preamble callbacks,
-//! ready-signal configuration, and TCP binding via the [`binding`](self::binding)
-//! module. Preamble behaviour is customised through the [`preamble`](self::preamble)
-//! module. The server may be constructed unbound and later bound using
-//! the [`bind`](WireframeServer::bind) functions on unbound servers.
+//! The builder exposes worker count tuning and ready-signal configuration here.
+//! TCP binding is provided via the [`binding`](self::binding) module; preamble
+//! behaviour is customized via the [`preamble`](self::preamble) module. The
+//! server may be constructed unbound and later bound using
+//! [`bind`](WireframeServer::bind) or [`bind_listener`](WireframeServer::bind_listener)
+//! on [`Unbound`] servers.
 
 use core::marker::PhantomData;
 use tokio::sync::oneshot;
 
 use super::{ServerState, Unbound, WireframeServer};
 use crate::{app::WireframeApp, preamble::Preamble};
+
+macro_rules! builder_setter {
+    ($(#[$meta:meta])* $fn:ident, $field:ident, $arg:ident: $ty:ty => $assign:expr) => {
+        $(#[$meta])*
+        #[must_use]
+        pub fn $fn(mut self, $arg: $ty) -> Self {
+            self.$field = $assign;
+            self
+        }
+    };
+}
+
+macro_rules! builder_callback {
+    ($(#[$meta:meta])* $fn:ident, $field:ident, $($bound:tt)*) => {
+        $(#[$meta])*
+        #[must_use]
+        pub fn $fn<H>(mut self, handler: H) -> Self
+        where
+            H: $($bound)*,
+        {
+            self.$field = Some(Arc::new(handler));
+            self
+        }
+    };
+}
 
 pub mod binding;
 pub mod preamble;
@@ -23,9 +49,10 @@ where
     /// Create a new `WireframeServer` from the given application factory.
     ///
     /// The worker count defaults to the number of available CPU cores (or 1 if
-    /// this cannot be determined). The server is initially unbound; call
-    /// [`bind`](WireframeServer::bind) on the unbound server (method provided by the
-    /// [`binding`](self::binding) module) before running the server.
+    /// this cannot be determined). The server is initially [`Unbound`]; call
+    /// [`bind`](WireframeServer::bind) or
+    /// [`bind_listener`](WireframeServer::bind_listener)
+    /// (methods provided by the [`binding`](self::binding) module) before running the server.
     ///
     /// # Examples
     ///
@@ -48,38 +75,34 @@ where
     T: Preamble,
     S: ServerState,
 {
-    /// Set the number of worker tasks to spawn for the server.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let server = WireframeServer::new(|| WireframeApp::default()).workers(4);
-    /// assert_eq!(server.worker_count(), 4);
-    /// ```
-    #[must_use]
-    pub fn workers(mut self, count: usize) -> Self {
-        self.workers = count.max(1);
-        self
-    }
+    builder_setter!(
+        /// Set the number of worker tasks to spawn for the server.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use wireframe::{app::WireframeApp, server::WireframeServer};
+        ///
+        /// let server = WireframeServer::new(|| WireframeApp::default()).workers(4);
+        /// assert_eq!(server.worker_count(), 4);
+        /// ```
+        workers, workers, count: usize => count.max(1)
+    );
 
-    /// Configure a channel used to signal when the server is ready to accept connections.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::sync::oneshot;
-    /// use wireframe::{app::WireframeApp, server::WireframeServer};
-    ///
-    /// let (tx, _rx) = oneshot::channel();
-    /// let server = WireframeServer::new(|| WireframeApp::default()).ready_signal(tx);
-    /// ```
-    #[must_use]
-    pub fn ready_signal(mut self, tx: oneshot::Sender<()>) -> Self {
-        self.ready_tx = Some(tx);
-        self
-    }
+    builder_setter!(
+        /// Configure a channel used to signal when the server is ready to accept connections.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use tokio::sync::oneshot;
+        /// use wireframe::{app::WireframeApp, server::WireframeServer};
+        ///
+        /// let (tx, _rx) = oneshot::channel();
+        /// let server = WireframeServer::new(|| WireframeApp::default()).ready_signal(tx);
+        /// ```
+        ready_signal, ready_tx, tx: oneshot::Sender<()> => Some(tx)
+    );
 
     /// Returns the configured number of worker tasks for the server.
     ///
