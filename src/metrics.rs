@@ -15,6 +15,8 @@
 //! println!("{}", handle.render());
 //! ```
 
+use std::net::SocketAddr;
+
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge};
 
@@ -24,6 +26,8 @@ pub const CONNECTIONS_ACTIVE: &str = "wireframe_connections_active";
 pub const FRAMES_PROCESSED: &str = "wireframe_frames_processed_total";
 /// Name of the counter tracking error occurrences.
 pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
+/// Name of the counter tracking connection panics.
+pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
 
 /// Direction of frame processing.
 #[derive(Clone, Copy)]
@@ -79,3 +83,19 @@ pub fn inc_handler_errors() { counter!(ERRORS_TOTAL, "kind" => "handler").increm
 
 #[cfg(not(feature = "metrics"))]
 pub fn inc_handler_errors() {}
+
+/// Record a panicking connection task.
+#[cfg(feature = "metrics")]
+pub fn inc_connection_panics(peer_addr: Option<SocketAddr>) {
+    match peer_addr {
+        Some(addr) => {
+            counter!(CONNECTION_PANICS, "peer_addr" => addr.to_string()).increment(1);
+        }
+        None => {
+            counter!(CONNECTION_PANICS, "peer_addr" => "unknown").increment(1);
+        }
+    }
+}
+
+#[cfg(not(feature = "metrics"))]
+pub fn inc_connection_panics(_peer_addr: Option<SocketAddr>) {}

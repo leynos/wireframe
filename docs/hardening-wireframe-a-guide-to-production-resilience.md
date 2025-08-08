@@ -165,6 +165,13 @@ Initialization) pattern for safety.
 Connection tasks are wrapped with `catch_unwind` to log and discard panics.
 Each panicking connection is isolated so it cannot terminate the entire server.
 
+Each occurrence also increments the `wireframe_connection_panics_total`
+counter, enabling alerts on unexpected spikes. Operators can chart
+`rate(wireframe_connection_panics_total[5m])` in Prometheus and create Grafana
+panels to visualise instability. To emit this metric, enable the `metrics`
+Cargo feature and install a recorder such as `metrics_exporter_prometheus`,
+which exposes an HTTP endpoint for scraping.
+
 ### 3.2 Leak-Proof Registries with `Weak`/`Arc`
 
 A global `SessionRegistry` that stores `PushHandle`s to active connections is a

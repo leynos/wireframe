@@ -61,3 +61,22 @@ fn error_metric_increments() {
     });
     assert!(found, "error metric not recorded");
 }
+
+#[test]
+fn connection_panic_metric_increments() {
+    let (snapshotter, recorder) = debugging_recorder_setup();
+    let addr: std::net::SocketAddr = "127.0.0.1:12345".parse().unwrap();
+    metrics::with_local_recorder(&recorder, || {
+        wireframe::metrics::inc_connection_panics(Some(addr));
+    });
+
+    let metrics = snapshotter.snapshot().into_vec();
+    let found = metrics.iter().any(|(k, _, _, v)| {
+        k.key().name() == wireframe::metrics::CONNECTION_PANICS
+            && k.key()
+                .labels()
+                .any(|l| l.key() == "peer_addr" && l.value() == "127.0.0.1:12345")
+            && matches!(v, DebugValue::Counter(c) if *c > 0)
+    });
+    assert!(found, "panic metric not recorded");
+}
