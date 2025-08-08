@@ -61,3 +61,23 @@ fn error_metric_increments() {
     });
     assert!(found, "error metric not recorded");
 }
+
+#[test]
+fn connection_panic_metric_increments() {
+    let (snapshotter, recorder) = debugging_recorder_setup();
+    metrics::with_local_recorder(&recorder, || {
+        wireframe::metrics::inc_connection_panics();
+    });
+
+    let metrics = snapshotter.snapshot().into_vec();
+    let count = metrics
+        .iter()
+        .find_map(|(k, _, _, v)| {
+            (k.key().name() == wireframe::metrics::CONNECTION_PANICS).then_some(match v {
+                DebugValue::Counter(c) => *c,
+                _ => 0,
+            })
+        })
+        .unwrap_or(0);
+    assert_eq!(1, count, "panic metric not recorded");
+}

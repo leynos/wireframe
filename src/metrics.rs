@@ -24,6 +24,14 @@ pub const CONNECTIONS_ACTIVE: &str = "wireframe_connections_active";
 pub const FRAMES_PROCESSED: &str = "wireframe_frames_processed_total";
 /// Name of the counter tracking error occurrences.
 pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
+/// Name of the counter tracking connection panics.
+///
+/// ```text
+/// # HELP wireframe_connection_panics_total Count of panicking connection tasks.
+/// # TYPE wireframe_connection_panics_total counter
+/// wireframe_connection_panics_total 1
+/// ```
+pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
 
 /// Direction of frame processing.
 #[derive(Clone, Copy)]
@@ -79,3 +87,25 @@ pub fn inc_handler_errors() { counter!(ERRORS_TOTAL, "kind" => "handler").increm
 
 #[cfg(not(feature = "metrics"))]
 pub fn inc_handler_errors() {}
+
+/// Record a panicking connection task.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::panic::catch_unwind;
+///
+/// use wireframe::metrics;
+///
+/// let res = catch_unwind(|| {
+///     panic!("boom");
+/// });
+/// if res.is_err() {
+///     metrics::inc_connection_panics();
+/// }
+/// ```
+#[cfg(feature = "metrics")]
+pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
+
+#[cfg(not(feature = "metrics"))]
+pub fn inc_connection_panics() {}
