@@ -116,7 +116,15 @@ pub struct Bound {
 }
 
 /// Trait implemented by [`Unbound`] and [`Bound`] to model binding typestate.
-pub trait ServerState {}
+pub trait ServerState: sealed::Sealed {}
+
+mod sealed {
+    //! Prevent external implementations of [`ServerState`].
+
+    pub trait Sealed {}
+    impl Sealed for super::Unbound {}
+    impl Sealed for super::Bound {}
+}
 
 impl ServerState for Unbound {}
 impl ServerState for Bound {}
