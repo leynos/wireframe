@@ -98,16 +98,16 @@ payload bytes. Applications can supply their own envelope type by calling
 use wireframe::app::{Packet, PacketParts, WireframeApp};
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
-struct MyEnv { id: u32, correlation_id: Option<u64>, data: Vec<u8> }
+struct MyEnv { id: u32, correlation_id: Option<u64>, payload: Vec<u8> }
 
 impl Packet for MyEnv {
     fn id(&self) -> u32 { self.id }
     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     fn into_parts(self) -> PacketParts {
-        PacketParts { id: self.id, correlation_id: self.correlation_id, msg: self.data }
+        PacketParts { id: self.id, correlation_id: self.correlation_id, payload: self.payload }
     }
     fn from_parts(parts: PacketParts) -> Self {
-        Self { id: parts.id, correlation_id: parts.correlation_id, data: parts.msg }
+        Self { id: parts.id, correlation_id: parts.correlation_id, payload: parts.payload }
     }
 }
 

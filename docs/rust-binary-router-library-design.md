@@ -515,13 +515,13 @@ classDiagram
     class PacketParts {
         +id: u32
         +correlation_id: Option<u64>
-        +msg: Vec<u8>
+        +payload: Vec<u8>
     }
     class Envelope {
         +id: u32
         +correlation_id: Option<u64>
-        +msg: Vec<u8>
-        +new(id: u32, correlation_id: Option<u64>, msg: Vec<u8>)
+        +payload: Vec<u8>
+        +new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>)
         +into_parts() PacketParts
     }
     Packet <|.. Envelope

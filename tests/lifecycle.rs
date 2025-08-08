@@ -103,7 +103,7 @@ async fn teardown_without_setup_does_not_run() {
 struct StateEnvelope {
     id: u32,
     correlation_id: Option<u64>,
-    msg: Vec<u8>,
+    payload: Vec<u8>,
 }
 
 impl Packet for StateEnvelope {
@@ -112,18 +112,14 @@ impl Packet for StateEnvelope {
     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     fn into_parts(self) -> PacketParts {
-        PacketParts {
-            id: self.id,
-            correlation_id: self.correlation_id,
-            msg: self.msg,
-        }
+        PacketParts::new(self.id, self.correlation_id, self.payload)
     }
 
     fn from_parts(parts: PacketParts) -> Self {
         Self {
             id: parts.id,
             correlation_id: parts.correlation_id,
-            msg: parts.msg,
+            payload: parts.payload,
         }
     }
 }
@@ -141,7 +137,7 @@ async fn helpers_propagate_connection_state() {
     let env = StateEnvelope {
         id: 1,
         correlation_id: Some(0),
-        msg: vec![1],
+        payload: vec![1],
     };
     let bytes = BincodeSerializer
         .serialize(&env)

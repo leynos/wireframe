@@ -311,15 +311,14 @@ impl<E: Packet> Service for RouteService<E> {
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         // The handler only borrows the envelope, allowing us to consume it
         // afterwards to extract the response payload.
-        let parts = PacketParts {
-            id: self.id,
-            correlation_id: req.correlation_id(),
-            msg: req.into_inner(),
-        };
-        let env = E::from_parts(parts);
+        let env = E::from_parts(PacketParts::new(
+            self.id,
+            req.correlation_id(),
+            req.into_inner(),
+        ));
         (self.handler.as_ref())(&env).await;
         let parts = env.into_parts();
-        Ok(ServiceResponse::new(parts.msg, parts.correlation_id))
+        Ok(ServiceResponse::new(parts.payload, parts.correlation_id))
     }
 }
 

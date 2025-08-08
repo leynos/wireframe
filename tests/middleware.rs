@@ -72,3 +72,15 @@ async fn test_modify_middleware_preserves_nonzero_correlation_id() {
     assert_eq!(response.frame(), &[4, 5, 6, b'!', b'?']);
     assert_eq!(response.correlation_id(), correlation_id);
 }
+
+#[tokio::test]
+async fn middleware_preserves_none_correlation_id() {
+    let service = EchoService;
+    let mw = ModifyMiddleware;
+    let wrapped = mw.transform(service).await;
+
+    let request = ServiceRequest::new(vec![7, 8, 9], None);
+    let response = wrapped.call(request).await.expect("middleware call failed");
+    assert_eq!(response.frame(), &[7, 8, 9, b'!', b'?']);
+    assert_eq!(response.correlation_id(), None);
+}

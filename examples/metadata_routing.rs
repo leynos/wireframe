@@ -52,7 +52,7 @@ impl FrameMetadata for HeaderSerializer {
         // `parse` receives the complete frame because `LengthPrefixedProcessor`
         // ensures `src` contains exactly one message. Returning `src.len()` is
         // therefore correct for this demo.
-        Ok((Envelope::new(id, Some(0), payload), src.len()))
+        Ok((Envelope::new(id, None, payload), src.len()))
     }
 }
 
