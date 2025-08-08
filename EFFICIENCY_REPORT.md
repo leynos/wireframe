@@ -52,6 +52,7 @@ let mut service = HandlerService::new(id, handler.clone());
 ### 4. Session Registry Operations (LOW-MEDIUM IMPACT)
 
 **Location**: `src/session.rs:47-55`
+
 **Issue**: `Vec::with_capacity` followed by potential reallocation during `retain_and_collect`.
 
 ```rust
@@ -65,6 +66,7 @@ let mut out = Vec::with_capacity(self.0.len());
 ### 5. Vector Initializations (LOW IMPACT)
 
 **Location**: Various files
+
 **Issue**: Some `Vec::new()` calls that could use `with_capacity` when size is known.
 
 **Impact**: Low - minor allocation optimizations.
@@ -74,16 +76,19 @@ let mut out = Vec::with_capacity(self.0.len());
 ## Performance Characteristics
 
 ### Frame Processing Pipeline
+
 - **Bottleneck**: Frame decode/encode operations in high-throughput scenarios
 - **Critical Path**: `LengthPrefixedProcessor::decode` method
 - **Optimization Priority**: High - affects every incoming frame
 
 ### Connection Handling
+
 - **Bottleneck**: Connection actor event loop and fairness tracking
 - **Critical Path**: `tokio::select!` in connection actor
 - **Optimization Priority**: Medium - affects per-connection performance
 
 ### Message Routing
+
 - **Bottleneck**: HashMap lookups for route resolution
 - **Critical Path**: Route handler lookup in `WireframeApp`
 - **Optimization Priority**: Low - HashMap lookups are already efficient
@@ -124,6 +129,7 @@ Ok(Some(src.split_to(len).freeze().to_vec()))
 ## Testing and Validation
 
 All optimizations have been tested to ensure:
+
 - ✅ Compilation succeeds with `cargo check`
 - ✅ No new clippy warnings introduced
 - ✅ Existing test suite passes
