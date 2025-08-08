@@ -62,13 +62,16 @@ pub type PreambleCallback<T> = Arc<dyn PreambleSuccessHandler<T>>;
 /// Callback invoked when decoding a connection preamble fails.
 pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 
-/// Tokio-based server for `WireframeApp` instances.
+/// Tokio-based server for [`WireframeApp`] instances.
 ///
-/// `WireframeServer` spawns a worker task per thread. Each worker
-/// receives its own `WireframeApp` from the provided factory
+/// The server carries a typestate `S` indicating whether it is
+/// [`Unbound`] (not yet bound to a TCP listener) or [`Bound`]. New
+/// servers start `Unbound` and must call [`binding::bind`] or
+/// [`binding::bind_listener`] before running. A worker task is spawned per
+/// thread; each receives its own `WireframeApp` from the provided factory
 /// closure. The server listens for a shutdown signal using
-/// `tokio::signal::ctrl_c` and notifies all workers to stop
-/// accepting new connections.
+/// `tokio::signal::ctrl_c` and notifies all workers to stop accepting new
+/// connections.
 pub struct WireframeServer<F, T = (), S = Unbound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -96,14 +99,18 @@ where
     /// Because only one notification may be sent, a new `ready_tx` must be
     /// provided each time the server is started.
     pub(crate) ready_tx: Option<oneshot::Sender<()>>,
+    /// Typestate tracking whether the server has been bound to a listener.
+    /// [`Unbound`] servers require binding before they can run.
     pub(crate) state: S,
     pub(crate) _preamble: PhantomData<T>,
 }
 
 /// Marker indicating the server has not yet bound a listener.
+#[derive(Debug, Clone, Copy)]
 pub struct Unbound;
 
 /// Marker indicating the server is bound to a TCP listener.
+#[derive(Debug, Clone)]
 pub struct Bound {
     pub(crate) listener: Arc<TcpListener>,
 }
