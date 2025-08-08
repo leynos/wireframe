@@ -19,6 +19,21 @@ use super::{
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
+///
+///
+///
+/// Configuration for exponential backoff timing in the accept loop.
+///
+/// Controls retry behavior when `accept()` calls fail on the server's TCP listener.
+/// The backoff starts at `initial_delay` and doubles on each failure, capped at `max_delay`.
+///
+/// # Default Values
+/// - `initial_delay`: 10 milliseconds
+/// - `max_delay`: 1 second
+///
+/// # Invariants
+/// - `initial_delay` must not exceed `max_delay`
+/// - `initial_delay` must be at least 1 millisecond
 #[derive(Clone, Copy, Debug)]
 pub struct BackoffConfig {
     pub initial_delay: Duration,

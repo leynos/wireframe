@@ -292,6 +292,9 @@ where
     #[must_use]
     pub fn accept_initial_delay(mut self, delay: Duration) -> Self {
         self.backoff_config.initial_delay = delay.max(Duration::from_millis(1));
+        if self.backoff_config.initial_delay > self.backoff_config.max_delay {
+            self.backoff_config.max_delay = self.backoff_config.initial_delay;
+        }
         self
     }
 
@@ -307,7 +310,11 @@ where
     /// ```
     #[must_use]
     pub fn accept_max_delay(mut self, delay: Duration) -> Self {
-        self.backoff_config.max_delay = delay.max(self.backoff_config.initial_delay);
+        if delay < self.backoff_config.initial_delay {
+            self.backoff_config.max_delay = self.backoff_config.initial_delay;
+        } else {
+            self.backoff_config.max_delay = delay;
+        }
         self
     }
 }
