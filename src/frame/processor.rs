@@ -72,7 +72,7 @@ impl FrameProcessor for LengthPrefixedProcessor {
             return Ok(None);
         }
         src.advance(self.format.bytes);
-        Ok(Some(src.split_to(len).to_vec()))
+        Ok(Some(src.split_to(len).freeze().to_vec()))
     }
 
     fn encode(&self, frame: &Self::Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
