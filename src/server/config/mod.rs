@@ -10,6 +10,7 @@ use std::{
     io,
     net::{SocketAddr, TcpListener as StdTcpListener},
     sync::Arc,
+    time::Duration,
 };
 
 use bincode::error::DecodeError;
@@ -50,6 +51,7 @@ where
             on_preamble_failure: None,
             ready_tx: None,
             listener: None,
+            backoff_config: super::runtime::BackoffConfig::default(),
             _preamble: PhantomData,
         }
     }
@@ -90,6 +92,7 @@ where
             on_preamble_failure: None,
             ready_tx: None,
             listener: self.listener,
+            backoff_config: self.backoff_config,
             _preamble: PhantomData,
         }
     }
@@ -257,5 +260,54 @@ where
         let tokio = TcpListener::from_std(std)?;
         self.listener = Some(Arc::new(tokio));
         Ok(self)
+    }
+
+    /// Configure the exponential backoff parameters for accept loop retries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// ```
+    #[must_use]
+    pub fn accept_backoff(mut self, initial_delay: Duration, max_delay: Duration) -> Self {
+        self.backoff_config.initial_delay = initial_delay.max(Duration::from_millis(1));
+        self.backoff_config.max_delay = max_delay.max(initial_delay);
+        self
+    }
+
+    /// Configure the initial delay for accept loop retries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// ```
+    #[must_use]
+    pub fn accept_initial_delay(mut self, delay: Duration) -> Self {
+        self.backoff_config.initial_delay = delay.max(Duration::from_millis(1));
+        self
+    }
+
+    /// Configure the maximum delay cap for accept loop retries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// ```
+    #[must_use]
+    pub fn accept_max_delay(mut self, delay: Duration) -> Self {
+        self.backoff_config.max_delay = delay.max(self.backoff_config.initial_delay);
+        self
     }
 }

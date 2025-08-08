@@ -11,6 +11,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
 use rstest::rstest;
@@ -195,4 +196,57 @@ async fn test_bind_to_multiple_addresses(
     let second = server.local_addr().expect("second bound address missing");
     assert_ne!(first.port(), second.port());
     assert_eq!(second.ip(), addr2.ip());
+}
+
+#[rstest]
+fn test_accept_backoff_configuration(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let initial = Duration::from_millis(5);
+    let max = Duration::from_millis(500);
+    let server = WireframeServer::new(factory).accept_backoff(initial, max);
+    assert_eq!(server.backoff_config.initial_delay, initial);
+    assert_eq!(server.backoff_config.max_delay, max);
+}
+
+#[rstest]
+fn test_accept_initial_delay_configuration(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let delay = Duration::from_millis(20);
+    let server = WireframeServer::new(factory).accept_initial_delay(delay);
+    assert_eq!(server.backoff_config.initial_delay, delay);
+}
+
+#[rstest]
+fn test_accept_max_delay_configuration(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let delay = Duration::from_millis(2000);
+    let server = WireframeServer::new(factory).accept_max_delay(delay);
+    assert_eq!(server.backoff_config.max_delay, delay);
+}
+
+#[rstest]
+fn test_backoff_validation(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
+    let server = WireframeServer::new(factory.clone()).accept_initial_delay(Duration::ZERO);
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        Duration::from_millis(1)
+    );
+
+    let server = WireframeServer::new(factory)
+        .accept_initial_delay(Duration::from_millis(100))
+        .accept_max_delay(Duration::from_millis(50));
+    assert_eq!(server.backoff_config.max_delay, Duration::from_millis(100));
+}
+
+#[rstest]
+fn test_backoff_default_values(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
+    let server = WireframeServer::new(factory);
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        Duration::from_millis(10)
+    );
+    assert_eq!(server.backoff_config.max_delay, Duration::from_secs(1));
 }

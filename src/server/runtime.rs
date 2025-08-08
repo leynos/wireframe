@@ -19,8 +19,20 @@ use super::{
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
-const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
-const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
+#[derive(Clone, Copy, Debug)]
+pub struct BackoffConfig {
+    pub initial_delay: Duration,
+    pub max_delay: Duration,
+}
+
+impl Default for BackoffConfig {
+    fn default() -> Self {
+        Self {
+            initial_delay: Duration::from_millis(10),
+            max_delay: Duration::from_secs(1),
+        }
+    }
+}
 
 impl<F, T> WireframeServer<F, T>
 where
@@ -98,6 +110,7 @@ where
             on_preamble_failure,
             ready_tx,
             listener,
+            backoff_config,
             ..
         } = self;
 
@@ -120,7 +133,13 @@ where
             let token = shutdown_token.clone();
             let t = tracker.clone();
             tracker.spawn(accept_loop(
-                listener, factory, on_success, on_failure, token, t,
+                listener,
+                factory,
+                on_success,
+                on_failure,
+                token,
+                t,
+                backoff_config,
             ));
         }
 
@@ -142,11 +161,12 @@ pub(super) async fn accept_loop<F, T>(
     on_failure: Option<PreambleErrorCallback>,
     shutdown: CancellationToken,
     tracker: TaskTracker,
+    backoff_config: BackoffConfig,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
 {
-    let mut delay = ACCEPT_RETRY_INITIAL_DELAY;
+    let mut delay = backoff_config.initial_delay;
     loop {
         select! {
             biased;
@@ -162,13 +182,13 @@ pub(super) async fn accept_loop<F, T>(
                         on_failure.clone(),
                         &tracker,
                     );
-                    delay = ACCEPT_RETRY_INITIAL_DELAY;
+                    delay = backoff_config.initial_delay;
                 }
                 Err(e) => {
                     let local_addr = listener.local_addr().ok();
                     tracing::warn!(error = ?e, ?local_addr, "accept error");
                     sleep(delay).await;
-                    delay = (delay * 2).min(ACCEPT_RETRY_MAX_DELAY);
+                    delay = (delay * 2).min(backoff_config.max_delay);
                 }
             },
         }
@@ -271,6 +291,7 @@ mod tests {
             None,
             token.clone(),
             tracker.clone(),
+            BackoffConfig::default(),
         ));
 
         token.cancel();

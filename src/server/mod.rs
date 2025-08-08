@@ -58,12 +58,15 @@ where
     /// provided each time the server is started.
     pub(crate) ready_tx: Option<oneshot::Sender<()>>,
     pub(crate) listener: Option<Arc<TcpListener>>,
+    pub(crate) backoff_config: runtime::BackoffConfig,
     pub(crate) _preamble: PhantomData<T>,
 }
 
 mod config;
 mod connection;
 mod runtime;
+
+pub use runtime::BackoffConfig;
 
 #[cfg(test)]
 pub(crate) mod test_util;
