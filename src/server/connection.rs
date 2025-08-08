@@ -100,7 +100,7 @@ mod tests {
         app::WireframeApp,
         server::{
             WireframeServer,
-            test_util::{factory, free_port},
+            test_util::{factory, free_listener},
         },
     };
 
@@ -158,7 +158,7 @@ mod tests {
     #[tokio::test]
     async fn connection_panic_is_caught(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_listener: std::net::TcpListener,
     ) {
         let app_factory = move || {
             factory()
@@ -167,7 +167,7 @@ mod tests {
         };
         let server = WireframeServer::new(app_factory)
             .workers(1)
-            .bind(free_port)
+            .bind_listener(free_listener)
             .expect("bind");
         let addr = server
             .local_addr()
