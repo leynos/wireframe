@@ -1,7 +1,7 @@
 //! Preamble configuration for [`WireframeServer`].
 
 use core::marker::PhantomData;
-use std::{io, sync::Arc};
+use std::io;
 
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
@@ -15,9 +15,11 @@ where
     T: Preamble,
     S: ServerState,
 {
-    /// Converts the server to use a custom preamble type for incoming connections.
+    /// Converts the server to use a custom preamble type implementing
+    /// [`crate::preamble::Preamble`] for incoming connections.
     ///
-    /// Calling this method drops any previously configured preamble decode callbacks.
+    /// Calling this method drops any previously configured preamble decode callbacks
+    /// (both success and failure).
     ///
     /// # Examples
     ///
@@ -50,6 +52,8 @@ where
     builder_callback!(
         /// Register a callback invoked when the connection preamble decodes successfully.
         ///
+        /// The handler must implement [`crate::server::PreambleSuccessHandler`].
+        ///
         /// # Examples
         ///
         /// ```
@@ -73,14 +77,15 @@ where
     builder_callback!(
         /// Register a callback invoked when the connection preamble fails to decode.
         ///
+        /// The handler receives a [`bincode::error::DecodeError`].
+        ///
         /// # Examples
         ///
         /// ```
-        /// use bincode::error::DecodeError;
         /// use wireframe::{app::WireframeApp, server::WireframeServer};
         ///
         /// let server = WireframeServer::new(|| WireframeApp::default()).on_preamble_decode_failure(
-        ///     |_err: &DecodeError| {
+        ///     |_err: &bincode::error::DecodeError| {
         ///         eprintln!("Failed to decode preamble");
         ///     },
         /// );

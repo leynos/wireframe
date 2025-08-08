@@ -33,7 +33,7 @@ macro_rules! builder_callback {
         where
             H: $($bound)*,
         {
-            self.$field = Some(Arc::new(handler));
+            self.$field = Some(std::sync::Arc::new(handler));
             self
         }
     };
@@ -78,6 +78,8 @@ where
     builder_setter!(
         /// Set the number of worker tasks to spawn for the server.
         ///
+        /// A minimum of one worker is enforced.
+        ///
         /// # Examples
         ///
         /// ```
@@ -85,6 +87,9 @@ where
         ///
         /// let server = WireframeServer::new(|| WireframeApp::default()).workers(4);
         /// assert_eq!(server.worker_count(), 4);
+        ///
+        /// let server = WireframeServer::new(|| WireframeApp::default()).workers(0);
+        /// assert_eq!(server.worker_count(), 1);
         /// ```
         workers, workers, count: usize => count.max(1)
     );

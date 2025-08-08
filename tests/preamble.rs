@@ -216,3 +216,67 @@ async fn success_callback_can_write_response(
     })
     .await;
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+struct OtherPreamble(u8);
+
+#[rstest]
+#[tokio::test]
+async fn callbacks_dropped_when_overriding_preamble(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (hotline_success_tx, hotline_success_rx) = tokio::sync::oneshot::channel::<()>();
+    let (hotline_failure_tx, hotline_failure_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let hotline_success_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(hotline_success_tx)));
+    let hotline_failure_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(hotline_failure_tx)));
+
+    let server = WireframeServer::new(factory.clone())
+        .with_preamble::<HotlinePreamble>()
+        .on_preamble_decode_success({
+            let hotline_success_tx = hotline_success_tx.clone();
+            move |_, _| {
+                let hotline_success_tx = hotline_success_tx.clone();
+                Box::pin(async move {
+                    if let Some(tx) = hotline_success_tx.lock().expect("lock").take() {
+                        let _ = tx.send(());
+                    }
+                    Ok(())
+                })
+            }
+        })
+        .on_preamble_decode_failure({
+            let hotline_failure_tx = hotline_failure_tx.clone();
+            move |_| {
+                if let Some(tx) = hotline_failure_tx.lock().expect("lock").take() {
+                    let _ = tx.send(());
+                }
+            }
+        })
+        .with_preamble::<OtherPreamble>();
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        let config = bincode::config::standard()
+            .with_big_endian()
+            .with_fixed_int_encoding();
+        let bytes = bincode::encode_to_vec(OtherPreamble(1), config).unwrap();
+        stream.write_all(&bytes).await.expect("write failed");
+        stream.shutdown().await.expect("shutdown failed");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    })
+    .await;
+
+    assert!(
+        timeout(Duration::from_millis(100), hotline_success_rx)
+            .await
+            .is_err(),
+        "hotline success callback invoked",
+    );
+    assert!(
+        timeout(Duration::from_millis(100), hotline_failure_rx)
+            .await
+            .is_err(),
+        "hotline failure callback invoked",
+    );
+}

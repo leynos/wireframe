@@ -13,15 +13,17 @@ use tokio::{net::TcpListener, sync::oneshot};
 
 use crate::{app::WireframeApp, preamble::Preamble};
 
-/// Callback invoked when a connection preamble decodes successfully.
+/// Handler invoked when a connection preamble decodes successfully.
 ///
-/// The callback may perform asynchronous I/O on the provided stream before the
+/// The handler may perform asynchronous I/O on the provided stream before the
 /// connection is handed off to [`WireframeApp`].
-pub type PreambleCallback<T> = Arc<
-    dyn for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
-        + Send
-        + Sync,
->;
+pub type PreambleSuccessHandler<T> = dyn for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+    + Send
+    + Sync
+    + 'static;
+
+/// Callback invoked when a connection preamble decodes successfully.
+pub type PreambleCallback<T> = Arc<PreambleSuccessHandler<T>>;
 
 /// Callback invoked when decoding a connection preamble fails.
 pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
