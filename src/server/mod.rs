@@ -17,6 +17,29 @@ use crate::{app::WireframeApp, preamble::Preamble};
 ///
 /// Implementors may perform asynchronous I/O on the provided stream before the
 /// connection is handed off to [`WireframeApp`].
+///
+/// # Examples
+/// ```
+/// use std::io;
+///
+/// use futures::future::BoxFuture;
+/// use tokio::net::TcpStream;
+/// use wireframe::{app::WireframeApp, server::WireframeServer};
+///
+/// #[derive(bincode::Decode, bincode::BorrowDecode)]
+/// struct MyPreamble;
+///
+/// let _server = WireframeServer::new(|| WireframeApp::default())
+///     .with_preamble::<MyPreamble>()
+///     .on_preamble_decode_success(
+///         |_preamble: &MyPreamble, stream: &mut TcpStream| -> BoxFuture<'_, io::Result<()>> {
+///             Box::pin(async move {
+///                 // Perform any initial handshake here.
+///                 Ok(())
+///             })
+///         },
+///     );
+/// ```
 pub trait PreambleSuccessHandler<T>:
     for<'a> Fn(&'a T, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
     + Send
