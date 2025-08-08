@@ -20,7 +20,7 @@ use crate::server::test_util::{
     TestPreamble,
     bind_server,
     factory,
-    free_port,
+    free_listener,
     server_with_preamble,
 };
 
@@ -65,14 +65,18 @@ fn test_with_preamble_type_conversion(
 #[tokio::test]
 async fn test_bind_success(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
+    let addr = free_listener
+        .local_addr()
+        .expect("failed to read listener address");
+    drop(free_listener);
     let local_addr = WireframeServer::new(factory)
-        .bind(free_port)
+        .bind(addr)
         .expect("Failed to bind")
         .local_addr()
         .expect("local address missing");
-    assert_eq!(local_addr.ip(), free_port.ip());
+    assert_eq!(local_addr.ip(), addr.ip());
 }
 
 #[rstest]
@@ -84,10 +88,13 @@ fn test_local_addr_before_bind(factory: impl Fn() -> WireframeApp + Send + Sync 
 #[tokio::test]
 async fn test_local_addr_after_bind(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
-    let local_addr = bind_server(factory, free_port).local_addr().unwrap();
-    assert_eq!(local_addr.ip(), free_port.ip());
+    let local_addr = bind_server(factory, free_listener).local_addr().unwrap();
+    assert_eq!(
+        local_addr.ip(),
+        std::net::IpAddr::from(std::net::Ipv4Addr::LOCALHOST)
+    );
 }
 
 #[rstest]
@@ -128,7 +135,7 @@ async fn test_preamble_callback_registration(
 #[tokio::test]
 async fn test_method_chaining(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
     let callback_invoked = Arc::new(AtomicUsize::new(0));
     let counter = callback_invoked.clone();
@@ -143,7 +150,7 @@ async fn test_method_chaining(
             })
         })
         .on_preamble_decode_failure(|_: &DecodeError| {})
-        .bind(free_port)
+        .bind_listener(free_listener)
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 2);
     assert!(server.local_addr().is_some());
@@ -154,11 +161,11 @@ async fn test_method_chaining(
 #[tokio::test]
 async fn test_server_configuration_persistence(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
     let server = WireframeServer::new(factory)
         .workers(5)
-        .bind(free_port)
+        .bind_listener(free_listener)
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 5);
     assert!(server.local_addr().is_some());
@@ -176,7 +183,7 @@ fn test_extreme_worker_counts(factory: impl Fn() -> WireframeApp + Send + Sync +
 #[tokio::test]
 async fn test_bind_to_multiple_addresses(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
     let listener2 =
         std::net::TcpListener::bind(SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0))
@@ -188,7 +195,7 @@ async fn test_bind_to_multiple_addresses(
 
     let server = WireframeServer::new(factory);
     let server = server
-        .bind(free_port)
+        .bind_listener(free_listener)
         .expect("Failed to bind first address");
     let first = server.local_addr().expect("first bound address missing");
     let server = server.bind(addr2).expect("Failed to bind second address");
