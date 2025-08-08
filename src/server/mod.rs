@@ -19,7 +19,7 @@ use crate::{app::WireframeApp, preamble::Preamble};
 /// connection is handed off to [`WireframeApp`].
 ///
 /// # Examples
-/// ```
+/// ```no_run
 /// use std::io;
 ///
 /// use futures::future::BoxFuture;
@@ -66,8 +66,8 @@ pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 ///
 /// The server carries a typestate `S` indicating whether it is
 /// [`Unbound`] (not yet bound to a TCP listener) or [`Bound`]. New
-/// servers start `Unbound` and must call [`binding::bind`] or
-/// [`binding::bind_listener`] before running. A worker task is spawned per
+/// servers start `Unbound` and must call [`binding::WireframeServer::bind`] or
+/// [`binding::WireframeServer::bind_listener`] before running. A worker task is spawned per
 /// thread; each receives its own `WireframeApp` from the provided factory
 /// closure. The server listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop accepting new
@@ -77,8 +77,8 @@ where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // `Preamble` covers types implementing `BorrowDecode` for any lifetime,
     // enabling decoding of borrowed data without external context.
-    // `()` already satisfies this bound via `bincode`, so servers default to
-    // having no preamble.
+    // `()` satisfies this bound via bincode's `BorrowDecode` support for unit,
+    // so servers default to having no preamble.
     T: Preamble,
     S: ServerState,
 {
