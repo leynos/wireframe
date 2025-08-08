@@ -6,9 +6,9 @@ fails.
 
 ## Accept loop backoff
 
-The accept loop retries failed `accept()` calls using exponential backoff. Use
-`accept_backoff(initial_delay, max_delay)` to set both bounds in one call.
-These values are stored in `BackoffConfig`:
+The accept loop retries failed `accept()` calls using exponential backoff.
+`accept_backoff(initial_delay, max_delay)` sets both bounds in one call. These
+values are stored in `BackoffConfig`:
 
 - `initial_delay` – starting delay for the first retry, clamped to at least 1
   millisecond.
