@@ -268,9 +268,11 @@ where
     ///
     /// ```
     /// use std::time::Duration;
+    ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| WireframeApp::default())(important - comment)
+    ///     .accept_backoff(Duration::from_millis(5), Duration::from_millis(500));
     /// ```
     #[must_use]
     pub fn accept_backoff(mut self, initial_delay: Duration, max_delay: Duration) -> Self {
@@ -285,9 +287,11 @@ where
     ///
     /// ```
     /// use std::time::Duration;
+    ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| WireframeApp::default())(important - comment)
+    ///     .accept_initial_delay(Duration::from_millis(5));
     /// ```
     #[must_use]
     pub fn accept_initial_delay(mut self, delay: Duration) -> Self {
@@ -304,9 +308,11 @@ where
     ///
     /// ```
     /// use std::time::Duration;
+    ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| WireframeApp::default())(important - comment)
+    ///     .accept_max_delay(Duration::from_millis(500));
     /// ```
     #[must_use]
     pub fn accept_max_delay(mut self, delay: Duration) -> Self {
