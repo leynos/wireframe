@@ -59,3 +59,5 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   Strategies for taming code complexity and refactoring.
 - [Documentation style guide](documentation-style-guide.md) Conventions for
   writing project documentation.
+- [Server configuration](server/configuration.md) Tuning accept loop backoff
+  behaviour and builder options.

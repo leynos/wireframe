@@ -209,8 +209,9 @@ fn test_accept_backoff_configuration(
     assert_eq!(server.backoff_config.max_delay, max);
 }
 
+/// Behaviour test verifying exponential delay doubling and capping.
 #[test]
-fn test_accept_exponential_backoff_behavior() {
+fn test_accept_exponential_backoff_doubles_and_caps() {
     use std::{
         thread,
         time::{Duration, Instant},
