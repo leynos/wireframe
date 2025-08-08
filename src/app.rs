@@ -165,13 +165,7 @@ impl From<io::Error> for SendError {
 ///
 ///     fn correlation_id(&self) -> Option<u64> { None }
 ///
-///     fn into_parts(self) -> PacketParts {
-///         PacketParts {
-///             id: self.id,
-///             correlation_id: None,
-///             msg: self.payload,
-///         }
-///     }
+///     fn into_parts(self) -> PacketParts { PacketParts::new(self.id, None, self.payload) }
 ///
 ///     fn from_parts(parts: PacketParts) -> Self {
 ///         Self {
@@ -206,7 +200,7 @@ pub struct PacketParts {
 
 /// Basic envelope type used by [`handle_connection`].
 ///
-/// Incoming frames are deserialised into an `Envelope` containing the
+/// Incoming frames are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
 #[derive(bincode::Decode, bincode::Encode, Debug)]
 pub struct Envelope {
@@ -337,11 +331,7 @@ where
     ///     fn id(&self) -> u32 { self.id }
     ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     ///     fn into_parts(self) -> PacketParts {
-    ///         PacketParts {
-    ///             id: self.id,
-    ///             correlation_id: self.correlation_id,
-    ///             msg: self.data,
-    ///         }
+    ///         PacketParts::new(self.id, self.correlation_id, self.data)
     ///     }
     ///     fn from_parts(parts: PacketParts) -> Self {
     ///         Self {
@@ -630,7 +620,7 @@ where
         let routes = self.build_chains().await;
 
         if let Err(e) = self.process_stream(&mut stream, &routes).await {
-            tracing::warn!(error = ?e, "connection terminated with error");
+            tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "connection terminated with error");
         }
 
         if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
@@ -758,7 +748,7 @@ where
             }
             Err(e) => {
                 *deser_failures += 1;
-                tracing::warn!(error = ?e, "failed to deserialize message");
+                tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "failed to deserialize message");
                 crate::metrics::inc_deser_errors();
                 if *deser_failures >= MAX_DESER_FAILURES {
                     return Err(io::Error::new(

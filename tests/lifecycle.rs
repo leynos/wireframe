@@ -151,6 +151,18 @@ async fn helpers_propagate_connection_state() {
         .await
         .expect("app run failed");
     assert!(!out.is_empty());
+
+    let mut buf = BytesMut::from(&out[..]);
+    let processor = LengthPrefixedProcessor::default();
+    let frame = processor
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (resp, _) = BincodeSerializer
+        .deserialize::<StateEnvelope>(&frame)
+        .expect("deserialize failed");
+    assert_eq!(resp.correlation_id, Some(0));
+
     assert_eq!(setup.load(Ordering::SeqCst), 1);
     assert_eq!(teardown.load(Ordering::SeqCst), 1);
 }

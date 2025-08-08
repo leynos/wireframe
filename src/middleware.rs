@@ -97,6 +97,11 @@ impl ServiceResponse {
     #[must_use]
     pub fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
+    /// Set or clear the correlation identifier.
+    pub fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
+        self.correlation_id = correlation_id;
+    }
+
     /// Consume the response, yielding the raw frame bytes.
     #[must_use]
     pub fn into_inner(self) -> Vec<u8> { self.inner.into_inner() }

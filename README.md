@@ -104,7 +104,7 @@ impl Packet for MyEnv {
     fn id(&self) -> u32 { self.id }
     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     fn into_parts(self) -> PacketParts {
-        PacketParts { id: self.id, correlation_id: self.correlation_id, payload: self.payload }
+        PacketParts::new(self.id, self.correlation_id, self.payload)
     }
     fn from_parts(parts: PacketParts) -> Self {
         Self { id: parts.id, correlation_id: parts.correlation_id, payload: parts.payload }
@@ -116,6 +116,9 @@ let app = WireframeApp::<_, _, MyEnv>::new()
     .route(1, std::sync::Arc::new(|env: &MyEnv| Box::pin(async move { /* ... */ })))
     .unwrap();
 ```
+
+A `None` correlation identifier denotes an unsolicited event or server push.
+See [PacketParts](docs/api.md#packetparts) for field details.
 
 This allows integration with existing packet formats without modifying
 `handle_frame`.

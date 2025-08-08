@@ -155,8 +155,14 @@ production environments.
   - [x] Expose key operational metrics (e.g., active connections, messages per
     second, error rates).
 
-  - [x] Provide an integration guide for popular monitoring systems (e.g.,
+- [x] Provide an integration guide for popular monitoring systems (e.g.,
     Prometheus).
+
+- [x] **Packet decomposition:**
+
+  - [x] Introduce `PacketParts` to replace tuple-based packet handling.
+  - [x] Treat `correlation_id` as `Option<u64>` so `None` denotes an
+    unsolicited event or server-initiated push.
 
 - [x] **Advanced Error Handling:**
 

@@ -498,7 +498,7 @@ frame processing, akin to how `tokio-util::codec` operates, endows "wireframe"
 with the necessary flexibility to adapt to this diversity without embedding
 assumptions about any single framing strategy into its core.
 
-#### 4.3.1 Packet Abstraction
+#### 4.3.1 Packet abstraction
 
 The library defines a `Packet` trait to represent transport frames. Frames can
 be decomposed into `PacketParts` for efficient handling and re-assembly.
