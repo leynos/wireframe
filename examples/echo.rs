@@ -22,7 +22,7 @@ async fn main() -> Result<(), ServerError> {
                     })
                 }),
             )
-            .expect("failed to register route")
+            .expect("failed to register route 1")
     };
 
     WireframeServer::new(factory)
