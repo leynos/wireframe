@@ -3,18 +3,16 @@
 //! The application listens for incoming frames and simply echoes each
 //! envelope back to the client.
 
-use std::io;
-
 use wireframe::{
     app::{Envelope, WireframeApp},
-    server::WireframeServer,
+    server::{ServerError, WireframeServer},
 };
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), ServerError> {
     let factory = || {
         WireframeApp::new()
-            .unwrap()
+            .expect("failed to create WireframeApp")
             .route(
                 1,
                 std::sync::Arc::new(|_: &Envelope| {
@@ -24,11 +22,12 @@ async fn main() -> io::Result<()> {
                     })
                 }),
             )
-            .unwrap()
+            .expect("failed to register route 1")
     };
 
     WireframeServer::new(factory)
-        .bind("127.0.0.1:7878".parse().unwrap())?
+        .bind("127.0.0.1:7878".parse().expect("invalid socket address"))?
         .run()
-        .await
+        .await?;
+    Ok(())
 }

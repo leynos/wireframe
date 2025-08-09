@@ -1,6 +1,9 @@
 //! Tests for connection preamble reading.
 
-use std::io;
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
 
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
@@ -170,7 +173,7 @@ async fn server_triggers_expected_callback(
                 .expect("success send");
             assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
             assert!(
-                timeout(Duration::from_millis(100), failure_rx)
+                timeout(Duration::from_millis(500), failure_rx)
                     .await
                     .is_err()
             );
@@ -181,7 +184,7 @@ async fn server_triggers_expected_callback(
                 .expect("timeout waiting for failure")
                 .expect("failure send");
             assert!(
-                timeout(Duration::from_millis(100), success_rx)
+                timeout(Duration::from_millis(500), success_rx)
                     .await
                     .is_err()
             );
@@ -215,4 +218,93 @@ async fn success_callback_can_write_response(
         assert_eq!(&buf, b"ACK");
     })
     .await;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+struct OtherPreamble(u8);
+
+type Holder = Arc<Mutex<Option<oneshot::Sender<()>>>>;
+
+fn channel_holder() -> (Holder, oneshot::Receiver<()>) {
+    let (tx, rx) = oneshot::channel();
+    (Arc::new(Mutex::new(Some(tx))), rx)
+}
+
+fn success_cb<P>(
+    holder: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+) -> impl for<'a> Fn(&'a P, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>> + Send + Sync + 'static
+{
+    move |_, _| {
+        let holder = holder.clone();
+        Box::pin(async move {
+            if let Some(tx) = holder.lock().expect("lock").take() {
+                let _ = tx.send(());
+            }
+            Ok(())
+        })
+    }
+}
+
+fn failure_cb(
+    holder: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+) -> impl Fn(&DecodeError) + Send + Sync + 'static {
+    move |_| {
+        if let Some(tx) = holder.lock().expect("lock").take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+#[rstest]
+#[tokio::test]
+async fn callbacks_dropped_when_overriding_preamble(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (hotline_success, hotline_success_rx) = channel_holder();
+    let (hotline_failure, hotline_failure_rx) = channel_holder();
+    let (other_success, other_success_rx) = channel_holder();
+    let (other_failure, other_failure_rx) = channel_holder();
+
+    let server = WireframeServer::new(factory.clone())
+        .with_preamble::<HotlinePreamble>()
+        .on_preamble_decode_success(success_cb::<HotlinePreamble>(hotline_success.clone()))
+        .on_preamble_decode_failure(failure_cb(hotline_failure.clone()))
+        .with_preamble::<OtherPreamble>()
+        .on_preamble_decode_success(success_cb::<OtherPreamble>(other_success.clone()))
+        .on_preamble_decode_failure(failure_cb(other_failure.clone()));
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        let config = bincode::config::standard()
+            .with_big_endian()
+            .with_fixed_int_encoding();
+        let mut bytes = bincode::encode_to_vec(OtherPreamble(1), config).expect("encode preamble");
+        bytes.resize(8, 0);
+        stream.write_all(&bytes).await.expect("write failed");
+        stream.shutdown().await.expect("shutdown failed");
+        // Wait for the success callback before shutting down the server.
+        timeout(Duration::from_secs(1), other_success_rx)
+            .await
+            .expect("timeout waiting for other success")
+            .expect("other success send");
+    })
+    .await;
+    assert!(
+        timeout(Duration::from_millis(500), other_failure_rx)
+            .await
+            .is_err(),
+        "other failure callback invoked",
+    );
+    assert!(
+        timeout(Duration::from_millis(500), hotline_success_rx)
+            .await
+            .is_err(),
+        "hotline success callback invoked",
+    );
+    assert!(
+        timeout(Duration::from_millis(500), hotline_failure_rx)
+            .await
+            .is_err(),
+        "hotline failure callback invoked",
+    );
 }

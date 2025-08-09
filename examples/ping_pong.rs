@@ -3,7 +3,7 @@
 //! Demonstrates custom packet structs and middleware that maps `Ping` to
 //! `Pong` responses.
 
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use wireframe::{
@@ -11,7 +11,7 @@ use wireframe::{
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
-    server::WireframeServer,
+    server::{ServerError, WireframeServer},
 };
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
@@ -136,15 +136,14 @@ fn build_app() -> AppResult<WireframeApp> {
 }
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), ServerError> {
     let factory = || build_app().expect("app build failed");
 
     let default_addr = "127.0.0.1:7878";
     let addr_str = std::env::args()
         .nth(1)
         .unwrap_or_else(|| default_addr.into());
-    let addr: SocketAddr = addr_str
-        .parse()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-    WireframeServer::new(factory).bind(addr)?.run().await
+    let addr: SocketAddr = addr_str.parse().expect("invalid address");
+    WireframeServer::new(factory).bind(addr)?.run().await?;
+    Ok(())
 }
