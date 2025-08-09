@@ -22,7 +22,7 @@ use crate::{app::WireframeApp, preamble::Preamble};
 const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
 
-impl<F, T> WireframeServer<F, T>
+impl<F, T> WireframeServer<F, T, true>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
@@ -87,6 +87,11 @@ where
     /// # Errors
     ///
     /// Returns an [`io::Error`] if accepting a connection fails during runtime.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server was not previously bound. This is guaranteed by the
+    /// typestate returned from [`WireframeServer::bind`](crate::server::WireframeServer::bind).
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> io::Result<()>
     where
         S: Future<Output = ()> + Send,
@@ -101,7 +106,7 @@ where
             ..
         } = self;
 
-        let listener = listener.ok_or_else(|| io::Error::other("listener not bound"))?;
+        let listener = listener.expect("listener must be bound");
 
         if let Some(tx) = ready_tx
             && tx.send(()).is_err()

@@ -33,7 +33,7 @@ pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync>;
 /// closure. The server listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop
 /// accepting new connections.
-pub struct WireframeServer<F, T = ()>
+pub struct WireframeServer<F, T = (), const BOUND: bool = false>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     // `Preamble` covers types implementing `BorrowDecode` for any lifetime,

@@ -41,7 +41,7 @@ fn server_with_handlers<F, S, E>(
     factory: F,
     success: S,
     failure: E,
-) -> WireframeServer<F, HotlinePreamble>
+) -> WireframeServer<F, HotlinePreamble, false>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     S: for<'a> Fn(&'a HotlinePreamble, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>>
@@ -58,7 +58,7 @@ where
 }
 
 /// Run the provided server while executing `block`.
-async fn with_running_server<F, T, Fut, B>(server: WireframeServer<F, T>, block: B)
+async fn with_running_server<F, T, Fut, B>(server: WireframeServer<F, T, false>, block: B)
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: wireframe::preamble::Preamble,

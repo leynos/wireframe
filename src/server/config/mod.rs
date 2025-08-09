@@ -4,6 +4,9 @@
 //! The builder exposes worker count tuning, preamble callbacks, ready-signal
 //! configuration, and TCP binding. The server holds an optional listener so it
 //! may be constructed unbound and later bound via [`bind`](WireframeServer::bind).
+//! Binding transitions the server to a compile-time "bound" state where the
+//! [`run`](WireframeServer::run) methods become available, preventing
+//! accidental execution of an unbound server.
 
 use core::marker::PhantomData;
 use std::{
@@ -22,7 +25,7 @@ use crate::{app::WireframeApp, preamble::Preamble};
 #[cfg(test)]
 mod tests;
 
-impl<F> WireframeServer<F, ()>
+impl<F> WireframeServer<F, (), false>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
@@ -55,7 +58,7 @@ where
     }
 }
 
-impl<F, T> WireframeServer<F, T>
+impl<F, T, const B: bool> WireframeServer<F, T, B>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
@@ -79,7 +82,7 @@ where
     /// let server = WireframeServer::new(|| WireframeApp::default()).with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
-    pub fn with_preamble<P>(self) -> WireframeServer<F, P>
+    pub fn with_preamble<P>(self) -> WireframeServer<F, P, B>
     where
         P: Preamble,
     {
@@ -213,7 +216,13 @@ where
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.listener.as_ref().and_then(|l| l.local_addr().ok())
     }
+}
 
+impl<F, T, const B: bool> WireframeServer<F, T, B>
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
+{
     /// Bind to a fresh address.
     ///
     /// # Examples
@@ -230,7 +239,7 @@ where
     ///
     /// # Errors
     /// Returns an `io::Error` if binding or configuring the listener fails.
-    pub fn bind(self, addr: SocketAddr) -> io::Result<Self> {
+    pub fn bind(self, addr: SocketAddr) -> io::Result<WireframeServer<F, T, true>> {
         let std = StdTcpListener::bind(addr)?;
         self.bind_listener(std)
     }
@@ -252,10 +261,25 @@ where
     ///
     /// # Errors
     /// Returns an `io::Error` if configuring the listener fails.
-    pub fn bind_listener(mut self, std: StdTcpListener) -> io::Result<Self> {
+    pub fn bind_listener(self, std: StdTcpListener) -> io::Result<WireframeServer<F, T, true>> {
+        let WireframeServer {
+            factory,
+            workers,
+            on_preamble_success,
+            on_preamble_failure,
+            ready_tx,
+            ..
+        } = self;
         std.set_nonblocking(true)?;
         let tokio = TcpListener::from_std(std)?;
-        self.listener = Some(Arc::new(tokio));
-        Ok(self)
+        Ok(WireframeServer {
+            factory,
+            workers,
+            on_preamble_success,
+            on_preamble_failure,
+            ready_tx,
+            listener: Some(Arc::new(tokio)),
+            _preamble: PhantomData,
+        })
     }
 }
