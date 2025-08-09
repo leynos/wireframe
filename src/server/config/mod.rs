@@ -9,6 +9,7 @@
 //! on [`Unbound`] servers.
 
 use core::marker::PhantomData;
+
 use tokio::sync::oneshot;
 
 use super::{ServerState, Unbound, WireframeServer};
@@ -65,7 +66,15 @@ where
     #[must_use]
     pub fn new(factory: F) -> Self {
         let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-        Self { factory, workers, on_preamble_success: None, on_preamble_failure: None, ready_tx: None, state: Unbound, _preamble: PhantomData }
+        Self {
+            factory,
+            workers,
+            on_preamble_success: None,
+            on_preamble_failure: None,
+            ready_tx: None,
+            state: Unbound,
+            _preamble: PhantomData,
+        }
     }
 }
 
@@ -122,6 +131,4 @@ where
     #[inline]
     #[must_use]
     pub const fn worker_count(&self) -> usize { self.workers }
-
-
 }

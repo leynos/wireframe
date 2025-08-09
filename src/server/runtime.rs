@@ -153,7 +153,7 @@ where
                 on_failure,
                 token,
                 t,
-                backoff_config,
+                BackoffConfig::default(),
             ));
         }
 
