@@ -13,11 +13,11 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{
     Bound,
-    PreambleCallback,
-    PreambleErrorCallback,
+    PreambleErrorHandler,
+    PreambleHandler,
+    ServerError,
     WireframeServer,
     connection::spawn_connection_task,
-    error::ServerError,
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
@@ -66,7 +66,7 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), wireframe::server::error::ServerError> {
+    /// # async fn main() -> Result<(), wireframe::server::ServerError> {
     /// let server =
     ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 8080).into())?;
     /// server.run().await?;
@@ -93,7 +93,7 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), wireframe::server::error::ServerError> {
+    /// # async fn main() -> Result<(), wireframe::server::ServerError> {
     /// let server =
     ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 0).into())?;
     ///
@@ -171,8 +171,8 @@ where
 pub(super) async fn accept_loop<F, T>(
     listener: Arc<TcpListener>,
     factory: F,
-    on_success: Option<PreambleCallback<T>>,
-    on_failure: Option<PreambleErrorCallback>,
+    on_success: Option<PreambleHandler<T>>,
+    on_failure: Option<PreambleErrorHandler>,
     shutdown: CancellationToken,
     tracker: TaskTracker,
     backoff_config: BackoffConfig,

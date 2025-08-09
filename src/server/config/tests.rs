@@ -1,7 +1,7 @@
 //! Tests for server configuration utilities.
 //!
 //! This module exercises the `WireframeServer` builder, covering worker counts,
-//! binding behaviour, preamble handling, callback registration, and method
+//! binding behaviour, preamble handling, handler registration, and method
 //! chaining. Fixtures from `test_util` provide shared setup and parameterised
 //! cases via `rstest`.
 
@@ -95,15 +95,15 @@ async fn test_local_addr_after_bind(
 #[case("success")]
 #[case("failure")]
 #[tokio::test]
-async fn test_preamble_callback_registration(
+async fn test_preamble_handler_registration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    #[case] callback_type: &str,
+    #[case] handler_type: &str,
 ) {
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
 
     let server = server_with_preamble(factory);
-    let server = match callback_type {
+    let server = match handler_type {
         "success" => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
             let c = c.clone();
             Box::pin(async move {
@@ -114,11 +114,11 @@ async fn test_preamble_callback_registration(
         "failure" => server.on_preamble_decode_failure(move |_err: &DecodeError| {
             c.fetch_add(1, Ordering::SeqCst);
         }),
-        _ => panic!("Invalid callback type"),
+        _ => panic!("Invalid handler type"),
     };
 
     assert_eq!(counter.load(Ordering::SeqCst), 0);
-    match callback_type {
+    match handler_type {
         "success" => assert!(server.on_preamble_success.is_some()),
         "failure" => assert!(server.on_preamble_failure.is_some()),
         _ => unreachable!(),
@@ -131,8 +131,8 @@ async fn test_method_chaining(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     free_port: SocketAddr,
 ) {
-    let callback_invoked = Arc::new(AtomicUsize::new(0));
-    let counter = callback_invoked.clone();
+    let handler_invoked = Arc::new(AtomicUsize::new(0));
+    let counter = handler_invoked.clone();
     let server = WireframeServer::new(factory)
         .workers(2)
         .with_preamble::<TestPreamble>()
@@ -148,7 +148,7 @@ async fn test_method_chaining(
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 2);
     assert!(server.local_addr().is_some());
-    assert_eq!(callback_invoked.load(Ordering::SeqCst), 0);
+    assert_eq!(handler_invoked.load(Ordering::SeqCst), 0);
 }
 
 #[rstest]

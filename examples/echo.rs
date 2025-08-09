@@ -5,7 +5,7 @@
 
 use wireframe::{
     app::{Envelope, WireframeApp},
-    server::{WireframeServer, error::ServerError},
+    server::{ServerError, WireframeServer},
 };
 
 #[tokio::main]

@@ -6,7 +6,7 @@ use futures::FutureExt;
 use tokio::net::TcpStream;
 use tokio_util::task::TaskTracker;
 
-use super::{PreambleCallback, PreambleErrorCallback};
+use super::{PreambleErrorHandler, PreambleHandler};
 use crate::{
     app::WireframeApp,
     preamble::{Preamble, read_preamble},
@@ -17,8 +17,8 @@ use crate::{
 pub(super) fn spawn_connection_task<F, T>(
     stream: TcpStream,
     factory: F,
-    on_success: Option<PreambleCallback<T>>,
-    on_failure: Option<PreambleErrorCallback>,
+    on_success: Option<PreambleHandler<T>>,
+    on_failure: Option<PreambleErrorHandler>,
     tracker: &TaskTracker,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -53,8 +53,8 @@ async fn process_stream<F, T>(
     mut stream: TcpStream,
     peer_addr: Option<SocketAddr>,
     factory: F,
-    on_success: Option<PreambleCallback<T>>,
-    on_failure: Option<PreambleErrorCallback>,
+    on_success: Option<PreambleHandler<T>>,
+    on_failure: Option<PreambleErrorHandler>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,
     T: Preamble,
@@ -64,7 +64,7 @@ async fn process_stream<F, T>(
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
-                tracing::error!(error = ?e, ?peer_addr, "preamble callback error");
+                tracing::error!(error = ?e, ?peer_addr, "preamble handler error");
             }
             let stream = RewindStream::new(leftover, stream);
             let app = (factory)();

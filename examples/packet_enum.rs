@@ -11,7 +11,7 @@ use wireframe::{
     frame::{LengthFormat, LengthPrefixedProcessor},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
-    server::{WireframeServer, error::ServerError},
+    server::{ServerError, WireframeServer},
 };
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]

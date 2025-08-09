@@ -56,11 +56,11 @@ impl<T, F> PreambleSuccessHandler<T> for F where
 {
 }
 
-/// Callback invoked when a connection preamble decodes successfully.
-pub type PreambleCallback<T> = Arc<dyn PreambleSuccessHandler<T>>;
+/// Handler invoked when a connection preamble decodes successfully.
+pub type PreambleHandler<T> = Arc<dyn PreambleSuccessHandler<T>>;
 
-/// Callback invoked when decoding a connection preamble fails.
-pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync + 'static>;
+/// Handler invoked when decoding a connection preamble fails.
+pub type PreambleErrorHandler = Arc<dyn Fn(&DecodeError) + Send + Sync + 'static>;
 
 /// Tokio-based server for [`WireframeApp`] instances.
 ///
@@ -72,6 +72,26 @@ pub type PreambleErrorCallback = Arc<dyn Fn(&DecodeError) + Send + Sync + 'stati
 /// closure. The server listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop accepting new
 /// connections.
+///
+/// # Examples
+/// ```no_run
+/// use wireframe::{
+///     app::WireframeApp,
+///     server::{ServerError, WireframeServer},
+/// };
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), ServerError> {
+/// // Start unbound (S = Unbound)
+/// let srv = WireframeServer::new(|| WireframeApp::default());
+///
+/// // Transition to bound (S = Bound)
+/// let srv = srv.bind("127.0.0.1:0")?;
+///
+/// // Run the server
+/// srv.run().await
+/// # }
+/// ```
 pub struct WireframeServer<F, T = (), S = Unbound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -84,8 +104,8 @@ where
 {
     pub(crate) factory: F,
     pub(crate) workers: usize,
-    pub(crate) on_preamble_success: Option<PreambleCallback<T>>,
-    pub(crate) on_preamble_failure: Option<PreambleErrorCallback>,
+    pub(crate) on_preamble_success: Option<PreambleHandler<T>>,
+    pub(crate) on_preamble_failure: Option<PreambleErrorHandler>,
     /// Channel used to notify when the server is ready.
     ///
     /// # Thread Safety
@@ -133,6 +153,7 @@ mod config;
 pub use config::{binding, preamble};
 mod connection;
 pub mod error;
+pub use error::ServerError;
 mod runtime;
 
 /// Re-exported configuration types for server backoff behavior.

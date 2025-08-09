@@ -20,7 +20,7 @@ where
     /// Converts the server to use a custom preamble type implementing
     /// [`crate::preamble::Preamble`] for incoming connections.
     ///
-    /// Calling this method drops any previously configured preamble decode callbacks
+    /// Calling this method drops any previously configured preamble handlers
     /// (both success and failure).
     ///
     /// # Examples
@@ -52,7 +52,7 @@ where
     }
 
     builder_callback!(
-        /// Register a callback invoked when the connection preamble decodes successfully.
+        /// Register a handler invoked when the connection preamble decodes successfully.
         ///
         /// The handler must implement [`crate::server::PreambleSuccessHandler`].
         ///
@@ -77,7 +77,7 @@ where
     );
 
     builder_callback!(
-        /// Register a callback invoked when the connection preamble fails to decode.
+        /// Register a handler invoked when the connection preamble fails to decode.
         ///
         /// The handler receives a [`bincode::error::DecodeError`].
         ///

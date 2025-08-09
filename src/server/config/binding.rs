@@ -9,7 +9,7 @@ use std::{
 use tokio::net::TcpListener;
 
 use super::{Bound, Unbound, WireframeServer};
-use crate::{app::WireframeApp, preamble::Preamble, server::error::ServerError};
+use crate::{app::WireframeApp, preamble::Preamble, server::ServerError};
 
 impl<F, T> WireframeServer<F, T, Unbound>
 where

@@ -11,7 +11,7 @@ use wireframe::{
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
-    server::{WireframeServer, error::ServerError},
+    server::{ServerError, WireframeServer},
 };
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
