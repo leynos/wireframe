@@ -28,7 +28,7 @@ pub fn free_port() -> SocketAddr {
         .expect("failed to read free port listener address")
 }
 
-pub fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F, ()>
+pub fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F, (), true>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
@@ -37,7 +37,7 @@ where
         .expect("Failed to bind")
 }
 
-pub fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
+pub fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble, false>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
