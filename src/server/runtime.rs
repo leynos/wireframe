@@ -1,10 +1,11 @@
 //! Runtime control for [`WireframeServer`].
 
-use std::sync::Arc;
+use std::{io, net::SocketAddr, sync::Arc};
 
+use async_trait::async_trait;
 use futures::Future;
 use tokio::{
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     select,
     signal,
     time::{Duration, sleep},
@@ -20,6 +21,21 @@ use super::{
     connection::spawn_connection_task,
 };
 use crate::{app::WireframeApp, preamble::Preamble};
+
+#[async_trait]
+pub(super) trait Listener {
+    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+}
+
+#[async_trait]
+impl Listener for TcpListener {
+    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+        TcpListener::accept(self).await
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> { TcpListener::local_addr(self) }
+}
 
 ///
 ///
@@ -168,8 +184,8 @@ where
     }
 }
 
-pub(super) async fn accept_loop<F, T>(
-    listener: Arc<TcpListener>,
+pub(super) async fn accept_loop<F, T, L>(
+    listener: Arc<L>,
     factory: F,
     on_success: Option<PreambleHandler<T>>,
     on_failure: Option<PreambleErrorHandler>,
@@ -179,6 +195,7 @@ pub(super) async fn accept_loop<F, T>(
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
+    L: Listener + Send + Sync + 'static,
 {
     let mut delay = backoff_config.initial_delay;
     loop {
@@ -213,13 +230,15 @@ pub(super) async fn accept_loop<F, T>(
 mod tests {
     use std::sync::{
         Arc,
+        Mutex,
         atomic::{AtomicUsize, Ordering},
     };
 
+    use async_trait::async_trait;
     use rstest::rstest;
     use tokio::{
         sync::oneshot,
-        time::{Duration, timeout},
+        time::{Duration, Instant, timeout},
     };
 
     use super::*;
@@ -298,7 +317,7 @@ mod tests {
                 .expect("failed to bind test listener"),
         );
 
-        tracker.spawn(accept_loop::<_, ()>(
+        tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
             None,
@@ -313,5 +332,70 @@ mod tests {
 
         let result = timeout(Duration::from_millis(100), tracker.wait()).await;
         assert!(result.is_ok());
+    }
+
+    struct MockListener {
+        calls: Arc<Mutex<Vec<Instant>>>,
+    }
+
+    impl MockListener {
+        fn new(calls: Arc<Mutex<Vec<Instant>>>) -> Self { Self { calls } }
+    }
+
+    #[async_trait]
+    impl super::Listener for MockListener {
+        async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+            self.calls.lock().expect("lock").push(Instant::now());
+            Err(io::Error::other("mock error"))
+        }
+
+        fn local_addr(&self) -> io::Result<SocketAddr> {
+            Ok("127.0.0.1:0".parse().expect("addr parse"))
+        }
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_accept_loop_exponential_backoff_async(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let listener = Arc::new(MockListener::new(calls.clone()));
+        let token = CancellationToken::new();
+        let tracker = TaskTracker::new();
+        let backoff = BackoffConfig {
+            initial_delay: Duration::from_millis(5),
+            max_delay: Duration::from_millis(20),
+        };
+
+        tracker.spawn(accept_loop::<_, (), _>(
+            listener,
+            factory,
+            None,
+            None,
+            token.clone(),
+            tracker.clone(),
+            backoff,
+        ));
+
+        while calls.lock().expect("lock").len() < 4 {
+            sleep(Duration::from_millis(1)).await;
+        }
+
+        token.cancel();
+        tracker.close();
+        tracker.wait().await;
+
+        let calls = calls.lock().expect("lock");
+        let intervals: Vec<_> = calls.windows(2).map(|w| w[1] - w[0]).collect();
+        let tolerance = Duration::from_millis(5);
+        let expected = [5, 10, 20];
+        for (interval, ms) in intervals.iter().zip(expected) {
+            let target = Duration::from_millis(ms);
+            assert!(
+                *interval >= target && *interval < target + tolerance,
+                "interval {interval:?} not within expected range {target:?}"
+            );
+        }
     }
 }
