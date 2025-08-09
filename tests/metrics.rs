@@ -63,21 +63,44 @@ fn error_metric_increments() {
 }
 
 #[test]
-fn connection_panic_metric_increments() {
+fn inc_connection_panics_increments_counter() {
+    // Arrange: create a debugging recorder
     let (snapshotter, recorder) = debugging_recorder_setup();
+
+    // Act: invoke within a local recorder scope to avoid global state
     metrics::with_local_recorder(&recorder, || {
         wireframe::metrics::inc_connection_panics();
     });
 
+    // Assert: we saw exactly one increment on the CONNECTION_PANICS counter
     let metrics = snapshotter.snapshot().into_vec();
-    let count = metrics
-        .iter()
-        .find_map(|(k, _, _, v)| {
-            (k.key().name() == wireframe::metrics::CONNECTION_PANICS).then_some(match v {
-                DebugValue::Counter(c) => *c,
-                _ => 0,
-            })
-        })
-        .unwrap_or(0);
-    assert_eq!(1, count, "panic metric not recorded");
+    assert!(
+        metrics.iter().any(|(key, _, _, value)| {
+            key.key().name() == wireframe::metrics::CONNECTION_PANICS
+                && matches!(value, DebugValue::Counter(c) if *c == 1)
+        }),
+        "expected CONNECTION_PANICS == 1, got {metrics:#?}"
+    );
+}
+
+#[test]
+fn inc_connection_panics_accumulates_multiple_calls() {
+    // Arrange: create a debugging recorder
+    let (snapshotter, recorder) = debugging_recorder_setup();
+
+    // Act: increment twice within a local recorder scope
+    metrics::with_local_recorder(&recorder, || {
+        wireframe::metrics::inc_connection_panics();
+        wireframe::metrics::inc_connection_panics();
+    });
+
+    // Assert: the CONNECTION_PANICS counter equals two
+    let metrics = snapshotter.snapshot().into_vec();
+    assert!(
+        metrics.iter().any(|(key, _, _, value)| {
+            key.key().name() == wireframe::metrics::CONNECTION_PANICS
+                && matches!(value, DebugValue::Counter(c) if *c == 2)
+        }),
+        "expected CONNECTION_PANICS == 2, got {metrics:#?}"
+    );
 }
