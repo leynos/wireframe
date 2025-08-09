@@ -12,7 +12,7 @@ use wireframe::{
 async fn main() -> Result<(), ServerError> {
     let factory = || {
         WireframeApp::new()
-            .unwrap()
+            .expect("failed to create app")
             .route(
                 1,
                 std::sync::Arc::new(|_: &Envelope| {
@@ -22,11 +22,11 @@ async fn main() -> Result<(), ServerError> {
                     })
                 }),
             )
-            .unwrap()
+            .expect("failed to register route")
     };
 
     WireframeServer::new(factory)
-        .bind("127.0.0.1:7878".parse().unwrap())?
+        .bind("127.0.0.1:7878".parse().expect("invalid bind address"))?
         .run()
         .await?;
     Ok(())
