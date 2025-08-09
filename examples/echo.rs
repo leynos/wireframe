@@ -26,7 +26,7 @@ async fn main() -> Result<(), ServerError> {
     };
 
     WireframeServer::new(factory)
-        .bind("127.0.0.1:7878".parse().expect("invalid bind address"))?
+        .bind("127.0.0.1:7878".parse().expect("invalid socket address"))?
         .run()
         .await?;
     Ok(())
