@@ -12,7 +12,7 @@ use wireframe::{
 async fn main() -> Result<(), ServerError> {
     let factory = || {
         WireframeApp::new()
-            .expect("failed to create app")
+            .expect("failed to create WireframeApp")
             .route(
                 1,
                 std::sync::Arc::new(|_: &Envelope| {
