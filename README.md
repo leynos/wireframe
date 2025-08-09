@@ -95,17 +95,19 @@ payload bytes. Applications can supply their own envelope type by calling
 `Packet` trait:
 
 ```rust
-use wireframe::app::{Packet, WireframeApp};
+use wireframe::app::{Packet, PacketParts, WireframeApp};
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
-struct MyEnv { id: u32, correlation_id: u64, data: Vec<u8> }
+struct MyEnv { id: u32, correlation_id: Option<u64>, payload: Vec<u8> }
 
 impl Packet for MyEnv {
     fn id(&self) -> u32 { self.id }
-    fn correlation_id(&self) -> u64 { self.correlation_id }
-    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.data) }
-    fn from_parts(id: u32, correlation_id: u64, data: Vec<u8>) -> Self {
-        Self { id, correlation_id, data }
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
+    fn from_parts(parts: PacketParts) -> Self {
+        Self { id: parts.id, correlation_id: parts.correlation_id, payload: parts.payload }
     }
 }
 
@@ -114,6 +116,9 @@ let app = WireframeApp::<_, _, MyEnv>::new()
     .route(1, std::sync::Arc::new(|env: &MyEnv| Box::pin(async move { /* ... */ })))
     .unwrap();
 ```
+
+A `None` correlation identifier denotes an unsolicited event or server push.
+See [PacketParts](docs/api.md#packetparts) for field details.
 
 This allows integration with existing packet formats without modifying
 `handle_frame`.

@@ -60,7 +60,7 @@ async fn metadata_parser_invoked_before_deserialize() {
     let serializer = CountingSerializer(counter.clone());
     let app = mock_wireframe_app_with_serializer(serializer);
 
-    let env = Envelope::new(1, 0, vec![42]);
+    let env = Envelope::new(1, Some(0), vec![42]);
 
     let out = drive_with_bincode(app, env)
         .await
@@ -105,7 +105,7 @@ async fn falls_back_to_deserialize_after_parse_error() {
     let serializer = FallbackSerializer(parse_calls.clone(), deser_calls.clone());
     let app = mock_wireframe_app_with_serializer(serializer);
 
-    let env = Envelope::new(1, 0, vec![7]);
+    let env = Envelope::new(1, Some(0), vec![7]);
 
     let out = drive_with_bincode(app, env)
         .await

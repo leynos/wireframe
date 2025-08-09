@@ -135,8 +135,8 @@ impl CorrelationWorld {
     pub async fn process(&mut self) {
         let cid = self.cid;
         let stream: FrameStream<Envelope> = Box::pin(try_stream! {
-            yield Envelope::new(1, cid, vec![1]);
-            yield Envelope::new(1, cid, vec![2]);
+            yield Envelope::new(1, Some(cid), vec![1]);
+            yield Envelope::new(1, Some(cid), vec![2]);
         });
         let (queues, handle) = PushQueues::bounded(1, 1);
         let shutdown = CancellationToken::new();
@@ -150,6 +150,10 @@ impl CorrelationWorld {
     /// Panics if any frame has a `correlation_id` that does not match the
     /// expected value.
     pub fn verify(&self) {
-        assert!(self.frames.iter().all(|f| f.correlation_id() == self.cid));
+        assert!(
+            self.frames
+                .iter()
+                .all(|f| f.correlation_id() == Some(self.cid))
+        );
     }
 }

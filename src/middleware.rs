@@ -8,6 +8,8 @@ use std::{convert::Infallible, sync::Arc};
 
 use async_trait::async_trait;
 
+use crate::app::PacketParts;
+
 /// Generic container for request and response frame data.
 #[derive(Debug, Default)]
 pub struct FrameContainer<F> {
@@ -36,13 +38,13 @@ impl<F> FrameContainer<F> {
 #[derive(Debug)]
 pub struct ServiceRequest {
     inner: FrameContainer<Vec<u8>>,
-    correlation_id: u64,
+    correlation_id: Option<u64>,
 }
 
 impl ServiceRequest {
     /// Create a new [`ServiceRequest`] from raw frame bytes.
     #[must_use]
-    pub fn new(frame: Vec<u8>, correlation_id: u64) -> Self {
+    pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self {
         Self {
             inner: FrameContainer::new(frame),
             correlation_id,
@@ -53,9 +55,9 @@ impl ServiceRequest {
     #[must_use]
     pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
 
-    /// Return the correlation identifier associated with this request.
+    /// Return the correlation identifier associated with this request, if any.
     #[must_use]
-    pub fn correlation_id(&self) -> u64 { self.correlation_id }
+    pub fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     /// Mutable access to the inner frame bytes.
     #[must_use]
@@ -70,14 +72,16 @@ impl ServiceRequest {
 #[derive(Debug, Default)]
 pub struct ServiceResponse {
     inner: FrameContainer<Vec<u8>>,
+    correlation_id: Option<u64>,
 }
 
 impl ServiceResponse {
     /// Create a new [`ServiceResponse`] containing the given frame bytes.
     #[must_use]
-    pub fn new(frame: Vec<u8>) -> Self {
+    pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self {
         Self {
             inner: FrameContainer::new(frame),
+            correlation_id,
         }
     }
 
@@ -88,6 +92,15 @@ impl ServiceResponse {
     /// Mutable access to the response frame bytes.
     #[must_use]
     pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
+
+    /// Return the correlation identifier associated with this response, if any.
+    #[must_use]
+    pub fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    /// Set or clear the correlation identifier.
+    pub fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
+        self.correlation_id = correlation_id;
+    }
 
     /// Consume the response, yielding the raw frame bytes.
     #[must_use]
@@ -303,10 +316,14 @@ impl<E: Packet> Service for RouteService<E> {
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         // The handler only borrows the envelope, allowing us to consume it
         // afterwards to extract the response payload.
-        let env = E::from_parts(self.id, req.correlation_id(), req.into_inner());
+        let env = E::from_parts(PacketParts::new(
+            self.id,
+            req.correlation_id(),
+            req.into_inner(),
+        ));
         (self.handler.as_ref())(&env).await;
-        let (_, _, bytes) = env.into_parts();
-        Ok(ServiceResponse::new(bytes))
+        let parts = env.into_parts();
+        Ok(ServiceResponse::new(parts.payload, parts.correlation_id))
     }
 }
 

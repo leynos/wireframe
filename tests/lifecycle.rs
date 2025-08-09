@@ -13,7 +13,7 @@ use std::{
 
 use bytes::BytesMut;
 use wireframe::{
-    app::{Envelope, Packet, WireframeApp},
+    app::{Envelope, Packet, PacketParts, WireframeApp},
     frame::{FrameProcessor, LengthPrefixedProcessor},
     serializer::{BincodeSerializer, Serializer},
 };
@@ -102,22 +102,24 @@ async fn teardown_without_setup_does_not_run() {
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct StateEnvelope {
     id: u32,
-    correlation_id: u64,
-    msg: Vec<u8>,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
 }
 
-impl wireframe::app::Packet for StateEnvelope {
+impl Packet for StateEnvelope {
     fn id(&self) -> u32 { self.id }
 
-    fn correlation_id(&self) -> u64 { self.correlation_id }
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
-    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.msg) }
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
 
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+    fn from_parts(parts: PacketParts) -> Self {
         Self {
-            id,
-            correlation_id,
-            msg,
+            id: parts.id,
+            correlation_id: parts.correlation_id,
+            payload: parts.payload,
         }
     }
 }
@@ -134,8 +136,8 @@ async fn helpers_propagate_connection_state() {
 
     let env = StateEnvelope {
         id: 1,
-        correlation_id: 0,
-        msg: vec![1],
+        correlation_id: Some(0),
+        payload: vec![1],
     };
     let bytes = BincodeSerializer
         .serialize(&env)
@@ -149,6 +151,18 @@ async fn helpers_propagate_connection_state() {
         .await
         .expect("app run failed");
     assert!(!out.is_empty());
+
+    let mut buf = BytesMut::from(&out[..]);
+    let processor = LengthPrefixedProcessor::default();
+    let frame = processor
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (resp, _) = BincodeSerializer
+        .deserialize::<StateEnvelope>(&frame)
+        .expect("deserialize failed");
+    assert_eq!(resp.correlation_id, Some(0));
+
     assert_eq!(setup.load(Ordering::SeqCst), 1);
     assert_eq!(teardown.load(Ordering::SeqCst), 1);
 }
