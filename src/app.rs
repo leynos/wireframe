@@ -255,6 +255,9 @@ impl PacketParts {
                     found = cid,
                     "mismatched correlation id in response"
                 );
+                // Preserve the envelope's identifier to avoid leaking an
+                // unrelated correlation value.
+                self.correlation_id = Some(src);
             }
             _ => {}
         }

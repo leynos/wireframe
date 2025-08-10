@@ -98,8 +98,10 @@ impl ServiceResponse {
     pub fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     /// Set or clear the correlation identifier.
-    pub fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
+    #[must_use]
+    pub fn set_correlation_id(&mut self, correlation_id: Option<u64>) -> &mut Self {
         self.correlation_id = correlation_id;
+        self
     }
 
     /// Consume the response, yielding the raw frame bytes.
