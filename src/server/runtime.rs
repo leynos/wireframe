@@ -130,11 +130,14 @@ where
             ..
         } = self;
 
-        if let Some(tx) = ready_tx
-            && tx.send(()).is_err()
-        {
-            tracing::warn!("Failed to send readiness signal: receiver dropped");
+        #[expect(clippy::collapsible_if)]
+        if let Some(tx) = ready_tx {
+            if tx.send(()).is_err() {
+                tracing::warn!("Failed to send readiness signal: receiver dropped");
+            }
         }
+
+        let backoff_config = BackoffConfig::default();
 
         let shutdown_token = CancellationToken::new();
         let tracker = TaskTracker::new();
@@ -153,7 +156,7 @@ where
                 on_failure,
                 token,
                 t,
-                BackoffConfig::default(),
+                backoff_config,
             ));
         }
 

@@ -25,6 +25,12 @@ use crate::server::test_util::{
     server_with_preamble,
 };
 
+#[derive(Clone, Copy)]
+enum HandlerKind {
+    Success,
+    Failure,
+}
+
 fn expected_default_worker_count() -> usize {
     // Mirror the default worker logic to keep tests aligned with `WireframeServer::new`.
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
@@ -92,36 +98,34 @@ async fn test_local_addr_after_bind(
 }
 
 #[rstest]
-#[case("success")]
-#[case("failure")]
+#[case(HandlerKind::Success)]
+#[case(HandlerKind::Failure)]
 #[tokio::test]
 async fn test_preamble_handler_registration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    #[case] handler_type: &str,
+    #[case] handler: HandlerKind,
 ) {
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
 
     let server = server_with_preamble(factory);
-    let server = match handler_type {
-        "success" => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
+    let server = match handler {
+        HandlerKind::Success => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
             let c = c.clone();
             Box::pin(async move {
                 c.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             })
         }),
-        "failure" => server.on_preamble_decode_failure(move |_err: &DecodeError| {
+        HandlerKind::Failure => server.on_preamble_decode_failure(move |_err: &DecodeError| {
             c.fetch_add(1, Ordering::SeqCst);
         }),
-        _ => panic!("Invalid handler type"),
     };
 
     assert_eq!(counter.load(Ordering::SeqCst), 0);
-    match handler_type {
-        "success" => assert!(server.on_preamble_success.is_some()),
-        "failure" => assert!(server.on_preamble_failure.is_some()),
-        _ => unreachable!(),
+    match handler {
+        HandlerKind::Success => assert!(server.on_preamble_success.is_some()),
+        HandlerKind::Failure => assert!(server.on_preamble_failure.is_some()),
     }
 }
 
