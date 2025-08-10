@@ -324,11 +324,9 @@ impl<E: Packet> Service for RouteService<E> {
             req.into_inner(),
         ));
         (self.handler.as_ref())(&env).await;
-        let PacketParts {
-            payload,
-            correlation_id,
-            ..
-        } = env.into_parts();
+        let parts = env.into_parts();
+        let correlation_id = parts.correlation_id();
+        let payload = parts.payload();
         Ok(ServiceResponse::new(payload, correlation_id))
     }
 }

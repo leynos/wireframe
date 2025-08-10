@@ -116,10 +116,13 @@ impl Packet for StateEnvelope {
     }
 
     fn from_parts(parts: PacketParts) -> Self {
+        let id = parts.id();
+        let correlation_id = parts.correlation_id();
+        let payload = parts.payload();
         Self {
-            id: parts.id,
-            correlation_id: parts.correlation_id,
-            payload: parts.payload,
+            id,
+            correlation_id,
+            payload,
         }
     }
 }

@@ -8,9 +8,12 @@ fn envelope_from_parts_round_trip() {
     let parts = env.into_parts();
     let rebuilt = Envelope::from(parts);
     let parts = rebuilt.into_parts();
-    assert_eq!(parts.id, 2);
-    assert_eq!(parts.correlation_id, Some(5));
-    assert_eq!(parts.payload, vec![1, 2]);
+    let id = parts.id();
+    let correlation_id = parts.correlation_id();
+    let payload = parts.payload();
+    assert_eq!(id, 2);
+    assert_eq!(correlation_id, Some(5));
+    assert_eq!(payload, vec![1, 2]);
 }
 
 #[rstest::rstest(
@@ -22,5 +25,5 @@ fn envelope_from_parts_round_trip() {
 )]
 fn inherit_variants(start: PacketParts, source: Option<u64>, expected: Option<u64>) {
     let got = start.inherit_correlation(source);
-    assert_eq!(got.correlation_id, expected);
+    assert_eq!(got.correlation_id(), expected);
 }

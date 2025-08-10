@@ -169,8 +169,8 @@ impl From<io::Error> for SendError {
 ///
 ///     fn from_parts(parts: PacketParts) -> Self {
 ///         Self {
-///             id: parts.id,
-///             payload: parts.payload,
+///             id: parts.id(),
+///             payload: parts.payload(),
 ///             timestamp: 0,
 ///         }
 ///     }
@@ -193,9 +193,9 @@ pub trait Packet: Message + Send + Sync + 'static {
 /// Component values extracted from or used to build a [`Packet`].
 #[derive(Debug)]
 pub struct PacketParts {
-    pub id: u32,
-    pub correlation_id: Option<u64>,
-    pub payload: Vec<u8>,
+    id: u32,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
 }
 
 /// Basic envelope type used by [`handle_connection`].
@@ -244,7 +244,28 @@ impl PacketParts {
         }
     }
 
+    #[must_use]
+    pub const fn id(&self) -> u32 { self.id }
+
+    #[must_use]
+    pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    #[must_use]
+    pub fn payload(self) -> Vec<u8> { self.payload }
+
     /// Ensure a correlation identifier is present, inheriting from `source` if missing.
+    ///
+    /// # Examples
+    /// ```
+    /// use wireframe::app::PacketParts;
+    /// // Inherit when missing
+    /// let parts = PacketParts::new(1, None, vec![]).inherit_correlation(Some(42));
+    /// assert_eq!(parts.correlation_id(), Some(42));
+    ///
+    /// // Overwrite mismatched value
+    /// let parts = PacketParts::new(1, Some(7), vec![]).inherit_correlation(Some(8));
+    /// assert_eq!(parts.correlation_id(), Some(8));
+    /// ```
     #[must_use]
     pub fn inherit_correlation(mut self, source: Option<u64>) -> Self {
         match (self.correlation_id, source) {
@@ -270,7 +291,12 @@ impl From<Envelope> for PacketParts {
 }
 
 impl From<PacketParts> for Envelope {
-    fn from(p: PacketParts) -> Self { Envelope::new(p.id, p.correlation_id, p.payload) }
+    fn from(p: PacketParts) -> Self {
+        let id = p.id();
+        let correlation_id = p.correlation_id();
+        let payload = p.payload();
+        Envelope::new(id, correlation_id, payload)
+    }
 }
 
 /// Number of idle polls before terminating a connection.
@@ -338,9 +364,9 @@ where
     ///     }
     ///     fn from_parts(parts: PacketParts) -> Self {
     ///         Self {
-    ///             id: parts.id,
-    ///             correlation_id: parts.correlation_id,
-    ///             data: parts.payload,
+    ///             id: parts.id(),
+    ///             correlation_id: parts.correlation_id(),
+    ///             data: parts.payload(),
     ///         }
     ///     }
     /// }
@@ -769,7 +795,7 @@ where
                 Ok(resp) => {
                     let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
                         .inherit_correlation(env.correlation_id);
-                    let correlation_id = parts.correlation_id;
+                    let correlation_id = parts.correlation_id();
                     let response = Envelope::from_parts(parts);
                     if let Err(e) = self.send_response(stream, &response).await {
                         tracing::warn!(

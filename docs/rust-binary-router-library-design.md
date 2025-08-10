@@ -501,7 +501,7 @@ assumptions about any single framing strategy into its core.
 #### 4.3.1 Packet abstraction
 
 The library defines a `Packet` trait to represent transport frames. Frames can
-be decomposed into `PacketParts` for efficient handling and re-assembly.
+be decomposed into `PacketParts` for efficient handling and reassembly.
 `Envelope` is the default implementation used by `wireframe`.
 
 ```mermaid
@@ -531,7 +531,8 @@ classDiagram
 
 `Envelope` implements `Packet`, carrying payload and metadata through the
 system. `PacketParts` avoids repetitive tuple unpacking when frames are split
-into constituent pieces.
+into constituent pieces. A `None` correlation identifier denotes an unsolicited
+event or server-initiated push.
 
 ### 4.4. Message Serialization and Deserialization
 

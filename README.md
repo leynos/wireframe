@@ -107,7 +107,10 @@ impl Packet for MyEnv {
         PacketParts::new(self.id, self.correlation_id, self.payload)
     }
     fn from_parts(parts: PacketParts) -> Self {
-        Self { id: parts.id, correlation_id: parts.correlation_id, payload: parts.payload }
+        let id = parts.id();
+        let correlation_id = parts.correlation_id();
+        let payload = parts.payload();
+        Self { id, correlation_id, payload }
     }
 }
 
@@ -117,8 +120,10 @@ let app = WireframeApp::<_, _, MyEnv>::new()
     .unwrap();
 ```
 
-A `None` correlation identifier denotes an unsolicited event or server push.
-See [PacketParts](docs/api.md#packetparts) for field details.
+A `None` correlation identifier denotes an unsolicited event or
+server-initiated push. Use `None` rather than `Some(0)` when a frame lacks a
+correlation identifier. See [PacketParts](docs/api.md#packetparts) for field
+details.
 
 This allows integration with existing packet formats without modifying
 `handle_frame`.
@@ -286,7 +291,7 @@ Example programs are available in the `examples/` directory:
 - `ping_pong.rs` — showcases serialization and middleware in a ping/pong
   protocol. See [examples/ping_pong.md](examples/ping_pong.md) for a detailed
   overview.
-- `packet_enum.rs` – shows packet type discrimination with a bincode enum and a
+- `packet_enum.rs` — shows packet type discrimination with a bincode enum and a
   frame containing container types like `HashMap` and `Vec`.
 
 Run an example with Cargo:

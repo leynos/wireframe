@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 use wireframe::{
-    app::{Envelope, Handler, Packet, WireframeApp},
+    app::{Envelope, Handler, WireframeApp},
     frame::{FrameProcessor, LengthPrefixedProcessor},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
@@ -88,7 +88,9 @@ async fn middleware_applied_in_reverse_order() {
     let (resp, _) = serializer
         .deserialize::<Envelope>(&frame)
         .expect("deserialize failed");
-    let parts = resp.into_parts();
-    assert_eq!(parts.payload, vec![b'X', b'A', b'B', b'B', b'A']);
-    assert_eq!(parts.correlation_id, Some(7));
+    let parts = wireframe::app::Packet::into_parts(resp);
+    let correlation_id = parts.correlation_id();
+    let payload = parts.payload();
+    assert_eq!(payload, vec![b'X', b'A', b'B', b'B', b'A']);
+    assert_eq!(correlation_id, Some(7));
 }
