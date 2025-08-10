@@ -3,6 +3,7 @@
 //! These tests verify that counters and gauges update as expected using
 //! `metrics_util::debugging::DebuggingRecorder`.
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use rstest::rstest;
 
 /// Creates a debugging recorder and snapshotter for metrics testing.
 fn debugging_recorder_setup() -> (Snapshotter, DebuggingRecorder) {
@@ -62,45 +63,32 @@ fn error_metric_increments() {
     assert!(found, "error metric not recorded");
 }
 
-#[test]
-fn inc_connection_panics_increments_counter() {
-    // Arrange: create a debugging recorder
+#[rstest]
+#[case(1)]
+#[case(2)]
+fn inc_connection_panics_counts(#[case] expected: u64) {
+    // Arrange
     let (snapshotter, recorder) = debugging_recorder_setup();
 
-    // Act: invoke within a local recorder scope to avoid global state
+    // Act
     metrics::with_local_recorder(&recorder, || {
-        wireframe::metrics::inc_connection_panics();
+        (0..expected).for_each(|_| wireframe::metrics::inc_connection_panics());
     });
 
-    // Assert: we saw exactly one increment on the CONNECTION_PANICS counter
-    let metrics = snapshotter.snapshot().into_vec();
-    assert!(
-        metrics.iter().any(|(key, _, _, value)| {
-            key.key().name() == wireframe::metrics::CONNECTION_PANICS
-                && matches!(value, DebugValue::Counter(c) if *c == 1)
-        }),
-        "expected CONNECTION_PANICS == 1, got {metrics:#?}"
+    // Assert
+    assert_counter_eq(
+        &snapshotter,
+        wireframe::metrics::CONNECTION_PANICS,
+        expected,
     );
 }
 
-#[test]
-fn inc_connection_panics_accumulates_multiple_calls() {
-    // Arrange: create a debugging recorder
-    let (snapshotter, recorder) = debugging_recorder_setup();
-
-    // Act: increment twice within a local recorder scope
-    metrics::with_local_recorder(&recorder, || {
-        wireframe::metrics::inc_connection_panics();
-        wireframe::metrics::inc_connection_panics();
-    });
-
-    // Assert: the CONNECTION_PANICS counter equals two
+fn assert_counter_eq(snapshotter: &Snapshotter, name: &str, expected: u64) {
     let metrics = snapshotter.snapshot().into_vec();
     assert!(
         metrics.iter().any(|(key, _, _, value)| {
-            key.key().name() == wireframe::metrics::CONNECTION_PANICS
-                && matches!(value, DebugValue::Counter(c) if *c == 2)
+            key.key().name() == name && matches!(value, DebugValue::Counter(c) if *c == expected)
         }),
-        "expected CONNECTION_PANICS == 2, got {metrics:#?}"
+        "expected {name} == {expected}, got {metrics:#?}"
     );
 }
