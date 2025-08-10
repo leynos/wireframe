@@ -1,6 +1,5 @@
 //! Binding configuration for [`WireframeServer`].
 
-use core::marker::PhantomData;
 use std::{
     net::{SocketAddr, TcpListener as StdTcpListener},
     sync::Arc,
@@ -92,7 +91,7 @@ where
             state: Bound {
                 listener: Arc::new(tokio),
             },
-            _preamble: PhantomData,
+            _preamble: self._preamble,
         })
     }
 }
@@ -177,7 +176,7 @@ where
             state: Bound {
                 listener: Arc::new(tokio),
             },
-            _preamble: PhantomData,
+            _preamble: self._preamble,
         })
     }
 }

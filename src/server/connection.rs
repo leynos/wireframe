@@ -64,7 +64,7 @@ async fn process_stream<F, T>(
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
-                tracing::error!(error = ?e, ?peer_addr, "preamble handler error");
+                tracing::error!(error = %e, ?peer_addr, "preamble handler error");
             }
             let stream = RewindStream::new(leftover, stream);
             let app = (factory)();

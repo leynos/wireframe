@@ -5,6 +5,7 @@ use std::io;
 use thiserror::Error;
 
 /// Errors that may occur while configuring or running the server.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum ServerError {
     /// Binding or configuring the listener failed.
