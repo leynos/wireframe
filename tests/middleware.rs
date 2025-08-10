@@ -3,6 +3,7 @@
 //! Confirm that a custom middleware can modify requests and responses.
 
 use async_trait::async_trait;
+use rstest::rstest;
 use wireframe::middleware::{Next, Service, ServiceRequest, ServiceResponse, Transform};
 
 struct EchoService;
@@ -49,38 +50,16 @@ where
     }
 }
 
+#[rstest(correlation_id => [None, Some(0), Some(42)])]
 #[tokio::test]
-async fn middleware_modifies_request_and_response() {
+async fn middleware_modifies_request_and_response_preserves_cid(correlation_id: Option<u64>) {
     let service = EchoService;
     let mw = ModifyMiddleware;
     let wrapped = mw.transform(service).await;
 
-    let request = ServiceRequest::new(vec![1, 2, 3], Some(0));
+    let request = ServiceRequest::new(vec![1, 2, 3], correlation_id);
     let response = wrapped.call(request).await.expect("middleware call failed");
+
     assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
-}
-
-#[tokio::test]
-async fn test_modify_middleware_preserves_nonzero_correlation_id() {
-    let service = EchoService;
-    let mw = ModifyMiddleware;
-    let wrapped = mw.transform(service).await;
-
-    let correlation_id = Some(42);
-    let request = ServiceRequest::new(vec![4, 5, 6], correlation_id);
-    let response = wrapped.call(request).await.expect("middleware call failed");
-    assert_eq!(response.frame(), &[4, 5, 6, b'!', b'?']);
     assert_eq!(response.correlation_id(), correlation_id);
-}
-
-#[tokio::test]
-async fn middleware_preserves_none_correlation_id() {
-    let service = EchoService;
-    let mw = ModifyMiddleware;
-    let wrapped = mw.transform(service).await;
-
-    let request = ServiceRequest::new(vec![7, 8, 9], None);
-    let response = wrapped.call(request).await.expect("middleware call failed");
-    assert_eq!(response.frame(), &[7, 8, 9, b'!', b'?']);
-    assert_eq!(response.correlation_id(), None);
 }

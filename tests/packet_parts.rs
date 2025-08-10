@@ -13,9 +13,14 @@ fn envelope_from_parts_round_trip() {
     assert_eq!(parts.payload, vec![1, 2]);
 }
 
-#[test]
-fn inherit_correlation_overwrites_mismatch() {
-    let parts = PacketParts::new(1, Some(7), vec![]);
-    let inherited = parts.inherit_correlation(Some(8));
-    assert_eq!(inherited.correlation_id, Some(8));
+#[rstest::rstest(
+    start, source, expected,
+    case(PacketParts::new(1, None, vec![]), Some(42), Some(42)),
+    case(PacketParts::new(1, Some(7), vec![]), None, Some(7)),
+    case(PacketParts::new(1, None, vec![]), None, None),
+    case(PacketParts::new(1, Some(7), vec![]), Some(8), Some(8)),
+)]
+fn inherit_variants(start: PacketParts, source: Option<u64>, expected: Option<u64>) {
+    let got = start.inherit_correlation(source);
+    assert_eq!(got.correlation_id, expected);
 }

@@ -772,7 +772,12 @@ where
                     let correlation_id = parts.correlation_id;
                     let response = Envelope::from_parts(parts);
                     if let Err(e) = self.send_response(stream, &response).await {
-                        tracing::warn!(id = env.id, correlation_id = ?correlation_id, error = %e, "failed to send response");
+                        tracing::warn!(
+                            id = env.id,
+                            correlation_id = ?correlation_id,
+                            error = ?e,
+                            "failed to send response",
+                        );
                         crate::metrics::inc_handler_errors();
                     }
                 }
