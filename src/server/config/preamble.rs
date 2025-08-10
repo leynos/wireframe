@@ -46,6 +46,7 @@ where
             on_preamble_success: None,
             on_preamble_failure: None,
             ready_tx: self.ready_tx,
+            backoff_config: self.backoff_config,
             state: self.state,
             _preamble: PhantomData,
         }

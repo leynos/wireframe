@@ -12,7 +12,7 @@ use core::marker::PhantomData;
 
 use tokio::sync::oneshot;
 
-use super::{ServerState, Unbound, WireframeServer};
+use super::{BackoffConfig, ServerState, Unbound, WireframeServer};
 use crate::{app::WireframeApp, preamble::Preamble};
 
 macro_rules! builder_setter {
@@ -72,6 +72,7 @@ where
             on_preamble_success: None,
             on_preamble_failure: None,
             ready_tx: None,
+            backoff_config: BackoffConfig::default(),
             state: Unbound,
             _preamble: PhantomData,
         }

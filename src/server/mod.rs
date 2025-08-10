@@ -119,6 +119,7 @@ where
     /// Because only one notification may be sent, a new `ready_tx` must be
     /// provided each time the server is started.
     pub(crate) ready_tx: Option<oneshot::Sender<()>>,
+    pub(crate) backoff_config: BackoffConfig,
     /// Typestate tracking whether the server has been bound to a listener.
     /// [`Unbound`] servers require binding before they can run.
     pub(crate) state: S,

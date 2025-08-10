@@ -17,6 +17,7 @@ use std::{
 use rstest::rstest;
 
 use super::*;
+use bincode::error::DecodeError;
 use crate::server::test_util::{
     TestPreamble,
     bind_server,
@@ -24,9 +25,10 @@ use crate::server::test_util::{
     free_port,
     server_with_preamble,
 };
+use tokio::net::{TcpListener, TcpStream};
 
-#[derive(Clone, Copy)]
-enum HandlerKind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreambleHandlerKind {
     Success,
     Failure,
 }
@@ -98,35 +100,60 @@ async fn test_local_addr_after_bind(
 }
 
 #[rstest]
-#[case(HandlerKind::Success)]
-#[case(HandlerKind::Failure)]
+#[case::success(PreambleHandlerKind::Success)]
+#[case::failure(PreambleHandlerKind::Failure)]
 #[tokio::test]
 async fn test_preamble_handler_registration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    #[case] handler: HandlerKind,
+    #[case] handler: PreambleHandlerKind,
 ) {
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
 
     let server = server_with_preamble(factory);
     let server = match handler {
-        HandlerKind::Success => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
+        PreambleHandlerKind::Success => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
             let c = c.clone();
             Box::pin(async move {
                 c.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             })
         }),
-        HandlerKind::Failure => server.on_preamble_decode_failure(move |_err: &DecodeError| {
+        PreambleHandlerKind::Failure => server.on_preamble_decode_failure(move |_err: &DecodeError| {
             c.fetch_add(1, Ordering::SeqCst);
         }),
     };
 
     assert_eq!(counter.load(Ordering::SeqCst), 0);
     match handler {
-        HandlerKind::Success => assert!(server.on_preamble_success.is_some()),
-        HandlerKind::Failure => assert!(server.on_preamble_failure.is_some()),
+        PreambleHandlerKind::Success => {
+            assert!(server.on_preamble_success.is_some());
+            let handler = server
+                .on_preamble_success
+                .as_ref()
+                .expect("success handler missing");
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind listener");
+            let addr = listener.local_addr().expect("listener addr");
+            let client = TcpStream::connect(addr);
+            let (mut stream, _) = listener.accept().await.expect("accept stream");
+            let _ = client.await;
+            let preamble = TestPreamble { id: 0, message: String::new() };
+            handler(&preamble, &mut stream)
+                .await
+                .expect("handler failed");
+        }
+        PreambleHandlerKind::Failure => {
+            assert!(server.on_preamble_failure.is_some());
+            let handler = server
+                .on_preamble_failure
+                .as_ref()
+                .expect("failure handler missing");
+            handler(&DecodeError::UnexpectedEnd);
+        }
     }
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 
 #[rstest]
