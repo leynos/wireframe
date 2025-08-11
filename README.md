@@ -120,10 +120,9 @@ let app = WireframeApp::<_, _, MyEnv>::new()
     .unwrap();
 ```
 
-A `None` correlation identifier denotes an unsolicited event or
-server-initiated push. Use `None` rather than `Some(0)` when a frame lacks a
-correlation identifier. See [PacketParts](docs/api.md#packetparts) for field
-details.
+A `None` correlation ID denotes an unsolicited event or server-initiated push.
+Use `None` rather than `Some(0)` when a frame lacks a correlation ID. See
+[PacketParts](docs/api.md#packetparts) for field details.
 
 This allows integration with existing packet formats without modifying
 `handle_frame`.

@@ -513,10 +513,13 @@ classDiagram
         +from_parts(parts: PacketParts) Self
     }
     class PacketParts {
-        +id: u32
-        +correlation_id: Option<u64>
-        +payload: Vec<u8>
+        -id: u32
+        -correlation_id: Option<u64>
+        -payload: Vec<u8>
         +new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) PacketParts
+        +id() u32
+        +correlation_id() Option<u64>
+        +payload() Vec<u8>
         +inherit_correlation(source: Option<u64>) PacketParts
     }
     class Envelope {
@@ -533,8 +536,8 @@ classDiagram
 
 `Envelope` implements `Packet`, carrying payload and metadata through the
 system. `PacketParts` avoids repetitive tuple unpacking when frames are split
-into constituent pieces. A `None` correlation identifier denotes an unsolicited
-event or server-initiated push.
+into constituent pieces. A `None` correlation ID denotes an unsolicited event
+or server-initiated push.
 
 ### 4.4. Message Serialization and Deserialization
 

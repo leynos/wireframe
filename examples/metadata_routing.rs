@@ -89,7 +89,7 @@ async fn main() -> io::Result<()> {
         app.handle_connection(server).await;
     });
 
-    let payload = Ping.to_bytes().expect("failed to serialise Ping message");
+    let payload = Ping.to_bytes().expect("failed to serialize Ping message");
     let mut frame = Vec::new();
     frame.extend_from_slice(&1u16.to_be_bytes());
     frame.push(0);
