@@ -63,3 +63,13 @@ async fn middleware_modifies_request_and_response_preserves_cid(correlation_id: 
     assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
     assert_eq!(response.correlation_id(), correlation_id);
 }
+
+#[test]
+fn service_request_setter_updates_correlation_id() {
+    let mut req = ServiceRequest::new(vec![], None);
+    let _ = req.set_correlation_id(Some(7));
+    assert_eq!(req.correlation_id(), Some(7));
+
+    let _ = req.set_correlation_id(None);
+    assert_eq!(req.correlation_id(), None);
+}

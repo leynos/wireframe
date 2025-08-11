@@ -516,6 +516,8 @@ classDiagram
         +id: u32
         +correlation_id: Option<u64>
         +payload: Vec<u8>
+        +new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) PacketParts
+        +inherit_correlation(source: Option<u64>) PacketParts
     }
     class Envelope {
         +id: u32

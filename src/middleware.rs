@@ -59,6 +59,13 @@ impl ServiceRequest {
     #[must_use]
     pub fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
+    /// Set or clear the correlation identifier on the request.
+    #[must_use]
+    pub fn set_correlation_id(&mut self, correlation_id: Option<u64>) -> &mut Self {
+        self.correlation_id = correlation_id;
+        self
+    }
+
     /// Mutable access to the inner frame bytes.
     #[must_use]
     pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
