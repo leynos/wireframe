@@ -1,6 +1,6 @@
 //! Test helpers shared across server modules.
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 
 use bincode::{Decode, Encode};
 use rstest::fixture;
@@ -25,20 +25,21 @@ pub fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
 }
 
 #[fixture]
-pub fn free_port() -> SocketAddr {
+/// Returns a bound [`TcpListener`] on a free port for use in tests.
+///
+/// Keeping the listener bound prevents race conditions where another
+/// process could claim the port between discovery and use.
+pub fn free_listener() -> StdTcpListener {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-    let listener = std::net::TcpListener::bind(addr).expect("failed to bind free port listener");
-    listener
-        .local_addr()
-        .expect("failed to read free port listener address")
+    StdTcpListener::bind(addr).expect("Failed to bind free port listener")
 }
 
-pub fn bind_server<F>(factory: F, addr: SocketAddr) -> WireframeServer<F, (), Bound>
+pub fn bind_server<F>(factory: F, listener: StdTcpListener) -> WireframeServer<F, (), Bound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
     WireframeServer::new(factory)
-        .bind(addr)
+        .bind_listener(listener)
         .expect("Failed to bind")
 }
 

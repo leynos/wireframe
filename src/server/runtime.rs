@@ -223,15 +223,15 @@ mod tests {
     };
 
     use super::*;
-    use crate::server::test_util::{bind_server, factory, free_port};
+    use crate::server::test_util::{bind_server, factory, free_listener};
 
     #[rstest]
     #[tokio::test]
     async fn test_run_with_immediate_shutdown(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_listener: std::net::TcpListener,
     ) {
-        let server = bind_server(factory, free_port);
+        let server = bind_server(factory, free_listener);
         let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
         let result = timeout(
             Duration::from_millis(1000),
@@ -246,9 +246,9 @@ mod tests {
     #[tokio::test]
     async fn test_server_graceful_shutdown_with_ctrl_c_simulation(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_listener: std::net::TcpListener,
     ) {
-        let server = bind_server(factory, free_port);
+        let server = bind_server(factory, free_listener);
         let (tx, rx) = oneshot::channel();
         let handle = tokio::spawn(async move {
             server
@@ -264,7 +264,7 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
-    async fn test_multiple_worker_creation(free_port: std::net::SocketAddr) {
+    async fn test_multiple_worker_creation(free_listener: std::net::TcpListener) {
         let call_count = Arc::new(AtomicUsize::new(0));
         let clone = call_count.clone();
         let factory = move || {
@@ -273,7 +273,7 @@ mod tests {
         };
         let server = WireframeServer::new(factory)
             .workers(3)
-            .bind(free_port)
+            .bind_listener(free_listener)
             .expect("Failed to bind");
         let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
         let result = timeout(
