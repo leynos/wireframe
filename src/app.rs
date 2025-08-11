@@ -151,7 +151,10 @@ impl From<io::Error> for SendError {
 /// # Example
 ///
 /// ```
-/// use wireframe::{app::Packet, message::Message};
+/// use wireframe::{
+///     app::{Packet, PacketParts},
+///     message::Message,
+/// };
 ///
 /// #[derive(bincode::Decode, bincode::Encode)]
 /// struct CustomEnvelope {
@@ -314,7 +317,7 @@ where
     E: Packet,
 {
     ///
-    /// Initialises empty routes, services, middleware, and application data.
+    /// Initializes empty routes, services, middleware, and application data.
     /// Sets the default frame processor and serializer, with no connection
     /// lifecycle hooks.
     fn default() -> Self {

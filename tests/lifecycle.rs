@@ -14,7 +14,7 @@ use std::{
 use bytes::BytesMut;
 use wireframe::{
     app::{Envelope, Packet, PacketParts, WireframeApp},
-    frame::{FrameProcessor, LengthPrefixedProcessor},
+    frame::FrameProcessor,
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{processor, run_app, run_with_duplex_server};
@@ -146,8 +146,8 @@ async fn helpers_propagate_connection_state() {
         .serialize(&env)
         .expect("failed to serialise envelope");
     let mut frame = BytesMut::new();
-    LengthPrefixedProcessor::default()
-        .encode(&bytes, &mut frame)
+    let proc = processor();
+    proc.encode(&bytes, &mut frame)
         .expect("encode should succeed");
 
     let out = run_app(app, vec![frame.to_vec()], None)
