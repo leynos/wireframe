@@ -20,7 +20,6 @@ use crate::server::test_util::{
     TestPreamble,
     bind_server,
     factory,
-    free_addr,
     free_listener,
     listener_addr,
     server_with_preamble,
@@ -183,7 +182,8 @@ async fn test_bind_to_multiple_addresses(
     free_listener: std::net::TcpListener,
 ) {
     let addr1 = listener_addr(&free_listener);
-    let addr2 = free_addr();
+    let listener2 = crate::server::test_util::free_listener();
+    let addr2 = listener_addr(&listener2);
 
     let server = WireframeServer::new(factory);
     let server = server
@@ -191,6 +191,7 @@ async fn test_bind_to_multiple_addresses(
         .expect("Failed to bind first address");
     let first = server.local_addr().expect("first bound address missing");
     assert_eq!(first, addr1);
+    drop(listener2);
     let server = server.bind(addr2).expect("Failed to bind second address");
     let second = server.local_addr().expect("second bound address missing");
     assert_eq!(second, addr2);

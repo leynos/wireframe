@@ -56,29 +56,6 @@ pub fn listener_addr(listener: &StdTcpListener) -> SocketAddr {
         .expect("failed to get listener address")
 }
 
-/// Reserve a free local port and return its address.
-///
-/// A temporary listener is created and immediately dropped so the port may be
-/// rebound.
-///
-/// # Examples
-///
-/// ```
-/// use wireframe::server::test_util::free_addr;
-///
-/// let addr = free_addr();
-/// assert_eq!(addr.ip(), std::net::Ipv4Addr::LOCALHOST.into());
-/// ```
-#[cfg_attr(test, allow(dead_code, reason = "Used via path in tests"))]
-#[cfg_attr(not(test), expect(dead_code, reason = "Only used in tests"))]
-#[must_use]
-pub fn free_addr() -> SocketAddr {
-    let listener = free_listener();
-    let addr = listener_addr(&listener);
-    drop(listener);
-    addr
-}
-
 pub fn bind_server<F>(factory: F, listener: StdTcpListener) -> WireframeServer<F, (), Bound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
