@@ -34,12 +34,57 @@ pub fn free_listener() -> StdTcpListener {
     StdTcpListener::bind(addr).expect("Failed to bind free port listener")
 }
 
+/// Extract the bound address from a listener.
+///
+/// # Examples
+///
+/// ```
+/// use std::net::TcpListener;
+///
+/// use wireframe::server::test_util::{free_listener, listener_addr};
+///
+/// let listener = free_listener();
+/// let addr = listener_addr(&listener);
+/// assert_eq!(listener.local_addr().unwrap(), addr);
+/// ```
+#[cfg_attr(test, allow(dead_code, reason = "Used via path in tests"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "Only used in tests"))]
+#[must_use]
+pub fn listener_addr(listener: &StdTcpListener) -> SocketAddr {
+    listener
+        .local_addr()
+        .expect("failed to get listener address")
+}
+
+/// Reserve a free local port and return its address.
+///
+/// A temporary listener is created and immediately dropped so the port may be
+/// rebound.
+///
+/// # Examples
+///
+/// ```
+/// use wireframe::server::test_util::free_addr;
+///
+/// let addr = free_addr();
+/// assert_eq!(addr.ip(), std::net::Ipv4Addr::LOCALHOST.into());
+/// ```
+#[cfg_attr(test, allow(dead_code, reason = "Used via path in tests"))]
+#[cfg_attr(not(test), expect(dead_code, reason = "Only used in tests"))]
+#[must_use]
+pub fn free_addr() -> SocketAddr {
+    let listener = free_listener();
+    let addr = listener_addr(&listener);
+    drop(listener);
+    addr
+}
+
 pub fn bind_server<F>(factory: F, listener: StdTcpListener) -> WireframeServer<F, (), Bound>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
     WireframeServer::new(factory)
-        .bind_listener(listener)
+        .bind_existing_listener(listener)
         .expect("Failed to bind")
 }
 

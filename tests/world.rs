@@ -39,7 +39,7 @@ impl PanicServer {
         let listener = unused_listener();
         let server = WireframeServer::new(factory)
             .workers(1)
-            .bind_listener(listener)
+            .bind_existing_listener(listener)
             .expect("bind");
         let addr = server.local_addr().expect("Failed to get server address");
         let (tx_shutdown, rx_shutdown) = oneshot::channel();

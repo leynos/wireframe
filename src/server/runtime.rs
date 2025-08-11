@@ -273,7 +273,7 @@ mod tests {
         };
         let server = WireframeServer::new(factory)
             .workers(3)
-            .bind_listener(free_listener)
+            .bind_existing_listener(free_listener)
             .expect("Failed to bind");
         let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
         let result = timeout(

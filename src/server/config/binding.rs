@@ -56,7 +56,7 @@ where
     /// Returns a [`ServerError`] if binding or configuring the listener fails.
     pub fn bind(self, addr: SocketAddr) -> Result<WireframeServer<F, T, Bound>, ServerError> {
         let std = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
-        self.bind_listener(std)
+        self.bind_existing_listener(std)
     }
 
     /// Bind to an existing `StdTcpListener`.
@@ -70,14 +70,14 @@ where
     ///
     /// let std = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
     /// let server = WireframeServer::new(|| WireframeApp::default())
-    ///     .bind_listener(std)
+    ///     .bind_existing_listener(std)
     ///     .expect("bind failed");
     /// assert!(server.local_addr().is_some());
     /// ```
     ///
     /// # Errors
     /// Returns a [`ServerError`] if configuring the listener fails.
-    pub fn bind_listener(
+    pub fn bind_existing_listener(
         self,
         std: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
@@ -142,7 +142,7 @@ where
     /// Returns a [`ServerError`] if binding or configuring the listener fails.
     pub fn bind(self, addr: SocketAddr) -> Result<Self, ServerError> {
         let std = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
-        self.bind_listener(std)
+        self.bind_existing_listener(std)
     }
 
     /// Rebind using an existing `StdTcpListener`.
@@ -159,13 +159,13 @@ where
     ///     .bind(addr)
     ///     .expect("bind failed");
     /// let std = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
-    /// let server = server.bind_listener(std).expect("rebind failed");
+    /// let server = server.bind_existing_listener(std).expect("rebind failed");
     /// assert!(server.local_addr().is_some());
     /// ```
     ///
     /// # Errors
     /// Returns a [`ServerError`] if configuring the listener fails.
-    pub fn bind_listener(self, std: StdTcpListener) -> Result<Self, ServerError> {
+    pub fn bind_existing_listener(self, std: StdTcpListener) -> Result<Self, ServerError> {
         std.set_nonblocking(true).map_err(ServerError::Bind)?;
         let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
         Ok(WireframeServer {

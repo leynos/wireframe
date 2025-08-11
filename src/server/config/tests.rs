@@ -6,7 +6,6 @@
 //! cases via `rstest`.
 
 use std::{
-    net::SocketAddr,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -21,7 +20,9 @@ use crate::server::test_util::{
     TestPreamble,
     bind_server,
     factory,
+    free_addr,
     free_listener,
+    listener_addr,
     server_with_preamble,
 };
 
@@ -68,15 +69,13 @@ async fn test_bind_success(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     free_listener: std::net::TcpListener,
 ) {
-    let expected = free_listener
-        .local_addr()
-        .expect("failed to get listener address");
+    let expected = listener_addr(&free_listener);
     let local_addr = WireframeServer::new(factory)
-        .bind_listener(free_listener)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind")
         .local_addr()
         .expect("local address missing");
-    assert_eq!(local_addr.ip(), expected.ip());
+    assert_eq!(local_addr, expected);
 }
 
 #[rstest]
@@ -90,11 +89,9 @@ async fn test_local_addr_after_bind(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     free_listener: std::net::TcpListener,
 ) {
-    let expected = free_listener
-        .local_addr()
-        .expect("failed to get listener address");
+    let expected = listener_addr(&free_listener);
     let local_addr = bind_server(factory, free_listener).local_addr().unwrap();
-    assert_eq!(local_addr.ip(), expected.ip());
+    assert_eq!(local_addr, expected);
 }
 
 #[rstest]
@@ -150,7 +147,7 @@ async fn test_method_chaining(
             })
         })
         .on_preamble_decode_failure(|_: &DecodeError| {})
-        .bind_listener(free_listener)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 2);
     assert!(server.local_addr().is_some());
@@ -165,7 +162,7 @@ async fn test_server_configuration_persistence(
 ) {
     let server = WireframeServer::new(factory)
         .workers(5)
-        .bind_listener(free_listener)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 5);
     assert!(server.local_addr().is_some());
@@ -185,23 +182,19 @@ async fn test_bind_to_multiple_addresses(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     free_listener: std::net::TcpListener,
 ) {
-    let listener2 =
-        std::net::TcpListener::bind(SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0))
-            .expect("failed to bind second listener");
-    let addr2 = listener2
-        .local_addr()
-        .expect("failed to get second listener address");
-    drop(listener2);
+    let addr1 = listener_addr(&free_listener);
+    let addr2 = free_addr();
 
     let server = WireframeServer::new(factory);
     let server = server
-        .bind_listener(free_listener)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind first address");
     let first = server.local_addr().expect("first bound address missing");
+    assert_eq!(first, addr1);
     let server = server.bind(addr2).expect("Failed to bind second address");
     let second = server.local_addr().expect("second bound address missing");
+    assert_eq!(second, addr2);
     assert_ne!(first.port(), second.port());
-    assert_eq!(second.ip(), addr2.ip());
 }
 
 #[rstest]
