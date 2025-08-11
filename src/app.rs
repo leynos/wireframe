@@ -275,9 +275,10 @@ impl PacketParts {
             (None, cid) => self.correlation_id = cid,
             (Some(cid), Some(src)) if cid != src => {
                 tracing::warn!(
+                    id = self.id,
                     expected = src,
                     found = cid,
-                    "mismatched correlation id in response"
+                    "mismatched correlation id in response",
                 );
                 // Overwrite with the source correlation ID to ensure downstream
                 // consistency.

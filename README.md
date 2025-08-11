@@ -290,8 +290,9 @@ Example programs are available in the `examples/` directory:
 - `ping_pong.rs` — showcases serialization and middleware in a ping/pong
   protocol. See [examples/ping_pong.md](examples/ping_pong.md) for a detailed
   overview.
-- `packet_enum.rs` — shows packet type discrimination with a bincode enum and a
-  frame containing container types like `HashMap` and `Vec`.
+- [`packet_enum.rs`](examples/packet_enum.rs) — shows packet type discrimination
+  with a bincode enum and a frame containing container types like `HashMap` and
+  `Vec`.
 
 Run an example with Cargo:
 

@@ -537,7 +537,10 @@ classDiagram
 `Envelope` implements `Packet`, carrying payload and metadata through the
 system. `PacketParts` avoids repetitive tuple unpacking when frames are split
 into constituent pieces. A `None` correlation ID denotes an unsolicited event
-or server-initiated push.
+or server-initiated push. In multi-packet streaming responses, the optional
+`correlation_id` links all packets in the stream to the originating request,
+and protocols should define an explicit end-of-stream indicator alongside the
+shared correlation identifier.
 
 ### 4.4. Message Serialization and Deserialization
 
