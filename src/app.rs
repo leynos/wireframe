@@ -151,7 +151,10 @@ impl From<io::Error> for SendError {
 /// # Example
 ///
 /// ```
-/// use wireframe::{app::Packet, message::Message};
+/// use wireframe::{
+///     app::{Packet, PacketParts},
+///     message::Message,
+/// };
 ///
 /// #[derive(bincode::Decode, bincode::Encode)]
 /// struct CustomEnvelope {
@@ -163,15 +166,14 @@ impl From<io::Error> for SendError {
 /// impl Packet for CustomEnvelope {
 ///     fn id(&self) -> u32 { self.id }
 ///
-///     fn correlation_id(&self) -> u64 { 0 }
+///     fn correlation_id(&self) -> Option<u64> { None }
 ///
-///     fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, 0, self.payload) }
+///     fn into_parts(self) -> PacketParts { PacketParts::new(self.id, None, self.payload) }
 ///
-///     fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
-///         let _ = correlation_id;
+///     fn from_parts(parts: PacketParts) -> Self {
 ///         Self {
-///             id,
-///             payload: msg,
+///             id: parts.id(),
+///             payload: parts.payload(),
 ///             timestamp: 0,
 ///         }
 ///     }
@@ -182,58 +184,122 @@ pub trait Packet: Message + Send + Sync + 'static {
     fn id(&self) -> u32;
 
     /// Return the correlation identifier tying this frame to a request.
-    fn correlation_id(&self) -> u64;
+    fn correlation_id(&self) -> Option<u64>;
 
     /// Consume the packet and return its identifier, correlation id and payload bytes.
-    fn into_parts(self) -> (u32, u64, Vec<u8>);
+    fn into_parts(self) -> PacketParts;
 
-    /// Construct a new packet from id, correlation id and raw payload bytes.
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self;
+    /// Construct a new packet from raw parts.
+    fn from_parts(parts: PacketParts) -> Self;
+}
+
+/// Component values extracted from or used to build a [`Packet`].
+#[derive(Debug)]
+pub struct PacketParts {
+    id: u32,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
 }
 
 /// Basic envelope type used by [`handle_connection`].
 ///
 /// Incoming frames are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
-#[derive(bincode::Decode, bincode::Encode, Copy, Clone, Debug)]
-pub struct PacketHeader {
-    pub(crate) id: u32,
-    pub(crate) correlation_id: u64,
-}
-
 #[derive(bincode::Decode, bincode::Encode, Debug)]
 pub struct Envelope {
-    pub(crate) header: PacketHeader,
-    pub(crate) msg: Vec<u8>,
+    pub(crate) id: u32,
+    pub(crate) correlation_id: Option<u64>,
+    pub(crate) payload: Vec<u8>,
 }
 
 impl Envelope {
     /// Create a new [`Envelope`] with the provided identifiers and payload.
     #[must_use]
-    pub fn new(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+    pub fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
         Self {
-            header: PacketHeader { id, correlation_id },
-            msg,
+            id,
+            correlation_id,
+            payload,
         }
     }
-
-    /// Consume the envelope, returning its header and payload bytes.
-    #[must_use]
-    pub fn into_parts(self) -> (PacketHeader, Vec<u8>) { (self.header, self.msg) }
 }
 
 impl Packet for Envelope {
-    fn id(&self) -> u32 { self.header.id }
+    #[inline]
+    fn id(&self) -> u32 { self.id }
 
-    fn correlation_id(&self) -> u64 { self.header.correlation_id }
+    #[inline]
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
-    fn into_parts(self) -> (u32, u64, Vec<u8>) {
-        let (header, msg) = Envelope::into_parts(self);
-        (header.id, header.correlation_id, msg)
+    fn into_parts(self) -> PacketParts { self.into() }
+
+    fn from_parts(parts: PacketParts) -> Self { parts.into() }
+}
+
+impl PacketParts {
+    /// Construct a new set of packet parts.
+    #[must_use]
+    pub fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
+        Self {
+            id,
+            correlation_id,
+            payload,
+        }
     }
 
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
-        Envelope::new(id, correlation_id, msg)
+    #[must_use]
+    pub const fn id(&self) -> u32 { self.id }
+
+    #[must_use]
+    pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    #[must_use]
+    pub fn payload(self) -> Vec<u8> { self.payload }
+
+    /// Ensure a correlation identifier is present, inheriting from `source` if missing.
+    ///
+    /// # Examples
+    /// ```
+    /// use wireframe::app::PacketParts;
+    /// // Inherit when missing
+    /// let parts = PacketParts::new(1, None, vec![]).inherit_correlation(Some(42));
+    /// assert_eq!(parts.correlation_id(), Some(42));
+    ///
+    /// // Overwrite mismatched value
+    /// let parts = PacketParts::new(1, Some(7), vec![]).inherit_correlation(Some(8));
+    /// assert_eq!(parts.correlation_id(), Some(8));
+    /// ```
+    #[must_use]
+    pub fn inherit_correlation(mut self, source: Option<u64>) -> Self {
+        match (self.correlation_id, source) {
+            (None, cid) => self.correlation_id = cid,
+            (Some(cid), Some(src)) if cid != src => {
+                tracing::warn!(
+                    id = self.id,
+                    expected = src,
+                    found = cid,
+                    "mismatched correlation id in response",
+                );
+                // Overwrite with the source correlation ID to ensure downstream
+                // consistency.
+                self.correlation_id = Some(src);
+            }
+            _ => {}
+        }
+        self
+    }
+}
+
+impl From<Envelope> for PacketParts {
+    fn from(e: Envelope) -> Self { PacketParts::new(e.id, e.correlation_id, e.payload) }
+}
+
+impl From<PacketParts> for Envelope {
+    fn from(p: PacketParts) -> Self {
+        let id = p.id();
+        let correlation_id = p.correlation_id();
+        let payload = p.payload();
+        Envelope::new(id, correlation_id, payload)
     }
 }
 
@@ -252,7 +318,7 @@ where
     E: Packet,
 {
     ///
-    /// Initialises empty routes, services, middleware, and application data.
+    /// Initializes empty routes, services, middleware, and application data.
     /// Sets the default frame processor and serializer, with no connection
     /// lifecycle hooks.
     fn default() -> Self {
@@ -290,19 +356,21 @@ where
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
     /// struct MyEnv {
     ///     id: u32,
-    ///     correlation_id: u64,
+    ///     correlation_id: Option<u64>,
     ///     data: Vec<u8>,
     /// }
     ///
     /// impl Packet for MyEnv {
     ///     fn id(&self) -> u32 { self.id }
-    ///     fn correlation_id(&self) -> u64 { self.correlation_id }
-    ///     fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.data) }
-    ///     fn from_parts(id: u32, correlation_id: u64, data: Vec<u8>) -> Self {
+    ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    ///     fn into_parts(self) -> PacketParts {
+    ///         PacketParts::new(self.id, self.correlation_id, self.data)
+    ///     }
+    ///     fn from_parts(parts: PacketParts) -> Self {
     ///         Self {
-    ///             id,
-    ///             correlation_id,
-    ///             data,
+    ///             id: parts.id(),
+    ///             correlation_id: parts.correlation_id(),
+    ///             data: parts.payload(),
     ///         }
     ///     }
     /// }
@@ -585,7 +653,7 @@ where
         let routes = self.build_chains().await;
 
         if let Err(e) = self.process_stream(&mut stream, &routes).await {
-            tracing::warn!(error = ?e, "connection terminated with error");
+            tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "connection terminated with error");
         }
 
         if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
@@ -713,7 +781,7 @@ where
             }
             Err(e) => {
                 *deser_failures += 1;
-                tracing::warn!(error = ?e, "failed to deserialize message");
+                tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "failed to deserialize message");
                 crate::metrics::inc_deser_errors();
                 if *deser_failures >= MAX_DESER_FAILURES {
                     return Err(io::Error::new(
@@ -725,24 +793,31 @@ where
             }
         };
 
-        if let Some(service) = routes.get(&env.header.id) {
-            let request = ServiceRequest::new(env.msg, env.header.correlation_id);
+        if let Some(service) = routes.get(&env.id) {
+            let request = ServiceRequest::new(env.payload, env.correlation_id);
             match service.call(request).await {
                 Ok(resp) => {
-                    let response =
-                        Envelope::new(env.header.id, env.header.correlation_id, resp.into_inner());
+                    let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
+                        .inherit_correlation(env.correlation_id);
+                    let correlation_id = parts.correlation_id();
+                    let response = Envelope::from_parts(parts);
                     if let Err(e) = self.send_response(stream, &response).await {
-                        tracing::warn!(error = %e, "failed to send response");
+                        tracing::warn!(
+                            id = env.id,
+                            correlation_id = ?correlation_id,
+                            error = ?e,
+                            "failed to send response",
+                        );
                         crate::metrics::inc_handler_errors();
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(id = env.header.id, error = ?e, "handler error");
+                    tracing::warn!(id = env.id, correlation_id = ?env.correlation_id, error = ?e, "handler error");
                     crate::metrics::inc_handler_errors();
                 }
             }
         } else {
-            tracing::warn!("no handler for message id {}", env.header.id);
+            tracing::warn!(id = env.id, correlation_id = ?env.correlation_id, "no handler for message id");
             crate::metrics::inc_handler_errors();
         }
 

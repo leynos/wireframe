@@ -57,13 +57,15 @@ where
     type Error = std::convert::Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+        let cid = req.correlation_id();
         let (ping_req, _) = match Ping::from_bytes(req.frame()) {
             Ok(val) => val,
             Err(e) => {
                 eprintln!("failed to decode ping: {e:?}");
-                return Ok(ServiceResponse::new(encode_error(format!(
-                    "decode error: {e:?}"
-                ))));
+                return Ok(ServiceResponse::new(
+                    encode_error(format!("decode error: {e:?}")),
+                    cid,
+                ));
             }
         };
         let mut response = self.inner.call(req).await?;
@@ -71,15 +73,16 @@ where
             Pong(v)
         } else {
             eprintln!("ping overflowed at {}", ping_req.0);
-            return Ok(ServiceResponse::new(encode_error("overflow")));
+            return Ok(ServiceResponse::new(encode_error("overflow"), cid));
         };
         match pong_resp.to_bytes() {
             Ok(bytes) => *response.frame_mut() = bytes,
             Err(e) => {
                 eprintln!("failed to encode pong: {e:?}");
-                return Ok(ServiceResponse::new(encode_error(format!(
-                    "encode error: {e:?}"
-                ))));
+                return Ok(ServiceResponse::new(
+                    encode_error(format!("encode error: {e:?}")),
+                    cid,
+                ));
             }
         }
         Ok(response)

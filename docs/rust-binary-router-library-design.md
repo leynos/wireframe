@@ -498,6 +498,53 @@ frame processing, akin to how `tokio-util::codec` operates, endows "wireframe"
 with the necessary flexibility to adapt to this diversity without embedding
 assumptions about any single framing strategy into its core.
 
+#### 4.3.1 Packet abstraction
+
+The library defines a `Packet` trait to represent transport frames. Frames can
+be decomposed into `PacketParts` for efficient handling and reassembly.
+`Envelope` is the default implementation used by `wireframe`. The following
+diagram depicts the `Packet` trait, `PacketParts`, and `Envelope`.
+
+```mermaid
+classDiagram
+    class Packet {
+        <<trait>>
+        +id() u32
+        +correlation_id() Option<u64>
+        +into_parts() PacketParts
+        +from_parts(parts: PacketParts) Self
+    }
+    class PacketParts {
+        -id: u32
+        -correlation_id: Option<u64>
+        -payload: Vec<u8>
+        +new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) PacketParts
+        +id() u32
+        +correlation_id() Option<u64>
+        +payload() Vec<u8>
+        +inherit_correlation(source: Option<u64>) PacketParts
+    }
+    class Envelope {
+        -id: u32
+        -correlation_id: Option<u64>
+        -payload: Vec<u8>
+        +new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>)
+        +from_parts(parts: PacketParts) Envelope
+        +into_parts() PacketParts
+    }
+    Packet <|.. Envelope
+    PacketParts <.. Envelope : uses
+    PacketParts <.. Packet : uses
+```
+
+`Envelope` implements `Packet`, carrying payload and metadata through the
+system. `PacketParts` avoids repetitive tuple unpacking when frames are split
+into constituent pieces. A `None` correlation ID denotes an unsolicited event
+or server-initiated push. In multi-packet streaming responses, the optional
+`correlation_id` links all packets in the stream to the originating request,
+and protocols should define an explicit end-of-stream indicator alongside the
+shared correlation identifier.
+
 ### 4.4. Message Serialization and Deserialization
 
 The conversion of frame payloads to and from Rust types is a critical source of
