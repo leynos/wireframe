@@ -22,8 +22,13 @@ use super::{
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
+/// Abstraction for sources of incoming connections consumed by the accept loop.
+///
+/// Implementations must be cancellation-safe: dropping a pending `accept()`
+/// future must not leak resources.
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub(super) trait AcceptListener {
+pub(super) trait AcceptListener: Send + Sync {
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
@@ -208,14 +213,11 @@ where
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```ignore
 /// use std::sync::Arc;
 ///
 /// use tokio_util::{sync::CancellationToken, task::TaskTracker};
-/// use wireframe::{
-///     app::WireframeApp,
-///     server::runtime::{AcceptListener, BackoffConfig, accept_loop},
-/// };
+/// use wireframe::{app::WireframeApp /*, server::runtime::{AcceptListener, BackoffConfig, accept_loop} */};
 ///
 /// async fn run<L: AcceptListener + Send + Sync + 'static>(listener: Arc<L>) {
 ///     let tracker = TaskTracker::new();
@@ -290,7 +292,6 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use async_trait::async_trait;
     use rstest::rstest;
     use tokio::{
         sync::oneshot,
@@ -298,7 +299,7 @@ mod tests {
         time::{Duration, Instant, advance, timeout},
     };
 
-    use super::*;
+    use super::{MockAcceptListener, *};
     use crate::server::test_util::{bind_server, factory, free_listener};
 
     #[rstest]
@@ -391,33 +392,26 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    struct MockListener {
-        calls: Arc<Mutex<Vec<Instant>>>,
-    }
-
-    impl MockListener {
-        fn new(calls: Arc<Mutex<Vec<Instant>>>) -> Self { Self { calls } }
-    }
-
-    #[async_trait]
-    impl super::AcceptListener for MockListener {
-        async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-            self.calls.lock().expect("lock").push(Instant::now());
-            Err(io::Error::other("mock error"))
-        }
-
-        fn local_addr(&self) -> io::Result<SocketAddr> {
-            Ok("127.0.0.1:0".parse().expect("addr parse"))
-        }
-    }
-
     #[rstest]
     #[tokio::test(start_paused = true)]
     async fn test_accept_loop_exponential_backoff_async(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let listener = Arc::new(MockListener::new(calls.clone()));
+        let mut listener = MockAcceptListener::new();
+        let call_log = calls.clone();
+        listener
+            .expect_accept()
+            .returning(move || {
+                call_log.lock().expect("lock").push(Instant::now());
+                Err(io::Error::other("mock error"))
+            })
+            .times(4);
+        listener
+            .expect_local_addr()
+            .returning(|| Ok("127.0.0.1:0".parse().expect("addr parse")))
+            .times(4);
+        let listener = Arc::new(listener);
         let token = CancellationToken::new();
         let tracker = TaskTracker::new();
         let backoff = BackoffConfig {

@@ -41,6 +41,7 @@ serial_test = "3.2.0"
 cucumber = "0.20.2"
 metrics-util = "0.20.0"
 tracing-test = "0.2.5"
+mockall = "0.13.1"
 
 [features]
 default = ["metrics"]
