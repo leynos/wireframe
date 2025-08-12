@@ -579,7 +579,7 @@ for mocking might be higher-level components:
 - **Accept Loop Simulation:** We could define a trait for the listener:
 
   ```rust
-  trait Listener {
+  trait AcceptListener {
       async fn accept(&self) -> io::Result<(Box<dyn Stream>, SocketAddr)>;
   }
   ```
