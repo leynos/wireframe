@@ -502,11 +502,13 @@ assumptions about any single framing strategy into its core.
 
 The library defines a `Packet` trait to represent transport frames. Frames can
 be decomposed into `PacketParts` for efficient handling and reassembly.
-`Envelope` is the default implementation used by `wireframe`.
+`Envelope` is the default implementation used by `wireframe`. The following
+diagram depicts the `Packet` trait, `PacketParts`, and `Envelope`.
 
 ```mermaid
 classDiagram
     class Packet {
+        <<trait>>
         +id() u32
         +correlation_id() Option<u64>
         +into_parts() PacketParts
@@ -527,6 +529,7 @@ classDiagram
         -correlation_id: Option<u64>
         -payload: Vec<u8>
         +new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>)
+        +from_parts(parts: PacketParts) Envelope
         +into_parts() PacketParts
     }
     Packet <|.. Envelope
