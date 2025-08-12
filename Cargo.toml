@@ -30,7 +30,7 @@ metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = 
 thiserror = "2.0.12"
 
 [dev-dependencies]
-rstest = "0.18.2"
+rstest = "0.26.1"
 wireframe_testing = { path = "./wireframe_testing" }
 logtest = "2.0.0"
 proptest = "1.7.0"
