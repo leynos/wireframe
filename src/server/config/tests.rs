@@ -89,7 +89,9 @@ async fn test_local_addr_after_bind(
     free_listener: std::net::TcpListener,
 ) {
     let expected = listener_addr(&free_listener);
-    let local_addr = bind_server(factory, free_listener).local_addr().unwrap();
+    let local_addr = bind_server(factory, free_listener)
+        .local_addr()
+        .expect("local address missing");
     assert_eq!(local_addr, expected);
 }
 
@@ -182,8 +184,6 @@ async fn test_bind_to_multiple_addresses(
     free_listener: std::net::TcpListener,
 ) {
     let addr1 = listener_addr(&free_listener);
-    let listener2 = crate::server::test_util::free_listener();
-    let addr2 = listener_addr(&listener2);
 
     let server = WireframeServer::new(factory);
     let server = server
@@ -191,10 +191,12 @@ async fn test_bind_to_multiple_addresses(
         .expect("Failed to bind first address");
     let first = server.local_addr().expect("first bound address missing");
     assert_eq!(first, addr1);
-    drop(listener2);
-    let server = server.bind(addr2).expect("Failed to bind second address");
+
+    let server = server
+        .bind(std::net::SocketAddr::new(addr1.ip(), 0))
+        .expect("Failed to bind second address");
     let second = server.local_addr().expect("second bound address missing");
-    assert_eq!(second, addr2);
+    assert_eq!(second.ip(), addr1.ip());
     assert_ne!(first.port(), second.port());
 }
 

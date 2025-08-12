@@ -34,6 +34,24 @@ pub fn free_listener() -> StdTcpListener {
     StdTcpListener::bind(addr).expect("Failed to bind free port listener")
 }
 
+/// Reserve a free local port and return its address.
+///
+/// Creates a temporary listener to obtain an ephemeral port, then immediately
+/// drops it so the port may be rebound. This is inherently subject to a
+/// time-of-check/time-of-use race; only use in tests.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wireframe::server::test_util::free_addr;
+/// let addr = free_addr();
+/// assert_eq!(addr.ip(), std::net::Ipv4Addr::LOCALHOST.into());
+/// ```
+#[cfg(test)]
+#[allow(dead_code, reason = "Used only in doctests")]
+#[must_use]
+pub fn free_addr() -> SocketAddr { listener_addr(&free_listener()) }
+
 /// Extract the bound address from a listener.
 ///
 /// # Examples
@@ -45,7 +63,12 @@ pub fn free_listener() -> StdTcpListener {
 ///
 /// let listener = free_listener();
 /// let addr = listener_addr(&listener);
-/// assert_eq!(listener.local_addr().unwrap(), addr);
+/// assert_eq!(
+///     listener
+///         .local_addr()
+///         .expect("failed to get listener address"),
+///     addr
+/// );
 /// ```
 #[cfg_attr(test, allow(dead_code, reason = "Used via path in tests"))]
 #[cfg_attr(not(test), expect(dead_code, reason = "Only used in tests"))]
