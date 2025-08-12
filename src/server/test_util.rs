@@ -48,7 +48,6 @@ pub fn free_listener() -> StdTcpListener {
 /// assert_eq!(addr.ip(), std::net::Ipv4Addr::LOCALHOST.into());
 /// ```
 #[cfg(test)]
-#[allow(dead_code, reason = "Used only in doctests")]
 #[must_use]
 pub fn free_addr() -> SocketAddr { listener_addr(&free_listener()) }
 
@@ -70,8 +69,7 @@ pub fn free_addr() -> SocketAddr { listener_addr(&free_listener()) }
 ///     addr
 /// );
 /// ```
-#[cfg_attr(test, allow(dead_code, reason = "Used via path in tests"))]
-#[cfg_attr(not(test), expect(dead_code, reason = "Only used in tests"))]
+#[cfg(test)]
 #[must_use]
 pub fn listener_addr(listener: &StdTcpListener) -> SocketAddr {
     listener
@@ -88,14 +86,36 @@ where
         .expect("Failed to bind")
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Only used in configuration tests")
-)]
-#[cfg_attr(test, allow(dead_code, reason = "Only used in configuration tests"))]
+#[cfg(test)]
 pub fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
     WireframeServer::new(factory).with_preamble::<TestPreamble>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn free_addr_uses_localhost() {
+        let addr = free_addr();
+        assert_eq!(addr.ip(), std::net::IpAddr::from(Ipv4Addr::LOCALHOST));
+    }
+
+    #[test]
+    fn listener_addr_matches_local_addr() {
+        let listener = free_listener();
+        assert_eq!(
+            listener_addr(&listener),
+            listener.local_addr().expect("failed to get address")
+        );
+    }
+
+    #[test]
+    fn server_with_preamble_is_unbound() {
+        let server = server_with_preamble(factory());
+        assert!(server.local_addr().is_none());
+    }
 }
