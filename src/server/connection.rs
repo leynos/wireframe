@@ -166,7 +166,7 @@ mod tests {
         };
         let server = WireframeServer::new(app_factory)
             .workers(1)
-            .bind_listener(free_listener)
+            .bind_existing_listener(free_listener)
             .expect("bind");
         let addr = server
             .local_addr()
