@@ -5,6 +5,18 @@ server employs a typestate to ensure that binding occurs before runtime:
 unbound servers do not expose `run` methods. This guide focuses on tuning the
 exponential backoff used when accepting connections fails.
 
+```rust
+use wireframe::{app::WireframeApp, server::WireframeServer};
+
+# #[tokio::main]
+# async fn main() -> Result<(), wireframe::server::ServerError> {
+let server = WireframeServer::new(|| WireframeApp::default())
+    .bind(([127, 0, 0, 1], 0).into())?;
+server.run().await?;
+# Ok(())
+# }
+```
+
 ## Accept loop backoff
 
 The accept loop retries failed `accept()` calls using exponential backoff.

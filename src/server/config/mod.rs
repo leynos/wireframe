@@ -7,8 +7,8 @@
 //! server may be constructed unbound and later bound using
 //! [`bind`](WireframeServer::bind) or
 //! [`bind_existing_listener`](WireframeServer::bind_existing_listener) on [`Unbound`] servers.
-//! The `run` methods are only available once the server is bound, ensuring at
-//! compile time that the binding step cannot be skipped.
+//! The `run` methods are available only once the server is [`Bound`], enforcing
+//! at compile time that the binding step cannot be skipped.
 
 use core::marker::PhantomData;
 

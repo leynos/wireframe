@@ -76,6 +76,9 @@ where
     ///
     /// Attempting to run a server without binding fails to compile:
     ///
+    /// Binding specifies the network address for the server to listen on.
+    /// It is required so the server knows where to accept incoming connections.
+    ///
     /// ```compile_fail
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
