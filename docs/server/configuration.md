@@ -5,7 +5,7 @@ server employs a typestate to ensure that binding occurs before runtime:
 unbound servers do not expose `run` methods. This guide focuses on tuning the
 exponential backoff used when accepting connections fails.
 
-```rust
+```rust,no_run
 use wireframe::{app::WireframeApp, server::WireframeServer};
 
 # #[tokio::main]

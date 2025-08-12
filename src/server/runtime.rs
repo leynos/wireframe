@@ -86,7 +86,7 @@ where
     ///     WireframeServer::new(|| WireframeApp::default())
     ///         .run()
     ///         .await
-    ///         .unwrap();
+    ///         .expect("unbound servers do not expose run()");
     /// }
     /// ```
     ///
