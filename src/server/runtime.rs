@@ -23,13 +23,13 @@ use super::{
 use crate::{app::WireframeApp, preamble::Preamble};
 
 #[async_trait]
-pub(super) trait Listener {
+pub(super) trait AcceptListener {
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 
 #[async_trait]
-impl Listener for TcpListener {
+impl AcceptListener for TcpListener {
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         TcpListener::accept(self).await
     }
@@ -195,7 +195,7 @@ pub(super) async fn accept_loop<F, T, L>(
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
-    L: Listener + Send + Sync + 'static,
+    L: AcceptListener + Send + Sync + 'static,
 {
     let mut delay = backoff_config.initial_delay;
     loop {
@@ -238,7 +238,8 @@ mod tests {
     use rstest::rstest;
     use tokio::{
         sync::oneshot,
-        time::{Duration, Instant, timeout},
+        task::yield_now,
+        time::{Duration, Instant, advance, timeout},
     };
 
     use super::*;
@@ -343,7 +344,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl super::Listener for MockListener {
+    impl super::AcceptListener for MockListener {
         async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
             self.calls.lock().expect("lock").push(Instant::now());
             Err(io::Error::other("mock error"))
@@ -355,7 +356,7 @@ mod tests {
     }
 
     #[rstest]
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_accept_loop_exponential_backoff_async(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
@@ -378,24 +379,29 @@ mod tests {
             backoff,
         ));
 
-        while calls.lock().expect("lock").len() < 4 {
-            sleep(Duration::from_millis(1)).await;
+        yield_now().await;
+
+        for ms in [5, 10, 20] {
+            advance(Duration::from_millis(ms)).await;
+            yield_now().await;
         }
 
         token.cancel();
+        advance(Duration::from_millis(20)).await;
+        yield_now().await;
         tracker.close();
         tracker.wait().await;
 
         let calls = calls.lock().expect("lock");
+        assert_eq!(calls.len(), 4);
         let intervals: Vec<_> = calls.windows(2).map(|w| w[1] - w[0]).collect();
-        let tolerance = Duration::from_millis(5);
-        let expected = [5, 10, 20];
-        for (interval, ms) in intervals.iter().zip(expected) {
-            let target = Duration::from_millis(ms);
-            assert!(
-                *interval >= target && *interval < target + tolerance,
-                "interval {interval:?} not within expected range {target:?}"
-            );
+        let expected = [
+            Duration::from_millis(5),
+            Duration::from_millis(10),
+            Duration::from_millis(20),
+        ];
+        for (interval, expected) in intervals.into_iter().zip(expected) {
+            assert_eq!(interval, expected);
         }
     }
 }
