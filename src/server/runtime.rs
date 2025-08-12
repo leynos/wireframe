@@ -37,13 +37,10 @@ impl AcceptListener for TcpListener {
     fn local_addr(&self) -> io::Result<SocketAddr> { TcpListener::local_addr(self) }
 }
 
+/// Configuration for exponential back-off timing in the accept loop.
 ///
-///
-///
-/// Configuration for exponential backoff timing in the accept loop.
-///
-/// Controls retry behavior when `accept()` calls fail on the server's TCP listener.
-/// The backoff starts at `initial_delay` and doubles on each failure, capped at `max_delay`.
+/// Controls retry behaviour when `accept()` calls fail on the server's TCP listener.
+/// The back-off starts at `initial_delay` and doubles on each failure, capped at `max_delay`.
 ///
 /// # Default Values
 /// - `initial_delay`: 10 milliseconds
@@ -189,7 +186,7 @@ where
 /// The loop accepts connections from `listener`, creates a new
 /// [`WireframeApp`] via `factory` for each one, and spawns a task to handle
 /// the connection. Failures to accept a connection trigger an exponential
-/// backoff governed by `backoff_config`. The loop terminates when `shutdown`
+/// back-off governed by `backoff_config`. The loop terminates when `shutdown`
 /// is cancelled, and all spawned tasks are tracked by `tracker` for graceful
 /// shutdown.
 ///
@@ -201,7 +198,7 @@ where
 /// - `on_failure`: Callback invoked when the preamble fails.
 /// - `shutdown`: Signal used to stop the accept loop.
 /// - `tracker`: Task tracker used for graceful shutdown.
-/// - `backoff_config`: Controls exponential backoff behaviour.
+/// - `backoff_config`: Controls exponential back-off behaviour.
 ///
 /// # Type Parameters
 ///
@@ -211,7 +208,7 @@ where
 ///
 /// # Examples
 ///
-/// ```
+/// ```no_run
 /// use std::sync::Arc;
 ///
 /// use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -248,6 +245,14 @@ pub(super) async fn accept_loop<F, T, L>(
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
 {
+    debug_assert!(
+        backoff_config.initial_delay >= Duration::from_millis(1),
+        "initial_delay must be at least 1ms",
+    );
+    debug_assert!(
+        backoff_config.initial_delay <= backoff_config.max_delay,
+        "initial_delay must not exceed max_delay",
+    );
     let mut delay = backoff_config.initial_delay;
     loop {
         select! {
