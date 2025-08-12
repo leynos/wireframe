@@ -1,8 +1,9 @@
 # Server configuration
 
-`WireframeServer` provides a builder API for adjusting runtime behaviour. This
-guide focuses on tuning the exponential backoff used when accepting connections
-fails.
+`WireframeServer` provides a builder API for adjusting runtime behaviour. The
+server employs a typestate to ensure that binding occurs before runtime:
+unbound servers do not expose `run` methods. This guide focuses on tuning the
+exponential backoff used when accepting connections fails.
 
 ## Accept loop backoff
 

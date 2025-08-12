@@ -74,6 +74,19 @@ where
     /// # }
     /// ```
     ///
+    /// Attempting to run a server without binding fails to compile:
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// async fn try_run() {
+    ///     WireframeServer::new(|| WireframeApp::default())
+    ///         .run()
+    ///         .await
+    ///         .unwrap();
+    /// }
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns a [`ServerError`] if runtime initialisation fails.
