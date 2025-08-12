@@ -184,6 +184,57 @@ where
     }
 }
 
+/// Accepts incoming connections and spawns handler tasks.
+///
+/// The loop accepts connections from `listener`, creates a new
+/// [`WireframeApp`] via `factory` for each one, and spawns a task to handle
+/// the connection. Failures to accept a connection trigger an exponential
+/// backoff governed by `backoff_config`. The loop terminates when `shutdown`
+/// is cancelled, and all spawned tasks are tracked by `tracker` for graceful
+/// shutdown.
+///
+/// # Parameters
+///
+/// - `listener`: Source of incoming TCP connections.
+/// - `factory`: Creates a fresh [`WireframeApp`] for each connection.
+/// - `on_success`: Callback invoked after a successful preamble.
+/// - `on_failure`: Callback invoked when the preamble fails.
+/// - `shutdown`: Signal used to stop the accept loop.
+/// - `tracker`: Task tracker used for graceful shutdown.
+/// - `backoff_config`: Controls exponential backoff behaviour.
+///
+/// # Type Parameters
+///
+/// - `F`: Factory function that creates [`WireframeApp`] instances.
+/// - `T`: Preamble type for connection handshaking.
+/// - `L`: Listener type implementing [`AcceptListener`].
+///
+/// # Examples
+///
+/// ```
+/// use std::sync::Arc;
+///
+/// use tokio_util::{sync::CancellationToken, task::TaskTracker};
+/// use wireframe::{
+///     app::WireframeApp,
+///     server::runtime::{AcceptListener, BackoffConfig, accept_loop},
+/// };
+///
+/// async fn run<L: AcceptListener + Send + Sync + 'static>(listener: Arc<L>) {
+///     let tracker = TaskTracker::new();
+///     let token = CancellationToken::new();
+///     accept_loop::<_, (), _>(
+///         listener,
+///         || WireframeApp::default(),
+///         None,
+///         None,
+///         token,
+///         tracker,
+///         BackoffConfig::default(),
+///     )
+///     .await;
+/// }
+/// ```
 pub(super) async fn accept_loop<F, T, L>(
     listener: Arc<L>,
     factory: F,
@@ -381,6 +432,12 @@ mod tests {
 
         yield_now().await;
 
+        let first_call = {
+            let calls = calls.lock().expect("lock");
+            assert_eq!(calls.len(), 1);
+            calls[0]
+        };
+
         for ms in [5, 10, 20] {
             advance(Duration::from_millis(ms)).await;
             yield_now().await;
@@ -394,6 +451,7 @@ mod tests {
 
         let calls = calls.lock().expect("lock");
         assert_eq!(calls.len(), 4);
+        assert_eq!(calls[0], first_call);
         let intervals: Vec<_> = calls.windows(2).map(|w| w[1] - w[0]).collect();
         let expected = [
             Duration::from_millis(5),
