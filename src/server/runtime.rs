@@ -26,8 +26,8 @@ use crate::{app::WireframeApp, preamble::Preamble};
 ///
 /// Implementations must be cancellation-safe: dropping a pending `accept()`
 /// future must not leak resources.
-#[cfg_attr(test, mockall::automock)]
 #[async_trait]
+#[cfg_attr(test, mockall::automock)]
 pub(super) trait AcceptListener: Send + Sync {
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
@@ -403,8 +403,11 @@ mod tests {
         listener
             .expect_accept()
             .returning(move || {
-                call_log.lock().expect("lock").push(Instant::now());
-                Err(io::Error::other("mock error"))
+                let call_log = Arc::clone(&call_log);
+                Box::pin(async move {
+                    call_log.lock().expect("lock").push(Instant::now());
+                    Err(io::Error::other("mock error"))
+                })
             })
             .times(4);
         listener
