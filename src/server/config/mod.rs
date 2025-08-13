@@ -5,10 +5,11 @@
 //! TCP binding is provided via the [`binding`](self::binding) module; preamble
 //! behaviour is customized via the [`preamble`](self::preamble) module. The
 //! server may be constructed unbound and later bound using
-//! [`bind`](WireframeServer::bind) or
-//! [`bind_existing_listener`](WireframeServer::bind_existing_listener) on
-//! [`Unbound`] servers. The `run` methods are available only once the server
-//! is [`Bound`](super::Bound), enforcing at compile time that the binding step
+//! [`bind`](super::WireframeServer::bind) or
+//! [`bind_existing_listener`](super::WireframeServer::bind_existing_listener) on
+//! [`Unbound`](super::Unbound) servers. The `run` methods are available only once
+//! the server is [`Bound`](super::Bound), enforcing at compile time that the
+//! binding step
 //! cannot be skipped.
 
 use core::marker::PhantomData;

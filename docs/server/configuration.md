@@ -1,9 +1,9 @@
 # Server configuration
 
 `WireframeServer` provides a builder API for adjusting runtime behaviour. The
-server employs a typestate to ensure that binding occurs before runtime:
-unbound servers do not expose `run` methods. This guide focuses on tuning the
-exponential backoff used when accepting connections fails.
+server employs a typestate (from `Unbound` to `Bound`) to ensure that binding
+occurs before runtime: unbound servers do not expose `run` methods. This guide
+focuses on tuning the exponential backoff used when accepting connections fails.
 
 ```rust,no_run
 use wireframe::{app::WireframeApp, server::WireframeServer};
