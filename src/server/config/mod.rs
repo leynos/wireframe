@@ -119,6 +119,15 @@ where
         ready_signal, ready_tx, tx: oneshot::Sender<()> => Some(tx)
     );
 
+    builder_setter!(
+        /// Configure accept-loop backoff behaviour.
+        ///
+        /// Invariants:
+        /// - `initial_delay` must be >= 1 ms
+        /// - `initial_delay` must be <= `max_delay`
+        accept_backoff, backoff_config, cfg: BackoffConfig => cfg.normalised()
+    );
+
     /// Returns the configured number of worker tasks for the server.
     ///
     /// # Examples
