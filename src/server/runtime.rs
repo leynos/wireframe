@@ -94,7 +94,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if runtime initialisation fails.
+    /// Returns an [`io::Error`] if the server was not bound to a listener.
+    /// Accept failures are retried with exponential back-off and do not
+    /// surface as errors.
     pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
             let _ = signal::ctrl_c().await;
@@ -133,7 +135,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if runtime initialisation fails.
+    /// Returns an [`io::Error`] if the server was not bound to a listener.
+    /// Accept failures are retried with exponential back-off and do not
+    /// surface as errors.
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
     where
         S: Future<Output = ()> + Send,
@@ -316,7 +320,7 @@ mod tests {
         )
         .await;
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server did not finish in time").is_ok());
     }
 
     #[rstest]
@@ -359,7 +363,7 @@ mod tests {
         )
         .await;
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server did not finish in time").is_ok());
     }
 
     #[rstest]
