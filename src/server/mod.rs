@@ -56,7 +56,7 @@ impl<T, F> PreambleSuccessHandler<T> for F where
 {
 }
 
-/// Handler invoked when a connection preamble decodes successfully.
+/// [`PreambleSuccessHandler`] wrapped in `Arc`.
 pub type PreambleHandler<T> = Arc<dyn PreambleSuccessHandler<T>>;
 
 /// Handler invoked when decoding a connection preamble fails.
