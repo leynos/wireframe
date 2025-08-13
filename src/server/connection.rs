@@ -65,7 +65,7 @@ async fn process_stream<F, T>(
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
                 tracing::error!(
-                    error_display = %e,
+                    error = %e,
                     error_debug = ?e,
                     ?peer_addr,
                     "preamble handler error",
