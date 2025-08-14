@@ -16,14 +16,24 @@ use std::{
 use rstest::rstest;
 
 use super::*;
-use crate::server::test_util::{
-    TestPreamble,
-    bind_server,
-    factory,
-    free_listener,
-    listener_addr,
-    server_with_preamble,
-};
+use bincode::error::DecodeError;
+use crate::server::{
+    test_util::{
+        TestPreamble,
+        bind_server,
+        factory,
+        free_listener,
+        listener_addr,
+        server_with_preamble,
+    },
+    BackoffConfig,
+use tokio::net::{TcpListener, TcpStream};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreambleHandlerKind {
+    Success,
+    Failure,
+}
 
 fn expected_default_worker_count() -> usize {
     // Mirror the default worker logic to keep tests aligned with `WireframeServer::new`.
@@ -96,37 +106,61 @@ async fn test_local_addr_after_bind(
 }
 
 #[rstest]
-#[case("success")]
-#[case("failure")]
+#[case::success(PreambleHandlerKind::Success)]
+#[case::failure(PreambleHandlerKind::Failure)]
 #[tokio::test]
 async fn test_preamble_handler_registration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    #[case] handler_type: &str,
+    #[case] handler: PreambleHandlerKind,
 ) {
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
 
     let server = server_with_preamble(factory);
-    let server = match handler_type {
-        "success" => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
+    let server = match handler {
+        PreambleHandlerKind::Success => server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
             let c = c.clone();
             Box::pin(async move {
                 c.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             })
         }),
-        "failure" => server.on_preamble_decode_failure(move |_err: &DecodeError| {
+        PreambleHandlerKind::Failure => server.on_preamble_decode_failure(move |_err: &DecodeError| {
             c.fetch_add(1, Ordering::SeqCst);
         }),
-        _ => panic!("Invalid handler type"),
     };
 
     assert_eq!(counter.load(Ordering::SeqCst), 0);
-    match handler_type {
-        "success" => assert!(server.on_preamble_success.is_some()),
-        "failure" => assert!(server.on_preamble_failure.is_some()),
-        _ => unreachable!(),
+    match handler {
+        PreambleHandlerKind::Success => {
+            assert!(server.on_preamble_success.is_some());
+            let handler = server
+                .on_preamble_success
+                .as_ref()
+                .expect("success handler missing");
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind listener");
+            let addr = listener.local_addr().expect("listener addr");
+            let _client = TcpStream::connect(addr)
+                .await
+                .expect("client connect failed");
+            let (mut stream, _) = listener.accept().await.expect("accept stream");
+            let preamble = TestPreamble { id: 0, message: String::new() };
+            handler(&preamble, &mut stream)
+                .await
+                .expect("handler failed");
+        }
+        PreambleHandlerKind::Failure => {
+            assert!(server.on_preamble_failure.is_some());
+            let handler = server
+                .on_preamble_failure
+                .as_ref()
+                .expect("failure handler missing");
+            handler(&DecodeError::UnexpectedEnd);
+        }
     }
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 
 #[rstest]
@@ -204,11 +238,12 @@ async fn test_bind_to_multiple_addresses(
 fn test_accept_backoff_configuration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
-    let initial = Duration::from_millis(5);
-    let max = Duration::from_millis(500);
-    let server = WireframeServer::new(factory).accept_backoff(initial, max);
-    assert_eq!(server.backoff_config.initial_delay, initial);
-    assert_eq!(server.backoff_config.max_delay, max);
+    let cfg = BackoffConfig {
+        initial_delay: Duration::from_millis(5),
+        max_delay: Duration::from_millis(500),
+    };
+    let server = WireframeServer::new(factory).accept_backoff(cfg);
+    assert_eq!(server.backoff_config, cfg);
 }
 
 /// Behaviour test verifying exponential delay doubling and capping.
@@ -264,7 +299,8 @@ fn test_accept_initial_delay_configuration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
     let delay = Duration::from_millis(20);
-    let server = WireframeServer::new(factory).accept_initial_delay(delay);
+    let cfg = BackoffConfig { initial_delay: delay, ..BackoffConfig::default() };
+    let server = WireframeServer::new(factory).accept_backoff(cfg);
     assert_eq!(server.backoff_config.initial_delay, delay);
 }
 
@@ -273,21 +309,29 @@ fn test_accept_max_delay_configuration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
     let delay = Duration::from_millis(2000);
-    let server = WireframeServer::new(factory).accept_max_delay(delay);
+    let cfg = BackoffConfig { max_delay: delay, ..BackoffConfig::default() };
+    let server = WireframeServer::new(factory).accept_backoff(cfg);
     assert_eq!(server.backoff_config.max_delay, delay);
 }
 
 #[rstest]
 fn test_backoff_validation(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
-    let server = WireframeServer::new(factory.clone()).accept_initial_delay(Duration::ZERO);
+    let server = WireframeServer::new(factory.clone())
+        .accept_backoff(BackoffConfig { initial_delay: Duration::ZERO, ..BackoffConfig::default() });
     assert_eq!(
         server.backoff_config.initial_delay,
         Duration::from_millis(1)
     );
 
     let server = WireframeServer::new(factory)
-        .accept_initial_delay(Duration::from_millis(100))
-        .accept_max_delay(Duration::from_millis(50));
+        .accept_backoff(BackoffConfig {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_millis(50),
+        });
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        Duration::from_millis(50)
+    );
     assert_eq!(server.backoff_config.max_delay, Duration::from_millis(100));
 }
 
@@ -305,8 +349,12 @@ fn test_backoff_default_values(factory: impl Fn() -> WireframeApp + Send + Sync 
 fn test_initial_delay_exceeds_default_max(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
-    let server = WireframeServer::new(factory).accept_initial_delay(Duration::from_secs(2));
-    assert_eq!(server.backoff_config.initial_delay, Duration::from_secs(2));
+    let cfg = BackoffConfig {
+        initial_delay: Duration::from_secs(2),
+        max_delay: Duration::from_secs(1),
+    };
+    let server = WireframeServer::new(factory).accept_backoff(cfg);
+    assert_eq!(server.backoff_config.initial_delay, Duration::from_secs(1));
     assert_eq!(server.backoff_config.max_delay, Duration::from_secs(2));
 }
 
@@ -314,15 +362,20 @@ fn test_initial_delay_exceeds_default_max(
 fn test_accept_backoff_parameter_swapping(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
-    let server = WireframeServer::new(factory.clone())
-        .accept_backoff(Duration::from_millis(5), Duration::from_millis(1));
+    let server = WireframeServer::new(factory.clone()).accept_backoff(BackoffConfig {
+        initial_delay: Duration::from_millis(5),
+        max_delay: Duration::from_millis(1),
+    });
     assert_eq!(
         server.backoff_config.initial_delay,
         Duration::from_millis(1)
     );
     assert_eq!(server.backoff_config.max_delay, Duration::from_millis(5));
 
-    let server = WireframeServer::new(factory).accept_backoff(Duration::ZERO, Duration::ZERO);
+    let server = WireframeServer::new(factory).accept_backoff(BackoffConfig {
+        initial_delay: Duration::ZERO,
+        max_delay: Duration::ZERO,
+    });
     assert_eq!(
         server.backoff_config.initial_delay,
         Duration::from_millis(1)

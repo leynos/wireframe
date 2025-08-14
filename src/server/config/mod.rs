@@ -16,7 +16,7 @@ use core::marker::PhantomData;
 
 use tokio::sync::oneshot;
 
-use super::{ServerState, Unbound, WireframeServer};
+use super::{BackoffConfig, ServerState, Unbound, WireframeServer};
 use crate::{app::WireframeApp, preamble::Preamble};
 
 macro_rules! builder_setter {
@@ -76,6 +76,7 @@ where
             on_preamble_success: None,
             on_preamble_failure: None,
             ready_tx: None,
+            backoff_config: BackoffConfig::default(),
             state: Unbound,
             _preamble: PhantomData,
         }
@@ -120,6 +121,23 @@ where
         /// let server = WireframeServer::new(|| WireframeApp::default()).ready_signal(tx);
         /// ```
         ready_signal, ready_tx, tx: oneshot::Sender<()> => Some(tx)
+    );
+
+    builder_setter!(
+        /// Configure accept-loop backoff behaviour.
+        ///
+        /// The supplied configuration is passed to
+        /// [`BackoffConfig::normalised`] (`cfg.normalised()`) before being
+        /// stored. Normalisation clamps `initial_delay` to at least 1 ms and no
+        /// greater than `max_delay`. If `initial_delay` exceeds `max_delay`,
+        /// the values are swapped. Normalisation applies any other adjustments
+        /// `BackoffConfig::normalised` defines so out-of-range values are
+        /// corrected rather than preserved.
+        ///
+        /// Invariants:
+        /// - `initial_delay` must be >= 1 ms
+        /// - `initial_delay` must be <= `max_delay`
+        accept_backoff, backoff_config, cfg: BackoffConfig => cfg.normalised()
     );
 
     /// Returns the configured number of worker tasks for the server.

@@ -88,6 +88,7 @@ where
             on_preamble_success: self.on_preamble_success,
             on_preamble_failure: self.on_preamble_failure,
             ready_tx: self.ready_tx,
+            backoff_config: self.backoff_config,
             state: Bound {
                 listener: Arc::new(tokio),
             },
@@ -173,6 +174,7 @@ where
             on_preamble_success: self.on_preamble_success,
             on_preamble_failure: self.on_preamble_failure,
             ready_tx: self.ready_tx,
+            backoff_config: self.backoff_config,
             state: Bound {
                 listener: Arc::new(tokio),
             },

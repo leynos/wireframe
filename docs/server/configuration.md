@@ -20,8 +20,9 @@ server.run().await?;
 ## Accept loop backoff
 
 The accept loop retries failed `accept()` calls using exponential backoff.
-`accept_backoff(initial_delay, max_delay)` sets both bounds in one call. These
-values are stored in `BackoffConfig`:
+`accept_backoff(cfg)` sets both bounds using a `BackoffConfig` value. The
+builder normalises the supplied configuration via `BackoffConfig::normalised`,
+so out-of-range values are adjusted rather than preserved:
 
 - `initial_delay` – starting delay for the first retry, clamped to at least 1
   millisecond.
@@ -37,11 +38,13 @@ values are stored in `BackoffConfig`:
 ```rust
 use std::time::Duration;
 
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe::{app::WireframeApp, server::{WireframeServer, BackoffConfig}};
+
+let cfg = BackoffConfig {
+    initial_delay: Duration::from_millis(5),
+    max_delay: Duration::from_millis(500),
+};
 
 let server = WireframeServer::new(|| WireframeApp::default())
-    .accept_backoff(Duration::from_millis(5), Duration::from_millis(500));
+    .accept_backoff(cfg);
 ```
-
-`accept_initial_delay` and `accept_max_delay` allow adjusting each parameter
-individually.

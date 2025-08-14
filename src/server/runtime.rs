@@ -54,7 +54,7 @@ impl AcceptListener for TcpListener {
 /// # Invariants
 /// - `initial_delay` must not exceed `max_delay`
 /// - `initial_delay` must be at least 1 millisecond
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BackoffConfig {
     pub initial_delay: Duration,
     pub max_delay: Duration,
@@ -66,6 +66,18 @@ impl Default for BackoffConfig {
             initial_delay: Duration::from_millis(10),
             max_delay: Duration::from_secs(1),
         }
+    }
+}
+
+impl BackoffConfig {
+    #[must_use]
+    pub fn normalised(mut self) -> Self {
+        self.initial_delay = self.initial_delay.max(Duration::from_millis(1));
+        self.max_delay = self.max_delay.max(Duration::from_millis(1));
+        if self.initial_delay > self.max_delay {
+            std::mem::swap(&mut self.initial_delay, &mut self.max_delay);
+        }
+        self
     }
 }
 
@@ -181,15 +193,9 @@ where
             on_preamble_failure,
             ready_tx,
             state: Bound { listener },
+            backoff_config,
             ..
         } = self;
-
-        if let Some(tx) = ready_tx
-            && tx.send(()).is_err()
-        {
-            tracing::warn!("Failed to send readiness signal: receiver dropped");
-        }
-
         let shutdown_token = CancellationToken::new();
         let tracker = TaskTracker::new();
 
@@ -207,8 +213,13 @@ where
                 on_failure,
                 token,
                 t,
-                BackoffConfig::default(),
+                backoff_config,
             ));
+        }
+
+        // Signal readiness after all workers have been spawned.
+        if ready_tx.is_some_and(|tx| tx.send(()).is_err()) {
+            tracing::warn!("Failed to send readiness signal: receiver dropped");
         }
 
         select! {
@@ -284,12 +295,12 @@ pub(super) async fn accept_loop<F, T, L>(
     L: AcceptListener + Send + Sync + 'static,
 {
     debug_assert!(
-        backoff_config.initial_delay >= Duration::from_millis(1),
-        "initial_delay must be at least 1ms",
+        backoff_config.initial_delay <= backoff_config.max_delay,
+        "BackoffConfig invariant violated: initial_delay > max_delay"
     );
     debug_assert!(
-        backoff_config.initial_delay <= backoff_config.max_delay,
-        "initial_delay must not exceed max_delay",
+        backoff_config.initial_delay >= Duration::from_millis(1),
+        "BackoffConfig invariant violated: initial_delay < 1ms"
     );
     let mut delay = backoff_config.initial_delay;
     loop {
