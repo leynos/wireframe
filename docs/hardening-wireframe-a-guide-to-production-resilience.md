@@ -322,6 +322,11 @@ This allows the protocol implementation to serialize a proper error frame
 (e.g., an SQL error code) to send to the client before terminating the current
 operation, rather than just abruptly closing the connection.
 
+When a stream concludes successfully, the connection actor calls the
+`stream_end_frame` hook to produce a terminator frame with no payload. This
+explicit marker lets clients recognise that the logical stream has ended and
+helps avoid lingering resources or stalled state machines.
+
 ### 5.2 Dead Letter Queues (DLQ) for Guaranteed Pushing
 
 In some systems (e.g., financial transactions, critical audit logs), dropping a

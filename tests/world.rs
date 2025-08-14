@@ -3,7 +3,7 @@
 //! Provides shared state management for behavioural tests verifying
 //! server resilience against connection task panics.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use async_stream::try_stream;
 use cucumber::World;
@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     connection::ConnectionActor,
+    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     push::PushQueues,
     response::FrameStream,
     server::WireframeServer,
@@ -156,4 +157,45 @@ impl CorrelationWorld {
                 .all(|f| f.correlation_id() == Some(self.cid))
         );
     }
+}
+
+#[derive(Debug, Default, World)]
+pub struct StreamEndWorld {
+    frames: Vec<u8>,
+}
+
+struct Terminator;
+
+impl WireframeProtocol for Terminator {
+    type Frame = u8;
+    type ProtocolError = ();
+
+    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
+        Some(0)
+    }
+}
+
+impl StreamEndWorld {
+    /// Run the connection actor and record emitted frames.
+    ///
+    /// # Panics
+    /// Panics if the actor fails to run successfully.
+    pub async fn process(&mut self) {
+        let stream: FrameStream<u8> = Box::pin(try_stream! {
+            yield 1u8;
+            yield 2u8;
+        });
+
+        let (queues, handle) = PushQueues::bounded(1, 1);
+        let shutdown = CancellationToken::new();
+        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+        let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
+        actor.run(&mut self.frames).await.expect("actor run failed");
+    }
+
+    /// Verify that a terminator frame was appended to the stream.
+    ///
+    /// # Panics
+    /// Panics if the expected terminator is missing.
+    pub fn verify(&self) { assert_eq!(self.frames, vec![1, 2, 0]); }
 }

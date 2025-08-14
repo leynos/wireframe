@@ -89,6 +89,11 @@ async fn handle_large_query(req: Request) -> io::Result<Response<MyFrame>> {
 
 See `examples/async_stream.rs` for a runnable demonstration of this pattern.
 
+Completion of a streaming response is signalled by a protocol-defined
+terminator frame. The new `stream_end_frame` hook allows implementations to
+emit a frame with an explicit end-of-stream flag and no payload, ensuring
+clients can unambiguously detect when a logical stream has finished.
+
 #### The Connection Actor
 
 The underlying engine for this duplex communication is the

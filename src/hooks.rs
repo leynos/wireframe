@@ -52,6 +52,13 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// }
     /// ```
     fn handle_error(&self, _error: Self::ProtocolError, _ctx: &mut ConnectionContext) {}
+
+    /// Produce a frame signalling the end of a streaming response.
+    ///
+    /// Implementations should set any protocol-specific flag indicating that
+    /// no further frames will follow. Returning `None` omits the terminator
+    /// frame.
+    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
 }
 
 /// Type alias for the `before_send` callback.
@@ -67,6 +74,9 @@ type OnCommandEndHook = Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>;
 /// Type alias for the `handle_error` callback.
 type HandleErrorHook<E> = Box<dyn FnMut(E, &mut ConnectionContext) + Send + 'static>;
 
+/// Type alias for the `stream_end_frame` callback.
+type StreamEndHook<F> = Box<dyn FnMut(&mut ConnectionContext) -> Option<F> + Send + 'static>;
+
 /// Callbacks used by the connection actor.
 pub struct ProtocolHooks<F, E> {
     /// Invoked when a connection is established.
@@ -77,6 +87,8 @@ pub struct ProtocolHooks<F, E> {
     pub on_command_end: Option<OnCommandEndHook>,
     /// Invoked when a handler returns a protocol error.
     pub handle_error: Option<HandleErrorHook<E>>,
+    /// Invoked to construct an end-of-stream frame.
+    pub stream_end: Option<StreamEndHook<F>>,
 }
 
 impl<F, E> Default for ProtocolHooks<F, E> {
@@ -86,6 +98,7 @@ impl<F, E> Default for ProtocolHooks<F, E> {
             before_send: None,
             on_command_end: None,
             handle_error: None,
+            stream_end: None,
         }
     }
 }
@@ -118,6 +131,11 @@ impl<F, E> ProtocolHooks<F, E> {
         }
     }
 
+    /// Run the `stream_end` hook if registered.
+    pub fn stream_end(&mut self, ctx: &mut ConnectionContext) -> Option<F> {
+        self.stream_end.as_mut().and_then(|hook| hook(ctx))
+    }
+
     /// Construct hooks from a [`WireframeProtocol`] implementation.
     pub fn from_protocol<P>(protocol: &Arc<P>) -> Self
     where
@@ -143,11 +161,17 @@ impl<F, E> ProtocolHooks<F, E> {
             protocol_error.handle_error(e, ctx);
         }) as HandleErrorHook<P::ProtocolError>;
 
+        let protocol_stream_end = Arc::clone(protocol);
+        let stream_end =
+            Box::new(move |ctx: &mut ConnectionContext| protocol_stream_end.stream_end_frame(ctx))
+                as StreamEndHook<F>;
+
         Self {
             on_connection_setup: Some(setup),
             before_send: Some(before),
             on_command_end: Some(end),
             handle_error: Some(err),
+            stream_end: Some(stream_end),
         }
     }
 }
