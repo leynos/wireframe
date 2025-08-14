@@ -11,32 +11,39 @@ use bytes::BytesMut;
 use rstest::rstest;
 use wireframe::{
     Serializer,
-    app::WireframeApp,
+    app::{Packet, PacketParts, WireframeApp},
     frame::{FrameProcessor, LengthPrefixedProcessor},
     message::Message,
     serializer::BincodeSerializer,
 };
 use wireframe_testing::{drive_with_bincode, drive_with_frames};
 
-#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
+#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug, Clone)]
 struct TestEnvelope {
     id: u32,
-    correlation_id: u64,
-    msg: Vec<u8>,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
 }
 
-impl wireframe::app::Packet for TestEnvelope {
+impl Packet for TestEnvelope {
+    #[inline]
     fn id(&self) -> u32 { self.id }
 
-    fn correlation_id(&self) -> u64 { self.correlation_id }
+    #[inline]
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
-    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.msg) }
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
 
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+    fn from_parts(parts: PacketParts) -> Self {
+        let id = parts.id();
+        let correlation_id = parts.correlation_id();
+        let payload = parts.payload();
         Self {
             id,
             correlation_id,
-            msg,
+            payload,
         }
     }
 }
@@ -66,8 +73,8 @@ async fn handler_receives_message_and_echoes_response() {
     let msg_bytes = Echo(42).to_bytes().expect("encode failed");
     let env = TestEnvelope {
         id: 1,
-        correlation_id: 99,
-        msg: msg_bytes,
+        correlation_id: Some(99),
+        payload: msg_bytes,
     };
 
     let out = drive_with_bincode(app, env)
@@ -82,10 +89,43 @@ async fn handler_receives_message_and_echoes_response() {
     let (resp_env, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frame)
         .expect("deserialize failed");
-    assert_eq!(resp_env.correlation_id, 99);
-    let (echo, _) = Echo::from_bytes(&resp_env.msg).expect("decode echo failed");
+    assert_eq!(resp_env.correlation_id, Some(99));
+    let (echo, _) = Echo::from_bytes(&resp_env.payload).expect("decode echo failed");
     assert_eq!(echo, Echo(42));
     assert_eq!(called.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn handler_echoes_with_none_correlation_id() {
+    let app = WireframeApp::<_, _, TestEnvelope>::new()
+        .expect("failed to create app")
+        .frame_processor(LengthPrefixedProcessor::default())
+        .route(
+            1,
+            std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+        )
+        .expect("route registration failed");
+
+    let msg_bytes = Echo(7).to_bytes().expect("encode failed");
+    let env = TestEnvelope {
+        id: 1,
+        correlation_id: None,
+        payload: msg_bytes,
+    };
+
+    let out = drive_with_bincode(app, env).await.expect("drive failed");
+    let mut buf = BytesMut::from(&out[..]);
+    let frame = LengthPrefixedProcessor::default()
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("missing frame");
+    let (resp_env, _) = BincodeSerializer
+        .deserialize::<TestEnvelope>(&frame)
+        .expect("deserialize failed");
+
+    assert_eq!(resp_env.correlation_id, None);
+    let (echo, _) = Echo::from_bytes(&resp_env.payload).expect("decode echo failed");
+    assert_eq!(echo, Echo(7));
 }
 
 #[tokio::test]
@@ -104,8 +144,8 @@ async fn multiple_frames_processed_in_sequence() {
             let msg_bytes = Echo(id).to_bytes().expect("encode failed");
             let env = TestEnvelope {
                 id: 1,
-                correlation_id: u64::from(id),
-                msg: msg_bytes,
+                correlation_id: Some(u64::from(id)),
+                payload: msg_bytes,
             };
             let env_bytes = BincodeSerializer
                 .serialize(&env)
@@ -130,7 +170,7 @@ async fn multiple_frames_processed_in_sequence() {
     let (env1, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&first)
         .expect("deserialize failed");
-    let (echo1, _) = Echo::from_bytes(&env1.msg).expect("decode echo failed");
+    let (echo1, _) = Echo::from_bytes(&env1.payload).expect("decode echo failed");
     let second = LengthPrefixedProcessor::default()
         .decode(&mut buf)
         .expect("decode failed")
@@ -138,9 +178,64 @@ async fn multiple_frames_processed_in_sequence() {
     let (env2, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&second)
         .expect("deserialize failed");
-    let (echo2, _) = Echo::from_bytes(&env2.msg).expect("decode echo failed");
-    assert_eq!(env1.correlation_id, 1);
-    assert_eq!(env2.correlation_id, 2);
+    let (echo2, _) = Echo::from_bytes(&env2.payload).expect("decode echo failed");
+    assert_eq!(env1.correlation_id, Some(1));
+    assert_eq!(env2.correlation_id, Some(2));
     assert_eq!(echo1, Echo(1));
     assert_eq!(echo2, Echo(2));
+}
+
+#[rstest]
+#[case(None)]
+#[case(Some(1))]
+#[case(Some(2))]
+#[tokio::test]
+async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
+    let app = WireframeApp::<_, _, TestEnvelope>::new()
+        .expect("failed to create app")
+        .frame_processor(LengthPrefixedProcessor::default())
+        .route(
+            1,
+            std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+        )
+        .expect("route registration failed");
+
+    let msg_bytes = Echo(5).to_bytes().expect("encode failed");
+    let env = TestEnvelope {
+        id: 1,
+        correlation_id: cid,
+        payload: msg_bytes,
+    };
+    let env_bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
+
+    let mut framed = BytesMut::new();
+    LengthPrefixedProcessor::default()
+        .encode(&env_bytes, &mut framed)
+        .expect("encode failed");
+
+    let out = drive_with_frames(app, vec![framed.to_vec()])
+        .await
+        .expect("drive failed");
+    let mut buf = BytesMut::from(&out[..]);
+    let frame = LengthPrefixedProcessor::default()
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("missing");
+    let (resp, _) = BincodeSerializer
+        .deserialize::<TestEnvelope>(&frame)
+        .expect("deserialize failed");
+
+    assert_eq!(resp.correlation_id, cid);
+}
+
+#[test]
+fn packet_from_parts_round_trips() {
+    let env = TestEnvelope {
+        id: 5,
+        correlation_id: Some(9),
+        payload: vec![1, 2, 3],
+    };
+    let parts = env.clone().into_parts();
+    let rebuilt = TestEnvelope::from_parts(parts);
+    assert_eq!(rebuilt, env);
 }

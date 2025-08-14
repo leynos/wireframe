@@ -3,6 +3,7 @@
 //! These tests verify that counters and gauges update as expected using
 //! `metrics_util::debugging::DebuggingRecorder`.
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+use rstest::rstest;
 
 /// Creates a debugging recorder and snapshotter for metrics testing.
 fn debugging_recorder_setup() -> (Snapshotter, DebuggingRecorder) {
@@ -62,22 +63,32 @@ fn error_metric_increments() {
     assert!(found, "error metric not recorded");
 }
 
-#[test]
-fn connection_panic_metric_increments() {
+#[rstest]
+#[case(1)]
+#[case(2)]
+fn inc_connection_panics_counts(#[case] expected: u64) {
+    // Arrange
     let (snapshotter, recorder) = debugging_recorder_setup();
+
+    // Act
     metrics::with_local_recorder(&recorder, || {
-        wireframe::metrics::inc_connection_panics();
+        (0..expected).for_each(|_| wireframe::metrics::inc_connection_panics());
     });
 
+    // Assert
+    assert_counter_eq(
+        &snapshotter,
+        wireframe::metrics::CONNECTION_PANICS,
+        expected,
+    );
+}
+
+fn assert_counter_eq(snapshotter: &Snapshotter, name: &str, expected: u64) {
     let metrics = snapshotter.snapshot().into_vec();
-    let count = metrics
-        .iter()
-        .find_map(|(k, _, _, v)| {
-            (k.key().name() == wireframe::metrics::CONNECTION_PANICS).then_some(match v {
-                DebugValue::Counter(c) => *c,
-                _ => 0,
-            })
-        })
-        .unwrap_or(0);
-    assert_eq!(1, count, "panic metric not recorded");
+    assert!(
+        metrics.iter().any(|(key, _, _, value)| {
+            key.key().name() == name && matches!(value, DebugValue::Counter(c) if *c == expected)
+        }),
+        "expected {name} == {expected}, got {metrics:#?}"
+    );
 }

@@ -3,6 +3,7 @@
 //! Confirm that a custom middleware can modify requests and responses.
 
 use async_trait::async_trait;
+use rstest::rstest;
 use wireframe::middleware::{Next, Service, ServiceRequest, ServiceResponse, Transform};
 
 struct EchoService;
@@ -12,7 +13,8 @@ impl Service for EchoService {
     type Error = std::convert::Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-        Ok(ServiceResponse::new(req.into_inner()))
+        let cid = req.correlation_id();
+        Ok(ServiceResponse::new(req.into_inner(), cid))
     }
 }
 
@@ -48,13 +50,26 @@ where
     }
 }
 
+#[rstest(correlation_id => [None, Some(0), Some(42)])]
 #[tokio::test]
-async fn middleware_modifies_request_and_response() {
+async fn middleware_modifies_request_and_response_preserves_cid(correlation_id: Option<u64>) {
     let service = EchoService;
     let mw = ModifyMiddleware;
     let wrapped = mw.transform(service).await;
 
-    let request = ServiceRequest::new(vec![1, 2, 3], 0);
+    let request = ServiceRequest::new(vec![1, 2, 3], correlation_id);
     let response = wrapped.call(request).await.expect("middleware call failed");
+
     assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
+    assert_eq!(response.correlation_id(), correlation_id);
+}
+
+#[test]
+fn service_request_setter_updates_correlation_id() {
+    let mut req = ServiceRequest::new(vec![], None);
+    let _ = req.set_correlation_id(Some(7));
+    assert_eq!(req.correlation_id(), Some(7));
+
+    let _ = req.set_correlation_id(None);
+    assert_eq!(req.correlation_id(), None);
 }

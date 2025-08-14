@@ -5,8 +5,12 @@
 //! TCP binding is provided via the [`binding`](self::binding) module; preamble
 //! behaviour is customized via the [`preamble`](self::preamble) module. The
 //! server may be constructed unbound and later bound using
-//! [`bind`](WireframeServer::bind) or [`bind_listener`](WireframeServer::bind_listener)
-//! on [`Unbound`] servers.
+//! [`bind`](super::WireframeServer::bind) or
+//! [`bind_existing_listener`](super::WireframeServer::bind_existing_listener) on
+//! [`Unbound`](super::Unbound) servers. The `run` methods are available only once
+//! the server is [`Bound`](super::Bound), enforcing at compile time that the
+//! binding step
+//! cannot be skipped.
 
 use core::marker::PhantomData;
 
@@ -52,7 +56,7 @@ where
     /// The worker count defaults to the number of available CPU cores (or 1 if
     /// this cannot be determined). The server is initially [`Unbound`]; call
     /// [`bind`](WireframeServer::bind) or
-    /// [`bind_listener`](WireframeServer::bind_listener)
+    /// [`bind_existing_listener`](WireframeServer::bind_existing_listener)
     /// (methods provided by the [`binding`](self::binding) module) before running the server.
     ///
     /// # Examples

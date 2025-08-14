@@ -1,10 +1,11 @@
 //! Runtime control for [`WireframeServer`].
 
-use std::sync::Arc;
+use std::{io, net::SocketAddr, sync::Arc};
 
+use async_trait::async_trait;
 use futures::Future;
 use tokio::{
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     select,
     signal,
     time::{Duration, sleep},
@@ -21,13 +22,30 @@ use super::{
 };
 use crate::{app::WireframeApp, preamble::Preamble};
 
+/// Abstraction for sources of incoming connections consumed by the accept loop.
 ///
+/// Implementations must be cancellation-safe: dropping a pending `accept()`
+/// future must not leak resources.
+#[async_trait]
+#[cfg_attr(test, mockall::automock)]
+pub(super) trait AcceptListener: Send + Sync {
+    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+}
+
+#[async_trait]
+impl AcceptListener for TcpListener {
+    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+        TcpListener::accept(self).await
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> { TcpListener::local_addr(self) }
+}
+
+/// Configuration for exponential back-off timing in the accept loop.
 ///
-///
-/// Configuration for exponential backoff timing in the accept loop.
-///
-/// Controls retry behavior when `accept()` calls fail on the server's TCP listener.
-/// The backoff starts at `initial_delay` and doubles on each failure, capped at `max_delay`.
+/// Controls retry behaviour when `accept()` calls fail on the server's TCP listener.
+/// The back-off starts at `initial_delay` and doubles on each failure, capped at `max_delay`.
 ///
 /// # Default Values
 /// - `initial_delay`: 10 milliseconds
@@ -86,9 +104,27 @@ where
     /// # }
     /// ```
     ///
+    /// Attempting to run a server without binding fails to compile:
+    ///
+    /// Binding specifies the network address for the server to listen on.
+    /// It is required so the server knows where to accept incoming connections.
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// async fn try_run() {
+    ///     WireframeServer::new(|| WireframeApp::default())
+    ///         .run()
+    ///         .await
+    ///         .expect("unbound servers do not expose run()");
+    /// }
+    /// ```
+    ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if runtime initialisation fails.
+    /// Returns an [`io::Error`] if the server was not bound to a listener.
+    /// Accept failures are retried with exponential back-off and do not
+    /// surface as errors.
     pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
             let _ = signal::ctrl_c().await;
@@ -125,9 +161,27 @@ where
     /// # }
     /// ```
     ///
+    /// Attempting to run a server without binding fails to compile:
+    ///
+    /// Binding specifies the network address for the server to listen on.
+    /// It is required so the server knows where to accept incoming connections.
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// async fn try_run_with_shutdown() {
+    ///     WireframeServer::new(|| WireframeApp::default())
+    ///         .run_with_shutdown(async {})
+    ///         .await
+    ///         .expect("unbound servers do not expose run_with_shutdown()");
+    /// }
+    /// ```
+    ///
     /// # Errors
     ///
-    /// Returns a [`ServerError`] if runtime initialisation fails.
+    /// Returns an [`io::Error`] if the server was not bound to a listener.
+    /// Accept failures are retried with exponential back-off and do not
+    /// surface as errors.
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
     where
         S: Future<Output = ()> + Send,
@@ -179,8 +233,56 @@ where
     }
 }
 
-pub(super) async fn accept_loop<F, T>(
-    listener: Arc<TcpListener>,
+/// Accepts incoming connections and spawns handler tasks.
+///
+/// The loop accepts connections from `listener`, creates a new
+/// [`WireframeApp`] via `factory` for each one, and spawns a task to handle
+/// the connection. Failures to accept a connection trigger an exponential
+/// back-off governed by `backoff_config`. The loop terminates when `shutdown`
+/// is cancelled, and all spawned tasks are tracked by `tracker` for graceful
+/// shutdown.
+///
+/// # Parameters
+///
+/// - `listener`: Source of incoming TCP connections.
+/// - `factory`: Creates a fresh [`WireframeApp`] for each connection.
+/// - `on_success`: Callback invoked after a successful preamble.
+/// - `on_failure`: Callback invoked when the preamble fails.
+/// - `shutdown`: Signal used to stop the accept loop.
+/// - `tracker`: Task tracker used for graceful shutdown.
+/// - `backoff_config`: Controls exponential back-off behaviour.
+///
+/// # Type Parameters
+///
+/// - `F`: Factory function that creates [`WireframeApp`] instances.
+/// - `T`: Preamble type for connection handshaking.
+/// - `L`: Listener type implementing [`AcceptListener`].
+///
+/// # Examples
+///
+/// ```ignore
+/// use std::sync::Arc;
+///
+/// use tokio_util::{sync::CancellationToken, task::TaskTracker};
+/// use wireframe::{app::WireframeApp /*, server::runtime::{AcceptListener, BackoffConfig, accept_loop} */};
+///
+/// async fn run<L: AcceptListener + Send + Sync + 'static>(listener: Arc<L>) {
+///     let tracker = TaskTracker::new();
+///     let token = CancellationToken::new();
+///     accept_loop::<_, (), _>(
+///         listener,
+///         || WireframeApp::default(),
+///         None,
+///         None,
+///         token,
+///         tracker,
+///         BackoffConfig::default(),
+///     )
+///     .await;
+/// }
+/// ```
+pub(super) async fn accept_loop<F, T, L>(
+    listener: Arc<L>,
     factory: F,
     on_success: Option<PreambleHandler<T>>,
     on_failure: Option<PreambleErrorHandler>,
@@ -190,6 +292,7 @@ pub(super) async fn accept_loop<F, T>(
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
+    L: AcceptListener + Send + Sync + 'static,
 {
     debug_assert!(
         backoff_config.initial_delay <= backoff_config.max_delay,
@@ -232,25 +335,27 @@ pub(super) async fn accept_loop<F, T>(
 mod tests {
     use std::sync::{
         Arc,
+        Mutex,
         atomic::{AtomicUsize, Ordering},
     };
 
     use rstest::rstest;
     use tokio::{
         sync::oneshot,
-        time::{Duration, timeout},
+        task::yield_now,
+        time::{Duration, Instant, advance, timeout},
     };
 
-    use super::*;
-    use crate::server::test_util::{bind_server, factory, free_port};
+    use super::{MockAcceptListener, *};
+    use crate::server::test_util::{bind_server, factory, free_listener};
 
     #[rstest]
     #[tokio::test]
     async fn test_run_with_immediate_shutdown(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_listener: std::net::TcpListener,
     ) {
-        let server = bind_server(factory, free_port);
+        let server = bind_server(factory, free_listener);
         let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
         let result = timeout(
             Duration::from_millis(1000),
@@ -258,16 +363,16 @@ mod tests {
         )
         .await;
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server did not finish in time").is_ok());
     }
 
     #[rstest]
     #[tokio::test]
     async fn test_server_graceful_shutdown_with_ctrl_c_simulation(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_listener: std::net::TcpListener,
     ) {
-        let server = bind_server(factory, free_port);
+        let server = bind_server(factory, free_listener);
         let (tx, rx) = oneshot::channel();
         let handle = tokio::spawn(async move {
             server
@@ -283,7 +388,7 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
-    async fn test_multiple_worker_creation(free_port: std::net::SocketAddr) {
+    async fn test_multiple_worker_creation(free_listener: std::net::TcpListener) {
         let call_count = Arc::new(AtomicUsize::new(0));
         let clone = call_count.clone();
         let factory = move || {
@@ -292,7 +397,7 @@ mod tests {
         };
         let server = WireframeServer::new(factory)
             .workers(3)
-            .bind(free_port)
+            .bind_existing_listener(free_listener)
             .expect("Failed to bind");
         let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
         let result = timeout(
@@ -301,7 +406,7 @@ mod tests {
         )
         .await;
         assert!(result.is_ok());
-        assert!(result.unwrap().is_ok());
+        assert!(result.expect("server did not finish in time").is_ok());
     }
 
     #[rstest]
@@ -317,7 +422,7 @@ mod tests {
                 .expect("failed to bind test listener"),
         );
 
-        tracker.spawn(accept_loop::<_, ()>(
+        tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
             None,
@@ -332,5 +437,78 @@ mod tests {
 
         let result = timeout(Duration::from_millis(100), tracker.wait()).await;
         assert!(result.is_ok());
+    }
+
+    #[rstest]
+    #[tokio::test(start_paused = true)]
+    async fn test_accept_loop_exponential_backoff_async(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut listener = MockAcceptListener::new();
+        let call_log = calls.clone();
+        listener
+            .expect_accept()
+            .returning(move || {
+                let call_log = Arc::clone(&call_log);
+                Box::pin(async move {
+                    call_log.lock().expect("lock").push(Instant::now());
+                    Err(io::Error::other("mock error"))
+                })
+            })
+            .times(4);
+        listener
+            .expect_local_addr()
+            .returning(|| Ok("127.0.0.1:0".parse().expect("addr parse")))
+            .times(4);
+        let listener = Arc::new(listener);
+        let token = CancellationToken::new();
+        let tracker = TaskTracker::new();
+        let backoff = BackoffConfig {
+            initial_delay: Duration::from_millis(5),
+            max_delay: Duration::from_millis(20),
+        };
+
+        tracker.spawn(accept_loop::<_, (), _>(
+            listener,
+            factory,
+            None,
+            None,
+            token.clone(),
+            tracker.clone(),
+            backoff,
+        ));
+
+        yield_now().await;
+
+        let first_call = {
+            let calls = calls.lock().expect("lock");
+            assert_eq!(calls.len(), 1);
+            calls[0]
+        };
+
+        for ms in [5, 10, 20] {
+            advance(Duration::from_millis(ms)).await;
+            yield_now().await;
+        }
+
+        token.cancel();
+        advance(Duration::from_millis(20)).await;
+        yield_now().await;
+        tracker.close();
+        tracker.wait().await;
+
+        let calls = calls.lock().expect("lock");
+        assert_eq!(calls.len(), 4);
+        assert_eq!(calls[0], first_call);
+        let intervals: Vec<_> = calls.windows(2).map(|w| w[1] - w[0]).collect();
+        let expected = [
+            Duration::from_millis(5),
+            Duration::from_millis(10),
+            Duration::from_millis(20),
+        ];
+        for (interval, expected) in intervals.into_iter().zip(expected) {
+            assert_eq!(interval, expected);
+        }
     }
 }

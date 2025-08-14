@@ -6,7 +6,6 @@
 //! cases via `rstest`.
 
 use std::{
-    net::SocketAddr,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -23,11 +22,11 @@ use crate::server::{
         TestPreamble,
         bind_server,
         factory,
-        free_port,
+        free_listener,
+        listener_addr,
         server_with_preamble,
     },
     BackoffConfig,
-};
 use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,14 +76,15 @@ fn test_with_preamble_type_conversion(
 #[tokio::test]
 async fn test_bind_success(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
+    let expected = listener_addr(&free_listener);
     let local_addr = WireframeServer::new(factory)
-        .bind(free_port)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind")
         .local_addr()
         .expect("local address missing");
-    assert_eq!(local_addr.ip(), free_port.ip());
+    assert_eq!(local_addr, expected);
 }
 
 #[rstest]
@@ -96,10 +96,13 @@ fn test_local_addr_before_bind(factory: impl Fn() -> WireframeApp + Send + Sync 
 #[tokio::test]
 async fn test_local_addr_after_bind(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
-    let local_addr = bind_server(factory, free_port).local_addr().unwrap();
-    assert_eq!(local_addr.ip(), free_port.ip());
+    let expected = listener_addr(&free_listener);
+    let local_addr = bind_server(factory, free_listener)
+        .local_addr()
+        .expect("local address missing");
+    assert_eq!(local_addr, expected);
 }
 
 #[rstest]
@@ -164,7 +167,7 @@ async fn test_preamble_handler_registration(
 #[tokio::test]
 async fn test_method_chaining(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
     let handler_invoked = Arc::new(AtomicUsize::new(0));
     let counter = handler_invoked.clone();
@@ -179,7 +182,7 @@ async fn test_method_chaining(
             })
         })
         .on_preamble_decode_failure(|_: &DecodeError| {})
-        .bind(free_port)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 2);
     assert!(server.local_addr().is_some());
@@ -190,11 +193,11 @@ async fn test_method_chaining(
 #[tokio::test]
 async fn test_server_configuration_persistence(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
     let server = WireframeServer::new(factory)
         .workers(5)
-        .bind(free_port)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 5);
     assert!(server.local_addr().is_some());
@@ -212,25 +215,23 @@ fn test_extreme_worker_counts(factory: impl Fn() -> WireframeApp + Send + Sync +
 #[tokio::test]
 async fn test_bind_to_multiple_addresses(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_port: SocketAddr,
+    free_listener: std::net::TcpListener,
 ) {
-    let listener2 =
-        std::net::TcpListener::bind(SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0))
-            .expect("failed to bind second listener");
-    let addr2 = listener2
-        .local_addr()
-        .expect("failed to get second listener address");
-    drop(listener2);
+    let addr1 = listener_addr(&free_listener);
 
     let server = WireframeServer::new(factory);
     let server = server
-        .bind(free_port)
+        .bind_existing_listener(free_listener)
         .expect("Failed to bind first address");
     let first = server.local_addr().expect("first bound address missing");
-    let server = server.bind(addr2).expect("Failed to bind second address");
+    assert_eq!(first, addr1);
+
+    let server = server
+        .bind(std::net::SocketAddr::new(addr1.ip(), 0))
+        .expect("Failed to bind second address");
     let second = server.local_addr().expect("second bound address missing");
+    assert_eq!(second.ip(), addr1.ip());
     assert_ne!(first.port(), second.port());
-    assert_eq!(second.ip(), addr2.ip());
 }
 
 #[rstest]

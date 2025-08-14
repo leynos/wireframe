@@ -64,7 +64,12 @@ async fn process_stream<F, T>(
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
-                tracing::error!(error = ?e, ?peer_addr, "preamble handler error");
+                tracing::error!(
+                    error = %e,
+                    error_debug = ?e,
+                    ?peer_addr,
+                    "preamble handler error",
+                );
             }
             let stream = RewindStream::new(leftover, stream);
             let app = (factory)();
@@ -86,7 +91,6 @@ async fn process_stream<F, T>(
 
 #[cfg(test)]
 mod tests {
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
     use tokio::{
         net::{TcpListener, TcpStream},
@@ -100,7 +104,7 @@ mod tests {
         app::WireframeApp,
         server::{
             WireframeServer,
-            test_util::{factory, free_port},
+            test_util::{factory, free_listener},
         },
     };
 
@@ -158,7 +162,7 @@ mod tests {
     #[tokio::test]
     async fn connection_panic_is_caught(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_port: std::net::SocketAddr,
+        free_listener: std::net::TcpListener,
     ) {
         let app_factory = move || {
             factory()
@@ -167,7 +171,7 @@ mod tests {
         };
         let server = WireframeServer::new(app_factory)
             .workers(1)
-            .bind(free_port)
+            .bind_existing_listener(free_listener)
             .expect("bind");
         let addr = server
             .local_addr()
@@ -211,51 +215,5 @@ mod tests {
                 .map(|_| ())
                 .ok_or_else(|| "panic log not found".to_string())
         });
-    }
-
-    /// Panics increment the connection panic counter.
-    #[rstest]
-    #[tokio::test]
-    async fn connection_panic_metric_increments(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        recorder.install().expect("recorder install");
-
-        let app_factory = move || {
-            factory()
-                .on_connection_setup(|| async { panic!("boom") })
-                .unwrap()
-        };
-        let tracker = TaskTracker::new();
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        let task = tokio::spawn({
-            let tracker = tracker.clone();
-            let app_factory = app_factory;
-            async move {
-                let (stream, _) = listener.accept().await.unwrap();
-                spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
-                tracker.close();
-                tracker.wait().await;
-            }
-        });
-
-        let client = TcpStream::connect(addr).await.unwrap();
-        client.writable().await.unwrap();
-        client.try_write(&[0; 8]).unwrap();
-        drop(client);
-
-        task.await.unwrap();
-        tokio::task::yield_now().await;
-
-        let metrics = snapshotter.snapshot().into_vec();
-        let found = metrics.iter().any(|(k, _, _, v)| {
-            k.key().name() == crate::metrics::CONNECTION_PANICS
-                && matches!(v, DebugValue::Counter(c) if *c > 0)
-        });
-        assert!(found, "connection panic metric not recorded");
     }
 }

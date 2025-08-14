@@ -69,7 +69,7 @@ where
     B: FnOnce(std::net::SocketAddr) -> Fut,
 {
     let listener = unused_listener();
-    let server = server.bind_listener(listener).expect("bind");
+    let server = server.bind_existing_listener(listener).expect("bind");
     let addr = server.local_addr().expect("addr");
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {

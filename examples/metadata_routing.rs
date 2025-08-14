@@ -52,7 +52,7 @@ impl FrameMetadata for HeaderSerializer {
         // `parse` receives the complete frame because `LengthPrefixedProcessor`
         // ensures `src` contains exactly one message. Returning `src.len()` is
         // therefore correct for this demo.
-        Ok((Envelope::new(id, 0, payload), src.len()))
+        Ok((Envelope::new(id, None, payload), src.len()))
     }
 }
 
@@ -62,7 +62,7 @@ struct Ping;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let app = WireframeApp::new()
-        .unwrap()
+        .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .serializer(HeaderSerializer)
         .route(
@@ -73,7 +73,7 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .unwrap()
+        .expect("failed to add ping route")
         .route(
             2,
             Arc::new(|_env: &Envelope| {
@@ -82,14 +82,14 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .unwrap();
+        .expect("failed to add pong route");
 
     let (mut client, server) = duplex(1024);
     let server_task = tokio::spawn(async move {
         app.handle_connection(server).await;
     });
 
-    let payload = Ping.to_bytes().unwrap();
+    let payload = Ping.to_bytes().expect("failed to serialize Ping message");
     let mut frame = Vec::new();
     frame.extend_from_slice(&1u16.to_be_bytes());
     frame.push(0);
@@ -98,11 +98,11 @@ async fn main() -> io::Result<()> {
     let mut bytes = BytesMut::new();
     LengthPrefixedProcessor::default()
         .encode(&frame, &mut bytes)
-        .unwrap();
+        .expect("failed to encode frame");
 
     client.write_all(&bytes).await?;
     client.shutdown().await?;
 
-    server_task.await.unwrap();
+    server_task.await.expect("server task failed");
     Ok(())
 }

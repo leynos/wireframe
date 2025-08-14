@@ -13,8 +13,8 @@ use std::{
 
 use bytes::BytesMut;
 use wireframe::{
-    app::{Envelope, Packet, WireframeApp},
-    frame::{FrameProcessor, LengthPrefixedProcessor},
+    app::{Envelope, Packet, PacketParts, WireframeApp},
+    frame::FrameProcessor,
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{processor, run_app, run_with_duplex_server};
@@ -102,22 +102,27 @@ async fn teardown_without_setup_does_not_run() {
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct StateEnvelope {
     id: u32,
-    correlation_id: u64,
-    msg: Vec<u8>,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
 }
 
-impl wireframe::app::Packet for StateEnvelope {
+impl Packet for StateEnvelope {
     fn id(&self) -> u32 { self.id }
 
-    fn correlation_id(&self) -> u64 { self.correlation_id }
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
-    fn into_parts(self) -> (u32, u64, Vec<u8>) { (self.id, self.correlation_id, self.msg) }
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
 
-    fn from_parts(id: u32, correlation_id: u64, msg: Vec<u8>) -> Self {
+    fn from_parts(parts: PacketParts) -> Self {
+        let id = parts.id();
+        let correlation_id = parts.correlation_id();
+        let payload = parts.payload();
         Self {
             id,
             correlation_id,
-            msg,
+            payload,
         }
     }
 }
@@ -134,21 +139,33 @@ async fn helpers_propagate_connection_state() {
 
     let env = StateEnvelope {
         id: 1,
-        correlation_id: 0,
-        msg: vec![1],
+        correlation_id: Some(0),
+        payload: vec![1],
     };
     let bytes = BincodeSerializer
         .serialize(&env)
         .expect("failed to serialise envelope");
     let mut frame = BytesMut::new();
-    LengthPrefixedProcessor::default()
-        .encode(&bytes, &mut frame)
+    let proc = processor();
+    proc.encode(&bytes, &mut frame)
         .expect("encode should succeed");
 
     let out = run_app(app, vec![frame.to_vec()], None)
         .await
         .expect("app run failed");
     assert!(!out.is_empty());
+
+    let mut buf = BytesMut::from(&out[..]);
+    let processor = processor();
+    let decoded = processor
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (resp, _) = BincodeSerializer
+        .deserialize::<StateEnvelope>(&decoded)
+        .expect("deserialize failed");
+    assert_eq!(resp.correlation_id, Some(0));
+
     assert_eq!(setup.load(Ordering::SeqCst), 1);
     assert_eq!(teardown.load(Ordering::SeqCst), 1);
 }

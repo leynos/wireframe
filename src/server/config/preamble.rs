@@ -56,6 +56,7 @@ where
         /// Register a handler invoked when the connection preamble decodes successfully.
         ///
         /// The handler must implement [`crate::server::PreambleSuccessHandler`].
+        /// See [`crate::server::PreambleHandler`] for a ready-to-use alias.
         ///
         /// # Examples
         ///

@@ -42,7 +42,7 @@ async fn readiness_receiver_dropped() {
     let listener = unused_listener();
     let server = WireframeServer::new(factory())
         .workers(1)
-        .bind_listener(listener)
+        .bind_existing_listener(listener)
         .unwrap();
 
     let addr = server.local_addr().expect("local addr missing");
