@@ -139,9 +139,10 @@ async fn test_preamble_handler_registration(
                 .await
                 .expect("bind listener");
             let addr = listener.local_addr().expect("listener addr");
-            let client = TcpStream::connect(addr);
+            let _client = TcpStream::connect(addr)
+                .await
+                .expect("client connect failed");
             let (mut stream, _) = listener.accept().await.expect("accept stream");
-            client.await.expect("client connect failed");
             let preamble = TestPreamble { id: 0, message: String::new() };
             handler(&preamble, &mut stream)
                 .await
@@ -326,6 +327,10 @@ fn test_backoff_validation(factory: impl Fn() -> WireframeApp + Send + Sync + Cl
             initial_delay: Duration::from_millis(100),
             max_delay: Duration::from_millis(50),
         });
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        Duration::from_millis(50)
+    );
     assert_eq!(server.backoff_config.max_delay, Duration::from_millis(100));
 }
 
