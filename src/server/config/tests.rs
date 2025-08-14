@@ -141,7 +141,7 @@ async fn test_preamble_handler_registration(
             let addr = listener.local_addr().expect("listener addr");
             let client = TcpStream::connect(addr);
             let (mut stream, _) = listener.accept().await.expect("accept stream");
-            let _ = client.await;
+            client.await.expect("client connect failed");
             let preamble = TestPreamble { id: 0, message: String::new() };
             handler(&preamble, &mut stream)
                 .await

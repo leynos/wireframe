@@ -125,7 +125,8 @@ where
         /// The supplied configuration is passed to
         /// [`BackoffConfig::normalised`] (`cfg.normalised()`) before being
         /// stored. Normalisation clamps `initial_delay` to at least 1 ms and no
-        /// greater than `max_delay`, applying any other adjustments
+        /// greater than `max_delay`. If `initial_delay` exceeds `max_delay`,
+        /// the values are swapped. Normalisation applies any other adjustments
         /// `BackoffConfig::normalised` defines so out-of-range values are
         /// corrected rather than preserved.
         ///
