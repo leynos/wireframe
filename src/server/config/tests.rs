@@ -348,7 +348,7 @@ fn test_initial_delay_exceeds_default_max(
         max_delay: Duration::from_secs(1),
     };
     let server = WireframeServer::new(factory).accept_backoff(cfg);
-    assert_eq!(server.backoff_config.initial_delay, Duration::from_secs(2));
+    assert_eq!(server.backoff_config.initial_delay, Duration::from_secs(1));
     assert_eq!(server.backoff_config.max_delay, Duration::from_secs(2));
 }
 

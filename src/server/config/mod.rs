@@ -125,6 +125,8 @@ where
         /// Invariants:
         /// - `initial_delay` must be >= 1 ms
         /// - `initial_delay` must be <= `max_delay`
+        ///
+        /// The provided configuration is normalised before being stored.
         accept_backoff, backoff_config, cfg: BackoffConfig => cfg.normalised()
     );
 

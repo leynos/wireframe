@@ -7,7 +7,7 @@ fails.
 ## Accept loop backoff
 
 The accept loop retries failed `accept()` calls using exponential backoff.
-`accept_backoff(cfg)` sets both bounds using a [`BackoffConfig`] value:
+`accept_backoff(cfg)` sets both bounds using a `BackoffConfig` value:
 
 - `initial_delay` – starting delay for the first retry, clamped to at least 1
   millisecond.
