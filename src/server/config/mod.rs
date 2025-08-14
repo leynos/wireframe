@@ -122,11 +122,16 @@ where
     builder_setter!(
         /// Configure accept-loop backoff behaviour.
         ///
+        /// The supplied configuration is passed to
+        /// [`BackoffConfig::normalised`] (`cfg.normalised()`) before being
+        /// stored. Normalisation clamps `initial_delay` to at least 1 ms and no
+        /// greater than `max_delay`, applying any other adjustments
+        /// `BackoffConfig::normalised` defines so out-of-range values are
+        /// corrected rather than preserved.
+        ///
         /// Invariants:
         /// - `initial_delay` must be >= 1 ms
         /// - `initial_delay` must be <= `max_delay`
-        ///
-        /// The provided configuration is normalised before being stored.
         accept_backoff, backoff_config, cfg: BackoffConfig => cfg.normalised()
     );
 
