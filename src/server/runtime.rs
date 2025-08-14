@@ -92,6 +92,22 @@ where
     /// # }
     /// ```
     ///
+    /// Attempting to run a server without binding fails to compile:
+    ///
+    /// Binding specifies the network address for the server to listen on.
+    /// It is required so the server knows where to accept incoming connections.
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// async fn try_run() {
+    ///     WireframeServer::new(|| WireframeApp::default())
+    ///         .run()
+    ///         .await
+    ///         .expect("unbound servers do not expose run()");
+    /// }
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns an [`io::Error`] if the server was not bound to a listener.
@@ -131,6 +147,22 @@ where
     /// handle.await??;
     /// # Ok(())
     /// # }
+    /// ```
+    ///
+    /// Attempting to run a server without binding fails to compile:
+    ///
+    /// Binding specifies the network address for the server to listen on.
+    /// It is required so the server knows where to accept incoming connections.
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// async fn try_run_with_shutdown() {
+    ///     WireframeServer::new(|| WireframeApp::default())
+    ///         .run_with_shutdown(async {})
+    ///         .await
+    ///         .expect("unbound servers do not expose run_with_shutdown()");
+    /// }
     /// ```
     ///
     /// # Errors
