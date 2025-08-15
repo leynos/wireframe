@@ -2,6 +2,16 @@
 name = "wireframe"
 version = "0.1.0"
 edition = "2024"
+description = "An experimental Rust library that simplifies building servers and clients for custom binary protocols."
+license = "ISC"
+repository = "https://github.com/leynos/wireframe"
+readme = "README.md"
+keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
+categories = ["network-programming", "asynchronous"]
+documentation = "https://docs.rs/wireframe"
+
+[package.metadata.docs.rs]
+features = ["metrics"]
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
