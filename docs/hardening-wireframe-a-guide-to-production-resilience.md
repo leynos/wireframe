@@ -325,7 +325,10 @@ operation, rather than just abruptly closing the connection.
 When a stream concludes successfully, the connection actor calls the
 `stream_end_frame` hook to produce a terminator frame with no payload. This
 explicit marker lets clients recognise that the logical stream has ended and
-helps avoid lingering resources or stalled state machines.
+helps avoid lingering resources or stalled state machines. The terminator is
+only appended if the protocol supplies one (that is, the hook returns
+`Some(frame)`), and the frame passes through the `before_send` hook like any
+other, allowing final mutation or metadata to be applied consistently.
 
 ### 5.2 Dead Letter Queues (DLQ) for Guaranteed Pushing
 

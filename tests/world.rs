@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     connection::ConnectionActor,
-    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    hooks::ProtocolHooks,
     push::PushQueues,
     response::FrameStream,
     server::WireframeServer,
@@ -21,6 +21,9 @@ use wireframe::{
 #[path = "common/mod.rs"]
 mod common;
 use common::unused_listener;
+#[path = "common/terminator.rs"]
+mod terminator;
+use terminator::Terminator;
 
 #[derive(Debug)]
 struct PanicServer {
@@ -159,18 +162,11 @@ impl CorrelationWorld {
     }
 }
 
+/// Cucumber world that captures frames from a streaming response and verifies
+/// that a protocol-provided terminator frame is appended at end-of-stream.
 #[derive(Debug, Default, World)]
 pub struct StreamEndWorld {
     frames: Vec<u8>,
-}
-
-struct Terminator;
-
-impl WireframeProtocol for Terminator {
-    type Frame = u8;
-    type ProtocolError = ();
-
-    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { Some(0) }
 }
 
 impl StreamEndWorld {
