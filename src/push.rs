@@ -26,7 +26,7 @@ impl<T> FrameLike for T where T: Send + 'static {}
 /// Default maximum pushes allowed per second when no custom rate is specified.
 const DEFAULT_PUSH_RATE: usize = 100;
 /// Highest supported rate for [`PushQueues::bounded_with_rate`].
-const MAX_PUSH_RATE: usize = 10_000;
+pub const MAX_PUSH_RATE: usize = 10_000;
 
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
