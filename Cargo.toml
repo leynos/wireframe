@@ -10,6 +10,9 @@ keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe"
 
+[package.metadata.docs.rs]
+features = ["metrics"]
+
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
 bincode = "2.0.1"
