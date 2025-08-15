@@ -1,10 +1,8 @@
 //! Extractor and request context definitions.
 //!
-//! This module provides [`MessageRequest`], which carries connection
-//! metadata and shared application state, along with a set of extractor
-//! types. Implement [`FromMessageRequest`] for custom extractors to
-//! parse payload bytes or inspect connection info before your handler
-//! runs.
+//! [`MessageRequest`] carries connection metadata and shared application
+//! state. Implement [`FromMessageRequest`] for custom extractors to parse
+//! payload bytes or inspect connection info before your handler runs.
 
 use std::{
     any::{Any, TypeId},

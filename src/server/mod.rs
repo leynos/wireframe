@@ -1,8 +1,7 @@
-//! Tokio-based server for `WireframeApp` instances.
+//! Tokio-based server for [`WireframeApp`] instances.
 //!
-//! `WireframeServer` spawns worker tasks to accept TCP connections,
-//! optionally decoding a connection preamble before handing the
-//! stream to the application.
+//! [`WireframeServer`] spawns worker tasks to accept TCP connections and can
+//! decode an optional preamble before handing the stream to the application.
 
 use core::marker::PhantomData;
 use std::{io, sync::Arc};

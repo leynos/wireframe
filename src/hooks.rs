@@ -1,9 +1,8 @@
-//! Internal protocol hooks called by the connection actor.
+//! Internal protocol hooks invoked by the connection actor.
 //!
-//! This module defines [`ProtocolHooks`] along with the public
-//! [`WireframeProtocol`] trait. `ProtocolHooks` stores optional callbacks
-//! invoked during connection output. Applications configure these callbacks via
-//! an implementation of [`WireframeProtocol`].
+//! [`ProtocolHooks`] stores optional callbacks executed during output, while
+//! [`WireframeProtocol`] exposes the public interface applications implement to
+//! configure those callbacks.
 
 use std::sync::Arc;
 
