@@ -424,7 +424,7 @@ where
             Some(Err(e)) => return Err(e),
             None => {
                 state.mark_closed();
-                if let Some(mut frame) = self.hooks.stream_end(&mut self.ctx) {
+                if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
                     self.hooks.before_send(&mut frame, &mut self.ctx);
                     out.push(frame);
                     crate::metrics::inc_frames(crate::metrics::Direction::Outbound);

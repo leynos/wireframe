@@ -53,12 +53,12 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// ```
     fn handle_error(&self, _error: Self::ProtocolError, _ctx: &mut ConnectionContext) {}
 
-    /// Optionally produce a frame signalling the end of a streaming response.
+    /// Produce a frame signalling end-of-stream.
     ///
-    /// Implementations may set protocol-specific flags indicating that no
-    /// further frames will follow. Returning `None` omits the terminator frame,
-    /// and the stream ends silently. Any produced frame is passed through
-    /// [`before_send`][WireframeProtocol::before_send] prior to emission.
+    /// Implementations should set any protocol-specific flag indicating that
+    /// no further frames will follow. Returning `None` omits the terminator
+    /// frame, and the stream ends silently. The `before_send` hook runs for
+    /// this frame if registered.
     fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
 }
 
@@ -132,8 +132,8 @@ impl<F, E> ProtocolHooks<F, E> {
         }
     }
 
-    /// Run the `stream_end` hook if registered.
-    pub fn stream_end(&mut self, ctx: &mut ConnectionContext) -> Option<F> {
+    /// Run the `stream_end_frame` hook if registered.
+    pub fn stream_end_frame(&mut self, ctx: &mut ConnectionContext) -> Option<F> {
         self.stream_end.as_mut().and_then(|hook| hook(ctx))
     }
 
