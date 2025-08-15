@@ -1,8 +1,9 @@
 //! Cucumber test runner for integration tests.
 //!
-//! Orchestrates two distinct test suites:
+//! Orchestrates three distinct test suites:
 //! - `PanicWorld`: Tests server resilience during connection panics
 //! - `CorrelationWorld`: Tests correlation ID propagation in multi-frame responses
+//! - `StreamEndWorld`: Verifies end-of-stream signalling
 //!
 //! # Example
 //!
@@ -10,6 +11,7 @@
 //! ```text
 //! tests/features/connection_panic.feature    -> PanicWorld context
 //! tests/features/correlation_id.feature      -> CorrelationWorld context
+//! tests/features/stream_end.feature          -> StreamEndWorld context
 //! ```
 //!
 //! Each context provides specialised step definitions and state management
@@ -19,10 +21,11 @@ mod steps;
 mod world;
 
 use cucumber::World;
-use world::{CorrelationWorld, PanicWorld};
+use world::{CorrelationWorld, PanicWorld, StreamEndWorld};
 
 #[tokio::main]
 async fn main() {
     PanicWorld::run("tests/features/connection_panic.feature").await;
     CorrelationWorld::run("tests/features/correlation_id.feature").await;
+    StreamEndWorld::run("tests/features/stream_end.feature").await;
 }

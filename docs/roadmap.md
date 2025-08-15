@@ -189,7 +189,7 @@ stream.
     is the unique request ID. For each message in a multi-packet response, this
     ID must match the original request's ID.
 
-  - [ ] Define a mechanism to signal the end of a multi-packet stream, such as
+  - [x] Define a mechanism to signal the end of a multi-packet stream, such as
     a frame with a specific flag and no payload.
 
 - [ ] **Core Library Implementation:**

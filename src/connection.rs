@@ -342,10 +342,9 @@ where
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) -> Result<(), WireframeError<E>> {
-        let processed = matches!(res, Some(Ok(_)));
         let is_none = res.is_none();
-        self.handle_response(res, state, out)?;
-        if processed {
+        let produced = self.handle_response(res, state, out)?;
+        if produced {
             self.after_low();
         }
         if is_none {
@@ -396,33 +395,46 @@ where
     ///
     /// Protocol errors are passed to `handle_error` and do not terminate the
     /// actor. I/O errors propagate to the caller.
+    ///
+    /// Returns `true` if a frame was appended to `out`.
     fn handle_response(
         &mut self,
         res: Option<Result<F, WireframeError<E>>>,
         state: &mut ActorState,
         out: &mut Vec<F>,
-    ) -> Result<(), WireframeError<E>> {
+    ) -> Result<bool, WireframeError<E>> {
+        let mut produced = false;
         match res {
             Some(Ok(mut frame)) => {
                 self.hooks.before_send(&mut frame, &mut self.ctx);
                 out.push(frame);
                 crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
+                produced = true;
             }
             Some(Err(WireframeError::Protocol(e))) => {
                 warn!(error = ?e, "protocol error");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
+                // Stop polling the response after a protocol error to avoid
+                // double-closing and duplicate `on_command_end` signalling.
+                self.response = None;
                 self.hooks.on_command_end(&mut self.ctx);
                 crate::metrics::inc_handler_errors();
             }
             Some(Err(e)) => return Err(e),
             None => {
                 state.mark_closed();
+                if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+                    self.hooks.before_send(&mut frame, &mut self.ctx);
+                    out.push(frame);
+                    crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
+                    produced = true;
+                }
                 self.hooks.on_command_end(&mut self.ctx);
             }
         }
 
-        Ok(())
+        Ok(produced)
     }
 
     /// Await cancellation on the provided shutdown token.
