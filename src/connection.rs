@@ -415,6 +415,9 @@ where
                 warn!(error = ?e, "protocol error");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
+                // Stop polling the response after a protocol error to avoid
+                // double-closing and duplicate `on_command_end` signalling.
+                self.response = None;
                 self.hooks.on_command_end(&mut self.ctx);
                 crate::metrics::inc_handler_errors();
             }
