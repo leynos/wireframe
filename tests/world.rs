@@ -170,9 +170,7 @@ impl WireframeProtocol for Terminator {
     type Frame = u8;
     type ProtocolError = ();
 
-    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
-        Some(0)
-    }
+    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { Some(0) }
 }
 
 impl StreamEndWorld {
@@ -197,5 +195,7 @@ impl StreamEndWorld {
     ///
     /// # Panics
     /// Panics if the expected terminator is missing.
-    pub fn verify(&self) { assert_eq!(self.frames, vec![1, 2, 0]); }
+    pub fn verify(&self) {
+        assert_eq!(self.frames, vec![1, 2, 0]);
+    }
 }
