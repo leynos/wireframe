@@ -46,7 +46,7 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     ///     type ProtocolError = String;
     ///
     ///     fn handle_error(&self, error: Self::ProtocolError, _ctx: &mut ConnectionContext) {
-    ///         tracing::error!("Protocol error: {error}");
+    ///         tracing::error!(error = %error, "Protocol error");
     ///         // Custom handling here
     ///     }
     /// }
