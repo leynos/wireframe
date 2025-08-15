@@ -30,6 +30,9 @@ const DEFAULT_PUSH_RATE: usize = 100;
 /// Highest supported rate for [`PushQueues::bounded_with_rate`].
 pub const MAX_PUSH_RATE: usize = 10_000;
 
+// Compile-time guard: DEFAULT_PUSH_RATE must not exceed MAX_PUSH_RATE.
+const _: usize = MAX_PUSH_RATE - DEFAULT_PUSH_RATE;
+
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PushPriority {

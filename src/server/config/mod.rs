@@ -2,8 +2,8 @@
 //!
 //! Provides a fluent builder for configuring server instances. Worker counts,
 //! ready-signal channels and optional callbacks are set here. TCP binding lives
-//! in the [`binding`](self::binding) module; preamble behaviour is customised
-//! via [`preamble`](self::preamble). Servers start [`Unbound`](super::Unbound)
+//! in the [`binding`] module; preamble behaviour is customised
+//! via [`preamble`]. Servers start [`Unbound`](super::Unbound)
 //! and must call [`bind`](super::WireframeServer::bind) or
 //! [`bind_existing_listener`](super::WireframeServer::bind_existing_listener)
 //! before running. The `run` methods are available only once the server is
