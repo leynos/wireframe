@@ -201,7 +201,7 @@ pub struct PacketParts {
     payload: Vec<u8>,
 }
 
-/// Basic envelope type used by [`handle_connection`].
+/// Basic envelope type used by [`WireframeApp::handle_connection`].
 ///
 /// Incoming frames are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
@@ -425,7 +425,7 @@ where
 
     /// Store a shared state value accessible to request extractors.
     ///
-    /// The value can later be retrieved using [`SharedState<T>`]. Registering
+    /// The value can later be retrieved using [`crate::extractor::SharedState`]. Registering
     /// another value of the same type overwrites the previous one.
     #[must_use]
     pub fn app_data<T>(mut self, state: T) -> Self

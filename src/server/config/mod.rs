@@ -57,7 +57,7 @@ where
     /// this cannot be determined). The server is initially [`Unbound`]; call
     /// [`bind`](WireframeServer::bind) or
     /// [`bind_existing_listener`](WireframeServer::bind_existing_listener)
-    /// (methods provided by the [`binding`](self::binding) module) before running the server.
+    /// (methods provided by the [`binding`] module) before running the server.
     ///
     /// # Examples
     ///

@@ -18,7 +18,7 @@ use crate::message::Message as WireMessage;
 /// Request context passed to extractors.
 ///
 /// This type contains metadata about the current connection and provides
-/// access to application state registered with [`WireframeApp`].
+/// access to application state registered with [`crate::app::WireframeApp`].
 #[derive(Default)]
 pub struct MessageRequest {
     /// Address of the peer that sent the current message.

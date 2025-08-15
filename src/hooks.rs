@@ -34,7 +34,7 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// Invoked when a request/response cycle completes.
     fn on_command_end(&self, _ctx: &mut ConnectionContext) {}
 
-    /// Called when a handler returns a [`WireframeError::Protocol`].
+    /// Called when a handler returns a [`crate::WireframeError::Protocol`].
     ///
     /// ```no_run
     /// use wireframe::{ConnectionContext, WireframeProtocol};
