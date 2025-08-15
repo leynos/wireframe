@@ -1,10 +1,8 @@
 //! Extractor and request context definitions.
 //!
-//! This module provides [`MessageRequest`], which carries connection
-//! metadata and shared application state, along with a set of extractor
-//! types. Implement [`FromMessageRequest`] for custom extractors to
-//! parse payload bytes or inspect connection info before your handler
-//! runs.
+//! [`MessageRequest`] carries connection metadata and shared application
+//! state. Implement [`FromMessageRequest`] for custom extractors to parse
+//! payload bytes or inspect connection info before your handler runs.
 
 use std::{
     any::{Any, TypeId},
@@ -18,7 +16,7 @@ use crate::message::Message as WireMessage;
 /// Request context passed to extractors.
 ///
 /// This type contains metadata about the current connection and provides
-/// access to application state registered with [`WireframeApp`].
+/// access to application state registered with [`crate::app::WireframeApp`].
 #[derive(Default)]
 pub struct MessageRequest {
     /// Address of the peer that sent the current message.

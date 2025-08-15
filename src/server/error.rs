@@ -1,4 +1,4 @@
-//! Errors raised by [`WireframeServer`] operations.
+//! Errors raised by [`super::WireframeServer`] operations.
 
 use std::io;
 

@@ -1,16 +1,13 @@
 //! Configuration utilities for [`WireframeServer`].
 //!
-//! Provides a fluent builder for configuring `WireframeServer` instances.
-//! The builder exposes worker count tuning and ready-signal configuration here.
-//! TCP binding is provided via the [`binding`](self::binding) module; preamble
-//! behaviour is customized via the [`preamble`](self::preamble) module. The
-//! server may be constructed unbound and later bound using
-//! [`bind`](super::WireframeServer::bind) or
-//! [`bind_existing_listener`](super::WireframeServer::bind_existing_listener) on
-//! [`Unbound`](super::Unbound) servers. The `run` methods are available only once
-//! the server is [`Bound`](super::Bound), enforcing at compile time that the
-//! binding step
-//! cannot be skipped.
+//! Provides a fluent builder for configuring server instances. Worker counts,
+//! ready-signal channels and optional callbacks are set here. TCP binding lives
+//! in the [`binding`] module; preamble behaviour is customised
+//! via [`preamble`]. Servers start [`Unbound`](super::Unbound)
+//! and must call [`bind`](super::WireframeServer::bind) or
+//! [`bind_existing_listener`](super::WireframeServer::bind_existing_listener)
+//! before running. The `run` methods are available only once the server is
+//! [`Bound`](super::Bound).
 
 use core::marker::PhantomData;
 
@@ -57,7 +54,7 @@ where
     /// this cannot be determined). The server is initially [`Unbound`]; call
     /// [`bind`](WireframeServer::bind) or
     /// [`bind_existing_listener`](WireframeServer::bind_existing_listener)
-    /// (methods provided by the [`binding`](self::binding) module) before running the server.
+    /// (methods provided by the [`binding`] module) before running the server.
     ///
     /// # Examples
     ///

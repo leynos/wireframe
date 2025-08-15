@@ -1,9 +1,8 @@
-//! Internal protocol hooks called by the connection actor.
+//! Internal protocol hooks invoked by the connection actor.
 //!
-//! This module defines [`ProtocolHooks`] along with the public
-//! [`WireframeProtocol`] trait. `ProtocolHooks` stores optional callbacks
-//! invoked during connection output. Applications configure these callbacks via
-//! an implementation of [`WireframeProtocol`].
+//! [`ProtocolHooks`] stores optional callbacks executed during output, while
+//! [`WireframeProtocol`] exposes the public interface applications implement to
+//! configure those callbacks.
 
 use std::sync::Arc;
 
@@ -34,9 +33,9 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// Invoked when a request/response cycle completes.
     fn on_command_end(&self, _ctx: &mut ConnectionContext) {}
 
-    /// Called when a handler returns a [`WireframeError::Protocol`].
+    /// Called when a handler returns a [`crate::WireframeError::Protocol`].
     ///
-    /// ```no_run
+    /// ```rust,no_run
     /// use wireframe::{ConnectionContext, WireframeProtocol};
     ///
     /// struct MyProtocol;

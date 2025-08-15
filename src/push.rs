@@ -1,10 +1,11 @@
-//! Prioritized queues used for asynchronously pushing frames to a connection.
+//! Prioritised queues used for asynchronously pushing frames to a connection.
 //!
 //! `PushQueues` maintain separate high- and low-priority channels so
 //! background tasks can send messages without blocking the request/response
 //! cycle. Producers interact with these queues through a cloneable
 //! [`PushHandle`]. Queued frames are delivered in FIFO order within each
-//! priority level.
+//! priority level. An optional rate limiter caps throughput at
+//! [`MAX_PUSH_RATE`] pushes per second.
 
 use std::{
     sync::{Arc, Weak},
@@ -23,10 +24,14 @@ pub trait FrameLike: Send + 'static {}
 
 impl<T> FrameLike for T where T: Send + 'static {}
 
-/// Default maximum pushes allowed per second when no custom rate is specified.
+// Default maximum pushes per second when no custom rate is specified.
+// This is an internal implementation detail and may change.
 const DEFAULT_PUSH_RATE: usize = 100;
 /// Highest supported rate for [`PushQueues::bounded_with_rate`].
-const MAX_PUSH_RATE: usize = 10_000;
+pub const MAX_PUSH_RATE: usize = 10_000;
+
+// Compile-time guard: DEFAULT_PUSH_RATE must not exceed MAX_PUSH_RATE.
+const _: usize = MAX_PUSH_RATE - DEFAULT_PUSH_RATE;
 
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

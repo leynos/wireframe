@@ -1,8 +1,7 @@
-//! Tokio-based server for `WireframeApp` instances.
+//! Tokio-based server for [`WireframeApp`] instances.
 //!
-//! `WireframeServer` spawns worker tasks to accept TCP connections,
-//! optionally decoding a connection preamble before handing the
-//! stream to the application.
+//! [`WireframeServer`] spawns worker tasks to accept TCP connections and can
+//! decode an optional preamble before handing the stream to the application.
 
 use core::marker::PhantomData;
 use std::{io, sync::Arc};
@@ -66,8 +65,8 @@ pub type PreambleErrorHandler = Arc<dyn Fn(&DecodeError) + Send + Sync + 'static
 ///
 /// The server carries a typestate `S` indicating whether it is
 /// [`Unbound`] (not yet bound to a TCP listener) or [`Bound`]. New
-/// servers start `Unbound` and must call [`binding::WireframeServer::bind`] or
-/// [`binding::WireframeServer::bind_existing_listener`] before running. A worker task is spawned
+/// servers start `Unbound` and must call [`WireframeServer::bind`] or
+/// [`WireframeServer::bind_existing_listener`] before running. A worker task is spawned
 /// per thread; each receives its own `WireframeApp` from the provided factory
 /// closure. The server listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop accepting new
