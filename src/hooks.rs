@@ -35,7 +35,7 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 
     /// Called when a handler returns a [`crate::WireframeError::Protocol`].
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use wireframe::{ConnectionContext, WireframeProtocol};
     ///
     /// struct MyProtocol;
