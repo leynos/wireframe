@@ -39,13 +39,7 @@ pub(super) fn spawn_connection_task<F, T>(
 
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
-            let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                (*s).to_string()
-            } else if let Some(s) = panic.downcast_ref::<String>() {
-                s.clone()
-            } else {
-                format!("{panic:?}")
-            };
+            let panic_msg = crate::panic::format_panic(panic);
             tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
         }
     });
@@ -123,26 +117,28 @@ mod tests {
                 .unwrap()
         };
         let tracker = TaskTracker::new();
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind listener");
+        let addr = listener.local_addr().expect("listener.local_addr");
 
         let handle = tokio::spawn({
             let tracker = tracker.clone();
             async move {
-                let (stream, _) = listener.accept().await.unwrap();
+                let (stream, _) = listener.accept().await.expect("accept");
                 spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
                 tracker.close();
                 tracker.wait().await;
             }
         });
 
-        let client = TcpStream::connect(addr).await.unwrap();
-        let peer_addr = client.local_addr().unwrap();
-        client.writable().await.unwrap();
-        client.try_write(&[0; 8]).unwrap();
+        let client = TcpStream::connect(addr).await.expect("connect");
+        let peer_addr = client.local_addr().expect("client.local_addr");
+        client.writable().await.expect("client.writable");
+        client.try_write(&[0; 8]).expect("client.try_write");
         drop(client);
 
-        handle.await.unwrap();
+        handle.await.expect("join connection task driver");
         tokio::task::yield_now().await;
 
         logs_assert(|lines: &[&str]| {
@@ -168,29 +164,31 @@ mod tests {
         let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { std::panic::panic_any(5_u32) })
-                .unwrap()
+                .expect("install panic setup callback")
         };
         let tracker = TaskTracker::new();
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind listener");
+        let addr = listener.local_addr().expect("listener.local_addr");
 
         let handle = tokio::spawn({
             let tracker = tracker.clone();
             async move {
-                let (stream, _) = listener.accept().await.unwrap();
+                let (stream, _) = listener.accept().await.expect("accept");
                 spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
                 tracker.close();
                 tracker.wait().await;
             }
         });
 
-        let client = TcpStream::connect(addr).await.unwrap();
-        let peer_addr = client.local_addr().unwrap();
-        client.writable().await.unwrap();
-        client.try_write(&[0; 8]).unwrap();
+        let client = TcpStream::connect(addr).await.expect("connect");
+        let peer_addr = client.local_addr().expect("client.local_addr");
+        client.writable().await.expect("client.writable");
+        client.try_write(&[0; 8]).expect("client.try_write");
         drop(client);
 
-        handle.await.unwrap();
+        handle.await.expect("join connection task driver");
         tokio::task::yield_now().await;
 
         logs_assert(|lines: &[&str]| {

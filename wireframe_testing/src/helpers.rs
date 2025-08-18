@@ -71,13 +71,7 @@ where
         match result {
             Ok(_) => Ok(()),
             Err(panic) => {
-                let msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                    (*s).to_string()
-                } else if let Some(s) = panic.downcast_ref::<String>() {
-                    s.clone()
-                } else {
-                    format!("{panic:?}")
-                };
+                let msg = wireframe::panic::format_panic(panic);
                 Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("server task failed: {msg}"),
