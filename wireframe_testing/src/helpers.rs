@@ -71,7 +71,7 @@ where
         match result {
             Ok(_) => Ok(()),
             Err(panic) => {
-                let msg = wireframe::panic::format_panic(panic);
+                let msg = wireframe::panic::format_panic(panic).to_string();
                 Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("server task failed: {msg}"),
