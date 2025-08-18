@@ -39,11 +39,13 @@ pub(super) fn spawn_connection_task<F, T>(
 
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
-            let panic_msg = panic
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or("<non-string panic>");
+            let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = panic.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                format!("{panic:?}")
+            };
             tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
         }
     });
@@ -149,6 +151,54 @@ mod tests {
                 .find(|line| {
                     line.contains("connection task panicked")
                         && line.contains("panic=boom")
+                        && line.contains(&format!("peer_addr=Some({peer_addr})"))
+                })
+                .map(|_| ())
+                .ok_or_else(|| "panic log not found".to_string())
+        });
+    }
+
+    /// Non-string panic payloads are formatted with `Debug` in logs.
+    #[rstest]
+    #[traced_test]
+    #[tokio::test]
+    async fn spawn_connection_task_logs_non_string_panic(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let app_factory = move || {
+            factory()
+                .on_connection_setup(|| async { std::panic::panic_any(5_u32) })
+                .unwrap()
+        };
+        let tracker = TaskTracker::new();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let handle = tokio::spawn({
+            let tracker = tracker.clone();
+            async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
+                tracker.close();
+                tracker.wait().await;
+            }
+        });
+
+        let client = TcpStream::connect(addr).await.unwrap();
+        let peer_addr = client.local_addr().unwrap();
+        client.writable().await.unwrap();
+        client.try_write(&[0; 8]).unwrap();
+        drop(client);
+
+        handle.await.unwrap();
+        tokio::task::yield_now().await;
+
+        logs_assert(|lines: &[&str]| {
+            lines
+                .iter()
+                .find(|line| {
+                    line.contains("connection task panicked")
+                        && line.contains("panic=Any")
                         && line.contains(&format!("peer_addr=Some({peer_addr})"))
                 })
                 .map(|_| ())

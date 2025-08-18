@@ -71,11 +71,13 @@ where
         match result {
             Ok(_) => Ok(()),
             Err(panic) => {
-                let msg = panic
-                    .downcast_ref::<&str>()
-                    .copied()
-                    .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
-                    .unwrap_or("<non-string panic>");
+                let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else if let Some(s) = panic.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    format!("{panic:?}")
+                };
                 Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("server task failed: {msg}"),
