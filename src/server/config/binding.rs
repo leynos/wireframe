@@ -15,6 +15,16 @@ use crate::{
     server::{BackoffConfig, Bound, PreambleErrorHandler, PreambleHandler, ServerError},
 };
 
+/// Helper trait alias for wireframe factory functions
+#[doc(hidden)]
+pub trait WireframeFactory: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
+impl<F> WireframeFactory for F where F: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
+
+/// Helper trait alias for wireframe preambles
+#[doc(hidden)]
+pub trait WireframePreamble: Preamble {}
+impl<T> WireframePreamble for T where T: Preamble {}
+
 /// Configuration for binding an existing [`StdTcpListener`] to a server.
 ///
 /// Grouping these fields avoids long parameter lists when constructing a
@@ -29,13 +39,34 @@ struct BindConfig<F, T> {
     _preamble: PhantomData<T>,
 }
 
+impl<F, T> BindConfig<F, T>
+where
+    F: WireframeFactory,
+    T: WireframePreamble,
+{
+    fn from_server<S>(server: WireframeServer<F, T, S>) -> Self
+    where
+        S: ServerState,
+    {
+        Self {
+            factory: server.factory,
+            workers: server.workers,
+            on_preamble_success: server.on_preamble_success,
+            on_preamble_failure: server.on_preamble_failure,
+            ready_tx: server.ready_tx,
+            backoff_config: server.backoff_config,
+            _preamble: server._preamble,
+        }
+    }
+}
+
 fn bind_std_listener<F, T>(
     config: BindConfig<F, T>,
     std: StdTcpListener,
 ) -> Result<WireframeServer<F, T, Bound>, ServerError>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
+    F: WireframeFactory,
+    T: WireframePreamble,
 {
     std.set_nonblocking(true).map_err(ServerError::Bind)?;
     let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
@@ -55,31 +86,23 @@ where
 
 impl<F, T, S> WireframeServer<F, T, S>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
+    F: WireframeFactory,
+    T: WireframePreamble,
     S: ServerState,
 {
     fn bind_to_listener(
         self,
         std: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
-        let config = BindConfig {
-            factory: self.factory,
-            workers: self.workers,
-            on_preamble_success: self.on_preamble_success,
-            on_preamble_failure: self.on_preamble_failure,
-            ready_tx: self.ready_tx,
-            backoff_config: self.backoff_config,
-            _preamble: self._preamble,
-        };
+        let config = BindConfig::from_server(self);
         bind_std_listener(config, std)
     }
 }
 
 impl<F, T> WireframeServer<F, T, Unbound>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
+    F: WireframeFactory,
+    T: WireframePreamble,
 {
     /// Return `None` as the server is not bound.
     ///
@@ -148,8 +171,8 @@ where
 
 impl<F, T> WireframeServer<F, T, Bound>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
+    F: WireframeFactory,
+    T: WireframePreamble,
 {
     /// Returns the bound address, or `None` if retrieving it fails.
     ///
