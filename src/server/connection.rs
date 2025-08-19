@@ -40,7 +40,7 @@ pub(super) fn spawn_connection_task<F, T>(
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
             tracing::error!(
-                panic = %crate::panic::format_panic(panic),
+                panic = ?panic,
                 ?peer_addr,
                 "connection task panicked"
             );
@@ -149,7 +149,7 @@ mod tests {
                 .iter()
                 .find(|line| {
                     line.contains("connection task panicked")
-                        && line.contains("panic=boom")
+                        && line.contains("panic=Any")
                         && line.contains(&format!("peer_addr=Some({peer_addr})"))
                 })
                 .map(|_| ())
@@ -260,7 +260,7 @@ mod tests {
                 .iter()
                 .find(|line| {
                     line.contains("connection task panicked")
-                        && line.contains("panic=boom")
+                        && line.contains("panic=Any")
                         && line.contains(&format!("peer_addr=Some({peer_addr})"))
                 })
                 .map(|_| ())

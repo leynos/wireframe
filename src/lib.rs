@@ -15,7 +15,6 @@ pub mod hooks;
 pub mod message;
 pub mod metrics;
 pub mod middleware;
-pub mod panic;
 pub mod preamble;
 pub mod push;
 pub mod response;
