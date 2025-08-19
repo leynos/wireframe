@@ -30,7 +30,7 @@ struct BindConfig<F, T> {
 }
 
 fn bind_std_listener<F, T>(
-    cfg: BindConfig<F, T>,
+    config: BindConfig<F, T>,
     std: StdTcpListener,
 ) -> Result<WireframeServer<F, T, Bound>, ServerError>
 where
@@ -40,16 +40,16 @@ where
     std.set_nonblocking(true).map_err(ServerError::Bind)?;
     let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
     Ok(WireframeServer {
-        factory: cfg.factory,
-        workers: cfg.workers,
-        on_preamble_success: cfg.on_preamble_success,
-        on_preamble_failure: cfg.on_preamble_failure,
-        ready_tx: cfg.ready_tx,
-        backoff_config: cfg.backoff_config,
+        factory: config.factory,
+        workers: config.workers,
+        on_preamble_success: config.on_preamble_success,
+        on_preamble_failure: config.on_preamble_failure,
+        ready_tx: config.ready_tx,
+        backoff_config: config.backoff_config,
         state: Bound {
             listener: Arc::new(tokio),
         },
-        _preamble: cfg._preamble,
+        _preamble: config._preamble,
     })
 }
 
@@ -59,11 +59,11 @@ where
     T: Preamble,
     S: ServerState,
 {
-    fn bind_with_std_listener(
+    fn bind_to_listener(
         self,
         std: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
-        let cfg = BindConfig {
+        let config = BindConfig {
             factory: self.factory,
             workers: self.workers,
             on_preamble_success: self.on_preamble_success,
@@ -72,7 +72,7 @@ where
             backoff_config: self.backoff_config,
             _preamble: self._preamble,
         };
-        bind_std_listener(cfg, std)
+        bind_std_listener(config, std)
     }
 }
 
@@ -142,7 +142,7 @@ where
         self,
         std: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
-        self.bind_with_std_listener(std)
+        self.bind_to_listener(std)
     }
 }
 
@@ -215,6 +215,6 @@ where
     /// # Errors
     /// Returns a [`ServerError`] if configuring the listener fails.
     pub fn bind_existing_listener(self, std: StdTcpListener) -> Result<Self, ServerError> {
-        self.bind_with_std_listener(std)
+        self.bind_to_listener(std)
     }
 }
