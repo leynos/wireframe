@@ -39,8 +39,9 @@ pub(super) fn spawn_connection_task<F, T>(
 
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
+            let panic_msg = crate::panic::format_panic(&panic);
             tracing::error!(
-                panic = ?panic,
+                panic = %panic_msg,
                 ?peer_addr,
                 "connection task panicked"
             );

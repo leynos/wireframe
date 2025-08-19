@@ -70,10 +70,13 @@ where
             .await;
         match result {
             Ok(_) => Ok(()),
-            Err(panic) => Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("server task failed: {panic:?}"),
-            )),
+            Err(panic) => {
+                let panic_msg = wireframe::panic::format_panic(&panic);
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("server task failed: {panic_msg}"),
+                ))
+            }
         }
     };
 
