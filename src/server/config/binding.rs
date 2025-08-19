@@ -1,18 +1,80 @@
 //! Binding configuration for [`WireframeServer`].
 
+use core::marker::PhantomData;
 use std::{
     net::{SocketAddr, TcpListener as StdTcpListener},
     sync::Arc,
 };
 
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::oneshot};
 
-use super::{Unbound, WireframeServer};
+use super::{ServerState, Unbound, WireframeServer};
 use crate::{
     app::WireframeApp,
     preamble::Preamble,
-    server::{Bound, ServerError},
+    server::{BackoffConfig, Bound, PreambleErrorHandler, PreambleHandler, ServerError},
 };
+
+/// Configuration for binding an existing [`StdTcpListener`] to a server.
+///
+/// Grouping these fields avoids long parameter lists when constructing a
+/// [`WireframeServer`].
+struct BindConfig<F, T> {
+    factory: F,
+    workers: usize,
+    on_preamble_success: Option<PreambleHandler<T>>,
+    on_preamble_failure: Option<PreambleErrorHandler>,
+    ready_tx: Option<oneshot::Sender<()>>,
+    backoff_config: BackoffConfig,
+    _preamble: PhantomData<T>,
+}
+
+fn bind_std_listener<F, T>(
+    cfg: BindConfig<F, T>,
+    std: StdTcpListener,
+) -> Result<WireframeServer<F, T, Bound>, ServerError>
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
+{
+    std.set_nonblocking(true).map_err(ServerError::Bind)?;
+    let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
+    Ok(WireframeServer {
+        factory: cfg.factory,
+        workers: cfg.workers,
+        on_preamble_success: cfg.on_preamble_success,
+        on_preamble_failure: cfg.on_preamble_failure,
+        ready_tx: cfg.ready_tx,
+        backoff_config: cfg.backoff_config,
+        state: Bound {
+            listener: Arc::new(tokio),
+        },
+        _preamble: cfg._preamble,
+    })
+}
+
+impl<F, T, S> WireframeServer<F, T, S>
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
+    S: ServerState,
+{
+    fn bind_with_std_listener(
+        self,
+        std: StdTcpListener,
+    ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
+        let cfg = BindConfig {
+            factory: self.factory,
+            workers: self.workers,
+            on_preamble_success: self.on_preamble_success,
+            on_preamble_failure: self.on_preamble_failure,
+            ready_tx: self.ready_tx,
+            backoff_config: self.backoff_config,
+            _preamble: self._preamble,
+        };
+        bind_std_listener(cfg, std)
+    }
+}
 
 impl<F, T> WireframeServer<F, T, Unbound>
 where
@@ -80,20 +142,7 @@ where
         self,
         std: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
-        std.set_nonblocking(true).map_err(ServerError::Bind)?;
-        let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
-        Ok(WireframeServer {
-            factory: self.factory,
-            workers: self.workers,
-            on_preamble_success: self.on_preamble_success,
-            on_preamble_failure: self.on_preamble_failure,
-            ready_tx: self.ready_tx,
-            backoff_config: self.backoff_config,
-            state: Bound {
-                listener: Arc::new(tokio),
-            },
-            _preamble: self._preamble,
-        })
+        self.bind_with_std_listener(std)
     }
 }
 
@@ -166,19 +215,6 @@ where
     /// # Errors
     /// Returns a [`ServerError`] if configuring the listener fails.
     pub fn bind_existing_listener(self, std: StdTcpListener) -> Result<Self, ServerError> {
-        std.set_nonblocking(true).map_err(ServerError::Bind)?;
-        let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
-        Ok(WireframeServer {
-            factory: self.factory,
-            workers: self.workers,
-            on_preamble_success: self.on_preamble_success,
-            on_preamble_failure: self.on_preamble_failure,
-            ready_tx: self.ready_tx,
-            backoff_config: self.backoff_config,
-            state: Bound {
-                listener: Arc::new(tokio),
-            },
-            _preamble: self._preamble,
-        })
+        self.bind_with_std_listener(std)
     }
 }
