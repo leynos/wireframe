@@ -17,6 +17,39 @@ server.run().await?;
 # }
 ```
 
+## Binding flow
+
+The sequence below details how a server transitions from an unbound to a bound
+state when binding to an address.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Caller
+  participant WS as WireframeServer<F,T,Unbound>
+  participant OS as StdTcpListener
+  participant Helper as bind_with_std_listener
+  participant Bind as bind_std_listener
+  participant Tokio as TcpListener::from_std
+  participant WSB as WireframeServer<F,T,Bound>
+  participant Ready as oneshot::Sender<()>
+  participant Hooks as Preamble Handlers
+
+  Caller->>WS: bind(addr)
+  WS->>OS: create StdTcpListener
+  WS->>Helper: bind_with_std_listener(OS)
+  Helper->>Bind: build BindConfig & delegate
+  Bind->>OS: set_nonblocking(true)
+  Bind->>Tokio: from_std(OS)
+  Bind->>Hooks: register preamble success/failure
+  Bind->>Ready: store readiness sender
+  Bind-->>WSB: return Bound server
+  WSB-->>Caller: Bound instance
+
+  note over Hooks,WSB: Preamble events trigger handlers during accept loop
+  note over Ready,Caller: Send readiness signal when bound
+```
+
 ## Accept loop backoff
 
 The accept loop retries failed `accept()` calls using exponential backoff.
