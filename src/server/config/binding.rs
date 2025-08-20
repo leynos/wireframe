@@ -1,18 +1,17 @@
-//! Binding configuration for [`WireframeServer`].
+//! Listener binding for [`WireframeServer`].
 
-use core::marker::PhantomData;
 use std::{
     net::{SocketAddr, TcpListener as StdTcpListener},
     sync::Arc,
 };
 
-use tokio::{net::TcpListener, sync::oneshot};
+use tokio::net::TcpListener;
 
 use super::{ServerState, Unbound, WireframeServer};
 use crate::{
     app::WireframeApp,
     preamble::Preamble,
-    server::{BackoffConfig, Bound, PreambleErrorHandler, PreambleHandler, ServerError},
+    server::{Bound, ServerError},
 };
 
 /// Helper trait alias for wireframe factory functions
@@ -25,65 +24,6 @@ impl<F> WireframeFactory for F where F: Fn() -> WireframeApp + Send + Sync + Clo
 pub trait WireframePreamble: Preamble {}
 impl<T> WireframePreamble for T where T: Preamble {}
 
-/// Configuration for binding an existing [`StdTcpListener`] to a server.
-///
-/// Grouping these fields avoids long parameter lists when constructing a
-/// [`WireframeServer`].
-struct BindConfig<F, T> {
-    factory: F,
-    workers: usize,
-    on_preamble_success: Option<PreambleHandler<T>>,
-    on_preamble_failure: Option<PreambleErrorHandler>,
-    ready_tx: Option<oneshot::Sender<()>>,
-    backoff_config: BackoffConfig,
-    _preamble: PhantomData<T>,
-}
-
-impl<F, T> BindConfig<F, T>
-where
-    F: WireframeFactory,
-    T: WireframePreamble,
-{
-    fn from_server<S>(server: WireframeServer<F, T, S>) -> Self
-    where
-        S: ServerState,
-    {
-        Self {
-            factory: server.factory,
-            workers: server.workers,
-            on_preamble_success: server.on_preamble_success,
-            on_preamble_failure: server.on_preamble_failure,
-            ready_tx: server.ready_tx,
-            backoff_config: server.backoff_config,
-            _preamble: server._preamble,
-        }
-    }
-}
-
-fn bind_std_listener<F, T>(
-    config: BindConfig<F, T>,
-    std: StdTcpListener,
-) -> Result<WireframeServer<F, T, Bound>, ServerError>
-where
-    F: WireframeFactory,
-    T: WireframePreamble,
-{
-    std.set_nonblocking(true).map_err(ServerError::Bind)?;
-    let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
-    Ok(WireframeServer {
-        factory: config.factory,
-        workers: config.workers,
-        on_preamble_success: config.on_preamble_success,
-        on_preamble_failure: config.on_preamble_failure,
-        ready_tx: config.ready_tx,
-        backoff_config: config.backoff_config,
-        state: Bound {
-            listener: Arc::new(tokio),
-        },
-        _preamble: config._preamble,
-    })
-}
-
 impl<F, T, S> WireframeServer<F, T, S>
 where
     F: WireframeFactory,
@@ -94,8 +34,32 @@ where
         self,
         std: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
-        let config = BindConfig::from_server(self);
-        bind_std_listener(config, std)
+        let WireframeServer {
+            factory,
+            workers,
+            on_preamble_success,
+            on_preamble_failure,
+            ready_tx,
+            backoff_config,
+            _preamble: preamble,
+            ..
+        } = self;
+
+        std.set_nonblocking(true).map_err(ServerError::Bind)?;
+        let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
+
+        Ok(WireframeServer {
+            factory,
+            workers,
+            on_preamble_success,
+            on_preamble_failure,
+            ready_tx,
+            backoff_config,
+            state: Bound {
+                listener: Arc::new(tokio),
+            },
+            _preamble: preamble,
+        })
     }
 }
 
