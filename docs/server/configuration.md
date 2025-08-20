@@ -32,7 +32,7 @@ sequenceDiagram
   participant Tokio as TcpListener::from_std
   participant WSB as WireframeServer<F,T,Bound>
   participant Ready as oneshot::Sender<()>
-  participant Hooks as Preamble Handlers
+  participant Hooks as Preamble handlers
 
   Caller->>WS: bind(addr)
   WS->>OS: create StdTcpListener
@@ -47,6 +47,9 @@ sequenceDiagram
   note over Hooks,WSB: Preamble events trigger handlers during accept loop
   note over Ready,Caller: Send readiness signal when bound
 ```
+
+Readiness is signalled after all worker tasks have been spawned (at
+src/server/runtime.rs:221), immediately before the accept loop begins.
 
 ## Accept loop backoff
 

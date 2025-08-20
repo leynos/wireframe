@@ -22,7 +22,7 @@ where
 {
     fn bind_to_listener(
         self,
-        std: StdTcpListener,
+        std_listener: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
         let WireframeServer {
             factory,
@@ -35,8 +35,10 @@ where
             ..
         } = self;
 
-        std.set_nonblocking(true).map_err(ServerError::Bind)?;
-        let tokio = TcpListener::from_std(std).map_err(ServerError::Bind)?;
+        std_listener
+            .set_nonblocking(true)
+            .map_err(ServerError::Bind)?;
+        let tokio_listener = TcpListener::from_std(std_listener).map_err(ServerError::Bind)?;
 
         Ok(WireframeServer {
             factory,
@@ -46,7 +48,7 @@ where
             ready_tx,
             backoff_config,
             state: Bound {
-                listener: Arc::new(tokio),
+                listener: Arc::new(tokio_listener),
             },
             _preamble: preamble,
         })
@@ -93,8 +95,8 @@ where
     /// # Errors
     /// Returns a [`ServerError`] if binding or configuring the listener fails.
     pub fn bind(self, addr: SocketAddr) -> Result<WireframeServer<F, T, Bound>, ServerError> {
-        let std = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
-        self.bind_existing_listener(std)
+        let std_listener = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
+        self.bind_existing_listener(std_listener)
     }
 
     /// Bind to an existing `StdTcpListener`.
@@ -106,9 +108,9 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let std = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+    /// let std_listener = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
     /// let server = WireframeServer::new(|| WireframeApp::default())
-    ///     .bind_existing_listener(std)
+    ///     .bind_existing_listener(std_listener)
     ///     .expect("bind failed");
     /// assert!(server.local_addr().is_some());
     /// ```
@@ -117,9 +119,9 @@ where
     /// Returns a [`ServerError`] if configuring the listener fails.
     pub fn bind_existing_listener(
         self,
-        std: StdTcpListener,
+        std_listener: StdTcpListener,
     ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
-        self.bind_to_listener(std)
+        self.bind_to_listener(std_listener)
     }
 }
 
@@ -167,8 +169,8 @@ where
     /// # Errors
     /// Returns a [`ServerError`] if binding or configuring the listener fails.
     pub fn bind(self, addr: SocketAddr) -> Result<Self, ServerError> {
-        let std = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
-        self.bind_existing_listener(std)
+        let std_listener = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
+        self.bind_existing_listener(std_listener)
     }
 
     /// Rebind using an existing `StdTcpListener`.
@@ -184,14 +186,16 @@ where
     /// let server = WireframeServer::new(|| WireframeApp::default())
     ///     .bind(addr)
     ///     .expect("bind failed");
-    /// let std = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
-    /// let server = server.bind_existing_listener(std).expect("rebind failed");
+    /// let std_listener = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+    /// let server = server
+    ///     .bind_existing_listener(std_listener)
+    ///     .expect("rebind failed");
     /// assert!(server.local_addr().is_some());
     /// ```
     ///
     /// # Errors
     /// Returns a [`ServerError`] if configuring the listener fails.
-    pub fn bind_existing_listener(self, std: StdTcpListener) -> Result<Self, ServerError> {
-        self.bind_to_listener(std)
+    pub fn bind_existing_listener(self, std_listener: StdTcpListener) -> Result<Self, ServerError> {
+        self.bind_to_listener(std_listener)
     }
 }
