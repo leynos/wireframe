@@ -14,20 +14,10 @@ use crate::{
     server::{Bound, ServerError},
 };
 
-/// Helper trait alias for wireframe factory functions
-#[doc(hidden)]
-pub trait WireframeFactory: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
-impl<F> WireframeFactory for F where F: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
-
-/// Helper trait alias for wireframe preambles
-#[doc(hidden)]
-pub trait WireframePreamble: Preamble {}
-impl<T> WireframePreamble for T where T: Preamble {}
-
 impl<F, T, S> WireframeServer<F, T, S>
 where
-    F: WireframeFactory,
-    T: WireframePreamble,
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
     S: ServerState,
 {
     fn bind_to_listener(
@@ -65,8 +55,8 @@ where
 
 impl<F, T> WireframeServer<F, T, Unbound>
 where
-    F: WireframeFactory,
-    T: WireframePreamble,
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
 {
     /// Return `None` as the server is not bound.
     ///
@@ -135,8 +125,8 @@ where
 
 impl<F, T> WireframeServer<F, T, Bound>
 where
-    F: WireframeFactory,
-    T: WireframePreamble,
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
 {
     /// Returns the bound address, or `None` if retrieving it fails.
     ///
