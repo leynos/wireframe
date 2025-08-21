@@ -14,10 +14,20 @@ use crate::{
     server::{Bound, ServerError},
 };
 
+/// Helper trait alias for wireframe factory functions
+trait WireframeFactory: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
+impl<F> WireframeFactory for F where F: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
+
+/// Helper trait alias for wireframe preambles
+trait WireframePreamble: Preamble {}
+impl<T> WireframePreamble for T where T: Preamble {}
+
+/// Blanket impl uses private trait aliases; suppress visibility lint
+#[allow(private_bounds)]
 impl<F, T, S> WireframeServer<F, T, S>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
+    F: WireframeFactory,
+    T: WireframePreamble,
     S: ServerState,
 {
     fn bind_to_listener(
@@ -55,10 +65,12 @@ where
     }
 }
 
+/// Blanket impl uses private trait aliases; suppress visibility lint
+#[allow(private_bounds)]
 impl<F, T> WireframeServer<F, T, Unbound>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
+    F: WireframeFactory,
+    T: WireframePreamble,
 {
     /// Return `None` as the server is not bound.
     ///
@@ -125,10 +137,12 @@ where
     }
 }
 
+/// Blanket impl uses private trait aliases; suppress visibility lint
+#[allow(private_bounds)]
 impl<F, T> WireframeServer<F, T, Bound>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    T: Preamble,
+    F: WireframeFactory,
+    T: WireframePreamble,
 {
     /// Returns the bound address, or `None` if retrieving it fails.
     ///
