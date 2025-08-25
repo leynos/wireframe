@@ -20,10 +20,28 @@ impl From<u64> for ConnectionId {
 
 impl ConnectionId {
     /// Create a new [`ConnectionId`] with the provided value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::session::ConnectionId;
+    ///
+    /// let id = ConnectionId::new(42);
+    /// assert_eq!(id.as_u64(), 42);
+    /// ```
     #[must_use]
     pub fn new(id: u64) -> Self { Self(id) }
 
     /// Return the inner `u64` representation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::session::ConnectionId;
+    ///
+    /// let id = ConnectionId::from(7u64);
+    /// assert_eq!(id.as_u64(), 7);
+    /// ```
     #[must_use]
     pub fn as_u64(&self) -> u64 { self.0 }
 }
@@ -55,7 +73,23 @@ impl<F: FrameLike> SessionRegistry<F> {
         out
     }
 
-    /// Retrieve a `PushHandle` for `id` if the connection is still alive.
+    /// Retrieve a [`PushHandle`] for `id` if the connection is still alive.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     push::PushQueues,
+    ///     session::{ConnectionId, SessionRegistry},
+    /// };
+    ///
+    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let registry = SessionRegistry::default();
+    /// let id = ConnectionId::new(1);
+    /// registry.insert(id, &handle);
+    /// let retrieved = registry.get(&id).expect("handle missing");
+    /// # let _ = retrieved;
+    /// ```
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
         let guard = self.0.get(id);
         let handle = guard.as_ref().and_then(|weak| weak.upgrade());
@@ -67,17 +101,63 @@ impl<F: FrameLike> SessionRegistry<F> {
     }
 
     /// Insert a handle for a newly established connection.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     push::PushQueues,
+    ///     session::{ConnectionId, SessionRegistry},
+    /// };
+    ///
+    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let registry = SessionRegistry::default();
+    /// let id = ConnectionId::new(2);
+    /// registry.insert(id, &handle);
+    /// ```
     pub fn insert(&self, id: ConnectionId, handle: &PushHandle<F>) {
         self.0.insert(id, handle.downgrade());
     }
 
     /// Remove a handle, typically on connection teardown.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     push::PushQueues,
+    ///     session::{ConnectionId, SessionRegistry},
+    /// };
+    ///
+    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let registry = SessionRegistry::default();
+    /// let id = ConnectionId::new(3);
+    /// registry.insert(id, &handle);
+    /// registry.remove(&id);
+    /// ```
     pub fn remove(&self, id: &ConnectionId) { self.0.remove(id); }
 
     /// Remove all stale weak references without returning any handles.
     ///
     /// `DashMap::retain` acquires per-bucket write locks, so other operations
     /// may contend briefly while the registry is pruned.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     push::PushQueues,
+    ///     session::{ConnectionId, SessionRegistry},
+    /// };
+    ///
+    /// let registry = SessionRegistry::default();
+    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let id = ConnectionId::new(4);
+    /// registry.insert(id, &handle);
+    /// drop(handle);
+    /// registry.prune();
+    /// assert!(registry.get(&id).is_none());
+    /// ```
     pub fn prune(&self) { self.0.retain(|_, weak| weak.strong_count() > 0); }
 
     /// Prune stale weak references, then collect the remaining live handles.
@@ -85,6 +165,27 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// This method mutates the registry. Use [`Self::prune`] from a maintenance task
     /// to clean up without collecting handles. `DashMap::retain` holds
     /// per-bucket write locks while iterating.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     push::PushQueues,
+    ///     session::{ConnectionId, SessionRegistry},
+    /// };
+    ///
+    /// let registry = SessionRegistry::default();
+    /// let (_q1, h1) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_q2, h2) = PushQueues::<u8>::bounded(1, 1);
+    /// let id1 = ConnectionId::new(5);
+    /// let id2 = ConnectionId::new(6);
+    /// registry.insert(id1, &h1);
+    /// registry.insert(id2, &h2);
+    /// drop(h1);
+    /// let active = registry.active_handles();
+    /// assert_eq!(active.len(), 1);
+    /// assert_eq!(active[0].0, id2);
+    /// ```
     #[must_use]
     pub fn active_handles(&self) -> Vec<(ConnectionId, PushHandle<F>)> {
         self.retain_and_collect(|id, inner| (id, PushHandle::from_arc(inner)))
@@ -95,6 +196,26 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// This method mutates the registry. Use [`Self::prune`] from a maintenance task
     /// to clean up without collecting handles. `DashMap::retain` holds
     /// per-bucket write locks while iterating.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     push::PushQueues,
+    ///     session::{ConnectionId, SessionRegistry},
+    /// };
+    ///
+    /// let registry = SessionRegistry::default();
+    /// let (_q1, h1) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_q2, h2) = PushQueues::<u8>::bounded(1, 1);
+    /// let id1 = ConnectionId::new(7);
+    /// let id2 = ConnectionId::new(8);
+    /// registry.insert(id1, &h1);
+    /// registry.insert(id2, &h2);
+    /// drop(h1);
+    /// let ids = registry.active_ids();
+    /// assert_eq!(ids, vec![id2]);
+    /// ```
     #[must_use]
     pub fn active_ids(&self) -> Vec<ConnectionId> { self.retain_and_collect(|id, _| id) }
 }
