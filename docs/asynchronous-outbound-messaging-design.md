@@ -353,12 +353,19 @@ classDiagram
     class PushQueues~F~ {
         +high_priority_rx: mpsc::Receiver<F>
         +low_priority_rx: mpsc::Receiver<F>
-        +bounded(high_capacity: usize, low_capacity: usize): (PushQueues~F~, PushHandle~F~)
+        +builder(): PushQueuesBuilder~F~
         +recv(): Option<(PushPriority, F)>
+    }
+    class PushQueuesBuilder~F~ {
+        +high_capacity(cap: usize): PushQueuesBuilder~F~
+        +low_capacity(cap: usize): PushQueuesBuilder~F~
+        +rate(rate: Option<usize>): PushQueuesBuilder~F~
+        +dlq(tx: mpsc::Sender<F>): PushQueuesBuilder~F~
+        +build(): Result<(PushQueues~F~, PushHandle~F~), PushConfigError>
     }
 
     PushHandleInner <.. PushHandle~F~ : contains
-    PushQueues~F~ o-- PushHandle~F~ : bounded(high_capacity, low_capacity)
+    PushQueues~F~ o-- PushHandle~F~ : builder()
     PushHandle --> PushPriority
     PushHandle --> PushPolicy
     PushHandle --> PushError

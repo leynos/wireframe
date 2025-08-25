@@ -17,7 +17,13 @@ fn registry() -> SessionRegistry<u8> { SessionRegistry::default() }
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) { PushQueues::bounded(1, 1) }
+fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) {
+    PushQueues::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .unwrap()
+}
 
 /// Test that handles can be retrieved whilst the connection remains alive.
 #[rstest]
