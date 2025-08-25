@@ -253,11 +253,20 @@ token-bucket algorithm is ideal.
 use wireframe::push::{PushQueues, MAX_PUSH_RATE};
 
 // Configure a connection to allow at most MAX_PUSH_RATE pushes per second.
-let (queues, handle) = PushQueues::<Frame>::bounded_with_rate(8, 8, Some(MAX_PUSH_RATE))
+let (queues, handle) = PushQueues::<Frame>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .rate(Some(MAX_PUSH_RATE))
+    .build()
     .expect("rate within supported bounds");
 
 // Passing `None` disables rate limiting entirely:
-let (_unlimited, _handle) = PushQueues::<Frame>::bounded_no_rate_limit(8, 8);
+let (_unlimited, _handle) = PushQueues::<Frame>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .rate(None)
+    .build()
+    .unwrap();
 
 // Inside PushHandle::push()
 async fn push(&self, frame: Frame) -> Result<(), PushError> {

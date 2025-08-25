@@ -98,7 +98,11 @@ impl Default for FairnessConfig {
 /// use tokio_util::sync::CancellationToken;
 /// use wireframe::{connection::ConnectionActor, push::PushQueues};
 ///
-/// let (queues, handle) = PushQueues::<u8>::bounded(8, 8);
+/// let (queues, handle) = PushQueues::<u8>::builder()
+///     .high_capacity(8)
+///     .low_capacity(8)
+///     .build()
+///     .unwrap();
 /// let shutdown = CancellationToken::new();
 /// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
 /// # drop(actor);
@@ -129,7 +133,11 @@ where
     /// use tokio_util::sync::CancellationToken;
     /// use wireframe::{connection::ConnectionActor, push::PushQueues};
     ///
-    /// let (queues, handle) = PushQueues::<u8>::bounded(4, 4);
+    /// let (queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(4)
+    ///     .low_capacity(4)
+    ///     .build()
+    ///     .unwrap();
     /// let token = CancellationToken::new();
     /// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, token);
     /// # drop(actor);

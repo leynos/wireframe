@@ -8,7 +8,7 @@ use std::sync::{Arc, Weak};
 
 use dashmap::DashMap;
 
-use crate::push::{FrameLike, PushHandle, PushHandleInner};
+use crate::push::{FrameLike, PushHandle, queues::PushHandleInner};
 
 /// Identifier assigned to a connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
