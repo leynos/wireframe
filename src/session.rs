@@ -23,7 +23,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::new(42);
@@ -36,7 +36,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::from(7u64);
@@ -77,7 +77,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -87,8 +87,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(1);
     /// registry.insert(id, &handle);
-    /// let retrieved = registry.get(&id).expect("handle missing");
-    /// # let _ = retrieved;
+    /// assert!(registry.get(&id).is_some());
     /// ```
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
         let guard = self.0.get(id);
@@ -104,7 +103,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -113,7 +112,9 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(2);
+    /// assert!(registry.get(&id).is_none());
     /// registry.insert(id, &handle);
+    /// assert!(registry.get(&id).is_some());
     /// ```
     pub fn insert(&self, id: ConnectionId, handle: &PushHandle<F>) {
         self.0.insert(id, handle.downgrade());
@@ -123,7 +124,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -133,7 +134,9 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(3);
     /// registry.insert(id, &handle);
+    /// assert!(registry.get(&id).is_some());
     /// registry.remove(&id);
+    /// assert!(registry.get(&id).is_none());
     /// ```
     pub fn remove(&self, id: &ConnectionId) { self.0.remove(id); }
 
@@ -144,7 +147,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -168,7 +171,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -199,7 +202,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
