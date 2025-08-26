@@ -18,11 +18,7 @@ fn registry() -> SessionRegistry<u8> { SessionRegistry::default() }
     reason = "rustc false positive for single line rstest fixtures"
 )]
 fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) {
-    PushQueues::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
-        .unwrap()
+    PushQueues::builder().capacity(1, 1).build().unwrap()
 }
 
 /// Test that handles can be retrieved whilst the connection remains alive.

@@ -38,11 +38,7 @@ fn push_policy_behaviour(
 ) {
     rt.block_on(async {
         while logger.pop().is_some() {}
-        let (mut queues, handle) = PushQueues::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .build()
-            .unwrap();
+        let (mut queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
 
         handle
             .push_high_priority(1u8)
@@ -81,10 +77,9 @@ fn dropped_frame_goes_to_dlq(rt: Runtime) {
     rt.block_on(async {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
         let (mut queues, handle) = PushQueues::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .rate(None)
-            .dlq(Some(dlq_tx))
+            .capacity(1, 1)
+            .no_rate_limit()
+            .with_dlq(dlq_tx)
             .build()
             .expect("queue creation failed");
 
@@ -145,10 +140,9 @@ fn dlq_error_scenarios<Setup, AssertFn>(
         let mut dlq_rx = Some(dlq_rx);
         setup(&dlq_tx, &mut dlq_rx);
         let (mut queues, handle) = PushQueues::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .rate(None)
-            .dlq(Some(dlq_tx))
+            .capacity(1, 1)
+            .no_rate_limit()
+            .with_dlq(dlq_tx)
             .build()
             .expect("queue creation failed");
 

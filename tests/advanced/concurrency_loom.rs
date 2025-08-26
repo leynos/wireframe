@@ -22,8 +22,7 @@ fn concurrent_push_delivery() {
 
         rt.block_on(async {
             let (queues, handle) = PushQueues::builder()
-                .high_capacity(1)
-                .low_capacity(1)
+                .capacity(1, 1)
                 .build()
                 .unwrap();
             let token = CancellationToken::new();

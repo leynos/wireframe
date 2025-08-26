@@ -23,11 +23,7 @@ use wireframe_testing::push_expect;
     reason = "rustc false positive for single line rstest fixtures"
 )]
 fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
-    PushQueues::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .build()
-        .unwrap()
+    PushQueues::builder().capacity(8, 8).build().unwrap()
 }
 
 #[fixture]
@@ -386,11 +382,7 @@ async fn interleaved_shutdown_during_stream(
 #[tokio::test]
 #[serial]
 async fn push_queue_exhaustion_backpressure() {
-    let (mut queues, handle) = PushQueues::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
-        .unwrap();
+    let (mut queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
     push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let blocked = timeout(Duration::from_millis(50), handle.push_high_priority(2)).await;
@@ -477,11 +469,7 @@ async fn graceful_shutdown_waits_for_tasks() {
 
     let mut handles: Vec<wireframe::push::PushHandle<u8>> = Vec::new();
     for _ in 0..5 {
-        let (queues, handle) = PushQueues::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .build()
-            .unwrap();
+        let (queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle.clone(), None, token.clone());
         handles.push(handle);

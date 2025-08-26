@@ -359,8 +359,11 @@ classDiagram
     class PushQueuesBuilder~F~ {
         +high_capacity(cap: usize): PushQueuesBuilder~F~
         +low_capacity(cap: usize): PushQueuesBuilder~F~
+        +capacity(high: usize, low: usize): PushQueuesBuilder~F~
         +rate(rate: Option<usize>): PushQueuesBuilder~F~
-        +dlq(tx: mpsc::Sender<F>): PushQueuesBuilder~F~
+        +no_rate_limit(): PushQueuesBuilder~F~
+        +dlq(tx: Option<mpsc::Sender<F>>): PushQueuesBuilder~F~
+        +with_dlq(tx: mpsc::Sender<F>): PushQueuesBuilder~F~
         +build(): Result<(PushQueues~F~, PushHandle~F~), PushConfigError>
     }
 

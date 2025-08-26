@@ -29,6 +29,8 @@ impl<T> FrameLike for T where T: Send + 'static {}
 const DEFAULT_PUSH_RATE: usize = 100;
 /// Highest supported rate for [`PushQueuesBuilder::rate`].
 pub const MAX_PUSH_RATE: usize = 10_000;
+/// Highest allowed queue capacity for [`PushQueuesBuilder`].
+pub const MAX_QUEUE_CAPACITY: usize = 10_000;
 
 // Compile-time guard: DEFAULT_PUSH_RATE must not exceed MAX_PUSH_RATE.
 const _: usize = MAX_PUSH_RATE - DEFAULT_PUSH_RATE;
@@ -76,6 +78,11 @@ impl std::error::Error for PushError {}
 pub enum PushConfigError {
     /// The provided rate was zero or exceeded [`MAX_PUSH_RATE`].
     InvalidRate(usize),
+    /// A queue capacity was zero or exceeded [`MAX_QUEUE_CAPACITY`].
+    InvalidCapacity {
+        queue: PushPriority,
+        capacity: usize,
+    },
 }
 
 impl std::fmt::Display for PushConfigError {
@@ -83,6 +90,13 @@ impl std::fmt::Display for PushConfigError {
         match self {
             Self::InvalidRate(r) => {
                 write!(f, "invalid rate {r}; must be between 1 and {MAX_PUSH_RATE}")
+            }
+            Self::InvalidCapacity { queue, capacity } => {
+                write!(
+                    f,
+                    "invalid {queue:?} capacity {capacity}; must be between 1 and \
+                     {MAX_QUEUE_CAPACITY}"
+                )
             }
         }
     }
@@ -146,8 +160,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// #[tokio::test]
     /// async fn example() {
     ///     let (mut queues, handle) = PushQueues::builder()
-    ///         .high_capacity(1)
-    ///         .low_capacity(1)
+    ///         .capacity(1, 1)
     ///         .rate(Some(1))
     ///         .build()
     ///         .unwrap();
@@ -177,8 +190,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// #[tokio::test]
     /// async fn example() {
     ///     let (mut queues, handle) = PushQueues::builder()
-    ///         .high_capacity(1)
-    ///         .low_capacity(1)
+    ///         .capacity(1, 1)
     ///         .rate(Some(1))
     ///         .build()
     ///         .unwrap();
@@ -230,10 +242,9 @@ impl<F: FrameLike> PushHandle<F> {
     /// async fn example() {
     ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
     ///     let (mut queues, handle) = PushQueues::builder()
-    ///         .high_capacity(1)
-    ///         .low_capacity(1)
-    ///         .rate(None)
-    ///         .dlq(Some(dlq_tx))
+    ///         .capacity(1, 1)
+    ///         .no_rate_limit()
+    ///         .with_dlq(dlq_tx)
     ///         .build()
     ///         .unwrap();
     ///     handle.push_high_priority(1u8).await.unwrap();
@@ -320,10 +331,25 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
         self
     }
 
+    /// Set both high- and low-priority queue capacities.
+    #[must_use]
+    pub fn capacity(mut self, high: usize, low: usize) -> Self {
+        self.high_capacity = high;
+        self.low_capacity = low;
+        self
+    }
+
     /// Configure a global push rate limit.
     #[must_use]
     pub fn rate(mut self, rate: Option<usize>) -> Self {
         self.rate = rate;
+        self
+    }
+
+    /// Disable rate limiting entirely.
+    #[must_use]
+    pub fn no_rate_limit(mut self) -> Self {
+        self.rate = None;
         self
     }
 
@@ -334,12 +360,20 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
         self
     }
 
+    /// Configure a dead-letter queue sender for discarded frames.
+    #[must_use]
+    pub fn with_dlq(mut self, dlq: mpsc::Sender<F>) -> Self {
+        self.dlq = Some(dlq);
+        self
+    }
+
     /// Build queues with the configured settings.
     ///
     /// # Errors
     ///
     /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or exceeds
-    /// [`MAX_PUSH_RATE`].
+    /// [`MAX_PUSH_RATE`]. Returns [`PushConfigError::InvalidCapacity`] if either
+    /// queue capacity is zero or exceeds [`MAX_QUEUE_CAPACITY`].
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
         PushQueues::build_with_options(self.high_capacity, self.low_capacity, self.rate, self.dlq)
     }
@@ -362,11 +396,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::<u8>::builder()
-    ///         .high_capacity(1)
-    ///         .low_capacity(1)
-    ///         .build()
-    ///         .unwrap();
+    ///     let (mut queues, handle) = PushQueues::<u8>::builder().capacity(1, 1).build().unwrap();
     ///     handle.push_high_priority(7u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::High);
@@ -393,6 +423,18 @@ impl<F: FrameLike> PushQueues<F> {
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
         if let Some(r) = rate.filter(|r| *r == 0 || *r > MAX_PUSH_RATE) {
             return Err(PushConfigError::InvalidRate(r));
+        }
+        if high_capacity == 0 || high_capacity > MAX_QUEUE_CAPACITY {
+            return Err(PushConfigError::InvalidCapacity {
+                queue: PushPriority::High,
+                capacity: high_capacity,
+            });
+        }
+        if low_capacity == 0 || low_capacity > MAX_QUEUE_CAPACITY {
+            return Err(PushConfigError::InvalidCapacity {
+                queue: PushPriority::Low,
+                capacity: low_capacity,
+            });
         }
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
@@ -430,11 +472,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::builder()
-    ///         .high_capacity(1)
-    ///         .low_capacity(1)
-    ///         .build()
-    ///         .unwrap();
+    ///     let (mut queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
     ///     handle.push_high_priority(2u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::High);
@@ -459,11 +497,7 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```rust,no_run
     /// use wireframe::push::PushQueues;
     ///
-    /// let (mut queues, _handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
-    ///     .build()
-    ///     .unwrap();
+    /// let (mut queues, _handle) = PushQueues::<u8>::builder().capacity(1, 1).build().unwrap();
     /// queues.close();
     /// ```
     pub fn close(&mut self) {
