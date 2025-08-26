@@ -27,7 +27,7 @@ and reliable process.
 
 The core mechanism relies on two primitives from the `tokio` ecosystem:
 `tokio_util::sync::CancellationToken` for signalling and
-`tokio_util::task::TaskTracker` for synchronisation.
+`tokio_util::task::TaskTracker` for synchronization.
 
 - `CancellationToken`: A single root token is created at server startup.
   This token is cloned and distributed to every spawned task, including
@@ -331,7 +331,7 @@ operation, rather than just abruptly closing the connection.
 
 When a stream concludes successfully, the connection actor calls the
 `stream_end_frame` hook to produce a terminator frame with no payload. This
-explicit marker lets clients recognise that the logical stream has ended and
+explicit marker lets clients recognize that the logical stream has ended and
 helps avoid lingering resources or stalled state machines. The terminator is
 only appended if the protocol supplies one (that is, the hook returns
 `Some(frame)`), and the frame passes through the `before_send` hook like any

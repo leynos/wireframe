@@ -1,4 +1,4 @@
-//! Prioritised queues used for asynchronously pushing frames to a connection.
+//! Prioritized queues used for asynchronously pushing frames to a connection.
 //!
 //! `PushQueues` maintain separate high- and low-priority channels so
 //! background tasks can send messages without blocking the request/response
@@ -31,6 +31,8 @@ const DEFAULT_PUSH_RATE: usize = 100;
 pub const MAX_PUSH_RATE: usize = 10_000;
 /// Highest allowed queue capacity for [`PushQueuesBuilder`].
 pub const MAX_QUEUE_CAPACITY: usize = 10_000;
+/// Maximum burst of high-priority frames before yielding to low priority.
+const HIGH_PRIORITY_BURST_LIMIT: usize = 8;
 
 // Compile-time guard: DEFAULT_PUSH_RATE must not exceed MAX_PUSH_RATE.
 const _: usize = MAX_PUSH_RATE - DEFAULT_PUSH_RATE;
@@ -109,13 +111,13 @@ impl std::error::Error for PushConfigError {}
 /// Holds the high- and low-priority channels alongside an optional rate
 /// limiter and dead-letter queue sender used when pushes are discarded.
 ///
-/// - `high_prio_tx` – channel for frames that must be sent before any low-priority traffic.
-/// - `low_prio_tx` – channel for best-effort frames.
+/// - `high_priority_tx` – channel for frames that must be sent before any low-priority traffic.
+/// - `low_priority_tx` – channel for best-effort frames.
 /// - `limiter` – optional rate-limiter enforcing global push throughput.
 /// - `dlq_tx` – optional dead-letter queue for discarded frames.
 pub(crate) struct PushHandleInner<F> {
-    high_prio_tx: mpsc::Sender<F>,
-    low_prio_tx: mpsc::Sender<F>,
+    high_priority_tx: mpsc::Sender<F>,
+    low_priority_tx: mpsc::Sender<F>,
     limiter: Option<RateLimiter>,
     dlq_tx: Option<mpsc::Sender<F>>,
 }
@@ -136,8 +138,8 @@ impl<F: FrameLike> PushHandle<F> {
             limiter.acquire(1).await;
         }
         let tx = match priority {
-            PushPriority::High => &self.0.high_prio_tx,
-            PushPriority::Low => &self.0.low_prio_tx,
+            PushPriority::High => &self.0.high_priority_tx,
+            PushPriority::Low => &self.0.low_priority_tx,
         };
         tx.send(frame).await.map_err(|_| PushError::Closed)?;
         debug!(?priority, "frame pushed");
@@ -163,9 +165,12 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .capacity(1, 1)
     ///         .rate(Some(1))
     ///         .build()
-    ///         .unwrap();
-    ///     handle.push_high_priority(42u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///         .expect("builder() should accept rate within bounds");
+    ///     handle
+    ///         .push_high_priority(42u8)
+    ///         .await
+    ///         .expect("push should succeed");
+    ///     let (priority, frame) = queues.recv().await.expect("queues should yield frame");
     ///     assert_eq!(priority, PushPriority::High);
     ///     assert_eq!(frame, 42);
     /// }
@@ -193,9 +198,12 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .capacity(1, 1)
     ///         .rate(Some(1))
     ///         .build()
-    ///         .unwrap();
-    ///     handle.push_low_priority(10u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///         .expect("builder() should accept rate within bounds");
+    ///     handle
+    ///         .push_low_priority(10u8)
+    ///         .await
+    ///         .expect("push should succeed");
+    ///     let (priority, frame) = queues.recv().await.expect("queues should yield frame");
     ///     assert_eq!(priority, PushPriority::Low);
     ///     assert_eq!(frame, 10);
     /// }
@@ -246,14 +254,17 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .no_rate_limit()
     ///         .with_dlq(dlq_tx)
     ///         .build()
-    ///         .unwrap();
-    ///     handle.push_high_priority(1u8).await.unwrap();
+    ///         .expect("builder() should accept DLQ settings");
+    ///     handle
+    ///         .push_high_priority(1u8)
+    ///         .await
+    ///         .expect("push should succeed");
     ///
     ///     handle
     ///         .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-    ///         .unwrap();
+    ///         .expect("try_push should queue frame or send to DLQ");
     ///
-    ///     assert_eq!(dlq_rx.recv().await.unwrap(), 2);
+    ///     assert_eq!(dlq_rx.recv().await.expect("DLQ should receive frame"), 2);
     ///     let _ = queues.recv().await;
     /// }
     /// ```
@@ -267,8 +278,8 @@ impl<F: FrameLike> PushHandle<F> {
         F: std::fmt::Debug,
     {
         let tx = match priority {
-            PushPriority::High => &self.0.high_prio_tx,
-            PushPriority::Low => &self.0.low_prio_tx,
+            PushPriority::High => &self.0.high_priority_tx,
+            PushPriority::Low => &self.0.low_priority_tx,
         };
 
         match tx.try_send(frame) {
@@ -383,6 +394,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
 pub struct PushQueues<F> {
     pub(crate) high_priority_rx: mpsc::Receiver<F>,
     pub(crate) low_priority_rx: mpsc::Receiver<F>,
+    high_priority_streak: usize,
 }
 
 impl<F: FrameLike> PushQueues<F> {
@@ -396,9 +408,15 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::<u8>::builder().capacity(1, 1).build().unwrap();
-    ///     handle.push_high_priority(7u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///     let (mut queues, handle) = PushQueues::<u8>::builder()
+    ///         .capacity(1, 1)
+    ///         .build()
+    ///         .expect("builder() should accept default settings");
+    ///     handle
+    ///         .push_high_priority(7u8)
+    ///         .await
+    ///         .expect("push should succeed");
+    ///     let (priority, frame) = queues.recv().await.expect("queues should yield frame");
     ///     assert_eq!(priority, PushPriority::High);
     ///     assert_eq!(frame, 7);
     /// }
@@ -410,7 +428,9 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```rust,no_run
     /// use wireframe::push::PushQueues;
     ///
-    /// let (_queues, _handle) = PushQueues::<u8>::builder().build().unwrap();
+    /// let (_queues, _handle) = PushQueues::<u8>::builder()
+    ///     .build()
+    ///     .expect("builder() should accept default settings");
     /// ```
     #[must_use]
     pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::default() }
@@ -447,8 +467,8 @@ impl<F: FrameLike> PushQueues<F> {
                 .build()
         });
         let inner = PushHandleInner {
-            high_prio_tx: high_tx,
-            low_prio_tx: low_tx,
+            high_priority_tx: high_tx,
+            low_priority_tx: low_tx,
             limiter,
             dlq_tx: dlq,
         };
@@ -456,6 +476,7 @@ impl<F: FrameLike> PushQueues<F> {
             Self {
                 high_priority_rx: high_rx,
                 low_priority_rx: low_rx,
+                high_priority_streak: 0,
             },
             PushHandle(Arc::new(inner)),
         ))
@@ -463,7 +484,11 @@ impl<F: FrameLike> PushQueues<F> {
 
     /// Receive the next frame, preferring high priority frames when available.
     ///
-    /// Returns `None` when both queues are closed and empty.
+    /// High-priority bursts are capped by [`HIGH_PRIORITY_BURST_LIMIT`] to avoid
+    /// starving low-priority traffic. Internally this uses a biased
+    /// [`tokio::select!`] favouring the high queue, so sustained high-priority
+    /// traffic may still delay low-priority frames until the burst limit forces a
+    /// yield. Returns `None` when both queues are closed and empty.
     ///
     /// # Examples
     ///
@@ -472,18 +497,39 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
-    ///     handle.push_high_priority(2u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///     let (mut queues, handle) = PushQueues::builder()
+    ///         .capacity(1, 1)
+    ///         .build()
+    ///         .expect("builder() should accept default settings");
+    ///     handle
+    ///         .push_high_priority(2u8)
+    ///         .await
+    ///         .expect("push should succeed");
+    ///     let (priority, frame) = queues.recv().await.expect("queues should yield frame");
     ///     assert_eq!(priority, PushPriority::High);
     ///     assert_eq!(frame, 2);
     /// }
     /// ```
     pub async fn recv(&mut self) -> Option<(PushPriority, F)> {
+        if self.high_priority_streak >= HIGH_PRIORITY_BURST_LIMIT
+            && let Ok(frame) = self.low_priority_rx.try_recv()
+        {
+            self.high_priority_streak = 0;
+            return Some((PushPriority::Low, frame));
+        }
         tokio::select! {
             biased;
-            res = self.high_priority_rx.recv() => res.map(|f| (PushPriority::High, f)),
-            res = self.low_priority_rx.recv() => res.map(|f| (PushPriority::Low, f)),
+            res = self.high_priority_rx.recv() => match res {
+                Some(frame) => {
+                    self.high_priority_streak += 1;
+                    Some((PushPriority::High, frame))
+                }
+                None => self.low_priority_rx.recv().await.map(|f| (PushPriority::Low, f)),
+            },
+            res = self.low_priority_rx.recv() => {
+                self.high_priority_streak = 0;
+                res.map(|f| (PushPriority::Low, f))
+            }
         }
     }
 
@@ -497,7 +543,10 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```rust,no_run
     /// use wireframe::push::PushQueues;
     ///
-    /// let (mut queues, _handle) = PushQueues::<u8>::builder().capacity(1, 1).build().unwrap();
+    /// let (mut queues, _handle) = PushQueues::<u8>::builder()
+    ///     .capacity(1, 1)
+    ///     .build()
+    ///     .expect("builder() should accept default settings");
     /// queues.close();
     /// ```
     pub fn close(&mut self) {

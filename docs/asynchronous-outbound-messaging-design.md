@@ -288,11 +288,11 @@ provides the capability to send frames to a specific connection.
 
 ```rust
 // The internal state, managed by an Arc for shared ownership.
-struct PushHandleInner<F> {
-    high_prio_tx: mpsc::Sender<F>,
-    low_prio_tx: mpsc::Sender<F>,
-    // Other shared state like rate limiters can be added here.
-}
+    struct PushHandleInner<F> {
+        high_priority_tx: mpsc::Sender<F>,
+        low_priority_tx: mpsc::Sender<F>,
+        // Other shared state like rate limiters can be added here.
+    }
 
 // The public, cloneable handle.
 #[derive(Clone)]
@@ -321,6 +321,12 @@ impl<F: FrameLike> PushHandle<F> {
 }
 ```
 
+High-priority frames are serviced before low-priority ones. A continuous stream
+of high-priority pushes can starve best-effort traffic. `PushQueues` enforce a
+simple fairness guard that yields to the low-priority queue after a burst of
+high-priority messages, but callers should still avoid unbounded high-priority
+usage.
+
 ```mermaid
 classDiagram
     class FrameLike {
@@ -341,10 +347,10 @@ classDiagram
         QueueFull
         Closed
     }
-    class PushHandleInner {
-        high_prio_tx: mpsc::Sender<F>
-        low_prio_tx: mpsc::Sender<F>
-    }
+      class PushHandleInner {
+        high_priority_tx: mpsc::Sender<F>
+        low_priority_tx: mpsc::Sender<F>
+      }
     class PushHandle~F~ {
         +push_high_priority(frame: F): Result<(), PushError>
         +push_low_priority(frame: F): Result<(), PushError>
@@ -401,7 +407,9 @@ flowchart TD
 ```
 
 This API gives developers fine-grained control over both the priority and the
-back-pressure behaviour of their pushed messages.
+back-pressure behaviour of their pushed messages. Because high-priority traffic
+is preferred, sustained high-priority loads may still delay low-priority frames
+despite the fairness mechanism.
 
 ### 4.2 The `SessionRegistry`
 
@@ -472,10 +480,10 @@ classDiagram
         +u64 value
         +from(u64) ConnectionId
     }
-    class PushHandleInner~F~ {
-        +high_prio_tx: mpsc::Sender<F>
-        +low_prio_tx: mpsc::Sender<F>
-    }
+      class PushHandleInner~F~ {
+          +high_priority_tx: mpsc::Sender<F>
+          +low_priority_tx: mpsc::Sender<F>
+      }
     class PushHandle~F~ {
         +from_arc(arc: Arc<PushHandleInner<F>>) PushHandle<F>
         +downgrade() Weak<PushHandleInner<F>>

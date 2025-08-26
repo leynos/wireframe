@@ -17,7 +17,10 @@ use wireframe_testing::{push_expect, recv_expect};
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
 async fn frames_routed_to_correct_priority_queues() {
-    let (mut queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
+    let (mut queues, handle) = PushQueues::builder()
+        .capacity(1, 1)
+        .build()
+        .expect("queue creation failed");
 
     push_expect!(handle.push_low_priority(1u8));
     push_expect!(handle.push_high_priority(2u8));
@@ -37,7 +40,10 @@ async fn frames_routed_to_correct_priority_queues() {
 /// return `PushError::Full` once the queue is at capacity.
 #[tokio::test]
 async fn try_push_respects_policy() {
-    let (mut queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
+    let (mut queues, handle) = PushQueues::builder()
+        .capacity(1, 1)
+        .build()
+        .expect("queue creation failed");
 
     push_expect!(handle.push_high_priority(1u8));
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
@@ -53,7 +59,10 @@ async fn try_push_respects_policy() {
 /// Push attempts return `Closed` when all queues have been shut down.
 #[tokio::test]
 async fn push_queues_error_on_closed() {
-    let (queues, handle) = PushQueues::builder().capacity(1, 1).build().unwrap();
+    let (queues, handle) = PushQueues::builder()
+        .capacity(1, 1)
+        .build()
+        .expect("queue creation failed");
 
     let mut queues = queues;
     queues.close();
@@ -62,6 +71,30 @@ async fn push_queues_error_on_closed() {
 
     let res = handle.push_low_priority(24u8).await;
     assert!(matches!(res, Err(PushError::Closed)));
+}
+
+/// Low-priority frames are eventually yielded after a burst of high-priority
+/// traffic.
+#[tokio::test]
+async fn low_priority_yielded_after_high_burst() {
+    const BURST: usize = 8; // keep in sync with HIGH_PRIORITY_BURST_LIMIT
+    const BURST_U8: u8 = 8;
+    let (mut queues, handle) = PushQueues::builder()
+        .capacity(BURST + 2, BURST + 2)
+        .build()
+        .expect("queue creation failed");
+
+    push_expect!(handle.push_low_priority(0u8));
+    for i in 0..=BURST_U8 {
+        push_expect!(handle.push_high_priority(i + 1));
+    }
+
+    for _ in 0..BURST {
+        let (priority, _) = recv_expect!(queues.recv());
+        assert_eq!(priority, PushPriority::High);
+    }
+    let (priority, _) = recv_expect!(queues.recv());
+    assert_eq!(priority, PushPriority::Low);
 }
 
 /// A push beyond the configured rate is blocked.
@@ -159,7 +192,7 @@ async fn unlimited_queues_do_not_block() {
         .capacity(1, 1)
         .no_rate_limit()
         .build()
-        .unwrap();
+        .expect("queue creation failed");
     push_expect!(handle.push_high_priority(1u8));
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");
