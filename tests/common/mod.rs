@@ -13,17 +13,15 @@ pub fn unused_listener() -> StdTcpListener {
 }
 
 use rstest::fixture;
-use wireframe::{
-    app::{Envelope, WireframeApp},
-    serializer::BincodeSerializer,
-};
+use wireframe::{app::Envelope, serializer::BincodeSerializer};
+
+type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[fixture]
 #[allow(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-pub fn factory()
--> impl Fn() -> WireframeApp<BincodeSerializer, (), Envelope> + Send + Sync + Clone + 'static {
-    || WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("WireframeApp::new failed")
+pub fn factory() -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
+    || TestApp::new().expect("WireframeApp::new failed")
 }

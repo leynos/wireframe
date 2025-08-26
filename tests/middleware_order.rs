@@ -6,11 +6,13 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 use wireframe::{
-    app::{Envelope, Handler, WireframeApp},
+    app::{Envelope, Handler},
     frame::{FrameProcessor, LengthPrefixedProcessor},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
+
+type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 struct TagMiddleware(u8);
 
@@ -53,7 +55,7 @@ impl Transform<HandlerService<Envelope>> for TagMiddleware {
 #[tokio::test]
 async fn middleware_applied_in_reverse_order() {
     let handler: Handler<Envelope> = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+    let app = TestApp::new()
         .expect("failed to create app")
         .route(1, handler)
         .expect("route registration failed")

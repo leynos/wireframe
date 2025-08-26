@@ -135,14 +135,12 @@ let (_, frame) = recv_expect!(queues.recv());
 ```rust
 use std::sync::Arc;
 use wireframe_testing::{drive_with_frame, drive_with_frames};
-use wireframe::processor::LengthPrefixedProcessor;
 use crate::tests::{build_test_frame, expected_bytes};
 
 #[tokio::test]
 async fn handler_echoes_message() {
     let app = WireframeApp::new()
         .unwrap()
-        .frame_processor(LengthPrefixedProcessor::default())
         .route(1, Arc::new(|_| Box::pin(async {})))
         .unwrap();
 

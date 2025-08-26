@@ -35,7 +35,6 @@ connections and runs the Tokio event loop:
 ```rust
 WireframeServer::new(|| {
     WireframeApp::new()
-        .frame_processor(MyFrameProcessor::new())
         .app_data(state.clone())
         .route(MessageType::Login, handle_login)
         .wrap(MyLoggingMiddleware::default())
@@ -48,10 +47,10 @@ WireframeServer::new(|| {
 By default, the number of worker tasks equals the number of CPU cores. If the
 CPU count cannot be determined, the server falls back to a single worker.
 
-The builder supports methods like `frame_processor`, `route`, `app_data`, and
-`wrap` for middleware configuration. `app_data` stores any `Send + Sync` value
-keyed by type; registering another value of the same type overwrites the
-previous one. Handlers retrieve these values using the `SharedState<T>`
+The builder supports methods like `route`, `app_data`, and `wrap` for
+middleware configuration. `app_data` stores any `Send + Sync` value keyed by
+type; registering another value of the same type overwrites the previous one.
+Handlers retrieve these values using the `SharedState<T>`
 extractor【F:docs/rust-binary-router-library-design.md†L622-L710】.
 
 Handlers are asynchronous functions whose parameters implement extractor traits
@@ -62,7 +61,7 @@ concise【F:docs/rust-binary-router-library-design.md†L682-L710】.
 ## Example
 
 The design document includes a simple echo server that demonstrates routing
-based on a message ID and the use of a length‑prefixed frame processor:
+based on a message ID and the use of a length‑delimited codec:
 
 ```rust
 async fn handle_echo(req: Message<EchoRequest>) -> WireframeResult<EchoResponse> {
@@ -139,10 +138,7 @@ size and endianness) and defaults to a 4‑byte big‑endian length
 prefix【F:docs/rust-binary-router-library-design.md†L1082-L1123】.
 
 ```rust
-use wireframe::frame::{LengthFormat, LengthPrefixedProcessor};
-
-let app = WireframeApp::new()?
-    .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()));
+let app = WireframeApp::new()?;
 ```
 
 ## Connection Lifecycle

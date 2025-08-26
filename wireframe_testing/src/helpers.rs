@@ -161,7 +161,7 @@ macro_rules! forward_with_capacity {
 /// # use wireframe_testing::{drive_with_frame, processor};
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// let app = WireframeApp::new().unwrap();
 /// let bytes = drive_with_frame(app, vec![1, 2, 3]).await?;
 /// # Ok(())
 /// # }
@@ -187,7 +187,7 @@ forward_with_capacity! {
     /// # use wireframe_testing::{drive_with_frame_with_capacity, processor};
     /// # use wireframe::app::WireframeApp;
     /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// let app = WireframeApp::new().unwrap();
     /// let bytes = drive_with_frame_with_capacity(app, vec![0], 512).await?;
     /// # Ok(())
     /// # }
@@ -205,7 +205,7 @@ forward_default! {
     /// # use wireframe_testing::{drive_with_frames, processor};
     /// # use wireframe::app::WireframeApp;
     /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// let app = WireframeApp::new().unwrap();
     /// let out = drive_with_frames(app, vec![vec![1], vec![2]]).await?;
     /// # Ok(())
     /// # }
@@ -222,7 +222,7 @@ forward_default! {
 /// # use wireframe_testing::{drive_with_frames_with_capacity, processor};
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// let app = WireframeApp::new().unwrap();
 /// let out = drive_with_frames_with_capacity(app, vec![vec![1], vec![2]], 1024).await?;
 /// # Ok(())
 /// # }
@@ -253,7 +253,7 @@ forward_default! {
     /// # use wireframe_testing::{drive_with_frame_mut, processor};
     /// # use wireframe::app::WireframeApp;
     /// # async fn demo() -> tokio::io::Result<()> {
-    /// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// let mut app = WireframeApp::new().unwrap();
     /// let bytes = drive_with_frame_mut(&mut app, vec![1]).await?;
     /// # Ok(())
     /// # }
@@ -269,7 +269,7 @@ forward_with_capacity! {
     /// # use wireframe_testing::{drive_with_frame_with_capacity_mut, processor};
     /// # use wireframe::app::WireframeApp;
     /// # async fn demo() -> tokio::io::Result<()> {
-    /// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// let mut app = WireframeApp::new().unwrap();
     /// let bytes = drive_with_frame_with_capacity_mut(&mut app, vec![1], 256).await?;
     /// # Ok(())
     /// # }
@@ -285,7 +285,7 @@ forward_default! {
     /// # use wireframe_testing::{drive_with_frames_mut, processor};
     /// # use wireframe::app::WireframeApp;
     /// # async fn demo() -> tokio::io::Result<()> {
-    /// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// let mut app = WireframeApp::new().unwrap();
     /// let out = drive_with_frames_mut(&mut app, vec![vec![1], vec![2]]).await?;
     /// # Ok(())
     /// # }
@@ -300,7 +300,7 @@ forward_default! {
 /// # use wireframe_testing::{drive_with_frames_with_capacity_mut, processor};
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> tokio::io::Result<()> {
-/// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// let mut app = WireframeApp::new().unwrap();
 /// let out = drive_with_frames_with_capacity_mut(&mut app, vec![vec![1], vec![2]], 64).await?;
 /// # Ok(())
 /// # }
@@ -331,7 +331,7 @@ where
 /// #[derive(bincode::Encode)]
 /// struct Ping(u8);
 /// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// let app = WireframeApp::new().unwrap();
 /// let bytes = drive_with_bincode(app, Ping(1)).await?;
 /// # Ok(())
 /// # }
@@ -373,7 +373,7 @@ where
 /// # use wireframe_testing::{processor, run_app};
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// let app = WireframeApp::new().unwrap();
 /// let out = run_app(app, vec![vec![1]], None).await?;
 /// # Ok(())
 /// # }
@@ -437,7 +437,6 @@ where
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() {
 /// let app = WireframeApp::new()
-///     .frame_processor(processor())
 ///     .unwrap();
 /// run_with_duplex_server(app).await;
 /// }

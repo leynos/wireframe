@@ -6,11 +6,13 @@
 use bytes::BytesMut;
 use rstest::rstest;
 use wireframe::{
-    app::{Envelope, WireframeApp},
+    app::Envelope,
     frame::{Endianness, FrameProcessor, LengthFormat, LengthPrefixedProcessor},
     message::Message,
     serializer::BincodeSerializer,
 };
+
+type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestResp(u32);
@@ -39,9 +41,8 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
 /// Tests that sending a response serialises and frames the data correctly,
 /// and that the response can be decoded and deserialised back to its original value asynchronously.
 async fn send_response_encodes_and_frames() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+    let app = TestApp::new()
         .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
         .serializer(BincodeSerializer);
 
     let mut out = Vec::new();
@@ -131,9 +132,7 @@ fn custom_length_roundtrip(
 
 #[tokio::test]
 async fn send_response_propagates_write_error() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
-        .expect("app creation failed")
-        .frame_processor(LengthPrefixedProcessor::default());
+    let app = TestApp::new().expect("app creation failed");
 
     let mut writer = FailingWriter;
     let err = app
@@ -190,7 +189,7 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
 /// This test sends a `FailingResp` using `send_response` and asserts that the resulting
 /// error is of the `Serialize` variant, indicating a failure during response encoding.
 async fn send_response_returns_encode_error() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
+    let app = TestApp::new().expect("failed to create app");
     let err = app
         .send_response(&mut Vec::new(), &FailingResp)
         .await

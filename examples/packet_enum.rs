@@ -7,13 +7,14 @@ use std::{collections::HashMap, future::Future, pin::Pin};
 
 use async_trait::async_trait;
 use wireframe::{
-    app::{Envelope, WireframeApp},
-    frame::{LengthFormat, LengthPrefixedProcessor},
+    app::Envelope,
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
     server::{ServerError, WireframeServer},
 };
+
+type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 enum Packet {
@@ -79,9 +80,8 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 #[tokio::main]
 async fn main() -> Result<(), ServerError> {
     let factory = || {
-        WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        App::new()
             .expect("Failed to create WireframeApp")
-            .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()))
             .wrap(DecodeMiddleware)
             .expect("Failed to wrap middleware")
             .route(1, std::sync::Arc::new(handle_packet))

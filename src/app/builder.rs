@@ -1,7 +1,8 @@
 //! Application builder configuring routes and middleware.
-//! This module defines [`WireframeApp`], an Actix-inspired builder for
-//! managing connection state, routing, and middleware in a `WireframeServer`.
-//! It exposes convenience methods to register handlers and lifecycle hooks.
+//! [`WireframeApp`] is an Actix-inspired builder for managing connection
+//! state, routing, and middleware in a `WireframeServer`. It exposes
+//! convenience methods to register handlers and lifecycle hooks, and
+//! serializes messages using a configurable serializer.
 
 use std::{
     any::{Any, TypeId},
@@ -22,13 +23,10 @@ use super::{
     error::{Result, WireframeError},
 };
 use crate::{
-    frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
     hooks::{ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-type BoxedFrameProcessor =
-    Box<dyn FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>;
 
 /// Callback invoked when a connection is established.
 ///
@@ -68,9 +66,9 @@ pub type ConnectionTeardown<C> =
 
 /// Configures routing and middleware for a `WireframeServer`.
 ///
-/// The builder stores registered routes, services, and middleware
-/// without enforcing an ordering. Methods return [`Result<Self>`] so
-/// registrations can be chained ergonomically.
+/// The builder stores registered routes and middleware without enforcing an
+/// ordering. Methods return [`Result<Self>`] so registrations can be chained
+/// ergonomically.
 pub struct WireframeApp<
     S: Serializer + Send + Sync = BincodeSerializer,
     C: Send + 'static = (),
@@ -78,9 +76,10 @@ pub struct WireframeApp<
 > {
     pub(super) handlers: HashMap<u32, Handler<E>>,
     pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
-    pub(super) services: Vec<Handler<E>>,
     pub(super) middleware: Vec<Box<dyn Transform<HandlerService<E>, Output = HandlerService<E>>>>,
-    pub(super) frame_processor: BoxedFrameProcessor,
+    #[allow(dead_code)]
+    pub(super) frame_processor:
+        Box<dyn crate::frame::FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>,
     pub(super) serializer: S,
     pub(super) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     pub(super) on_connect: Option<Arc<ConnectionSetup<C>>>,
@@ -115,16 +114,17 @@ where
     E: Packet,
 {
     ///
-    /// Initializes empty routes, services, middleware, and application data.
-    /// Sets the default frame processor and serializer, with no connection
-    /// lifecycle hooks.
+    /// Initializes empty routes, middleware, and application data. Sets a
+    /// placeholder frame processor and serializer, with no connection lifecycle
+    /// hooks.
     fn default() -> Self {
         Self {
             handlers: HashMap::new(),
             routes: OnceCell::new(),
-            services: Vec::new(),
             middleware: Vec::new(),
-            frame_processor: Box::new(LengthPrefixedProcessor::new(LengthFormat::default())),
+            frame_processor: Box::new(crate::frame::LengthPrefixedProcessor::new(
+                crate::frame::LengthFormat::default(),
+            )),
             serializer: S::default(),
             app_data: HashMap::new(),
             on_connect: None,
@@ -193,18 +193,6 @@ where
         Ok(self)
     }
 
-    /// Register a handler discovered by attribute macros or other means.
-    ///
-    /// # Errors
-    ///
-    /// This function always succeeds currently but uses [`Result`] for
-    /// consistency with other builder methods.
-    pub fn service(mut self, handler: Handler<E>) -> Result<Self> {
-        self.services.push(handler);
-        self.routes = OnceCell::new();
-        Ok(self)
-    }
-
     /// Store a shared state value accessible to request extractors.
     ///
     /// The value can later be retrieved using [`crate::extractor::SharedState`]. Registering
@@ -260,7 +248,6 @@ where
         Ok(WireframeApp {
             handlers: self.handlers,
             routes: OnceCell::new(),
-            services: self.services,
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer: self.serializer,
@@ -351,10 +338,11 @@ where
     }
 
     /// Set the frame processor used for encoding and decoding frames.
+    #[deprecated(note = "framing is handled by the connection codec; this method will be removed")]
     #[must_use]
     pub fn frame_processor<P>(self, processor: P) -> Self
     where
-        P: FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync + 'static,
+        P: crate::frame::FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync + 'static,
     {
         WireframeApp {
             frame_processor: Box::new(processor),
@@ -371,7 +359,6 @@ where
         WireframeApp {
             handlers: self.handlers,
             routes: OnceCell::new(),
-            services: self.services,
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer,

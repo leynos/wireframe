@@ -8,7 +8,7 @@ use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
     time::{Duration, timeout},
 };
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
     builder::WireframeApp,
@@ -31,7 +31,7 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    /// Serialize `msg` and write it to `stream` using the frame processor.
+    /// Serialize `msg` and write it to `stream` using a length-delimited codec.
     ///
     /// # Errors
     ///
@@ -49,9 +49,10 @@ where
             .serializer
             .serialize(msg)
             .map_err(SendError::Serialize)?;
-        let mut framed = BytesMut::with_capacity(4 + bytes.len());
-        self.frame_processor
-            .encode(&bytes, &mut framed)
+        let mut codec = LengthDelimitedCodec::new();
+        let mut framed = BytesMut::new();
+        codec
+            .encode(bytes.into(), &mut framed)
             .map_err(SendError::Io)?;
         stream.write_all(&framed).await.map_err(SendError::Io)?;
         stream.flush().await.map_err(SendError::Io)

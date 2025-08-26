@@ -8,11 +8,13 @@ use std::{io, sync::Arc};
 use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, duplex};
 use wireframe::{
-    app::{Envelope, WireframeApp},
+    app::Envelope,
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
     message::Message,
     serializer::{BincodeSerializer, Serializer},
 };
+
+type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
 struct HeaderSerializer;
@@ -61,9 +63,8 @@ struct Ping;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+    let app = App::new()
         .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
         .serializer(HeaderSerializer)
         .route(
             1,

@@ -4,15 +4,17 @@
 //! envelope back to the client.
 
 use wireframe::{
-    app::{Envelope, WireframeApp},
+    app::Envelope,
     serializer::BincodeSerializer,
     server::{ServerError, WireframeServer},
 };
 
+type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+
 #[tokio::main]
 async fn main() -> Result<(), ServerError> {
     let factory = || {
-        WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        App::new()
             .expect("failed to create WireframeApp")
             .route(
                 1,

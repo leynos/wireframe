@@ -8,19 +8,20 @@ use std::sync::{
 };
 
 use wireframe::{
-    app::{Envelope, WireframeApp},
-    frame::{FrameMetadata, LengthPrefixedProcessor},
+    app::Envelope,
+    frame::FrameMetadata,
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{TestSerializer, drive_with_bincode};
 
-fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S, (), Envelope>
+type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelope>;
+
+fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
 where
     S: TestSerializer,
 {
-    WireframeApp::<BincodeSerializer, (), Envelope>::new()
+    TestApp::<BincodeSerializer>::new()
         .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
         .serializer(serializer)
         .route(1, Arc::new(|_| Box::pin(async {})))
         .expect("route registration failed")

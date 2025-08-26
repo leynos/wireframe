@@ -10,7 +10,7 @@ use cucumber::World;
 use tokio::{net::TcpStream, sync::oneshot};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    app::{Envelope, Packet, WireframeApp},
+    app::{Envelope, Packet},
     connection::ConnectionActor,
     hooks::ProtocolHooks,
     push::PushQueues,
@@ -18,6 +18,8 @@ use wireframe::{
     serializer::BincodeSerializer,
     server::WireframeServer,
 };
+
+type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -36,7 +38,7 @@ struct PanicServer {
 impl PanicServer {
     async fn spawn() -> Self {
         let factory = || {
-            WireframeApp::<BincodeSerializer, (), Envelope>::new()
+            TestApp::new()
                 .expect("Failed to create WireframeApp")
                 .on_connection_setup(|| async { panic!("boom") })
                 .expect("Failed to set connection setup callback")
