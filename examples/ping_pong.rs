@@ -7,12 +7,14 @@ use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use wireframe::{
-    app::{Envelope, Packet, Result as AppResult, WireframeApp},
+    app::{Envelope, Packet, Result as AppResult},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
     server::{ServerError, WireframeServer},
 };
+
+type App = wireframe::app::WireframeApp;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 struct Ping(u32);
@@ -130,8 +132,8 @@ impl<E: Packet> Transform<HandlerService<E>> for Logging {
     }
 }
 
-fn build_app() -> AppResult<WireframeApp> {
-    WireframeApp::new()?
+fn build_app() -> AppResult<App> {
+    App::new()?
         .serializer(BincodeSerializer)
         .route(PING_ID, Arc::new(|_: &Envelope| Box::pin(ping_handler())))?
         .wrap(PongMiddleware)?

@@ -8,7 +8,6 @@ use std::{collections::HashMap, future::Future, pin::Pin};
 use async_trait::async_trait;
 use wireframe::{
     app::{Envelope, WireframeApp},
-    frame::{LengthFormat, LengthPrefixedProcessor},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     server::{ServerError, WireframeServer},
@@ -80,7 +79,6 @@ async fn main() -> Result<(), ServerError> {
     let factory = || {
         WireframeApp::new()
             .expect("Failed to create WireframeApp")
-            .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()))
             .wrap(DecodeMiddleware)
             .expect("Failed to wrap middleware")
             .route(1, std::sync::Arc::new(handle_packet))

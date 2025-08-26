@@ -729,8 +729,6 @@ component to run it.
          WireframeApp::new()
             .frame_processor(MyFrameProcessor::new()) // Configure the framing logic
             .app_data(app_state.clone()) // Shared application state
-            //.service(login_handler) // If using attribute macros and auto-discovery
-            //.service(chat_handler)
             .route(MessageType::Login, handle_login) // Manual route registration
             .route(MessageType::Chat, handle_chat_message)
             .wrap(MyLoggingMiddleware::default()) // Add middleware
@@ -746,9 +744,6 @@ The WireframeApp builder would offer methods like:
 - WireframeApp::new(): Creates a new application builder.
 
 - .frame_processor(impl FrameProcessor): Sets the framing logic.
-
-- .service(handler_function): Registers a handler function, potentially
-  inferring the message type it handles if attribute macros are used.
 
 - .route(message_id, handler_function): Explicitly maps a message identifier to
   a handler.
@@ -1276,8 +1271,6 @@ its own `FrameProcessor` trait or provide helpers.) <!-- list break -->
                //.frame_processor(LengthPrefixedCodec) // Simplified
                .serializer(BincodeSerializer) // Specify serializer
                .route(MyMessageType::Echo, handle_echo) // Route based on ID
-               // OR if type-based routing is supported and EchoRequest has an ID:
-               //.service(handle_echo_typed) where handle_echo_typed takes Message<EchoRequest>
        })
        .bind("127.0.0.1:8000")?
        .run()

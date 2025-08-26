@@ -63,7 +63,6 @@ struct Ping;
 async fn main() -> io::Result<()> {
     let app = WireframeApp::new()
         .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
         .serializer(HeaderSerializer)
         .route(
             1,

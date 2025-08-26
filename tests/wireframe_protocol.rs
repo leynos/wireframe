@@ -16,10 +16,11 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     ConnectionContext,
     WireframeProtocol,
-    app::{Envelope, WireframeApp},
     connection::ConnectionActor,
     push::PushQueues,
 };
+
+type TestApp = wireframe::app::WireframeApp;
 
 struct TestProtocol {
     counter: Arc<AtomicUsize>,
@@ -51,7 +52,7 @@ async fn builder_produces_protocol_hooks() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::<_, _, Envelope>::new()
+    let app = TestApp::new()
         .expect("failed to create app")
         .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
@@ -75,7 +76,7 @@ async fn connection_actor_uses_protocol_from_builder() {
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = WireframeApp::<_, _, Envelope>::new()
+    let app = TestApp::new()
         .expect("failed to create app")
         .with_protocol(protocol);
 

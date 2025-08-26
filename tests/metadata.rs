@@ -9,7 +9,7 @@ use std::sync::{
 
 use wireframe::{
     app::{Envelope, WireframeApp},
-    frame::{FrameMetadata, LengthPrefixedProcessor},
+    frame::FrameMetadata,
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{TestSerializer, drive_with_bincode};
@@ -20,7 +20,6 @@ where
 {
     WireframeApp::new()
         .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
         .serializer(serializer)
         .route(1, Arc::new(|_| Box::pin(async {})))
         .expect("route registration failed")

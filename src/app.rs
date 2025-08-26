@@ -68,8 +68,8 @@ pub type ConnectionTeardown<C> =
 
 /// Configures routing and middleware for a `WireframeServer`.
 ///
-/// The builder stores registered routes, services, and middleware
-/// without enforcing an ordering. Methods return [`Result<Self>`] so
+/// The builder stores registered routes and middleware without
+/// enforcing an ordering. Methods return [`Result<Self>`] so
 /// registrations can be chained ergonomically.
 pub struct WireframeApp<
     S: Serializer + Send + Sync = BincodeSerializer,
@@ -77,7 +77,6 @@ pub struct WireframeApp<
     E: Packet = Envelope,
 > {
     routes: HashMap<u32, Handler<E>>,
-    services: Vec<Handler<E>>,
     middleware: Vec<Box<dyn Transform<HandlerService<E>, Output = HandlerService<E>>>>,
     frame_processor: BoxedFrameProcessor,
     serializer: S,
@@ -318,13 +317,12 @@ where
     E: Packet,
 {
     ///
-    /// Initializes empty routes, services, middleware, and application data.
+    /// Initializes empty routes, middleware, and application data.
     /// Sets the default frame processor and serializer, with no connection
     /// lifecycle hooks.
     fn default() -> Self {
         Self {
             routes: HashMap::new(),
-            services: Vec::new(),
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor::new(LengthFormat::default())),
             serializer: S::default(),
@@ -412,17 +410,6 @@ where
         Ok(self)
     }
 
-    /// Register a handler discovered by attribute macros or other means.
-    ///
-    /// # Errors
-    ///
-    /// This function always succeeds currently but uses [`Result`] for
-    /// consistency with other builder methods.
-    pub fn service(mut self, handler: Handler<E>) -> Result<Self> {
-        self.services.push(handler);
-        Ok(self)
-    }
-
     /// Store a shared state value accessible to request extractors.
     ///
     /// The value can later be retrieved using [`crate::extractor::SharedState`]. Registering
@@ -476,7 +463,6 @@ where
     {
         Ok(WireframeApp {
             routes: self.routes,
-            services: self.services,
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer: self.serializer,
@@ -561,6 +547,10 @@ where
     }
 
     /// Set the frame processor used for encoding and decoding frames.
+    ///
+    /// This is deprecated because the connection actor manages framing via
+    /// `LengthDelimitedCodec`.
+    #[deprecated(note = "Framing is handled by the connection; this setter will be removed")]
     #[must_use]
     pub fn frame_processor<P>(mut self, processor: P) -> Self
     where
@@ -578,7 +568,6 @@ where
     {
         WireframeApp {
             routes: self.routes,
-            services: self.services,
             middleware: self.middleware,
             frame_processor: self.frame_processor,
             serializer,
