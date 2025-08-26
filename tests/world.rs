@@ -15,6 +15,7 @@ use wireframe::{
     hooks::ProtocolHooks,
     push::PushQueues,
     response::FrameStream,
+    serializer::BincodeSerializer,
     server::WireframeServer,
 };
 
@@ -35,7 +36,7 @@ struct PanicServer {
 impl PanicServer {
     async fn spawn() -> Self {
         let factory = || {
-            WireframeApp::new()
+            WireframeApp::<BincodeSerializer, (), Envelope>::new()
                 .expect("Failed to create WireframeApp")
                 .on_connection_setup(|| async { panic!("boom") })
                 .expect("Failed to set connection setup callback")

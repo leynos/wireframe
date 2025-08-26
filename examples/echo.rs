@@ -5,13 +5,14 @@
 
 use wireframe::{
     app::{Envelope, WireframeApp},
+    serializer::BincodeSerializer,
     server::{ServerError, WireframeServer},
 };
 
 #[tokio::main]
 async fn main() -> Result<(), ServerError> {
     let factory = || {
-        WireframeApp::new()
+        WireframeApp::<BincodeSerializer, (), Envelope>::new()
             .expect("failed to create WireframeApp")
             .route(
                 1,

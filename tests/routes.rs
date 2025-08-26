@@ -56,7 +56,7 @@ struct Echo(u8);
 async fn handler_receives_message_and_echoes_response() {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
-    let app = WireframeApp::<_, _, TestEnvelope>::new()
+    let app = WireframeApp::<BincodeSerializer, (), TestEnvelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
@@ -97,7 +97,7 @@ async fn handler_receives_message_and_echoes_response() {
 
 #[tokio::test]
 async fn handler_echoes_with_none_correlation_id() {
-    let app = WireframeApp::<_, _, TestEnvelope>::new()
+    let app = WireframeApp::<BincodeSerializer, (), TestEnvelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
@@ -130,7 +130,7 @@ async fn handler_echoes_with_none_correlation_id() {
 
 #[tokio::test]
 async fn multiple_frames_processed_in_sequence() {
-    let app = WireframeApp::<_, _, TestEnvelope>::new()
+    let app = WireframeApp::<BincodeSerializer, (), TestEnvelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(
@@ -191,7 +191,7 @@ async fn multiple_frames_processed_in_sequence() {
 #[case(Some(2))]
 #[tokio::test]
 async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
-    let app = WireframeApp::<_, _, TestEnvelope>::new()
+    let app = WireframeApp::<BincodeSerializer, (), TestEnvelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .route(

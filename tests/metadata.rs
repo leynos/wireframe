@@ -14,11 +14,11 @@ use wireframe::{
 };
 use wireframe_testing::{TestSerializer, drive_with_bincode};
 
-fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S>
+fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S, (), Envelope>
 where
     S: TestSerializer,
 {
-    WireframeApp::new()
+    WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .serializer(serializer)

@@ -11,6 +11,7 @@ use wireframe::{
     frame::{LengthFormat, LengthPrefixedProcessor},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
+    serializer::BincodeSerializer,
     server::{ServerError, WireframeServer},
 };
 
@@ -78,7 +79,7 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 #[tokio::main]
 async fn main() -> Result<(), ServerError> {
     let factory = || {
-        WireframeApp::new()
+        WireframeApp::<BincodeSerializer, (), Envelope>::new()
             .expect("Failed to create WireframeApp")
             .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()))
             .wrap(DecodeMiddleware)

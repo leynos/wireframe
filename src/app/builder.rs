@@ -1,5 +1,4 @@
 //! Application builder configuring routes and middleware.
-//!
 //! This module defines [`WireframeApp`], an Actix-inspired builder for
 //! managing connection state, routing, and middleware in a `WireframeServer`.
 //! It exposes convenience methods to register handlers and lifecycle hooks.
@@ -13,7 +12,10 @@ use std::{
     sync::Arc,
 };
 
-use tokio::{io, sync::mpsc};
+use tokio::{
+    io,
+    sync::{OnceCell, mpsc},
+};
 
 use super::{
     envelope::{Envelope, Packet},
@@ -25,7 +27,6 @@ use crate::{
     middleware::{HandlerService, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-
 type BoxedFrameProcessor =
     Box<dyn FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>;
 
@@ -75,7 +76,8 @@ pub struct WireframeApp<
     C: Send + 'static = (),
     E: Packet = Envelope,
 > {
-    pub(super) routes: HashMap<u32, Handler<E>>,
+    pub(super) handlers: HashMap<u32, Handler<E>>,
+    pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
     pub(super) services: Vec<Handler<E>>,
     pub(super) middleware: Vec<Box<dyn Transform<HandlerService<E>, Output = HandlerService<E>>>>,
     pub(super) frame_processor: BoxedFrameProcessor,
@@ -85,6 +87,8 @@ pub struct WireframeApp<
     pub(super) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
     pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()>>>,
     pub(super) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
+    pub(super) buffer_capacity: usize,
+    pub(super) read_timeout_ms: u64,
 }
 
 /// Alias for asynchronous route handlers.
@@ -116,7 +120,8 @@ where
     /// lifecycle hooks.
     fn default() -> Self {
         Self {
-            routes: HashMap::new(),
+            handlers: HashMap::new(),
+            routes: OnceCell::new(),
             services: Vec::new(),
             middleware: Vec::new(),
             frame_processor: Box::new(LengthPrefixedProcessor::new(LengthFormat::default())),
@@ -126,12 +131,16 @@ where
             on_disconnect: None,
             protocol: None,
             push_dlq: None,
+            buffer_capacity: 1024,
+            read_timeout_ms: 100,
         }
     }
 }
 
-impl<E> WireframeApp<BincodeSerializer, (), E>
+impl<S, C, E> WireframeApp<S, C, E>
 where
+    S: Serializer + Default + Send + Sync,
+    C: Send + 'static,
     E: Packet,
 {
     /// Construct a new empty application builder.
@@ -144,31 +153,9 @@ where
     /// # Examples
     ///
     /// ```
-    /// use wireframe::app::{Packet, PacketParts, WireframeApp};
-    ///
-    /// #[derive(bincode::Encode, bincode::BorrowDecode)]
-    /// struct MyEnv {
-    ///     id: u32,
-    ///     correlation_id: Option<u64>,
-    ///     data: Vec<u8>,
-    /// }
-    ///
-    /// impl Packet for MyEnv {
-    ///     fn id(&self) -> u32 { self.id }
-    ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-    ///     fn into_parts(self) -> PacketParts {
-    ///         PacketParts::new(self.id, self.correlation_id, self.data)
-    ///     }
-    ///     fn from_parts(parts: PacketParts) -> Self {
-    ///         Self {
-    ///             id: parts.id(),
-    ///             correlation_id: parts.correlation_id(),
-    ///             data: parts.payload(),
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// let app = WireframeApp::<_, _, MyEnv>::new().expect("failed to create app");
+    /// use wireframe::app::WireframeApp;
+    /// let app = WireframeApp::<_, _, wireframe::app::Envelope>::new().unwrap();
+    /// assert!(app.protocol().is_none());
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 
@@ -181,7 +168,7 @@ where
     ///
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
-    #[deprecated(note = "use `WireframeApp::<_, _, E>::new()` instead")]
+    #[deprecated(note = "use `WireframeApp::new()` instead")]
     pub fn new_with_envelope() -> Result<Self> { Self::new() }
 }
 
@@ -198,10 +185,11 @@ where
     /// Returns [`WireframeError::DuplicateRoute`] if a handler for `id`
     /// has already been registered.
     pub fn route(mut self, id: u32, handler: Handler<E>) -> Result<Self> {
-        if self.routes.contains_key(&id) {
+        if self.handlers.contains_key(&id) {
             return Err(WireframeError::DuplicateRoute(id));
         }
-        self.routes.insert(id, handler);
+        self.handlers.insert(id, handler);
+        self.routes = OnceCell::new();
         Ok(self)
     }
 
@@ -213,6 +201,7 @@ where
     /// consistency with other builder methods.
     pub fn service(mut self, handler: Handler<E>) -> Result<Self> {
         self.services.push(handler);
+        self.routes = OnceCell::new();
         Ok(self)
     }
 
@@ -242,6 +231,7 @@ where
         M: Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync + 'static,
     {
         self.middleware.push(Box::new(mw));
+        self.routes = OnceCell::new();
         Ok(self)
     }
 
@@ -268,7 +258,8 @@ where
         C2: Send + 'static,
     {
         Ok(WireframeApp {
-            routes: self.routes,
+            handlers: self.handlers,
+            routes: OnceCell::new(),
             services: self.services,
             middleware: self.middleware,
             frame_processor: self.frame_processor,
@@ -278,6 +269,8 @@ where
             on_disconnect: None,
             protocol: self.protocol,
             push_dlq: self.push_dlq,
+            buffer_capacity: self.buffer_capacity,
+            read_timeout_ms: self.read_timeout_ms,
         })
     }
 
@@ -305,12 +298,14 @@ where
     /// command completion. It is wrapped in an [`Arc`] and stored for later use
     /// by the connection actor.
     #[must_use]
-    pub fn with_protocol<P>(mut self, protocol: P) -> Self
+    pub fn with_protocol<P>(self, protocol: P) -> Self
     where
         P: WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()> + 'static,
     {
-        self.protocol = Some(Arc::new(protocol));
-        self
+        WireframeApp {
+            protocol: Some(Arc::new(protocol)),
+            ..self
+        }
     }
 
     /// Configure a Dead Letter Queue for dropped push frames.
@@ -327,9 +322,11 @@ where
     /// # }
     /// ```
     #[must_use]
-    pub fn with_push_dlq(mut self, dlq: mpsc::Sender<Vec<u8>>) -> Self {
-        self.push_dlq = Some(dlq);
-        self
+    pub fn with_push_dlq(self, dlq: mpsc::Sender<Vec<u8>>) -> Self {
+        WireframeApp {
+            push_dlq: Some(dlq),
+            ..self
+        }
     }
 
     /// Get a clone of the configured protocol, if any.
@@ -355,12 +352,14 @@ where
 
     /// Set the frame processor used for encoding and decoding frames.
     #[must_use]
-    pub fn frame_processor<P>(mut self, processor: P) -> Self
+    pub fn frame_processor<P>(self, processor: P) -> Self
     where
         P: FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync + 'static,
     {
-        self.frame_processor = Box::new(processor);
-        self
+        WireframeApp {
+            frame_processor: Box::new(processor),
+            ..self
+        }
     }
 
     /// Replace the serializer used for messages.
@@ -370,7 +369,8 @@ where
         Ser: Serializer + Send + Sync,
     {
         WireframeApp {
-            routes: self.routes,
+            handlers: self.handlers,
+            routes: OnceCell::new(),
             services: self.services,
             middleware: self.middleware,
             frame_processor: self.frame_processor,
@@ -380,6 +380,21 @@ where
             on_disconnect: self.on_disconnect,
             protocol: self.protocol,
             push_dlq: self.push_dlq,
+            buffer_capacity: self.buffer_capacity,
+            read_timeout_ms: self.read_timeout_ms,
         }
+    }
+
+    /// Set the initial buffer capacity for framed reads.
+    #[must_use]
+    pub fn buffer_capacity(mut self, capacity: usize) -> Self {
+        self.buffer_capacity = capacity;
+        self
+    }
+    /// Configure the read timeout in milliseconds.
+    #[must_use]
+    pub fn read_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.read_timeout_ms = timeout_ms;
+        self
     }
 }

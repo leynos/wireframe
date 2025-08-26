@@ -53,7 +53,7 @@ impl Transform<HandlerService<Envelope>> for TagMiddleware {
 #[tokio::test]
 async fn middleware_applied_in_reverse_order() {
     let handler: Handler<Envelope> = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
-    let app = WireframeApp::new()
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .expect("failed to create app")
         .route(1, handler)
         .expect("route registration failed")

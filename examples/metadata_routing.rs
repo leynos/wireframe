@@ -11,7 +11,7 @@ use wireframe::{
     app::{Envelope, WireframeApp},
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
     message::Message,
-    serializer::Serializer,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
@@ -61,7 +61,7 @@ struct Ping;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let app = WireframeApp::new()
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .expect("failed to create app")
         .frame_processor(LengthPrefixedProcessor::default())
         .serializer(HeaderSerializer)

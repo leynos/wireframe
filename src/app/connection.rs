@@ -1,12 +1,14 @@
 //! Connection handling and response utilities for `WireframeApp`.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use bytes::BytesMut;
+use futures::{SinkExt, StreamExt};
 use tokio::{
-    io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
     time::{Duration, timeout},
 };
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use super::{
     builder::WireframeApp,
@@ -20,8 +22,6 @@ use crate::{
     serializer::Serializer,
 };
 
-/// Number of idle polls before terminating a connection.
-const MAX_IDLE_POLLS: u32 = 50; // ~5s with 100ms timeout
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
 
@@ -81,7 +81,7 @@ where
     /// This placeholder immediately closes the connection after the
     /// preamble phase. A warning is logged so tests and callers are
     /// aware of the current limitation.
-    pub async fn handle_connection<W>(&self, mut stream: W)
+    pub async fn handle_connection<W>(&self, stream: W)
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
@@ -91,9 +91,13 @@ where
             None
         };
 
-        let routes = self.build_chains().await;
+        let routes = self
+            .routes
+            .get_or_init(|| async { Arc::new(self.build_chains().await) })
+            .await
+            .clone();
 
-        if let Err(e) = self.process_stream(&mut stream, &routes).await {
+        if let Err(e) = self.process_stream(stream, &routes).await {
             tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "connection terminated with error");
         }
 
@@ -104,7 +108,7 @@ where
 
     async fn build_chains(&self) -> HashMap<u32, HandlerService<E>> {
         let mut routes = HashMap::new();
-        for (&id, handler) in &self.routes {
+        for (&id, handler) in &self.handlers {
             let mut service = HandlerService::new(id, handler.clone());
             for mw in self.middleware.iter().rev() {
                 service = mw.transform(service).await;
@@ -116,94 +120,36 @@ where
 
     async fn process_stream<W>(
         &self,
-        stream: &mut W,
-        routes: &HashMap<u32, HandlerService<E>>,
+        stream: W,
+        routes: &Arc<HashMap<u32, HandlerService<E>>>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
-        let mut buf = BytesMut::with_capacity(1024);
-        let mut idle = 0u32;
+        let codec = LengthDelimitedCodec::builder().new_codec();
+        let mut framed = Framed::new(stream, codec);
+        framed.read_buffer_mut().reserve(self.buffer_capacity);
         let mut deser_failures = 0u32;
+        let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
-        loop {
-            if let Some(frame) = self.frame_processor.decode(&mut buf)? {
-                self.handle_frame(stream, &frame, &mut deser_failures, routes)
-                    .await?;
-                idle = 0;
-                continue;
-            }
-
-            if self.read_and_update(stream, &mut buf, &mut idle).await? {
-                break;
-            }
+        while let Ok(Some(frame)) = timeout(timeout_dur, framed.next()).await {
+            let buf = frame?;
+            self.handle_frame(&mut framed, buf.as_ref(), &mut deser_failures, routes)
+                .await?;
         }
 
         Ok(())
     }
 
-    async fn read_and_update<W>(
-        &self,
-        stream: &mut W,
-        buf: &mut BytesMut,
-        idle: &mut u32,
-    ) -> io::Result<bool>
-    where
-        W: AsyncRead + AsyncWrite + Unpin,
-    {
-        match self.read_into(stream, buf).await {
-            Ok(Some(0)) => Ok(true),
-            Ok(Some(_)) => {
-                *idle = 0;
-                Ok(false)
-            }
-            Ok(None) => {
-                *idle += 1;
-                Ok(*idle >= MAX_IDLE_POLLS)
-            }
-            Err(e) if Self::is_transient_error(&e) => Ok(false),
-            Err(e) if Self::is_fatal_error(&e) => Ok(true),
-            Err(e) => Err(e),
-        }
-    }
-
-    fn is_transient_error(e: &io::Error) -> bool {
-        matches!(
-            e.kind(),
-            io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
-        )
-    }
-
-    fn is_fatal_error(e: &io::Error) -> bool {
-        matches!(
-            e.kind(),
-            io::ErrorKind::UnexpectedEof
-                | io::ErrorKind::ConnectionReset
-                | io::ErrorKind::ConnectionAborted
-                | io::ErrorKind::BrokenPipe
-        )
-    }
-
-    async fn read_into<W>(&self, stream: &mut W, buf: &mut BytesMut) -> io::Result<Option<usize>>
-    where
-        W: AsyncRead + Unpin,
-    {
-        match timeout(Duration::from_millis(100), stream.read_buf(buf)).await {
-            Ok(Ok(n)) => Ok(Some(n)),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Ok(None),
-        }
-    }
-
     async fn handle_frame<W>(
         &self,
-        stream: &mut W,
+        framed: &mut Framed<W, LengthDelimitedCodec>,
         frame: &[u8],
         deser_failures: &mut u32,
         routes: &HashMap<u32, HandlerService<E>>,
     ) -> io::Result<()>
     where
-        W: AsyncWrite + Unpin,
+        W: AsyncRead + AsyncWrite + Unpin,
     {
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
         let (env, _) = match self.parse_envelope(frame) {
@@ -233,14 +179,27 @@ where
                         .inherit_correlation(env.correlation_id);
                     let correlation_id = parts.correlation_id();
                     let response = Envelope::from_parts(parts);
-                    if let Err(e) = self.send_response(stream, &response).await {
-                        tracing::warn!(
-                            id = env.id,
-                            correlation_id = ?correlation_id,
-                            error = ?e,
-                            "failed to send response",
-                        );
-                        crate::metrics::inc_handler_errors();
+                    match self.serializer.serialize(&response) {
+                        Ok(bytes) => {
+                            if let Err(e) = framed.send(bytes.into()).await {
+                                tracing::warn!(
+                                    id = env.id,
+                                    correlation_id = ?correlation_id,
+                                    error = ?e,
+                                    "failed to send response",
+                                );
+                                crate::metrics::inc_handler_errors();
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                id = env.id,
+                                correlation_id = ?correlation_id,
+                                error = ?e,
+                                "failed to serialize response",
+                            );
+                            crate::metrics::inc_handler_errors();
+                        }
                     }
                 }
                 Err(e) => {
