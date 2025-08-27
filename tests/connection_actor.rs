@@ -18,30 +18,33 @@ use wireframe::{
 use wireframe_testing::push_expect;
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+#[allow(unfulfilled_lint_expectations)]
 fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
     PushQueues::builder()
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .unwrap()
+        .expect("failed to build push queues")
 }
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+#[allow(unfulfilled_lint_expectations)]
 fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+#[allow(unfulfilled_lint_expectations)]
 fn empty_stream() -> Option<FrameStream<u8, ()>> { None }
 
 #[rstest]
@@ -390,7 +393,7 @@ async fn push_queue_exhaustion_backpressure() {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .unwrap();
+        .expect("failed to build push queues");
     push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let blocked = timeout(Duration::from_millis(50), handle.push_high_priority(2)).await;
@@ -481,7 +484,7 @@ async fn graceful_shutdown_waits_for_tasks() {
             .high_capacity(1)
             .low_capacity(1)
             .build()
-            .unwrap();
+            .expect("failed to build push queues");
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle.clone(), None, token.clone());
         handles.push(handle);

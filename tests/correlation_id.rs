@@ -19,7 +19,7 @@ async fn stream_frames_carry_request_correlation_id() {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .unwrap();
+        .expect("failed to build push queues");
     let shutdown = CancellationToken::new();
     let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
     let mut out = Vec::new();

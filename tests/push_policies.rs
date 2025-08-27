@@ -43,7 +43,7 @@ fn push_policy_behaviour(
             .high_capacity(1)
             .low_capacity(1)
             .build()
-            .unwrap();
+            .expect("failed to build push queues");
 
         handle
             .push_high_priority(1u8)

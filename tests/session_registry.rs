@@ -6,23 +6,25 @@ use wireframe::{
 };
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+#[allow(unfulfilled_lint_expectations)]
 fn registry() -> SessionRegistry<u8> { SessionRegistry::default() }
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+#[allow(unfulfilled_lint_expectations)]
 fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) {
     PushQueues::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .unwrap()
+        .expect("failed to build push queues")
 }
 
 /// Test that handles can be retrieved whilst the connection remains alive.

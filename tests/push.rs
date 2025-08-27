@@ -24,7 +24,7 @@ async fn frames_routed_to_correct_priority_queues() {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .unwrap();
+        .expect("failed to build push queues");
 
     push_expect!(handle.push_low_priority(1u8));
     push_expect!(handle.push_high_priority(2u8));
@@ -48,7 +48,7 @@ async fn try_push_respects_policy() {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .unwrap();
+        .expect("failed to build push queues");
 
     push_expect!(handle.push_high_priority(1u8));
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
@@ -68,7 +68,7 @@ async fn push_queues_error_on_closed() {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .unwrap();
+        .expect("failed to build push queues");
 
     let mut queues = queues;
     queues.close();
@@ -163,7 +163,7 @@ async fn unlimited_queues_do_not_block() {
         .low_capacity(1)
         .rate(None)
         .build()
-        .unwrap();
+        .expect("failed to build push queues");
     push_expect!(handle.push_high_priority(1u8));
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");

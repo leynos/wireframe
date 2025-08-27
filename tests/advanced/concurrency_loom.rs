@@ -21,8 +21,11 @@ fn concurrent_push_delivery() {
             .expect("failed to build tokio runtime");
 
         rt.block_on(async {
-            let (queues, handle) =
-                PushQueues::builder().high_capacity(1).low_capacity(1).build().unwrap();
+            let (queues, handle) = PushQueues::builder()
+                .high_capacity(1)
+                .low_capacity(1)
+                .build()
+                .expect("failed to build push queues");
             let token = CancellationToken::new();
 
             let out = loom::sync::Arc::new(loom::sync::Mutex::new(Vec::new()));

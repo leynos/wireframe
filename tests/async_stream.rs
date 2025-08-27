@@ -27,7 +27,7 @@ async fn async_stream_frames_processed_in_order() {
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .unwrap();
+        .expect("failed to build push queues");
     let shutdown = CancellationToken::new();
     let stream: FrameStream<u8> = Box::pin(frame_stream());
 

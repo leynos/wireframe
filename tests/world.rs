@@ -146,7 +146,7 @@ impl CorrelationWorld {
             .high_capacity(1)
             .low_capacity(1)
             .build()
-            .unwrap();
+            .expect("failed to build push queues");
         let shutdown = CancellationToken::new();
         let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
         actor.run(&mut self.frames).await.expect("actor run failed");
@@ -188,7 +188,7 @@ impl StreamEndWorld {
             .high_capacity(1)
             .low_capacity(1)
             .build()
-            .unwrap();
+            .expect("failed to build push queues");
         let shutdown = CancellationToken::new();
         let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
         let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);

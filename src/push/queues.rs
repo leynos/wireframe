@@ -149,9 +149,9 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .low_capacity(1)
     ///         .rate(Some(1))
     ///         .build()
-    ///         .unwrap();
-    ///     handle.push_high_priority(42u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///         .expect("failed to build push queues");
+    ///     handle.push_high_priority(42u8).await.expect("push failed");
+    ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::High);
     ///     assert_eq!(frame, 42);
     /// }
@@ -180,9 +180,9 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .low_capacity(1)
     ///         .rate(Some(1))
     ///         .build()
-    ///         .unwrap();
-    ///     handle.push_low_priority(10u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///         .expect("failed to build push queues");
+    ///     handle.push_low_priority(10u8).await.expect("push failed");
+    ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::Low);
     ///     assert_eq!(frame, 10);
     /// }
@@ -234,14 +234,14 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .rate(None)
     ///         .dlq(Some(dlq_tx))
     ///         .build()
-    ///         .unwrap();
-    ///     handle.push_high_priority(1u8).await.unwrap();
+    ///         .expect("failed to build push queues");
+    ///     handle.push_high_priority(1u8).await.expect("push failed");
     ///
     ///     handle
     ///         .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-    ///         .unwrap();
+    ///         .expect("try_push failed");
     ///
-    ///     assert_eq!(dlq_rx.recv().await.unwrap(), 2);
+    ///     assert_eq!(dlq_rx.recv().await.expect("recv failed"), 2);
     ///     let _ = queues.recv().await;
     /// }
     /// ```
@@ -482,9 +482,9 @@ impl<F: FrameLike> PushQueues<F> {
     ///         .high_capacity(1)
     ///         .low_capacity(1)
     ///         .build()
-    ///         .unwrap();
-    ///     handle.push_high_priority(2u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
+    ///         .expect("failed to build push queues");
+    ///     handle.push_high_priority(2u8).await.expect("push failed");
+    ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::High);
     ///     assert_eq!(frame, 2);
     /// }
@@ -507,7 +507,9 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```rust,no_run
     /// use wireframe::push::PushQueues;
     ///
-    /// let (mut queues, _handle) = PushQueues::<u8>::builder().build().unwrap();
+    /// let (mut queues, _handle) = PushQueues::<u8>::builder()
+    ///     .build()
+    ///     .expect("failed to build push queues");
     /// queues.close();
     /// ```
     pub fn close(&mut self) {
