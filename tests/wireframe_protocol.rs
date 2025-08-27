@@ -56,7 +56,11 @@ async fn builder_produces_protocol_hooks() {
         .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
 
-    let (queues, handle) = PushQueues::bounded(1, 1);
+    let (queues, handle) = PushQueues::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .unwrap();
     hooks.on_connection_setup(handle, &mut ConnectionContext);
     drop(queues); // silence unused warnings
 
@@ -80,7 +84,11 @@ async fn connection_actor_uses_protocol_from_builder() {
         .with_protocol(protocol);
 
     let hooks = app.protocol_hooks();
-    let (queues, handle) = PushQueues::bounded(8, 8);
+    let (queues, handle) = PushQueues::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .build()
+        .unwrap();
     handle
         .push_high_priority(vec![1])
         .await
