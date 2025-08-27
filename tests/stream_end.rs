@@ -23,7 +23,11 @@ async fn emits_end_frame() {
         yield 2;
     });
 
-    let (queues, handle) = PushQueues::bounded(1, 1);
+    let (queues, handle) = PushQueues::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .unwrap();
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
     let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
@@ -51,7 +55,11 @@ async fn emits_no_end_frame_when_none() {
         yield 8;
     });
 
-    let (queues, handle) = PushQueues::bounded(1, 1);
+    let (queues, handle) = PushQueues::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .unwrap();
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
     let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
