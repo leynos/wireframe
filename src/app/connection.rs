@@ -25,6 +25,12 @@ use crate::{
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
 
+#[derive(Debug)]
+enum EnvelopeDecodeError<E> {
+    Parse(E),
+    Deserialize(Box<dyn std::error::Error + Send + Sync>),
+}
+
 impl<S, C, E> WireframeApp<S, C, E>
 where
     S: Serializer + Send + Sync,
@@ -49,11 +55,11 @@ where
             .serializer
             .serialize(msg)
             .map_err(SendError::Serialize)?;
-        let mut codec = LengthDelimitedCodec::new();
+        let mut codec = LengthDelimitedCodec::builder().new_codec();
         let mut framed = BytesMut::new();
         codec
             .encode(bytes.into(), &mut framed)
-            .map_err(SendError::Io)?;
+            .map_err(|e| SendError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;
         stream.write_all(&framed).await.map_err(SendError::Io)?;
         stream.flush().await.map_err(SendError::Io)
     }
@@ -70,11 +76,15 @@ where
     fn parse_envelope(
         &self,
         frame: &[u8],
-    ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> std::result::Result<(Envelope, usize), EnvelopeDecodeError<S::Error>> {
         self.serializer
             .parse(frame)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
+            .map_err(EnvelopeDecodeError::Parse)
+            .or_else(|_| {
+                self.serializer
+                    .deserialize::<Envelope>(frame)
+                    .map_err(EnvelopeDecodeError::Deserialize)
+            })
     }
 
     /// Handle an accepted connection.
@@ -158,7 +168,19 @@ where
                 *deser_failures = 0;
                 result
             }
-            Err(e) => {
+            Err(EnvelopeDecodeError::Parse(e)) => {
+                *deser_failures += 1;
+                tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "failed to parse message");
+                crate::metrics::inc_deser_errors();
+                if *deser_failures >= MAX_DESER_FAILURES {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "too many deserialization failures",
+                    ));
+                }
+                return Ok(());
+            }
+            Err(EnvelopeDecodeError::Deserialize(e)) => {
                 *deser_failures += 1;
                 tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "failed to deserialize message");
                 crate::metrics::inc_deser_errors();

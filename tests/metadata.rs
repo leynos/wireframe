@@ -20,9 +20,8 @@ fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
 where
     S: TestSerializer,
 {
-    TestApp::<BincodeSerializer>::new()
+    TestApp::with_serializer(serializer)
         .expect("failed to create app")
-        .serializer(serializer)
         .route(1, Arc::new(|_| Box::pin(async {})))
         .expect("route registration failed")
 }

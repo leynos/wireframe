@@ -1,7 +1,8 @@
 //! Packet abstraction and envelope types.
 //!
-//! This module defines the [`Packet`] trait along with [`Envelope`] and
-//! [`PacketParts`] used to decompose and reassemble messages.
+//! These types decouple serialisation from routing by wrapping raw payloads in
+//! identifiers understood by [`crate::app::WireframeApp`]. Applications can
+//! inspect metadata before deserialising full messages.
 
 use crate::message::Message;
 
@@ -56,7 +57,7 @@ pub trait Packet: Message + Send + Sync + 'static {
 }
 
 /// Component values extracted from or used to build a [`Packet`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PacketParts {
     id: u32,
     correlation_id: Option<u64>,
@@ -67,7 +68,7 @@ pub struct PacketParts {
 ///
 /// Incoming frames are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
-#[derive(bincode::Decode, bincode::Encode, Debug)]
+#[derive(bincode::Decode, bincode::Encode, Debug, Clone)]
 pub struct Envelope {
     pub(crate) id: u32,
     pub(crate) correlation_id: Option<u64>,
@@ -133,22 +134,26 @@ impl PacketParts {
     /// ```
     #[must_use]
     pub fn inherit_correlation(mut self, source: Option<u64>) -> Self {
-        match (self.correlation_id, source) {
-            (None, cid) => self.correlation_id = cid,
-            (Some(cid), Some(src)) if cid != src => {
-                tracing::warn!(
-                    id = self.id,
-                    expected = src,
-                    found = cid,
-                    "mismatched correlation id in response",
-                );
-                // Overwrite with the source correlation ID to ensure downstream
-                // consistency.
-                self.correlation_id = Some(src);
-            }
-            _ => {}
+        let (next, mismatched) = Self::select_correlation(self.correlation_id, source);
+        if mismatched && let (Some(found), Some(expected)) = (self.correlation_id, next) {
+            tracing::warn!(
+                id = self.id,
+                expected,
+                found,
+                "mismatched correlation id in response",
+            );
         }
+        self.correlation_id = next;
         self
+    }
+
+    #[inline]
+    fn select_correlation(current: Option<u64>, source: Option<u64>) -> (Option<u64>, bool) {
+        match (current, source) {
+            (None, cid) => (cid, false),
+            (Some(cid), Some(src)) if cid != src => (Some(src), true),
+            (curr, _) => (curr, false),
+        }
     }
 }
 

@@ -1,43 +1,28 @@
 //! Error types for application setup and messaging.
 
-use tokio::io;
+use std::io;
+
+use thiserror::Error;
 
 /// Top-level error type for application setup.
-#[derive(Debug)]
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WireframeError {
     /// A route with the provided identifier was already registered.
+    #[error("route id {0} was already registered")]
     DuplicateRoute(u32),
 }
 
 /// Errors produced when sending a handler response over a stream.
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SendError {
-    /// Serialization failed.
-    Serialize(Box<dyn std::error::Error + Send + Sync>),
+    /// Serialisation failed.
+    #[error("serialisation error: {0}")]
+    Serialize(#[source] Box<dyn std::error::Error + Send + Sync>),
     /// Writing to the stream failed.
-    Io(io::Error),
-}
-
-impl std::fmt::Display for SendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SendError::Serialize(e) => write!(f, "serialization error: {e}"),
-            SendError::Io(e) => write!(f, "I/O error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for SendError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            SendError::Serialize(e) => Some(&**e),
-            SendError::Io(e) => Some(e),
-        }
-    }
-}
-
-impl From<io::Error> for SendError {
-    fn from(e: io::Error) -> Self { SendError::Io(e) }
+    #[error("I/O error: {0}")]
+    Io(#[from] io::Error),
 }
 
 /// Result type used throughout the builder API.

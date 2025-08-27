@@ -27,7 +27,6 @@ use crate::{
     middleware::{HandlerService, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-
 /// Callback invoked when a connection is established.
 ///
 /// # Examples
@@ -36,13 +35,8 @@ use crate::{
 /// use std::sync::Arc;
 ///
 /// use wireframe::app::ConnectionSetup;
-///
-/// let setup: Arc<ConnectionSetup<String>> = Arc::new(|| {
-///     Box::pin(async {
-///         // Perform authentication and return connection state
-///         String::from("hello")
-///     })
-/// });
+/// let setup: Arc<ConnectionSetup<String>> =
+///     Arc::new(|| Box::pin(async { String::from("hello") }));
 /// ```
 pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync;
 
@@ -54,7 +48,6 @@ pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>
 /// use std::sync::Arc;
 ///
 /// use wireframe::app::ConnectionTeardown;
-///
 /// let teardown: Arc<ConnectionTeardown<String>> = Arc::new(|state| {
 ///     Box::pin(async move {
 ///         println!("Dropping {state}");
@@ -63,7 +56,6 @@ pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>
 /// ```
 pub type ConnectionTeardown<C> =
     dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
-
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes and middleware without enforcing an
@@ -92,8 +84,7 @@ pub struct WireframeApp<
 
 /// Alias for asynchronous route handlers.
 ///
-/// A `Handler` is an `Arc` to a function returning a [`Future`], enabling
-/// asynchronous execution of message handlers.
+/// A `Handler` wraps an `Arc` to a function returning a [`Future`].
 pub type Handler<E> = Arc<dyn Fn(&E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Trait representing middleware components.
@@ -113,10 +104,8 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    ///
-    /// Initializes empty routes, middleware, and application data. Sets a
-    /// placeholder frame processor and serializer, with no connection lifecycle
-    /// hooks.
+    /// Initializes empty routes, middleware, and application data with a
+    /// placeholder frame processor and serializer, and no lifecycle hooks.
     fn default() -> Self {
         Self {
             handlers: HashMap::new(),
@@ -154,8 +143,7 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// let app = WireframeApp::<_, _, wireframe::app::Envelope>::new().unwrap();
-    /// assert!(app.protocol().is_none());
+    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().unwrap();
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 
@@ -166,8 +154,7 @@ where
     ///
     /// # Errors
     ///
-    /// This function currently never returns an error but uses [`Result`] for
-    /// forward compatibility.
+    /// Currently always succeeds.
     #[deprecated(note = "use `WireframeApp::new()` instead")]
     pub fn new_with_envelope() -> Result<Self> { Self::new() }
 }
@@ -178,6 +165,31 @@ where
     C: Send + 'static,
     E: Packet,
 {
+    /// Construct a new application builder using the provided serializer.
+    ///
+    /// # Errors
+    ///
+    /// This function currently never returns an error but uses [`Result`] for
+    /// forward compatibility.
+    pub fn with_serializer(serializer: S) -> Result<Self> {
+        Ok(Self {
+            handlers: HashMap::new(),
+            routes: OnceCell::new(),
+            middleware: Vec::new(),
+            frame_processor: Box::new(crate::frame::LengthPrefixedProcessor::new(
+                crate::frame::LengthFormat::default(),
+            )),
+            serializer,
+            app_data: HashMap::new(),
+            on_connect: None,
+            on_disconnect: None,
+            protocol: None,
+            push_dlq: None,
+            buffer_capacity: 1024,
+            read_timeout_ms: 100,
+        })
+    }
+
     /// Register a route that maps `id` to `handler`.
     ///
     /// # Errors
@@ -372,16 +384,16 @@ where
         }
     }
 
-    /// Set the initial buffer capacity for framed reads.
+    /// Set the initial buffer capacity for framed reads (clamped to ≥64).
     #[must_use]
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
-        self.buffer_capacity = capacity;
+        self.buffer_capacity = capacity.max(64);
         self
     }
-    /// Configure the read timeout in milliseconds.
+    /// Configure the read timeout in milliseconds (clamped to ≥1).
     #[must_use]
     pub fn read_timeout_ms(mut self, timeout_ms: u64) -> Self {
-        self.read_timeout_ms = timeout_ms;
+        self.read_timeout_ms = timeout_ms.max(1);
         self
     }
 }
