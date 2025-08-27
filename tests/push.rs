@@ -11,8 +11,23 @@ use wireframe::push::{
     PushPolicy,
     PushPriority,
     PushQueues,
+    PushQueuesBuilder,
 };
 use wireframe_testing::{push_expect, recv_expect};
+
+// Pause Tokio's clock and build queues with the provided capacity and rate
+// configuration. The helper ensures a consistent setup for timing-sensitive
+// push tests.
+fn setup_timed_push_test(
+    capacity: (usize, usize),
+    rate_config: impl FnOnce(PushQueuesBuilder<u8>) -> PushQueuesBuilder<u8>,
+) -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
+    time::pause();
+    let (high, low) = capacity;
+    rate_config(PushQueues::builder().capacity(high, low))
+        .build()
+        .expect("queue creation failed")
+}
 
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
@@ -142,12 +157,7 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
 /// Exceeding the rate limit succeeds after the window has passed.
 #[tokio::test]
 async fn rate_limiter_allows_after_wait() {
-    time::pause();
-    let (mut queues, handle) = PushQueues::builder()
-        .capacity(2, 2)
-        .rate(Some(1))
-        .build()
-        .expect("queue creation failed");
+    let (mut queues, handle) = setup_timed_push_test((2, 2), |b| b.rate(Some(1)));
     push_expect!(handle.push_high_priority(1u8));
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_high_priority(2u8));
@@ -187,12 +197,7 @@ async fn rate_limiter_shared_across_priorities() {
 /// Unlimited queues never block pushes.
 #[tokio::test]
 async fn unlimited_queues_do_not_block() {
-    time::pause();
-    let (mut queues, handle) = PushQueues::builder()
-        .capacity(1, 1)
-        .no_rate_limit()
-        .build()
-        .expect("queue creation failed");
+    let (mut queues, handle) = setup_timed_push_test((1, 1), PushQueuesBuilder::no_rate_limit);
     push_expect!(handle.push_high_priority(1u8));
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");
