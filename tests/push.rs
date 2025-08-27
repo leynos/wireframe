@@ -2,10 +2,20 @@
 //!
 //! They cover priority ordering, policy behaviour, and closed queue errors.
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tokio::time::{self, Duration};
-use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
+use wireframe::push::{PushError, PushHandle, PushPolicy, PushPriority, PushQueues};
 use wireframe_testing::{push_expect, recv_expect};
+
+#[fixture]
+fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
+    PushQueues::builder()
+        .high_capacity(2)
+        .low_capacity(2)
+        .rate(Some(1))
+        .build()
+        .expect("queue creation failed")
+}
 
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
@@ -31,7 +41,7 @@ async fn frames_routed_to_correct_priority_queues() {
 /// `try_push` honours the selected queue policy when full.
 ///
 /// Using [`PushPolicy::ReturnErrorIfFull`] causes `try_push` to
-/// return `PushError::Full` once the queue is at capacity.
+/// return [`PushError::QueueFull`] once the queue is at capacity.
 #[tokio::test]
 async fn try_push_respects_policy() {
     let (mut queues, handle) = PushQueues::builder()
@@ -42,7 +52,7 @@ async fn try_push_respects_policy() {
 
     push_expect!(handle.push_high_priority(1u8));
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
-    assert!(result.is_err());
+    assert!(matches!(result, Err(PushError::QueueFull)));
 
     // drain queue to allow new push
     let _ = queues.recv().await;
@@ -78,12 +88,7 @@ async fn push_queues_error_on_closed() {
 #[tokio::test]
 async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
     time::pause();
-    let (mut queues, handle) = PushQueues::builder()
-        .high_capacity(2)
-        .low_capacity(2)
-        .rate(Some(1))
-        .build()
-        .expect("queue creation failed");
+    let (mut queues, handle) = queues();
 
     match priority {
         PushPriority::High => push_expect!(handle.push_high_priority(1u8)),
@@ -116,12 +121,7 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
 #[tokio::test]
 async fn rate_limiter_allows_after_wait() {
     time::pause();
-    let (mut queues, handle) = PushQueues::builder()
-        .high_capacity(2)
-        .low_capacity(2)
-        .rate(Some(1))
-        .build()
-        .expect("queue creation failed");
+    let (mut queues, handle) = queues();
     push_expect!(handle.push_high_priority(1u8));
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_high_priority(2u8));
@@ -137,12 +137,7 @@ async fn rate_limiter_allows_after_wait() {
 #[tokio::test]
 async fn rate_limiter_shared_across_priorities() {
     time::pause();
-    let (mut queues, handle) = PushQueues::builder()
-        .high_capacity(2)
-        .low_capacity(2)
-        .rate(Some(1))
-        .build()
-        .expect("queue creation failed");
+    let (mut queues, handle) = queues();
     push_expect!(handle.push_high_priority(1u8));
 
     let attempt = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;

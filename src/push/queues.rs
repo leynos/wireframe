@@ -30,7 +30,7 @@ const DEFAULT_PUSH_RATE: usize = 100;
 pub const MAX_PUSH_RATE: usize = 10_000;
 
 // Compile-time guard: DEFAULT_PUSH_RATE must not exceed MAX_PUSH_RATE.
-const _: usize = MAX_PUSH_RATE - DEFAULT_PUSH_RATE;
+const _: () = assert!(DEFAULT_PUSH_RATE <= MAX_PUSH_RATE);
 
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -469,6 +469,9 @@ impl<F: FrameLike> PushQueues<F> {
     /// Returns `None` when both queues are closed and empty.
     ///
     /// # Examples
+    ///
+    /// Note: this method is biased towards high priority traffic and may starve
+    /// low priority frames if producers saturate the high queue.
     ///
     /// ```rust,no_run
     /// use wireframe::push::{PushPriority, PushQueues};

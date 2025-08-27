@@ -12,10 +12,11 @@ use wireframe::push::{PushPolicy, PushPriority, PushQueues};
 use wireframe_testing::{LoggerHandle, logger};
 
 /// Builds a single-thread [`Runtime`] for async tests.
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+#[allow(unfulfilled_lint_expectations)]
 #[fixture]
 fn rt() -> Runtime {
     tokio::runtime::Builder::new_current_thread()
