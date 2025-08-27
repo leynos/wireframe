@@ -175,11 +175,14 @@ where
     ///
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
+    #[allow(
+        clippy::field_reassign_with_default,
+        reason = "overriding serializer post-default simplifies builder"
+    )]
     pub fn with_serializer(serializer: S) -> Result<Self> {
-        Ok(Self {
-            serializer,
-            ..Self::default()
-        })
+        let mut app = Self::default();
+        app.serializer = serializer;
+        Ok(app)
     }
 
     /// Register a route that maps `id` to `handler`.
