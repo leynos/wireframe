@@ -1,8 +1,10 @@
 //! Packet abstraction and envelope types.
 //!
 //! These types decouple serialisation from routing by wrapping raw payloads in
-//! identifiers understood by [`crate::app::WireframeApp`]. Applications can
-//! inspect metadata before deserialising full messages.
+//! identifiers understood by [`crate::app::WireframeApp`]. This allows the
+//! builder (`crate::app::WireframeApp`) to route frames before full
+//! deserialisation. See [`crate::app::builder::WireframeApp`] for how envelopes
+//! are used when registering routes.
 
 use crate::message::Message;
 
@@ -66,7 +68,7 @@ pub struct PacketParts {
 
 /// Basic envelope type used by [`WireframeApp::handle_connection`].
 ///
-/// Incoming frames are deserialized into an `Envelope` containing the
+/// Incoming frames are deserialised into an `Envelope` containing the
 /// message identifier and raw payload bytes.
 #[derive(bincode::Decode, bincode::Encode, Debug, Clone)]
 pub struct Envelope {
@@ -133,15 +135,21 @@ impl PacketParts {
     /// assert_eq!(parts.correlation_id(), Some(8));
     /// ```
     #[must_use]
+    #[expect(
+        clippy::collapsible_if,
+        reason = "avoid if-let chain until it is considered stable"
+    )]
     pub fn inherit_correlation(mut self, source: Option<u64>) -> Self {
         let (next, mismatched) = Self::select_correlation(self.correlation_id, source);
-        if mismatched && let (Some(found), Some(expected)) = (self.correlation_id, next) {
-            tracing::warn!(
-                id = self.id,
-                expected,
-                found,
-                "mismatched correlation id in response",
-            );
+        if mismatched {
+            if let (Some(found), Some(expected)) = (self.correlation_id, next) {
+                tracing::warn!(
+                    id = self.id,
+                    expected,
+                    found,
+                    "mismatched correlation id in response",
+                );
+            }
         }
         self.correlation_id = next;
         self

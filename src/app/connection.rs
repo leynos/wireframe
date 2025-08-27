@@ -28,7 +28,7 @@ const MAX_DESER_FAILURES: u32 = 10;
 #[derive(Debug)]
 enum EnvelopeDecodeError<E> {
     Parse(E),
-    Deserialize(Box<dyn std::error::Error + Send + Sync>),
+    Deserialize(String),
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -83,15 +83,15 @@ where
             .or_else(|_| {
                 self.serializer
                     .deserialize::<Envelope>(frame)
-                    .map_err(EnvelopeDecodeError::Deserialize)
+                    .map_err(|e| EnvelopeDecodeError::Deserialize(e.to_string()))
             })
     }
 
-    /// Handle an accepted connection.
+    /// Handle an accepted connection end-to-end.
     ///
-    /// This placeholder immediately closes the connection after the
-    /// preamble phase. A warning is logged so tests and callers are
-    /// aware of the current limitation.
+    /// Runs optional connection setup to produce per-connection state,
+    /// initialises (and caches) route chains, processes the framed stream
+    /// with per-frame timeouts, and finally runs optional teardown.
     pub async fn handle_connection<W>(&self, stream: W)
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -143,10 +143,18 @@ where
         let mut deser_failures = 0u32;
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
-        while let Ok(Some(frame)) = timeout(timeout_dur, framed.next()).await {
-            let buf = frame?;
-            self.handle_frame(&mut framed, buf.as_ref(), &mut deser_failures, routes)
-                .await?;
+        loop {
+            match timeout(timeout_dur, framed.next()).await {
+                Ok(Some(Ok(buf))) => {
+                    self.handle_frame(&mut framed, buf.as_ref(), &mut deser_failures, routes)
+                        .await?;
+                }
+                Ok(Some(Err(e))) => return Err(e),
+                Ok(None) => break,
+                Err(_) => {
+                    tracing::debug!("read timeout elapsed; continuing to wait for next frame");
+                }
+            }
         }
 
         Ok(())
@@ -231,8 +239,11 @@ where
                 }
             }
         } else {
-            tracing::warn!(id = env.id, correlation_id = ?env.correlation_id, "no handler for message id");
-            crate::metrics::inc_handler_errors();
+            tracing::warn!(
+                id = env.id,
+                correlation_id = ?env.correlation_id,
+                "no handler for message id"
+            );
         }
 
         Ok(())

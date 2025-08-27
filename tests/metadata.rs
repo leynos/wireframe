@@ -18,7 +18,7 @@ type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelo
 
 fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
 where
-    S: TestSerializer,
+    S: TestSerializer + Default,
 {
     TestApp::with_serializer(serializer)
         .expect("failed to create app")
@@ -26,6 +26,7 @@ where
         .expect("route registration failed")
 }
 
+#[derive(Default)]
 struct CountingSerializer(Arc<AtomicUsize>);
 
 impl Serializer for CountingSerializer {
@@ -69,6 +70,7 @@ async fn metadata_parser_invoked_before_deserialize() {
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 
+#[derive(Default)]
 struct FallbackSerializer(Arc<AtomicUsize>, Arc<AtomicUsize>);
 
 impl Serializer for FallbackSerializer {

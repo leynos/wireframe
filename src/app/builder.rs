@@ -69,7 +69,11 @@ pub struct WireframeApp<
     pub(super) handlers: HashMap<u32, Handler<E>>,
     pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
     pub(super) middleware: Vec<Box<dyn Transform<HandlerService<E>, Output = HandlerService<E>>>>,
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "Deprecated: retained temporarily for API compatibility until codec-based \
+                  framing is fully removed"
+    )]
     pub(super) frame_processor:
         Box<dyn crate::frame::FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>,
     pub(super) serializer: S,
@@ -143,7 +147,7 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().unwrap();
+    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialise app");
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 
@@ -161,7 +165,7 @@ where
 
 impl<S, C, E> WireframeApp<S, C, E>
 where
-    S: Serializer + Send + Sync,
+    S: Serializer + Default + Send + Sync,
     C: Send + 'static,
     E: Packet,
 {
@@ -173,20 +177,8 @@ where
     /// forward compatibility.
     pub fn with_serializer(serializer: S) -> Result<Self> {
         Ok(Self {
-            handlers: HashMap::new(),
-            routes: OnceCell::new(),
-            middleware: Vec::new(),
-            frame_processor: Box::new(crate::frame::LengthPrefixedProcessor::new(
-                crate::frame::LengthFormat::default(),
-            )),
             serializer,
-            app_data: HashMap::new(),
-            on_connect: None,
-            on_disconnect: None,
-            protocol: None,
-            push_dlq: None,
-            buffer_capacity: 1024,
-            read_timeout_ms: 100,
+            ..Self::default()
         })
     }
 
@@ -313,7 +305,9 @@ where
     /// use tokio::sync::mpsc;
     /// use wireframe::app::WireframeApp;
     ///
-    /// # fn build() -> WireframeApp { WireframeApp::new().unwrap() }
+    /// # fn build() -> WireframeApp {
+    /// #     WireframeApp::new().expect("builder creation should not fail")
+    /// # }
     /// # fn main() {
     /// let (tx, _rx) = mpsc::channel(16);
     /// let app = build().with_push_dlq(tx);
@@ -335,7 +329,7 @@ where
     pub fn protocol(
         &self,
     ) -> Option<Arc<dyn WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()>>> {
-        self.protocol.as_ref().map(Arc::clone)
+        self.protocol.clone()
     }
 
     /// Return protocol hooks derived from the installed protocol.
@@ -345,7 +339,7 @@ where
     pub fn protocol_hooks(&self) -> ProtocolHooks<Vec<u8>, ()> {
         self.protocol
             .as_ref()
-            .map(|p| ProtocolHooks::from_protocol(&Arc::clone(p)))
+            .map(ProtocolHooks::from_protocol)
             .unwrap_or_default()
     }
 

@@ -17,6 +17,7 @@ use wireframe::{
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
+#[derive(Default)]
 struct HeaderSerializer;
 
 impl Serializer for HeaderSerializer {
