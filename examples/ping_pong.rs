@@ -133,8 +133,7 @@ impl<E: Packet> Transform<HandlerService<E>> for Logging {
 }
 
 fn build_app() -> AppResult<App> {
-    App::new()?
-        .serializer(BincodeSerializer)
+    App::with_serializer(BincodeSerializer)?
         .route(PING_ID, Arc::new(|_: &Envelope| Box::pin(ping_handler())))?
         .wrap(PongMiddleware)?
         .wrap(Logging)

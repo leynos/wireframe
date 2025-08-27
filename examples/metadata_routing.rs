@@ -61,9 +61,8 @@ struct Ping;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let app = WireframeApp::new()
+    let app = WireframeApp::with_serializer(HeaderSerializer)
         .expect("failed to create app")
-        .serializer(HeaderSerializer)
         .route(
             1,
             Arc::new(|_env: &Envelope| {

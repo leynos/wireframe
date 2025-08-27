@@ -41,9 +41,8 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
 /// Tests that sending a response serialises and frames the data correctly,
 /// and that the response can be decoded and deserialised back to its original value asynchronously.
 async fn send_response_encodes_and_frames() {
-    let app = TestApp::<_, _, Envelope>::new()
-        .expect("failed to create app")
-        .serializer(BincodeSerializer);
+    let app = TestApp::<_, _, Envelope>::with_serializer(BincodeSerializer)
+        .expect("failed to create app");
 
     let mut out = Vec::new();
     app.send_response(&mut out, &TestResp(7))
@@ -132,8 +131,7 @@ fn custom_length_roundtrip(
 
 #[tokio::test]
 async fn send_response_propagates_write_error() {
-    let app = TestApp::<_, _, Envelope>::new()
-        .expect("app creation failed");
+    let app = TestApp::<_, _, Envelope>::new().expect("app creation failed");
 
     let mut writer = FailingWriter;
     let err = app

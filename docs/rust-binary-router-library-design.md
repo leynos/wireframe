@@ -1267,9 +1267,9 @@ its own `FrameProcessor` trait or provide helpers.) <!-- list break -->
        println!("Starting echo server on 127.0.0.1:8000");
 
        WireframeServer::new(|| {
-           WireframeApp::new()
+           WireframeApp::with_serializer(BincodeSerializer)
+               .expect("failed to create app")
                //.frame_processor(LengthPrefixedCodec) // Simplified
-               .serializer(BincodeSerializer) // Specify serializer
                .route(MyMessageType::Echo, handle_echo) // Route based on ID
        })
        .bind("127.0.0.1:8000")?
@@ -1377,9 +1377,9 @@ simplify server implementation.
              users: HashMap::new()
          }));
          WireframeServer::new(move || {
-         WireframeApp::new()
+         WireframeApp::with_serializer(BincodeSerializer)
+             .expect("failed to create app")
              //.frame_processor(...)
-             .serializer(BincodeSerializer)
              .app_data(chat_state.clone())
              .route(ChatMessageType::ClientJoin, handle_join)
              .route(ChatMessageType::ClientPost, handle_post)

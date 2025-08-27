@@ -1,8 +1,14 @@
-//! Application builder configuring routes and middleware.
+//! Application layer surface: builder, connection handling, envelope and
+//! error types.
 //!
-//! This module defines [`WireframeApp`], an Actix-inspired builder for
-//! managing connection state, routing, and middleware in a `WireframeServer`.
-//! It exposes convenience methods to register handlers and lifecycle hooks.
+//! This module curates and re-exports the primary application APIs so
+//! downstream crates can `use wireframe::app::*` to access:
+//! - [`WireframeApp`] and builder traits ([`Handler`], [`Middleware`], [`ConnectionSetup`],
+//!   [`ConnectionTeardown`])
+//! - Envelope primitives ([`Envelope`], [`Packet`], [`PacketParts`])
+//! - Error and result types ([`WireframeError`], [`SendError`], [`Result`])
+//!
+//! See the `examples/` directory for end-to-end usage.
 
 use std::{
     any::{Any, TypeId},
@@ -18,6 +24,7 @@ use tokio::{
     io::{self, AsyncWrite, AsyncWriteExt},
     sync::mpsc,
 };
+use tokio_util::codec::{LengthDelimitedCodec, Encoder};
 
 use crate::{
     frame::{FrameProcessor, LengthFormat, LengthPrefixedProcessor},
@@ -112,34 +119,14 @@ pub enum WireframeError {
 }
 
 /// Errors produced when sending a handler response over a stream.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SendError {
     /// Serialization failed.
-    Serialize(Box<dyn std::error::Error + Send + Sync>),
+    #[error("serialization error: {0}")]
+    Serialize(#[source] Box<dyn std::error::Error + Send + Sync>),
     /// Writing to the stream failed.
-    Io(io::Error),
-}
-
-impl std::fmt::Display for SendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SendError::Serialize(e) => write!(f, "serialization error: {e}"),
-            SendError::Io(e) => write!(f, "I/O error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for SendError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            SendError::Serialize(e) => Some(&**e),
-            SendError::Io(e) => Some(e),
-        }
-    }
-}
-
-impl From<io::Error> for SendError {
-    fn from(e: io::Error) -> Self { SendError::Io(e) }
+    #[error("I/O error: {0}")]
+    Io(#[from] io::Error),
 }
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
@@ -377,6 +364,41 @@ where
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 
+    /// Construct a new application builder using the provided serializer.
+    ///
+    /// This avoids the temporary instantiation with [`BincodeSerializer`]
+    /// when another serializer is desired.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::{app::WireframeApp, serializer::BincodeSerializer};
+    ///
+    /// let app = WireframeApp::with_serializer(BincodeSerializer).expect("failed to create app");
+    /// # let _app = app;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if internal initialization fails. This currently never
+    /// happens but the variant is reserved for future failure modes.
+    pub fn with_serializer<S>(serializer: S) -> Result<WireframeApp<S, (), E>>
+    where
+        S: Serializer + Send + Sync,
+    {
+        Ok(WireframeApp {
+            routes: HashMap::new(),
+            middleware: Vec::new(),
+            frame_processor: Box::new(LengthPrefixedProcessor::new(LengthFormat::default())),
+            serializer,
+            app_data: HashMap::new(),
+            on_connect: None,
+            on_disconnect: None,
+            protocol: None,
+            push_dlq: None,
+        })
+    }
+
     /// Construct a new application builder using a custom envelope type.
     ///
     /// Deprecated: call [`WireframeApp::new`] with explicit envelope type
@@ -597,11 +619,13 @@ where
             .serializer
             .serialize(msg)
             .map_err(SendError::Serialize)?;
-        let mut framed = BytesMut::with_capacity(4 + bytes.len());
-        self.frame_processor
-            .encode(&bytes, &mut framed)
-            .map_err(SendError::Io)?;
-        stream.write_all(&framed).await.map_err(SendError::Io)?;
+        // Encode using the same codec as `process_stream` to keep framing consistent.
+        let mut codec = LengthDelimitedCodec::builder().new_codec();
+        let mut out = BytesMut::new();
+        codec
+            .encode(bytes.into(), &mut out)
+            .map_err(|e| SendError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+        stream.write_all(&out).await.map_err(SendError::Io)?;
         stream.flush().await.map_err(SendError::Io)
     }
 }
