@@ -447,7 +447,8 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    let (_client, server) = duplex(64);
+    let (client, server) = duplex(64);
+    drop(client);
     app.handle_connection(server).await;
 }
 
