@@ -27,6 +27,11 @@ use crate::{
     middleware::{HandlerService, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
+
+const MIN_BUFFER_CAP: usize = 64;
+const MAX_BUFFER_CAP: usize = 16 * 1024 * 1024;
+const MIN_READ_TIMEOUT_MS: u64 = 1;
+const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
 /// Callback invoked when a connection is established.
 ///
 /// # Examples
@@ -68,7 +73,7 @@ pub struct WireframeApp<
 > {
     pub(super) handlers: HashMap<u32, Handler<E>>,
     pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
-    pub(super) middleware: Vec<Box<dyn Transform<HandlerService<E>, Output = HandlerService<E>>>>,
+    pub(super) middleware: Vec<Box<dyn Middleware<E>>>,
     #[expect(
         dead_code,
         reason = "Deprecated: retained temporarily for API compatibility until codec-based \
@@ -176,14 +181,11 @@ where
     ///
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
-    #[expect(
-        clippy::field_reassign_with_default,
-        reason = "overriding serializer post-default simplifies builder"
-    )]
     pub fn with_serializer(serializer: S) -> Result<Self> {
-        let mut app = Self::default();
-        app.serializer = serializer;
-        Ok(app)
+        Ok(Self {
+            serializer,
+            ..Self::default()
+        })
     }
 
     /// Register a route that maps `id` to `handler`.
@@ -386,7 +388,7 @@ where
     /// Clamped between 64 bytes and 16 MiB.
     #[must_use]
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
-        self.buffer_capacity = capacity.clamp(64, 16 * 1024 * 1024);
+        self.buffer_capacity = capacity.clamp(MIN_BUFFER_CAP, MAX_BUFFER_CAP);
         self
     }
 
@@ -394,7 +396,7 @@ where
     /// Clamped between 1 and 86 400 000 milliseconds (24 h).
     #[must_use]
     pub fn read_timeout_ms(mut self, timeout_ms: u64) -> Self {
-        self.read_timeout_ms = timeout_ms.clamp(1, 86_400_000);
+        self.read_timeout_ms = timeout_ms.clamp(MIN_READ_TIMEOUT_MS, MAX_READ_TIMEOUT_MS);
         self
     }
 }

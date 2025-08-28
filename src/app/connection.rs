@@ -28,7 +28,7 @@ const MAX_DESER_FAILURES: u32 = 10;
 #[derive(Debug)]
 enum EnvelopeDecodeError<E> {
     Parse(E),
-    Deserialize(String),
+    Deserialize(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -63,6 +63,27 @@ where
         stream.write_all(&framed).await.map_err(SendError::Io)?;
         stream.flush().await.map_err(SendError::Io)
     }
+
+    /// Serialize `msg` and send it through an existing framed stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SendError`] if serialization or sending fails.
+    pub async fn send_response_framed<W, M>(
+        &self,
+        framed: &mut Framed<W, LengthDelimitedCodec>,
+        msg: &M,
+    ) -> std::result::Result<(), SendError>
+    where
+        W: AsyncRead + AsyncWrite + Unpin,
+        M: Message,
+    {
+        let bytes = self
+            .serializer
+            .serialize(msg)
+            .map_err(SendError::Serialize)?;
+        framed.send(bytes.into()).await.map_err(SendError::Io)
+    }
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -83,7 +104,7 @@ where
             .or_else(|_| {
                 self.serializer
                     .deserialize::<Envelope>(frame)
-                    .map_err(|e| EnvelopeDecodeError::Deserialize(e.to_string()))
+                    .map_err(EnvelopeDecodeError::Deserialize)
             })
     }
 

@@ -59,7 +59,7 @@ pub trait Packet: Message + Send + Sync + 'static {
 }
 
 /// Component values extracted from or used to build a [`Packet`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacketParts {
     id: u32,
     correlation_id: Option<u64>,
@@ -70,7 +70,7 @@ pub struct PacketParts {
 ///
 /// Incoming frames are deserialised into an `Envelope` containing the
 /// message identifier and raw payload bytes.
-#[derive(bincode::Decode, bincode::Encode, Debug, Clone)]
+#[derive(bincode::Decode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
 pub struct Envelope {
     pub(crate) id: u32,
     pub(crate) correlation_id: Option<u64>,

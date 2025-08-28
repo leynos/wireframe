@@ -11,14 +11,18 @@ use wireframe::{
     app::Envelope,
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
     message::Message,
-    serializer::{BincodeSerializer, Serializer},
+    serializer::Serializer,
 };
 
-type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+type App = wireframe::app::WireframeApp<wireframe::serializer::BincodeSerializer, (), Envelope>;
 
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
 #[derive(Default)]
 struct HeaderSerializer;
+
+impl HeaderSerializer {
+    fn with_serializer<S: Serializer>(_inner: S) -> Self { Self }
+}
 
 impl Serializer for HeaderSerializer {
     fn serialize<M: Message>(
@@ -66,7 +70,9 @@ struct Ping;
 async fn main() -> io::Result<()> {
     let app = App::new()
         .expect("failed to create app")
-        .serializer(HeaderSerializer)
+        .serializer(HeaderSerializer::with_serializer(
+            wireframe::serializer::BincodeSerializer,
+        ))
         .route(
             1,
             Arc::new(|_env: &Envelope| {
