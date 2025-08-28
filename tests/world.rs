@@ -73,18 +73,17 @@ impl PanicServer {
 
 impl Drop for PanicServer {
     fn drop(&mut self) {
-        use std::time::Duration;
+        use std::{thread, time::Duration};
 
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
         let timeout = Duration::from_secs(5);
-        let joined = futures::executor::block_on(tokio::time::timeout(timeout, &mut self.handle));
-        match joined {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => eprintln!("PanicServer task panicked: {e:?}"),
-            Err(_) => eprintln!("PanicServer task did not shut down within timeout"),
-        }
+        let handle = self.handle.abort_handle();
+        thread::spawn(move || {
+            thread::sleep(timeout);
+            handle.abort();
+        });
     }
 }
 

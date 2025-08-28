@@ -42,7 +42,10 @@ const PING_ID: u32 = 1;
 ///
 /// The middleware chain generates the actual response, so this
 /// handler intentionally performs no work.
-#[allow(clippy::unused_async)]
+#[expect(
+    clippy::unused_async,
+    reason = "Keep async signature to match Handler and Transform trait expectations"
+)]
 async fn ping_handler() {}
 
 struct PongMiddleware;

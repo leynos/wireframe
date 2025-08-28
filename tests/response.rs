@@ -6,8 +6,10 @@
 use bytes::BytesMut;
 use rstest::rstest;
 use wireframe::{
+    app::{Envelope, WireframeApp},
     frame::{Endianness, FrameProcessor, LengthFormat, LengthPrefixedProcessor},
     message::Message,
+    serializer::BincodeSerializer,
 };
 
 mod common;
@@ -186,7 +188,8 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
 /// error is of the `Serialize` variant, indicating a failure during response encoding.
 #[tokio::test]
 async fn send_response_returns_encode_error() {
-    let app = TestApp::new().expect("failed to create app");
+    // Intentionally do not set a frame processor: encode should fail before framing.
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
     let err = app
         .send_response(&mut Vec::new(), &FailingResp)
         .await

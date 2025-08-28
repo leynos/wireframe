@@ -71,7 +71,7 @@ async fn main() -> io::Result<()> {
             1,
             Arc::new(|_env: &Envelope| {
                 Box::pin(async move {
-                    println!("received ping message");
+                    tracing::info!("received ping message");
                 })
             }),
         )
@@ -80,7 +80,7 @@ async fn main() -> io::Result<()> {
             2,
             Arc::new(|_env: &Envelope| {
                 Box::pin(async move {
-                    println!("received pong message");
+                    tracing::info!("received pong message");
                 })
             }),
         )

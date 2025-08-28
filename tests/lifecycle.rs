@@ -131,7 +131,7 @@ impl Packet for StateEnvelope {
 }
 
 #[tokio::test]
-async fn helpers_propagate_connection_state() {
+async fn helpers_preserve_correlation_id_and_run_callbacks() {
     let setup = Arc::new(AtomicUsize::new(0));
     let teardown = Arc::new(AtomicUsize::new(0));
 
