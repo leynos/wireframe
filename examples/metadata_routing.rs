@@ -14,15 +14,11 @@ use wireframe::{
     serializer::Serializer,
 };
 
-type App = wireframe::app::WireframeApp<wireframe::serializer::BincodeSerializer, (), Envelope>;
+type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
 
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
 #[derive(Default)]
 struct HeaderSerializer;
-
-impl HeaderSerializer {
-    fn with_serializer<S: Serializer>(_inner: S) -> Self { Self }
-}
 
 impl Serializer for HeaderSerializer {
     fn serialize<M: Message>(
@@ -68,11 +64,8 @@ struct Ping;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let app = App::new()
+    let app = App::with_serializer(HeaderSerializer)
         .expect("failed to create app")
-        .serializer(HeaderSerializer::with_serializer(
-            wireframe::serializer::BincodeSerializer,
-        ))
         .route(
             1,
             Arc::new(|_env: &Envelope| {
