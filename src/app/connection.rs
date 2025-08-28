@@ -90,7 +90,7 @@ where
     /// Handle an accepted connection end-to-end.
     ///
     /// Runs optional connection setup to produce per-connection state,
-    /// initialises (and caches) route chains, processes the framed stream
+    /// initializes (and caches) route chains, processes the framed stream
     /// with per-frame timeouts, and finally runs optional teardown.
     pub async fn handle_connection<W>(&self, stream: W)
     where

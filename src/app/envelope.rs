@@ -135,21 +135,15 @@ impl PacketParts {
     /// assert_eq!(parts.correlation_id(), Some(8));
     /// ```
     #[must_use]
-    #[expect(
-        clippy::collapsible_if,
-        reason = "avoid if-let chain until it is considered stable"
-    )]
     pub fn inherit_correlation(mut self, source: Option<u64>) -> Self {
         let (next, mismatched) = Self::select_correlation(self.correlation_id, source);
-        if mismatched {
-            if let (Some(found), Some(expected)) = (self.correlation_id, next) {
-                tracing::warn!(
-                    id = self.id,
-                    expected,
-                    found,
-                    "mismatched correlation id in response",
-                );
-            }
+        if mismatched && let (Some(found), Some(expected)) = (self.correlation_id, next) {
+            tracing::warn!(
+                id = self.id,
+                expected,
+                found,
+                "mismatched correlation id in response",
+            );
         }
         self.correlation_id = next;
         self

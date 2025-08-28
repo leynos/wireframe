@@ -18,13 +18,12 @@ type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelo
 
 fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
 where
-    S: TestSerializer,
+    S: TestSerializer + Default,
 {
-    wireframe::app::WireframeApp::<BincodeSerializer, (), Envelope>::new()
+    wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)
         .expect("failed to create app")
         .route(1, Arc::new(|_| Box::pin(async {})))
         .expect("route registration failed")
-        .serializer(serializer)
 }
 
 #[derive(Default)]

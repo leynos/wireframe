@@ -69,11 +69,12 @@ pub struct WireframeApp<
     pub(super) handlers: HashMap<u32, Handler<E>>,
     pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
     pub(super) middleware: Vec<Box<dyn Transform<HandlerService<E>, Output = HandlerService<E>>>>,
-    #[allow(
+    #[expect(
         dead_code,
         reason = "Deprecated: retained temporarily for API compatibility until codec-based \
-                  framing is fully removed"
+                  framing is fully removed",
     )]
+    #[allow(unfulfilled_lint_expectations)]
     pub(super) frame_processor:
         Box<dyn crate::frame::FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>,
     pub(super) serializer: S,
@@ -147,7 +148,7 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialise app");
+    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialize app");
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 
@@ -223,7 +224,7 @@ where
     /// This function currently always succeeds.
     pub fn wrap<M>(mut self, mw: M) -> Result<Self>
     where
-        M: Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync + 'static,
+        M: Middleware<E> + 'static,
     {
         self.middleware.push(Box::new(mw));
         self.routes = OnceCell::new();
