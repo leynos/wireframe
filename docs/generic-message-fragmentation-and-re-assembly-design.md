@@ -162,11 +162,6 @@ Developers will enable fragmentation by adding the `FragmentAdapter` to their
 // Example: Configuring a server for MySQL-style fragmentation.
 WireframeServer::new(|| {
     WireframeApp::new()
-       .frame_processor(
-            FragmentAdapter::new(MySqlStrategy)
-               .with_max_message_size(64 * 1024 * 1024) // 64 MiB
-               .with_reassembly_timeout(Duration::from_secs(30))
-        )
        .route(...)
 })
 ```

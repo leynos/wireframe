@@ -6,16 +6,19 @@
 use std::{collections::HashMap, future::Future, pin::Pin};
 
 use async_trait::async_trait;
+use tracing::{info, warn};
 use wireframe::{
-    app::{Envelope, WireframeApp},
-    frame::{LengthFormat, LengthPrefixedProcessor},
+    app::Envelope,
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
+    serializer::BincodeSerializer,
     server::{ServerError, WireframeServer},
 };
 
+type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
-enum Packet {
+enum ExamplePacket {
     Ping,
     Chat { user: String, msg: String },
     Stats(Vec<u32>),
@@ -24,7 +27,7 @@ enum Packet {
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 struct Frame {
     headers: HashMap<String, String>,
-    packet: Packet,
+    packet: ExamplePacket,
 }
 
 /// Middleware that decodes incoming frames and logs packet details.
@@ -45,12 +48,12 @@ where
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         match Frame::from_bytes(req.frame()) {
             Ok((frame, _)) => match frame.packet {
-                Packet::Ping => println!("ping: {:?}", frame.headers),
-                Packet::Chat { user, msg } => println!("{user} says: {msg}"),
-                Packet::Stats(values) => println!("stats: {values:?}"),
+                ExamplePacket::Ping => info!("ping: {:?}", frame.headers),
+                ExamplePacket::Chat { user, msg } => info!("{user} says: {msg}"),
+                ExamplePacket::Stats(values) => info!("stats: {values:?}"),
             },
             Err(e) => {
-                eprintln!("Failed to decode frame: {e}");
+                warn!("Failed to decode frame: {e}");
             }
         }
 
@@ -71,16 +74,15 @@ impl Transform<HandlerService<Envelope>> for DecodeMiddleware {
 
 fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     Box::pin(async {
-        println!("packet received");
+        info!("packet received");
     })
 }
 
 #[tokio::main]
 async fn main() -> Result<(), ServerError> {
     let factory = || {
-        WireframeApp::new()
+        App::new()
             .expect("Failed to create WireframeApp")
-            .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u16_le()))
             .wrap(DecodeMiddleware)
             .expect("Failed to wrap middleware")
             .route(1, std::sync::Arc::new(handle_packet))

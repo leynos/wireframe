@@ -726,8 +726,7 @@ component to run it.
   async fn main_server_setup() -> std::io::Result<()> {
       let app_state = Arc::new(Mutex::new(AppState::new()));
       WireframeServer::new(move || { // Closure provides App per worker thread
-         WireframeApp::new()
-            .frame_processor(MyFrameProcessor::new()) // Configure the framing logic
+        WireframeApp::new()
             .app_data(app_state.clone()) // Shared application state
             //.service(login_handler) // If using attribute macros and auto-discovery
             //.service(chat_handler)
@@ -745,10 +744,8 @@ The WireframeApp builder would offer methods like:
 
 - WireframeApp::new(): Creates a new application builder.
 
-- .frame_processor(impl FrameProcessor): Sets the framing logic.
-
-- .service(handler_function): Registers a handler function, potentially
-  inferring the message type it handles if attribute macros are used.
+- `[deprecated]` `.frame_processor(impl FrameProcessor)`: framing is now
+  handled by the connection codec.
 
 - .route(message_id, handler_function): Explicitly maps a message identifier to
   a handler.
@@ -1273,7 +1270,7 @@ its own `FrameProcessor` trait or provide helpers.) <!-- list break -->
 
        WireframeServer::new(|| {
            WireframeApp::new()
-               //.frame_processor(LengthPrefixedCodec) // Simplified
+               //.frame_processor(LengthPrefixedCodec) // deprecated: framing handled by codec
                .serializer(BincodeSerializer) // Specify serializer
                .route(MyMessageType::Echo, handle_echo) // Route based on ID
                // OR if type-based routing is supported and EchoRequest has an ID:
@@ -1383,14 +1380,14 @@ simplify server implementation.
          let chat_state = Arc::new(Mutex::new(ChatRoomState {
              users: HashMap::new()
          }));
-         WireframeServer::new(move || {
-         WireframeApp::new()
-             //.frame_processor(...)
-             .serializer(BincodeSerializer)
-             .app_data(chat_state.clone())
-             .route(ChatMessageType::ClientJoin, handle_join)
-             .route(ChatMessageType::ClientPost, handle_post)
-         })
+        WireframeServer::new(move || {
+        WireframeApp::new()
+            //.frame_processor(...) // deprecated: framing handled by codec
+            .serializer(BincodeSerializer)
+            .app_data(chat_state.clone())
+            .route(ChatMessageType::ClientJoin, handle_join)
+            .route(ChatMessageType::ClientPost, handle_post)
+        })
          .bind("127.0.0.1:8001")?
          .run()
          .await

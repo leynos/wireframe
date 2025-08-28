@@ -8,13 +8,16 @@ use std::{io, sync::Arc};
 use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, duplex};
 use wireframe::{
-    app::{Envelope, WireframeApp},
+    app::Envelope,
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
     message::Message,
     serializer::Serializer,
 };
 
+type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
+
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
+#[derive(Default)]
 struct HeaderSerializer;
 
 impl Serializer for HeaderSerializer {
@@ -61,15 +64,13 @@ struct Ping;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let app = WireframeApp::new()
+    let app = App::with_serializer(HeaderSerializer)
         .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
-        .serializer(HeaderSerializer)
         .route(
             1,
             Arc::new(|_env: &Envelope| {
                 Box::pin(async move {
-                    println!("received ping message");
+                    tracing::info!("received ping message");
                 })
             }),
         )
@@ -78,7 +79,7 @@ async fn main() -> io::Result<()> {
             2,
             Arc::new(|_env: &Envelope| {
                 Box::pin(async move {
-                    println!("received pong message");
+                    tracing::info!("received pong message");
                 })
             }),
         )

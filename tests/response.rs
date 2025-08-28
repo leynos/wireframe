@@ -12,6 +12,9 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
+mod common;
+use common::TestApp;
+
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestResp(u32);
 
@@ -35,14 +38,11 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
     }
 }
 
+/// Tests that sending a response serializes and frames the data correctly,
+/// and that the response can be decoded and deserialized back to its original value asynchronously.
 #[tokio::test]
-/// Tests that sending a response serialises and frames the data correctly,
-/// and that the response can be decoded and deserialised back to its original value asynchronously.
 async fn send_response_encodes_and_frames() {
-    let app = WireframeApp::<_, _, Envelope>::new()
-        .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
-        .serializer(BincodeSerializer);
+    let app = TestApp::new().expect("failed to create app");
 
     let mut out = Vec::new();
     app.send_response(&mut out, &TestResp(7))
@@ -59,11 +59,11 @@ async fn send_response_encodes_and_frames() {
     assert_eq!(decoded, TestResp(7));
 }
 
-#[tokio::test]
 /// Tests that decoding with an incomplete length prefix header returns `None` and does not consume
 /// any bytes from the buffer.
 ///
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
+#[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
     let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
@@ -71,11 +71,11 @@ async fn length_prefixed_decode_requires_complete_header() {
     assert_eq!(buf.len(), 3); // nothing consumed
 }
 
-#[tokio::test]
 /// Tests that decoding with a complete length prefix but incomplete frame data returns `None`
 /// and retains all bytes in the buffer.
 ///
 /// Ensures that the decoder does not consume any bytes when the full frame is not yet available.
+#[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
     let processor = LengthPrefixedProcessor::default();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
@@ -131,9 +131,7 @@ fn custom_length_roundtrip(
 
 #[tokio::test]
 async fn send_response_propagates_write_error() {
-    let app = WireframeApp::<_, _, Envelope>::new()
-        .expect("app creation failed")
-        .frame_processor(LengthPrefixedProcessor::default());
+    let app = TestApp::new().expect("app creation failed");
 
     let mut writer = FailingWriter;
     let err = app
@@ -184,13 +182,14 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
-#[tokio::test]
 /// Tests that `send_response` returns a serialization error when encoding fails.
 ///
 /// This test sends a `FailingResp` using `send_response` and asserts that the resulting
 /// error is of the `Serialize` variant, indicating a failure during response encoding.
+#[tokio::test]
 async fn send_response_returns_encode_error() {
-    let app = WireframeApp::<_, _, Envelope>::new().expect("failed to create app");
+    // Intentionally do not set a frame processor: encode should fail before framing.
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
     let err = app
         .send_response(&mut Vec::new(), &FailingResp)
         .await

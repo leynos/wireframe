@@ -5,6 +5,9 @@
 //! servers, including routing, middleware, and connection utilities.
 
 pub mod app;
+/// Result type alias re-exported for convenience when working with the
+/// application builder.
+pub use app::error::Result;
 pub mod serializer;
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;

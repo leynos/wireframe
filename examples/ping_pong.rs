@@ -7,12 +7,14 @@ use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use wireframe::{
-    app::{Envelope, Packet, Result as AppResult, WireframeApp},
+    app::{Envelope, Packet, Result as AppResult},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
     server::{ServerError, WireframeServer},
 };
+
+type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 struct Ping(u32);
@@ -40,7 +42,10 @@ const PING_ID: u32 = 1;
 ///
 /// The middleware chain generates the actual response, so this
 /// handler intentionally performs no work.
-#[allow(clippy::unused_async)]
+#[expect(
+    clippy::unused_async,
+    reason = "Keep async signature to match Handler and Transform trait expectations"
+)]
 async fn ping_handler() {}
 
 struct PongMiddleware;
@@ -130,8 +135,8 @@ impl<E: Packet> Transform<HandlerService<E>> for Logging {
     }
 }
 
-fn build_app() -> AppResult<WireframeApp> {
-    WireframeApp::new()?
+fn build_app() -> AppResult<App> {
+    App::new()?
         .serializer(BincodeSerializer)
         .route(PING_ID, Arc::new(|_: &Envelope| Box::pin(ping_handler())))?
         .wrap(PongMiddleware)?

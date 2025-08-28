@@ -13,11 +13,14 @@ use std::{
 
 use bytes::BytesMut;
 use wireframe::{
-    app::{Envelope, Packet, PacketParts, WireframeApp},
+    app::{Envelope, Packet, PacketParts},
     frame::FrameProcessor,
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{processor, run_app, run_with_duplex_server};
+
+type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
+type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 fn call_counting_callback<R, A>(
     counter: &Arc<AtomicUsize>,
@@ -42,14 +45,14 @@ fn wireframe_app_with_lifecycle_callbacks<E>(
     setup: &Arc<AtomicUsize>,
     teardown: &Arc<AtomicUsize>,
     state: u32,
-) -> WireframeApp<BincodeSerializer, u32, E>
+) -> App<E>
 where
     E: Packet,
 {
     let setup_cb = call_counting_callback(setup, state);
     let teardown_cb = call_counting_callback(teardown, ());
 
-    WireframeApp::<_, _, E>::new()
+    App::<E>::new()
         .expect("failed to create app")
         .on_connection_setup(move || setup_cb(()))
         .expect("setup callback")
@@ -74,7 +77,7 @@ async fn setup_without_teardown_runs() {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&setup_count, ());
 
-    let app = WireframeApp::<_, _, Envelope>::new()
+    let app = BasicApp::new()
         .expect("failed to create app")
         .on_connection_setup(move || cb(()))
         .expect("setup callback");
@@ -89,7 +92,7 @@ async fn teardown_without_setup_does_not_run() {
     let teardown_count = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&teardown_count, ());
 
-    let app = WireframeApp::<_, _, Envelope>::new()
+    let app = BasicApp::new()
         .expect("failed to create app")
         .on_connection_teardown(cb)
         .expect("teardown callback");
@@ -128,12 +131,11 @@ impl Packet for StateEnvelope {
 }
 
 #[tokio::test]
-async fn helpers_propagate_connection_state() {
+async fn helpers_preserve_correlation_id_and_run_callbacks() {
     let setup = Arc::new(AtomicUsize::new(0));
     let teardown = Arc::new(AtomicUsize::new(0));
 
     let app = wireframe_app_with_lifecycle_callbacks::<StateEnvelope>(&setup, &teardown, 7)
-        .frame_processor(processor())
         .route(1, Arc::new(|_: &StateEnvelope| Box::pin(async {})))
         .expect("route registration failed");
 

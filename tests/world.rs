@@ -10,13 +10,16 @@ use cucumber::World;
 use tokio::{net::TcpStream, sync::oneshot};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    app::{Envelope, Packet, WireframeApp},
+    app::{Envelope, Packet},
     connection::ConnectionActor,
     hooks::ProtocolHooks,
     push::PushQueues,
     response::FrameStream,
+    serializer::BincodeSerializer,
     server::WireframeServer,
 };
+
+type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -35,7 +38,7 @@ struct PanicServer {
 impl PanicServer {
     async fn spawn() -> Self {
         let factory = || {
-            WireframeApp::new()
+            TestApp::new()
                 .expect("Failed to create WireframeApp")
                 .on_connection_setup(|| async { panic!("boom") })
                 .expect("Failed to set connection setup callback")
@@ -70,18 +73,17 @@ impl PanicServer {
 
 impl Drop for PanicServer {
     fn drop(&mut self) {
-        use std::time::Duration;
+        use std::{thread, time::Duration};
 
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
         let timeout = Duration::from_secs(5);
-        let joined = futures::executor::block_on(tokio::time::timeout(timeout, &mut self.handle));
-        match joined {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => eprintln!("PanicServer task panicked: {e:?}"),
-            Err(_) => eprintln!("PanicServer task did not shut down within timeout"),
-        }
+        let handle = self.handle.abort_handle();
+        thread::spawn(move || {
+            thread::sleep(timeout);
+            handle.abort();
+        });
     }
 }
 

@@ -8,24 +8,25 @@ use std::sync::{
 };
 
 use wireframe::{
-    app::{Envelope, WireframeApp},
-    frame::{FrameMetadata, LengthPrefixedProcessor},
+    app::Envelope,
+    frame::FrameMetadata,
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{TestSerializer, drive_with_bincode};
 
-fn mock_wireframe_app_with_serializer<S>(serializer: S) -> WireframeApp<S>
+type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelope>;
+
+fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
 where
-    S: TestSerializer,
+    S: TestSerializer + Default,
 {
-    WireframeApp::new()
+    wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)
         .expect("failed to create app")
-        .frame_processor(LengthPrefixedProcessor::default())
-        .serializer(serializer)
         .route(1, Arc::new(|_| Box::pin(async {})))
         .expect("route registration failed")
 }
 
+#[derive(Default)]
 struct CountingSerializer(Arc<AtomicUsize>);
 
 impl Serializer for CountingSerializer {
@@ -49,7 +50,7 @@ impl FrameMetadata for CountingSerializer {
     type Error = bincode::error::DecodeError;
 
     fn parse(&self, src: &[u8]) -> Result<(Self::Frame, usize), Self::Error> {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.0.fetch_add(1, Ordering::Relaxed);
         BincodeSerializer.parse(src)
     }
 }
@@ -66,9 +67,10 @@ async fn metadata_parser_invoked_before_deserialize() {
         .await
         .expect("drive_with_bincode failed");
     assert!(!out.is_empty());
-    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(counter.load(Ordering::Relaxed), 1);
 }
 
+#[derive(Default)]
 struct FallbackSerializer(Arc<AtomicUsize>, Arc<AtomicUsize>);
 
 impl Serializer for FallbackSerializer {
@@ -83,7 +85,7 @@ impl Serializer for FallbackSerializer {
         &self,
         bytes: &[u8],
     ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>> {
-        self.1.fetch_add(1, Ordering::SeqCst);
+        self.1.fetch_add(1, Ordering::Relaxed);
         BincodeSerializer.deserialize(bytes)
     }
 }
@@ -93,7 +95,7 @@ impl FrameMetadata for FallbackSerializer {
     type Error = bincode::error::DecodeError;
 
     fn parse(&self, _src: &[u8]) -> Result<(Self::Frame, usize), Self::Error> {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.0.fetch_add(1, Ordering::Relaxed);
         Err(bincode::error::DecodeError::OtherString("fail".into()))
     }
 }
@@ -111,6 +113,6 @@ async fn falls_back_to_deserialize_after_parse_error() {
         .await
         .expect("drive_with_bincode failed");
     assert!(!out.is_empty());
-    assert_eq!(parse_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(deser_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(parse_calls.load(Ordering::Relaxed), 1);
+    assert_eq!(deser_calls.load(Ordering::Relaxed), 1);
 }

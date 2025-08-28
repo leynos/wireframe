@@ -33,14 +33,14 @@ A `WireframeClient::builder()` method configures the client:
 
 ```rust
 let client = WireframeClient::builder()
-    .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u32_be()))
     .serializer(BincodeSerializer)
     .connect("127.0.0.1:7878")
     .await?;
 ```
 
-The same `FrameProcessor` and `Serializer` traits used by the server are reused
-here, ensuring messages are framed and encoded consistently.
+The same `Serializer` trait used by the server is reused here, ensuring
+messages are encoded consistently while framing is handled by the
+length‑delimited codec.
 
 ### Request/Response Helpers
 
@@ -52,9 +52,9 @@ let request = Login { username: "guest".into() };
 let response: LoginAck = client.call(request).await?;
 ```
 
-Internally, this uses the `Serializer` to encode the request, writes it through
-the `FrameProcessor`, then waits for a frame, decodes it, and deserializes the
-response type.
+Internally, this uses the `Serializer` to encode the request, sends it through
+the length‑delimited codec, then waits for a frame, decodes it, and
+deserializes the response type.
 
 ### Connection Lifecycle
 
@@ -68,7 +68,6 @@ initialization logic.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let mut client = WireframeClient::builder()
-        .frame_processor(LengthPrefixedProcessor::new(LengthFormat::u32_be()))
         .serializer(BincodeSerializer)
         .connect("127.0.0.1:7878")
         .await?;

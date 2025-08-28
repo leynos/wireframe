@@ -3,10 +3,12 @@
 //! These functions spin up an application on an in-memory duplex stream and
 //! collect the bytes written back by the app for assertions.
 
+use std::io;
+
 use bincode::config;
 use bytes::BytesMut;
 use rstest::fixture;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
@@ -15,10 +17,8 @@ use wireframe::{
 
 /// Create a default length-prefixed frame processor for tests.
 #[fixture]
-#[allow(
-    unused_braces,
-    reason = "Clippy is wrong here; this is not a redundant block"
-)]
+#[expect(unused_braces, reason = "Braces are intentional here; false positive")]
+#[allow(unfulfilled_lint_expectations)]
 pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
 
 pub trait TestSerializer:
@@ -41,12 +41,12 @@ impl<T> TestSerializer for T where
 /// with `"server task failed"`.
 ///
 /// ```rust
-/// use tokio::io::{self, AsyncWriteExt, DuplexStream};
+/// use tokio::io::{AsyncWriteExt, DuplexStream};
 /// use wireframe_testing::helpers::drive_internal;
 ///
 /// async fn echo(mut server: DuplexStream) { let _ = server.write_all(&[1, 2]).await; }
 ///
-/// # async fn demo() -> io::Result<()> {
+/// # async fn demo() -> std::io::Result<()> {
 /// let bytes = drive_internal(echo, vec![vec![0]], 64).await?;
 /// assert_eq!(bytes, [1, 2]);
 /// # Ok(())
@@ -97,6 +97,7 @@ where
 
 const DEFAULT_CAPACITY: usize = 4096;
 const MAX_CAPACITY: usize = 1024 * 1024 * 10; // 10MB limit
+pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
 
 macro_rules! forward_default {
     (
@@ -158,10 +159,10 @@ macro_rules! forward_with_capacity {
 /// duplex stream.
 ///
 /// ```rust
-/// # use wireframe_testing::{drive_with_frame, processor};
+/// # use wireframe_testing::drive_with_frame;
 /// # use wireframe::app::WireframeApp;
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// # async fn demo() -> std::io::Result<()> {
+/// let app = WireframeApp::new().expect("failed to initialize app");
 /// let bytes = drive_with_frame(app, vec![1, 2, 3]).await?;
 /// # Ok(())
 /// # }
@@ -184,10 +185,10 @@ forward_with_capacity! {
     /// Adjusting the buffer size helps exercise edge cases such as small channels.
     ///
     /// ```rust
-    /// # use wireframe_testing::{drive_with_frame_with_capacity, processor};
+    /// # use wireframe_testing::drive_with_frame_with_capacity;
     /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// # async fn demo() -> std::io::Result<()> {
+    /// let app = WireframeApp::new().expect("failed to initialize app");
     /// let bytes = drive_with_frame_with_capacity(app, vec![0], 512).await?;
     /// # Ok(())
     /// # }
@@ -202,10 +203,10 @@ forward_default! {
     /// Each frame is written to the duplex stream in order.
     ///
     /// ```rust
-    /// # use wireframe_testing::{drive_with_frames, processor};
+    /// # use wireframe_testing::drive_with_frames;
     /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// # async fn demo() -> std::io::Result<()> {
+    /// let app = WireframeApp::new().expect("failed to initialize app");
     /// let out = drive_with_frames(app, vec![vec![1], vec![2]]).await?;
     /// # Ok(())
     /// # }
@@ -219,10 +220,10 @@ forward_default! {
 /// This variant exposes the buffer size for fine-grained control in tests.
 ///
 /// ```rust
-/// # use wireframe_testing::{drive_with_frames_with_capacity, processor};
+/// # use wireframe_testing::drive_with_frames_with_capacity;
 /// # use wireframe::app::WireframeApp;
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// # async fn demo() -> std::io::Result<()> {
+/// let app = WireframeApp::new().expect("failed to initialize app");
 /// let out = drive_with_frames_with_capacity(app, vec![vec![1], vec![2]], 1024).await?;
 /// # Ok(())
 /// # }
@@ -250,10 +251,10 @@ forward_default! {
     /// across calls.
     ///
     /// ```rust
-    /// # use wireframe_testing::{drive_with_frame_mut, processor};
+    /// # use wireframe_testing::drive_with_frame_mut;
     /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// # async fn demo() -> std::io::Result<()> {
+    /// let mut app = WireframeApp::new().expect("failed to initialize app");
     /// let bytes = drive_with_frame_mut(&mut app, vec![1]).await?;
     /// # Ok(())
     /// # }
@@ -266,10 +267,10 @@ forward_with_capacity! {
     /// Feed a single frame into `app` using a duplex buffer of `capacity` bytes.
     ///
     /// ```rust
-    /// # use wireframe_testing::{drive_with_frame_with_capacity_mut, processor};
+    /// # use wireframe_testing::drive_with_frame_with_capacity_mut;
     /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// # async fn demo() -> std::io::Result<()> {
+    /// let mut app = WireframeApp::new().expect("failed to initialize app");
     /// let bytes = drive_with_frame_with_capacity_mut(&mut app, vec![1], 256).await?;
     /// # Ok(())
     /// # }
@@ -282,10 +283,10 @@ forward_default! {
     /// Feed multiple frames into a mutable `app`.
     ///
     /// ```rust
-    /// # use wireframe_testing::{drive_with_frames_mut, processor};
+    /// # use wireframe_testing::drive_with_frames_mut;
     /// # use wireframe::app::WireframeApp;
-    /// # async fn demo() -> tokio::io::Result<()> {
-    /// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+    /// # async fn demo() -> std::io::Result<()> {
+    /// let mut app = WireframeApp::new().expect("failed to initialize app");
     /// let out = drive_with_frames_mut(&mut app, vec![vec![1], vec![2]]).await?;
     /// # Ok(())
     /// # }
@@ -297,10 +298,10 @@ forward_default! {
 /// Feed multiple frames into `app` with a duplex buffer of `capacity` bytes.
 ///
 /// ```rust
-/// # use wireframe_testing::{drive_with_frames_with_capacity_mut, processor};
+/// # use wireframe_testing::drive_with_frames_with_capacity_mut;
 /// # use wireframe::app::WireframeApp;
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let mut app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// # async fn demo() -> std::io::Result<()> {
+/// let mut app = WireframeApp::new().expect("failed to initialize app");
 /// let out = drive_with_frames_with_capacity_mut(&mut app, vec![vec![1], vec![2]], 64).await?;
 /// # Ok(())
 /// # }
@@ -326,12 +327,12 @@ where
 /// Encode `msg` using bincode, frame it and drive `app`.
 ///
 /// ```rust
-/// # use wireframe_testing::{drive_with_bincode, processor};
+/// # use wireframe_testing::drive_with_bincode;
 /// # use wireframe::app::WireframeApp;
 /// #[derive(bincode::Encode)]
 /// struct Ping(u8);
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// # async fn demo() -> std::io::Result<()> {
+/// let app = WireframeApp::new().expect("failed to initialize app");
 /// let bytes = drive_with_bincode(app, Ping(1)).await?;
 /// # Ok(())
 /// # }
@@ -370,10 +371,10 @@ where
 /// surfaced as an error.
 ///
 /// ```rust
-/// # use wireframe_testing::{processor, run_app};
+/// # use wireframe_testing::run_app;
 /// # use wireframe::app::WireframeApp;
-/// # async fn demo() -> tokio::io::Result<()> {
-/// let app = WireframeApp::new().frame_processor(processor()).unwrap();
+/// # async fn demo() -> std::io::Result<()> {
+/// let app = WireframeApp::new().expect("failed to initialize app");
 /// let out = run_app(app, vec![vec![1]], None).await?;
 /// # Ok(())
 /// # }
@@ -433,12 +434,11 @@ where
 /// Panics if `handle_connection` fails.
 ///
 /// ```rust
-/// # use wireframe_testing::{run_with_duplex_server, processor};
+/// # use wireframe_testing::run_with_duplex_server;
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() {
 /// let app = WireframeApp::new()
-///     .frame_processor(processor())
-///     .unwrap();
+///     .expect("failed to initialize app");
 /// run_with_duplex_server(app).await;
 /// }
 /// ```
@@ -448,7 +448,7 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    let (_client, server) = duplex(64);
+    let (_, server) = duplex(EMPTY_SERVER_CAPACITY); // discard client half
     app.handle_connection(server).await;
 }
 
