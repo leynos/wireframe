@@ -3,10 +3,12 @@
 //! These functions spin up an application on an in-memory duplex stream and
 //! collect the bytes written back by the app for assertions.
 
+use std::io;
+
 use bincode::config;
 use bytes::BytesMut;
 use rstest::fixture;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
@@ -15,10 +17,8 @@ use wireframe::{
 
 /// Create a default length-prefixed frame processor for tests.
 #[fixture]
-#[allow(
-    unused_braces,
-    reason = "Clippy is wrong here; this is not a redundant block"
-)]
+#[expect(unused_braces, reason = "Braces are intentional here; false positive")]
+#[allow(unfulfilled_lint_expectations)]
 pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
 
 pub trait TestSerializer:
@@ -41,12 +41,12 @@ impl<T> TestSerializer for T where
 /// with `"server task failed"`.
 ///
 /// ```rust
-/// use tokio::io::{self, AsyncWriteExt, DuplexStream};
+/// use tokio::io::{AsyncWriteExt, DuplexStream};
 /// use wireframe_testing::helpers::drive_internal;
 ///
 /// async fn echo(mut server: DuplexStream) { let _ = server.write_all(&[1, 2]).await; }
 ///
-/// # async fn demo() -> io::Result<()> {
+/// # async fn demo() -> std::io::Result<()> {
 /// let bytes = drive_internal(echo, vec![vec![0]], 64).await?;
 /// assert_eq!(bytes, [1, 2]);
 /// # Ok(())
