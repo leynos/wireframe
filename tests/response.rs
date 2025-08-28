@@ -8,7 +8,6 @@ use rstest::rstest;
 use wireframe::{
     frame::{Endianness, FrameProcessor, LengthFormat, LengthPrefixedProcessor},
     message::Message,
-    serializer::BincodeSerializer,
 };
 
 mod common;
@@ -41,9 +40,7 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
 /// and that the response can be decoded and deserialized back to its original value asynchronously.
 #[tokio::test]
 async fn send_response_encodes_and_frames() {
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .serializer(BincodeSerializer);
+    let app = TestApp::new().expect("failed to create app");
 
     let mut out = Vec::new();
     app.send_response(&mut out, &TestResp(7))

@@ -381,16 +381,19 @@ where
         }
     }
 
-    /// Set the initial buffer capacity for framed reads (clamped to ≥64).
+    /// Set the initial buffer capacity for framed reads.
+    /// Clamped between 64 bytes and 16 MiB.
     #[must_use]
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
-        self.buffer_capacity = capacity.max(64);
+        self.buffer_capacity = capacity.clamp(64, 16 * 1024 * 1024);
         self
     }
-    /// Configure the read timeout in milliseconds (clamped to ≥1).
+
+    /// Configure the read timeout in milliseconds.
+    /// Clamped between 1 and 86 400 000 milliseconds (24 h).
     #[must_use]
     pub fn read_timeout_ms(mut self, timeout_ms: u64) -> Self {
-        self.read_timeout_ms = timeout_ms.max(1);
+        self.read_timeout_ms = timeout_ms.clamp(1, 86_400_000);
         self
     }
 }

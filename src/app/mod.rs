@@ -1,11 +1,10 @@
-//! Application layer surface: builder, connection handling, envelope and error types.
+//! Application builder and supporting types.
 //!
-//! This module curates and re-exports the primary application APIs so downstream
-//! crates can `use wireframe::app::*` to access:
+//! Re-exports:
 //! - [`WireframeApp`] and builder traits ([`Handler`], [`Middleware`], [`ConnectionSetup`],
 //!   [`ConnectionTeardown`])
 //! - Envelope primitives ([`Envelope`], [`Packet`], [`PacketParts`])
-//! - Error and result types ([`WireframeError`], [`SendError`], [`Result`])
+//! - Error handling types ([`WireframeError`], [`SendError`], [`Result`])
 //!
 //! See the `examples/` directory for end-to-end usage.
 

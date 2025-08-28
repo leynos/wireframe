@@ -97,6 +97,7 @@ where
 
 const DEFAULT_CAPACITY: usize = 4096;
 const MAX_CAPACITY: usize = 1024 * 1024 * 10; // 10MB limit
+pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
 
 macro_rules! forward_default {
     (
@@ -447,9 +448,7 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    let (client, server) = duplex(64);
-    // Drop the client end immediately so the server sees EOF.
-    drop(client);
+    let (_, server) = duplex(EMPTY_SERVER_CAPACITY); // discard client half
     app.handle_connection(server).await;
 }
 
