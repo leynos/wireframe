@@ -72,7 +72,7 @@ pub struct WireframeApp<
     #[expect(
         dead_code,
         reason = "Deprecated: retained temporarily for API compatibility until codec-based \
-                  framing is fully removed",
+                  framing is fully removed"
     )]
     #[allow(unfulfilled_lint_expectations)]
     pub(super) frame_processor:
@@ -176,7 +176,7 @@ where
     ///
     /// This function currently never returns an error but uses [`Result`] for
     /// forward compatibility.
-    #[allow(
+    #[expect(
         clippy::field_reassign_with_default,
         reason = "overriding serializer post-default simplifies builder"
     )]
