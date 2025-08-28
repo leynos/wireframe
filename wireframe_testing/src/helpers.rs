@@ -448,6 +448,7 @@ where
     E: Packet,
 {
     let (client, server) = duplex(64);
+    // Drop the client end immediately so the server sees EOF.
     drop(client);
     app.handle_connection(server).await;
 }
