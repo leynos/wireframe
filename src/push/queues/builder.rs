@@ -18,9 +18,7 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 /// ```
 /// use wireframe::push::PushQueues;
 ///
-/// let (_queues, _handle) = PushQueues::<u8>::builder()
-///     .build()
-///     .expect("failed to build push queues");
+/// let (_queues, _handle) = PushQueues::<u8>::builder().build().unwrap();
 /// # drop((_queues, _handle));
 /// ```
 ///
@@ -29,9 +27,7 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 /// ```
 /// use wireframe::push::PushQueuesBuilder;
 ///
-/// let (_queues, _handle) = PushQueuesBuilder::<u8>::default()
-///     .build()
-///     .expect("failed to build push queues");
+/// let (_queues, _handle) = PushQueuesBuilder::<u8>::default().build().unwrap();
 /// # drop((_queues, _handle));
 /// ```
 #[derive(Debug)]
