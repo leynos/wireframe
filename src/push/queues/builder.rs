@@ -23,6 +23,17 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 ///     .expect("failed to build push queues");
 /// # drop((_queues, _handle));
 /// ```
+///
+/// Builders can also be constructed directly:
+///
+/// ```
+/// use wireframe::push::PushQueuesBuilder;
+///
+/// let (_queues, _handle) = PushQueuesBuilder::<u8>::default()
+///     .build()
+///     .expect("failed to build push queues");
+/// # drop((_queues, _handle));
+/// ```
 #[derive(Debug)]
 pub struct PushQueuesBuilder<F> {
     high_capacity: usize,

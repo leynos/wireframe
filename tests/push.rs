@@ -5,6 +5,7 @@
 use rstest::{fixture, rstest};
 use tokio::time::{self, Duration};
 use wireframe::push::{
+    MAX_PUSH_RATE,
     PushConfigError,
     PushError,
     PushHandle,
@@ -25,10 +26,12 @@ fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
 }
 
 /// Builder rejects rates outside the supported range.
-#[test]
-fn builder_rejects_invalid_rate() {
-    let result = PushQueues::<u8>::builder().rate(Some(0)).build();
-    assert!(matches!(result, Err(PushConfigError::InvalidRate(0))));
+#[rstest]
+#[case::zero(0)]
+#[case::too_high(MAX_PUSH_RATE + 1)]
+fn builder_rejects_invalid_rate(#[case] rate: usize) {
+    let result = PushQueues::<u8>::builder().rate(Some(rate)).build();
+    assert!(matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate));
 }
 
 /// Frames are delivered to queues matching their push priority.
