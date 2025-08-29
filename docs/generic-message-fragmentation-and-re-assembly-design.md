@@ -1,12 +1,13 @@
-# Comprehensive Design: Generic Message Fragmentation & Re-assembly
+# Comprehensive design: Generic message fragmentation & re‑assembly
 
-## 1. Introduction & Philosophy
+## 1. Introduction and philosophy
 
-Many robust network protocols, from modern RPC systems to legacy financial
-standards, require the ability to split a single logical message into multiple
-physical frames. This can be necessary to respect MTU limits, handle large data
-payloads, or align with encryption block sizes. `wireframe`'s current model,
-which processes one inbound frame to one logical frame, cannot handle this.
+Many robust network protocols, from modern Remote Procedure Call (RPC) systems
+to legacy financial standards, require the ability to split a single logical
+message into multiple physical frames. This can be necessary to respect Maximum
+Transmission Unit (MTU) limits, handle large data payloads, or align with
+encryption block sizes. `wireframe`'s current model, which processes one
+inbound frame to one logical frame, cannot handle this.
 
 This document details the design for a generic, protocol-agnostic fragmentation
 and re-assembly layer. The core philosophy is to treat this as a **transparent
@@ -20,7 +21,7 @@ This feature is a critical component of the "Road to Wireframe 1.0," designed
 to seamlessly integrate with and underpin the streaming and server-push
 capabilities.
 
-## 2. Design Goals & Requirements
+## 2. Design goals and requirements
 
 The implementation must satisfy the following core requirements:
 
@@ -31,32 +32,32 @@ The implementation must satisfy the following core requirements:
 | G1 | Transparent inbound re-assembly → The router and handlers must always receive one complete, logical Frame.                                                                                                             |
 | G2 | Transparent outbound fragmentation when a payload exceeds a configurable, protocol-specific size.                                                                                                                      |
 | G3 | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
-| G4 | DoS Protection: The re-assembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                                        |
+| G4 | Denial‑of‑service (DoS) protection: The re-assembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                    |
 | G5 | Zero Friction: Protocols that do not use fragmentation must incur no performance or complexity overhead. This feature must be strictly opt-in.                                                                         |
 
 <!-- markdownlint-enable MD013 -->
 
-## 3. Core Architecture: The `FragmentAdapter`
+## 3. Core architecture: the `FragmentAdapter`
 
 The feature will be implemented as a codec middleware called `FragmentAdapter`.
 It is instantiated with a protocol-specific `FragmentStrategy` and wraps any
 subsequent codecs in the chain.
 
-```
-Socket I/O ↔ ↔ [Compression] ↔ FragmentAdapter ↔ Router/Handlers
+```plaintext
+Socket I/O ↔ [Compression] ↔ FragmentAdapter ↔ Router/Handlers
 ```
 
 This layered approach ensures that fragmentation is handled on clear-text,
 uncompressed data, as required by most protocol specifications.
 
-### 3.1 State Management for Multiplexing
+### 3.1 State management for multiplexing
 
 A critical requirement for modern protocols is the ability to handle
 interleaved fragments from different logical messages on the same connection.
 To support this, the `FragmentAdapter` will not maintain a single re-assembly
 state, but a map of concurrent re-assembly processes.
 
-```Rust
+```rust
 use dashmap::DashMap;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
@@ -88,7 +89,7 @@ The use of `dashmap::DashMap` allows for lock-free reads and sharded writes,
 providing efficient and concurrent access to the re-assembly buffers without
 blocking the entire connection task.
 
-## 4. Public API: The `FragmentStrategy` Trait
+## 4. Public API: the `FragmentStrategy` trait
 
 The power and flexibility of this feature come from the `FragmentStrategy`
 trait. Protocol implementers will provide a type that implements this trait to
@@ -99,7 +100,7 @@ inject their specific fragmentation rules into the generic `FragmentAdapter`.
 The trait is designed to be context-aware and expressive, allowing it to model
 a wide range of protocols.
 
-```Rust
+```rust
 use bytes::BytesMut;
 use std::io;
 
@@ -158,17 +159,38 @@ pub trait FragmentStrategy: 'static + Send + Sync {
 Developers will enable fragmentation by adding the `FragmentAdapter` to their
 codec chain via the `WireframeApp` builder.
 
-```Rust
-// Example: Configuring a server for MySQL-style fragmentation.
+```rust
+// Pseudo‑API: enable fragmentation with a strategy on the codec stack.
 WireframeServer::new(|| {
     WireframeApp::new()
-       .route(...)
+        .codec(LengthDelimitedCodec::builder().new_codec())
+        .codec(FragmentAdapter::new(MySqlStrategy::new()))
+        .route(/* ... */)
 })
 ```
 
+```rust,no_run
+use async_stream::try_stream;
+use wireframe::{app::WireframeApp, Response};
+
+async fn fragmented() -> Response<Vec<u8>> {
+    // `FragmentAdapter` splits oversized payloads automatically.
+    Response::Vec(vec![vec![0_u8; 128 * 1024]])
+}
+
+async fn streamed() -> Response<Vec<u8>> {
+    Response::Stream(Box::pin(try_stream! {
+        yield vec![1, 2, 3];
+    }))
+}
+```
+
+`async-stream` is the canonical crate for constructing dynamic
+`Response::Stream` values.
+
 ## 5. Implementation Logic
 
-### 5.1 Inbound Path (Re-assembly)
+### 5.1 Inbound path (re‑assembly)
 
 The re-assembly logic is the most complex part of the feature and must be
 robust against errors and attacks.
@@ -210,7 +232,7 @@ robust against errors and attacks.
 
    - **Final Fragment:** If `meta.is_final` is true, the full payload is
      extracted from the `PartialMessage`, the entry is removed from the map,
-     and the complete logical frame is passed down the processor chain.
+     and the complete logical frame is passed down the codec chain.
 
 4. **Timeout Handling:** A separate, low-priority background task within the
    `FragmentAdapter` will periodically iterate over the `reassembly_buffers`,
@@ -218,7 +240,7 @@ robust against errors and attacks.
    has exceeded `reassembly_timeout` is removed, and a `WARN`-level `tracing`
    event is emitted.
 
-### 5.2 Outbound Path (Fragmentation)
+### 5.2 Outbound path (fragmentation)
 
 The outbound path is simpler and purely procedural.
 
@@ -243,7 +265,7 @@ The outbound path is simpler and purely procedural.
    - Each fully formed fragment is then passed individually to the next
      codec.
 
-## 6. Synergy with Other 1.0 Features
+## 6. Synergy with other 1.0 features
 
 This feature is designed as a foundational layer that other features build upon.
 
@@ -257,7 +279,7 @@ This feature is designed as a foundational layer that other features build upon.
   fragmented before transmission. The application code remains blissfully
   unaware of the underlying network constraints.
 
-## 7. Measurable Objectives & Success Criteria
+## 7. Measurable objectives and success criteria
 
 <!-- markdownlint-disable MD013 -->
 

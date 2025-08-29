@@ -24,8 +24,30 @@ pub struct LengthFormat {
 impl LengthFormat {
     /// Creates a new `LengthFormat` with the specified number of bytes and
     /// endianness for the length prefix.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bytes` is not in `1..=8`.
     #[must_use]
-    pub const fn new(bytes: usize, endianness: Endianness) -> Self { Self { bytes, endianness } }
+    pub const fn new(bytes: usize, endianness: Endianness) -> Self {
+        assert!(matches!(bytes, 1..=8), "invalid length-prefix width");
+        Self { bytes, endianness }
+    }
+
+    /// Fallible constructor validating the prefix width.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is not in `1..=8`.
+    pub fn try_new(bytes: usize, endianness: Endianness) -> io::Result<Self> {
+        if !(1..=8).contains(&bytes) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid length-prefix width",
+            ));
+        }
+        Ok(Self { bytes, endianness })
+    }
 
     /// Creates a `LengthFormat` for a 2-byte big-endian length prefix.
     #[must_use]
@@ -46,8 +68,9 @@ impl LengthFormat {
     /// Read a length prefix from `bytes` according to this format.
     ///
     /// # Errors
-    /// Returns an error if `bytes` are shorter than the prefix or if the
-    /// encoded length exceeds `usize`.
+    /// Returns an error if `bytes` are shorter than the prefix, if the
+    /// configured prefix width is not in `1..=8`, or if the encoded length
+    /// exceeds `usize`.
     pub fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
         let len = bytes_to_u64(bytes, self.bytes, self.endianness)?;
         usize::try_from(len).map_err(|_| {

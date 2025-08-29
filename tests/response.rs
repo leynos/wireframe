@@ -142,6 +142,7 @@ fn custom_length_roundtrip(
         .expect("decode failed")
         .expect("frame missing");
     assert_eq!(decoded, frame);
+    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
 #[tokio::test]
@@ -158,27 +159,17 @@ async fn send_response_propagates_write_error() {
 
 #[rstest]
 #[case(0, Endianness::Big)]
-#[case(3, Endianness::Big)]
-#[case(5, Endianness::Little)]
+#[case(9, Endianness::Little)]
 fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
-    let fmt = LengthFormat::new(bytes, endian);
-    let mut buf = BytesMut::new();
-    let err = fmt
-        .write_len(2, &mut buf)
-        .expect_err("encode must fail for unsupported prefix size");
+    let err = LengthFormat::try_new(bytes, endian).expect_err("invalid width should error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
 #[rstest]
 #[case(0, Endianness::Little)]
-#[case(3, Endianness::Little)]
-#[case(5, Endianness::Big)]
+#[case(9, Endianness::Big)]
 fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
-    let fmt = LengthFormat::new(bytes, endian);
-    let buf = vec![0u8; bytes];
-    let err = fmt
-        .read_len(&buf)
-        .expect_err("decode must fail for unsupported prefix size");
+    let err = LengthFormat::try_new(bytes, endian).expect_err("invalid width should error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
@@ -200,7 +191,7 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
 /// error is of the `Serialize` variant, indicating a failure during response encoding.
 #[tokio::test]
 async fn send_response_returns_encode_error() {
-    // Intentionally do not set a frame processor: encode should fail before framing.
+    // Use a type that fails during serialization; encode should fail before any framing.
     let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
     let err = app
         .send_response(&mut Vec::new(), &FailingResp)

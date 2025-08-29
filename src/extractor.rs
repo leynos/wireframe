@@ -189,25 +189,6 @@ pub trait FromMessageRequest: Sized {
 #[derive(Clone)]
 pub struct SharedState<T: Send + Sync>(Arc<T>);
 
-impl<T: Send + Sync> SharedState<T> {
-    /// Creates a new [`SharedState`] instance wrapping the provided `Arc<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    ///
-    /// use wireframe::extractor::SharedState;
-    ///
-    /// let data = Arc::new(5u32);
-    /// let state: SharedState<u32> = Arc::clone(&data).into();
-    /// assert_eq!(*state, 5);
-    /// ```
-    #[must_use]
-    #[deprecated(since = "0.2.0", note = "construct via `inner.into()` instead")]
-    pub fn new(inner: Arc<T>) -> Self { Self(inner) }
-}
-
 impl<T: Send + Sync> From<Arc<T>> for SharedState<T> {
     fn from(inner: Arc<T>) -> Self { Self(inner) }
 }

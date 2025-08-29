@@ -369,6 +369,8 @@ handling to be managed and customized independently.
    encapsulated in a frame. d. The framed bytes are sent via the **Transport
    Layer Adapter**.
 
+// Sequence diagram of request/response flow through wireframe.
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -427,6 +429,8 @@ allowing applications to select the prefix size and byte order.
 The relationship between the trait and example serializers can be visualised as
 follows:
 
+// Class diagram of `FrameMetadata` and serializers.
+
 ```mermaid
 classDiagram
     class FrameMetadata {
@@ -453,6 +457,8 @@ classDiagram
 ```
 
 During message processing, metadata parsing precedes full deserialization:
+
+// Sequence diagram of metadata parsing before deserialisation.
 
 ```mermaid
 sequenceDiagram
@@ -491,6 +497,8 @@ The library defines a `Packet` trait to represent transport frames. Frames can
 be decomposed into `PacketParts` for efficient handling and reassembly.
 `Envelope` is the default implementation used by `wireframe`. The following
 diagram depicts the `Packet` trait, `PacketParts`, and `Envelope`.
+
+// Class diagram of `Packet`, `PacketParts`, and `Envelope`.
 
 ```mermaid
 classDiagram
@@ -673,13 +681,13 @@ respective processing logic, thereby improving the maintainability and
 comprehensibility of the application, especially as the number of message types
 grows.
 
-## 5. "wireframe" API Design (Inspired by Actix Web)
+## 5. Wireframe API design (inspired by Actix Web)
 
 The API of "wireframe" will be heavily influenced by Actix Web, aiming for a
 similar level of developer ergonomics and clarity. This section details the
 proposed API components.
 
-### 5.1. Router Configuration and Service Definition
+### 5.1. Router configuration and service definition
 
 Similar to Actix Web's `App` and `HttpServer` structure 4, "wireframe" will
 provide a builder pattern for configuring the application and a server
@@ -756,7 +764,7 @@ reusing its successful patterns makes "wireframe" feel like a natural extension
 for a different networking domain, rather than an entirely new and unfamiliar
 library.
 
-### 5.2. Handler Functions
+### 5.2. Handler functions
 
 Handler functions are the core of the application logic, processing incoming
 messages and optionally producing responses.
@@ -826,7 +834,7 @@ extractors (similar to how Actix Web extractors handle HTTP-specific parsing
 22), "wireframe" handler functions can remain focused on the core business
 logic associated with each message type.
 
-### 5.3. Data Extraction and Type Safety
+### 5.3. Data extraction and type safety
 
 Inspired by Actix Web's extractors 22, "wireframe" will provide a type-safe
 mechanism for accessing data from incoming messages and connection context
@@ -907,6 +915,8 @@ handlers and keeps the handler functions lean and focused on their specific
 business tasks, mirroring the benefits seen with Actix Web's `FromRequest`
 trait.
 
+// Class diagram illustrating extractor relationships.
+
 ```mermaid
 classDiagram
     class FromMessageRequest {
@@ -940,7 +950,7 @@ classDiagram
     ConnectionInfo o-- SocketAddr
 ```
 
-### 5.4. Middleware and Extensibility
+### 5.4. Middleware and extensibility
 
 "wireframe" will incorporate a middleware system conceptually similar to Actix
 Web's 5, allowing developers to inject custom logic into the message processing
@@ -962,6 +972,8 @@ pipeline.
 
 The relationships among these components are illustrated in the following
 diagram:
+
+// Class diagram of middleware traits and their interaction.
 
 ```mermaid
 classDiagram
@@ -1049,7 +1061,7 @@ advantages provided by Actix Web's middleware architecture.26 For instance, a
 middleware could transparently handle session management for stateful binary
 protocols, abstracting this complexity away from individual message handlers.
 
-### 5.5. Error Handling Strategy
+### 5.5. Error handling strategy
 
 Robust and clear error handling is crucial for any network service. "wireframe"
 will provide a comprehensive error handling strategy.
@@ -1124,7 +1136,7 @@ translated into meaningful responses for the client. "wireframe" will adopt
 similar principles to ensure that errors are handled gracefully and
 informatively.
 
-### 5.6. Illustrative API Usage Examples
+### 5.6. Illustrative API usage examples
 
 To demonstrate the intended simplicity and the Actix-Web-inspired API, concrete
 examples are invaluable. They make the abstract design tangible and showcase
@@ -1155,12 +1167,12 @@ how "wireframe" aims to reduce source code complexity.
      }
      ```
 
-- **Frame Processor Implementation** (Simple length-prefixed framing using
-   `tokio-util`; invalid input or oversized frames return `io::Error` from both
-   decode and encode):
+- **Codec implementation** (Simple length‑prefixed framing using
+    `tokio-util`; invalid input or oversized frames return `io::Error` from
+    both decode and encode):
 
-```rust
-// Crate: my_codec.rs
+ ```rust
+ // Crate: my_codec.rs (codec implementation example)
 use bytes::{BytesMut, Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
 use byteorder::{BigEndian, ByteOrder};

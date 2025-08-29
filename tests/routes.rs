@@ -140,31 +140,29 @@ async fn multiple_frames_processed_in_sequence() {
         )
         .expect("route registration failed");
 
-    let frames: Vec<Vec<u8>> = (1u8..=2)
-        .map(|id| {
-            let msg_bytes = Echo(id).to_bytes().expect("encode failed");
-            let env = TestEnvelope {
-                id: 1,
-                correlation_id: Some(u64::from(id)),
-                payload: msg_bytes,
-            };
-            let env_bytes = BincodeSerializer
-                .serialize(&env)
-                .expect("serialization failed");
-            let mut framed = BytesMut::new();
-            let mut codec = LengthDelimitedCodec::builder().new_codec();
-            codec
-                .encode(env_bytes.into(), &mut framed)
-                .expect("encode failed");
-            framed.to_vec()
-        })
-        .collect();
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    let mut encoded_frames = Vec::new();
+    for id in 1u8..=2 {
+        let msg_bytes = Echo(id).to_bytes().expect("encode failed");
+        let env = TestEnvelope {
+            id: 1,
+            correlation_id: Some(u64::from(id)),
+            payload: msg_bytes,
+        };
+        let env_bytes = BincodeSerializer
+            .serialize(&env)
+            .expect("serialization failed");
+        let mut framed = BytesMut::new();
+        codec
+            .encode(env_bytes.into(), &mut framed)
+            .expect("encode failed");
+        encoded_frames.push(framed.to_vec());
+    }
 
-    let out = drive_with_frames(app, frames)
+    let out = drive_with_frames(app, encoded_frames)
         .await
         .expect("drive_with_frames failed");
 
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut buf = BytesMut::from(&out[..]);
     let first = codec
         .decode(&mut buf)
@@ -219,7 +217,6 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
     let out = drive_with_frames(app, vec![framed.to_vec()])
         .await
         .expect("drive failed");
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)

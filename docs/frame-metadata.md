@@ -1,4 +1,4 @@
-# Parsing Frame Metadata
+# Parsing frame metadata
 
 `FrameMetadata` allows a protocol to inspect frame headers before decoding the
 entire payload. This can be useful for routing decisions when the message type

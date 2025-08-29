@@ -421,6 +421,31 @@ where
     Ok(buf)
 }
 
+#[cfg(test)]
+mod tests {
+    use wireframe::app::WireframeApp;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn run_app_rejects_zero_capacity() {
+        let app = WireframeApp::new().expect("failed to create app");
+        let err = run_app(app, vec![], Some(0))
+            .await
+            .expect_err("capacity of zero should error");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn run_app_rejects_excess_capacity() {
+        let app = WireframeApp::new().expect("failed to create app");
+        let err = run_app(app, vec![], Some(MAX_CAPACITY + 1))
+            .await
+            .expect_err("capacity beyond max should error");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
+
 /// Run `app` against an empty duplex stream.
 ///
 /// This helper drives the connection lifecycle without sending any frames,

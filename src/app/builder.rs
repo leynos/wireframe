@@ -33,7 +33,7 @@ const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```rust,no_run
 /// use std::sync::Arc;
 ///
 /// use wireframe::app::ConnectionSetup;
@@ -46,7 +46,7 @@ pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```rust,no_run
 /// use std::sync::Arc;
 ///
 /// use wireframe::app::ConnectionTeardown;
