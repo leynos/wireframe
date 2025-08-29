@@ -707,10 +707,10 @@ features of the 1.0 release.
   that urgent pushes can interrupt a long-running data stream.
 
 - **Message Fragmentation:** Pushes occur at the *logical frame* level. The
-  `FragmentAdapter` will operate at a lower layer in the `FrameProcessor`
-  stack, transparently splitting any large pushed frames before they are
-  written to the socket. The `PushHandle` and the application code that uses it
-  remain completely unaware of fragmentation.
+  `FragmentAdapter` will operate at a lower layer in the codec stack,
+  transparently splitting any large pushed frames before they are written to
+  the socket. The `PushHandle` and the application code that uses it remain
+  completely unaware of fragmentation.
 
 ## 7. Use Cases
 

@@ -9,21 +9,29 @@ header bytes. Only the minimal header portion should be read, returning the
 full frame and the number of bytes consumed from the input.
 
 ```rust
-use wireframe::frame::{FrameMetadata, FrameProcessor};
+use wireframe::frame::FrameMetadata;
 use wireframe::app::Envelope;
-use bytes::BytesMut;
+use tokio_util::codec::{Decoder, Encoder};
+use bytes::{Bytes, BytesMut};
 
 struct MyCodec;
 
-impl FrameProcessor for MyCodec {
-    type Frame = Vec<u8>;
+impl Decoder for MyCodec {
+    type Item = Bytes;
     type Error = std::io::Error;
 
-    fn decode(&self, src: &mut BytesMut) -> Result<Option<Self::Frame>, Self::Error> {
+    fn decode(
+        &mut self,
+        _src: &mut BytesMut,
+    ) -> Result<Option<Self::Item>, Self::Error> {
         todo!()
     }
+}
 
-    fn encode(&self, frame: &Self::Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+impl Encoder<Bytes> for MyCodec {
+    type Error = std::io::Error;
+
+    fn encode(&mut self, _item: Bytes, _dst: &mut BytesMut) -> Result<(), Self::Error> {
         todo!()
     }
 }

@@ -12,12 +12,12 @@ use std::{
 };
 
 use bytes::BytesMut;
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
-    frame::FrameProcessor,
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{processor, run_app, run_with_duplex_server};
+use wireframe_testing::{run_app, run_with_duplex_server};
 
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -148,8 +148,9 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
         .serialize(&env)
         .expect("failed to serialise envelope");
     let mut frame = BytesMut::new();
-    let proc = processor();
-    proc.encode(&bytes, &mut frame)
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    codec
+        .encode(bytes.into(), &mut frame)
         .expect("encode should succeed");
 
     let out = run_app(app, vec![frame.to_vec()], None)
@@ -158,8 +159,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
     assert!(!out.is_empty());
 
     let mut buf = BytesMut::from(&out[..]);
-    let processor = processor();
-    let decoded = processor
+    let decoded = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");

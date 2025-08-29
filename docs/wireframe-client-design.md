@@ -23,7 +23,8 @@ mirrors `WireframeServer` but operates in the opposite direction:
 
 - Connect to a `TcpStream`.
 - Optionally, send a preamble using the existing `Preamble` helpers.
-- Encode outgoing messages using the selected `Serializer` and `FrameProcessor`.
+- Encode outgoing messages using the selected `Serializer` and a
+  length‑delimited codec.
 - Decode incoming frames into typed responses.
 - Expose async `send` and `receive` operations.
 

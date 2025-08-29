@@ -7,19 +7,13 @@ use std::io;
 
 use bincode::config;
 use bytes::BytesMut;
-use rstest::fixture;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
+use tokio_util::codec::{Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
-    frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
+    frame::FrameMetadata,
     serializer::Serializer,
 };
-
-/// Create a default length-prefixed frame processor for tests.
-#[fixture]
-#[expect(unused_braces, reason = "Braces are intentional here; false positive")]
-#[allow(unfulfilled_lint_expectations)]
-pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -353,8 +347,9 @@ where
             format!("bincode encode failed: {e}"),
         )
     })?;
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut framed = BytesMut::new();
-    LengthPrefixedProcessor::default().encode(&bytes, &mut framed)?;
+    codec.encode(bytes.into(), &mut framed)?;
     drive_with_frame(app, framed.to_vec()).await
 }
 

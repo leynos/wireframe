@@ -131,10 +131,9 @@ layer, the `FragmentAdapter`.
 
 #### The `FragmentAdapter` and `FragmentStrategy`
 
-This feature is designed for pluggability. The `FragmentAdapter` is a
-`FrameProcessor` that sits between the raw I/O and the main router. It contains
-the generic logic for splitting large outbound frames and re-assembling inbound
-fragments.
+This feature is designed for pluggability. The `FragmentAdapter` is a codec
+that sits between the raw I/O and the main router. It contains the generic
+logic for splitting large outbound frames and re-assembling inbound fragments.
 
 The protocol-specific rules—how to parse a fragment header, determine the
 payload length, and identify the final fragment—are provided by the user via a

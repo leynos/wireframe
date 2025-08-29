@@ -30,7 +30,6 @@ pub use helpers::{
     drive_with_frames,
     drive_with_frames_mut,
     drive_with_frames_with_capacity,
-    processor,
     run_app,
     run_with_duplex_server,
 };

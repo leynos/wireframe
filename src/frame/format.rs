@@ -17,8 +17,8 @@ pub enum Endianness {
 /// Format of the length prefix preceding each frame.
 #[derive(Clone, Copy, Debug)]
 pub struct LengthFormat {
-    pub(crate) bytes: usize,
-    pub(crate) endianness: Endianness,
+    pub bytes: usize,
+    pub endianness: Endianness,
 }
 
 impl LengthFormat {
@@ -43,7 +43,12 @@ impl LengthFormat {
     #[must_use]
     pub const fn u32_le() -> Self { Self::new(4, Endianness::Little) }
 
-    pub(crate) fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
+    /// Read a length prefix from `bytes` according to this format.
+    ///
+    /// # Errors
+    /// Returns an error if `bytes` are shorter than the prefix or if the
+    /// encoded length exceeds `usize`.
+    pub fn read_len(&self, bytes: &[u8]) -> io::Result<usize> {
         let len = bytes_to_u64(bytes, self.bytes, self.endianness)?;
         usize::try_from(len).map_err(|_| {
             io::Error::new(
@@ -53,7 +58,11 @@ impl LengthFormat {
         })
     }
 
-    pub(crate) fn write_len(&self, len: usize, dst: &mut BytesMut) -> io::Result<()> {
+    /// Write `len` to `dst` using this format's prefix encoding.
+    ///
+    /// # Errors
+    /// Returns an error if `len` cannot be represented by the prefix size.
+    pub fn write_len(&self, len: usize, dst: &mut BytesMut) -> io::Result<()> {
         let mut buf = [0u8; 8];
         let written = u64_to_bytes(len, self.bytes, self.endianness, &mut buf)?;
         dst.extend_from_slice(&buf[..written]);

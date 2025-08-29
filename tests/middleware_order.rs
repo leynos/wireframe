@@ -5,9 +5,9 @@
 use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Handler},
-    frame::{FrameProcessor, LengthPrefixedProcessor},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
@@ -69,10 +69,12 @@ async fn middleware_applied_in_reverse_order() {
     let env = Envelope::new(1, Some(7), vec![b'X']);
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).expect("serialization failed");
-    // Use the default 4-byte big-endian length prefix for framing
-    let processor = LengthPrefixedProcessor::default();
+    // Use a length-delimited codec for framing
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut buf = BytesMut::new();
-    processor.encode(&bytes, &mut buf).expect("encoding failed");
+    codec
+        .encode(bytes.into(), &mut buf)
+        .expect("encoding failed");
     client.write_all(&buf).await.expect("write failed");
     client.shutdown().await.expect("shutdown failed");
 
@@ -83,7 +85,7 @@ async fn middleware_applied_in_reverse_order() {
     handle.await.expect("join failed");
 
     let mut buf = BytesMut::from(&out[..]);
-    let frame = processor
+    let frame = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");

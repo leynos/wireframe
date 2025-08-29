@@ -7,12 +7,8 @@ use std::{io, sync::Arc};
 
 use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, duplex};
-use wireframe::{
-    app::Envelope,
-    frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
-    message::Message,
-    serializer::Serializer,
-};
+use tokio_util::codec::{Encoder, LengthDelimitedCodec};
+use wireframe::{app::Envelope, frame::FrameMetadata, message::Message, serializer::Serializer};
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
 
@@ -52,7 +48,7 @@ impl FrameMetadata for HeaderSerializer {
         // bits.
         let _ = src[2];
         let payload = src[3..].to_vec();
-        // `parse` receives the complete frame because `LengthPrefixedProcessor`
+        // `parse` receives the complete frame because the length-delimited codec
         // ensures `src` contains exactly one message. Returning `src.len()` is
         // therefore correct for this demo.
         Ok((Envelope::new(id, None, payload), src.len()))
@@ -96,9 +92,10 @@ async fn main() -> io::Result<()> {
     frame.push(0);
     frame.extend_from_slice(&payload);
 
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut bytes = BytesMut::new();
-    LengthPrefixedProcessor::default()
-        .encode(&frame, &mut bytes)
+    codec
+        .encode(frame.into(), &mut bytes)
         .expect("failed to encode frame");
 
     client.write_all(&bytes).await?;

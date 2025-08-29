@@ -129,13 +129,12 @@ This allows integration with existing packet formats without modifying
 ## Response Serialization and Framing
 
 Handlers can return types implementing the `Responder` trait. These values are
-encoded using the application's configured serializer and written back through
-the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L724-L730】.
+encoded using the application's configured serializer and framed by a
+length‑delimited codec【F:docs/rust-binary-router-library-design.md†L724-L730】.
 
-The included `LengthPrefixedProcessor` illustrates a simple framing strategy
-that prefixes each frame with its length. The format is configurable (prefix
-size and endianness) and defaults to a 4‑byte big‑endian length
-prefix【F:docs/rust-binary-router-library-design.md†L1082-L1123】.
+Frames are length prefixed using `tokio_util::codec::LengthDelimitedCodec`. The
+prefix length and byte order are configurable and default to a 4‑byte
+big‑endian header【F:docs/rust-binary-router-library-design.md†L1082-L1123】.
 
 ```rust
 let app = WireframeApp::new()?;

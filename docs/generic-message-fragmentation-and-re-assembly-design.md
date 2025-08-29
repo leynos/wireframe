@@ -38,9 +38,9 @@ The implementation must satisfy the following core requirements:
 
 ## 3. Core Architecture: The `FragmentAdapter`
 
-The feature will be implemented as a `FrameProcessor` middleware called
-`FragmentAdapter`. It is instantiated with a protocol-specific
-`FragmentStrategy` and wraps any subsequent processors in the chain.
+The feature will be implemented as a codec middleware called `FragmentAdapter`.
+It is instantiated with a protocol-specific `FragmentStrategy` and wraps any
+subsequent codecs in the chain.
 
 ```
 Socket I/O ↔ ↔ [Compression] ↔ FragmentAdapter ↔ Router/Handlers
@@ -156,7 +156,7 @@ pub trait FragmentStrategy: 'static + Send + Sync {
 ### 4.2 Configuration
 
 Developers will enable fragmentation by adding the `FragmentAdapter` to their
-`FrameProcessor` chain via the `WireframeApp` builder.
+codec chain via the `WireframeApp` builder.
 
 ```Rust
 // Example: Configuring a server for MySQL-style fragmentation.
@@ -226,7 +226,7 @@ The outbound path is simpler and purely procedural.
    `frame.len()` against `strategy.max_fragment_payload(&frame)`.
 
 2. **No Fragmentation:** If the frame is small enough, it is passed directly to
-   the next `FrameProcessor` in the chain.
+   the next codec in the chain.
 
 3. **Fragmentation:** If the frame is too large:
 
@@ -241,7 +241,7 @@ The outbound path is simpler and purely procedural.
      temporary buffer, followed by the payload chunk.
 
    - Each fully formed fragment is then passed individually to the next
-     `FrameProcessor`.
+     codec.
 
 ## 6. Synergy with Other 1.0 Features
 

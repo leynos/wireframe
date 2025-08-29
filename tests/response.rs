@@ -5,9 +5,10 @@
 
 use bytes::BytesMut;
 use rstest::rstest;
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, WireframeApp},
-    frame::{Endianness, FrameProcessor, LengthFormat, LengthPrefixedProcessor},
+    frame::{Endianness, LengthFormat},
     message::Message,
     serializer::BincodeSerializer,
 };
@@ -49,9 +50,9 @@ async fn send_response_encodes_and_frames() {
         .await
         .expect("send_response failed");
 
-    let processor = LengthPrefixedProcessor::default();
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut buf = BytesMut::from(&out[..]);
-    let frame = processor
+    let frame = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
@@ -65,9 +66,9 @@ async fn send_response_encodes_and_frames() {
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 #[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
-    let processor = LengthPrefixedProcessor::default();
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
-    assert!(processor.decode(&mut buf).expect("decode failed").is_none());
+    assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
 }
 
@@ -77,11 +78,11 @@ async fn length_prefixed_decode_requires_complete_header() {
 /// Ensures that the decoder does not consume any bytes when the full frame is not yet available.
 #[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
-    let processor = LengthPrefixedProcessor::default();
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
-    assert!(processor.decode(&mut buf).expect("decode failed").is_none());
-    // buffer should retain bytes since frame isn't complete
-    assert_eq!(buf.len(), 6);
+    assert!(codec.decode(&mut buf).expect("decode failed").is_none());
+    // the length prefix is consumed even if the frame is incomplete
+    assert_eq!(buf.len(), 2);
 }
 
 struct FailingWriter;
@@ -118,11 +119,18 @@ fn custom_length_roundtrip(
     #[case] frame: Vec<u8>,
     #[case] prefix: Vec<u8>,
 ) {
-    let processor = LengthPrefixedProcessor::new(fmt);
+    let mut builder = LengthDelimitedCodec::builder();
+    builder.length_field_length(fmt.bytes);
+    if fmt.endianness == Endianness::Little {
+        builder.little_endian();
+    }
+    let mut codec = builder.new_codec();
     let mut buf = BytesMut::new();
-    processor.encode(&frame, &mut buf).expect("encode failed");
+    codec
+        .encode(frame.clone().into(), &mut buf)
+        .expect("encode failed");
     assert_eq!(&buf[..prefix.len()], &prefix[..]);
-    let decoded = processor
+    let decoded = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
@@ -147,10 +155,9 @@ async fn send_response_propagates_write_error() {
 #[case(5, Endianness::Little)]
 fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
     let fmt = LengthFormat::new(bytes, endian);
-    let processor = LengthPrefixedProcessor::new(fmt);
     let mut buf = BytesMut::new();
-    let err = processor
-        .encode(&vec![1, 2], &mut buf)
+    let err = fmt
+        .write_len(2, &mut buf)
         .expect_err("encode must fail for unsupported prefix size");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
@@ -161,10 +168,9 @@ fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: En
 #[case(5, Endianness::Big)]
 fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
     let fmt = LengthFormat::new(bytes, endian);
-    let processor = LengthPrefixedProcessor::new(fmt);
-    let mut buf = BytesMut::from(vec![0u8; bytes].as_slice());
-    let err = processor
-        .decode(&mut buf)
+    let buf = vec![0u8; bytes];
+    let err = fmt
+        .read_len(&buf)
         .expect_err("decode must fail for unsupported prefix size");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
@@ -173,11 +179,10 @@ fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: En
 #[case(LengthFormat::new(1, Endianness::Big), 256)]
 #[case(LengthFormat::new(2, Endianness::Little), 65_536)]
 fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usize) {
-    let processor = LengthPrefixedProcessor::new(fmt);
     let frame = vec![0u8; len];
     let mut buf = BytesMut::new();
-    let err = processor
-        .encode(&frame, &mut buf)
+    let err = fmt
+        .write_len(frame.len(), &mut buf)
         .expect_err("expected error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
