@@ -20,6 +20,7 @@ mod queues;
 
 pub(crate) use self::queues::{FrameLike, PushHandleInner};
 pub use self::queues::{
+    MAX_PUSH_RATE,
     PushConfigError,
     PushError,
     PushHandle,

@@ -9,8 +9,21 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 /// Allows configuration of queue capacities, rate limiting and an optional
 /// dead-letter queue before constructing [`PushQueues`] and its paired
 /// [`PushHandle`]. Defaults mirror the previous constructors: both queues have
-/// a capacity of one and pushes are limited to [`DEFAULT_PUSH_RATE`] per second
-/// unless overridden.
+/// a capacity of one and pushes are limited to [`DEFAULT_PUSH_RATE`] per
+/// second unless overridden. Construct via [`PushQueues::builder`] or
+/// [`Default::default`].
+///
+/// # Examples
+///
+/// ```
+/// use wireframe::push::PushQueues;
+///
+/// let (_queues, _handle) = PushQueues::<u8>::builder()
+///     .build()
+///     .expect("failed to build push queues");
+/// # drop((_queues, _handle));
+/// ```
+#[derive(Debug)]
 pub struct PushQueuesBuilder<F> {
     high_capacity: usize,
     low_capacity: usize,
@@ -18,8 +31,8 @@ pub struct PushQueuesBuilder<F> {
     dlq: Option<mpsc::Sender<F>>,
 }
 
-impl<F: FrameLike> PushQueuesBuilder<F> {
-    pub(super) fn new() -> Self {
+impl<F: FrameLike> Default for PushQueuesBuilder<F> {
+    fn default() -> Self {
         Self {
             high_capacity: 1,
             low_capacity: 1,
@@ -27,7 +40,9 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
             dlq: None,
         }
     }
+}
 
+impl<F: FrameLike> PushQueuesBuilder<F> {
     /// Set the capacity of the high-priority queue.
     #[must_use]
     pub fn high_capacity(mut self, capacity: usize) -> Self {

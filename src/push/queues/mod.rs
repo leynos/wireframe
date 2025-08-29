@@ -64,7 +64,7 @@ pub struct PushQueues<F> {
 impl<F: FrameLike> PushQueues<F> {
     /// Start building a new set of push queues.
     #[must_use]
-    pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::new() }
+    pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::default() }
 
     pub(super) fn build_with_rate_dlq(
         high_capacity: usize,

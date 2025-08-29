@@ -4,7 +4,14 @@
 
 use rstest::{fixture, rstest};
 use tokio::time::{self, Duration};
-use wireframe::push::{PushError, PushHandle, PushPolicy, PushPriority, PushQueues};
+use wireframe::push::{
+    PushConfigError,
+    PushError,
+    PushHandle,
+    PushPolicy,
+    PushPriority,
+    PushQueues,
+};
 use wireframe_testing::{push_expect, recv_expect};
 
 #[fixture]
@@ -15,6 +22,13 @@ fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
         .rate(Some(1))
         .build()
         .expect("queue creation failed")
+}
+
+/// Builder rejects rates outside the supported range.
+#[test]
+fn builder_rejects_invalid_rate() {
+    let result = PushQueues::<u8>::builder().rate(Some(0)).build();
+    assert!(matches!(result, Err(PushConfigError::InvalidRate(0))));
 }
 
 /// Frames are delivered to queues matching their push priority.
