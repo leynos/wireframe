@@ -21,7 +21,7 @@ fn concurrent_push_delivery() {
             .expect("failed to build tokio runtime");
 
         rt.block_on(async {
-            let (queues, handle) = PushQueues::builder()
+            let (queues, handle) = PushQueues::<u8>::builder()
                 .high_capacity(1)
                 .low_capacity(1)
                 .build()

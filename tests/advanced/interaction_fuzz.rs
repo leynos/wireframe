@@ -23,7 +23,7 @@ enum Action {
 }
 
 async fn run_actions(actions: &[Action]) -> Vec<u8> {
-    let (queues, handle) = PushQueues::builder()
+    let (queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(16)
         .low_capacity(16)
         .build()

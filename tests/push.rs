@@ -16,7 +16,7 @@ use wireframe_testing::{push_expect, recv_expect};
 
 #[fixture]
 fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
-    PushQueues::builder()
+    PushQueues::<u8>::builder()
         .high_capacity(2)
         .low_capacity(2)
         .rate(Some(1))
@@ -34,7 +34,7 @@ fn builder_rejects_invalid_rate() {
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
 async fn frames_routed_to_correct_priority_queues() {
-    let (mut queues, handle) = PushQueues::builder()
+    let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
@@ -58,7 +58,7 @@ async fn frames_routed_to_correct_priority_queues() {
 /// return [`PushError::QueueFull`] once the queue is at capacity.
 #[tokio::test]
 async fn try_push_respects_policy() {
-    let (mut queues, handle) = PushQueues::builder()
+    let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
@@ -78,7 +78,7 @@ async fn try_push_respects_policy() {
 /// Push attempts return `Closed` when all queues have been shut down.
 #[tokio::test]
 async fn push_queues_error_on_closed() {
-    let (queues, handle) = PushQueues::builder()
+    let (queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
@@ -172,7 +172,7 @@ async fn rate_limiter_shared_across_priorities() {
 #[tokio::test]
 async fn unlimited_queues_do_not_block() {
     time::pause();
-    let (mut queues, handle) = PushQueues::builder()
+    let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .rate(None)
@@ -192,7 +192,7 @@ async fn unlimited_queues_do_not_block() {
 #[tokio::test]
 async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     time::pause();
-    let (mut queues, handle) = PushQueues::builder()
+    let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(4)
         .low_capacity(4)
         .rate(Some(3))

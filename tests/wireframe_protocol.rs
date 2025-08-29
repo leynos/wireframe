@@ -56,7 +56,7 @@ async fn builder_produces_protocol_hooks() {
         .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
 
-    let (queues, handle) = PushQueues::builder()
+    let (queues, handle) = PushQueues::<Vec<u8>>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
@@ -84,7 +84,7 @@ async fn connection_actor_uses_protocol_from_builder() {
         .with_protocol(protocol);
 
     let hooks = app.protocol_hooks();
-    let (queues, handle) = PushQueues::builder()
+    let (queues, handle) = PushQueues::<Vec<u8>>::builder()
         .high_capacity(8)
         .low_capacity(8)
         .build()

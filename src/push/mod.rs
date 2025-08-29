@@ -8,7 +8,7 @@
 //! ```no_run
 //! use wireframe::push::PushQueues;
 //!
-//! let (queues, handle) = PushQueues::builder()
+//! let (queues, handle) = PushQueues::<u8>::builder()
 //!     .high_capacity(8)
 //!     .low_capacity(8)
 //!     .build()

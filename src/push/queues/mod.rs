@@ -194,7 +194,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::builder()
+    ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
     ///         .low_capacity(1)
     ///         .build()

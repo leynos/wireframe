@@ -39,7 +39,7 @@ fn push_policy_behaviour(
 ) {
     rt.block_on(async {
         while logger.pop().is_some() {}
-        let (mut queues, handle) = PushQueues::builder()
+        let (mut queues, handle) = PushQueues::<u8>::builder()
             .high_capacity(1)
             .low_capacity(1)
             .build()
@@ -81,7 +81,7 @@ fn push_policy_behaviour(
 fn dropped_frame_goes_to_dlq(rt: Runtime) {
     rt.block_on(async {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-        let (mut queues, handle) = PushQueues::builder()
+        let (mut queues, handle) = PushQueues::<u8>::builder()
             .high_capacity(1)
             .low_capacity(1)
             .rate(None)
@@ -145,7 +145,7 @@ fn dlq_error_scenarios<Setup, AssertFn>(
         let (dlq_tx, dlq_rx) = mpsc::channel(1);
         let mut dlq_rx = Some(dlq_rx);
         setup(&dlq_tx, &mut dlq_rx);
-        let (mut queues, handle) = PushQueues::builder()
+        let (mut queues, handle) = PushQueues::<u8>::builder()
             .high_capacity(1)
             .low_capacity(1)
             .rate(None)

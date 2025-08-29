@@ -24,7 +24,7 @@ use wireframe_testing::push_expect;
 )]
 #[allow(unfulfilled_lint_expectations)]
 fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
-    PushQueues::builder()
+    PushQueues::<u8>::builder()
         .high_capacity(8)
         .low_capacity(8)
         .build()
@@ -389,7 +389,7 @@ async fn interleaved_shutdown_during_stream(
 #[tokio::test]
 #[serial]
 async fn push_queue_exhaustion_backpressure() {
-    let (mut queues, handle) = PushQueues::builder()
+    let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()

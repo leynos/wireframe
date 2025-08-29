@@ -64,7 +64,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::builder()
+    ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
     ///         .low_capacity(1)
     ///         .rate(Some(1))
@@ -95,7 +95,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::builder()
+    ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
     ///         .low_capacity(1)
     ///         .rate(Some(1))
@@ -148,7 +148,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// #[tokio::test]
     /// async fn example() {
     ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-    ///     let (mut queues, handle) = PushQueues::builder()
+    ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
     ///         .low_capacity(1)
     ///         .rate(None)
