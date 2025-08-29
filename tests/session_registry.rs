@@ -20,11 +20,11 @@ fn registry() -> SessionRegistry<u8> { SessionRegistry::default() }
 )]
 #[allow(unfulfilled_lint_expectations)]
 fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) {
-    PushQueues::builder()
+    PushQueues::<u8>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .expect("failed to build push queues")
+        .expect("failed to build push queues for session registry tests")
 }
 
 /// Test that handles can be retrieved whilst the connection remains alive.
