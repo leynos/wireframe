@@ -3,15 +3,19 @@
 //! These verify normal encoding as well as error conditions like
 //! write failures and encode errors.
 
+use std::sync::Arc;
+
 use bytes::BytesMut;
 use rstest::rstest;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
-    app::{Envelope, WireframeApp},
+    Serializer,
+    app::{Envelope, Packet, WireframeApp},
     frame::{Endianness, LengthFormat},
     message::Message,
     serializer::BincodeSerializer,
 };
+use wireframe_testing::run_app;
 
 mod common;
 use common::TestApp;
@@ -38,6 +42,9 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
         Ok(FailingResp)
     }
 }
+
+#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
+struct Large(Vec<u8>);
 
 /// Tests that sending a response serializes and frames the data correctly,
 /// and that the response can be decoded and deserialized back to its original value asynchronously.
@@ -200,4 +207,70 @@ async fn send_response_returns_encode_error() {
         .await
         .expect_err("send_response should fail when encode errors");
     assert!(matches!(err, wireframe::app::SendError::Serialize(_)));
+}
+
+/// Ensures `send_response` permits frames up to the configured buffer capacity,
+/// exceeding the codec's default 8 MiB limit.
+#[tokio::test]
+async fn send_response_honours_buffer_capacity() {
+    let app = TestApp::new()
+        .expect("failed to create app")
+        .buffer_capacity(16 * 1024 * 1024);
+
+    let payload = vec![0_u8; 9 * 1024 * 1024];
+    let large = Large(payload.clone());
+    let mut out = Vec::new();
+
+    app.send_response(&mut out, &large)
+        .await
+        .expect("send_response failed");
+
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(16 * 1024 * 1024)
+        .new_codec();
+    let mut buf = BytesMut::from(&out[..]);
+    let frame = codec
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (decoded, _) = Large::from_bytes(&frame).expect("deserialize failed");
+    assert_eq!(decoded.0.len(), payload.len());
+}
+
+/// Verifies inbound and outbound codecs respect the application's buffer
+/// capacity by round-tripping a 9 MiB payload.
+#[tokio::test]
+async fn process_stream_honours_buffer_capacity() {
+    let app = TestApp::new()
+        .expect("failed to create app")
+        .buffer_capacity(16 * 1024 * 1024)
+        .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))
+        .expect("route registration failed");
+
+    let payload = vec![0_u8; 9 * 1024 * 1024];
+    let env = Envelope::new(1, None, payload.clone());
+    let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
+
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(16 * 1024 * 1024)
+        .new_codec();
+    let mut framed = BytesMut::new();
+    codec
+        .encode(bytes.into(), &mut framed)
+        .expect("encode frame failed");
+
+    let out = run_app(app, vec![framed.to_vec()], Some(10 * 1024 * 1024))
+        .await
+        .expect("run_app failed");
+
+    let mut buf = BytesMut::from(&out[..]);
+    let frame = codec
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (resp_env, _) = BincodeSerializer
+        .deserialize::<Envelope>(&frame)
+        .expect("deserialize failed");
+    let resp_len = resp_env.into_parts().payload().len();
+    assert_eq!(resp_len, payload.len());
 }

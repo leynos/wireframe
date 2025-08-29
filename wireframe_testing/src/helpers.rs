@@ -347,7 +347,9 @@ where
             format!("bincode encode failed: {e}"),
         )
     })?;
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(bytes.len())
+        .new_codec();
     let mut framed = BytesMut::new();
     codec.encode(bytes.into(), &mut framed)?;
     drive_with_frame(app, framed.to_vec()).await
