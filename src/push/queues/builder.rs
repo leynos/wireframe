@@ -61,7 +61,8 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// # Errors
     ///
     /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or above
-    /// [`super::MAX_PUSH_RATE`].
+    /// [`super::MAX_PUSH_RATE`] and [`PushConfigError::InvalidCapacity`] if
+    /// either queue capacity is zero.
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
         PushQueues::build_with_rate_dlq(self.high_capacity, self.low_capacity, self.rate, self.dlq)
     }

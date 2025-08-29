@@ -77,6 +77,12 @@ impl<F: FrameLike> PushQueues<F> {
             // be used. The bounds prevent runaway resource consumption.
             return Err(PushConfigError::InvalidRate(r));
         }
+        if high_capacity == 0 || low_capacity == 0 {
+            return Err(PushConfigError::InvalidCapacity {
+                high: high_capacity,
+                low: low_capacity,
+            });
+        }
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
         let limiter = rate.map(|r| {
@@ -142,7 +148,8 @@ impl<F: FrameLike> PushQueues<F> {
     /// # Errors
     ///
     /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
-    /// than [`MAX_PUSH_RATE`].
+    /// than [`MAX_PUSH_RATE`] and [`PushConfigError::InvalidCapacity`] if either
+    /// queue capacity is zero.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     pub fn bounded_with_rate(
         high_capacity: usize,
@@ -161,7 +168,8 @@ impl<F: FrameLike> PushQueues<F> {
     /// # Errors
     ///
     /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
-    /// than [`MAX_PUSH_RATE`].
+    /// than [`MAX_PUSH_RATE`] and [`PushConfigError::InvalidCapacity`] if either
+    /// queue capacity is zero.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     pub fn bounded_with_rate_dlq(
         high_capacity: usize,

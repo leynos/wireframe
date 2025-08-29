@@ -1,46 +1,27 @@
 //! Error types for push queue operations and configuration.
 
-use std::fmt;
+use thiserror::Error;
+
+use super::MAX_PUSH_RATE;
 
 /// Errors that can occur when pushing a frame.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum PushError {
     /// The queue was at capacity and the policy was `ReturnErrorIfFull`.
+    #[error("push queue full")]
     QueueFull,
     /// The receiving end of the queue has been dropped.
+    #[error("push queue closed")]
     Closed,
 }
 
-impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::QueueFull => f.write_str("push queue full"),
-            Self::Closed => f.write_str("push queue closed"),
-        }
-    }
-}
-
-impl std::error::Error for PushError {}
-
 /// Errors returned when creating push queues.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum PushConfigError {
-    /// The provided rate was zero or exceeded [`super::MAX_PUSH_RATE`].
+    /// The provided rate was zero or exceeded [`MAX_PUSH_RATE`].
+    #[error("invalid rate {0}; must be between 1 and {MAX_PUSH_RATE}")]
     InvalidRate(usize),
+    /// The provided capacities were zero.
+    #[error("invalid capacities; high={high}, low={low}; each must be ≥ 1")]
+    InvalidCapacity { high: usize, low: usize },
 }
-
-impl fmt::Display for PushConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidRate(r) => {
-                write!(
-                    f,
-                    "invalid rate {r}; must be between 1 and {}",
-                    super::MAX_PUSH_RATE
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for PushConfigError {}
