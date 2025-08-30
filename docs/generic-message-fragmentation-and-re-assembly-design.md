@@ -234,11 +234,11 @@ robust against errors and attacks.
      extracted from the `PartialMessage`, the entry is removed from the map,
      and the complete logical frame is passed down the codec chain.
 
-4. **Timeout Handling:** A separate, low-priority background task within the
-   `FragmentAdapter` will periodically iterate over the `reassembly_buffers`,
-   checking the `started_at` timestamp of each `PartialMessage`. Any entry that
-   has exceeded `reassembly_timeout` is removed, and a `WARN`-level `tracing`
-   event is emitted.
+4. **Timeout handling:** Run a background task within the
+   `FragmentAdapter` that periodically iterates over the re‑assembly buffers,
+   checks each `PartialMessage`’s `started_at` timestamp, and removes any entry
+   that has exceeded the re‑assembly timeout, emitting a `WARN`‑level `tracing`
+   event.
 
 ### 5.2 Outbound path (fragmentation)
 

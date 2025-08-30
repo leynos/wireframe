@@ -348,7 +348,7 @@ where
         )
     })?;
     let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(bytes.len())
+        .max_frame_length(DEFAULT_CAPACITY)
         .new_codec();
     let mut framed = BytesMut::new();
     codec.encode(bytes.into(), &mut framed)?;
