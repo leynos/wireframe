@@ -22,6 +22,8 @@ use wireframe_testing::{run_app, run_with_duplex_server};
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
+const MAX_FRAME: usize = 64 * 1024;
+
 fn call_counting_callback<R, A>(
     counter: &Arc<AtomicUsize>,
     result: R,
@@ -148,7 +150,9 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
         .serialize(&env)
         .expect("failed to serialise envelope");
     let mut frame = BytesMut::new();
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(MAX_FRAME)
+        .new_codec();
     codec
         .encode(bytes.into(), &mut frame)
         .expect("encode should succeed");

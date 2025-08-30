@@ -58,13 +58,13 @@ let response: LoginAck = client.call(request).await?;
 
 Internally, this uses the `Serializer` to encode the request, sends it through
 the length‑delimited codec, then waits for a frame, decodes it, and
-deserializes the response type.
+deserialises the response type.
 
 ### Connection lifecycle
 
 Like the server, the client should expose hooks for connection setup and
-teardown. These mirror the server’s lifecycle callbacks so both sides can share
-initialization logic.
+teardown. These mirror the server’s lifecycle callbacks, so both sides can
+share initialisation logic.
 
 ## Example usage
 

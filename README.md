@@ -7,7 +7,7 @@ routing, extractors, and middleware.
 
 ## Motivation
 
-Manual handling of binary protocols typically involves verbose serialization
+Manual handling of binary protocols typically involves verbose serialisation
 code, custom frame parsing, and complex dispatch logic. `wireframe` aims to
 reduce this boilerplate through layered abstractions:
 
@@ -16,7 +16,7 @@ reduce this boilerplate through layered abstractions:
 - **Connection preamble** with customizable validation callbacks
   \[[docs](docs/preamble-validator.md)\]
 - Call `with_preamble::<T>()` before registering success or failure callbacks
-- **Serialization engine** using `bincode` or a `wire-rs` wrapper
+- **Serialisation engine** using `bincode` or a `wire-rs` wrapper
 - **Routing engine** that dispatches messages by ID
 - **Handler invocation** with extractor support
 - **Middleware chain** for request/response processing
@@ -140,7 +140,7 @@ big‑endian header【F:docs/rust-binary-router-library-design.md†L1082-L1123�
 let app = WireframeApp::new()?;
 ```
 
-## Connection Lifecycle
+## Connection lifecycle
 
 Protocol callbacks are consolidated under the `WireframeProtocol` trait,
 replacing the individual `on_connection_setup`/`on_connection_teardown`
@@ -282,7 +282,7 @@ let logging = from_fn(|req, next| async move {
 Example programs are available in the `examples/` directory:
 
 - `echo.rs` — minimal echo server using routing
-- `ping_pong.rs` — showcases serialization and middleware in a ping/pong
+- `ping_pong.rs` — showcases serialisation and middleware in a ping/pong
   protocol. See [examples/ping_pong.md](examples/ping_pong.md) for a detailed
   overview.
 - [`packet_enum.rs`](examples/packet_enum.rs) — shows packet type discrimination

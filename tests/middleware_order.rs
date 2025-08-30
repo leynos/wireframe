@@ -14,6 +14,8 @@ use wireframe::{
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
+const MAX_FRAME: usize = 64 * 1024;
+
 struct TagMiddleware(u8);
 
 struct TagService<S> {
@@ -70,7 +72,9 @@ async fn middleware_applied_in_reverse_order() {
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).expect("serialization failed");
     // Use a length-delimited codec for framing
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(MAX_FRAME)
+        .new_codec();
     let mut buf = BytesMut::new();
     codec
         .encode(bytes.into(), &mut buf)

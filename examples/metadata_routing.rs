@@ -12,6 +12,8 @@ use wireframe::{app::Envelope, frame::FrameMetadata, message::Message, serialize
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
 
+const MAX_FRAME: usize = 64 * 1024;
+
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
 #[derive(Default)]
 struct HeaderSerializer;
@@ -93,7 +95,7 @@ async fn main() -> io::Result<()> {
     frame.extend_from_slice(&payload);
 
     let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(64 * 1024) // 64 KiB cap for the example
+        .max_frame_length(MAX_FRAME) // 64 KiB cap for the example
         .new_codec();
     let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix
     codec

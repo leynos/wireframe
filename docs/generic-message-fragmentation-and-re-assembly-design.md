@@ -163,7 +163,11 @@ codec chain via the `WireframeApp` builder.
 // Pseudo‑API: enable fragmentation with a strategy on the codec stack.
 WireframeServer::new(|| {
     WireframeApp::new()
-        .codec(LengthDelimitedCodec::builder().new_codec())
+        .codec(
+            LengthDelimitedCodec::builder()
+                .max_frame_length(64 * 1024)
+                .new_codec(),
+        )
         .codec(FragmentAdapter::new(MySqlStrategy::new()))
         .route(/* ... */)
 })

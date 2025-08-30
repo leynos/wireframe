@@ -20,6 +20,8 @@ use wireframe_testing::run_app;
 mod common;
 use common::TestApp;
 
+const MAX_FRAME: usize = 64 * 1024;
+
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestResp(u32);
 
@@ -57,7 +59,9 @@ async fn send_response_encodes_and_frames() {
         .await
         .expect("send_response failed");
 
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(MAX_FRAME)
+        .new_codec();
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)
@@ -73,19 +77,23 @@ async fn send_response_encodes_and_frames() {
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 #[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(MAX_FRAME)
+        .new_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
 }
 
 /// Tests that decoding with a complete length prefix but incomplete frame data returns `None`
-/// and retains all bytes in the buffer.
+/// and consumes only the 4-byte length prefix.
 ///
-/// Ensures that the decoder does not consume any bytes when the full frame is not yet available.
+/// Confirms that the decoder leaves the incomplete body in the buffer until the full frame arrives.
 #[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(MAX_FRAME)
+        .new_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     // LengthDelimitedCodec consumes the length prefix even if the frame
@@ -132,6 +140,7 @@ fn custom_length_roundtrip(
     if fmt.endianness() == Endianness::Little {
         builder.little_endian();
     }
+    builder.max_frame_length(MAX_FRAME);
     let mut codec = builder.new_codec();
     let mut buf = BytesMut::new();
     codec

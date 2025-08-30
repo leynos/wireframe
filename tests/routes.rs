@@ -20,6 +20,8 @@ use wireframe_testing::{drive_with_bincode, drive_with_frames};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), TestEnvelope>;
 
+const MAX_FRAME: usize = 64 * 1024;
+
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug, Clone)]
 struct TestEnvelope {
     id: u32,
@@ -83,7 +85,7 @@ async fn handler_receives_message_and_echoes_response() {
         .expect("drive_with_bincode failed");
 
     let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(64 * 1024)
+        .max_frame_length(MAX_FRAME)
         .new_codec();
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
@@ -118,7 +120,7 @@ async fn handler_echoes_with_none_correlation_id() {
 
     let out = drive_with_bincode(app, env).await.expect("drive failed");
     let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(64 * 1024)
+        .max_frame_length(MAX_FRAME)
         .new_codec();
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
@@ -145,7 +147,7 @@ async fn multiple_frames_processed_in_sequence() {
         .expect("route registration failed");
 
     let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(64 * 1024)
+        .max_frame_length(MAX_FRAME)
         .new_codec();
     let mut encoded_frames = Vec::new();
     for id in 1u8..=2 {
@@ -217,7 +219,7 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
 
     let mut framed = BytesMut::with_capacity(env_bytes.len() + 4);
     let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(64 * 1024)
+        .max_frame_length(MAX_FRAME)
         .new_codec();
     codec
         .encode(env_bytes.into(), &mut framed)
