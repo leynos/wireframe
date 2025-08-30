@@ -66,17 +66,21 @@ impl<F: FrameLike> PushQueues<F> {
     #[must_use]
     pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::default() }
 
+    /// Validates whether the provided rate is invalid (zero or exceeds the maximum).
+    fn is_invalid_rate(rate: Option<usize>) -> bool {
+        matches!(rate, Some(r) if r == 0 || r > MAX_PUSH_RATE)
+    }
+
     pub(super) fn build_with_rate_dlq(
         high_capacity: usize,
         low_capacity: usize,
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        if let Some(r) = rate
-            && (r == 0 || r > MAX_PUSH_RATE)
-        {
+        if Self::is_invalid_rate(rate) {
             // Reject unsupported rates early to avoid building queues that cannot
             // be used. The bounds prevent runaway resource consumption.
+            let r = rate.unwrap();
             return Err(PushConfigError::InvalidRate(r));
         }
         if high_capacity == 0 || low_capacity == 0 {
