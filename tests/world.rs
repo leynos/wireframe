@@ -25,6 +25,14 @@ use common::unused_listener;
 mod terminator;
 use terminator::Terminator;
 
+fn build_small_queues<T: Send + 'static>() -> (PushQueues<T>, wireframe::push::PushHandle<T>) {
+    PushQueues::<T>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("failed to build PushQueues")
+}
+
 #[derive(Debug)]
 struct PanicServer {
     addr: SocketAddr,
@@ -142,11 +150,7 @@ impl CorrelationWorld {
             yield Envelope::new(1, Some(cid), vec![1]);
             yield Envelope::new(1, Some(cid), vec![2]);
         });
-        let (queues, handle) = PushQueues::<Envelope>::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .build()
-            .expect("failed to build PushQueues");
+        let (queues, handle) = build_small_queues::<Envelope>();
         let shutdown = CancellationToken::new();
         let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
         actor.run(&mut self.frames).await.expect("actor run failed");
@@ -184,11 +188,7 @@ impl StreamEndWorld {
             yield 2u8;
         });
 
-        let (queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .build()
-            .expect("failed to build PushQueues");
+        let (queues, handle) = build_small_queues::<u8>();
         let shutdown = CancellationToken::new();
         let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
         let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);

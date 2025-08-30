@@ -11,7 +11,7 @@ use std::sync::{
 };
 
 use futures::stream;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     ConnectionContext,
@@ -20,6 +20,22 @@ use wireframe::{
     connection::ConnectionActor,
     push::PushQueues,
 };
+
+#[fixture]
+#[expect(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
+#[allow(unfulfilled_lint_expectations)]
+fn queues() -> (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>) {
+    PushQueues::<Vec<u8>>::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .build()
+        .expect("failed to build PushQueues")
+}
 
 struct TestProtocol {
     counter: Arc<AtomicUsize>,
@@ -46,7 +62,9 @@ impl WireframeProtocol for TestProtocol {
 
 #[rstest]
 #[tokio::test]
-async fn builder_produces_protocol_hooks() {
+async fn builder_produces_protocol_hooks(
+    queues: (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>),
+) {
     let counter = Arc::new(AtomicUsize::new(0));
     let protocol = TestProtocol {
         counter: counter.clone(),
@@ -55,12 +73,7 @@ async fn builder_produces_protocol_hooks() {
         .expect("failed to create app")
         .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
-
-    let (queues, handle) = PushQueues::<Vec<u8>>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
-        .expect("failed to build PushQueues");
+    let (queues, handle) = queues;
     hooks.on_connection_setup(handle, &mut ConnectionContext);
     drop(queues); // silence unused warnings
 
@@ -74,7 +87,9 @@ async fn builder_produces_protocol_hooks() {
 
 #[rstest]
 #[tokio::test]
-async fn connection_actor_uses_protocol_from_builder() {
+async fn connection_actor_uses_protocol_from_builder(
+    queues: (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>),
+) {
     let counter = Arc::new(AtomicUsize::new(0));
     let protocol = TestProtocol {
         counter: counter.clone(),
@@ -84,11 +99,7 @@ async fn connection_actor_uses_protocol_from_builder() {
         .with_protocol(protocol);
 
     let hooks = app.protocol_hooks();
-    let (queues, handle) = PushQueues::<Vec<u8>>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .build()
-        .expect("failed to build PushQueues");
+    let (queues, handle) = queues;
     handle
         .push_high_priority(vec![1])
         .await
