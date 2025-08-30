@@ -2,15 +2,86 @@
 //!
 //! They cover priority ordering, policy behaviour, and closed queue errors.
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tokio::time::{self, Duration};
-use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
+use wireframe::push::{
+    MAX_PUSH_RATE,
+    PushConfigError,
+    PushError,
+    PushHandle,
+    PushPolicy,
+    PushPriority,
+    PushQueues,
+};
 use wireframe_testing::{push_expect, recv_expect};
+
+#[fixture]
+fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
+    PushQueues::<u8>::builder()
+        .high_capacity(2)
+        .low_capacity(2)
+        .rate(Some(1))
+        .build()
+        .expect("failed to build PushQueues")
+}
+
+#[fixture]
+fn small_queues() -> (PushQueues<u8>, PushHandle<u8>) {
+    PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("failed to build PushQueues")
+}
+
+/// Builder rejects rates outside the supported range.
+#[rstest]
+#[case::zero(0)]
+#[case::too_high(MAX_PUSH_RATE + 1)]
+fn builder_rejects_invalid_rate(#[case] rate: usize) {
+    let result = PushQueues::<u8>::builder().rate(Some(rate)).build();
+    assert!(matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate));
+}
+
+#[test]
+fn builder_rejects_zero_capacity() {
+    #[cfg(debug_assertions)]
+    {
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _ = PushQueues::<u8>::builder().high_capacity(0).build();
+            })
+            .is_err()
+        );
+
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _ = PushQueues::<u8>::builder().low_capacity(0).build();
+            })
+            .is_err()
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let hi = PushQueues::<u8>::builder().high_capacity(0).build();
+        assert!(matches!(
+            hi,
+            Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
+        ));
+
+        let lo = PushQueues::<u8>::builder().low_capacity(0).build();
+        assert!(matches!(
+            lo,
+            Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
+        ));
+    }
+}
 
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
 async fn frames_routed_to_correct_priority_queues() {
-    let (mut queues, handle) = PushQueues::bounded(1, 1);
+    let (mut queues, handle) = small_queues();
 
     push_expect!(handle.push_low_priority(1u8));
     push_expect!(handle.push_high_priority(2u8));
@@ -27,14 +98,14 @@ async fn frames_routed_to_correct_priority_queues() {
 /// `try_push` honours the selected queue policy when full.
 ///
 /// Using [`PushPolicy::ReturnErrorIfFull`] causes `try_push` to
-/// return `PushError::Full` once the queue is at capacity.
+/// return [`PushError::QueueFull`] once the queue is at capacity.
 #[tokio::test]
 async fn try_push_respects_policy() {
-    let (mut queues, handle) = PushQueues::bounded(1, 1);
+    let (mut queues, handle) = small_queues();
 
     push_expect!(handle.push_high_priority(1u8));
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
-    assert!(result.is_err());
+    assert!(matches!(result, Err(PushError::QueueFull)));
 
     // drain queue to allow new push
     let _ = queues.recv().await;
@@ -46,9 +117,7 @@ async fn try_push_respects_policy() {
 /// Push attempts return `Closed` when all queues have been shut down.
 #[tokio::test]
 async fn push_queues_error_on_closed() {
-    let (queues, handle) = PushQueues::bounded(1, 1);
-
-    let mut queues = queues;
+    let (mut queues, handle) = small_queues();
     queues.close();
     let res = handle.push_high_priority(42u8).await;
     assert!(matches!(res, Err(PushError::Closed)));
@@ -66,8 +135,7 @@ async fn push_queues_error_on_closed() {
 #[tokio::test]
 async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
     time::pause();
-    let (mut queues, handle) =
-        PushQueues::bounded_with_rate(2, 2, Some(1)).expect("queue creation failed");
+    let (mut queues, handle) = queues();
 
     match priority {
         PushPriority::High => push_expect!(handle.push_high_priority(1u8)),
@@ -100,8 +168,7 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
 #[tokio::test]
 async fn rate_limiter_allows_after_wait() {
     time::pause();
-    let (mut queues, handle) =
-        PushQueues::bounded_with_rate(2, 2, Some(1)).expect("queue creation failed");
+    let (mut queues, handle) = queues();
     push_expect!(handle.push_high_priority(1u8));
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_high_priority(2u8));
@@ -117,8 +184,7 @@ async fn rate_limiter_allows_after_wait() {
 #[tokio::test]
 async fn rate_limiter_shared_across_priorities() {
     time::pause();
-    let (mut queues, handle) =
-        PushQueues::bounded_with_rate(2, 2, Some(1)).expect("queue creation failed");
+    let (mut queues, handle) = queues();
     push_expect!(handle.push_high_priority(1u8));
 
     let attempt = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
@@ -139,7 +205,12 @@ async fn rate_limiter_shared_across_priorities() {
 #[tokio::test]
 async fn unlimited_queues_do_not_block() {
     time::pause();
-    let (mut queues, handle) = PushQueues::bounded_no_rate_limit(1, 1);
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .rate(None)
+        .build()
+        .expect("failed to build PushQueues");
     push_expect!(handle.push_high_priority(1u8));
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");
@@ -154,8 +225,12 @@ async fn unlimited_queues_do_not_block() {
 #[tokio::test]
 async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     time::pause();
-    let (mut queues, handle) =
-        PushQueues::bounded_with_rate(4, 4, Some(3)).expect("queue creation failed");
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .rate(Some(3))
+        .build()
+        .expect("failed to build PushQueues");
 
     for i in 0u8..3 {
         push_expect!(handle.push_high_priority(i));
