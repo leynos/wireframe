@@ -17,6 +17,9 @@ This new layer will be responsible for automatically splitting oversized
 outbound frames and meticulously re-assembling inbound fragments into a single,
 coherent message before they reach the router.
 
+> Status: design proposal. API names, trait bounds, and configuration shapes
+> may change before stabilisation.
+
 This feature is a critical component of the "Road to Wireframe 1.0," designed
 to seamlessly integrate with and underpin the streaming and server-push
 capabilities.
@@ -25,8 +28,7 @@ capabilities.
 
 The implementation must satisfy the following core requirements:
 
-<!-- markdownlint-disable MD013 -->
-
+<!-- markdownlint-disable-next-line MD013 -->
 | ID | Goal                                                                                                                                                                                                                   |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | G1 | Transparent inbound re-assembly → The router and handlers must always receive one complete, logical Frame.                                                                                                             |
@@ -34,8 +36,6 @@ The implementation must satisfy the following core requirements:
 | G3 | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
 | G4 | Denial‑of‑service (DoS) protection: The re-assembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                    |
 | G5 | Zero Friction: Protocols that do not use fragmentation must incur no performance or complexity overhead. This feature must be strictly opt-in.                                                                         |
-
-<!-- markdownlint-enable MD013 -->
 
 ## 3. Core architecture: the `FragmentAdapter`
 
@@ -78,6 +78,8 @@ pub struct FragmentAdapter<S: FragmentStrategy> {
 struct PartialMessage {
     /// The buffer holding the accumulating payload.
     buffer: BytesMut,
+    /// The advertised total payload size, if known.
+    expected_total: Option<usize>,
     /// The sequence number of the last fragment received.
     last_sequence: u64,
     /// The time the first fragment was received.
@@ -150,7 +152,7 @@ pub trait FragmentStrategy: 'static + Send + Sync {
         is_final: bool,
         msg_id: u64,
         seq: u64,
-    );
+    ) -> io::Result<()>;
 }
 ```
 
@@ -220,8 +222,9 @@ robust against errors and attacks.
        passed down the chain immediately without being buffered.
 
      - If `meta.is_final` is false, a new `PartialMessage` is created. The
-       buffer is pre-allocated if `meta.total_message_len` is `Some`. The
-       `started_at` timestamp is recorded.
+       buffer is pre-allocated if `meta.total_message_len` is `Some`, and
+       `expected_total` stores this hint. The `started_at` timestamp is
+       recorded.
 
    - **Continuing Message (**`.get_mut()`**):**
 
@@ -264,7 +267,7 @@ The outbound path is simpler and purely procedural.
 
    - For each chunk, it calls `strategy.encode_header()` to write the fragment
      header (with the correct `msg_id`, `seq`, and `is_final` flag) into a
-     temporary buffer, followed by the payload chunk.
+     buffer, propagating any error, followed by the payload chunk.
 
    - Each fully formed fragment is then passed individually to the next
      codec.
@@ -285,15 +288,12 @@ This feature is designed as a foundational layer that other features build upon.
 
 ## 7. Measurable objectives and success criteria
 
-<!-- markdownlint-disable MD013 -->
-
+<!-- markdownlint-disable-next-line MD013 -->
 | Category        | Objective                                                                                                                                   | Success Metric                                                                                                                                                                    |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                       | 100% of the public API surface is present and correctly typed.                                                                                                                    |
-| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly re-assembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a 64 MiB payload after being fragmented and re-assembled.                                                                   |
+| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly re-assembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and re-assembled.                                       |
 | Multiplexing    | The adapter can correctly re-assemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly re-assembled messages, A and B.                                                                      |
-| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                     | A test sending fragments for a 2 GiB message against a 1 GiB max_message_size limit must terminate the connection and not allocate more than ~1 GiB of buffer memory.             |
+| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                     | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                    |
 | Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                                | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                    |
 | Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                     | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter. |
-
-<!-- markdownlint-enable MD013 -->

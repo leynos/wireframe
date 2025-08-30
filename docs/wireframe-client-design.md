@@ -95,6 +95,5 @@ extensions might include:
 By leveraging the existing abstractions for framing and serialization, client
 support can share most of the server’s implementation while providing a small
 ergonomic API.
-[^1]: See [wireframe router design][router-design].
-
-[router-design]: rust-binary-router-library-design.md#implementation-details
+[^1]: See
+      [wireframe router design](rust-binary-router-library-design.md#implementation-details).

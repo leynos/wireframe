@@ -92,6 +92,8 @@ where
 const DEFAULT_CAPACITY: usize = 4096;
 const MAX_CAPACITY: usize = 1024 * 1024 * 10; // 10MB limit
 pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
+/// Shared frame cap used by helpers and tests to avoid drift.
+pub const TEST_MAX_FRAME: usize = DEFAULT_CAPACITY;
 
 macro_rules! forward_default {
     (

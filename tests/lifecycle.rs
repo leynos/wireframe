@@ -17,12 +17,10 @@ use wireframe::{
     app::{Envelope, Packet, PacketParts},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{run_app, run_with_duplex_server};
+use wireframe_testing::{TEST_MAX_FRAME, run_app, run_with_duplex_server};
 
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
-
-const MAX_FRAME: usize = 64 * 1024;
 
 fn call_counting_callback<R, A>(
     counter: &Arc<AtomicUsize>,
@@ -151,7 +149,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
         .expect("failed to serialise envelope");
     let mut frame = BytesMut::new();
     let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(MAX_FRAME)
+        .max_frame_length(TEST_MAX_FRAME)
         .new_codec();
     codec
         .encode(bytes.into(), &mut frame)
@@ -167,6 +165,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
+    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
     let (resp, _) = BincodeSerializer
         .deserialize::<StateEnvelope>(&decoded)
         .expect("deserialize failed");

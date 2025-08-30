@@ -69,6 +69,7 @@ async fn send_response_encodes_and_frames() {
         .expect("frame missing");
     let (decoded, _) = TestResp::from_bytes(&frame).expect("deserialize failed");
     assert_eq!(decoded, TestResp(7));
+    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
 /// Tests that decoding with an incomplete length prefix header returns `None` and does not consume
