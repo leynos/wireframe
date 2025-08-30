@@ -1,6 +1,14 @@
 //! Cloneable handle used by producers to push frames to a connection.
 
-use std::sync::{Arc, Weak};
+use std::{
+    sync::{
+        Arc,
+        Mutex,
+        Weak,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use leaky_bucket::RateLimiter;
 use tokio::sync::mpsc;
@@ -22,6 +30,8 @@ pub(crate) struct PushHandleInner<F> {
     pub(crate) low_prio_tx: mpsc::Sender<F>,
     pub(crate) limiter: Option<RateLimiter>,
     pub(crate) dlq_tx: Option<mpsc::Sender<F>>,
+    pub(crate) dlq_drops: AtomicUsize,
+    pub(crate) dlq_last_log: Mutex<Instant>,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -33,17 +43,26 @@ impl<F: FrameLike> PushHandle<F> {
 
     /// Internal helper to push a frame with the requested priority.
     ///
-    /// Waits on the rate limiter if configured and sends the frame to the
-    /// appropriate channel, mapping send errors to [`PushError`].
+    /// Reserves queue capacity before waiting on the rate limiter and sending
+    /// the frame to the appropriate channel. This avoids delaying when the
+    /// queue has been closed.
     async fn push_with_priority(&self, frame: F, priority: PushPriority) -> Result<(), PushError> {
-        if let Some(ref limiter) = self.0.limiter {
-            limiter.acquire(1).await;
-        }
         let tx = match priority {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
         };
-        tx.send(frame).await.map_err(|_| PushError::Closed)?;
+
+        let permit = tx
+            .clone()
+            .reserve_owned()
+            .await
+            .map_err(|_| PushError::Closed)?;
+
+        if let Some(ref limiter) = self.0.limiter {
+            limiter.acquire(1).await;
+        }
+
+        permit.send(frame);
         debug!(?priority, "frame pushed");
         Ok(())
     }
@@ -116,14 +135,23 @@ impl<F: FrameLike> PushHandle<F> {
     where
         F: std::fmt::Debug,
     {
+        const LOG_EVERY_N: usize = 100;
+        const LOG_INTERVAL: Duration = Duration::from_secs(10);
+
         if let Some(dlq) = &self.0.dlq_tx {
             match dlq.try_send(frame) {
                 Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(f)) => {
-                    error!(?f, "push queue and DLQ full; frame lost");
-                }
-                Err(mpsc::error::TrySendError::Closed(f)) => {
-                    error!(?f, "DLQ closed; frame lost");
+                Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) => {
+                    let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
+                    let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
+                    let now = Instant::now();
+                    if dropped.is_multiple_of(LOG_EVERY_N)
+                        || now.duration_since(*last) > LOG_INTERVAL
+                    {
+                        error!(?f, dropped, "DLQ dropped frames (full or closed)");
+                        *last = now;
+                        self.0.dlq_drops.store(0, Ordering::Relaxed);
+                    }
                 }
             }
         }

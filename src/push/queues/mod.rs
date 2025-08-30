@@ -6,7 +6,10 @@
 //! level. An optional rate limiter caps throughput at [`MAX_PUSH_RATE`] pushes
 //! per second.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex, atomic::AtomicUsize},
+    time::{Duration, Instant},
+};
 
 use leaky_bucket::RateLimiter;
 use tokio::sync::mpsc;
@@ -104,6 +107,12 @@ impl<F: FrameLike> PushQueues<F> {
             low_prio_tx: low_tx,
             limiter,
             dlq_tx: dlq,
+            dlq_drops: AtomicUsize::new(0),
+            dlq_last_log: Mutex::new(
+                Instant::now()
+                    .checked_sub(Duration::from_secs(10))
+                    .unwrap_or_else(Instant::now),
+            ),
         };
         Ok((
             Self {

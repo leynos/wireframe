@@ -43,39 +43,26 @@ fn builder_rejects_invalid_rate(#[case] rate: usize) {
     assert!(matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate));
 }
 
+/// Setting the rate to `None` disables throttling without error.
+#[test]
+fn builder_accepts_none_rate() {
+    let result = PushQueues::<u8>::builder().rate(None).build();
+    assert!(result.is_ok(), "builder should accept None rate");
+}
+
 #[test]
 fn builder_rejects_zero_capacity() {
-    #[cfg(debug_assertions)]
-    {
-        assert!(
-            std::panic::catch_unwind(|| {
-                let _ = PushQueues::<u8>::builder().high_capacity(0).build();
-            })
-            .is_err()
-        );
+    let hi = PushQueues::<u8>::builder().high_capacity(0).build();
+    assert!(matches!(
+        hi,
+        Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
+    ));
 
-        assert!(
-            std::panic::catch_unwind(|| {
-                let _ = PushQueues::<u8>::builder().low_capacity(0).build();
-            })
-            .is_err()
-        );
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        let hi = PushQueues::<u8>::builder().high_capacity(0).build();
-        assert!(matches!(
-            hi,
-            Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
-        ));
-
-        let lo = PushQueues::<u8>::builder().low_capacity(0).build();
-        assert!(matches!(
-            lo,
-            Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
-        ));
-    }
+    let lo = PushQueues::<u8>::builder().low_capacity(0).build();
+    assert!(matches!(
+        lo,
+        Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
+    ));
 }
 
 /// Frames are delivered to queues matching their push priority.

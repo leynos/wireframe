@@ -8,7 +8,7 @@ use tokio::{
     sync::mpsc,
     time::{Duration, timeout},
 };
-use wireframe::push::{PushPolicy, PushPriority, PushQueues};
+use wireframe::push::{PushPolicy, PushPriority, PushQueues, PushQueuesBuilder};
 use wireframe_testing::{LoggerHandle, logger};
 
 /// Builds a single-thread [`Runtime`] for async tests.
@@ -25,6 +25,11 @@ fn rt() -> Runtime {
         .expect("failed to build test runtime")
 }
 
+#[fixture]
+fn builder() -> PushQueuesBuilder<u8> {
+    PushQueues::<u8>::builder().high_capacity(1).low_capacity(1)
+}
+
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]
 #[case::drop_if_full(PushPolicy::DropIfFull, false, "push queue full")]
@@ -33,17 +38,14 @@ fn rt() -> Runtime {
 fn push_policy_behaviour(
     rt: Runtime,
     mut logger: LoggerHandle,
+    builder: PushQueuesBuilder<u8>,
     #[case] policy: PushPolicy,
     #[case] expect_warning: bool,
     #[case] expected_msg: &str,
 ) {
     rt.block_on(async {
         while logger.pop().is_some() {}
-        let (mut queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .build()
-            .expect("failed to build PushQueues");
+        let (mut queues, handle) = builder.build().expect("failed to build PushQueues");
 
         handle
             .push_high_priority(1u8)
@@ -78,12 +80,10 @@ fn push_policy_behaviour(
 
 /// Dropped frames are forwarded to the dead letter queue.
 #[rstest]
-fn dropped_frame_goes_to_dlq(rt: Runtime) {
+fn dropped_frame_goes_to_dlq(rt: Runtime, builder: PushQueuesBuilder<u8>) {
     rt.block_on(async {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-        let (mut queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(1)
-            .low_capacity(1)
+        let (mut queues, handle) = builder
             .rate(None)
             .dlq(Some(dlq_tx))
             .build()
@@ -135,6 +135,7 @@ fn dlq_error_scenarios<Setup, AssertFn>(
     #[case] policy: PushPolicy,
     #[case] expected: &str,
     #[case] assertion: AssertFn,
+    builder: PushQueuesBuilder<u8>,
 ) where
     Setup: FnOnce(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>),
     AssertFn: FnOnce(&mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()>,
@@ -145,9 +146,7 @@ fn dlq_error_scenarios<Setup, AssertFn>(
         let (dlq_tx, dlq_rx) = mpsc::channel(1);
         let mut dlq_rx = Some(dlq_rx);
         setup(&dlq_tx, &mut dlq_rx);
-        let (mut queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(1)
-            .low_capacity(1)
+        let (mut queues, handle) = builder
             .rate(None)
             .dlq(Some(dlq_tx))
             .build()
