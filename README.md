@@ -140,7 +140,29 @@ big‑endian header【F:docs/rust-binary-router-library-design.md†L1082-L1123�
 let app = WireframeApp::new()?;
 ```
 
-## Connection lifecycle
+## Push Queues
+
+Push queues buffer frames before they are written to a connection. Configure
+them with capacities, rate limits, and an optional dead-letter queue:
+
+```rust,no_run
+use tokio::sync::mpsc;
+use wireframe::push::PushQueues;
+
+# async fn demo() {
+let (dlq_tx, _dlq_rx) = mpsc::channel(8);
+let (_queues, _handle) = PushQueues::<u8>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .rate(Some(100)) // pass None to disable rate limiting
+    .dlq(Some(dlq_tx)) // frames drop if the DLQ is absent or full
+    .build()
+    .expect("failed to build PushQueues");
+# drop((_queues, _handle));
+# }
+```
+
+## Connection Lifecycle
 
 Protocol callbacks are consolidated under the `WireframeProtocol` trait,
 replacing the individual `on_connection_setup`/`on_connection_teardown`

@@ -15,7 +15,12 @@ async fn stream_frames_carry_request_correlation_id() {
         yield Envelope::new(1, Some(cid), vec![1]);
         yield Envelope::new(1, Some(cid), vec![2]);
     });
-    let (queues, handle) = PushQueues::bounded(1, 1);
+    let (queues, handle) = PushQueues::<Envelope>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .rate(None)
+        .build()
+        .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
     let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
     let mut out = Vec::new();

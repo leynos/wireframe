@@ -43,7 +43,7 @@ async fn readiness_receiver_dropped() {
     let server = WireframeServer::new(factory())
         .workers(1)
         .bind_existing_listener(listener)
-        .unwrap();
+        .expect("failed to bind existing listener");
 
     let addr = server.local_addr().expect("local addr missing");
     // Create channel and immediately drop receiver to force send failure
