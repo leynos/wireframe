@@ -72,7 +72,9 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        if let Some(r) = rate.filter(|r| *r == 0 || *r > MAX_PUSH_RATE) {
+        if let Some(r) = rate
+            && (r == 0 || r > MAX_PUSH_RATE)
+        {
             // Reject unsupported rates early to avoid building queues that cannot
             // be used. The bounds prevent runaway resource consumption.
             return Err(PushConfigError::InvalidRate(r));

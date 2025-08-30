@@ -15,10 +15,18 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 ///
 /// # Examples
 ///
+/// Build queues with custom capacities, a rate limit and a dead-letter queue:
+///
 /// ```
+/// use tokio::sync::mpsc;
 /// use wireframe::push::PushQueues;
 ///
+/// let (dlq_tx, _dlq_rx) = mpsc::channel(1);
 /// let (_queues, _handle) = PushQueues::<u8>::builder()
+///     .high_capacity(8)
+///     .low_capacity(8)
+///     .rate(Some(10)) // None disables rate limiting
+///     .dlq(Some(dlq_tx))
 ///     .build()
 ///     .expect("failed to build PushQueues");
 /// # drop((_queues, _handle));
@@ -71,6 +79,8 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     }
 
     /// Set the global push rate limit in pushes per second.
+    ///
+    /// Pass `None` to disable rate limiting.
     #[must_use]
     pub fn rate(mut self, rate: Option<usize>) -> Self {
         self.rate = rate;
@@ -78,6 +88,8 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     }
 
     /// Provide a dead-letter queue for discarded frames.
+    ///
+    /// Frames are dropped if the DLQ is `None` or when the channel is full.
     #[must_use]
     pub fn dlq(mut self, dlq: Option<mpsc::Sender<F>>) -> Self {
         self.dlq = dlq;

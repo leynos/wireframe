@@ -22,6 +22,8 @@ use wireframe_testing::push_expect;
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
 #[allow(unfulfilled_lint_expectations)]
 fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
     PushQueues::<u8>::builder()
@@ -36,6 +38,8 @@ fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
 #[allow(unfulfilled_lint_expectations)]
 fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
@@ -44,6 +48,8 @@ fn shutdown_token() -> CancellationToken { CancellationToken::new() }
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
 #[allow(unfulfilled_lint_expectations)]
 fn empty_stream() -> Option<FrameStream<u8, ()>> { None }
 
