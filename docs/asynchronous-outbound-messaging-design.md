@@ -743,6 +743,19 @@ features of the 1.0 release.
   the socket. The `PushHandle` and the application code that uses it remain
   completely unaware of fragmentation.
 
+```rust
+// Codec stack with explicit frame-size limits and fragmentation.
+use tokio_util::codec::LengthDelimitedCodec;
+
+let codec = LengthDelimitedCodec::builder()
+    .max_frame_length(64 * 1024) // 64 KiB cap to prevent OOM
+    .new_codec();
+
+// Wrap the length-delimited frames with the fragmentation adapter.
+// Pseudocode pending actual adapter API naming:
+// let codec = FragmentAdapter::new(FragmentConfig::default()).wrap(codec);
+```
+
 ## 7. Use Cases
 
 ### 7.1 Server-Initiated MySQL Packets

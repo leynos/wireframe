@@ -89,6 +89,7 @@ async fn middleware_applied_in_reverse_order() {
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
+    assert!(buf.is_empty(), "unexpected trailing bytes after frame");
     let (resp, _) = serializer
         .deserialize::<Envelope>(&frame)
         .expect("deserialize failed");

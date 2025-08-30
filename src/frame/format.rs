@@ -17,8 +17,8 @@ pub enum Endianness {
 /// Format of the length prefix preceding each frame.
 #[derive(Clone, Copy, Debug)]
 pub struct LengthFormat {
-    pub bytes: usize,
-    pub endianness: Endianness,
+    bytes: usize,
+    endianness: Endianness,
 }
 
 impl LengthFormat {
@@ -48,6 +48,14 @@ impl LengthFormat {
         }
         Ok(Self { bytes, endianness })
     }
+
+    /// Returns the prefix width in bytes.
+    #[must_use]
+    pub const fn bytes(&self) -> usize { self.bytes }
+
+    /// Returns the endianness used for the prefix.
+    #[must_use]
+    pub const fn endianness(&self) -> Endianness { self.endianness }
 
     /// Creates a `LengthFormat` for a 2-byte big-endian length prefix.
     #[must_use]

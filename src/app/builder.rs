@@ -103,7 +103,7 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    /// Initializes empty routes, middleware, and application data with the
+    /// Initialises empty routes, middleware, and application data with the
     /// default serializer and no lifecycle hooks.
     fn default() -> Self {
         Self {

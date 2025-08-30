@@ -23,8 +23,9 @@ mirrors `WireframeServer` but operates in the opposite direction:
 
 - Connect to a `TcpStream`.
 - Optionally, send a preamble using the existing `Preamble` helpers.
-- Encode outgoing messages using the selected `Serializer` and a
-  length‑delimited codec.
+- Encode outgoing messages using the selected `Serializer` and
+  `tokio_util::codec::LengthDelimitedCodec` (4‑byte big‑endian prefix by
+  default; configurable).
 - Decode incoming frames into typed responses.
 - Expose async `send` and `receive` operations.
 
@@ -92,5 +93,5 @@ extensions might include:
 By leveraging the existing abstractions for framing and serialization, client
 support can share most of the server’s implementation while providing a small
 ergonomic API.
-[^1]: See [wireframe router
-                  design](rust-binary-router-library-design.md#implementation-details).
+[^1]: See [wireframe router design]
+(rust-binary-router-library-design.md#implementation-details).

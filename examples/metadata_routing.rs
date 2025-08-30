@@ -92,8 +92,10 @@ async fn main() -> io::Result<()> {
     frame.push(0);
     frame.extend_from_slice(&payload);
 
-    let mut codec = LengthDelimitedCodec::builder().new_codec();
-    let mut bytes = BytesMut::new();
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(64 * 1024) // 64 KiB cap for the example
+        .new_codec();
+    let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix
     codec
         .encode(frame.into(), &mut bytes)
         .expect("failed to encode frame");

@@ -4,9 +4,9 @@
 entire payload. This can be useful for routing decisions when the message type
 is encoded in a header field.
 
-Implement the trait for your serializer or decoder that knows how to read the
+Implement the trait for your serialiser or decoder that knows how to read the
 header bytes. Only the minimal header portion should be read, returning the
-full frame and the number of bytes consumed from the input.
+frame envelope and the number of bytes consumed from the input.
 
 ```rust
 use wireframe::frame::FrameMetadata;
@@ -15,9 +15,10 @@ use tokio_util::codec::{Decoder, Encoder};
 use bytes::{Bytes, BytesMut};
 
 struct MyCodec;
-
+// Example only: implement the minimal Decoder/Encoder surface for docs.
 impl Decoder for MyCodec {
-    type Item = Bytes;
+    // Using BytesMut here mirrors LengthDelimitedCodec’s default Item.
+    type Item = BytesMut;
     type Error = std::io::Error;
 
     fn decode(

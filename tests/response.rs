@@ -88,7 +88,8 @@ async fn length_prefixed_decode_requires_full_frame() {
     let mut codec = LengthDelimitedCodec::builder().new_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
-    // the length prefix is consumed even if the frame is incomplete
+    // LengthDelimitedCodec consumes the length prefix even if the frame
+    // remains incomplete.
     assert_eq!(buf.len(), 2);
 }
 
@@ -127,8 +128,8 @@ fn custom_length_roundtrip(
     #[case] prefix: Vec<u8>,
 ) {
     let mut builder = LengthDelimitedCodec::builder();
-    builder.length_field_length(fmt.bytes);
-    if fmt.endianness == Endianness::Little {
+    builder.length_field_length(fmt.bytes());
+    if fmt.endianness() == Endianness::Little {
         builder.little_endian();
     }
     let mut codec = builder.new_codec();

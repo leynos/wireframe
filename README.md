@@ -126,7 +126,7 @@ Use `None` rather than `Some(0)` when a frame lacks a correlation ID. See
 This allows integration with existing packet formats without modifying
 `handle_frame`.
 
-## Response Serialization and Framing
+## Response serialisation and framing
 
 Handlers can return types implementing the `Responder` trait. These values are
 encoded using the application's configured serializer and framed by a

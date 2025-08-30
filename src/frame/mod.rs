@@ -1,4 +1,5 @@
-//! Frame encoding utilities and length-prefix helpers.
+//! Frame encoding utilities and length-prefix helpers built around
+//! `tokio_util::codec::LengthDelimitedCodec` (4-byte big-endian by default).
 
 pub mod conversion;
 pub mod format;
