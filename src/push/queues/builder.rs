@@ -1,5 +1,7 @@
 //! Builder for configuring push queues.
 
+use std::time::Duration;
+
 use tokio::sync::mpsc;
 
 use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueues};
@@ -49,6 +51,8 @@ pub struct PushQueuesBuilder<F> {
     low_capacity: usize,
     rate: Option<usize>,
     dlq: Option<mpsc::Sender<F>>,
+    dlq_log_every_n: usize,
+    dlq_log_interval: Duration,
 }
 
 impl<F: FrameLike> Default for PushQueuesBuilder<F> {
@@ -58,6 +62,8 @@ impl<F: FrameLike> Default for PushQueuesBuilder<F> {
             low_capacity: 1,
             rate: Some(DEFAULT_PUSH_RATE),
             dlq: None,
+            dlq_log_every_n: 100,
+            dlq_log_interval: Duration::from_secs(10),
         }
     }
 }
@@ -86,6 +92,10 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
         self
     }
 
+    /// Disable rate limiting entirely.
+    #[must_use]
+    pub fn unlimited(self) -> Self { self.rate(None) }
+
     /// Provide a dead-letter queue for discarded frames.
     ///
     /// Frames are dropped when no DLQ is set or the channel is full.
@@ -95,7 +105,24 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
         self
     }
 
+    /// Log dropped frames every `n` occurrences when the DLQ is full or closed.
+    #[must_use]
+    pub fn dlq_log_every_n(mut self, n: usize) -> Self {
+        self.dlq_log_every_n = n;
+        self
+    }
+
+    /// Minimum interval between DLQ drop log entries.
+    #[must_use]
+    pub fn dlq_log_interval(mut self, interval: Duration) -> Self {
+        self.dlq_log_interval = interval;
+        self
+    }
+
     /// Build the configured [`PushQueues`] and associated [`PushHandle`].
+    ///
+    /// Validation of capacities and rate occurs only during the build step,
+    /// not when setting individual fields.
     ///
     /// # Errors
     ///
@@ -103,6 +130,13 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// greater than [`super::MAX_PUSH_RATE`] and
     /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
-        PushQueues::build_with_rate_dlq(self.high_capacity, self.low_capacity, self.rate, self.dlq)
+        PushQueues::build_with_rate_dlq(
+            self.high_capacity,
+            self.low_capacity,
+            self.rate,
+            self.dlq,
+            self.dlq_log_every_n,
+            self.dlq_log_interval,
+        )
     }
 }

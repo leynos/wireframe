@@ -1,5 +1,7 @@
 //! Tests for push queue policy behaviour.
 
+mod support;
+
 use futures::future::BoxFuture;
 use rstest::{fixture, rstest};
 use serial_test::serial;
@@ -8,7 +10,7 @@ use tokio::{
     sync::mpsc,
     time::{Duration, timeout},
 };
-use wireframe::push::{PushPolicy, PushPriority, PushQueues, PushQueuesBuilder};
+use wireframe::push::{PushPolicy, PushPriority, PushQueuesBuilder};
 use wireframe_testing::{LoggerHandle, logger};
 
 /// Builds a single-thread [`Runtime`] for async tests.
@@ -16,6 +18,7 @@ use wireframe_testing::{LoggerHandle, logger};
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+// allow(unfulfilled_lint_expectations): rustc may miss lint for single-line rstest fixtures.
 #[allow(unfulfilled_lint_expectations)]
 #[fixture]
 fn rt() -> Runtime {
@@ -25,10 +28,14 @@ fn rt() -> Runtime {
         .expect("failed to build test runtime")
 }
 
+#[expect(
+    unused_braces,
+    reason = "rustc false positive for single line rstest fixtures"
+)]
+// allow(unfulfilled_lint_expectations): rustc may miss lint for single-line rstest fixtures.
+#[allow(unfulfilled_lint_expectations)]
 #[fixture]
-fn builder() -> PushQueuesBuilder<u8> {
-    PushQueues::<u8>::builder().high_capacity(1).low_capacity(1)
-}
+fn builder() -> PushQueuesBuilder<u8> { support::builder() }
 
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]
@@ -125,8 +132,18 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { 
 
 /// Parameterised checks for error logs when DLQ interactions fail.
 #[rstest]
-#[case::dlq_full(fill_dlq, PushPolicy::WarnAndDropIfFull, assert_dlq_full)]
-#[case::dlq_closed(close_dlq, PushPolicy::DropIfFull, assert_dlq_closed)]
+#[case::dlq_full(
+    fill_dlq,
+    PushPolicy::WarnAndDropIfFull,
+    assert_dlq_full,
+    "DLQ dropped frames"
+)]
+#[case::dlq_closed(
+    close_dlq,
+    PushPolicy::DropIfFull,
+    assert_dlq_closed,
+    "DLQ dropped frames"
+)]
 #[serial(push_policies)]
 fn dlq_error_scenarios<Setup, AssertFn>(
     rt: Runtime,
@@ -134,6 +151,7 @@ fn dlq_error_scenarios<Setup, AssertFn>(
     #[case] setup: Setup,
     #[case] policy: PushPolicy,
     #[case] assertion: AssertFn,
+    #[case] expected: &str,
     builder: PushQueuesBuilder<u8>,
 ) where
     Setup: FnOnce(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>),
@@ -163,5 +181,13 @@ fn dlq_error_scenarios<Setup, AssertFn>(
         assert_eq!(val, 1);
 
         assertion(&mut dlq_rx).await;
+
+        let mut found = false;
+        while let Some(record) = logger.pop() {
+            if record.level() == log::Level::Warn && record.args().contains(expected) {
+                found = true;
+            }
+        }
+        assert!(found, "expected DLQ warning log missing");
     });
 }

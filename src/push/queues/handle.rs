@@ -32,6 +32,8 @@ pub(crate) struct PushHandleInner<F> {
     pub(crate) dlq_tx: Option<mpsc::Sender<F>>,
     pub(crate) dlq_drops: AtomicUsize,
     pub(crate) dlq_last_log: Mutex<Instant>,
+    pub(crate) dlq_log_every_n: usize,
+    pub(crate) dlq_log_interval: Duration,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -137,8 +139,8 @@ impl<F: FrameLike> PushHandle<F> {
     where
         F: std::fmt::Debug,
     {
-        const LOG_EVERY_N: usize = 100;
-        const LOG_INTERVAL: Duration = Duration::from_secs(10);
+        let log_every_n = self.0.dlq_log_every_n;
+        let log_interval = self.0.dlq_log_interval;
 
         if let Some(dlq) = &self.0.dlq_tx {
             match dlq.try_send(frame) {
@@ -147,10 +149,16 @@ impl<F: FrameLike> PushHandle<F> {
                     let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
                     let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
                     let now = Instant::now();
-                    if dropped.is_multiple_of(LOG_EVERY_N)
-                        || now.duration_since(*last) > LOG_INTERVAL
+                    if dropped.is_multiple_of(log_every_n)
+                        || now.duration_since(*last) > log_interval
                     {
-                        warn!(?f, dropped, "DLQ dropped frames (full or closed)");
+                        warn!(
+                            ?f,
+                            dropped,
+                            log_every_n,
+                            log_interval = ?log_interval,
+                            "DLQ dropped frames (full or closed)"
+                        );
                         *last = now;
                         self.0.dlq_drops.store(0, Ordering::Relaxed);
                     }

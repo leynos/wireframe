@@ -79,6 +79,8 @@ impl<F: FrameLike> PushQueues<F> {
         low_capacity: usize,
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
+        dlq_log_every_n: usize,
+        dlq_log_interval: Duration,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
         if Self::is_invalid_rate(rate) {
             // Reject unsupported rates early to avoid building queues that cannot
@@ -110,9 +112,11 @@ impl<F: FrameLike> PushQueues<F> {
             dlq_drops: AtomicUsize::new(0),
             dlq_last_log: Mutex::new(
                 Instant::now()
-                    .checked_sub(Duration::from_secs(10))
+                    .checked_sub(dlq_log_interval)
                     .unwrap_or_else(Instant::now),
             ),
+            dlq_log_every_n,
+            dlq_log_interval,
         };
         Ok((
             Self {
@@ -199,7 +203,14 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        Self::build_with_rate_dlq(high_capacity, low_capacity, rate, dlq)
+        Self::build_with_rate_dlq(
+            high_capacity,
+            low_capacity,
+            rate,
+            dlq,
+            100,
+            Duration::from_secs(10),
+        )
     }
 
     /// Receive the next frame, preferring high priority frames when available.
