@@ -5,7 +5,7 @@
 //! builder.
 //!
 //! # Example
-//! ```no_run
+//! ```rust,no_run
 //! use wireframe::push::PushQueues;
 //!
 //! let (queues, handle) = PushQueues::<u8>::builder()

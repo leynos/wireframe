@@ -26,7 +26,7 @@ performance overhead in high-throughput scenarios.
 **Recommendation**: Use `freeze().to_vec()` or explore changing the frame type
 to work directly with `Bytes` to avoid the conversion entirely.
 
-**Status**: ✅ FIXED - Optimized to use `freeze().to_vec()` which is more
+**Status**: ✅ FIXED—Optimised to use `freeze().to_vec()` which is more
 efficient.
 
 ### 2. Connection Actor Clone Operations (MEDIUM IMPACT)
@@ -39,8 +39,8 @@ pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
 () = Self::await_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
 ```
 
-**Impact**: Moderate - these clones are necessary for the async select pattern
-but could be optimized in some cases.
+**Impact**: Moderate—these clones are necessary for the async select pattern
+but could be optimised in some cases.
 
 **Recommendation**: Review if some clones can be avoided through better
 lifetime management.
@@ -54,7 +54,7 @@ chain construction.
 let mut service = HandlerService::new(id, handler.clone());
 ```
 
-**Impact**: Moderate - occurs during application setup, not in hot path.
+**Impact**: Moderate—occurs during application setup, not in the hot path.
 
 **Recommendation**: Consider using `Arc` references more efficiently.
 
@@ -69,7 +69,7 @@ let mut service = HandlerService::new(id, handler.clone());
 let mut out = Vec::with_capacity(self.0.len());
 ```
 
-**Impact**: Low to medium - depends on registry size and pruning frequency.
+**Impact**: Low to medium—depends on registry size and pruning frequency.
 
 **Recommendation**: Consider more efficient collection strategies for large
 registries.
@@ -81,7 +81,7 @@ registries.
 **Issue**: Some `Vec::new()` calls that could use `with_capacity` when size is
 known.
 
-**Impact**: Low - minor allocation optimizations.
+**Impact**: Low—minor allocation optimisations.
 
 **Recommendation**: Use `with_capacity` when the expected size is known.
 
@@ -91,23 +91,23 @@ known.
 
 - **Bottleneck**: Frame decode/encode operations in high-throughput scenarios
 - **Critical Path**: `LengthPrefixedProcessor::decode` method
-- **Optimization Priority**: High - affects every incoming frame
+- **Optimisation Priority**: High—affects every incoming frame
 
 ### Connection Handling
 
 - **Bottleneck**: Connection actor event loop and fairness tracking
 - **Critical Path**: `tokio::select!` in connection actor
-- **Optimization Priority**: Medium - affects per-connection performance
+- **Optimisation Priority**: Medium—affects per-connection performance
 
 ### Message Routing
 
 - **Bottleneck**: HashMap lookups for route resolution
 - **Critical Path**: Route handler lookup in `WireframeApp`
-- **Optimization Priority**: Low - HashMap lookups are already efficient
+- **Optimisation Priority**: Low—HashMap lookups are already efficient
 
-## Implemented Optimizations
+## Implemented Optimisations
 
-### Frame Processor Optimization
+### Frame Processor Optimisation
 
 **Change**: Modified `LengthPrefixedProcessor::decode` to use
 `freeze().to_vec()` instead of direct `.to_vec()`.
@@ -131,9 +131,9 @@ Ok(Some(src.split_to(len).freeze().to_vec()))
 - Improves performance for high-throughput scenarios
 - No breaking changes to the public API
 
-## Future Optimization Opportunities
+## Future Optimisation Opportunities
 
-1. **Frame Type Optimization**: Consider changing the frame type from `Vec<u8>`
+1. **Frame Type Optimisation**: Consider changing the frame type from `Vec<u8>`
    to `Bytes` to eliminate the final `.to_vec()` call entirely.
 
 2. **Connection Actor Pooling**: Implement connection actor pooling to reduce

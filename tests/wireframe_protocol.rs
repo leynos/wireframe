@@ -33,6 +33,7 @@ fn queues() -> (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>) {
     PushQueues::<Vec<u8>>::builder()
         .high_capacity(8)
         .low_capacity(8)
+        .rate(None)
         .build()
         .expect("failed to build PushQueues")
 }

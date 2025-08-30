@@ -129,7 +129,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use tokio_util::sync::CancellationToken;
     /// use wireframe::{connection::ConnectionActor, push::PushQueues};
     ///

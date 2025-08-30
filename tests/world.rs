@@ -29,6 +29,7 @@ fn build_small_queues<T: Send + 'static>() -> (PushQueues<T>, wireframe::push::P
     PushQueues::<T>::builder()
         .high_capacity(1)
         .low_capacity(1)
+        .rate(None)
         .build()
         .expect("failed to build PushQueues")
 }

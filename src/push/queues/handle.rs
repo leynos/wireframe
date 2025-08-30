@@ -12,7 +12,7 @@ use std::{
 
 use leaky_bucket::RateLimiter;
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use super::{FrameLike, PushError, PushPolicy, PushPriority};
 
@@ -79,10 +79,11 @@ impl<F: FrameLike> PushHandle<F> {
     /// # Examples
     ///
     /// ```rust,no_run
+    /// use tokio::runtime::Runtime;
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
-    /// #[tokio::test]
-    /// async fn example() {
+    /// let rt = Runtime::new().unwrap();
+    /// rt.block_on(async {
     ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
     ///         .low_capacity(1)
@@ -93,7 +94,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::High);
     ///     assert_eq!(frame, 42);
-    /// }
+    /// });
     /// ```
     pub async fn push_high_priority(&self, frame: F) -> Result<(), PushError> {
         self.push_with_priority(frame, PushPriority::High).await
@@ -110,10 +111,11 @@ impl<F: FrameLike> PushHandle<F> {
     /// # Examples
     ///
     /// ```rust,no_run
+    /// use tokio::runtime::Runtime;
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
-    /// #[tokio::test]
-    /// async fn example() {
+    /// let rt = Runtime::new().unwrap();
+    /// rt.block_on(async {
     ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
     ///         .low_capacity(1)
@@ -124,7 +126,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::Low);
     ///     assert_eq!(frame, 10);
-    /// }
+    /// });
     /// ```
     pub async fn push_low_priority(&self, frame: F) -> Result<(), PushError> {
         self.push_with_priority(frame, PushPriority::Low).await
@@ -148,7 +150,7 @@ impl<F: FrameLike> PushHandle<F> {
                     if dropped.is_multiple_of(LOG_EVERY_N)
                         || now.duration_since(*last) > LOG_INTERVAL
                     {
-                        error!(?f, dropped, "DLQ dropped frames (full or closed)");
+                        warn!(?f, dropped, "DLQ dropped frames (full or closed)");
                         *last = now;
                         self.0.dlq_drops.store(0, Ordering::Relaxed);
                     }
@@ -170,11 +172,11 @@ impl<F: FrameLike> PushHandle<F> {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use tokio::sync::mpsc;
+    /// use tokio::{runtime::Runtime, sync::mpsc};
     /// use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
     ///
-    /// #[tokio::test]
-    /// async fn example() {
+    /// let rt = Runtime::new().unwrap();
+    /// rt.block_on(async {
     ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
     ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
@@ -191,7 +193,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     ///     assert_eq!(dlq_rx.recv().await.expect("recv failed"), 2);
     ///     let _ = queues.recv().await;
-    /// }
+    /// });
     /// ```
     pub fn try_push(
         &self,
