@@ -64,6 +64,41 @@ pub struct PushQueues<F> {
     pub(crate) low_priority_rx: mpsc::Receiver<F>,
 }
 
+/// Configuration for building [`PushQueues`].
+///
+/// Bundles capacities, optional rate limiting and dead-letter queue settings,
+/// plus logging cadence for dropped frames.
+pub struct PushQueueConfig<F> {
+    pub high_capacity: usize,
+    pub low_capacity: usize,
+    pub rate: Option<usize>,
+    pub dlq: Option<mpsc::Sender<F>>,
+    pub dlq_log_every_n: usize,
+    pub dlq_log_interval: Duration,
+}
+
+impl<F> PushQueueConfig<F> {
+    /// Create a new configuration with default dead-letter queue logging
+    /// cadence.
+    #[must_use]
+    #[expect(dead_code, reason = "helper used by library consumers")]
+    pub fn new(
+        high_capacity: usize,
+        low_capacity: usize,
+        rate: Option<usize>,
+        dlq: Option<mpsc::Sender<F>>,
+    ) -> Self {
+        Self {
+            high_capacity,
+            low_capacity,
+            rate,
+            dlq,
+            dlq_log_every_n: 100,
+            dlq_log_interval: Duration::from_secs(10),
+        }
+    }
+}
+
 impl<F: FrameLike> PushQueues<F> {
     /// Start building a new set of push queues.
     #[must_use]
@@ -74,14 +109,17 @@ impl<F: FrameLike> PushQueues<F> {
         matches!(rate, Some(r) if r == 0 || r > MAX_PUSH_RATE)
     }
 
-    pub(super) fn build_with_rate_dlq(
-        high_capacity: usize,
-        low_capacity: usize,
-        rate: Option<usize>,
-        dlq: Option<mpsc::Sender<F>>,
-        dlq_log_every_n: usize,
-        dlq_log_interval: Duration,
+    pub(super) fn build_with_config(
+        config: PushQueueConfig<F>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
+        let PushQueueConfig {
+            high_capacity,
+            low_capacity,
+            rate,
+            dlq,
+            dlq_log_every_n,
+            dlq_log_interval,
+        } = config;
         if Self::is_invalid_rate(rate) {
             // Reject unsupported rates early to avoid building queues that cannot
             // be used. The bounds prevent runaway resource consumption.
@@ -203,14 +241,14 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        Self::build_with_rate_dlq(
+        Self::build_with_config(PushQueueConfig {
             high_capacity,
             low_capacity,
             rate,
             dlq,
-            100,
-            Duration::from_secs(10),
-        )
+            dlq_log_every_n: 100,
+            dlq_log_interval: Duration::from_secs(10),
+        })
     }
 
     /// Receive the next frame, preferring high priority frames when available.

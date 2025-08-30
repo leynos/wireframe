@@ -4,7 +4,14 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueues};
+use super::{
+    DEFAULT_PUSH_RATE,
+    FrameLike,
+    PushConfigError,
+    PushHandle,
+    PushQueueConfig,
+    PushQueues,
+};
 
 /// Builder for [`PushQueues`].
 ///
@@ -130,13 +137,13 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// greater than [`super::MAX_PUSH_RATE`] and
     /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
-        PushQueues::build_with_rate_dlq(
-            self.high_capacity,
-            self.low_capacity,
-            self.rate,
-            self.dlq,
-            self.dlq_log_every_n,
-            self.dlq_log_interval,
-        )
+        PushQueues::build_with_config(PushQueueConfig {
+            high_capacity: self.high_capacity,
+            low_capacity: self.low_capacity,
+            rate: self.rate,
+            dlq: self.dlq,
+            dlq_log_every_n: self.dlq_log_every_n,
+            dlq_log_interval: self.dlq_log_interval,
+        })
     }
 }
