@@ -26,7 +26,7 @@ performance overhead in high-throughput scenarios.
 **Recommendation**: Use `freeze().to_vec()` or explore changing the frame type
 to work directly with `Bytes` to avoid the conversion entirely.
 
-**Status**: ✅ FIXED—Optimised to use `freeze().to_vec()` which is more
+**Status**: ✅ FIXED—Optimized to use `freeze().to_vec()` which is more
 efficient.
 
 ### 2. Connection Actor Clone Operations (MEDIUM IMPACT)
@@ -40,7 +40,7 @@ pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
 ```
 
 **Impact**: Moderate—these clones are necessary for the async select pattern
-but could be optimised in some cases.
+but could be optimized in some cases.
 
 **Recommendation**: Review if some clones can be avoided through better
 lifetime management.
@@ -81,7 +81,7 @@ registries.
 **Issue**: Some `Vec::new()` calls that could use `with_capacity` when size is
 known.
 
-**Impact**: Low—minor allocation optimisations.
+**Impact**: Low—minor allocation optimizations.
 
 **Recommendation**: Use `with_capacity` when the expected size is known.
 
@@ -91,23 +91,23 @@ known.
 
 - **Bottleneck**: Frame decode/encode operations in high-throughput scenarios
 - **Critical Path**: `LengthPrefixedProcessor::decode` method
-- **Optimisation Priority**: High—affects every incoming frame
+- **Optimization Priority**: High—affects every incoming frame
 
 ### Connection Handling
 
 - **Bottleneck**: Connection actor event loop and fairness tracking
 - **Critical Path**: `tokio::select!` in connection actor
-- **Optimisation Priority**: Medium—affects per-connection performance
+- **Optimization Priority**: Medium—affects per-connection performance
 
 ### Message Routing
 
 - **Bottleneck**: HashMap lookups for route resolution
 - **Critical Path**: Route handler lookup in `WireframeApp`
-- **Optimisation Priority**: Low—HashMap lookups are already efficient
+- **Optimization Priority**: Low—HashMap lookups are already efficient
 
-## Implemented Optimisations
+## Implemented Optimizations
 
-### Frame Processor Optimisation
+### Frame Processor Optimization
 
 **Change**: Modified `LengthPrefixedProcessor::decode` to use
 `freeze().to_vec()` instead of direct `.to_vec()`.
@@ -131,9 +131,9 @@ Ok(Some(src.split_to(len).freeze().to_vec()))
 - Improves performance for high-throughput scenarios
 - No breaking changes to the public API
 
-## Future Optimisation Opportunities
+## Future Optimization Opportunities
 
-1. **Frame Type Optimisation**: Consider changing the frame type from `Vec<u8>`
+1. **Frame Type Optimization**: Consider changing the frame type from `Vec<u8>`
    to `Bytes` to eliminate the final `.to_vec()` call entirely.
 
 2. **Connection Actor Pooling**: Implement connection actor pooling to reduce

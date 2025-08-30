@@ -44,7 +44,7 @@ pub type FrameStream<F, E = ()> =
 pub enum Response<F, E = ()> {
     /// A single frame reply.
     Single(F),
-    /// An optimised list of frames.
+    /// An optimized list of frames.
     Vec(Vec<F>),
     /// A potentially unbounded stream of frames.
     Stream(FrameStream<F, E>),

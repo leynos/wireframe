@@ -82,7 +82,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// use tokio::runtime::Runtime;
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
-    /// let rt = Runtime::new().unwrap();
+    /// let rt = Runtime::new().expect("failed to build runtime");
     /// rt.block_on(async {
     ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
@@ -114,7 +114,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// use tokio::runtime::Runtime;
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
-    /// let rt = Runtime::new().unwrap();
+    /// let rt = Runtime::new().expect("failed to build runtime");
     /// rt.block_on(async {
     ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
@@ -175,7 +175,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// use tokio::{runtime::Runtime, sync::mpsc};
     /// use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
     ///
-    /// let rt = Runtime::new().unwrap();
+    /// let rt = Runtime::new().expect("failed to build runtime");
     /// rt.block_on(async {
     ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
     ///     let (mut queues, handle) = PushQueues::<u8>::builder()

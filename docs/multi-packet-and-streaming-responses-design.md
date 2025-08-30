@@ -71,7 +71,7 @@ The public API is designed for clarity, performance, and ergonomic flexibility.
 ### 4.1 The `Response` Enum
 
 The `Response` enum is the primary return type for all handlers. It is enhanced
-to provide optimised paths for common response patterns.
+to provide optimized paths for common response patterns.
 
 ```Rust
 use futures_core::stream::Stream;
@@ -82,7 +82,7 @@ pub enum Response<F, E> {
     /// A single frame reply. The most common case.
     Single(F),
 
-    /// An optimised response for a small, known list of frames.
+    /// An optimized response for a small, known list of frames.
     /// Avoids the overhead of boxing and dynamic dispatch for simple multi-part replies.
     Vec(Vec<F>),
 
