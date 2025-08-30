@@ -18,24 +18,39 @@ use wireframe::{
 use wireframe_testing::push_expect;
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) { PushQueues::bounded(8, 8) }
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
+#[allow(unfulfilled_lint_expectations)]
+fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
+    PushQueues::<u8>::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .build()
+        .expect("failed to build PushQueues")
+}
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
+#[allow(unfulfilled_lint_expectations)]
 fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
 #[fixture]
-#[allow(
+#[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
+#[allow(unfulfilled_lint_expectations)]
 fn empty_stream() -> Option<FrameStream<u8, ()>> { None }
 
 #[rstest]
@@ -380,7 +395,11 @@ async fn interleaved_shutdown_during_stream(
 #[tokio::test]
 #[serial]
 async fn push_queue_exhaustion_backpressure() {
-    let (mut queues, handle) = PushQueues::bounded(1, 1);
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("failed to build PushQueues");
     push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let blocked = timeout(Duration::from_millis(50), handle.push_high_priority(2)).await;
@@ -467,7 +486,11 @@ async fn graceful_shutdown_waits_for_tasks() {
 
     let mut handles = Vec::new();
     for _ in 0..5 {
-        let (queues, handle) = PushQueues::<u8>::bounded(1, 1);
+        let (queues, handle) = PushQueues::<u8>::builder()
+            .high_capacity(1)
+            .low_capacity(1)
+            .build()
+            .expect("failed to build PushQueues");
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle.clone(), None, token.clone());
         handles.push(handle);

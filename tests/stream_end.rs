@@ -2,18 +2,27 @@
 use std::sync::Arc;
 
 use async_stream::try_stream;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::ConnectionActor,
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
-    push::PushQueues,
+    push::{PushHandle, PushQueues},
     response::FrameStream,
 };
 
 #[path = "common/terminator.rs"]
 mod terminator;
 use terminator::Terminator;
+
+#[fixture]
+fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
+    PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("failed to build PushQueues")
+}
 
 #[rstest]
 #[tokio::test]
@@ -23,7 +32,7 @@ async fn emits_end_frame() {
         yield 2;
     });
 
-    let (queues, handle) = PushQueues::bounded(1, 1);
+    let (queues, handle) = queues();
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
     let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
@@ -51,7 +60,7 @@ async fn emits_no_end_frame_when_none() {
         yield 8;
     });
 
-    let (queues, handle) = PushQueues::bounded(1, 1);
+    let (queues, handle) = queues();
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
     let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
