@@ -28,7 +28,7 @@ fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .expect("failed to build push queues")
+        .expect("failed to build PushQueues")
 }
 
 #[fixture]
@@ -393,7 +393,7 @@ async fn push_queue_exhaustion_backpressure() {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .expect("failed to build push queues");
+        .expect("failed to build PushQueues");
     push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let blocked = timeout(Duration::from_millis(50), handle.push_high_priority(2)).await;
@@ -484,7 +484,7 @@ async fn graceful_shutdown_waits_for_tasks() {
             .high_capacity(1)
             .low_capacity(1)
             .build()
-            .expect("failed to build push queues");
+            .expect("failed to build PushQueues");
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle.clone(), None, token.clone());
         handles.push(handle);

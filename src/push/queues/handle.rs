@@ -69,7 +69,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .low_capacity(1)
     ///         .rate(Some(1))
     ///         .build()
-    ///         .expect("failed to build push queues");
+    ///         .expect("failed to build PushQueues");
     ///     handle.push_high_priority(42u8).await.expect("push failed");
     ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::High);
@@ -100,7 +100,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .low_capacity(1)
     ///         .rate(Some(1))
     ///         .build()
-    ///         .expect("failed to build push queues");
+    ///         .expect("failed to build PushQueues");
     ///     handle.push_low_priority(10u8).await.expect("push failed");
     ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::Low);
@@ -154,7 +154,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///         .rate(None)
     ///         .dlq(Some(dlq_tx))
     ///         .build()
-    ///         .expect("failed to build push queues");
+    ///         .expect("failed to build PushQueues");
     ///     handle.push_high_priority(1u8).await.expect("push failed");
     ///
     ///     handle

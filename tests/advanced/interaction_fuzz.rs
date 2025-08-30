@@ -27,7 +27,7 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
         .high_capacity(16)
         .low_capacity(16)
         .build()
-        .expect("failed to build push queues");
+        .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
 
     let mut stream: Option<FrameStream<u8, ()>> = None;

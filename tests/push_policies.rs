@@ -43,7 +43,7 @@ fn push_policy_behaviour(
             .high_capacity(1)
             .low_capacity(1)
             .build()
-            .expect("failed to build push queues");
+            .expect("failed to build PushQueues");
 
         handle
             .push_high_priority(1u8)
@@ -87,7 +87,7 @@ fn dropped_frame_goes_to_dlq(rt: Runtime) {
             .rate(None)
             .dlq(Some(dlq_tx))
             .build()
-            .expect("queue creation failed");
+            .expect("failed to build PushQueues");
 
         handle
             .push_high_priority(1u8)
@@ -151,7 +151,7 @@ fn dlq_error_scenarios<Setup, AssertFn>(
             .rate(None)
             .dlq(Some(dlq_tx))
             .build()
-            .expect("queue creation failed");
+            .expect("failed to build PushQueues");
 
         handle
             .push_high_priority(1u8)

@@ -25,7 +25,7 @@ fn concurrent_push_delivery() {
                 .high_capacity(1)
                 .low_capacity(1)
                 .build()
-                .expect("failed to build push queues");
+                .expect("failed to build PushQueues");
             let token = CancellationToken::new();
 
             let out = loom::sync::Arc::new(loom::sync::Mutex::new(Vec::new()));

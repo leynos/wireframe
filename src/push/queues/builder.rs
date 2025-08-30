@@ -18,7 +18,9 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 /// ```
 /// use wireframe::push::PushQueues;
 ///
-/// let (_queues, _handle) = PushQueues::<u8>::builder().build().unwrap();
+/// let (_queues, _handle) = PushQueues::<u8>::builder()
+///     .build()
+///     .expect("failed to build PushQueues");
 /// # drop((_queues, _handle));
 /// ```
 ///
@@ -27,7 +29,9 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 /// ```
 /// use wireframe::push::PushQueuesBuilder;
 ///
-/// let (_queues, _handle) = PushQueuesBuilder::<u8>::default().build().unwrap();
+/// let (_queues, _handle) = PushQueuesBuilder::<u8>::default()
+///     .build()
+///     .expect("failed to build PushQueues");
 /// # drop((_queues, _handle));
 /// ```
 #[derive(Debug)]
@@ -53,6 +57,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// Set the capacity of the high-priority queue.
     #[must_use]
     pub fn high_capacity(mut self, capacity: usize) -> Self {
+        debug_assert!(capacity > 0, "capacity must be greater than zero");
         self.high_capacity = capacity;
         self
     }
@@ -60,6 +65,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// Set the capacity of the low-priority queue.
     #[must_use]
     pub fn low_capacity(mut self, capacity: usize) -> Self {
+        debug_assert!(capacity > 0, "capacity must be greater than zero");
         self.low_capacity = capacity;
         self
     }
@@ -82,9 +88,9 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     ///
     /// # Errors
     ///
-    /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or above
-    /// [`super::MAX_PUSH_RATE`] and [`PushConfigError::InvalidCapacity`] if
-    /// either queue capacity is zero.
+    /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or strictly
+    /// greater than [`super::MAX_PUSH_RATE`] and
+    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
         PushQueues::build_with_rate_dlq(self.high_capacity, self.low_capacity, self.rate, self.dlq)
     }

@@ -198,7 +198,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///         .high_capacity(1)
     ///         .low_capacity(1)
     ///         .build()
-    ///         .expect("failed to build push queues");
+    ///         .expect("failed to build PushQueues");
     ///     handle.push_high_priority(2u8).await.expect("push failed");
     ///     let (priority, frame) = queues.recv().await.expect("recv failed");
     ///     assert_eq!(priority, PushPriority::High);
@@ -206,10 +206,21 @@ impl<F: FrameLike> PushQueues<F> {
     /// }
     /// ```
     pub async fn recv(&mut self) -> Option<(PushPriority, F)> {
-        tokio::select! {
-            biased;
-            res = self.high_priority_rx.recv() => res.map(|f| (PushPriority::High, f)),
-            res = self.low_priority_rx.recv() => res.map(|f| (PushPriority::Low, f)),
+        let mut high_closed = false;
+        let mut low_closed = false;
+        loop {
+            tokio::select! {
+                biased;
+                res = self.high_priority_rx.recv(), if !high_closed => match res {
+                    Some(f) => return Some((PushPriority::High, f)),
+                    None => high_closed = true,
+                },
+                res = self.low_priority_rx.recv(), if !low_closed => match res {
+                    Some(f) => return Some((PushPriority::Low, f)),
+                    None => low_closed = true,
+                },
+                else => return None,
+            }
         }
     }
 
@@ -225,7 +236,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// let (mut queues, _handle) = PushQueues::<u8>::builder()
     ///     .build()
-    ///     .expect("failed to build push queues");
+    ///     .expect("failed to build PushQueues");
     /// queues.close();
     /// ```
     pub fn close(&mut self) {

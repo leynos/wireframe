@@ -60,7 +60,7 @@ async fn builder_produces_protocol_hooks() {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .expect("failed to build push queues");
+        .expect("failed to build PushQueues");
     hooks.on_connection_setup(handle, &mut ConnectionContext);
     drop(queues); // silence unused warnings
 
@@ -88,7 +88,7 @@ async fn connection_actor_uses_protocol_from_builder() {
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .expect("failed to build push queues for connection_actor protocol test");
+        .expect("failed to build PushQueues for connection_actor protocol test");
     handle
         .push_high_priority(vec![1])
         .await

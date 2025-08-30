@@ -16,10 +16,11 @@ pub enum PushError {
 }
 
 /// Errors returned when creating push queues.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum PushConfigError {
     /// The provided rate was zero or exceeded [`MAX_PUSH_RATE`].
-    #[error("invalid rate {0}; must be between 1 and {MAX_PUSH_RATE}")]
+    #[error("invalid rate {0}; must be between 1 and {max}", max = MAX_PUSH_RATE)]
     InvalidRate(usize),
     /// The provided capacities were zero.
     #[error("invalid capacities; high={high}, low={low}; each must be ≥ 1")]
