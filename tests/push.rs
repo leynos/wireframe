@@ -25,6 +25,15 @@ fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
         .expect("failed to build PushQueues")
 }
 
+#[fixture]
+fn small_queues() -> (PushQueues<u8>, PushHandle<u8>) {
+    PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("failed to build PushQueues")
+}
+
 /// Builder rejects rates outside the supported range.
 #[rstest]
 #[case::zero(0)]
@@ -37,11 +46,7 @@ fn builder_rejects_invalid_rate(#[case] rate: usize) {
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
 async fn frames_routed_to_correct_priority_queues() {
-    let (mut queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
-        .expect("failed to build PushQueues");
+    let (mut queues, handle) = small_queues();
 
     push_expect!(handle.push_low_priority(1u8));
     push_expect!(handle.push_high_priority(2u8));
@@ -61,11 +66,7 @@ async fn frames_routed_to_correct_priority_queues() {
 /// return [`PushError::QueueFull`] once the queue is at capacity.
 #[tokio::test]
 async fn try_push_respects_policy() {
-    let (mut queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
-        .expect("failed to build PushQueues");
+    let (mut queues, handle) = small_queues();
 
     push_expect!(handle.push_high_priority(1u8));
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
@@ -81,13 +82,7 @@ async fn try_push_respects_policy() {
 /// Push attempts return `Closed` when all queues have been shut down.
 #[tokio::test]
 async fn push_queues_error_on_closed() {
-    let (queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
-        .expect("failed to build PushQueues");
-
-    let mut queues = queues;
+    let (mut queues, handle) = small_queues();
     queues.close();
     let res = handle.push_high_priority(42u8).await;
     assert!(matches!(res, Err(PushError::Closed)));
