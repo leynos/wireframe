@@ -17,19 +17,20 @@ use super::{DEFAULT_PUSH_RATE, FrameLike, PushConfigError, PushHandle, PushQueue
 ///
 /// Build queues with custom capacities, a rate limit and a dead-letter queue:
 ///
-/// ```
+/// ```rust,no_run
 /// use tokio::sync::mpsc;
 /// use wireframe::push::PushQueues;
 ///
-/// let (dlq_tx, _dlq_rx) = mpsc::channel(1);
+/// # async fn demo() {
+/// let (dlq_tx, _dlq_rx) = mpsc::channel(8);
 /// let (_queues, _handle) = PushQueues::<u8>::builder()
 ///     .high_capacity(8)
 ///     .low_capacity(8)
-///     .rate(Some(10)) // None disables rate limiting
-///     .dlq(Some(dlq_tx))
+///     .rate(Some(100)) // pass None to disable rate limiting
+///     .dlq(Some(dlq_tx)) // frames are dropped if no DLQ or DLQ is full
 ///     .build()
 ///     .expect("failed to build PushQueues");
-/// # drop((_queues, _handle));
+/// # }
 /// ```
 ///
 /// Builders can also be constructed directly:
@@ -80,7 +81,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
 
     /// Set the global push rate limit in pushes per second.
     ///
-    /// Pass `None` to disable rate limiting.
+    /// Passing `None` disables rate limiting.
     #[must_use]
     pub fn rate(mut self, rate: Option<usize>) -> Self {
         self.rate = rate;
@@ -89,7 +90,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
 
     /// Provide a dead-letter queue for discarded frames.
     ///
-    /// Frames are dropped if the DLQ is `None` or when the channel is full.
+    /// Frames are dropped when no DLQ is set or the channel is full.
     #[must_use]
     pub fn dlq(mut self, dlq: Option<mpsc::Sender<F>>) -> Self {
         self.dlq = dlq;

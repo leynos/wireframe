@@ -5,6 +5,7 @@ use thiserror::Error;
 use super::MAX_PUSH_RATE;
 
 /// Errors that can occur when pushing a frame.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum PushError {
     /// The queue was at capacity and the policy was `ReturnErrorIfFull`.

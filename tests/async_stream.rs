@@ -23,7 +23,7 @@ fn frame_stream() -> impl futures::Stream<Item = Result<u8, WireframeError>> {
 #[rstest]
 #[tokio::test]
 async fn async_stream_frames_processed_in_order() {
-    let (queues, handle) = PushQueues::<u8>::builder()
+    let (queues, handle) = PushQueues::builder()
         .high_capacity(8)
         .low_capacity(8)
         .build()

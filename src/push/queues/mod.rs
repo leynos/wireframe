@@ -123,7 +123,7 @@ impl<F: FrameLike> PushQueues<F> {
             .high_capacity(high_capacity)
             .low_capacity(low_capacity)
             .build()
-            .expect("DEFAULT_PUSH_RATE is always valid")
+            .expect("invalid capacities or rate in deprecated bounded()")
     }
 
     /// Create queues with no rate limiting.
@@ -142,7 +142,7 @@ impl<F: FrameLike> PushQueues<F> {
             .low_capacity(low_capacity)
             .rate(None)
             .build()
-            .expect("bounded_no_rate_limit should not fail")
+            .expect("invalid capacities in deprecated bounded_no_rate_limit()")
     }
 
     /// Create queues with a custom rate limit in pushes per second.
