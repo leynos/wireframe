@@ -88,7 +88,7 @@ async fn connection_actor_uses_protocol_from_builder() {
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .expect("failed to build PushQueues for connection_actor protocol test");
+        .expect("failed to build PushQueues");
     handle
         .push_high_priority(vec![1])
         .await

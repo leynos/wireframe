@@ -45,17 +45,37 @@ fn builder_rejects_invalid_rate(#[case] rate: usize) {
 
 #[test]
 fn builder_rejects_zero_capacity() {
-    let hi = PushQueues::<u8>::builder().high_capacity(0).build();
-    assert!(matches!(
-        hi,
-        Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
-    ));
+    #[cfg(debug_assertions)]
+    {
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _ = PushQueues::<u8>::builder().high_capacity(0).build();
+            })
+            .is_err()
+        );
 
-    let lo = PushQueues::<u8>::builder().low_capacity(0).build();
-    assert!(matches!(
-        lo,
-        Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
-    ));
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _ = PushQueues::<u8>::builder().low_capacity(0).build();
+            })
+            .is_err()
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let hi = PushQueues::<u8>::builder().high_capacity(0).build();
+        assert!(matches!(
+            hi,
+            Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
+        ));
+
+        let lo = PushQueues::<u8>::builder().low_capacity(0).build();
+        assert!(matches!(
+            lo,
+            Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
+        ));
+    }
 }
 
 /// Frames are delivered to queues matching their push priority.

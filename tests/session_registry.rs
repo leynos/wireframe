@@ -24,7 +24,7 @@ fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) {
         .high_capacity(1)
         .low_capacity(1)
         .build()
-        .expect("failed to build PushQueues for session registry tests")
+        .expect("failed to build PushQueues")
 }
 
 /// Test that handles can be retrieved whilst the connection remains alive.
