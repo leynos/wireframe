@@ -139,7 +139,7 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialize app");
+    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialise app");
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 }

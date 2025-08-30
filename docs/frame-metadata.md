@@ -48,5 +48,5 @@ impl FrameMetadata for MyCodec {
 }
 ```
 
-In `WireframeApp` the metadata parser is used before deserialisation so routes
+In `WireframeApp` the metadata parser is used before deserialization so routes
 can be selected as soon as the header is available.

@@ -317,27 +317,27 @@ impl<F: FrameLike> PushHandle<F> {
         frame: F,
         priority: PushPriority,
         policy: PushPolicy,
-  ) -> Result<(), PushError>;
-  }
-  ```
+        ) -> Result<(), PushError>;
+    }
+```
 
-  The example below demonstrates pushing frames and returning a streamed
-  response. The [`async-stream`](https://docs.rs/async-stream) crate is the
-  canonical way to build dynamic `Response::Stream` values.
+The example below demonstrates pushing frames and returning a streamed
+response. The [`async-stream`](https://docs.rs/async-stream) crate is the
+canonical way to build dynamic `Response::Stream` values.
 
-  ```rust,no_run
-  use async_stream::try_stream;
-  use std::sync::Arc;
-  use wireframe::{app::{Envelope, WireframeApp}, Response};
+```rust,no_run
+use async_stream::try_stream;
+use std::sync::Arc;
+use wireframe::{app::{Envelope, WireframeApp}, Response};
 
-  #[tokio::main]
-  async fn main() -> std::io::Result<()> {
-      let app = WireframeApp::new()?
-          .route(1, Arc::new(|_: &Envelope| Box::pin(async {
-              Response::Stream(Box::pin(try_stream! {
-                  yield b"ack".to_vec();
-              }))
-          })))?;
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let app = WireframeApp::new()?
+        .route(1, Arc::new(|_: &Envelope| Box::pin(async {
+            Response::Stream(Box::pin(try_stream! {
+                yield b"ack".to_vec();
+            }))
+        })))?;
 
       let (push, mut conn) = wireframe_testing::connect(app).await?;
       tokio::spawn(async move {
@@ -350,7 +350,7 @@ impl<F: FrameLike> PushHandle<F> {
       }
       Ok(())
   }
-  ```
+```
 
 ```mermaid
 classDiagram

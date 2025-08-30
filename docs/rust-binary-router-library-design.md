@@ -426,7 +426,7 @@ allowing applications to select the prefix size and byte order.
   identifiers or flags. This allows for a two-stage deserialization: first the
   metadata, then, based on that, the full payload.
 
-The relationship between the trait and example serializers can be visualised as
+The relationship between the trait and example serializers can be visualized as
 follows:
 
 // Class diagram of `FrameMetadata` and serializers.
@@ -458,7 +458,7 @@ classDiagram
 
 During message processing, metadata parsing precedes full deserialization:
 
-// Sequence diagram of metadata parsing before deserialisation.
+// Sequence diagram of metadata parsing before deserialization.
 
 ```mermaid
 sequenceDiagram

@@ -49,11 +49,8 @@ impl FrameMetadata for HeaderSerializer {
         // ignores the flags, but a real protocol might parse and act on these
         // bits.
         let _ = src[2];
-        let payload = src[3..].to_vec();
-        // `parse` receives the complete frame because the length-delimited codec
-        // ensures `src` contains exactly one message. Returning `src.len()` is
-        // therefore correct for this demo.
-        Ok((Envelope::new(id, None, payload), src.len()))
+        // Only extract metadata here; defer payload handling to the serializer.
+        Ok((Envelope::new(id, None, Vec::new()), 3))
     }
 }
 

@@ -71,7 +71,7 @@ The public API is designed for clarity, performance, and ergonomic flexibility.
 ### 4.1 The `Response` Enum
 
 The `Response` enum is the primary return type for all handlers. It is enhanced
-to provide optimised paths for common response patterns.
+to provide optimized paths for common response patterns.
 
 ```rust
 use futures_core::stream::Stream;
@@ -82,7 +82,7 @@ pub enum Response<F, E> {
     /// A single frame reply. The most common case.
     Single(F),
 
-    /// An optimised response for a small, known list of frames.
+    /// An optimized response for a small, known list of frames.
     /// Avoids the overhead of boxing and dynamic dispatch for simple multi-part replies.
     Vec(Vec<F>),
 
@@ -111,7 +111,6 @@ unrecoverable transport failures and logical, protocol-level errors.
 
 ```rust
 /// A generic error type for wireframe operations.
-#
 pub enum WireframeError<E> {
     /// An error occurred in the underlying transport (e.g., socket closed).
     /// These are typically unrecoverable for the connection.
@@ -154,7 +153,7 @@ For simple, fixed-size multi-part responses, like a MySQL result set header,
 ```rust
 async fn handle_select_headers(_req: Request) -> Result<Response<MySqlFrame, MyError>, MyError> {
     // Pre-build frames for: column-count, column-def, EOF
-    let frames = vec!;
+    let frames = vec![];
     Ok(Response::Vec(frames))
 }
 ```

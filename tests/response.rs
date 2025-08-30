@@ -20,7 +20,7 @@ use wireframe_testing::run_app;
 mod common;
 use common::TestApp;
 
-const MAX_FRAME: usize = 64 * 1024;
+const MAX_FRAME: usize = 16 * 1024 * 1024;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestResp(u32);
