@@ -57,7 +57,6 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// Set the capacity of the high-priority queue.
     #[must_use]
     pub fn high_capacity(mut self, capacity: usize) -> Self {
-        debug_assert!(capacity > 0, "capacity must be greater than zero");
         self.high_capacity = capacity;
         self
     }
@@ -65,7 +64,6 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// Set the capacity of the low-priority queue.
     #[must_use]
     pub fn low_capacity(mut self, capacity: usize) -> Self {
-        debug_assert!(capacity > 0, "capacity must be greater than zero");
         self.low_capacity = capacity;
         self
     }

@@ -43,6 +43,21 @@ fn builder_rejects_invalid_rate(#[case] rate: usize) {
     assert!(matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate));
 }
 
+#[test]
+fn builder_rejects_zero_capacity() {
+    let hi = PushQueues::<u8>::builder().high_capacity(0).build();
+    assert!(matches!(
+        hi,
+        Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
+    ));
+
+    let lo = PushQueues::<u8>::builder().low_capacity(0).build();
+    assert!(matches!(
+        lo,
+        Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
+    ));
+}
+
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
 async fn frames_routed_to_correct_priority_queues() {
