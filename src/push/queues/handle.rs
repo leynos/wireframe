@@ -64,7 +64,12 @@ impl<F: FrameLike> PushHandle<F> {
             limiter.acquire(1).await;
         }
 
-        permit.send(frame);
+        let returned_tx = permit.send(frame);
+        // Receiver may have closed after reserving capacity; treat as a send
+        // failure to avoid silently dropping the frame.
+        if returned_tx.is_closed() {
+            return Err(PushError::Closed);
+        }
         debug!(?priority, "frame pushed");
         Ok(())
     }
