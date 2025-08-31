@@ -7,14 +7,12 @@ use std::{io, sync::Arc};
 
 use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, duplex};
-use wireframe::{
-    app::Envelope,
-    frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
-    message::Message,
-    serializer::Serializer,
-};
+use tokio_util::codec::{Encoder, LengthDelimitedCodec};
+use wireframe::{app::Envelope, frame::FrameMetadata, message::Message, serializer::Serializer};
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
+
+const MAX_FRAME: usize = 64 * 1024;
 
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
 #[derive(Default)]
@@ -51,11 +49,8 @@ impl FrameMetadata for HeaderSerializer {
         // ignores the flags, but a real protocol might parse and act on these
         // bits.
         let _ = src[2];
-        let payload = src[3..].to_vec();
-        // `parse` receives the complete frame because `LengthPrefixedProcessor`
-        // ensures `src` contains exactly one message. Returning `src.len()` is
-        // therefore correct for this demo.
-        Ok((Envelope::new(id, None, payload), src.len()))
+        // Only extract metadata here; defer payload handling to the serializer.
+        Ok((Envelope::new(id, None, Vec::new()), 3))
     }
 }
 
@@ -96,9 +91,12 @@ async fn main() -> io::Result<()> {
     frame.push(0);
     frame.extend_from_slice(&payload);
 
-    let mut bytes = BytesMut::new();
-    LengthPrefixedProcessor::default()
-        .encode(&frame, &mut bytes)
+    let mut codec = LengthDelimitedCodec::builder()
+        .max_frame_length(MAX_FRAME) // 64 KiB cap for the example
+        .new_codec();
+    let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix
+    codec
+        .encode(frame.into(), &mut bytes)
         .expect("failed to encode frame");
 
     client.write_all(&bytes).await?;

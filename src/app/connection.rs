@@ -37,6 +37,14 @@ where
     C: Send + 'static,
     E: Packet,
 {
+    /// Construct a length-delimited codec capped by the application's buffer
+    /// capacity.
+    fn new_length_codec(&self) -> LengthDelimitedCodec {
+        LengthDelimitedCodec::builder()
+            .max_frame_length(self.buffer_capacity)
+            .new_codec()
+    }
+
     /// Serialize `msg` and write it to `stream` using a length-delimited codec.
     ///
     /// # Errors
@@ -55,8 +63,8 @@ where
             .serializer
             .serialize(msg)
             .map_err(SendError::Serialize)?;
-        let mut codec = LengthDelimitedCodec::builder().new_codec();
-        let mut framed = BytesMut::new();
+        let mut codec = self.new_length_codec();
+        let mut framed = BytesMut::with_capacity(bytes.len() + 4);
         codec
             .encode(bytes.into(), &mut framed)
             .map_err(|e| SendError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;
@@ -158,7 +166,7 @@ where
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
-        let codec = LengthDelimitedCodec::builder().new_codec();
+        let codec = self.new_length_codec();
         let mut framed = Framed::new(stream, codec);
         framed.read_buffer_mut().reserve(self.buffer_capacity);
         let mut deser_failures = 0u32;

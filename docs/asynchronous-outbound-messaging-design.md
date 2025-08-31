@@ -296,7 +296,7 @@ struct PushHandleInner<F> {
 
 // The public, cloneable handle.
 #[derive(Clone)]
-pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
+  pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 pub enum PushPolicy {
     ReturnErrorIfFull,
@@ -317,8 +317,39 @@ impl<F: FrameLike> PushHandle<F> {
         frame: F,
         priority: PushPriority,
         policy: PushPolicy,
-    ) -> Result<(), PushError>;
-}
+        ) -> Result<(), PushError>;
+    }
+```
+
+The example below demonstrates pushing frames and returning a streamed
+response. The [`async-stream`](https://docs.rs/async-stream) crate is the
+canonical way to build dynamic `Response::Stream` values.
+
+```rust,no_run
+use async_stream::try_stream;
+use std::sync::Arc;
+use wireframe::{app::{Envelope, WireframeApp}, Response};
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let app = WireframeApp::new()?
+        .route(1, Arc::new(|_: &Envelope| Box::pin(async {
+            Response::Stream(Box::pin(try_stream! {
+                yield b"ack".to_vec();
+            }))
+        })))?;
+
+      let (push, mut conn) = wireframe_testing::connect(app).await?;
+      tokio::spawn(async move {
+          push.push_high_priority(b"urgent".to_vec()).await.unwrap();
+          push.push_low_priority(b"stats".to_vec()).await.unwrap();
+      });
+
+      while let Some(frame) = conn.next().await {
+          println!("{:?}", frame);
+      }
+      Ok(())
+  }
 ```
 
 ```mermaid
@@ -707,10 +738,23 @@ features of the 1.0 release.
   that urgent pushes can interrupt a long-running data stream.
 
 - **Message Fragmentation:** Pushes occur at the *logical frame* level. The
-  `FragmentAdapter` will operate at a lower layer in the `FrameProcessor`
-  stack, transparently splitting any large pushed frames before they are
-  written to the socket. The `PushHandle` and the application code that uses it
-  remain completely unaware of fragmentation.
+  `FragmentAdapter` will operate at a lower layer in the codec stack,
+  transparently splitting any large pushed frames before they are written to
+  the socket. The `PushHandle` and the application code that uses it remain
+  completely unaware of fragmentation.
+
+```rust
+// Codec stack with explicit frame-size limits and fragmentation.
+use tokio_util::codec::LengthDelimitedCodec;
+const MAX_FRAME: usize = 64 * 1024;
+let codec = LengthDelimitedCodec::builder()
+    .max_frame_length(MAX_FRAME) // 64 KiB cap to prevent OOM
+    .new_codec();
+
+// Wrap the length-delimited frames with the fragmentation adapter.
+// Pseudocode pending actual adapter API naming:
+// let codec = FragmentAdapter::new(FragmentConfig::default()).wrap(codec);
+```
 
 ## 7. Use Cases
 

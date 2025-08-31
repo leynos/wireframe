@@ -1,29 +1,38 @@
-# Parsing Frame Metadata
+# Parsing frame metadata
 
 `FrameMetadata` allows a protocol to inspect frame headers before decoding the
 entire payload. This can be useful for routing decisions when the message type
 is encoded in a header field.
 
-Implement the trait for your serializer or decoder that knows how to read the
+Implement the trait for your serialiser or decoder that knows how to read the
 header bytes. Only the minimal header portion should be read, returning the
-full frame and the number of bytes consumed from the input.
+frame envelope and the number of bytes consumed from the input.
 
 ```rust
-use wireframe::frame::{FrameMetadata, FrameProcessor};
+use wireframe::frame::FrameMetadata;
 use wireframe::app::Envelope;
-use bytes::BytesMut;
+use tokio_util::codec::{Decoder, Encoder};
+use bytes::{Bytes, BytesMut};
 
 struct MyCodec;
-
-impl FrameProcessor for MyCodec {
-    type Frame = Vec<u8>;
+// Example only: implement the minimal Decoder/Encoder surface for docs.
+impl Decoder for MyCodec {
+    // Using BytesMut here mirrors LengthDelimitedCodec’s default Item.
+    type Item = BytesMut;
     type Error = std::io::Error;
 
-    fn decode(&self, src: &mut BytesMut) -> Result<Option<Self::Frame>, Self::Error> {
+    fn decode(
+        &mut self,
+        _src: &mut BytesMut,
+    ) -> Result<Option<Self::Item>, Self::Error> {
         todo!()
     }
+}
 
-    fn encode(&self, frame: &Self::Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+impl Encoder<Bytes> for MyCodec {
+    type Error = std::io::Error;
+
+    fn encode(&mut self, _item: Bytes, _dst: &mut BytesMut) -> Result<(), Self::Error> {
         todo!()
     }
 }
@@ -39,5 +48,5 @@ impl FrameMetadata for MyCodec {
 }
 ```
 
-In `WireframeApp` the metadata parser is used before deserialisation so routes
+In `WireframeApp` the metadata parser is used before deserialization so routes
 can be selected as soon as the header is available.

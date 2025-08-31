@@ -26,7 +26,7 @@ reduce this boilerplate through layered abstractions:
 These layers correspond to the architecture outlined in the design
 document【F:docs/rust-binary-router-library-design.md†L292-L344】.
 
-## API Overview
+## API overview
 
 Applications are configured using a builder pattern similar to Actix Web. A
 `WireframeApp` defines routes and middleware, while `WireframeServer` manages
@@ -86,7 +86,7 @@ binary protocol server. See the <!-- markdownlint-disable-next-line MD013 -->
 [full example](docs/rust-binary-router-library-design.md#5-6-illustrative-api-usage-examples)
  in the design document for further details.
 
-## Custom Envelopes
+## Custom envelopes
 
 `WireframeApp` defaults to a simple `Envelope` containing a message ID and raw
 payload bytes. Applications can supply their own envelope type by calling
@@ -126,22 +126,21 @@ Use `None` rather than `Some(0)` when a frame lacks a correlation ID. See
 This allows integration with existing packet formats without modifying
 `handle_frame`.
 
-## Response Serialization and Framing
+## Response serialization and framing
 
 Handlers can return types implementing the `Responder` trait. These values are
-encoded using the application's configured serializer and written back through
-the `FrameProcessor`【F:docs/rust-binary-router-library-design.md†L724-L730】.
+encoded using the application's configured serializer and framed by a
+length‑delimited codec【F:docs/rust-binary-router-library-design.md†L724-L730】.
 
-The included `LengthPrefixedProcessor` illustrates a simple framing strategy
-that prefixes each frame with its length. The format is configurable (prefix
-size and endianness) and defaults to a 4‑byte big‑endian length
-prefix【F:docs/rust-binary-router-library-design.md†L1082-L1123】.
+Frames are length prefixed using `tokio_util::codec::LengthDelimitedCodec`. The
+prefix length and byte order are configurable and default to a 4‑byte
+big‑endian header【F:docs/rust-binary-router-library-design.md†L1082-L1123】.
 
 ```rust
 let app = WireframeApp::new()?;
 ```
 
-## Connection Lifecycle
+## Connection lifecycle
 
 Protocol callbacks are consolidated under the `WireframeProtocol` trait,
 replacing the individual `on_connection_setup`/`on_connection_teardown`
@@ -195,7 +194,7 @@ impl WireframeProtocol for MySqlProtocolImpl {
 let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
 ```
 
-## Session Registry
+## Session registry
 
 The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for
 active connections. Background tasks can look up a handle by \[`ConnectionId`\]
@@ -221,7 +220,7 @@ fn on_connection_setup(&self, handle: PushHandle<MyFrame>, _ctx: &mut Connection
 }
 ```
 
-## Custom Extractors
+## Custom extractors
 
 Extractors are types that implement `FromMessageRequest`. When a handler lists
 an extractor as a parameter, `wireframe` automatically constructs it using the
@@ -312,7 +311,7 @@ $ cargo run --example ping_pong
 $ printf '\x00\x00\x00\x08\x01\x00\x00\x00\x2a\x00\x00\x00' | nc 127.0.0.1 7878 | xxd
 ```
 
-## Current Limitations
+## Current limitations
 
 Connection handling now processes frames and routes messages. Although the
 server is still experimental, it now compiles in release mode for evaluation or

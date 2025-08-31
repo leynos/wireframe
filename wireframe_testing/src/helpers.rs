@@ -7,19 +7,13 @@ use std::io;
 
 use bincode::config;
 use bytes::BytesMut;
-use rstest::fixture;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
+use tokio_util::codec::{Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
-    frame::{FrameMetadata, FrameProcessor, LengthPrefixedProcessor},
+    frame::FrameMetadata,
     serializer::Serializer,
 };
-
-/// Create a default length-prefixed frame processor for tests.
-#[fixture]
-#[expect(unused_braces, reason = "Braces are intentional here; false positive")]
-#[allow(unfulfilled_lint_expectations)]
-pub fn processor() -> LengthPrefixedProcessor { LengthPrefixedProcessor::default() }
 
 pub trait TestSerializer:
     Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
@@ -98,6 +92,15 @@ where
 const DEFAULT_CAPACITY: usize = 4096;
 const MAX_CAPACITY: usize = 1024 * 1024 * 10; // 10MB limit
 pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
+/// Shared frame cap used by helpers and tests to avoid drift.
+pub const TEST_MAX_FRAME: usize = DEFAULT_CAPACITY;
+
+#[inline]
+pub fn new_test_codec(max_len: usize) -> LengthDelimitedCodec {
+    let mut builder = LengthDelimitedCodec::builder();
+    builder.max_frame_length(max_len);
+    builder.new_codec()
+}
 
 macro_rules! forward_default {
     (
@@ -353,8 +356,9 @@ where
             format!("bincode encode failed: {e}"),
         )
     })?;
-    let mut framed = BytesMut::new();
-    LengthPrefixedProcessor::default().encode(&bytes, &mut framed)?;
+    let mut codec = new_test_codec(DEFAULT_CAPACITY);
+    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
+    codec.encode(bytes.into(), &mut framed)?;
     drive_with_frame(app, framed.to_vec()).await
 }
 
@@ -422,6 +426,31 @@ where
     }
 
     Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use wireframe::app::WireframeApp;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn run_app_rejects_zero_capacity() {
+        let app = WireframeApp::new().expect("failed to create app");
+        let err = run_app(app, vec![], Some(0))
+            .await
+            .expect_err("capacity of zero should error");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn run_app_rejects_excess_capacity() {
+        let app = WireframeApp::new().expect("failed to create app");
+        let err = run_app(app, vec![], Some(MAX_CAPACITY + 1))
+            .await
+            .expect_err("capacity beyond max should error");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
 }
 
 /// Run `app` against an empty duplex stream.

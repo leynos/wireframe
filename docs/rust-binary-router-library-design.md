@@ -369,6 +369,8 @@ handling to be managed and customized independently.
    encapsulated in a frame. d. The framed bytes are sent via the **Transport
    Layer Adapter**.
 
+// Sequence diagram of request/response flow through wireframe.
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -397,36 +399,23 @@ needs, without requiring modifications to other parts of the system.
 
 ### 4.3. Frame Definition and Processing
 
-To handle "arbitrary frame-based protocols," "wireframe" must provide a
-flexible way to define and process frames.
+To handle "arbitrary frame-based protocols," "wireframe" uses Tokio's
+`tokio_util::codec::{Decoder, Encoder}` traits to parse and construct frames.
+Implementations of these traits define:
 
-- `FrameProcessor` **(or Tokio** `Decoder`**/**`Encoder` **integration)**: The
-  core of frame handling will revolve around a user-implementable trait,
-  tentatively named `FrameProcessor`. Alternatively, and perhaps preferably for
-  ecosystem compatibility, "wireframe" could directly leverage Tokio's
-  `tokio_util::codec::{Decoder, Encoder}` traits. Users would implement these
-  traits to define:
+- **Decoding**: How a raw byte stream from the network is parsed into discrete
+  frames. This logic handles partial reads and buffering, accumulating bytes
+  until one or more complete frames can be extracted. Examples include
+  length-prefixed framing (where a header indicates the payload size, similar
+  to `message-io`'s `FramedTcp` 17), delimiter-based framing (where frames are
+  separated by a specific byte sequence), or fixed-size framing.
+- **Encoding**: How an outgoing message (or its serialized byte payload) is
+  encapsulated into a frame for transmission, including adding any necessary
+  headers, length prefixes, or delimiters.
 
-  - **Decoding**: How a raw byte stream from the network is parsed into discrete
-    frames. This logic would handle issues like partial reads and buffering,
-    accumulating bytes until one or more complete frames can be extracted.
-    Examples include length-prefixed framing (where a header indicates the
-    payload size, similar to `message-io`'s `FramedTcp` 17), delimiter-based
-    framing (where frames are separated by a specific byte sequence), or
-    fixed-size framing.
-  - **Encoding**: How an outgoing message (or its serialized byte payload) is
-    encapsulated into a frame for transmission, including adding any necessary
-    headers, length prefixes, or delimiters.
-
-  "wireframe" could provide common `FrameProcessor` implementations (e.g., for
-  length-prefixed frames) as part of its standard library, simplifying setup
-  for common protocol types. The library ships with a
-  `LengthPrefixedProcessor`. It accepts a `LengthFormat` specifying the prefix
-  size and byte order—for example, `LengthFormat::u16_le()` or
-  `LengthFormat::u32_be()`. Applications configure it via
-  `WireframeApp::frame_processor(LengthPrefixedProcessor::new(format))`. The
-  `FrameProcessor` trait remains public, so custom implementations can be
-  supplied when required.
+"wireframe" provides a default length‑delimited codec built on
+`LengthDelimitedCodec`. The prefix format is configured via `LengthFormat`,
+allowing applications to select the prefix size and byte order.
 
 - **Optional** `FrameMetadata` **Trait**: For protocols where routing decisions
   or pre-handler middleware logic might depend on information in a frame header
@@ -437,8 +426,10 @@ flexible way to define and process frames.
   identifiers or flags. This allows for a two-stage deserialization: first the
   metadata, then, based on that, the full payload.
 
-The relationship between the trait and example serializers can be visualised as
+The relationship between the trait and example serializers can be visualized as
 follows:
+
+// Class diagram of `FrameMetadata` and serializers.
 
 ```mermaid
 classDiagram
@@ -466,6 +457,8 @@ classDiagram
 ```
 
 During message processing, metadata parsing precedes full deserialization:
+
+// Sequence diagram of metadata parsing before deserialization.
 
 ```mermaid
 sequenceDiagram
@@ -504,6 +497,8 @@ The library defines a `Packet` trait to represent transport frames. Frames can
 be decomposed into `PacketParts` for efficient handling and reassembly.
 `Envelope` is the default implementation used by `wireframe`. The following
 diagram depicts the `Packet` trait, `PacketParts`, and `Envelope`.
+
+// Class diagram of `Packet`, `PacketParts`, and `Envelope`.
 
 ```mermaid
 classDiagram
@@ -686,13 +681,13 @@ respective processing logic, thereby improving the maintainability and
 comprehensibility of the application, especially as the number of message types
 grows.
 
-## 5. "wireframe" API Design (Inspired by Actix Web)
+## 5. Wireframe API design (inspired by Actix Web)
 
 The API of "wireframe" will be heavily influenced by Actix Web, aiming for a
 similar level of developer ergonomics and clarity. This section details the
 proposed API components.
 
-### 5.1. Router Configuration and Service Definition
+### 5.1. Router configuration and service definition
 
 Similar to Actix Web's `App` and `HttpServer` structure 4, "wireframe" will
 provide a builder pattern for configuring the application and a server
@@ -704,7 +699,7 @@ component to run it.
 
   ```rust
   use wireframe::{WireframeApp, WireframeServer, Message, error::Result};
-  use my_protocol::{LoginRequest, LoginResponse, ChatMessage, AppState, MyFrameProcessor, MessageType};
+  use my_protocol::{LoginRequest, LoginResponse, ChatMessage, AppState, MyCodec, MessageType};
   use std::sync::Arc;
   use tokio::sync::Mutex;
 
@@ -744,9 +739,6 @@ The WireframeApp builder would offer methods like:
 
 - WireframeApp::new(): Creates a new application builder.
 
-- `[deprecated]` `.frame_processor(impl FrameProcessor)`: framing is now
-  handled by the connection codec.
-
 - .route(message_id, handler_function): Explicitly maps a message identifier to
   a handler.
 
@@ -772,7 +764,7 @@ reusing its successful patterns makes "wireframe" feel like a natural extension
 for a different networking domain, rather than an entirely new and unfamiliar
 library.
 
-### 5.2. Handler Functions
+### 5.2. Handler functions
 
 Handler functions are the core of the application logic, processing incoming
 messages and optionally producing responses.
@@ -806,8 +798,8 @@ messages and optionally producing responses.
     (analogous to Actix Web's `Responder` trait 4). This trait defines how the
     returned value is serialized and sent back to the client. When a handler
     yields such a value, `wireframe` encodes it using the application’s
-    configured serializer and passes the resulting bytes to the
-    `FrameProcessor` for transmission back to the peer.
+    configured serializer and passes the resulting bytes to the codec for
+    transmission back to the peer.
   - `Result<ResponseType, ErrorType>`: For explicit error handling. If
     `Ok(response_message)`, the message is sent. If `Err(error_value)`, the
     error is processed by "wireframe's" error handling mechanism (see Section
@@ -842,7 +834,7 @@ extractors (similar to how Actix Web extractors handle HTTP-specific parsing
 22), "wireframe" handler functions can remain focused on the core business
 logic associated with each message type.
 
-### 5.3. Data Extraction and Type Safety
+### 5.3. Data extraction and type safety
 
 Inspired by Actix Web's extractors 22, "wireframe" will provide a type-safe
 mechanism for accessing data from incoming messages and connection context
@@ -923,6 +915,8 @@ handlers and keeps the handler functions lean and focused on their specific
 business tasks, mirroring the benefits seen with Actix Web's `FromRequest`
 trait.
 
+// Class diagram illustrating extractor relationships.
+
 ```mermaid
 classDiagram
     class FromMessageRequest {
@@ -956,7 +950,7 @@ classDiagram
     ConnectionInfo o-- SocketAddr
 ```
 
-### 5.4. Middleware and Extensibility
+### 5.4. Middleware and extensibility
 
 "wireframe" will incorporate a middleware system conceptually similar to Actix
 Web's 5, allowing developers to inject custom logic into the message processing
@@ -978,6 +972,8 @@ pipeline.
 
 The relationships among these components are illustrated in the following
 diagram:
+
+// Class diagram of middleware traits and their interaction.
 
 ```mermaid
 classDiagram
@@ -1047,8 +1043,7 @@ let logging = from_fn(|req, next| async move {
     times for handlers, or active connection counts.
   - **Frame/Message Transformation**: On-the-fly modification of frames or
     messages, such as encryption/decryption or compression/decompression.
-    (Though complex transformations might be better suited to the
-    `FrameProcessor` layer).
+    (Though complex transformations might be better suited to the codec layer).
   - **Request/Response Manipulation**: Modifying message content before it
     reaches a handler or before a response is sent.
   - **Connection Lifecycle Hooks**: Performing actions when connections are
@@ -1066,7 +1061,7 @@ advantages provided by Actix Web's middleware architecture.26 For instance, a
 middleware could transparently handle session management for stateful binary
 protocols, abstracting this complexity away from individual message handlers.
 
-### 5.5. Error Handling Strategy
+### 5.5. Error handling strategy
 
 Robust and clear error handling is crucial for any network service. "wireframe"
 will provide a comprehensive error handling strategy.
@@ -1141,7 +1136,7 @@ translated into meaningful responses for the client. "wireframe" will adopt
 similar principles to ensure that errors are handled gracefully and
 informatively.
 
-### 5.6. Illustrative API Usage Examples
+### 5.6. Illustrative API usage examples
 
 To demonstrate the intended simplicity and the Actix-Web-inspired API, concrete
 examples are invaluable. They make the abstract design tangible and showcase
@@ -1172,12 +1167,12 @@ how "wireframe" aims to reduce source code complexity.
      }
      ```
 
-- **Frame Processor Implementation** (Simple length-prefixed framing using
-   `tokio-util`; invalid input or oversized frames return `io::Error` from both
-   decode and encode):
+- **Codec implementation** (Simple length‑prefixed framing using
+    `tokio-util`; invalid input or oversized frames return `io::Error` from
+    both decode and encode):
 
-```rust
-// Crate: my_frame_processor.rs
+ ```rust
+ // Crate: my_codec.rs (codec implementation example)
 use bytes::{BytesMut, Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
 use byteorder::{BigEndian, ByteOrder};
@@ -1227,7 +1222,7 @@ impl<T: AsRef<[u8]>> Encoder<T> for LengthPrefixedCodec {
 ```
 
 (Note: "wireframe" would abstract the direct use of `Encoder`/`Decoder` behind
-its own `FrameProcessor` trait or provide helpers.) <!-- list break -->
+its own codec trait or provide helpers.) <!-- list break -->
 
 - **Server Setup and Handler**:
 
@@ -1242,7 +1237,7 @@ its own `FrameProcessor` trait or provide helpers.) <!-- list break -->
        serializer::BincodeSerializer,
    };
    use my_protocol_messages::{EchoRequest, EchoResponse};
-   use my_frame_processor::LengthPrefixedCodec; // Or wireframe's abstraction
+   use my_codec::LengthPrefixedCodec; // Or wireframe's abstraction
    use std::time::{SystemTime, UNIX_EPOCH};
 
    // Define a message ID enum if not using type-based routing directly
@@ -1270,7 +1265,6 @@ its own `FrameProcessor` trait or provide helpers.) <!-- list break -->
 
        WireframeServer::new(|| {
            WireframeApp::new()
-               //.frame_processor(LengthPrefixedCodec) // deprecated: framing handled by codec
                .serializer(BincodeSerializer) // Specify serializer
                .route(MyMessageType::Echo, handle_echo) // Route based on ID
                // OR if type-based routing is supported and EchoRequest has an ID:
@@ -1382,7 +1376,6 @@ simplify server implementation.
          }));
         WireframeServer::new(move || {
         WireframeApp::new()
-            //.frame_processor(...) // deprecated: framing handled by codec
             .serializer(BincodeSerializer)
             .app_data(chat_state.clone())
             .route(ChatMessageType::ClientJoin, handle_join)
@@ -1485,14 +1478,14 @@ choices aim to mitigate them.
   connection-specific logic. This frees the developer from writing significant
   networking boilerplate.
 
-- Trait-Based Framing (FrameProcessor):
+- Trait-Based Framing (codec):
 
-  By allowing users to define or select a FrameProcessor implementation,
-  "wireframe" separates the logic of how bytes are grouped into frames from the
-  rest of the application. This means users can plug in different framing
-  strategies (length-prefixed, delimiter-based, etc.) without altering their
-  message definitions or handler logic. The library itself can provide common
-  framing implementations.
+  By allowing users to define or select a codec implementation, "wireframe"
+  separates the logic of how bytes are grouped into frames from the rest of the
+  application. This means users can plug in different framing strategies
+  (length-prefixed, delimiter-based, etc.) without altering their message
+  definitions or handler logic. The library itself can provide common codec
+  implementations.
 
 These abstractions collectively contribute to code that is not only less
 verbose but also more readable, maintainable, and testable. By reducing
@@ -1532,9 +1525,8 @@ applicability.
 
 - **Advanced Framing Options**:
 
-  - **Built-in Codecs**: Providing a richer set of built-in `FrameProcessor`
-    implementations for common framing techniques beyond simple
-    length-prefixing, such as:
+  - **Built-in Codecs**: Providing a richer set of built-in codecs for common
+    framing techniques beyond simple length-prefixing, such as:
     - COBS (Consistent Overhead Byte Stuffing), which `postcard` already
       supports for its serialization output.
     - SLIP (Serial Line Internet Protocol) framing.

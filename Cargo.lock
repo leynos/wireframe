@@ -2987,6 +2987,7 @@ dependencies = [
  "metrics-util",
  "rstest 0.18.2",
  "tokio",
+ "tokio-util",
  "wireframe",
 ]
 

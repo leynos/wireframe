@@ -5,12 +5,13 @@
 use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
+use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
     app::{Envelope, Handler},
-    frame::{FrameProcessor, LengthPrefixedProcessor},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
+use wireframe_testing::{TEST_MAX_FRAME, new_test_codec};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -69,10 +70,12 @@ async fn middleware_applied_in_reverse_order() {
     let env = Envelope::new(1, Some(7), vec![b'X']);
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).expect("serialization failed");
-    // Use the default 4-byte big-endian length prefix for framing
-    let processor = LengthPrefixedProcessor::default();
-    let mut buf = BytesMut::new();
-    processor.encode(&bytes, &mut buf).expect("encoding failed");
+    // Use a length-delimited codec for framing
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
+    let mut buf = BytesMut::with_capacity(bytes.len() + 4);
+    codec
+        .encode(bytes.into(), &mut buf)
+        .expect("encoding failed");
     client.write_all(&buf).await.expect("write failed");
     client.shutdown().await.expect("shutdown failed");
 
@@ -83,10 +86,11 @@ async fn middleware_applied_in_reverse_order() {
     handle.await.expect("join failed");
 
     let mut buf = BytesMut::from(&out[..]);
-    let frame = processor
+    let frame = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
+    assert!(buf.is_empty(), "unexpected trailing bytes after frame");
     let (resp, _) = serializer
         .deserialize::<Envelope>(&frame)
         .expect("deserialize failed");

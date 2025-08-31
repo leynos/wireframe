@@ -13,3 +13,4 @@ logtest = "2"
 log = "0.4"
 metrics-util = "0.20"
 futures = "0.3"
+tokio-util = { version = "0.7", features = ["codec"] }

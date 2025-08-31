@@ -3,17 +3,25 @@
 //! These verify normal encoding as well as error conditions like
 //! write failures and encode errors.
 
+use std::sync::Arc;
+
 use bytes::BytesMut;
 use rstest::rstest;
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
-    app::{Envelope, WireframeApp},
-    frame::{Endianness, FrameProcessor, LengthFormat, LengthPrefixedProcessor},
+    Serializer,
+    app::{Envelope, Packet, WireframeApp},
+    frame::{Endianness, LengthFormat},
     message::Message,
     serializer::BincodeSerializer,
 };
+use wireframe_testing::{TEST_MAX_FRAME, new_test_codec, run_app};
 
 mod common;
 use common::TestApp;
+
+// Larger cap used for oversized frame tests.
+const LARGE_FRAME: usize = 16 * 1024 * 1024;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestResp(u32);
@@ -38,6 +46,9 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
     }
 }
 
+#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
+struct Large(Vec<u8>);
+
 /// Tests that sending a response serializes and frames the data correctly,
 /// and that the response can be decoded and deserialized back to its original value asynchronously.
 #[tokio::test]
@@ -49,14 +60,15 @@ async fn send_response_encodes_and_frames() {
         .await
         .expect("send_response failed");
 
-    let processor = LengthPrefixedProcessor::default();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&out[..]);
-    let frame = processor
+    let frame = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
     let (decoded, _) = TestResp::from_bytes(&frame).expect("deserialize failed");
     assert_eq!(decoded, TestResp(7));
+    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
 /// Tests that decoding with an incomplete length prefix header returns `None` and does not consume
@@ -65,23 +77,24 @@ async fn send_response_encodes_and_frames() {
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 #[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
-    let processor = LengthPrefixedProcessor::default();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
-    assert!(processor.decode(&mut buf).expect("decode failed").is_none());
+    assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
 }
 
 /// Tests that decoding with a complete length prefix but incomplete frame data returns `None`
-/// and retains all bytes in the buffer.
+/// and consumes only the 4-byte length prefix.
 ///
-/// Ensures that the decoder does not consume any bytes when the full frame is not yet available.
+/// Confirms that the decoder leaves the incomplete body in the buffer until the full frame arrives.
 #[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
-    let processor = LengthPrefixedProcessor::default();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
-    assert!(processor.decode(&mut buf).expect("decode failed").is_none());
-    // buffer should retain bytes since frame isn't complete
-    assert_eq!(buf.len(), 6);
+    assert!(codec.decode(&mut buf).expect("decode failed").is_none());
+    // LengthDelimitedCodec consumes the length prefix even if the frame
+    // remains incomplete.
+    assert_eq!(buf.len(), 2);
 }
 
 struct FailingWriter;
@@ -118,15 +131,24 @@ fn custom_length_roundtrip(
     #[case] frame: Vec<u8>,
     #[case] prefix: Vec<u8>,
 ) {
-    let processor = LengthPrefixedProcessor::new(fmt);
-    let mut buf = BytesMut::new();
-    processor.encode(&frame, &mut buf).expect("encode failed");
+    let mut builder = LengthDelimitedCodec::builder();
+    builder.length_field_length(fmt.bytes());
+    if fmt.endianness() == Endianness::Little {
+        builder.little_endian();
+    }
+    builder.max_frame_length(TEST_MAX_FRAME);
+    let mut codec = builder.new_codec();
+    let mut buf = BytesMut::with_capacity(frame.len() + prefix.len());
+    codec
+        .encode(frame.clone().into(), &mut buf)
+        .expect("encode failed");
     assert_eq!(&buf[..prefix.len()], &prefix[..]);
-    let decoded = processor
+    let decoded = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
     assert_eq!(decoded, frame);
+    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
 #[tokio::test]
@@ -143,29 +165,17 @@ async fn send_response_propagates_write_error() {
 
 #[rstest]
 #[case(0, Endianness::Big)]
-#[case(3, Endianness::Big)]
-#[case(5, Endianness::Little)]
+#[case(9, Endianness::Little)]
 fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
-    let fmt = LengthFormat::new(bytes, endian);
-    let processor = LengthPrefixedProcessor::new(fmt);
-    let mut buf = BytesMut::new();
-    let err = processor
-        .encode(&vec![1, 2], &mut buf)
-        .expect_err("encode must fail for unsupported prefix size");
+    let err = LengthFormat::try_new(bytes, endian).expect_err("invalid width should error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
 #[rstest]
 #[case(0, Endianness::Little)]
-#[case(3, Endianness::Little)]
-#[case(5, Endianness::Big)]
+#[case(9, Endianness::Big)]
 fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
-    let fmt = LengthFormat::new(bytes, endian);
-    let processor = LengthPrefixedProcessor::new(fmt);
-    let mut buf = BytesMut::from(vec![0u8; bytes].as_slice());
-    let err = processor
-        .decode(&mut buf)
-        .expect_err("decode must fail for unsupported prefix size");
+    let err = LengthFormat::try_new(bytes, endian).expect_err("invalid width should error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
@@ -173,11 +183,10 @@ fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: En
 #[case(LengthFormat::new(1, Endianness::Big), 256)]
 #[case(LengthFormat::new(2, Endianness::Little), 65_536)]
 fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usize) {
-    let processor = LengthPrefixedProcessor::new(fmt);
     let frame = vec![0u8; len];
     let mut buf = BytesMut::new();
-    let err = processor
-        .encode(&frame, &mut buf)
+    let err = fmt
+        .write_len(frame.len(), &mut buf)
         .expect_err("expected error");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
@@ -188,11 +197,73 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
 /// error is of the `Serialize` variant, indicating a failure during response encoding.
 #[tokio::test]
 async fn send_response_returns_encode_error() {
-    // Intentionally do not set a frame processor: encode should fail before framing.
+    // Use a type that fails during serialization; encode should fail before any framing.
     let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
     let err = app
         .send_response(&mut Vec::new(), &FailingResp)
         .await
         .expect_err("send_response should fail when encode errors");
     assert!(matches!(err, wireframe::app::SendError::Serialize(_)));
+}
+
+/// Ensures `send_response` permits frames up to the configured buffer capacity,
+/// exceeding the codec's default 8 MiB limit.
+#[tokio::test]
+async fn send_response_honours_buffer_capacity() {
+    let app = TestApp::new()
+        .expect("failed to create app")
+        .buffer_capacity(LARGE_FRAME);
+
+    let payload = vec![0_u8; 9 * 1024 * 1024];
+    let large = Large(payload.clone());
+    let mut out = Vec::new();
+
+    app.send_response(&mut out, &large)
+        .await
+        .expect("send_response failed");
+
+    let mut codec = new_test_codec(LARGE_FRAME);
+    let mut buf = BytesMut::from(&out[..]);
+    let frame = codec
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (decoded, _) = Large::from_bytes(&frame).expect("deserialize failed");
+    assert_eq!(decoded.0.len(), payload.len());
+}
+
+/// Verifies inbound and outbound codecs respect the application's buffer
+/// capacity by round-tripping a 9 MiB payload.
+#[tokio::test]
+async fn process_stream_honours_buffer_capacity() {
+    let app = TestApp::new()
+        .expect("failed to create app")
+        .buffer_capacity(LARGE_FRAME)
+        .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))
+        .expect("route registration failed");
+
+    let payload = vec![0_u8; 9 * 1024 * 1024];
+    let env = Envelope::new(1, None, payload.clone());
+    let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
+
+    let mut codec = new_test_codec(LARGE_FRAME);
+    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
+    codec
+        .encode(bytes.into(), &mut framed)
+        .expect("encode frame failed");
+
+    let out = run_app(app, vec![framed.to_vec()], Some(10 * 1024 * 1024))
+        .await
+        .expect("run_app failed");
+
+    let mut buf = BytesMut::from(&out[..]);
+    let frame = codec
+        .decode(&mut buf)
+        .expect("decode failed")
+        .expect("frame missing");
+    let (resp_env, _) = BincodeSerializer
+        .deserialize::<Envelope>(&frame)
+        .expect("deserialize failed");
+    let resp_len = resp_env.into_parts().payload().len();
+    assert_eq!(resp_len, payload.len());
 }

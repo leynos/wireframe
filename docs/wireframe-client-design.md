@@ -1,4 +1,4 @@
-# Client Support in Wireframe
+# Client support in Wireframe
 
 This document proposes an initial design for adding client-side protocol
 support to `wireframe`. The goal is to reuse the existing framing,
@@ -14,7 +14,7 @@ logic. The design document outlines these layers, which process frames from raw
 bytes to typed messages and back[^1]. Reusing these pieces enables the
 implementation of a lightweight client without duplicating protocol code.
 
-## Core Components
+## Core components
 
 ### `WireframeClient`
 
@@ -23,11 +23,15 @@ mirrors `WireframeServer` but operates in the opposite direction:
 
 - Connect to a `TcpStream`.
 - Optionally, send a preamble using the existing `Preamble` helpers.
-- Encode outgoing messages using the selected `Serializer` and `FrameProcessor`.
+- Encode outgoing messages using the selected `Serializer` and
+  `tokio_util::codec::LengthDelimitedCodec` (4‑byte big‑endian prefix by
+  default; configurable). Configure the codec’s `max_frame_length` on both the
+  inbound (decode) and outbound (encode) paths to match the server’s frame
+  capacity; otherwise, frames larger than the default 8 MiB will fail.
 - Decode incoming frames into typed responses.
 - Expose async `send` and `receive` operations.
 
-### Builder Pattern
+### Builder pattern
 
 A `WireframeClient::builder()` method configures the client:
 
@@ -42,7 +46,7 @@ The same `Serializer` trait used by the server is reused here, ensuring
 messages are encoded consistently while framing is handled by the
 length‑delimited codec.
 
-### Request/Response Helpers
+### Request/response helpers
 
 To keep the API simple, `WireframeClient` offers a `call` method that sends a
 message implementing `Message` and waits for the next response frame:
@@ -56,13 +60,13 @@ Internally, this uses the `Serializer` to encode the request, sends it through
 the length‑delimited codec, then waits for a frame, decodes it, and
 deserializes the response type.
 
-### Connection Lifecycle
+### Connection lifecycle
 
 Like the server, the client should expose hooks for connection setup and
-teardown. These mirror the server’s lifecycle callbacks so both sides can share
-initialization logic.
+teardown. These mirror the server’s lifecycle callbacks, so both sides can
+share initialization logic.
 
-## Example Usage
+## Example usage
 
 ```rust
 #[tokio::main]
@@ -79,7 +83,7 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
-## Future Work
+## Future work
 
 This initial design focuses on a basic request/response workflow. Future
 extensions might include:
@@ -91,5 +95,6 @@ extensions might include:
 By leveraging the existing abstractions for framing and serialization, client
 support can share most of the server’s implementation while providing a small
 ergonomic API.
-[^1]: See [wireframe router
-                  design](rust-binary-router-library-design.md#implementation-details).
+
+[^1]: See
+      [wireframe router design](rust-binary-router-library-design.md#implementation-details).

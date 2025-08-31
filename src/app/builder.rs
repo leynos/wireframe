@@ -13,10 +13,7 @@ use std::{
     sync::Arc,
 };
 
-use tokio::{
-    io,
-    sync::{OnceCell, mpsc},
-};
+use tokio::sync::{OnceCell, mpsc};
 
 use super::{
     envelope::{Envelope, Packet},
@@ -36,7 +33,7 @@ const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```rust,no_run
 /// use std::sync::Arc;
 ///
 /// use wireframe::app::ConnectionSetup;
@@ -49,7 +46,7 @@ pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```rust,no_run
 /// use std::sync::Arc;
 ///
 /// use wireframe::app::ConnectionTeardown;
@@ -74,14 +71,6 @@ pub struct WireframeApp<
     pub(super) handlers: HashMap<u32, Handler<E>>,
     pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
     pub(super) middleware: Vec<Box<dyn Middleware<E>>>,
-    #[expect(
-        dead_code,
-        reason = "Deprecated: retained temporarily for API compatibility until codec-based \
-                  framing is fully removed"
-    )]
-    #[allow(unfulfilled_lint_expectations)]
-    pub(super) frame_processor:
-        Box<dyn crate::frame::FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync>,
     pub(super) serializer: S,
     pub(super) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     pub(super) on_connect: Option<Arc<ConnectionSetup<C>>>,
@@ -114,16 +103,13 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    /// Initializes empty routes, middleware, and application data with a
-    /// placeholder frame processor and serializer, and no lifecycle hooks.
+    /// Initialises empty routes, middleware, and application data with the
+    /// default serializer and no lifecycle hooks.
     fn default() -> Self {
         Self {
             handlers: HashMap::new(),
             routes: OnceCell::new(),
             middleware: Vec::new(),
-            frame_processor: Box::new(crate::frame::LengthPrefixedProcessor::new(
-                crate::frame::LengthFormat::default(),
-            )),
             serializer: S::default(),
             app_data: HashMap::new(),
             on_connect: None,
@@ -153,20 +139,9 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialize app");
+    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialise app");
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
-
-    /// Construct a new application builder using a custom envelope type.
-    ///
-    /// Deprecated: call [`WireframeApp::new`] with explicit envelope type
-    /// parameters.
-    ///
-    /// # Errors
-    ///
-    /// Currently always succeeds.
-    #[deprecated(note = "use `WireframeApp::new()` instead")]
-    pub fn new_with_envelope() -> Result<Self> { Self::new() }
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -259,7 +234,6 @@ where
             handlers: self.handlers,
             routes: OnceCell::new(),
             middleware: self.middleware,
-            frame_processor: self.frame_processor,
             serializer: self.serializer,
             app_data: self.app_data,
             on_connect: Some(Arc::new(move || Box::pin(f()))),
@@ -349,19 +323,6 @@ where
             .unwrap_or_default()
     }
 
-    /// Set the frame processor used for encoding and decoding frames.
-    #[deprecated(note = "framing is handled by the connection codec; this method will be removed")]
-    #[must_use]
-    pub fn frame_processor<P>(self, processor: P) -> Self
-    where
-        P: crate::frame::FrameProcessor<Frame = Vec<u8>, Error = io::Error> + Send + Sync + 'static,
-    {
-        WireframeApp {
-            frame_processor: Box::new(processor),
-            ..self
-        }
-    }
-
     /// Replace the serializer used for messages.
     #[must_use]
     pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser, C, E>
@@ -372,7 +333,6 @@ where
             handlers: self.handlers,
             routes: OnceCell::new(),
             middleware: self.middleware,
-            frame_processor: self.frame_processor,
             serializer,
             app_data: self.app_data,
             on_connect: self.on_connect,
