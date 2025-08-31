@@ -80,7 +80,10 @@ impl<F: FrameLike> Default for PushQueuesBuilder<F> {
             low_capacity: 1,
             rate: Some(DEFAULT_PUSH_RATE),
             dlq: None,
-            dlq_log_every_n: 100,
+            // Default to logging every DLQ drop for visibility in tests and
+            // development. Can be adjusted by applications that need lower
+            // verbosity.
+            dlq_log_every_n: 1,
             dlq_log_interval: Duration::from_secs(10),
         }
     }

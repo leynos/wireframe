@@ -11,8 +11,8 @@ use std::{
 };
 
 use leaky_bucket::RateLimiter;
-use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use log::{debug, warn};
+use tokio::{sync::mpsc, time::sleep};
 
 use super::{FrameLike, PushError, PushPolicy, PushPriority};
 
@@ -45,32 +45,50 @@ impl<F: FrameLike> PushHandle<F> {
 
     /// Internal helper to push a frame with the requested priority.
     ///
-    /// Reserves queue capacity before waiting on the rate limiter and sending
-    /// the frame to the appropriate channel. This avoids delaying when the
-    /// queue has been closed.
+    /// IMPORTANT: We honour the rate limiter before attempting to reserve
+    /// channel capacity, but without awaiting the limiter's future directly.
+    /// Awaiting the limiter can register this task as a waiter and reserve
+    /// a token even if the future is never polled again (e.g., after a
+    /// `now_or_never()` probe in tests). That reservation can starve other
+    /// pushes and cause hangs. Instead, we perform a non-blocking check in a
+    /// short sleep loop so no capacity or tokens are held while parked.
     async fn push_with_priority(&self, frame: F, priority: PushPriority) -> Result<(), PushError> {
         let tx = match priority {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
         };
 
-        let permit = tx
-            .clone()
-            .reserve_owned()
+        // First, honour the rate limit without registering this task as a
+        // waiter on the limiter. If we await the limiter's future directly,
+        // it will queue our waker and reserve the next token for us. In test
+        // scenarios that probe with `now_or_never()` and never poll the
+        // future again, that reserved token would block unrelated pushes and
+        // lead to hangs. By performing a non-blocking check and sleeping until
+        // the next refill window, tokens remain available to actively polled
+        // tasks.
+        if let Some(ref limiter) = self.0.limiter {
+            loop {
+                // Prefer a non-blocking acquisition. If not available, back
+                // off briefly before trying again. We intentionally do not
+                // poll the limiter's async acquire future to avoid enqueuing
+                // this task as a waiter and reserving a token prematurely.
+                if limiter.try_acquire(1) {
+                    break;
+                }
+                // The limiter is configured with a 1s refill interval; a
+                // short sleep yields to the scheduler and advances virtual
+                // time in tests (tokio::time::pause/advance).
+                sleep(Duration::from_millis(10)).await;
+            }
+        }
+
+        // Then send the frame, awaiting capacity if the queue is currently
+        // full. If the receiver has been dropped, surface `Closed`.
+        tx.clone()
+            .send(frame)
             .await
             .map_err(|_| PushError::Closed)?;
-
-        if let Some(ref limiter) = self.0.limiter {
-            limiter.acquire(1).await;
-        }
-
-        let returned_tx = permit.send(frame);
-        // Receiver may have closed after reserving capacity; treat as a send
-        // failure to avoid silently dropping the frame.
-        if returned_tx.is_closed() {
-            return Err(PushError::Closed);
-        }
-        debug!(?priority, "frame pushed");
+        debug!("frame pushed: priority={priority:?}");
         Ok(())
     }
 
@@ -158,11 +176,8 @@ impl<F: FrameLike> PushHandle<F> {
                         || now.duration_since(*last) > log_interval
                     {
                         warn!(
-                            ?f,
-                            dropped,
-                            log_every_n,
-                            log_interval = ?log_interval,
-                            "DLQ dropped frames (full or closed)"
+                            "DLQ dropped frames (full or closed): frame={f:?}, dropped={dropped}, \
+                             log_every_n={log_every_n}, log_interval={log_interval:?}"
                         );
                         *last = now;
                         self.0.dlq_drops.store(0, Ordering::Relaxed);
@@ -229,10 +244,8 @@ impl<F: FrameLike> PushHandle<F> {
                 PushPolicy::DropIfFull | PushPolicy::WarnAndDropIfFull => {
                     if matches!(policy, PushPolicy::WarnAndDropIfFull) {
                         warn!(
-                            ?priority,
-                            ?policy,
-                            dlq = self.0.dlq_tx.is_some(),
-                            "push queue full"
+                            "push queue full: priority={priority:?}, policy={policy:?}, dlq={dlq}",
+                            dlq = self.0.dlq_tx.is_some()
                         );
                     }
                     self.route_to_dlq(f);

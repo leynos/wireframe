@@ -371,7 +371,10 @@ match self.tx.try_send(frame) {
 
 ```
 
-This warning is throttled per handle so repeated losses do not flood logs.
+By default the library logs each DLQ drop to maximise visibility during
+development and testing. Applications can tune verbosity using the push queue
+builder's `dlq_log_every_n` and `dlq_log_interval` settings to throttle
+warnings per handle in production.
 
 A separate part of the application is then responsible for consuming from the
 DLQ's receiver to inspect, log, and re-process these failed messages, ensuring

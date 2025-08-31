@@ -4,6 +4,7 @@ use std::{io, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use futures::Future;
+use log::warn;
 use tokio::{
     net::{TcpListener, TcpStream},
     select,
@@ -219,7 +220,7 @@ where
 
         // Signal readiness after all workers have been spawned.
         if ready_tx.is_some_and(|tx| tx.send(()).is_err()) {
-            tracing::warn!("Failed to send readiness signal: receiver dropped");
+            warn!("Failed to send readiness signal: receiver dropped");
         }
 
         select! {
@@ -322,7 +323,7 @@ pub(super) async fn accept_loop<F, T, L>(
                 }
                 Err(e) => {
                     let local_addr = listener.local_addr().ok();
-                    tracing::warn!(error = ?e, ?local_addr, "accept error");
+                    warn!("accept error: error={e:?}, local_addr={local_addr:?}");
                     sleep(delay).await;
                     delay = (delay * 2).min(backoff_config.max_delay);
                 }

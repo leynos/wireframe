@@ -3,6 +3,7 @@
 use std::net::SocketAddr;
 
 use futures::FutureExt;
+use log::{error, warn};
 use tokio::net::TcpStream;
 use tokio_util::task::TaskTracker;
 
@@ -27,7 +28,7 @@ pub(super) fn spawn_connection_task<F, T>(
     let peer_addr = match stream.peer_addr() {
         Ok(addr) => Some(addr),
         Err(e) => {
-            tracing::warn!(error = %e, "Failed to retrieve peer address");
+            warn!("Failed to retrieve peer address: error={e}");
             None
         }
     };
@@ -40,11 +41,7 @@ pub(super) fn spawn_connection_task<F, T>(
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
             let panic_msg = crate::panic::format_panic(&panic);
-            tracing::error!(
-                panic = %panic_msg,
-                ?peer_addr,
-                "connection task panicked"
-            );
+            error!("connection task panicked: panic={panic_msg}, peer_addr={peer_addr:?}");
         }
     });
 }
@@ -64,11 +61,9 @@ async fn process_stream<F, T>(
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
-                tracing::error!(
-                    error = %e,
-                    error_debug = ?e,
-                    ?peer_addr,
-                    "preamble handler error",
+                error!(
+                    "preamble handler error: error={}, error_debug={e:?}, peer_addr={peer_addr:?}",
+                    e
                 );
             }
             let stream = RewindStream::new(leftover, stream);
@@ -79,10 +74,9 @@ async fn process_stream<F, T>(
             if let Some(handler) = on_failure.as_ref() {
                 handler(&err);
             } else {
-                tracing::error!(
-                    error = ?err,
-                    ?peer_addr,
-                    "preamble decode failed and no failure handler set"
+                error!(
+                    "preamble decode failed and no failure handler set: error={err:?}, \
+                     peer_addr={peer_addr:?}"
                 );
             }
         }

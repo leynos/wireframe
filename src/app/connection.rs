@@ -4,6 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
+use log::{debug, info, warn};
 use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
     time::{Duration, timeout},
@@ -138,7 +139,10 @@ where
             .clone();
 
         if let Err(e) = self.process_stream(stream, &routes).await {
-            tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "connection terminated with error");
+            warn!(
+                "connection terminated with error: correlation_id={:?}, error={e:?}",
+                None::<u64>
+            );
         }
 
         if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
@@ -181,7 +185,7 @@ where
                 Ok(Some(Err(e))) => return Err(e),
                 Ok(None) => break,
                 Err(_) => {
-                    tracing::debug!("read timeout elapsed; continuing to wait for next frame");
+                    debug!("read timeout elapsed; continuing to wait for next frame");
                 }
             }
         }
@@ -207,7 +211,10 @@ where
             }
             Err(EnvelopeDecodeError::Parse(e)) => {
                 *deser_failures += 1;
-                tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "failed to parse message");
+                warn!(
+                    "failed to parse message: correlation_id={:?}, error={e:?}",
+                    None::<u64>
+                );
                 crate::metrics::inc_deser_errors();
                 if *deser_failures >= MAX_DESER_FAILURES {
                     return Err(io::Error::new(
@@ -219,7 +226,10 @@ where
             }
             Err(EnvelopeDecodeError::Deserialize(e)) => {
                 *deser_failures += 1;
-                tracing::warn!(correlation_id = ?None::<u64>, error = ?e, "failed to deserialize message");
+                warn!(
+                    "failed to deserialize message: correlation_id={:?}, error={e:?}",
+                    None::<u64>
+                );
                 crate::metrics::inc_deser_errors();
                 if *deser_failures >= MAX_DESER_FAILURES {
                     return Err(io::Error::new(
@@ -242,36 +252,36 @@ where
                     match self.serializer.serialize(&response) {
                         Ok(bytes) => {
                             if let Err(e) = framed.send(bytes.into()).await {
-                                tracing::warn!(
-                                    id = env.id,
-                                    correlation_id = ?correlation_id,
-                                    error = ?e,
-                                    "failed to send response",
+                                warn!(
+                                    "failed to send response: id={}, correlation_id={:?}, \
+                                     error={e:?}",
+                                    env.id, correlation_id
                                 );
                                 crate::metrics::inc_handler_errors();
                             }
                         }
                         Err(e) => {
-                            tracing::warn!(
-                                id = env.id,
-                                correlation_id = ?correlation_id,
-                                error = ?e,
-                                "failed to serialize response",
+                            warn!(
+                                "failed to serialize response: id={}, correlation_id={:?}, \
+                                 error={e:?}",
+                                env.id, correlation_id
                             );
                             crate::metrics::inc_handler_errors();
                         }
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(id = env.id, correlation_id = ?env.correlation_id, error = ?e, "handler error");
+                    warn!(
+                        "handler error: id={}, correlation_id={:?}, error={e:?}",
+                        env.id, env.correlation_id
+                    );
                     crate::metrics::inc_handler_errors();
                 }
             }
         } else {
-            tracing::warn!(
-                id = env.id,
-                correlation_id = ?env.correlation_id,
-                "no handler for message id"
+            warn!(
+                "no handler for message id: id={}, correlation_id={:?}",
+                env.id, env.correlation_id
             );
         }
 

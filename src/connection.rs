@@ -12,12 +12,12 @@ use std::{
 };
 
 use futures::StreamExt;
+use log::{info, warn};
 use tokio::{
     sync::mpsc::{self, error::TryRecvError},
     time::Duration,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{info, info_span, warn};
 
 /// Global gauge tracking active connections.
 static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
@@ -183,10 +183,8 @@ where
         };
         let current = ACTIVE_CONNECTIONS.load(Ordering::Relaxed);
         info!(
-            wireframe_active_connections = current,
-            id = ?actor.connection_id,
-            peer = ?actor.peer_addr,
-            "connection opened"
+            "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
+            current, actor.connection_id, actor.peer_addr
         );
         actor.hooks.on_connection_setup(handle, &mut actor.ctx);
         actor
@@ -210,16 +208,14 @@ where
     ///
     /// Returns a [`WireframeError`] if the response stream yields an I/O error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
-        let span = info_span!("connection_actor");
-        let _enter = span.enter();
+        // Spans removed in favour of standardised log facade.
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
         // a hard shutdown and is required for the tests.
         if self.shutdown.is_cancelled() {
             info!(
-                id = ?self.connection_id,
-                peer = ?self.peer_addr,
-                "connection aborted before start"
+                "connection aborted before start: id={:?}, peer={:?}",
+                self.connection_id, self.peer_addr
             );
             let _ = self.counter.take();
             return Ok(());
@@ -231,9 +227,8 @@ where
             self.poll_sources(&mut state, out).await?;
         }
         info!(
-            id = ?self.connection_id,
-            peer = ?self.peer_addr,
-            "connection closed"
+            "connection closed: id={:?}, peer={:?}",
+            self.connection_id, self.peer_addr
         );
         let _ = self.counter.take();
         Ok(())
@@ -420,7 +415,7 @@ where
                 produced = true;
             }
             Some(Err(WireframeError::Protocol(e))) => {
-                warn!(error = ?e, "protocol error");
+                warn!("protocol error: error={e:?}");
                 self.hooks.handle_error(e, &mut self.ctx);
                 state.mark_closed();
                 // Stop polling the response after a protocol error to avoid

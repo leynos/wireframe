@@ -94,7 +94,10 @@ impl<F> PushQueueConfig<F> {
             low_capacity,
             rate,
             dlq,
-            dlq_log_every_n: 100,
+            // Log every DLQ drop by default so tests and development
+            // environments observe issues immediately. Production users can
+            // override via the builder to reduce verbosity.
+            dlq_log_every_n: 1,
             dlq_log_interval: Duration::from_secs(10),
         }
     }
