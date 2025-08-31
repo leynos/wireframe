@@ -9,14 +9,14 @@ use std::sync::{
 
 use bytes::BytesMut;
 use rstest::rstest;
-use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
+use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
     Serializer,
     app::{Packet, PacketParts},
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{TEST_MAX_FRAME, drive_with_bincode, drive_with_frames};
+use wireframe_testing::{TEST_MAX_FRAME, drive_with_bincode, drive_with_frames, new_test_codec};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), TestEnvelope>;
 
@@ -82,9 +82,7 @@ async fn handler_receives_message_and_echoes_response() {
         .await
         .expect("drive_with_bincode failed");
 
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(TEST_MAX_FRAME)
-        .new_codec();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)
@@ -118,9 +116,7 @@ async fn handler_echoes_with_none_correlation_id() {
     };
 
     let out = drive_with_bincode(app, env).await.expect("drive failed");
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(TEST_MAX_FRAME)
-        .new_codec();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)
@@ -146,9 +142,7 @@ async fn multiple_frames_processed_in_sequence() {
         )
         .expect("route registration failed");
 
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(TEST_MAX_FRAME)
-        .new_codec();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut encoded_frames = Vec::new();
     for id in 1u8..=2 {
         let msg_bytes = Echo(id).to_bytes().expect("encode failed");
@@ -218,9 +212,7 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
     let env_bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
 
     let mut framed = BytesMut::with_capacity(env_bytes.len() + 4);
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(TEST_MAX_FRAME)
-        .new_codec();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     codec
         .encode(env_bytes.into(), &mut framed)
         .expect("encode failed");

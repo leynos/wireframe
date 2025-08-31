@@ -164,16 +164,22 @@ codec chain via the `WireframeApp` builder.
 ```rust
 // Pseudo‑API: enable fragmentation with a strategy on the codec stack.
 WireframeServer::new(|| {
-    WireframeApp::new()
-        .codec(
+    let mut app = WireframeApp::new();
+    app
+        .codec({
+            // Match the application buffer capacity to avoid default 8 MiB limits.
+            let cap = app.buffer_capacity();
             LengthDelimitedCodec::builder()
-                .max_frame_length(64 * 1024)
-                .new_codec(),
-        )
+                .max_frame_length(cap)
+                .new_codec()
+        })
         .codec(FragmentAdapter::new(MySqlStrategy::new()))
         .route(/* ... */)
 })
 ```
+
+Configure the same max frame length for all codec instances on inbound and
+outbound paths.
 
 ```rust,no_run
 use async_stream::try_stream;
@@ -239,7 +245,7 @@ robust against errors and attacks.
 
    - **Final Fragment:** If `meta.is_final` is true, the full payload is
      extracted from the `PartialMessage`, the entry is removed from the map,
-     and the complete logical frame is passed down the codec chain.
+     then pass the complete logical frame down the codec chain.
 
 4. **Timeout handling:** Run a background task within the
    `FragmentAdapter` that periodically iterates over the re‑assembly buffers,

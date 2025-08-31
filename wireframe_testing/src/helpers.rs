@@ -95,6 +95,13 @@ pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
 /// Shared frame cap used by helpers and tests to avoid drift.
 pub const TEST_MAX_FRAME: usize = DEFAULT_CAPACITY;
 
+#[inline]
+pub fn new_test_codec(max_len: usize) -> LengthDelimitedCodec {
+    let mut builder = LengthDelimitedCodec::builder();
+    builder.max_frame_length(max_len);
+    builder.new_codec()
+}
+
 macro_rules! forward_default {
     (
         $(#[$docs:meta])* $vis:vis fn $name:ident(
@@ -349,10 +356,8 @@ where
             format!("bincode encode failed: {e}"),
         )
     })?;
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(DEFAULT_CAPACITY)
-        .new_codec();
-    let mut framed = BytesMut::new();
+    let mut codec = new_test_codec(DEFAULT_CAPACITY);
+    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
     codec.encode(bytes.into(), &mut framed)?;
     drive_with_frame(app, framed.to_vec()).await
 }

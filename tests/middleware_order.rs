@@ -5,13 +5,13 @@
 use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
-use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
+use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
     app::{Envelope, Handler},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::TEST_MAX_FRAME;
+use wireframe_testing::{TEST_MAX_FRAME, new_test_codec};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -71,10 +71,8 @@ async fn middleware_applied_in_reverse_order() {
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).expect("serialization failed");
     // Use a length-delimited codec for framing
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(TEST_MAX_FRAME)
-        .new_codec();
-    let mut buf = BytesMut::new();
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
+    let mut buf = BytesMut::with_capacity(bytes.len() + 4);
     codec
         .encode(bytes.into(), &mut buf)
         .expect("encoding failed");

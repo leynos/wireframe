@@ -15,7 +15,7 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::run_app;
+use wireframe_testing::{new_test_codec, run_app};
 
 mod common;
 use common::TestApp;
@@ -59,9 +59,7 @@ async fn send_response_encodes_and_frames() {
         .await
         .expect("send_response failed");
 
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(MAX_FRAME)
-        .new_codec();
+    let mut codec = new_test_codec(MAX_FRAME);
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)
@@ -78,9 +76,7 @@ async fn send_response_encodes_and_frames() {
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 #[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(MAX_FRAME)
-        .new_codec();
+    let mut codec = new_test_codec(MAX_FRAME);
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
@@ -92,9 +88,7 @@ async fn length_prefixed_decode_requires_complete_header() {
 /// Confirms that the decoder leaves the incomplete body in the buffer until the full frame arrives.
 #[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(MAX_FRAME)
-        .new_codec();
+    let mut codec = new_test_codec(MAX_FRAME);
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     // LengthDelimitedCodec consumes the length prefix even if the frame
@@ -143,7 +137,7 @@ fn custom_length_roundtrip(
     }
     builder.max_frame_length(MAX_FRAME);
     let mut codec = builder.new_codec();
-    let mut buf = BytesMut::new();
+    let mut buf = BytesMut::with_capacity(frame.len() + prefix.len());
     codec
         .encode(frame.clone().into(), &mut buf)
         .expect("encode failed");
@@ -227,9 +221,7 @@ async fn send_response_honours_buffer_capacity() {
         .await
         .expect("send_response failed");
 
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(16 * 1024 * 1024)
-        .new_codec();
+    let mut codec = new_test_codec(16 * 1024 * 1024);
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)
@@ -253,10 +245,8 @@ async fn process_stream_honours_buffer_capacity() {
     let env = Envelope::new(1, None, payload.clone());
     let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
 
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(16 * 1024 * 1024)
-        .new_codec();
-    let mut framed = BytesMut::new();
+    let mut codec = new_test_codec(16 * 1024 * 1024);
+    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
     codec
         .encode(bytes.into(), &mut framed)
         .expect("encode frame failed");

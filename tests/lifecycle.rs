@@ -12,12 +12,12 @@ use std::{
 };
 
 use bytes::BytesMut;
-use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
+use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{TEST_MAX_FRAME, run_app, run_with_duplex_server};
+use wireframe_testing::{TEST_MAX_FRAME, new_test_codec, run_app, run_with_duplex_server};
 
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -147,10 +147,8 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
     let bytes = BincodeSerializer
         .serialize(&env)
         .expect("failed to serialise envelope");
-    let mut frame = BytesMut::new();
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(TEST_MAX_FRAME)
-        .new_codec();
+    let mut frame = BytesMut::with_capacity(bytes.len() + 4);
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     codec
         .encode(bytes.into(), &mut frame)
         .expect("encode should succeed");

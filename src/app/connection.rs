@@ -37,6 +37,8 @@ where
     C: Send + 'static,
     E: Packet,
 {
+    /// Construct a length-delimited codec capped by the application's buffer
+    /// capacity.
     fn new_length_codec(&self) -> LengthDelimitedCodec {
         LengthDelimitedCodec::builder()
             .max_frame_length(self.buffer_capacity)
@@ -62,7 +64,7 @@ where
             .serialize(msg)
             .map_err(SendError::Serialize)?;
         let mut codec = self.new_length_codec();
-        let mut framed = BytesMut::new();
+        let mut framed = BytesMut::with_capacity(bytes.len() + 4);
         codec
             .encode(bytes.into(), &mut framed)
             .map_err(|e| SendError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;

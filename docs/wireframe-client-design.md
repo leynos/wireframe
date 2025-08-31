@@ -25,9 +25,9 @@ mirrors `WireframeServer` but operates in the opposite direction:
 - Optionally, send a preamble using the existing `Preamble` helpers.
 - Encode outgoing messages using the selected `Serializer` and
   `tokio_util::codec::LengthDelimitedCodec` (4‑byte big‑endian prefix by
-  default; configurable). Configure the codec’s `max_frame_length` to match the
-  server’s frame capacity; otherwise, frames larger than the default 8 MiB will
-  fail.
+  default; configurable). Configure the codec’s `max_frame_length` on both the
+  inbound (decode) and outbound (encode) paths to match the server’s frame
+  capacity; otherwise, frames larger than the default 8 MiB will fail.
 - Decode incoming frames into typed responses.
 - Expose async `send` and `receive` operations.
 
@@ -58,13 +58,13 @@ let response: LoginAck = client.call(request).await?;
 
 Internally, this uses the `Serializer` to encode the request, sends it through
 the length‑delimited codec, then waits for a frame, decodes it, and
-deserialises the response type.
+deserializes the response type.
 
 ### Connection lifecycle
 
 Like the server, the client should expose hooks for connection setup and
 teardown. These mirror the server’s lifecycle callbacks, so both sides can
-share initialisation logic.
+share initialization logic.
 
 ## Example usage
 
