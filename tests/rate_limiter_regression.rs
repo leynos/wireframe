@@ -7,7 +7,7 @@
 
 use futures::FutureExt;
 use tokio::time::{self, Duration};
-use wireframe::push::{PushPriority, PushQueues};
+use wireframe::push::PushQueues;
 
 #[tokio::test]
 async fn limiter_does_not_reserve_tokens_for_unpolled_future() {

@@ -41,7 +41,9 @@ pub(super) fn spawn_connection_task<F, T>(
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
             let panic_msg = crate::panic::format_panic(&panic);
+            // Emit via both `log` and `tracing` for tests that capture either.
             error!("connection task panicked: panic={panic_msg}, peer_addr={peer_addr:?}");
+            tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
         }
     });
 }
@@ -62,8 +64,7 @@ async fn process_stream<F, T>(
                 && let Err(e) = handler(&preamble, &mut stream).await
             {
                 error!(
-                    "preamble handler error: error={}, error_debug={e:?}, peer_addr={peer_addr:?}",
-                    e
+                    "preamble handler error: error={e}, error_debug={e:?}, peer_addr={peer_addr:?}"
                 );
             }
             let stream = RewindStream::new(leftover, stream);

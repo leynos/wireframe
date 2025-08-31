@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
-use log::{debug, info, warn};
+use log::{debug, warn};
 use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
     time::{Duration, timeout},
