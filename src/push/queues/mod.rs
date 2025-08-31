@@ -1,6 +1,6 @@
 //! Queue management used by [`PushHandle`] and [`PushQueues`].
 //!
-//! Provides the core implementation for prioritised queues delivering frames
+//! Provides the core implementation for prioritized queues delivering frames
 //! to a connection. Background tasks can send messages without blocking the
 //! request/response cycle. Frames maintain FIFO order within each priority
 //! level. An optional rate limiter caps throughput at [`MAX_PUSH_RATE`] pushes
@@ -68,6 +68,7 @@ pub struct PushQueues<F> {
 ///
 /// Bundles capacities, optional rate limiting and dead-letter queue settings,
 /// plus logging cadence for dropped frames.
+#[derive(Debug, Clone)]
 pub struct PushQueueConfig<F> {
     pub high_capacity: usize,
     pub low_capacity: usize,
@@ -187,7 +188,8 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// # Panics
     ///
-    /// Panics if an internal invariant is violated. This should never occur.
+    /// Panics if either queue capacity is zero. Prefer `PushQueues::builder()`
+    /// to receive a [`Result`] instead.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
@@ -199,7 +201,8 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// # Panics
     ///
-    /// Panics if an internal invariant is violated. This should never occur.
+    /// Panics if either queue capacity is zero. Prefer `PushQueues::builder()`
+    /// to receive a [`Result`] instead.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     #[must_use]
     pub fn bounded_no_rate_limit(
@@ -255,7 +258,6 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```rust,no_run
     /// use wireframe::push::{PushPriority, PushQueues};
     ///
-    /// #[tokio::test]
     /// async fn example() {
     ///     let (mut queues, handle) = PushQueues::<u8>::builder()
     ///         .high_capacity(1)
@@ -298,6 +300,8 @@ impl<F: FrameLike> PushQueues<F> {
     /// use wireframe::push::PushQueues;
     ///
     /// let (mut queues, _handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// queues.close();

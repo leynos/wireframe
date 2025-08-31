@@ -224,7 +224,7 @@ not hang.
 
 ## 7. Synergy with Other 1.0 Features
 
-- **Asynchronous Pushes:** The connection actor's prioritised write loop (as
+- **Asynchronous Pushes:** The connection actor's prioritized write loop (as
   defined in the outbound messaging design) will always poll for pushed
   messages *before* polling the response stream. This ensures that urgent,
   out-of-band messages are not starved by a long-running data stream.

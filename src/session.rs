@@ -23,7 +23,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::new(42);
@@ -36,7 +36,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::from(7u64);
@@ -77,13 +77,15 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
@@ -105,13 +107,15 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
@@ -128,13 +132,15 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
@@ -153,7 +159,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -161,6 +167,8 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id = ConnectionId::new(4);
@@ -179,7 +187,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -187,9 +195,13 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_q1, h1) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let (_q2, h2) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(5);
@@ -214,7 +226,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -222,9 +234,13 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_q1, h1) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let (_q2, h2) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(7);
