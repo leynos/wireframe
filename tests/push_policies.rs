@@ -1,21 +1,15 @@
 //! Tests for push queue policy behaviour.
 
-use futures::future::BoxFuture;
+mod support;
+
+use futures::{FutureExt, future::BoxFuture};
 use rstest::{fixture, rstest};
 use serial_test::serial;
-use tokio::{
-    runtime::Runtime,
-    sync::mpsc,
-    time::{Duration, timeout},
-};
-use wireframe::push::{PushPolicy, PushPriority, PushQueues};
+use tokio::{runtime::Runtime, sync::mpsc};
+use wireframe::push::{PushPolicy, PushPriority, PushQueuesBuilder};
 use wireframe_testing::{LoggerHandle, logger};
 
 /// Builds a single-thread [`Runtime`] for async tests.
-#[allow(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
 #[fixture]
 fn rt() -> Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -23,6 +17,16 @@ fn rt() -> Runtime {
         .build()
         .expect("failed to build test runtime")
 }
+
+#[expect(
+    unused_braces,
+    reason = "rustc false positive for single-line rstest fixtures"
+)]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
+#[allow(unfulfilled_lint_expectations)]
+#[fixture]
+fn builder() -> PushQueuesBuilder<u8> { support::builder::<u8>() }
 
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]
@@ -32,13 +36,14 @@ fn rt() -> Runtime {
 fn push_policy_behaviour(
     rt: Runtime,
     mut logger: LoggerHandle,
+    builder: PushQueuesBuilder<u8>,
     #[case] policy: PushPolicy,
     #[case] expect_warning: bool,
     #[case] expected_msg: &str,
 ) {
     rt.block_on(async {
         while logger.pop().is_some() {}
-        let (mut queues, handle) = PushQueues::bounded(1, 1);
+        let (mut queues, handle) = builder.build().expect("failed to build PushQueues");
 
         handle
             .push_high_priority(1u8)
@@ -51,9 +56,8 @@ fn push_policy_behaviour(
         let (_, val) = queues.recv().await.expect("recv failed");
         assert_eq!(val, 1);
         assert!(
-            timeout(Duration::from_millis(20), queues.recv())
-                .await
-                .is_err()
+            queues.recv().now_or_never().is_none(),
+            "queue should be empty"
         );
 
         let mut found_warning = false;
@@ -73,11 +77,14 @@ fn push_policy_behaviour(
 
 /// Dropped frames are forwarded to the dead letter queue.
 #[rstest]
-fn dropped_frame_goes_to_dlq(rt: Runtime) {
+fn dropped_frame_goes_to_dlq(rt: Runtime, builder: PushQueuesBuilder<u8>) {
     rt.block_on(async {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-        let (mut queues, handle) = PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx))
-            .expect("queue creation failed");
+        let (mut queues, handle) = builder
+            .unlimited()
+            .dlq(Some(dlq_tx))
+            .build()
+            .expect("failed to build PushQueues");
 
         handle
             .push_high_priority(1u8)
@@ -115,16 +122,27 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { 
 
 /// Parameterised checks for error logs when DLQ interactions fail.
 #[rstest]
-#[case::dlq_full(fill_dlq, PushPolicy::WarnAndDropIfFull, "DLQ", assert_dlq_full)]
-#[case::dlq_closed(close_dlq, PushPolicy::DropIfFull, "closed", assert_dlq_closed)]
+#[case::dlq_full(
+    fill_dlq,
+    PushPolicy::WarnAndDropIfFull,
+    assert_dlq_full,
+    "DLQ dropped frames"
+)]
+#[case::dlq_closed(
+    close_dlq,
+    PushPolicy::DropIfFull,
+    assert_dlq_closed,
+    "DLQ dropped frames"
+)]
 #[serial(push_policies)]
 fn dlq_error_scenarios<Setup, AssertFn>(
     rt: Runtime,
     mut logger: LoggerHandle,
     #[case] setup: Setup,
     #[case] policy: PushPolicy,
-    #[case] expected: &str,
     #[case] assertion: AssertFn,
+    #[case] expected: &str,
+    builder: PushQueuesBuilder<u8>,
 ) where
     Setup: FnOnce(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>),
     AssertFn: FnOnce(&mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()>,
@@ -135,8 +153,11 @@ fn dlq_error_scenarios<Setup, AssertFn>(
         let (dlq_tx, dlq_rx) = mpsc::channel(1);
         let mut dlq_rx = Some(dlq_rx);
         setup(&dlq_tx, &mut dlq_rx);
-        let (mut queues, handle) = PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx))
-            .expect("queue creation failed");
+        let (mut queues, handle) = builder
+            .unlimited()
+            .dlq(Some(dlq_tx))
+            .build()
+            .expect("failed to build PushQueues");
 
         handle
             .push_high_priority(1u8)
@@ -151,14 +172,12 @@ fn dlq_error_scenarios<Setup, AssertFn>(
 
         assertion(&mut dlq_rx).await;
 
-        let mut found_error = false;
+        let mut found = false;
         while let Some(record) = logger.pop() {
-            if record.level() == log::Level::Error {
-                assert!(record.args().contains(expected));
-                found_error = true;
-                break;
+            if record.level() == log::Level::Warn && record.args().contains(expected) {
+                found = true;
             }
         }
-        assert!(found_error, "error log not found");
+        assert!(found, "expected DLQ warning log missing");
     });
 }

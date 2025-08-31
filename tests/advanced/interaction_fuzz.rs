@@ -15,6 +15,9 @@ use wireframe::{
     response::FrameStream,
 };
 
+#[path = "../support.rs"]
+mod support;
+
 #[derive(Debug, Clone)]
 enum Action {
     High(u8),
@@ -23,7 +26,12 @@ enum Action {
 }
 
 async fn run_actions(actions: &[Action]) -> Vec<u8> {
-    let (queues, handle) = PushQueues::bounded(16, 16);
+    let (queues, handle) = support::builder::<u8>()
+        .high_capacity(16)
+        .low_capacity(16)
+        .unlimited()
+        .build()
+        .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
 
     let mut stream: Option<FrameStream<u8, ()>> = None;

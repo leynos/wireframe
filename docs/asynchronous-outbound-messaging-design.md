@@ -16,7 +16,7 @@ any part of an application—a request handler, a background timer, a separate
 worker task—to push frames to a live connection at any time.
 
 Earlier releases spawned a short-lived worker per request. This approach made
-persistent state awkward and required extra synchronisation when multiple tasks
+persistent state awkward and required extra synchronization when multiple tasks
 needed to write to the same socket. The new design promotes each connection to
 a **stateful actor** that owns its context for the lifetime of the session.
 Actor state keeps sequencing rules and push queues local to one task,
@@ -60,7 +60,7 @@ metadata, and pending pushes—without cross-task sharing. Handlers now send
 commands back to the actor instead of writing directly to the socket,
 centralizing all output in one place.
 
-### 3.1 Prioritised Message Queues
+### 3.1 Prioritized Message Queues
 
 To handle different classes of outbound messages, each connection actor will
 manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
@@ -77,7 +77,7 @@ back-pressure mechanism. When a channel's buffer is full, any task attempting
 to push a new message will be asynchronously suspended until space becomes
 available.
 
-### 3.2 The Prioritised Write Loop
+### 3.2 The Prioritized Write Loop
 
 The connection actor's write logic will be implemented within a
 `tokio::select!` loop. Crucially, this loop will use the `biased` keyword to
@@ -155,7 +155,7 @@ under sustained high-priority load.
 
 <!-- markdownlint-disable MD033 -->
 
-The flow diagram below summarises the fairness logic.
+The flow diagram below summarizes the fairness logic.
 
 <description>The diagram shows how the actor yields to the low-priority queue
 after N high-priority frames.</description>
@@ -384,12 +384,20 @@ classDiagram
     class PushQueues~F~ {
         +high_priority_rx: mpsc::Receiver<F>
         +low_priority_rx: mpsc::Receiver<F>
-        +bounded(high_capacity: usize, low_capacity: usize): (PushQueues~F~, PushHandle~F~)
+        +builder(): PushQueuesBuilder~F~
         +recv(): Option<(PushPriority, F)>
+    }
+    class PushQueuesBuilder~F~ {
+        +high_capacity(cap: usize): PushQueuesBuilder~F~
+        +low_capacity(cap: usize): PushQueuesBuilder~F~
+        +rate(rate: Option<usize>): PushQueuesBuilder~F~
+        +dlq(sender: Option<mpsc::Sender<F>>): PushQueuesBuilder~F~
+        +build(): (PushQueues~F~, PushHandle~F~)
     }
 
     PushHandleInner <.. PushHandle~F~ : contains
-    PushQueues~F~ o-- PushHandle~F~ : bounded(high_capacity, low_capacity)
+    PushQueues~F~ o-- PushQueuesBuilder~F~ : builder()
+    PushQueuesBuilder~F~ o-- PushHandle~F~ : build()
     PushHandle --> PushPriority
     PushHandle --> PushPolicy
     PushHandle --> PushError
@@ -483,7 +491,7 @@ so pruning while collecting may contend more than the previous post-collection
 `remove_if` sweep. Maintenance tasks may instead invoke `prune()` to avoid this
 contention.
 
-The diagram below summarises the data structures and how they interact when
+The diagram below summarizes the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak
 references of `PushHandleInner<F>` so closed connections do not stay alive.
 
@@ -534,7 +542,7 @@ sequenceDiagram
 
 ### 4.3 Configuration via the `WireframeProtocol` Trait
 
-To provide a clean, organised, and extensible configuration API, all
+To provide a clean, organized, and extensible configuration API, all
 protocol-specific logic and callbacks will be encapsulated within a single
 `WireframeProtocol` trait. This is a significant ergonomic improvement over
 using a collection of individual closures.
@@ -733,7 +741,7 @@ sequenceDiagram
 This design is explicitly intended to work in concert with the other major
 features of the 1.0 release.
 
-- **Streaming Responses:** The prioritised write loop (Section 3.2) naturally
+- **Streaming Responses:** The prioritized write loop (Section 3.2) naturally
   handles the interleaving of pushed messages and streaming responses, ensuring
   that urgent pushes can interrupt a long-running data stream.
 

@@ -138,11 +138,11 @@ impl PacketParts {
     pub fn inherit_correlation(mut self, source: Option<u64>) -> Self {
         let (next, mismatched) = Self::select_correlation(self.correlation_id, source);
         if mismatched && let (Some(found), Some(expected)) = (self.correlation_id, next) {
-            tracing::warn!(
-                id = self.id,
+            log::warn!(
+                "mismatched correlation id in response: id={}, expected={}, found={}",
+                self.id,
                 expected,
-                found,
-                "mismatched correlation id in response",
+                found
             );
         }
         self.correlation_id = next;

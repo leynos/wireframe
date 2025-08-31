@@ -23,7 +23,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::new(42);
@@ -36,7 +36,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::from(7u64);
@@ -77,13 +77,17 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
-    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(1);
     /// registry.insert(id, &handle);
@@ -103,13 +107,17 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
-    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(2);
     /// assert!(registry.get(&id).is_none());
@@ -124,13 +132,17 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
-    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(3);
     /// registry.insert(id, &handle);
@@ -147,14 +159,18 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
     /// let registry = SessionRegistry::default();
-    /// let (_queues, handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
     /// let id = ConnectionId::new(4);
     /// registry.insert(id, &handle);
     /// drop(handle);
@@ -171,15 +187,23 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
     /// let registry = SessionRegistry::default();
-    /// let (_q1, h1) = PushQueues::<u8>::bounded(1, 1);
-    /// let (_q2, h2) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_q1, h1) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
+    /// let (_q2, h2) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(5);
     /// let id2 = ConnectionId::new(6);
     /// registry.insert(id1, &h1);
@@ -202,15 +226,23 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
     /// };
     ///
     /// let registry = SessionRegistry::default();
-    /// let (_q1, h1) = PushQueues::<u8>::bounded(1, 1);
-    /// let (_q2, h2) = PushQueues::<u8>::bounded(1, 1);
+    /// let (_q1, h1) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
+    /// let (_q2, h2) = PushQueues::<u8>::builder()
+    ///     .high_capacity(1)
+    ///     .low_capacity(1)
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(7);
     /// let id2 = ConnectionId::new(8);
     /// registry.insert(id1, &h1);

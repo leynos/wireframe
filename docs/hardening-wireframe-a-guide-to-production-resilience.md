@@ -253,11 +253,20 @@ token-bucket algorithm is ideal.
 use wireframe::push::{PushQueues, MAX_PUSH_RATE};
 
 // Configure a connection to allow at most MAX_PUSH_RATE pushes per second.
-let (queues, handle) = PushQueues::<Frame>::bounded_with_rate(8, 8, Some(MAX_PUSH_RATE))
+let (queues, handle) = PushQueues::<Frame>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .rate(Some(MAX_PUSH_RATE))
+    .build()
     .expect("rate within supported bounds");
 
-// Passing `None` disables rate limiting entirely:
-let (_unlimited, _handle) = PushQueues::<Frame>::bounded_no_rate_limit(8, 8);
+// Calling `unlimited` disables rate limiting entirely:
+let (_unlimited, _handle) = PushQueues::<Frame>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .unlimited()
+    .build()
+    .expect("failed to build unlimited queues");
 
 // Inside PushHandle::push()
 async fn push(&self, frame: Frame) -> Result<(), PushError> {
@@ -324,7 +333,7 @@ operation, rather than just abruptly closing the connection.
 
 When a stream concludes successfully, the connection actor calls the
 `stream_end_frame` hook to produce a terminator frame with no payload. This
-explicit marker lets clients recognise that the logical stream has ended and
+explicit marker lets clients recognize that the logical stream has ended and
 helps avoid lingering resources or stalled state machines. The terminator is
 only appended if the protocol supplies one (that is, the hook returns
 `Some(frame)`), and the frame passes through the `before_send` hook like any
@@ -349,7 +358,7 @@ match self.tx.try_send(frame) {
         if let Some(dlq_tx) = &self.dlq_tx {
             // Attempt to route the failed frame to the DLQ.
             if dlq_tx.try_send(failed_frame).is_err() {
-                tracing::error!("Push queue and DLQ are both full. Frame lost.");
+                tracing::warn!("Push queue and DLQ are both full. Frame lost.");
             }
         } else {
             // Default behaviour: drop the frame.
@@ -361,6 +370,11 @@ match self.tx.try_send(frame) {
 }
 
 ```
+
+By default the library logs each DLQ drop to maximise visibility during
+development and testing. Applications can tune verbosity using the push queue
+builder's `dlq_log_every_n` and `dlq_log_interval` settings to throttle
+warnings per handle in production.
 
 A separate part of the application is then responsible for consuming from the
 DLQ's receiver to inspect, log, and re-process these failed messages, ensuring
