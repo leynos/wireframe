@@ -15,12 +15,13 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{new_test_codec, run_app};
+use wireframe_testing::{TEST_MAX_FRAME, new_test_codec, run_app};
 
 mod common;
 use common::TestApp;
 
-const MAX_FRAME: usize = 16 * 1024 * 1024;
+// Larger cap used for oversized frame tests.
+const LARGE_FRAME: usize = 16 * 1024 * 1024;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestResp(u32);
@@ -59,7 +60,7 @@ async fn send_response_encodes_and_frames() {
         .await
         .expect("send_response failed");
 
-    let mut codec = new_test_codec(MAX_FRAME);
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)
@@ -76,7 +77,7 @@ async fn send_response_encodes_and_frames() {
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 #[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
-    let mut codec = new_test_codec(MAX_FRAME);
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
@@ -88,7 +89,7 @@ async fn length_prefixed_decode_requires_complete_header() {
 /// Confirms that the decoder leaves the incomplete body in the buffer until the full frame arrives.
 #[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
-    let mut codec = new_test_codec(MAX_FRAME);
+    let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     // LengthDelimitedCodec consumes the length prefix even if the frame
@@ -135,7 +136,7 @@ fn custom_length_roundtrip(
     if fmt.endianness() == Endianness::Little {
         builder.little_endian();
     }
-    builder.max_frame_length(MAX_FRAME);
+    builder.max_frame_length(TEST_MAX_FRAME);
     let mut codec = builder.new_codec();
     let mut buf = BytesMut::with_capacity(frame.len() + prefix.len());
     codec
@@ -211,7 +212,7 @@ async fn send_response_returns_encode_error() {
 async fn send_response_honours_buffer_capacity() {
     let app = TestApp::new()
         .expect("failed to create app")
-        .buffer_capacity(16 * 1024 * 1024);
+        .buffer_capacity(LARGE_FRAME);
 
     let payload = vec![0_u8; 9 * 1024 * 1024];
     let large = Large(payload.clone());
@@ -221,7 +222,7 @@ async fn send_response_honours_buffer_capacity() {
         .await
         .expect("send_response failed");
 
-    let mut codec = new_test_codec(16 * 1024 * 1024);
+    let mut codec = new_test_codec(LARGE_FRAME);
     let mut buf = BytesMut::from(&out[..]);
     let frame = codec
         .decode(&mut buf)
@@ -237,7 +238,7 @@ async fn send_response_honours_buffer_capacity() {
 async fn process_stream_honours_buffer_capacity() {
     let app = TestApp::new()
         .expect("failed to create app")
-        .buffer_capacity(16 * 1024 * 1024)
+        .buffer_capacity(LARGE_FRAME)
         .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))
         .expect("route registration failed");
 
@@ -245,7 +246,7 @@ async fn process_stream_honours_buffer_capacity() {
     let env = Envelope::new(1, None, payload.clone());
     let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
 
-    let mut codec = new_test_codec(16 * 1024 * 1024);
+    let mut codec = new_test_codec(LARGE_FRAME);
     let mut framed = BytesMut::with_capacity(bytes.len() + 4);
     codec
         .encode(bytes.into(), &mut framed)
