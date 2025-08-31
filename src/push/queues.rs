@@ -1,11 +1,10 @@
-//! Prioritised queues used for asynchronously pushing frames to a connection.
+//! Queue management used by [`PushHandle`] and [`PushQueues`].
 //!
-//! `PushQueues` maintain separate high- and low-priority channels so
-//! background tasks can send messages without blocking the request/response
-//! cycle. Producers interact with these queues through a cloneable
-//! [`PushHandle`]. Queued frames are delivered in FIFO order within each
-//! priority level. An optional rate limiter caps throughput at
-//! [`MAX_PUSH_RATE`] pushes per second.
+//! Provides the core implementation for prioritised queues delivering frames
+//! to a connection. Background tasks can send messages without blocking the
+//! request/response cycle. Frames maintain FIFO order within each priority
+//! level. An optional rate limiter caps throughput at [`MAX_PUSH_RATE`] pushes
+//! per second.
 
 use std::{
     sync::{Arc, Weak},
@@ -27,7 +26,7 @@ impl<T> FrameLike for T where T: Send + 'static {}
 // Default maximum pushes per second when no custom rate is specified.
 // This is an internal implementation detail and may change.
 const DEFAULT_PUSH_RATE: usize = 100;
-/// Highest supported rate for [`PushQueues::bounded_with_rate`].
+/// Highest supported rate for [`PushQueuesBuilder::rate`].
 pub const MAX_PUSH_RATE: usize = 10_000;
 
 // Compile-time guard: DEFAULT_PUSH_RATE must not exceed MAX_PUSH_RATE.
@@ -145,7 +144,12 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, Some(1));
+    ///     let (mut queues, handle) = PushQueues::builder()
+    ///         .high_capacity(1)
+    ///         .low_capacity(1)
+    ///         .rate(Some(1))
+    ///         .build()
+    ///         .unwrap();
     ///     handle.push_high_priority(42u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::High);
@@ -171,7 +175,12 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded_with_rate(1, 1, Some(1));
+    ///     let (mut queues, handle) = PushQueues::builder()
+    ///         .high_capacity(1)
+    ///         .low_capacity(1)
+    ///         .rate(Some(1))
+    ///         .build()
+    ///         .unwrap();
     ///     handle.push_low_priority(10u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::Low);
@@ -219,8 +228,13 @@ impl<F: FrameLike> PushHandle<F> {
     /// #[tokio::test]
     /// async fn example() {
     ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-    ///     let (mut queues, handle) =
-    ///         PushQueues::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
+    ///     let (mut queues, handle) = PushQueues::builder()
+    ///         .high_capacity(1)
+    ///         .low_capacity(1)
+    ///         .rate(None)
+    ///         .dlq(Some(dlq_tx))
+    ///         .build()
+    ///         .unwrap();
     ///     handle.push_high_priority(1u8).await.unwrap();
     ///
     ///     handle
@@ -276,126 +290,75 @@ pub struct PushQueues<F> {
     pub(crate) low_priority_rx: mpsc::Receiver<F>,
 }
 
+/// Builder for [`PushQueues`].
+///
+/// Allows configuration of queue capacities, rate limiting and an optional
+/// dead-letter queue before constructing [`PushQueues`] and its paired
+/// [`PushHandle`]. Defaults mirror the previous constructors: both queues have
+/// a capacity of one and pushes are limited to [`DEFAULT_PUSH_RATE`] per second
+/// unless overridden.
+pub struct PushQueuesBuilder<F> {
+    high_capacity: usize,
+    low_capacity: usize,
+    rate: Option<usize>,
+    dlq: Option<mpsc::Sender<F>>,
+}
+
+impl<F: FrameLike> PushQueuesBuilder<F> {
+    fn new() -> Self {
+        Self {
+            high_capacity: 1,
+            low_capacity: 1,
+            rate: Some(DEFAULT_PUSH_RATE),
+            dlq: None,
+        }
+    }
+
+    /// Set the capacity of the high-priority queue.
+    #[must_use]
+    pub fn high_capacity(mut self, capacity: usize) -> Self {
+        self.high_capacity = capacity;
+        self
+    }
+
+    /// Set the capacity of the low-priority queue.
+    #[must_use]
+    pub fn low_capacity(mut self, capacity: usize) -> Self {
+        self.low_capacity = capacity;
+        self
+    }
+
+    /// Set the global push rate limit in pushes per second.
+    #[must_use]
+    pub fn rate(mut self, rate: Option<usize>) -> Self {
+        self.rate = rate;
+        self
+    }
+
+    /// Provide a dead-letter queue for discarded frames.
+    #[must_use]
+    pub fn dlq(mut self, dlq: Option<mpsc::Sender<F>>) -> Self {
+        self.dlq = dlq;
+        self
+    }
+
+    /// Build the configured [`PushQueues`] and associated [`PushHandle`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or above
+    /// [`MAX_PUSH_RATE`].
+    pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
+        PushQueues::build_with_rate_dlq(self.high_capacity, self.low_capacity, self.rate, self.dlq)
+    }
+}
+
 impl<F: FrameLike> PushQueues<F> {
-    /// Create a new set of queues with the specified bounds for each priority
-    /// and return them along with a [`PushHandle`] for producers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use wireframe::push::{PushPriority, PushQueues};
-    ///
-    /// #[tokio::test]
-    /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::<u8>::bounded(1, 1);
-    ///     handle.push_high_priority(7u8).await.unwrap();
-    ///     let (priority, frame) = queues.recv().await.unwrap();
-    ///     assert_eq!(priority, PushPriority::High);
-    ///     assert_eq!(frame, 7);
-    /// }
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if an internal invariant is violated. This should never occur.
+    /// Start building a new set of push queues.
     #[must_use]
-    pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
-        Self::bounded_with_rate_dlq(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None)
-            .expect("DEFAULT_PUSH_RATE is always valid")
-    }
+    pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::new() }
 
-    /// Create queues with no rate limiting.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use wireframe::push::PushQueues;
-    ///
-    /// let (_queues, handle) = PushQueues::<u8>::bounded_no_rate_limit(1, 1);
-    /// let _ = handle;
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if an internal invariant is violated. This should never occur.
-    #[must_use]
-    pub fn bounded_no_rate_limit(
-        high_capacity: usize,
-        low_capacity: usize,
-    ) -> (Self, PushHandle<F>) {
-        // `bounded_with_rate_dlq` only fails when given an invalid rate. Passing
-        // `None` disables rate limiting entirely so the call is infallible. The
-        // debug assertion guards against future regressions.
-        let result = Self::bounded_with_rate_dlq(high_capacity, low_capacity, None, None);
-        debug_assert!(result.is_ok(), "bounded_no_rate_limit should not fail");
-        result.expect("bounded_no_rate_limit should not fail")
-    }
-
-    /// Create queues with a custom rate limit in pushes per second.
-    ///
-    /// The limiter enforces fairness by allowing at most `rate` pushes
-    /// per second across all producers for the returned [`PushHandle`].
-    /// Pass `None` to disable rate limiting entirely.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
-    /// than [`MAX_PUSH_RATE`].
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use wireframe::push::PushQueues;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let (mut queues, handle) = PushQueues::<u8>::bounded_with_rate(1, 1, Some(10)).unwrap();
-    ///     handle.push_low_priority(1u8).await.unwrap();
-    ///     let (_prio, frame) = queues.recv().await.unwrap();
-    ///     assert_eq!(frame, 1);
-    /// }
-    /// ```
-    pub fn bounded_with_rate(
-        high_capacity: usize,
-        low_capacity: usize,
-        rate: Option<usize>,
-    ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        Self::bounded_with_rate_dlq(high_capacity, low_capacity, rate, None)
-    }
-
-    /// Create queues with a custom rate limit and optional dead letter queue.
-    ///
-    /// Frames that would be dropped by [`try_push`](PushHandle::try_push) when
-    /// using [`PushPolicy::DropIfFull`] or [`PushPolicy::WarnAndDropIfFull`]
-    /// are routed to `dlq` if provided.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
-    /// than [`MAX_PUSH_RATE`].
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tokio::sync::mpsc;
-    /// use wireframe::push::{PushPolicy, PushPriority, PushQueues};
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
-    ///     let (mut queues, handle) =
-    ///         PushQueues::<u8>::bounded_with_rate_dlq(1, 1, None, Some(dlq_tx)).unwrap();
-    ///     handle.push_high_priority(1u8).await.unwrap();
-    ///     handle
-    ///         .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-    ///         .unwrap();
-    ///
-    ///     let (_, val) = queues.recv().await.unwrap();
-    ///     assert_eq!(val, 1);
-    ///     assert_eq!(dlq_rx.recv().await.unwrap(), 2);
-    /// }
-    /// ```
-    pub fn bounded_with_rate_dlq(
+    fn build_with_rate_dlq(
         high_capacity: usize,
         low_capacity: usize,
         rate: Option<usize>,
@@ -431,6 +394,76 @@ impl<F: FrameLike> PushQueues<F> {
         ))
     }
 
+    /// Create a new set of queues with the specified bounds for each priority
+    /// and return them along with a [`PushHandle`] for producers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal invariant is violated. This should never occur.
+    #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
+    #[must_use]
+    pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
+        Self::builder()
+            .high_capacity(high_capacity)
+            .low_capacity(low_capacity)
+            .build()
+            .expect("DEFAULT_PUSH_RATE is always valid")
+    }
+
+    /// Create queues with no rate limiting.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal invariant is violated. This should never occur.
+    #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
+    #[must_use]
+    pub fn bounded_no_rate_limit(
+        high_capacity: usize,
+        low_capacity: usize,
+    ) -> (Self, PushHandle<F>) {
+        Self::builder()
+            .high_capacity(high_capacity)
+            .low_capacity(low_capacity)
+            .rate(None)
+            .build()
+            .expect("bounded_no_rate_limit should not fail")
+    }
+
+    /// Create queues with a custom rate limit in pushes per second.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
+    /// than [`MAX_PUSH_RATE`].
+    #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
+    pub fn bounded_with_rate(
+        high_capacity: usize,
+        low_capacity: usize,
+        rate: Option<usize>,
+    ) -> Result<(Self, PushHandle<F>), PushConfigError> {
+        Self::builder()
+            .high_capacity(high_capacity)
+            .low_capacity(low_capacity)
+            .rate(rate)
+            .build()
+    }
+
+    /// Create queues with a custom rate limit and optional dead letter queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
+    /// than [`MAX_PUSH_RATE`].
+    #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
+    pub fn bounded_with_rate_dlq(
+        high_capacity: usize,
+        low_capacity: usize,
+        rate: Option<usize>,
+        dlq: Option<mpsc::Sender<F>>,
+    ) -> Result<(Self, PushHandle<F>), PushConfigError> {
+        Self::build_with_rate_dlq(high_capacity, low_capacity, rate, dlq)
+    }
+
     /// Receive the next frame, preferring high priority frames when available.
     ///
     /// Returns `None` when both queues are closed and empty.
@@ -442,7 +475,11 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// #[tokio::test]
     /// async fn example() {
-    ///     let (mut queues, handle) = PushQueues::bounded(1, 1);
+    ///     let (mut queues, handle) = PushQueues::builder()
+    ///         .high_capacity(1)
+    ///         .low_capacity(1)
+    ///         .build()
+    ///         .unwrap();
     ///     handle.push_high_priority(2u8).await.unwrap();
     ///     let (priority, frame) = queues.recv().await.unwrap();
     ///     assert_eq!(priority, PushPriority::High);
@@ -467,7 +504,7 @@ impl<F: FrameLike> PushQueues<F> {
     /// ```rust,no_run
     /// use wireframe::push::PushQueues;
     ///
-    /// let (mut queues, _handle) = PushQueues::<u8>::bounded(1, 1);
+    /// let (mut queues, _handle) = PushQueues::<u8>::builder().build().unwrap();
     /// queues.close();
     /// ```
     pub fn close(&mut self) {
