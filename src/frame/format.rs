@@ -104,3 +104,26 @@ impl LengthFormat {
 impl Default for LengthFormat {
     fn default() -> Self { Self::u32_be() }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(1)]
+    #[case(8)]
+    fn new_accepts_valid_width(#[case] bytes: usize) {
+        let fmt = LengthFormat::new(bytes, Endianness::Big);
+        assert_eq!(fmt.bytes(), bytes);
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(9)]
+    fn new_panics_on_invalid_width(#[case] bytes: usize) {
+        let res = std::panic::catch_unwind(|| LengthFormat::new(bytes, Endianness::Big));
+        assert!(res.is_err());
+    }
+}

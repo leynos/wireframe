@@ -7,7 +7,7 @@ use std::{io, sync::Arc};
 
 use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, duplex};
-use tokio_util::codec::{Encoder, LengthDelimitedCodec};
+use tokio_util::codec::Encoder;
 use wireframe::{app::Envelope, frame::FrameMetadata, message::Message, serializer::Serializer};
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
@@ -61,6 +61,7 @@ struct Ping;
 async fn main() -> io::Result<()> {
     let app = App::with_serializer(HeaderSerializer)
         .expect("failed to create app")
+        .buffer_capacity(MAX_FRAME)
         .route(
             1,
             Arc::new(|_env: &Envelope| {
@@ -80,6 +81,7 @@ async fn main() -> io::Result<()> {
         )
         .expect("failed to add pong route");
 
+    let mut codec = app.length_codec();
     let (mut client, server) = duplex(1024);
     let server_task = tokio::spawn(async move {
         app.handle_connection(server).await;
@@ -90,10 +92,6 @@ async fn main() -> io::Result<()> {
     frame.extend_from_slice(&1u16.to_be_bytes());
     frame.push(0);
     frame.extend_from_slice(&payload);
-
-    let mut codec = LengthDelimitedCodec::builder()
-        .max_frame_length(MAX_FRAME) // 64 KiB cap for the example
-        .new_codec();
     let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix
     codec
         .encode(frame.into(), &mut bytes)

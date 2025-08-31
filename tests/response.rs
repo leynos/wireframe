@@ -15,7 +15,13 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{TEST_MAX_FRAME, new_test_codec, run_app};
+use wireframe_testing::{
+    TEST_MAX_FRAME,
+    decode_frames,
+    decode_frames_with_max,
+    new_test_codec,
+    run_app,
+};
 
 mod common;
 use common::TestApp;
@@ -60,15 +66,9 @@ async fn send_response_encodes_and_frames() {
         .await
         .expect("send_response failed");
 
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    let (decoded, _) = TestResp::from_bytes(&frame).expect("deserialize failed");
+    let frames = decode_frames(out);
+    let (decoded, _) = TestResp::from_bytes(&frames[0]).expect("deserialize failed");
     assert_eq!(decoded, TestResp(7));
-    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
 /// Tests that decoding with an incomplete length prefix header returns `None` and does not consume
@@ -222,13 +222,8 @@ async fn send_response_honours_buffer_capacity() {
         .await
         .expect("send_response failed");
 
-    let mut codec = new_test_codec(LARGE_FRAME);
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    let (decoded, _) = Large::from_bytes(&frame).expect("deserialize failed");
+    let frames = decode_frames_with_max(out, LARGE_FRAME);
+    let (decoded, _) = Large::from_bytes(&frames[0]).expect("deserialize failed");
     assert_eq!(decoded.0.len(), payload.len());
 }
 
@@ -247,22 +242,18 @@ async fn process_stream_honours_buffer_capacity() {
     let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
 
     let mut codec = new_test_codec(LARGE_FRAME);
-    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
+    let mut encoded = BytesMut::with_capacity(bytes.len() + 4);
     codec
-        .encode(bytes.into(), &mut framed)
+        .encode(bytes.into(), &mut encoded)
         .expect("encode frame failed");
 
-    let out = run_app(app, vec![framed.to_vec()], Some(10 * 1024 * 1024))
+    let out = run_app(app, vec![encoded.to_vec()], Some(10 * 1024 * 1024))
         .await
         .expect("run_app failed");
 
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
+    let frames = decode_frames_with_max(out, LARGE_FRAME);
     let (resp_env, _) = BincodeSerializer
-        .deserialize::<Envelope>(&frame)
+        .deserialize::<Envelope>(&frames[0])
         .expect("deserialize failed");
     let resp_len = resp_env.into_parts().payload().len();
     assert_eq!(resp_len, payload.len());

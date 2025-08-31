@@ -24,6 +24,8 @@ pub mod logging;
 pub use helpers::{
     TEST_MAX_FRAME,
     TestSerializer,
+    decode_frames,
+    decode_frames_with_max,
     drive_with_bincode,
     drive_with_frame,
     drive_with_frame_mut,

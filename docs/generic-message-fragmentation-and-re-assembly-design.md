@@ -166,13 +166,7 @@ codec chain via the `WireframeApp` builder.
 WireframeServer::new(|| {
     let mut app = WireframeApp::new();
     app
-        .codec({
-            // Match the application buffer capacity to avoid default 8 MiB limits.
-            let cap = app.buffer_capacity();
-            LengthDelimitedCodec::builder()
-                .max_frame_length(cap)
-                .new_codec()
-        })
+        .codec(app.length_codec())
         .codec(FragmentAdapter::new(MySqlStrategy::new()))
         .route(/* ... */)
 })

@@ -9,14 +9,20 @@ use std::sync::{
 
 use bytes::BytesMut;
 use rstest::rstest;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::Encoder;
 use wireframe::{
     Serializer,
     app::{Packet, PacketParts},
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{TEST_MAX_FRAME, drive_with_bincode, drive_with_frames, new_test_codec};
+use wireframe_testing::{
+    TEST_MAX_FRAME,
+    decode_frames,
+    drive_with_bincode,
+    drive_with_frames,
+    new_test_codec,
+};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), TestEnvelope>;
 
@@ -82,15 +88,9 @@ async fn handler_receives_message_and_echoes_response() {
         .await
         .expect("drive_with_bincode failed");
 
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
+    let frames = decode_frames(out);
     let (resp_env, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frame)
+        .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");
     assert_eq!(resp_env.correlation_id, Some(99));
     let (echo, _) = Echo::from_bytes(&resp_env.payload).expect("decode echo failed");
@@ -116,15 +116,9 @@ async fn handler_echoes_with_none_correlation_id() {
     };
 
     let out = drive_with_bincode(app, env).await.expect("drive failed");
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("missing frame");
-    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
+    let frames = decode_frames(out);
     let (resp_env, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frame)
+        .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");
 
     assert_eq!(resp_env.correlation_id, None);
@@ -165,22 +159,13 @@ async fn multiple_frames_processed_in_sequence() {
         .await
         .expect("drive_with_frames failed");
 
-    let mut buf = BytesMut::from(&out[..]);
-    let first = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
+    let frames = decode_frames(out);
     let (env1, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&first)
+        .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");
     let (echo1, _) = Echo::from_bytes(&env1.payload).expect("decode echo failed");
-    let second = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    assert!(buf.is_empty(), "unexpected trailing bytes after two frames");
     let (env2, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&second)
+        .deserialize::<TestEnvelope>(&frames[1])
         .expect("deserialize failed");
     let (echo2, _) = Echo::from_bytes(&env2.payload).expect("decode echo failed");
     assert_eq!(env1.correlation_id, Some(1));
@@ -220,14 +205,9 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
     let out = drive_with_frames(app, vec![framed.to_vec()])
         .await
         .expect("drive failed");
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("missing");
-    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
+    let frames = decode_frames(out);
     let (resp, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frame)
+        .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");
 
     assert_eq!(resp.correlation_id, cid);

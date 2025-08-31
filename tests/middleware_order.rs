@@ -5,13 +5,13 @@
 use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::Encoder;
 use wireframe::{
     app::{Envelope, Handler},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{TEST_MAX_FRAME, new_test_codec};
+use wireframe_testing::{TEST_MAX_FRAME, decode_frames, new_test_codec};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -85,14 +85,9 @@ async fn middleware_applied_in_reverse_order() {
     client.read_to_end(&mut out).await.expect("read failed");
     handle.await.expect("join failed");
 
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    assert!(buf.is_empty(), "unexpected trailing bytes after frame");
+    let frames = decode_frames(out);
     let (resp, _) = serializer
-        .deserialize::<Envelope>(&frame)
+        .deserialize::<Envelope>(&frames[0])
         .expect("deserialize failed");
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();
