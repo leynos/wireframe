@@ -333,7 +333,7 @@ operation, rather than just abruptly closing the connection.
 
 When a stream concludes successfully, the connection actor calls the
 `stream_end_frame` hook to produce a terminator frame with no payload. This
-explicit marker lets clients recognise that the logical stream has ended and
+explicit marker lets clients recognize that the logical stream has ended and
 helps avoid lingering resources or stalled state machines. The terminator is
 only appended if the protocol supplies one (that is, the hook returns
 `Some(frame)`), and the frame passes through the `before_send` hook like any
@@ -358,7 +358,7 @@ match self.tx.try_send(frame) {
         if let Some(dlq_tx) = &self.dlq_tx {
             // Attempt to route the failed frame to the DLQ.
             if dlq_tx.try_send(failed_frame).is_err() {
-                tracing::error!("Push queue and DLQ are both full. Frame lost.");
+                tracing::warn!("Push queue and DLQ are both full. Frame lost.");
             }
         } else {
             // Default behaviour: drop the frame.
@@ -370,6 +370,8 @@ match self.tx.try_send(frame) {
 }
 
 ```
+
+This warning is throttled per handle so repeated losses do not flood logs.
 
 A separate part of the application is then responsible for consuming from the
 DLQ's receiver to inspect, log, and re-process these failed messages, ensuring

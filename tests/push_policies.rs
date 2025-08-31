@@ -5,11 +5,8 @@ mod support;
 use futures::future::BoxFuture;
 use rstest::{fixture, rstest};
 use serial_test::serial;
-use tokio::{
-    runtime::Runtime,
-    sync::mpsc,
-    time::{Duration, timeout},
-};
+use tokio::{runtime::Runtime, sync::mpsc};
+use futures::FutureExt;
 use wireframe::push::{PushPolicy, PushPriority, PushQueuesBuilder};
 use wireframe_testing::{LoggerHandle, logger};
 
@@ -65,9 +62,8 @@ fn push_policy_behaviour(
         let (_, val) = queues.recv().await.expect("recv failed");
         assert_eq!(val, 1);
         assert!(
-            timeout(Duration::from_millis(20), queues.recv())
-                .await
-                .is_err()
+            queues.recv().now_or_never().is_none(),
+            "queue should be empty"
         );
 
         let mut found_warning = false;

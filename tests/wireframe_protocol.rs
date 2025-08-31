@@ -77,9 +77,8 @@ async fn builder_produces_protocol_hooks(
         .expect("failed to create app")
         .with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
-    let (queues, handle) = queues;
+    let (_queues, handle) = queues;
     hooks.on_connection_setup(handle, &mut ConnectionContext);
-    drop(queues); // silence unused warnings
 
     let mut frame = vec![1u8];
     hooks.before_send(&mut frame, &mut ConnectionContext);

@@ -4,6 +4,7 @@
 
 mod support;
 
+use futures::FutureExt;
 use rstest::{fixture, rstest};
 use tokio::time::{self, Duration};
 use wireframe::push::{
@@ -163,16 +164,15 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
         PushPriority::Low => push_expect!(handle.push_low_priority(1u8)),
     }
 
-    let attempt = match priority {
-        PushPriority::High => {
-            time::timeout(Duration::from_millis(10), handle.push_high_priority(2u8)).await
-        }
-        PushPriority::Low => {
-            time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await
-        }
+    let mut fut = match priority {
+        PushPriority::High => handle.push_high_priority(2u8).boxed(),
+        PushPriority::Low => handle.push_low_priority(2u8).boxed(),
     };
-
-    assert!(attempt.is_err(), "second push should block");
+    tokio::task::yield_now().await; // register w/ scheduler
+    assert!(
+        fut.as_mut().now_or_never().is_none(),
+        "second push should be pending under rate limit"
+    );
 
     time::advance(Duration::from_secs(1)).await;
     match priority {
@@ -208,8 +208,12 @@ async fn rate_limiter_shared_across_priorities() {
     let (mut queues, handle) = queues();
     push_expect!(handle.push_high_priority(1u8));
 
-    let attempt = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
-    assert!(attempt.is_err(), "second push should block across queues");
+    let mut fut = handle.push_low_priority(2u8).boxed();
+    tokio::task::yield_now().await;
+    assert!(
+        fut.as_mut().now_or_never().is_none(),
+        "second push should be pending across queues"
+    );
 
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_low_priority(2u8));
@@ -255,10 +259,11 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
         push_expect!(handle.push_high_priority(i));
     }
 
-    let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
+    let mut fut = handle.push_high_priority(99).boxed();
+    tokio::task::yield_now().await;
     assert!(
-        res.is_err(),
-        "Push exceeding burst capacity should be rate limited"
+        fut.as_mut().now_or_never().is_none(),
+        "push exceeding burst capacity should be pending"
     );
 
     time::advance(Duration::from_secs(1)).await;
