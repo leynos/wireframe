@@ -149,11 +149,7 @@ impl<F: FrameLike> PushQueues<F> {
             limiter,
             dlq_tx: dlq,
             dlq_drops: AtomicUsize::new(0),
-            dlq_last_log: Mutex::new(
-                Instant::now()
-                    .checked_sub(dlq_log_interval)
-                    .unwrap_or_else(Instant::now),
-            ),
+            dlq_last_log: Mutex::new(Instant::now()),
             dlq_log_every_n,
             dlq_log_interval,
         };

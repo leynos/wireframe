@@ -18,7 +18,7 @@ async fn stream_frames_carry_request_correlation_id() {
     let (queues, handle) = PushQueues::<Envelope>::builder()
         .high_capacity(1)
         .low_capacity(1)
-        .rate(None)
+        .unlimited()
         .build()
         .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();

@@ -24,6 +24,7 @@ fn concurrent_push_delivery() {
             let (queues, handle) = PushQueues::<u8>::builder()
                 .high_capacity(1)
                 .low_capacity(1)
+                .unlimited()
                 .build()
                 .expect("failed to build PushQueues");
             let token = CancellationToken::new();

@@ -26,13 +26,13 @@ fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
 
 #[rstest]
 #[tokio::test]
-async fn emits_end_frame() {
+async fn emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) {
+    let (queues, handle) = queues;
+    // fixture injected above
     let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 1;
         yield 2;
     });
-
-    let (queues, handle) = queues();
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
     let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
@@ -45,7 +45,7 @@ async fn emits_end_frame() {
 
 #[rstest]
 #[tokio::test]
-async fn emits_no_end_frame_when_none() {
+async fn emits_no_end_frame_when_none(queues: (PushQueues<u8>, PushHandle<u8>)) {
     struct NoTerminator;
 
     impl WireframeProtocol for NoTerminator {
@@ -55,12 +55,13 @@ async fn emits_no_end_frame_when_none() {
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
+    let (queues, handle) = queues;
+    // fixture injected above
     let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 7;
         yield 8;
     });
 
-    let (queues, handle) = queues();
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
     let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);

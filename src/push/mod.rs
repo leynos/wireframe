@@ -11,6 +11,7 @@
 //! let (queues, handle) = PushQueues::<u8>::builder()
 //!     .high_capacity(8)
 //!     .low_capacity(8)
+//!     .unlimited() // disables rate limiting
 //!     .build()
 //!     .expect("failed to build PushQueues");
 //! # drop((queues, handle));

@@ -76,7 +76,7 @@ fn dropped_frame_goes_to_dlq(rt: Runtime, builder: PushQueuesBuilder<u8>) {
     rt.block_on(async {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
         let (mut queues, handle) = builder
-            .rate(None)
+            .unlimited()
             .dlq(Some(dlq_tx))
             .build()
             .expect("failed to build PushQueues");
@@ -149,7 +149,7 @@ fn dlq_error_scenarios<Setup, AssertFn>(
         let mut dlq_rx = Some(dlq_rx);
         setup(&dlq_tx, &mut dlq_rx);
         let (mut queues, handle) = builder
-            .rate(None)
+            .unlimited()
             .dlq(Some(dlq_tx))
             .build()
             .expect("failed to build PushQueues");

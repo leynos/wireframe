@@ -6,7 +6,7 @@ use super::MAX_PUSH_RATE;
 
 /// Errors that can occur when pushing a frame.
 #[non_exhaustive]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum PushError {
     /// The queue was at capacity and the policy was `ReturnErrorIfFull`.
     #[error("push queue full")]
@@ -18,12 +18,12 @@ pub enum PushError {
 
 /// Errors returned when creating push queues.
 #[non_exhaustive]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PushConfigError {
-    /// The provided rate was zero or exceeded [`MAX_PUSH_RATE`].
+    /// The provided rate was zero or exceeded [`crate::push::queues::MAX_PUSH_RATE`].
     #[error("invalid rate {0}; must be between 1 and {max}", max = MAX_PUSH_RATE)]
     InvalidRate(usize),
     /// The provided capacities were zero.
-    #[error("invalid capacities; high={high}, low={low}; each must be ≥ 1")]
+    #[error("invalid capacities; high={high}, low={low}; each must be >= 1")]
     InvalidCapacity { high: usize, low: usize },
 }

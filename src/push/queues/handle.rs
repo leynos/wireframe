@@ -154,7 +154,7 @@ impl<F: FrameLike> PushHandle<F> {
                     let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
                     let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
                     let now = Instant::now();
-                    if dropped.is_multiple_of(log_every_n)
+                    if (log_every_n != 0 && dropped.is_multiple_of(log_every_n))
                         || now.duration_since(*last) > log_interval
                     {
                         warn!(

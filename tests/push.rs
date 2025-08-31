@@ -93,7 +93,10 @@ fn builder_rejects_zero_capacity() {
         Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
     ));
 
-    let both = support::builder::<u8>().high_capacity(0).low_capacity(0).build();
+    let both = support::builder::<u8>()
+        .high_capacity(0)
+        .low_capacity(0)
+        .build();
     assert!(matches!(
         both,
         Err(PushConfigError::InvalidCapacity { high: 0, low: 0 })

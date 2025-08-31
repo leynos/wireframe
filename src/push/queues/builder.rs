@@ -124,8 +124,11 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     }
 
     /// Log dropped frames every `n` occurrences when the DLQ is full or closed.
+    /// A value of `0` disables count-based logging; interval-based logging
+    /// still applies.
     #[must_use]
     pub fn dlq_log_every_n(mut self, n: usize) -> Self {
+        // Treat 0 as “disabled by count”; interval-based logging remains.
         self.dlq_log_every_n = n;
         self
     }
@@ -140,7 +143,8 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// Build the configured [`PushQueues`] and associated [`PushHandle`].
     ///
     /// Validation of capacities and rate occurs only during the build step,
-    /// not when setting individual fields.
+    /// not when setting individual fields. A `dlq_log_every_n` of `0` disables
+    /// count-based logging; interval-based logging still applies.
     ///
     /// # Errors
     ///

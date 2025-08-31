@@ -260,11 +260,11 @@ let (queues, handle) = PushQueues::<Frame>::builder()
     .build()
     .expect("rate within supported bounds");
 
-// Passing `None` disables rate limiting entirely:
+// Calling `unlimited` disables rate limiting entirely:
 let (_unlimited, _handle) = PushQueues::<Frame>::builder()
     .high_capacity(8)
     .low_capacity(8)
-    .rate(None)
+    .unlimited()
     .build()
     .expect("failed to build unlimited queues");
 
