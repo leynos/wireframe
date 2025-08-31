@@ -18,10 +18,15 @@ fn rt() -> Runtime {
         .expect("failed to build test runtime")
 }
 
+#[expect(
+    unused_braces,
+    reason = "rustc false positive for single-line rstest fixtures"
+)]
+// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
+// lint for single-line rstest fixtures on stable.
+#[allow(unfulfilled_lint_expectations)]
 #[fixture]
-fn builder() -> PushQueuesBuilder<u8> {
-    support::builder::<u8>()
-}
+fn builder() -> PushQueuesBuilder<u8> { support::builder::<u8>() }
 
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]

@@ -1,4 +1,7 @@
 //! Tests for explicit end-of-stream signalling.
+
+mod support;
+
 use std::sync::Arc;
 
 use async_stream::try_stream;
@@ -17,9 +20,7 @@ use terminator::Terminator;
 
 #[fixture]
 fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
-    PushQueues::<u8>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
+    support::builder::<u8>()
         .build()
         .expect("failed to build PushQueues")
 }
