@@ -81,7 +81,6 @@ impl<F> PushQueueConfig<F> {
     /// Create a new configuration with default dead-letter queue logging
     /// cadence.
     #[must_use]
-    #[expect(dead_code, reason = "helper used by library consumers")]
     pub fn new(
         high_capacity: usize,
         low_capacity: usize,
@@ -241,14 +240,7 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        Self::build_with_config(PushQueueConfig {
-            high_capacity,
-            low_capacity,
-            rate,
-            dlq,
-            dlq_log_every_n: 100,
-            dlq_log_interval: Duration::from_secs(10),
-        })
+        Self::build_with_config(PushQueueConfig::new(high_capacity, low_capacity, rate, dlq))
     }
 
     /// Receive the next frame, preferring high priority frames when available.
