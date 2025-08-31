@@ -35,11 +35,22 @@ use super::{
 /// let (_queues, _handle) = PushQueues::<u8>::builder()
 ///     .high_capacity(8)
 ///     .low_capacity(8)
-///     .rate(Some(100)) // pass None to disable rate limiting
+///     .rate(Some(100))
 ///     .dlq(Some(dlq_tx)) // frames are dropped if no DLQ or DLQ is full
 ///     .build()
 ///     .expect("failed to build PushQueues");
 /// # }
+/// ```
+///
+/// Disable rate limiting with the `unlimited` convenience:
+///
+/// ```rust,no_run
+/// use wireframe::push::PushQueues;
+/// let (_queues, _handle) = PushQueues::<u8>::builder()
+///     .unlimited()
+///     .build()
+///     .expect("failed to build PushQueues");
+/// # drop((_queues, _handle));
 /// ```
 ///
 /// Builders can also be constructed directly:

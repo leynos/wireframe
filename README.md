@@ -154,12 +154,24 @@ let (dlq_tx, _dlq_rx) = mpsc::channel(8);
 let (_queues, _handle) = PushQueues::<u8>::builder()
     .high_capacity(8)
     .low_capacity(8)
-    .rate(Some(100)) // pass None to disable rate limiting
+    .rate(Some(100))
     .dlq(Some(dlq_tx)) // frames drop if the DLQ is absent or full
     .build()
     .expect("failed to build PushQueues");
 # drop((_queues, _handle));
 # }
+```
+
+Disable throttling with the `unlimited` convenience:
+
+```rust,no_run
+use wireframe::push::PushQueues;
+let (_queues, _handle) = PushQueues::<u8>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .unlimited()
+    .build()
+    .expect("failed to build PushQueues");
 ```
 
 ## Connection Lifecycle

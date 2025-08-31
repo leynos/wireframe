@@ -28,11 +28,13 @@ use common::unused_listener;
 mod terminator;
 use terminator::Terminator;
 
+#[path = "support.rs"]
+mod support;
+
 fn build_small_queues<T: Send + 'static>() -> (PushQueues<T>, wireframe::push::PushHandle<T>) {
-    PushQueues::<T>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .rate(None)
+    // Prefer the shared builder; use unlimited mode for clarity.
+    support::builder::<T>()
+        .unlimited()
         .build()
         .expect("failed to build PushQueues")
 }

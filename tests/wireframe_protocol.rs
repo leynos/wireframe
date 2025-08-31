@@ -25,18 +25,11 @@ use wireframe::{
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[fixture]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
 fn queues() -> (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>) {
     PushQueues::<Vec<u8>>::builder()
         .high_capacity(8)
         .low_capacity(8)
-        .rate(None)
+        .unlimited()
         .build()
         .expect("failed to build PushQueues")
 }

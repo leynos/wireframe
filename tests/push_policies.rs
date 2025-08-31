@@ -2,21 +2,14 @@
 
 mod support;
 
-use futures::future::BoxFuture;
+use futures::{FutureExt, future::BoxFuture};
 use rstest::{fixture, rstest};
 use serial_test::serial;
 use tokio::{runtime::Runtime, sync::mpsc};
-use futures::FutureExt;
 use wireframe::push::{PushPolicy, PushPriority, PushQueuesBuilder};
 use wireframe_testing::{LoggerHandle, logger};
 
 /// Builds a single-thread [`Runtime`] for async tests.
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-// allow(unfulfilled_lint_expectations): rustc may miss lint for single-line rstest fixtures.
-#[allow(unfulfilled_lint_expectations)]
 #[fixture]
 fn rt() -> Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -25,14 +18,10 @@ fn rt() -> Runtime {
         .expect("failed to build test runtime")
 }
 
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-// allow(unfulfilled_lint_expectations): rustc may miss lint for single-line rstest fixtures.
-#[allow(unfulfilled_lint_expectations)]
 #[fixture]
-fn builder() -> PushQueuesBuilder<u8> { support::builder() }
+fn builder() -> PushQueuesBuilder<u8> {
+    support::builder::<u8>()
+}
 
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]

@@ -6,19 +6,11 @@ use wireframe::{
 };
 
 #[fixture]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single-line rstest fixtures"
-)]
-#[allow(unfulfilled_lint_expectations)]
-fn registry() -> SessionRegistry<u8> { SessionRegistry::default() }
+fn registry() -> SessionRegistry<u8> {
+    SessionRegistry::default()
+}
 
 #[fixture]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single-line rstest fixtures"
-)]
-#[allow(unfulfilled_lint_expectations)]
 fn push_setup() -> (PushQueues<u8>, PushHandle<u8>) {
     PushQueues::<u8>::builder()
         .high_capacity(1)

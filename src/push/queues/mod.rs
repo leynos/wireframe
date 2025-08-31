@@ -12,6 +12,7 @@ use std::{
 };
 
 use leaky_bucket::RateLimiter;
+use static_assertions::const_assert;
 use tokio::sync::mpsc;
 
 mod builder;
@@ -38,7 +39,7 @@ const DEFAULT_PUSH_RATE: usize = 100;
 pub const MAX_PUSH_RATE: usize = 10_000;
 
 // Compile-time guard: DEFAULT_PUSH_RATE must not exceed MAX_PUSH_RATE.
-const _: () = assert!(DEFAULT_PUSH_RATE <= MAX_PUSH_RATE);
+const_assert!(DEFAULT_PUSH_RATE <= MAX_PUSH_RATE);
 
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

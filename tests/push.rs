@@ -20,7 +20,7 @@ use wireframe_testing::{push_expect, recv_expect};
 
 #[fixture]
 fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
-    support::builder()
+    support::builder::<u8>()
         .high_capacity(2)
         .low_capacity(2)
         .rate(Some(1))
@@ -30,7 +30,7 @@ fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
 
 #[fixture]
 fn small_queues() -> (PushQueues<u8>, PushHandle<u8>) {
-    support::builder()
+    support::builder::<u8>()
         .build()
         .expect("failed to build PushQueues")
 }
@@ -40,21 +40,21 @@ fn small_queues() -> (PushQueues<u8>, PushHandle<u8>) {
 #[case::zero(0)]
 #[case::too_high(MAX_PUSH_RATE + 1)]
 fn builder_rejects_invalid_rate(#[case] rate: usize) {
-    let result = support::builder().rate(Some(rate)).build();
+    let result = support::builder::<u8>().rate(Some(rate)).build();
     assert!(matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate));
 }
 
 /// Setting the rate to `None` disables throttling without error.
 #[test]
 fn builder_accepts_none_rate() {
-    let result = support::builder().rate(None).build();
+    let result = support::builder::<u8>().rate(None).build();
     assert!(result.is_ok(), "builder should accept None rate");
 }
 
 /// Builder accepts the maximum supported rate.
 #[test]
 fn builder_accepts_max_rate() {
-    let result = support::builder().rate(Some(MAX_PUSH_RATE)).build();
+    let result = support::builder::<u8>().rate(Some(MAX_PUSH_RATE)).build();
     assert!(result.is_ok(), "builder should accept MAX_PUSH_RATE");
 }
 
@@ -62,7 +62,7 @@ fn builder_accepts_max_rate() {
 #[tokio::test]
 async fn disables_throttling_allows_burst_pushes() {
     time::pause();
-    let (_queues, handle) = support::builder()
+    let (_queues, handle) = support::builder::<u8>()
         .high_capacity(20)
         .low_capacity(20)
         .unlimited()
@@ -81,19 +81,19 @@ async fn disables_throttling_allows_burst_pushes() {
 
 #[test]
 fn builder_rejects_zero_capacity() {
-    let hi = support::builder().high_capacity(0).build();
+    let hi = support::builder::<u8>().high_capacity(0).build();
     assert!(matches!(
         hi,
         Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
     ));
 
-    let lo = support::builder().low_capacity(0).build();
+    let lo = support::builder::<u8>().low_capacity(0).build();
     assert!(matches!(
         lo,
         Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
     ));
 
-    let both = support::builder().high_capacity(0).low_capacity(0).build();
+    let both = support::builder::<u8>().high_capacity(0).low_capacity(0).build();
     assert!(matches!(
         both,
         Err(PushConfigError::InvalidCapacity { high: 0, low: 0 })
@@ -230,7 +230,7 @@ async fn rate_limiter_shared_across_priorities() {
 #[tokio::test]
 async fn unlimited_queues_do_not_block() {
     time::pause();
-    let (mut queues, handle) = support::builder()
+    let (mut queues, handle) = support::builder::<u8>()
         .unlimited()
         .build()
         .expect("failed to build PushQueues");
@@ -248,7 +248,7 @@ async fn unlimited_queues_do_not_block() {
 #[tokio::test]
 async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
     time::pause();
-    let (mut queues, handle) = support::builder()
+    let (mut queues, handle) = support::builder::<u8>()
         .high_capacity(4)
         .low_capacity(4)
         .rate(Some(3))
