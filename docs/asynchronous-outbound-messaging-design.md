@@ -1,6 +1,6 @@
-# Comprehensive Design: Asynchronous Outbound Messaging
+# Comprehensive design: asynchronous outbound messaging
 
-## 1. Introduction & Philosophy
+## 1. Introduction & philosophy
 
 The initial versions of `wireframe` established a robust, strictly
 request-response communication model. While effective for many RPC-style
@@ -27,14 +27,14 @@ be synergistic with the planned streaming and fragmentation capabilities,
 creating a cohesive and powerful framework for a wide class of network
 protocols.
 
-### Implementation Status
+### Implementation status
 
 An initial connection actor with its biased write loop is implemented in
 `src/connection.rs`. The remaining sections explain the rationale behind this
 design and possible refinements. See
 [Section 3](#3-core-architecture-the-connection-actor) for details.
 
-## 2. Design Goals & Requirements
+## 2. Design goals & requirements
 
 The implementation must satisfy the following core requirements:
 
@@ -46,7 +46,7 @@ The implementation must satisfy the following core requirements:
 | G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
 | G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
 
-## 3. Core Architecture: The Connection Actor
+## 3. Core architecture: the connection actor
 
 The foundation of this design is the **actor-per-connection** model, where each
 network connection is managed by a dedicated, isolated asynchronous task. This
@@ -60,7 +60,7 @@ metadata, and pending pushes—without cross-task sharing. Handlers now send
 commands back to the actor instead of writing directly to the socket,
 centralizing all output in one place.
 
-### 3.1 Prioritized Message Queues
+### 3.1 Prioritized message queues
 
 To handle different classes of outbound messages, each connection actor will
 manage two distinct, bounded `tokio::mpsc` channels for pushed frames:
@@ -77,7 +77,7 @@ back-pressure mechanism. When a channel's buffer is full, any task attempting
 to push a new message will be asynchronously suspended until space becomes
 available.
 
-### 3.2 The Prioritized Write Loop
+### 3.2 The prioritized write loop
 
 The connection actor's write logic will be implemented within a
 `tokio::select!` loop. Crucially, this loop will use the `biased` keyword to
@@ -206,7 +206,7 @@ sequenceDiagram
     end
 ```
 
-### 3.3 Connection Actor Overview
+### 3.3 Connection actor overview
 
 ```mermaid
 classDiagram
@@ -277,7 +277,7 @@ returns `None`, it is set to `None` and `closed_sources` increments. When
 `closed_sources == total_sources` the loop exits. This consolidation clarifies
 progress through the actor lifecycle and reduces manual flag management.
 
-## 4. Public API Surface
+## 4. Public API surface
 
 The public API is designed for ergonomics, safety, and extensibility.
 
@@ -540,7 +540,7 @@ sequenceDiagram
     end
 ```
 
-### 4.3 Configuration via the `WireframeProtocol` Trait
+### 4.3 Configuration via the `WireframeProtocol` trait
 
 To provide a clean, organized, and extensible configuration API, all
 protocol-specific logic and callbacks will be encapsulated within a single
@@ -619,9 +619,9 @@ classDiagram
 point for per-connection data without breaking existing protocol
 implementations.
 
-## 5. Error Handling & Resilience
+## 5. Error handling & resilience
 
-### 5.1 `BrokenPipe` on Connection Loss
+### 5.1 `BrokenPipe` on connection loss
 
 The primary error condition for a `PushHandle` is the termination of its
 associated connection. When the connection actor terminates (due to a socket
@@ -630,7 +630,7 @@ internal `mpsc` channels will be dropped. Any subsequent attempt to use a
 `PushHandle` will fail with an error analogous to `io::ErrorKind::BrokenPipe`,
 clearly signalling to the producer task that the connection is gone.
 
-### 5.2 Optional Dead Letter Queue (DLQ) for Critical Messages
+### 5.2 Optional dead letter queue (DLQ) for critical messages
 
 For applications where dropping a message is unacceptable (e.g., critical
 notifications, audit events), the framework will support an optional Dead
@@ -736,7 +736,7 @@ sequenceDiagram
     end
 ```
 
-## 6. Synergy with Other 1.0 Features
+## 6. Synergy with other 1.0 features
 
 This design is explicitly intended to work in concert with the other major
 features of the 1.0 release.
@@ -764,9 +764,9 @@ let codec = LengthDelimitedCodec::builder()
 // let codec = FragmentAdapter::new(FragmentConfig::default()).wrap(codec);
 ```
 
-## 7. Use Cases
+## 7. Use cases
 
-### 7.1 Server-Initiated MySQL Packets
+### 7.1 Server-initiated MySQL packets
 
 MariaDB may spontaneously push packets while a client is idle. Two notable
 examples are an `OK` packet with session tracker data and a `LOCAL INFILE`
@@ -794,7 +794,7 @@ sequenceDiagram
     ConnectionActor->>Socket: write frame (when idle or after command completes)
 ```
 
-### 7.2 Heart-beat Pings (WebSocket)
+### 7.2 Heart-beat pings (WebSocket)
 
 A background timer can periodically send Ping frames to keep a WebSocket
 connection alive. `push_high_priority()` ensures these heart-beats are written
@@ -813,7 +813,7 @@ sequenceDiagram
     ConnectionActor->>Socket: write Ping frame (even during response stream)
 ```
 
-### 7.3 Broker-Side MQTT `PUBLISH`
+### 7.3 Broker-side MQTT `PUBLISH`
 
 An MQTT broker can deliver retained messages or fan-out new `PUBLISH` frames to
 all subscribed clients via their `PushHandle`s. The `try_push` method allows
@@ -834,7 +834,7 @@ sequenceDiagram
     end
 ```
 
-## 8. Measurable Objectives & Success Criteria
+## 8. Measurable objectives & success criteria
 
 | Category        | Objective                                                                                                           | Success Metric                                                                                                                                                                              |
 | --------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -844,3 +844,49 @@ sequenceDiagram
 | Resilience      | The SessionRegistry must not leak memory when connections are terminated.                                           | A long-running test that creates and destroys thousands of connections must show no corresponding growth in the SessionRegistry's size or the process's overall memory footprint.           |
 | Performance     | The overhead of the push mechanism should be minimal for connections that do not use it.                            | A benchmark of a simple request-response workload with the push feature enabled (but unused) should show < 2% performance degradation compared to a build without the feature.              |
 | Performance     | The latency for a high-priority push under no contention should be negligible.                                      | The time from push_high_priority().await returning to the frame being written to the socket buffer should be < 10µs.                                                                        |
+
+## 9. Deprecating message versions gracefully
+
+Describe a forward-compatible path for retiring message versions while
+maintaining service continuity, observability, and explicit timelines.
+
+- Advertise supported versions in handshake headers, and negotiate the highest
+  mutually supported version.
+- Map deprecated frames to the current internal model; avoid branching deep in
+  the codebase.
+- Emit structured telemetry for deprecated usage, with connection identifiers,
+  version, and feature flags.
+- Publish a removal schedule, and gate final removal with a kill-switch.
+
+```rust
+// Pseudocode: negotiate, adapt, and surface deprecation telemetry
+pub fn on_connection_setup(&self, handle: PushHandle<Frame>, ctx: &mut ConnectionContext) {
+    let their = ctx.peer_versions();            // e.g., [1, 2]
+    let ours  = [2, 3];                         // server supported
+    let agreed = negotiate(&their, &ours);      // pick 2
+    ctx.set_active_version(agreed);
+}
+
+pub fn before_send(&self, frame: &mut Frame, ctx: &mut ConnectionContext) {
+    match ctx.active_version() {
+        1 => adapt_to_v1(frame),                // down-map
+        2 | 3 => {}
+        _ => {}                                 // unreachable
+    }
+}
+
+pub fn on_command_end(&self, ctx: &mut ConnectionContext) {
+    if ctx.active_version() == 1 {
+        tracing::warn!(target: "deprecation",
+            version = 1, conn = %ctx.id(),
+            "deprecated message version in use");
+    }
+}
+```
+
+```plaintext
+Removal timeline
+1. Announce deprecation of v1 with telemetry and docs.
+2. After N releases, disable v1 by default; allow override flag `--allow-v1`.
+3. After M releases, remove v1; map any residual v1 frames to DLQ with reason.
+```
