@@ -208,6 +208,8 @@ sequenceDiagram
 
 ### 3.3 Connection actor overview
 
+Diagram: Class diagram of the connection actor and related types.
+
 ```mermaid
 classDiagram
     class ConnectionActor {
@@ -233,6 +235,8 @@ classDiagram
     ConnectionActor o-- PushHandle : exposes / queues frames
     SessionRegistry o-- PushHandle : provides
 ```
+
+Sequence diagram: Outbound frame flow from actor to socket.
 
 ```mermaid
 sequenceDiagram
@@ -345,12 +349,14 @@ async fn main() -> std::io::Result<()> {
           push.push_low_priority(b"stats".to_vec()).await.unwrap();
       });
 
-      while let Some(frame) = conn.next().await {
-          println!("{:?}", frame);
-      }
-      Ok(())
+  while let Some(frame) = conn.next().await {
+      println!("{:?}", frame);
   }
+  Ok(())
+}
 ```
+
+Class diagram: Push API types, policies, and errors.
 
 ```mermaid
 classDiagram
@@ -405,6 +411,8 @@ classDiagram
 
 The diagram uses `~F~` to represent the `<F>` generic parameter because Mermaid
 treats angle brackets as HTML.
+
+Flowchart: Routing of pushes through priority queues and policy outcomes.
 
 ```mermaid
 flowchart TD
@@ -523,6 +531,8 @@ classDiagram
     PushHandle~F~ ..> SessionRegistry~F~ : used in insert/get
 ```
 
+Sequence diagram: Background task acquires a handle and enqueues a frame.
+
 ```mermaid
 sequenceDiagram
     participant Task as Background Task
@@ -573,6 +583,8 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 // The application builder becomes clean and declarative.
 WireframeApp::new().with_protocol(MySqlProtocolImpl);
 ```
+
+Class diagram: WireframeProtocol, ProtocolHooks, and builder wiring.
 
 ```mermaid
 classDiagram
@@ -675,6 +687,8 @@ sequenceDiagram
 protocol implementation to serialize a domain-specific error frame before the
 current command is terminated.
 
+Class diagram: Typed protocol errors and propagation via hooks.
+
 ```mermaid
 classDiagram
     class WireframeProtocol {
@@ -717,6 +731,8 @@ classDiagram
     }
 ```
 
+Sequence diagram: Handling of protocol vs I/O errors in the actor.
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -751,7 +767,7 @@ features of the 1.0 release.
   the socket. The `PushHandle` and the application code that uses it remain
   completely unaware of fragmentation.
 
-```rust
+```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.
 use tokio_util::codec::LengthDelimitedCodec;
 const MAX_FRAME: usize = 64 * 1024;
@@ -794,7 +810,7 @@ sequenceDiagram
     ConnectionActor->>Socket: write frame (when idle or after command completes)
 ```
 
-### 7.2 Heart-beat pings (WebSocket)
+### 7.2 Heartbeat pings (WebSocket)
 
 A background timer can periodically send Ping frames to keep a WebSocket
 connection alive. `push_high_priority()` ensures these heart-beats are written
@@ -802,7 +818,7 @@ even while a large response stream is in progress.
 
 ```mermaid
 sequenceDiagram
-    participant Timer as Heart-beat Timer
+    participant Timer as Heartbeat Timer
     participant ConnectionActor
     participant Outbox
     participant Socket
@@ -858,7 +874,7 @@ maintaining service continuity, observability, and explicit timelines.
   version, and feature flags.
 - Publish a removal schedule, and gate final removal with a kill-switch.
 
-```rust
+```rust,ignore
 // Pseudocode: negotiate, adapt, and surface deprecation telemetry
 pub fn on_connection_setup(&self, handle: PushHandle<Frame>, ctx: &mut ConnectionContext) {
     let their = ctx.peer_versions();            // e.g., [1, 2]
