@@ -321,6 +321,33 @@ impl<F: FrameLike> PushHandle<F> {
     }
 ```
 
+The following sequence diagram illustrates the flow when a producer pushes a
+high-priority frame. It shows how the `PushHandle` coordinates rate limiting,
+queue availability, and an optional dead letter queue:
+
+```mermaid
+sequenceDiagram
+    participant Producer
+    participant PushHandle
+    participant RateLimiter
+    participant PushQueues
+    participant DLQ
+    Producer->>PushHandle: push_high_priority(frame)
+    PushHandle->>PushQueues: reserve queue slot
+    alt Rate limiting enabled
+        PushHandle->>RateLimiter: acquire token
+        RateLimiter-->>PushHandle: token granted
+    end
+    alt Queue full
+        PushHandle->>DLQ: try_send(frame)
+        alt DLQ full or absent
+            PushHandle->>PushHandle: log warning (throttled)
+        end
+    else Queue available
+        PushHandle->>PushQueues: send frame
+    end
+```
+
 The example below demonstrates pushing frames and returning a streamed
 response. The [`async-stream`](https://docs.rs/async-stream) crate is the
 canonical way to build dynamic `Response::Stream` values.
