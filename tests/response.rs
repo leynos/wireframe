@@ -243,8 +243,9 @@ async fn process_stream_honours_buffer_capacity() {
     let env = Envelope::new(1, None, payload.clone());
     let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
 
-    let mut codec = new_test_codec(LARGE_FRAME);
-    let mut encoded = BytesMut::with_capacity(bytes.len() + 4);
+    let mut codec = app.length_codec();
+    let header_len = LengthFormat::default().bytes();
+    let mut encoded = BytesMut::with_capacity(bytes.len() + header_len);
     codec
         .encode(bytes.into(), &mut encoded)
         .expect("encode frame failed");
