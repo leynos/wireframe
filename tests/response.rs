@@ -67,6 +67,7 @@ async fn send_response_encodes_and_frames() {
         .expect("send_response failed");
 
     let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (decoded, _) = TestResp::from_bytes(&frames[0]).expect("deserialize failed");
     assert_eq!(decoded, TestResp(7));
 }
@@ -223,6 +224,7 @@ async fn send_response_honours_buffer_capacity() {
         .expect("send_response failed");
 
     let frames = decode_frames_with_max(out, LARGE_FRAME);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (decoded, _) = Large::from_bytes(&frames[0]).expect("deserialize failed");
     assert_eq!(decoded.0.len(), payload.len());
 }
@@ -252,6 +254,7 @@ async fn process_stream_honours_buffer_capacity() {
         .expect("run_app failed");
 
     let frames = decode_frames_with_max(out, LARGE_FRAME);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp_env, _) = BincodeSerializer
         .deserialize::<Envelope>(&frames[0])
         .expect("deserialize failed");

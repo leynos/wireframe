@@ -89,6 +89,7 @@ async fn handler_receives_message_and_echoes_response() {
         .expect("drive_with_bincode failed");
 
     let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp_env, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");
@@ -117,6 +118,7 @@ async fn handler_echoes_with_none_correlation_id() {
 
     let out = drive_with_bincode(app, env).await.expect("drive failed");
     let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp_env, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");
@@ -160,6 +162,7 @@ async fn multiple_frames_processed_in_sequence() {
         .expect("drive_with_frames failed");
 
     let frames = decode_frames(out);
+    assert_eq!(frames.len(), 2, "expected two response frames");
     let (env1, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");
@@ -206,6 +209,7 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
         .await
         .expect("drive failed");
     let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp, _) = BincodeSerializer
         .deserialize::<TestEnvelope>(&frames[0])
         .expect("deserialize failed");

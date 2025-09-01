@@ -86,6 +86,7 @@ async fn middleware_applied_in_reverse_order() {
     handle.await.expect("join failed");
 
     let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp, _) = serializer
         .deserialize::<Envelope>(&frames[0])
         .expect("deserialize failed");

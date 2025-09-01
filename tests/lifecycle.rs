@@ -165,6 +165,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
     assert!(!out.is_empty());
 
     let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp, _) = BincodeSerializer
         .deserialize::<StateEnvelope>(&frames[0])
         .expect("deserialize failed");
