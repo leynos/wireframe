@@ -322,8 +322,13 @@ impl<F: FrameLike> PushHandle<F> {
 ```
 
 The following sequence diagram illustrates the flow when a producer pushes a
-high-priority frame. It shows how the `PushHandle` coordinates rate limiting,
-queue availability, and an optional dead letter queue:
+high-priority frame. It shows how the `PushHandle` coordinates rate-limiting,
+queue availability, and an optional dead-letter queue.
+
+<!-- markdownlint-disable MD033 -->
+<description>The diagram shows rate-limiting and dead-letter queue fallback
+when enqueueing a frame.</description>
+<!-- markdownlint-enable MD033 -->
 
 ```mermaid
 sequenceDiagram
@@ -333,18 +338,24 @@ sequenceDiagram
     participant PushQueues
     participant DLQ
     Producer->>PushHandle: push_high_priority(frame)
-    PushHandle->>PushQueues: reserve queue slot
-    alt Rate limiting enabled
+    alt Rate-limiting enabled
         PushHandle->>RateLimiter: acquire token
         RateLimiter-->>PushHandle: token granted
     end
+    PushHandle->>PushQueues: try_send(frame)
     alt Queue full
-        PushHandle->>DLQ: try_send(frame)
-        alt DLQ full or absent
-            PushHandle->>PushHandle: log warning (throttled)
+        alt DLQ configured
+            PushHandle->>DLQ: try_send(frame)
+            alt DLQ full
+                PushHandle->>PushHandle: log warning (throttled)
+            else DLQ accepted
+                DLQ-->>PushHandle: frame queued
+            end
+        else No DLQ
+            PushHandle->>PushHandle: log/drop per policy
         end
-    else Queue available
-        PushHandle->>PushQueues: send frame
+    else Enqueued
+        PushQueues-->>PushHandle: frame queued
     end
 ```
 
