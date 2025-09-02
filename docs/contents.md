@@ -61,3 +61,5 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   writing project documentation.
 - [Server configuration](server/configuration.md) Tuning accept loop backoff
   behaviour and builder options.
+- [Command line interface](cli.md) Overview of CLI usage and man page
+  generation.
