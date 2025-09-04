@@ -15,13 +15,7 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{
-    TEST_MAX_FRAME,
-    decode_frames,
-    decode_frames_with_max,
-    new_test_codec,
-    run_app,
-};
+use wireframe_testing::{decode_frames, decode_frames_with_max, run_app};
 
 mod common;
 use common::TestApp;
@@ -78,7 +72,8 @@ async fn send_response_encodes_and_frames() {
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 #[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
+    let app = TestApp::new().expect("failed to create app");
+    let mut codec = app.length_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
@@ -90,7 +85,8 @@ async fn length_prefixed_decode_requires_complete_header() {
 /// Confirms that the decoder leaves the incomplete body in the buffer until the full frame arrives.
 #[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
+    let app = TestApp::new().expect("failed to create app");
+    let mut codec = app.length_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     // LengthDelimitedCodec consumes the length prefix even if the frame
@@ -137,7 +133,6 @@ fn custom_length_roundtrip(
     if fmt.endianness() == Endianness::Little {
         builder.little_endian();
     }
-    builder.max_frame_length(TEST_MAX_FRAME);
     let mut codec = builder.new_codec();
     let mut buf = BytesMut::with_capacity(frame.len() + prefix.len());
     codec
