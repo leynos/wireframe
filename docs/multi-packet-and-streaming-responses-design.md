@@ -89,6 +89,9 @@ pub enum Response<F, E> {
     /// A potentially unbounded stream of frames for complex or dynamically generated responses.
     Stream(FrameStream<F, E>),
 
+    /// Frames produced via a channel for multi-packet replies.
+    MultiPacket(tokio::sync::mpsc::Receiver<F>),
+
     /// A response that sends no frames, indicating the request was handled
     /// but produced no output (e.g., after a server push).
     Empty,
@@ -98,6 +101,9 @@ pub enum Response<F, E> {
 pub type FrameStream<F, E> =
     Pin<Box<dyn Stream<Item = Result<F, WireframeError<E>>> + Send + 'static>>;
 ```
+
+MultiPacket uses a `tokio::sync::mpsc::Receiver` to deliver frames one-by-one,
+relying on channel back-pressure to pace senders.
 
 This design allows simple, single-frame handlers to remain unchanged
 (`Ok(my_frame.into())`) while providing powerful and efficient options for more

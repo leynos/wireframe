@@ -1,6 +1,6 @@
 //! Response and error types for handler outputs.
 //!
-//! `Response` lets handlers return single frames, multiple frames or a
+//! `Response` lets handlers return single frames, multiple frames, multi-packet channels or a
 //! stream of frames. `WireframeError` distinguishes transport errors from
 //! protocol errors when streaming.
 //!
@@ -32,6 +32,7 @@
 use std::pin::Pin;
 
 use futures::stream::Stream;
+use tokio::sync::mpsc;
 
 /// A type alias for a type-erased, dynamically dispatched stream of frames.
 ///
@@ -48,6 +49,8 @@ pub enum Response<F, E = ()> {
     Vec(Vec<F>),
     /// A potentially unbounded stream of frames.
     Stream(FrameStream<F, E>),
+    /// Frames delivered through a channel.
+    MultiPacket(mpsc::Receiver<F>),
     /// A response with no frames.
     Empty,
 }
@@ -58,6 +61,7 @@ impl<F: std::fmt::Debug, E> std::fmt::Debug for Response<F, E> {
             Response::Single(frame) => f.debug_tuple("Single").field(frame).finish(),
             Response::Vec(v) => f.debug_tuple("Vec").field(v).finish(),
             Response::Stream(_) => f.write_str("Stream(..)"),
+            Response::MultiPacket(_) => f.write_str("MultiPacket(..)"),
             Response::Empty => f.write_str("Empty"),
         }
     }
