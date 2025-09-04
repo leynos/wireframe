@@ -29,7 +29,7 @@ tokio-util = { version = "0.7.16", features = ["rt", "codec"] }
 futures = "0.3.31"
 async-trait = "0.1.89"
 bytes = "1.10.1"
-log = "0.4.27"
+log = "0.4.28"
 dashmap = "6.1.0"
 leaky-bucket = "1.1.2"
 tracing = { version = "0.1.41", features = ["log", "log-always"] }
