@@ -15,7 +15,7 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{decode_frames, decode_frames_with_max, run_app};
+use wireframe_testing::{decode_frames, decode_frames_with_max, encode_frame, run_app};
 
 mod common;
 use common::TestApp;
@@ -239,13 +239,8 @@ async fn process_stream_honours_buffer_capacity() {
     let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
 
     let mut codec = app.length_codec();
-    let header_len = LengthFormat::default().bytes();
-    let mut encoded = BytesMut::with_capacity(bytes.len() + header_len);
-    codec
-        .encode(bytes.into(), &mut encoded)
-        .expect("encode frame failed");
-
-    let out = run_app(app, vec![encoded.to_vec()], Some(10 * 1024 * 1024))
+    let frame = encode_frame(&mut codec, bytes);
+    let out = run_app(app, vec![frame], Some(10 * 1024 * 1024))
         .await
         .expect("run_app failed");
 

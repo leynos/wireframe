@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
-    frame::FrameMetadata,
+    frame::{FrameMetadata, LengthFormat},
     serializer::Serializer,
 };
 
@@ -413,6 +413,18 @@ where
 /// # Ok(())
 /// # }
 /// ```
+
+/// Encode bytes with a length-delimited `codec`, preallocating the prefix.
+///
+/// Panics if encoding fails.
+#[must_use]
+pub fn encode_frame(codec: &mut LengthDelimitedCodec, bytes: Vec<u8>) -> Vec<u8> {
+    let header_len = LengthFormat::default().bytes();
+    let mut buf = BytesMut::with_capacity(bytes.len() + header_len);
+    codec.encode(bytes.into(), &mut buf).expect("encode failed");
+    buf.to_vec()
+}
+
 pub async fn run_app<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,

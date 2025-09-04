@@ -3,16 +3,13 @@
 //! Verifies tags are applied in reverse to request and response bodies.
 
 use async_trait::async_trait;
-use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
-use tokio_util::codec::Encoder;
 use wireframe::{
     app::{Envelope, Handler},
-    frame::LengthFormat,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::decode_frames;
+use wireframe_testing::{decode_frames, encode_frame};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -71,14 +68,9 @@ async fn middleware_applied_in_reverse_order() {
     let env = Envelope::new(1, Some(7), vec![b'X']);
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).expect("serialization failed");
-    // Use a length-delimited codec for framing
     let mut codec = app.length_codec();
-    let header_len = LengthFormat::default().bytes();
-    let mut buf = BytesMut::with_capacity(bytes.len() + header_len);
-    codec
-        .encode(bytes.into(), &mut buf)
-        .expect("encoding failed");
-    client.write_all(&buf).await.expect("write failed");
+    let frame = encode_frame(&mut codec, bytes);
+    client.write_all(&frame).await.expect("write failed");
     client.shutdown().await.expect("shutdown failed");
 
     let handle = tokio::spawn(async move { app.handle_connection(server).await });
