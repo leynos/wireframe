@@ -807,11 +807,12 @@ features of the 1.0 release.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.
-use tokio_util::codec::LengthDelimitedCodec;
+use wireframe::app::WireframeApp;
 const MAX_FRAME: usize = 64 * 1024;
-let codec = LengthDelimitedCodec::builder()
-    .max_frame_length(MAX_FRAME) // 64 KiB cap to prevent OOM
-    .new_codec();
+let app = WireframeApp::new()
+    .expect("failed to create app")
+    .buffer_capacity(MAX_FRAME);
+let codec = app.length_codec();
 
 // Wrap the length-delimited frames with the fragmentation adapter.
 // Pseudocode pending actual adapter API naming:

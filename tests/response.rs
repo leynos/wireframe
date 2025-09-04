@@ -15,7 +15,7 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{TEST_MAX_FRAME, new_test_codec, run_app};
+use wireframe_testing::{decode_frames, decode_frames_with_max, encode_frame, run_app};
 
 mod common;
 use common::TestApp;
@@ -60,15 +60,10 @@ async fn send_response_encodes_and_frames() {
         .await
         .expect("send_response failed");
 
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    let (decoded, _) = TestResp::from_bytes(&frame).expect("deserialize failed");
+    let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
+    let (decoded, _) = TestResp::from_bytes(&frames[0]).expect("deserialize failed");
     assert_eq!(decoded, TestResp(7));
-    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
 /// Tests that decoding with an incomplete length prefix header returns `None` and does not consume
@@ -77,7 +72,8 @@ async fn send_response_encodes_and_frames() {
 /// This ensures that the decoder waits for the full header before attempting to decode a frame.
 #[tokio::test]
 async fn length_prefixed_decode_requires_complete_header() {
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
+    let app = TestApp::new().expect("failed to create app");
+    let mut codec = app.length_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     assert_eq!(buf.len(), 3); // nothing consumed
@@ -89,7 +85,8 @@ async fn length_prefixed_decode_requires_complete_header() {
 /// Confirms that the decoder leaves the incomplete body in the buffer until the full frame arrives.
 #[tokio::test]
 async fn length_prefixed_decode_requires_full_frame() {
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
+    let app = TestApp::new().expect("failed to create app");
+    let mut codec = app.length_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
     assert!(codec.decode(&mut buf).expect("decode failed").is_none());
     // LengthDelimitedCodec consumes the length prefix even if the frame
@@ -136,7 +133,6 @@ fn custom_length_roundtrip(
     if fmt.endianness() == Endianness::Little {
         builder.little_endian();
     }
-    builder.max_frame_length(TEST_MAX_FRAME);
     let mut codec = builder.new_codec();
     let mut buf = BytesMut::with_capacity(frame.len() + prefix.len());
     codec
@@ -222,13 +218,9 @@ async fn send_response_honours_buffer_capacity() {
         .await
         .expect("send_response failed");
 
-    let mut codec = new_test_codec(LARGE_FRAME);
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    let (decoded, _) = Large::from_bytes(&frame).expect("deserialize failed");
+    let frames = decode_frames_with_max(out, LARGE_FRAME);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
+    let (decoded, _) = Large::from_bytes(&frames[0]).expect("deserialize failed");
     assert_eq!(decoded.0.len(), payload.len());
 }
 
@@ -246,23 +238,16 @@ async fn process_stream_honours_buffer_capacity() {
     let env = Envelope::new(1, None, payload.clone());
     let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
 
-    let mut codec = new_test_codec(LARGE_FRAME);
-    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
-    codec
-        .encode(bytes.into(), &mut framed)
-        .expect("encode frame failed");
-
-    let out = run_app(app, vec![framed.to_vec()], Some(10 * 1024 * 1024))
+    let mut codec = app.length_codec();
+    let frame = encode_frame(&mut codec, bytes);
+    let out = run_app(app, vec![frame], Some(10 * 1024 * 1024))
         .await
         .expect("run_app failed");
 
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
+    let frames = decode_frames_with_max(out, LARGE_FRAME);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp_env, _) = BincodeSerializer
-        .deserialize::<Envelope>(&frame)
+        .deserialize::<Envelope>(&frames[0])
         .expect("deserialize failed");
     let resp_len = resp_env.into_parts().payload().len();
     assert_eq!(resp_len, payload.len());

@@ -40,7 +40,8 @@ where
 {
     /// Construct a length-delimited codec capped by the application's buffer
     /// capacity.
-    fn new_length_codec(&self) -> LengthDelimitedCodec {
+    #[must_use]
+    pub fn length_codec(&self) -> LengthDelimitedCodec {
         LengthDelimitedCodec::builder()
             .max_frame_length(self.buffer_capacity)
             .new_codec()
@@ -64,7 +65,7 @@ where
             .serializer
             .serialize(msg)
             .map_err(SendError::Serialize)?;
-        let mut codec = self.new_length_codec();
+        let mut codec = self.length_codec();
         let mut framed = BytesMut::with_capacity(bytes.len() + 4);
         codec
             .encode(bytes.into(), &mut framed)
@@ -170,7 +171,7 @@ where
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
-        let codec = self.new_length_codec();
+        let codec = self.length_codec();
         let mut framed = Framed::new(stream, codec);
         framed.read_buffer_mut().reserve(self.buffer_capacity);
         let mut deser_failures = 0u32;

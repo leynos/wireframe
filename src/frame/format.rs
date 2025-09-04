@@ -104,3 +104,69 @@ impl LengthFormat {
 impl Default for LengthFormat {
     fn default() -> Self { Self::u32_be() }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    fn new_accepts_valid_width(#[case] bytes: usize) {
+        let fmt = LengthFormat::new(bytes, Endianness::Big);
+        assert_eq!(fmt.bytes(), bytes);
+        assert_eq!(fmt.endianness(), Endianness::Big);
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(9)]
+    fn new_panics_on_invalid_width(#[case] bytes: usize) {
+        let res = std::panic::catch_unwind(|| LengthFormat::new(bytes, Endianness::Big));
+        let err = res.expect_err("expected panic");
+        let msg = err
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| err.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or_default();
+        assert!(
+            msg.contains("invalid length-prefix width"),
+            "unexpected panic message: {msg}"
+        );
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(8)]
+    fn try_new_accepts_valid_width(#[case] bytes: usize) {
+        let fmt =
+            LengthFormat::try_new(bytes, Endianness::Little).expect("valid width must succeed");
+        assert_eq!(fmt.bytes(), bytes);
+        assert_eq!(fmt.endianness(), Endianness::Little);
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(9)]
+    fn try_new_rejects_invalid_width(#[case] bytes: usize) {
+        let err =
+            LengthFormat::try_new(bytes, Endianness::Big).expect_err("invalid width must error");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(err.to_string(), "invalid length-prefix width");
+    }
+
+    #[test]
+    fn default_is_u32_be() {
+        let d = LengthFormat::default();
+        assert_eq!(d.bytes(), 4);
+        assert_eq!(d.endianness(), Endianness::Big);
+    }
+}

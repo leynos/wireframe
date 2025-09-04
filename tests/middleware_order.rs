@@ -3,15 +3,13 @@
 //! Verifies tags are applied in reverse to request and response bodies.
 
 use async_trait::async_trait;
-use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
-use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
     app::{Envelope, Handler},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{TEST_MAX_FRAME, new_test_codec};
+use wireframe_testing::{decode_frames, encode_frame};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -70,13 +68,9 @@ async fn middleware_applied_in_reverse_order() {
     let env = Envelope::new(1, Some(7), vec![b'X']);
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env).expect("serialization failed");
-    // Use a length-delimited codec for framing
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
-    let mut buf = BytesMut::with_capacity(bytes.len() + 4);
-    codec
-        .encode(bytes.into(), &mut buf)
-        .expect("encoding failed");
-    client.write_all(&buf).await.expect("write failed");
+    let mut codec = app.length_codec();
+    let frame = encode_frame(&mut codec, bytes);
+    client.write_all(&frame).await.expect("write failed");
     client.shutdown().await.expect("shutdown failed");
 
     let handle = tokio::spawn(async move { app.handle_connection(server).await });
@@ -85,14 +79,10 @@ async fn middleware_applied_in_reverse_order() {
     client.read_to_end(&mut out).await.expect("read failed");
     handle.await.expect("join failed");
 
-    let mut buf = BytesMut::from(&out[..]);
-    let frame = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    assert!(buf.is_empty(), "unexpected trailing bytes after frame");
+    let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp, _) = serializer
-        .deserialize::<Envelope>(&frame)
+        .deserialize::<Envelope>(&frames[0])
         .expect("deserialize failed");
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();

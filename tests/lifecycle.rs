@@ -12,12 +12,18 @@ use std::{
 };
 
 use bytes::BytesMut;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::Encoder;
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{TEST_MAX_FRAME, new_test_codec, run_app, run_with_duplex_server};
+use wireframe_testing::{
+    TEST_MAX_FRAME,
+    decode_frames,
+    new_test_codec,
+    run_app,
+    run_with_duplex_server,
+};
 
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -158,14 +164,10 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() {
         .expect("app run failed");
     assert!(!out.is_empty());
 
-    let mut buf = BytesMut::from(&out[..]);
-    let decoded = codec
-        .decode(&mut buf)
-        .expect("decode failed")
-        .expect("frame missing");
-    assert!(buf.is_empty(), "unexpected trailing bytes after decode");
+    let frames = decode_frames(out);
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let (resp, _) = BincodeSerializer
-        .deserialize::<StateEnvelope>(&decoded)
+        .deserialize::<StateEnvelope>(&frames[0])
         .expect("deserialize failed");
     assert_eq!(resp.correlation_id, Some(0));
 
