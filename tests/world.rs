@@ -149,11 +149,6 @@ impl CorrelationWorld {
     ///
     /// # Panics
     /// Panics if the actor fails to run successfully.
-    /// Send messages through a multi-packet response and record them.
-    ///
-    /// # Panics
-    ///
-    /// Panics if sending to the channel fails.
     pub async fn process(&mut self) {
         let cid = self.cid;
         let stream: FrameStream<Envelope> = Box::pin(try_stream! {
@@ -166,16 +161,10 @@ impl CorrelationWorld {
         actor.run(&mut self.frames).await.expect("actor run failed");
     }
 
-    /// Verify that all received frames carry the expected correlation id.
+    /// Verify that all received frames carry the expected correlation ID.
     ///
     /// # Panics
-    /// Panics if any frame has a `correlation_id` that does not match the
-    /// expected value.
-    /// Verify messages were received in order.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the messages are not in the expected order.
+    /// Panics if any frame has a `correlation_id` that does not match `self.cid`.
     pub fn verify(&self) {
         assert!(
             self.frames
@@ -197,11 +186,6 @@ impl StreamEndWorld {
     ///
     /// # Panics
     /// Panics if the actor fails to run successfully.
-    /// Send messages through a multi-packet response and record them.
-    ///
-    /// # Panics
-    ///
-    /// Panics if sending to the channel fails.
     pub async fn process(&mut self) {
         let stream: FrameStream<u8> = Box::pin(try_stream! {
             yield 1u8;
@@ -233,20 +217,42 @@ impl MultiPacketWorld {
     /// Send messages through a multi-packet response and record them.
     ///
     /// # Panics
-    ///
     /// Panics if sending to the channel fails.
     pub async fn process(&mut self) {
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
         tx.send(1u8).await.expect("send");
         tx.send(2u8).await.expect("send");
         tx.send(3u8).await.expect("send");
         drop(tx);
-        let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(rx);
-        if let wireframe::Response::MultiPacket(mut rx) = resp {
-            while let Some(msg) = rx.recv().await {
+        let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
+        if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
+            while let Some(msg) = mp_rx.recv().await {
                 self.messages.push(msg);
             }
         }
+    }
+
+    /// Send no messages through the channel and record them.
+    ///
+    /// # Panics
+    /// Panics if sending to the channel fails.
+    pub async fn process_empty(&mut self) {
+        let (_tx, ch_rx) = tokio::sync::mpsc::channel(4);
+        drop(_tx);
+        let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
+        if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
+            while let Some(msg) = mp_rx.recv().await {
+                self.messages.push(msg);
+            }
+        }
+    }
+
+    /// Verify that no messages were received.
+    ///
+    /// # Panics
+    /// Panics if any messages are present.
+    pub fn verify_empty(&self) {
+        assert!(self.messages.is_empty());
     }
 
     /// Verify messages were received in order.
