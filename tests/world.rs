@@ -214,6 +214,14 @@ pub struct MultiPacketWorld {
 }
 
 impl MultiPacketWorld {
+    async fn drain(&mut self, resp: wireframe::Response<u8, ()>) {
+        if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
+            while let Some(msg) = mp_rx.recv().await {
+                self.messages.push(msg);
+            }
+        }
+    }
+
     /// Send messages through a multi-packet response and record them.
     ///
     /// # Panics
@@ -226,27 +234,19 @@ impl MultiPacketWorld {
         tx.send(3u8).await.expect("send");
         drop(tx);
         let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
-        if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
-            while let Some(msg) = mp_rx.recv().await {
-                self.messages.push(msg);
-            }
-        }
+        self.drain(resp).await;
     }
 
     /// Record zero messages from a closed channel.
     ///
     /// # Panics
-    /// Panics only if channel construction fails (it does not).
+    /// Does not panic.
     pub async fn process_empty(&mut self) {
         self.messages.clear();
         let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
         drop(tx);
         let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
-        if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
-            while let Some(msg) = mp_rx.recv().await {
-                self.messages.push(msg);
-            }
-        }
+        self.drain(resp).await;
     }
 
     /// Verify that no messages were received.

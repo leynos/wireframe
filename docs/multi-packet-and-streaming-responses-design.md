@@ -103,7 +103,8 @@ pub type FrameStream<F, E> =
 ```
 
 MultiPacket uses a `tokio::sync::mpsc::Receiver` to deliver frames one-by-one,
-relying on channel back-pressure to pace senders.
+relying on channel back-pressure to pace senders. This intentionally couples
+wireframe to the Tokio runtime; runtime agnosticism is not currently a goal.
 
 This design allows simple, single-frame handlers to remain unchanged
 (`Ok(my_frame.into())`) while providing powerful and efficient options for more
