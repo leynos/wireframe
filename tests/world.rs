@@ -223,32 +223,32 @@ impl MultiPacketWorld {
         }
     }
 
-    /// Send messages through a multi-packet response and record them.
+    /// Helper method to process messages through a multi-packet response.
     ///
     /// # Panics
     /// Panics if sending to the channel fails.
-    pub async fn process(&mut self) {
+    async fn process_messages(&mut self, messages: &[u8]) {
         self.messages.clear();
         let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
-        tx.send(1u8).await.expect("send");
-        tx.send(2u8).await.expect("send");
-        tx.send(3u8).await.expect("send");
+        for &msg in messages {
+            tx.send(msg).await.expect("send");
+        }
         drop(tx);
         let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
         self.drain(resp).await;
     }
 
+    /// Send messages through a multi-packet response and record them.
+    ///
+    /// # Panics
+    /// Panics if sending to the channel fails.
+    pub async fn process(&mut self) { self.process_messages(&[1, 2, 3]).await; }
+
     /// Record zero messages from a closed channel.
     ///
     /// # Panics
     /// Does not panic.
-    pub async fn process_empty(&mut self) {
-        self.messages.clear();
-        let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
-        drop(tx);
-        let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
-        self.drain(resp).await;
-    }
+    pub async fn process_empty(&mut self) { self.process_messages(&[]).await; }
 
     /// Verify that no messages were received.
     ///
