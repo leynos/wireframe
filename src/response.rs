@@ -58,7 +58,8 @@ pub enum Response<F, E = ()> {
     /// returns `None`, signalling the channel has closed and no more frames will
     /// be sent. Frames are yielded in send order.
     /// Back-pressure follows the channel's capacity: senders await when it is
-    /// full. The stream ends once all senders are dropped and `recv` returns
+    /// full. Multiple senders may be cloned from the original `Sender`.
+    /// The stream ends once all senders are dropped and `recv` returns
     /// `None`.
     ///
     /// # Resource management
@@ -66,25 +67,26 @@ pub enum Response<F, E = ()> {
     /// To avoid resource leaks or deadlocks:
     /// - Drop the sender once all frames are sent.
     /// - Poll the receiver to completion, consuming all frames.
+    /// - Drop the receiver to cancel outstanding sends; subsequent sends fail.
     /// - If the sender is dropped early, the receiver yields `None` and no further frames will
     ///   arrive.
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use tokio::sync::mpsc;
     /// use wireframe::Response;
     ///
-    /// # tokio_test::block_on(async {
-    /// let (tx, rx) = mpsc::channel(1);
-    /// tx.send(1u8).await.expect("send");
-    /// drop(tx);
-    /// if let Response::MultiPacket(mut rx) = Response::MultiPacket(rx) {
-    ///     while let Some(f) = rx.recv().await {
-    ///         assert_eq!(f, 1);
+    /// async fn demo() {
+    ///     let (tx, rx) = mpsc::channel(1);
+    ///     tx.send(1u8).await.expect("send");
+    ///     drop(tx); // close sender
+    ///     if let Response::MultiPacket(mut rx) = Response::MultiPacket(rx) {
+    ///         while let Some(f) = rx.recv().await {
+    ///             assert_eq!(f, 1);
+    ///         }
     ///     }
     /// }
-    /// # });
     /// ```
     MultiPacket(mpsc::Receiver<F>),
     /// A response with no frames.

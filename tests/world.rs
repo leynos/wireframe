@@ -1,7 +1,8 @@
-//! Test world state for Cucumber panic resilience tests.
-//!
-//! Provides shared state management for behavioural tests verifying
-//! server resilience against connection task panics.
+//! Test worlds for Cucumber suites:
+//! - Panic resilience during connection setup
+//! - Correlation ID propagation across frames
+//! - End-of-stream signalling
+//! - Channel-backed multi-packet responses (ordered delivery)
 
 use std::{net::SocketAddr, sync::Arc};
 
