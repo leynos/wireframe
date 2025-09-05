@@ -27,8 +27,8 @@ async fn multi_packet_yields_messages() {
 /// Yields no messages when the channel is immediately closed.
 #[tokio::test]
 async fn multi_packet_empty_channel() {
-    let (_tx, rx) = mpsc::channel(4);
-    drop(_tx);
+    let (tx, rx) = mpsc::channel(4);
+    drop(tx);
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
     let mut received = Vec::new();
     if let Response::MultiPacket(mut rx) = resp {

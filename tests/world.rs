@@ -237,8 +237,8 @@ impl MultiPacketWorld {
     /// # Panics
     /// Panics if sending to the channel fails.
     pub async fn process_empty(&mut self) {
-        let (_tx, ch_rx) = tokio::sync::mpsc::channel(4);
-        drop(_tx);
+        let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
+        drop(tx);
         let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
         if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
             while let Some(msg) = mp_rx.recv().await {
