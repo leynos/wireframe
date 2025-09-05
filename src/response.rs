@@ -113,6 +113,42 @@ impl<F, E> From<Vec<F>> for Response<F, E> {
     fn from(v: Vec<F>) -> Self { Response::Vec(v) }
 }
 
+impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
+    /// Convert this response into a stream of frames.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use futures::StreamExt;
+    /// use wireframe::Response;
+    ///
+    /// # async fn demo() {
+    /// let (tx, rx) = tokio::sync::mpsc::channel(1);
+    /// tx.send(1u8).await.expect("send");
+    /// drop(tx);
+    /// let resp: Response<u8, ()> = Response::MultiPacket(rx);
+    /// let frames: Vec<u8> = resp
+    ///     .into_stream()
+    ///     .map(|r| r.expect("stream error"))
+    ///     .collect()
+    ///     .await;
+    /// assert_eq!(frames, vec![1]);
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn into_stream(self) -> FrameStream<F, E> {
+        match self {
+            Response::Single(frame) => Box::pin(futures::stream::once(async move { Ok(frame) })),
+            Response::Vec(frames) => Box::pin(futures::stream::iter(frames.into_iter().map(Ok))),
+            Response::Stream(stream) => stream,
+            Response::MultiPacket(rx) => Box::pin(futures::stream::unfold(rx, |mut rx| async {
+                rx.recv().await.map(|f| (Ok(f), rx))
+            })),
+            Response::Empty => Box::pin(futures::stream::empty()),
+        }
+    }
+}
+
 /// A generic error type for wireframe operations.
 ///
 /// # Examples
