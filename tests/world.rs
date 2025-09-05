@@ -219,6 +219,7 @@ impl MultiPacketWorld {
     /// # Panics
     /// Panics if sending to the channel fails.
     pub async fn process(&mut self) {
+        self.messages.clear();
         let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
         tx.send(1u8).await.expect("send");
         tx.send(2u8).await.expect("send");
@@ -232,11 +233,12 @@ impl MultiPacketWorld {
         }
     }
 
-    /// Send no messages through the channel and record them.
+    /// Record zero messages from a closed channel.
     ///
     /// # Panics
-    /// Panics if sending to the channel fails.
+    /// Panics only if channel construction fails (it does not).
     pub async fn process_empty(&mut self) {
+        self.messages.clear();
         let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
         drop(tx);
         let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
