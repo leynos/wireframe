@@ -194,7 +194,7 @@ stream.
 
 - [ ] **Core Library Implementation:**
 
-  - [ ] Introduce a `Response::MultiPacket` variant that contains a channel
+  - [x] Introduce a `Response::MultiPacket` variant that contains a channel
     `Receiver<Message>`.
 
   - [ ] Modify the `Connection` actor: upon receiving `Response::MultiPacket`,

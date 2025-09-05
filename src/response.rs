@@ -1,6 +1,6 @@
 //! Response and error types for handler outputs.
 //!
-//! `Response` lets handlers return single frames, multiple frames or a
+//! `Response` lets handlers return single frames, multiple frames, multi-packet channels or a
 //! stream of frames. `WireframeError` distinguishes transport errors from
 //! protocol errors when streaming.
 //!
@@ -32,6 +32,7 @@
 use std::pin::Pin;
 
 use futures::stream::Stream;
+use tokio::sync::mpsc;
 
 /// A type alias for a type-erased, dynamically dispatched stream of frames.
 ///
@@ -48,6 +49,46 @@ pub enum Response<F, E = ()> {
     Vec(Vec<F>),
     /// A potentially unbounded stream of frames.
     Stream(FrameStream<F, E>),
+    /// Frames delivered through a channel.
+    ///
+    /// # Usage and lifecycle
+    ///
+    /// `MultiPacket` wraps a [`tokio::sync::mpsc::Receiver`] that yields frames
+    /// (`F`) sent from another task. The receiver should be polled until it
+    /// returns `None`, signalling the channel has closed and no more frames will
+    /// be sent. Frames are yielded in send order.
+    /// Back-pressure follows the channel's capacity: senders await when it is
+    /// full. Multiple senders may be cloned from the original `Sender`.
+    /// The stream ends once all senders are dropped and `recv` returns
+    /// `None`.
+    ///
+    /// # Resource management
+    ///
+    /// To avoid resource leaks or deadlocks:
+    /// - Drop the sender once all frames are sent.
+    /// - Poll the receiver to completion, consuming all frames.
+    /// - Drop the receiver to cancel outstanding sends; subsequent sends fail.
+    /// - If the sender is dropped early, the receiver yields `None` and no further frames will
+    ///   arrive.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tokio::sync::mpsc;
+    /// use wireframe::Response;
+    ///
+    /// async fn demo() {
+    ///     let (tx, rx) = mpsc::channel(1);
+    ///     tx.send(1u8).await.expect("send");
+    ///     drop(tx); // close sender
+    ///     if let Response::MultiPacket(mut rx) = Response::MultiPacket(rx) {
+    ///         while let Some(f) = rx.recv().await {
+    ///             assert_eq!(f, 1);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    MultiPacket(mpsc::Receiver<F>),
     /// A response with no frames.
     Empty,
 }
@@ -58,6 +99,7 @@ impl<F: std::fmt::Debug, E> std::fmt::Debug for Response<F, E> {
             Response::Single(frame) => f.debug_tuple("Single").field(frame).finish(),
             Response::Vec(v) => f.debug_tuple("Vec").field(v).finish(),
             Response::Stream(_) => f.write_str("Stream(..)"),
+            Response::MultiPacket(_) => f.write_str("MultiPacket(..)"),
             Response::Empty => f.write_str("Empty"),
         }
     }

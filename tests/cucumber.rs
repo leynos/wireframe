@@ -21,11 +21,12 @@ mod steps;
 mod world;
 
 use cucumber::World;
-use world::{CorrelationWorld, PanicWorld, StreamEndWorld};
+use world::{CorrelationWorld, MultiPacketWorld, PanicWorld, StreamEndWorld};
 
 #[tokio::main]
 async fn main() {
     PanicWorld::run("tests/features/connection_panic.feature").await;
     CorrelationWorld::run("tests/features/correlation_id.feature").await;
     StreamEndWorld::run("tests/features/stream_end.feature").await;
+    MultiPacketWorld::run("tests/features/multi_packet.feature").await;
 }

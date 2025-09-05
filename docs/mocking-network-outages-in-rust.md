@@ -53,7 +53,7 @@ handles network I/O in its server:
      a transaction is received, it calls `handler::handle_request` to produce a
      response and writes the response back with `tx_writer.write_transaction`.
 
-  1. **Shutdown Signal:** A shared shutdown `watch` channel to break the loop on
+  2. **Shutdown Signal:** A shared shutdown `watch` channel to break the loop on
      server shutdown.
 
   The loop’s error handling is important for our tests:

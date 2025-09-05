@@ -1,7 +1,8 @@
-//! Test world state for Cucumber panic resilience tests.
-//!
-//! Provides shared state management for behavioural tests verifying
-//! server resilience against connection task panics.
+//! Test worlds for Cucumber suites:
+//! - Panic resilience during connection setup
+//! - Correlation ID propagation across frames
+//! - End-of-stream signalling
+//! - Channel-backed multi-packet responses (ordered delivery)
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -161,11 +162,10 @@ impl CorrelationWorld {
         actor.run(&mut self.frames).await.expect("actor run failed");
     }
 
-    /// Verify that all received frames carry the expected correlation id.
+    /// Verify that all received frames carry the expected correlation ID.
     ///
     /// # Panics
-    /// Panics if any frame has a `correlation_id` that does not match the
-    /// expected value.
+    /// Panics if any frame has a `correlation_id` that does not match `self.cid`.
     pub fn verify(&self) {
         assert!(
             self.frames
@@ -206,5 +206,64 @@ impl StreamEndWorld {
     /// Panics if the expected terminator is missing.
     pub fn verify(&self) {
         assert_eq!(self.frames, vec![1, 2, 0]);
+    }
+}
+
+#[derive(Debug, Default, World)]
+pub struct MultiPacketWorld {
+    messages: Vec<u8>,
+}
+
+impl MultiPacketWorld {
+    async fn drain(&mut self, resp: wireframe::Response<u8, ()>) {
+        if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
+            while let Some(msg) = mp_rx.recv().await {
+                self.messages.push(msg);
+            }
+        }
+    }
+
+    /// Helper method to process messages through a multi-packet response.
+    ///
+    /// # Panics
+    /// Panics if sending to the channel fails.
+    async fn process_messages(&mut self, messages: &[u8]) {
+        self.messages.clear();
+        let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
+        for &msg in messages {
+            tx.send(msg).await.expect("send");
+        }
+        drop(tx);
+        let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
+        self.drain(resp).await;
+    }
+
+    /// Send messages through a multi-packet response and record them.
+    ///
+    /// # Panics
+    /// Panics if sending to the channel fails.
+    pub async fn process(&mut self) { self.process_messages(&[1, 2, 3]).await; }
+
+    /// Record zero messages from a closed channel.
+    ///
+    /// # Panics
+    /// Does not panic.
+    pub async fn process_empty(&mut self) { self.process_messages(&[]).await; }
+
+    /// Verify that no messages were received.
+    ///
+    /// # Panics
+    /// Panics if any messages are present.
+    pub fn verify_empty(&self) {
+        assert!(self.messages.is_empty());
+    }
+
+    /// Verify messages were received in order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the messages are not in the expected order.
+    pub fn verify(&self) {
+        assert_eq!(self.messages, vec![1, 2, 3]);
     }
 }

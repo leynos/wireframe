@@ -627,7 +627,7 @@ handler.
          //... other routes
      ```
 
-  1. **Attribute Macro on Handler Functions**:
+  2. **Attribute Macro on Handler Functions**:
 
      ```rust
      #
@@ -1302,7 +1302,7 @@ simplify server implementation.
      // Assume ClientMessage and ServerMessage have associated IDs for routing/serialization
      ```
 
-  1. **Application State**:
+  2. **Application State**:
 
      ```rust
      // Crate: main.rs (or app_state.rs)
@@ -1317,7 +1317,7 @@ simplify server implementation.
      pub type SharedChatRoomState = wireframe::SharedState<Arc<Mutex<ChatRoomState>>>;
      ```
 
-  1. **Server Setup and Handlers**:
+  3. **Server Setup and Handlers**:
 
      ```rust
      // Crate: main.rs
