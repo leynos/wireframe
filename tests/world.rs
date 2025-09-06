@@ -217,10 +217,12 @@ pub struct MultiPacketWorld {
 
 impl MultiPacketWorld {
     async fn drain(&mut self, resp: wireframe::Response<u8, ()>) {
-        let mut stream = resp.into_stream();
-        while let Some(msg) = stream.next().await {
-            self.messages.push(msg.expect("stream error"));
-        }
+        let frames = resp
+            .into_stream()
+            .map(|r| r.expect("stream error"))
+            .collect::<Vec<_>>()
+            .await;
+        self.messages.extend(frames);
     }
 
     /// Helper method to process messages through a multi-packet response.

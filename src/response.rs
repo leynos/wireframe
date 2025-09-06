@@ -139,7 +139,9 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
     pub fn into_stream(self) -> FrameStream<F, E> {
         match self {
             Response::Single(frame) => Box::pin(futures::stream::once(async move { Ok(frame) })),
-            Response::Vec(frames) => Box::pin(futures::stream::iter(frames.into_iter().map(Ok))),
+            Response::Vec(frames) => Box::pin(futures::stream::iter(
+                frames.into_iter().map(|f| Ok::<F, WireframeError<E>>(f)),
+            )),
             Response::Stream(stream) => stream,
             Response::MultiPacket(rx) => Box::pin(futures::stream::unfold(rx, |mut rx| async {
                 rx.recv().await.map(|f| (Ok(f), rx))

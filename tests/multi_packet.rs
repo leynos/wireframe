@@ -1,6 +1,6 @@
 //! Tests for multi-packet responses using channels.
 
-use futures::StreamExt;
+use futures::TryStreamExt;
 use tokio::sync::mpsc;
 use wireframe::Response;
 
@@ -9,11 +9,11 @@ struct TestMsg(u8);
 
 /// Drain all messages from the stream.
 async fn drain_all(stream: wireframe::FrameStream<TestMsg, ()>) -> Vec<TestMsg> {
-    stream.map(|r| r.expect("stream error")).collect().await
+    stream.try_collect::<Vec<_>>().await.expect("stream error")
 }
 
-/// Verifies that all messages sent through the channel are yielded by
-/// `Response::MultiPacket`.
+/// Verify that all messages sent through the channel are yielded via
+/// `Response::into_stream()` for the `MultiPacket` variant.
 #[tokio::test]
 async fn multi_packet_yields_messages() {
     let (tx, rx) = mpsc::channel(4);
