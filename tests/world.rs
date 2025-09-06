@@ -228,7 +228,7 @@ impl MultiPacketWorld {
         }
         drop(tx);
         let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
-        self.messages = collect_multi_packet(resp).await;
+        self.messages.extend(collect_multi_packet(resp).await);
     }
 
     /// Send messages through a multi-packet response and record them.
