@@ -20,6 +20,7 @@
 
 pub mod helpers;
 pub mod logging;
+pub mod multi_packet;
 
 pub use helpers::{
     TEST_MAX_FRAME,
@@ -39,3 +40,4 @@ pub use helpers::{
     run_with_duplex_server,
 };
 pub use logging::{LoggerHandle, logger};
+pub use multi_packet::collect_multi_packet;
