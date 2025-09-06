@@ -22,6 +22,10 @@ use wireframe::Response;
 /// assert_eq!(frames, vec![1]);
 /// # }
 /// ```
+///
+/// # Panics
+/// Panics if `resp` is not [`Response::MultiPacket`]; the panic message names
+/// the received variant.
 #[must_use]
 pub async fn collect_multi_packet<F, E>(resp: Response<F, E>) -> Vec<F> {
     match resp {
@@ -32,6 +36,9 @@ pub async fn collect_multi_packet<F, E>(resp: Response<F, E>) -> Vec<F> {
             }
             frames
         }
-        _ => panic!("expected Response::MultiPacket"),
+        Response::Single(_) => panic!("collect_multi_packet received Response::Single"),
+        Response::Vec(_) => panic!("collect_multi_packet received Response::Vec"),
+        Response::Stream(_) => panic!("collect_multi_packet received Response::Stream"),
+        Response::Empty => panic!("collect_multi_packet received Response::Empty"),
     }
 }
