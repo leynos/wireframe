@@ -1,19 +1,13 @@
 //! Tests for multi-packet responses using channels.
 
-use futures::TryStreamExt;
 use tokio::sync::mpsc;
 use wireframe::Response;
+use wireframe_testing::collect_multi_packet;
 
 #[derive(PartialEq, Debug)]
 struct TestMsg(u8);
 
-/// Drain all messages from the stream.
-async fn drain_all(stream: wireframe::FrameStream<TestMsg, ()>) -> Vec<TestMsg> {
-    stream.try_collect::<Vec<_>>().await.expect("stream error")
-}
-
-/// Verify that all messages sent through the channel are yielded via
-/// `Response::into_stream()` for the `MultiPacket` variant.
+/// Verifies that all messages sent through the channel are yielded by `Response::MultiPacket`.
 #[tokio::test]
 async fn multi_packet_yields_messages() {
     let (tx, rx) = mpsc::channel(4);
@@ -22,7 +16,7 @@ async fn multi_packet_yields_messages() {
     drop(tx);
 
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = drain_all(resp.into_stream()).await;
+    let received = collect_multi_packet(resp).await;
     assert_eq!(received, vec![TestMsg(1), TestMsg(2)]);
 }
 
@@ -32,7 +26,7 @@ async fn multi_packet_empty_channel() {
     let (tx, rx) = mpsc::channel(4);
     drop(tx);
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = drain_all(resp.into_stream()).await;
+    let received = collect_multi_packet(resp).await;
     assert!(received.is_empty());
 }
 
@@ -43,7 +37,7 @@ async fn multi_packet_sender_dropped_before_all_messages() {
     tx.send(TestMsg(1)).await.expect("send");
     drop(tx);
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = drain_all(resp.into_stream()).await;
+    let received = collect_multi_packet(resp).await;
     assert_eq!(received, vec![TestMsg(1)]);
 }
 
@@ -70,7 +64,8 @@ async fn multi_packet_handles_channel_capacity() {
         }
     });
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = drain_all(resp.into_stream()).await;
+    let received = collect_multi_packet(resp).await;
+>>>>>>> 5e27dd8 (Add MultiPacket test helper implementation)
     send_task.await.expect("sender join");
     assert_eq!(
         received,

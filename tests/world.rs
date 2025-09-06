@@ -8,7 +8,6 @@ use std::{net::SocketAddr, sync::Arc};
 
 use async_stream::try_stream;
 use cucumber::World;
-use futures::TryStreamExt;
 use tokio::{net::TcpStream, sync::oneshot};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
@@ -20,6 +19,7 @@ use wireframe::{
     serializer::BincodeSerializer,
     server::WireframeServer,
 };
+use wireframe_testing::collect_multi_packet;
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -216,15 +216,6 @@ pub struct MultiPacketWorld {
 }
 
 impl MultiPacketWorld {
-    async fn drain(&mut self, resp: wireframe::Response<u8, ()>) {
-        let frames = resp
-            .into_stream()
-            .try_collect::<Vec<_>>()
-            .await
-            .expect("stream error");
-        self.messages.extend(frames);
-    }
-
     /// Helper method to process messages through a multi-packet response.
     ///
     /// # Panics
@@ -237,7 +228,7 @@ impl MultiPacketWorld {
         }
         drop(tx);
         let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
-        self.drain(resp).await;
+        self.messages = collect_multi_packet(resp).await;
     }
 
     /// Send messages through a multi-packet response and record them.
