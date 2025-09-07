@@ -221,7 +221,6 @@ impl MultiPacketWorld {
     /// # Panics
     /// Panics if sending to the channel fails.
     async fn process_messages(&mut self, messages: &[u8]) {
-        self.messages.clear();
         let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
         for &msg in messages {
             tx.send(msg).await.expect("send");
