@@ -66,8 +66,12 @@ async fn multi_packet_sender_dropped_before_all_messages() {
 async fn multi_packet_send_fails_after_receiver_dropped() {
     let (tx, rx) = mpsc::channel::<TestMsg>(2);
     drop(rx);
-    let result = tx.send(TestMsg(42)).await;
-    assert!(result.is_err(), "Send should fail when receiver is dropped");
+    let error = tx
+        .send(TestMsg(42))
+        .await
+        .expect_err("Send should fail when receiver is dropped");
+    let mpsc::error::SendError(msg) = error;
+    assert_eq!(msg, TestMsg(42));
 }
 
 /// Handles more messages than the channel capacity allows.
