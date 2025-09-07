@@ -119,7 +119,7 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
     /// # Examples
     ///
     /// ```
-    /// use futures::StreamExt;
+    /// use futures::TryStreamExt;
     /// use wireframe::Response;
     ///
     /// # async fn demo() {
@@ -129,22 +129,24 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
     /// let resp: Response<u8, ()> = Response::MultiPacket(rx);
     /// let frames: Vec<u8> = resp
     ///     .into_stream()
-    ///     .map(|r| r.expect("stream error"))
-    ///     .collect()
-    ///     .await;
+    ///     .try_collect()
+    ///     .await
+    ///     .expect("stream error");
     /// assert_eq!(frames, vec![1]);
     /// # }
     /// ```
     #[must_use]
     pub fn into_stream(self) -> FrameStream<F, E> {
         match self {
-            Response::Single(frame) => Box::pin(futures::stream::once(async move { Ok(frame) })),
+            Response::Single(frame) => Box::pin(futures::stream::once(async move {
+                Ok::<F, WireframeError<E>>(frame)
+            })),
             Response::Vec(frames) => Box::pin(futures::stream::iter(
                 frames.into_iter().map(|f| Ok::<F, WireframeError<E>>(f)),
             )),
             Response::Stream(stream) => stream,
             Response::MultiPacket(rx) => Box::pin(futures::stream::unfold(rx, |mut rx| async {
-                rx.recv().await.map(|f| (Ok(f), rx))
+                rx.recv().await.map(|f| (Ok::<F, WireframeError<E>>(f), rx))
             })),
             Response::Empty => Box::pin(futures::stream::empty()),
         }
