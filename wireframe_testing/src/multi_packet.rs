@@ -25,8 +25,10 @@ use wireframe::Response;
 ///
 /// # Panics
 /// Panics if `resp` is not [`Response::MultiPacket`]; the panic message names
-/// the received variant.
+/// the received variant and is attributed to the caller.
 #[must_use]
+#[track_caller]
+#[allow(ungated_async_fn_track_caller)] // track_caller on async is unstable
 pub async fn collect_multi_packet<F, E>(resp: Response<F, E>) -> Vec<F> {
     match resp {
         Response::MultiPacket(mut rx) => {
