@@ -64,3 +64,19 @@ async fn multi_packet_handles_channel_capacity() {
         vec![TestMsg(0), TestMsg(1), TestMsg(2), TestMsg(3)]
     );
 }
+
+/// Returns an empty stream for an empty vector response.
+#[tokio::test]
+async fn vec_empty_returns_empty_stream() {
+    let resp: Response<TestMsg, ()> = Response::Vec(Vec::new());
+    let received = drain_all(resp.into_stream()).await;
+    assert!(received.is_empty());
+}
+
+/// `Response::Empty` yields no frames.
+#[tokio::test]
+async fn empty_returns_empty_stream() {
+    let resp: Response<TestMsg, ()> = Response::Empty;
+    let received = drain_all(resp.into_stream()).await;
+    assert!(received.is_empty());
+}
