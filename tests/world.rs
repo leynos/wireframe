@@ -8,6 +8,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use async_stream::try_stream;
 use cucumber::World;
+use futures::TryStreamExt;
 use tokio::{net::TcpStream, sync::oneshot};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
@@ -216,11 +217,12 @@ pub struct MultiPacketWorld {
 
 impl MultiPacketWorld {
     async fn drain(&mut self, resp: wireframe::Response<u8, ()>) {
-        if let wireframe::Response::MultiPacket(mut mp_rx) = resp {
-            while let Some(msg) = mp_rx.recv().await {
-                self.messages.push(msg);
-            }
-        }
+        let frames = resp
+            .into_stream()
+            .try_collect::<Vec<_>>()
+            .await
+            .expect("stream error");
+        self.messages.extend(frames);
     }
 
     /// Helper method to process messages through a multi-packet response.

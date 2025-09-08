@@ -1,21 +1,19 @@
 //! Tests for multi-packet responses using channels.
 
+use futures::TryStreamExt;
 use tokio::sync::mpsc;
 use wireframe::Response;
 
 #[derive(PartialEq, Debug)]
 struct TestMsg(u8);
 
-/// Drain all messages from the receiver.
-async fn drain_all(mut rx: mpsc::Receiver<TestMsg>) -> Vec<TestMsg> {
-    let mut messages = Vec::new();
-    while let Some(msg) = rx.recv().await {
-        messages.push(msg);
-    }
-    messages
+/// Drain all messages from the stream.
+async fn drain_all(stream: wireframe::FrameStream<TestMsg, ()>) -> Vec<TestMsg> {
+    stream.try_collect::<Vec<_>>().await.expect("stream error")
 }
 
-/// Verifies that all messages sent through the channel are yielded by `Response::MultiPacket`.
+/// Verify that all messages sent through the channel are yielded via
+/// `Response::into_stream()` for the `MultiPacket` variant.
 #[tokio::test]
 async fn multi_packet_yields_messages() {
     let (tx, rx) = mpsc::channel(4);
@@ -24,11 +22,7 @@ async fn multi_packet_yields_messages() {
     drop(tx);
 
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = if let Response::MultiPacket(rx) = resp {
-        drain_all(rx).await
-    } else {
-        unreachable!()
-    };
+    let received = drain_all(resp.into_stream()).await;
     assert_eq!(received, vec![TestMsg(1), TestMsg(2)]);
 }
 
@@ -38,11 +32,7 @@ async fn multi_packet_empty_channel() {
     let (tx, rx) = mpsc::channel(4);
     drop(tx);
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = if let Response::MultiPacket(rx) = resp {
-        drain_all(rx).await
-    } else {
-        unreachable!()
-    };
+    let received = drain_all(resp.into_stream()).await;
     assert!(received.is_empty());
 }
 
@@ -53,11 +43,7 @@ async fn multi_packet_sender_dropped_before_all_messages() {
     tx.send(TestMsg(1)).await.expect("send");
     drop(tx);
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = if let Response::MultiPacket(rx) = resp {
-        drain_all(rx).await
-    } else {
-        unreachable!()
-    };
+    let received = drain_all(resp.into_stream()).await;
     assert_eq!(received, vec![TestMsg(1)]);
 }
 
@@ -84,14 +70,26 @@ async fn multi_packet_handles_channel_capacity() {
         }
     });
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = if let Response::MultiPacket(rx) = resp {
-        drain_all(rx).await
-    } else {
-        unreachable!()
-    };
+    let received = drain_all(resp.into_stream()).await;
     send_task.await.expect("sender join");
     assert_eq!(
         received,
         vec![TestMsg(0), TestMsg(1), TestMsg(2), TestMsg(3)]
     );
+}
+
+/// Returns an empty stream for an empty vector response.
+#[tokio::test]
+async fn vec_empty_returns_empty_stream() {
+    let resp: Response<TestMsg, ()> = Response::Vec(Vec::new());
+    let received = drain_all(resp.into_stream()).await;
+    assert!(received.is_empty());
+}
+
+/// `Response::Empty` yields no frames.
+#[tokio::test]
+async fn empty_returns_empty_stream() {
+    let resp: Response<TestMsg, ()> = Response::Empty;
+    let received = drain_all(resp.into_stream()).await;
+    assert!(received.is_empty());
 }

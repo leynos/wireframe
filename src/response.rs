@@ -31,8 +31,9 @@
 
 use std::pin::Pin;
 
-use futures::stream::Stream;
+use futures::{Stream, StreamExt, stream};
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 /// A type alias for a type-erased, dynamically dispatched stream of frames.
 ///
@@ -111,6 +112,45 @@ impl<F, E> From<F> for Response<F, E> {
 
 impl<F, E> From<Vec<F>> for Response<F, E> {
     fn from(v: Vec<F>) -> Self { Response::Vec(v) }
+}
+
+impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
+    /// Convert this response into a stream of frames.
+    ///
+    /// `Response::Vec` with no frames and `Response::Empty` produce an empty
+    /// stream.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use futures::TryStreamExt;
+    /// use wireframe::Response;
+    ///
+    /// # async fn demo() {
+    /// let (tx, rx) = tokio::sync::mpsc::channel(1);
+    /// tx.send(1u8).await.expect("send");
+    /// drop(tx);
+    /// let resp: Response<u8, ()> = Response::MultiPacket(rx);
+    /// let frames: Vec<u8> = resp
+    ///     .into_stream()
+    ///     .try_collect()
+    ///     .await
+    ///     .expect("stream error");
+    /// assert_eq!(frames, vec![1]);
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn into_stream(self) -> FrameStream<F, E> {
+        match self {
+            Response::Single(f) => {
+                stream::once(async move { Ok::<F, WireframeError<E>>(f) }).boxed()
+            }
+            Response::Vec(frames) => stream::iter(frames.into_iter().map(Ok)).boxed(),
+            Response::Stream(s) => s,
+            Response::MultiPacket(rx) => ReceiverStream::new(rx).map(Ok).boxed(),
+            Response::Empty => stream::empty().boxed(),
+        }
+    }
 }
 
 /// A generic error type for wireframe operations.

@@ -110,6 +110,11 @@ This design allows simple, single-frame handlers to remain unchanged
 (`Ok(my_frame.into())`) while providing powerful and efficient options for more
 complex cases.
 
+To simplify consumption, `Response::into_stream` converts any `Response`
+variant into a `FrameStream`. Downstream code can iterate over frames without
+matching `MultiPacket` or wiring channels. Both `Response::Vec` with an empty
+vector and `Response::Empty` yield an empty stream.
+
 ### 4.2 The `WireframeError` Enum
 
 To enable more robust error handling, a generic error enum will be introduced.
