@@ -40,4 +40,5 @@ pub use helpers::{
     run_with_duplex_server,
 };
 pub use logging::{LoggerHandle, logger};
+#[doc(inline)]
 pub use multi_packet::collect_multi_packet;
