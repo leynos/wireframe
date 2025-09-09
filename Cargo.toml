@@ -39,6 +39,7 @@ metrics = { version = "0.24.2", optional = true }
 metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = ["http-listener"] }
 thiserror = "2.0.16"
 static_assertions = "1"
+clap = { version = "4.5", features = ["derive"] }
 
 [dev-dependencies]
 rstest = "0.26.1"
@@ -63,6 +64,10 @@ tokio = { version = "1.47.1", default-features = false, features = [
     "net",
     "test-util",
 ] }
+
+[build-dependencies]
+clap = { version = "4.5", features = ["derive"] }
+clap_mangen = "0.2"
 
 [features]
 default = ["metrics"]

@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      CARGO_TERM_COLOR: always
+      BUILD_PROFILE: release
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@c6559452842af6a83b83429129dccaf910e34562
+      - name: Build
+        run: make release
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/generated-man/wireframe.1
