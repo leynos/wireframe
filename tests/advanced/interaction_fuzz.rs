@@ -1,8 +1,8 @@
 #![cfg(feature = "advanced-tests")]
-//! Advanced property-based fuzzing tests for push and stream handling.
+//! Advanced property-based fuzzing tests for push, stream, and protocol parsing.
 //!
 //! This module provides comprehensive fuzzing tests using proptest to verify
-//! the correctness of push queue priorities and stream frame handling in
+//! the correctness of push queue priorities, stream frame handling, and envelope parsing in
 //! various randomised scenarios.
 
 use futures::stream;
@@ -10,9 +10,12 @@ use proptest::prelude::*;
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
+    app::Envelope,
     connection::ConnectionActor,
+    message::Message,
     push::PushQueues,
     response::FrameStream,
+    serializer::BincodeSerializer,
 };
 
 #[path = "../support.rs"]
@@ -128,4 +131,34 @@ async fn test_boundary_cases(#[case] actions: Vec<Action>) {
     let expected = expected_from(&actions);
     assert_eq!(out, expected);
 }
+
+prop_compose! {
+    fn envelope_strategy()
+        (id in any::<u32>(), correlation in proptest::option::of(any::<u64>()), payload in proptest::collection::vec(any::<u8>(), 0..32))
+        -> Envelope {
+            Envelope::new(id, correlation, payload)
+        }
+}
+
+proptest! {
+    #[test]
+    fn envelope_roundtrip(env in envelope_strategy(), extra in proptest::collection::vec(any::<u8>(), 0..32)) {
+        let serializer = BincodeSerializer;
+        let mut bytes = env.to_bytes().expect("failed to serialise envelope");
+        let len = bytes.len();
+        bytes.extend(extra);
+        let (parsed, consumed) = serializer.parse(&bytes).expect("failed to parse envelope");
+        prop_assert_eq!(parsed, env);
+        prop_assert_eq!(consumed, len);
+    }
+}
+
+proptest! {
+    #[test]
+    fn fuzz_parse_does_not_panic(data in proptest::collection::vec(any::<u8>(), 0..64)) {
+        let serializer = BincodeSerializer;
+        let _ = serializer.parse(&data);
+    }
+}
+
 

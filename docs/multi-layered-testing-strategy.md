@@ -425,6 +425,24 @@ observe periodic low-priority frames.
 **Measurable Objective:** The test suite must pass **1,000,000 generated test
 cases**, verifying frame ordering and completeness on every run.
 
+### 4.4 Protocol Parser Fuzzing with `proptest`
+
+This test ensures the envelope parser gracefully handles arbitrary input
+without panicking and correctly round-trips valid frames.
+
+- **Tooling:** `proptest`
+
+- **Target Area:** `BincodeSerializer::parse`
+
+**Test Construction:** Random `Envelope` instances are serialised and then
+parsed back with trailing junk bytes. The test asserts that the parsed frame
+matches the original and that only the exact number of bytes are consumed.
+Another property feeds random byte sequences to the parser and checks that it
+never panics.
+
+**Measurable Objective:** The test suite must pass **100,000 generated test
+cases**, confirming robustness against malformed input.
+
 ## 5. Layer 4: Performance & Benchmarking
 
 **Objective:** To quantify the performance characteristics of the library,
