@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Integration tests for the `WireframeProtocol` trait.
 //!
 //! These tests ensure that protocol implementations integrate correctly with

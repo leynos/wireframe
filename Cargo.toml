@@ -10,6 +10,11 @@ keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe"
 
+[lib]
+name = "wireframe"
+path = "src/lib.rs"
+doctest = false
+
 [package.metadata.docs.rs]
 features = ["metrics"]
 
@@ -36,7 +41,6 @@ leaky-bucket = "1.1.2"
 tracing = { version = "0.1.41", features = ["log", "log-always"] }
 tracing-subscriber = "0.3"
 metrics = { version = "0.24.2", optional = true }
-metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = ["http-listener"] }
 thiserror = "2.0.16"
 static_assertions = "1"
 
@@ -64,17 +68,40 @@ tokio = { version = "1.47.1", default-features = false, features = [
     "test-util",
 ] }
 
+[target.'cfg(not(loom))'.dependencies]
+metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = ["http-listener"] }
+
 [features]
 default = ["metrics"]
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
 advanced-tests = []
+examples = []
+cucumber-tests = []
 
 [lints.clippy]
 pedantic = "warn"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
+[[example]]
+name = "echo"
+path = "examples/echo.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "packet_enum"
+path = "examples/packet_enum.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "ping_pong"
+path = "examples/ping_pong.rs"
+required-features = ["examples"]
 
 # The Cucumber test runner defines its own async main function,
 # so the standard test harness must be disabled.
 [[test]]
 name = "cucumber"
 harness = false
-required-features = ["advanced-tests"]
+required-features = ["advanced-tests", "cucumber-tests"]

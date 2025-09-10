@@ -79,7 +79,7 @@ impl<C: Clock> FairnessTracker<C> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use std::sync::{Arc, Mutex};
 

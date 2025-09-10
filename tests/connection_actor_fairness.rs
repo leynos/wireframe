@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Fairness and priority tests for `ConnectionActor`.
 
 use futures::stream;

@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Cucumber test runner for integration tests.
 //!
 //! Orchestrates three distinct test suites:

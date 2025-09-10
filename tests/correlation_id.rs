@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for `correlation_id` propagation in streaming responses.
 use async_stream::try_stream;
 use tokio_util::sync::CancellationToken;
