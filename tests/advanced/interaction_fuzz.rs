@@ -15,8 +15,11 @@ use wireframe::{
     message::Message,
     push::PushQueues,
     response::FrameStream,
-    serializer::BincodeSerializer,
 };
+
+#[cfg(feature = "serializer-bincode")]
+use wireframe::serializer::BincodeSerializer;
+
 
 #[path = "../support.rs"]
 mod support;
@@ -132,19 +135,21 @@ async fn test_boundary_cases(#[case] actions: Vec<Action>) {
     assert_eq!(out, expected);
 }
 
+#[cfg(feature = "serializer-bincode")]
 prop_compose! {
     fn envelope_strategy()
         (id in any::<u32>(), correlation in proptest::option::of(any::<u64>()), payload in proptest::collection::vec(any::<u8>(), 0..32))
         -> Envelope {
-            Envelope::new(id, correlation, payload)
+            Envelope::new(id, correlation, payload.into())
         }
 }
-
+#[cfg(feature = "serializer-bincode")]
 proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100_000))]
     #[test]
     fn envelope_roundtrip(env in envelope_strategy(), extra in proptest::collection::vec(any::<u8>(), 0..32)) {
         let serializer = BincodeSerializer;
-        let mut bytes = env.to_bytes().expect("failed to serialise envelope");
+        let mut bytes = env.to_bytes().expect("failed to serialize envelope");
         let len = bytes.len();
         bytes.extend(extra);
         let (parsed, consumed) = serializer.parse(&bytes).expect("failed to parse envelope");
@@ -153,12 +158,12 @@ proptest! {
     }
 }
 
+#[cfg(feature = "serializer-bincode")]
 proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100_000))]
     #[test]
     fn fuzz_parse_does_not_panic(data in proptest::collection::vec(any::<u8>(), 0..64)) {
         let serializer = BincodeSerializer;
         let _ = serializer.parse(&data);
     }
 }
-
-

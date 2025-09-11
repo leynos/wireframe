@@ -72,8 +72,9 @@ tokio = { version = "1.47.1", default-features = false, features = [
 metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = ["http-listener"] }
 
 [features]
-default = ["metrics"]
+default = ["metrics", "serializer-bincode"]
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
+serializer-bincode = []
 advanced-tests = []
 examples = []
 cucumber-tests = []

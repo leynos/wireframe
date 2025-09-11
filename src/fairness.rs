@@ -89,10 +89,10 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case(2, false, false)]
-    #[case(1, true, false)]
-    #[tokio::test]
-    async fn fairness_threshold_behavior(
+    #[case::threshold_2_then_reset(2, false, false)]
+    #[case::threshold_1_then_reset(1, true, false)]
+    #[test]
+    fn fairness_threshold_behaviour(
         #[case] max_high_before_low: usize,
         #[case] should_yield_before_reset: bool,
         #[case] should_yield_after_reset: bool,
@@ -116,6 +116,20 @@ mod tests {
             fairness.should_yield_to_low_priority(),
             should_yield_after_reset
         );
+    }
+
+    #[rstest]
+    #[test]
+    fn zero_threshold_without_slice_does_not_yield() {
+        let cfg = FairnessConfig {
+            max_high_before_low: 0,
+            time_slice: None,
+        };
+        let mut fairness = FairnessTracker::new(cfg);
+        fairness.record_high_priority();
+        assert!(!fairness.should_yield_to_low_priority());
+        fairness.record_high_priority();
+        assert!(!fairness.should_yield_to_low_priority());
     }
 
     #[derive(Clone, Debug)]

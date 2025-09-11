@@ -56,7 +56,7 @@ async fn test_streaming_response_order() {
 ```
 
 **Expected Outcome & Measurable Objective:** The write buffer must contain all
-10 frames, correctly serialised, in the exact order they were sent. The
+10 frames, correctly serialized, in the exact order they were sent. The
 `on_logical_response_end` hook must be called exactly once after the final
 frame is flushed. The objective is **100% frame delivery with strict ordering
 confirmed.**
@@ -434,7 +434,7 @@ without panicking and correctly round-trips valid frames.
 
 - **Target Area:** `BincodeSerializer::parse`
 
-**Test Construction:** Random `Envelope` instances are serialised and then
+**Test Construction:** Random `Envelope` instances are serialized and then
 parsed back with trailing junk bytes. The test asserts that the parsed frame
 matches the original and that only the exact number of bytes are consumed.
 Another property feeds random byte sequences to the parser and checks that it
@@ -442,6 +442,11 @@ never panics.
 
 **Measurable Objective:** The test suite must pass **100,000 generated test
 cases**, confirming robustness against malformed input.
+
+> Execution hint: run with an increased case budget
+>
+> `PROPTEST_CASES=100000 cargo test -F advanced-tests -- \
+> tests/advanced/interaction_fuzz.rs`
 
 ## 5. Layer 4: Performance & Benchmarking
 
