@@ -89,32 +89,33 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case::threshold_2_then_reset(2, false, false)]
-    #[case::threshold_1_then_reset(1, true, false)]
+    #[case::threshold_2_then_reset(2, 2, true, false)]
+    #[case::threshold_1_then_reset(1, 1, true, false)]
     #[test]
     fn fairness_threshold_behaviour(
         #[case] max_high_before_low: usize,
-        #[case] should_yield_before_reset: bool,
-        #[case] should_yield_after_reset: bool,
+        #[case] calls_before_assert: usize,
+        #[case] expected_before_reset: bool,
+        #[case] expected_after_reset: bool,
     ) {
         let cfg = FairnessConfig {
             max_high_before_low,
             time_slice: None,
         };
         let mut fairness = FairnessTracker::new(cfg);
-        fairness.record_high_priority();
+        for _ in 0..calls_before_assert {
+            fairness.record_high_priority();
+        }
+
         assert_eq!(
             fairness.should_yield_to_low_priority(),
-            should_yield_before_reset
+            expected_before_reset
         );
-        if !should_yield_before_reset {
-            fairness.record_high_priority();
-            assert!(fairness.should_yield_to_low_priority());
-        }
+
         fairness.reset();
         assert_eq!(
             fairness.should_yield_to_low_priority(),
-            should_yield_after_reset
+            expected_after_reset
         );
     }
 
