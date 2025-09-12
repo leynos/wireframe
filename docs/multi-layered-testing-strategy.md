@@ -447,6 +447,12 @@ cases**, confirming robustness against malformed input.
 >
 > `PROPTEST_CASES=100000 cargo test -F advanced-tests -- \
 > tests/advanced/interaction_fuzz.rs`
+>
+> If default features are disabled, pass `--no-default-features` and
+> explicitly enable the `advanced-tests` feature:
+>
+> `PROPTEST_CASES=100000 cargo test --no-default-features -F advanced-tests -- \
+> tests/advanced/interaction_fuzz.rs`
 
 ## 5. Layer 4: Performance & Benchmarking
 

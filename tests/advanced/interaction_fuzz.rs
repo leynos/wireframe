@@ -12,8 +12,6 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::Envelope,
     connection::ConnectionActor,
-    message::Message,
-    push::PushQueues,
     response::FrameStream,
 };
 
