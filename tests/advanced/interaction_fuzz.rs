@@ -50,7 +50,7 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
                 .await
                 .expect("failed to push low priority frame"),
             Action::Stream(frames) => {
-                let s = stream::iter(frames.clone().into_iter().map(Ok));
+                let s = stream::iter(frames.clone().into_iter().map(Ok::<u8, ()>));
                 resp_stream = Some(Box::pin(s));
             }
         }
