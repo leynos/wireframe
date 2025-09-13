@@ -38,7 +38,7 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
         .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
 
-    let mut stream: Option<FrameStream<u8, ()>> = None;
+    let mut resp_stream: Option<FrameStream<u8, ()>> = None;
     for act in actions {
         match act {
             Action::High(f) => handle
@@ -51,13 +51,13 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
                 .expect("failed to push low priority frame"),
             Action::Stream(frames) => {
                 let s = stream::iter(frames.clone().into_iter().map(Ok));
-                stream = Some(Box::pin(s));
+                resp_stream = Some(Box::pin(s));
             }
         }
     }
 
     let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, handle, stream, shutdown);
+        ConnectionActor::new(queues, handle, resp_stream, shutdown);
     let mut out = Vec::new();
     actor
         .run(&mut out)
@@ -69,17 +69,17 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
 fn expected_from(actions: &[Action]) -> Vec<u8> {
     let mut high = Vec::new();
     let mut low = Vec::new();
-    let mut stream = Vec::new();
+    let mut stream_frames = Vec::new();
     for act in actions {
         match act {
             Action::High(f) => high.push(*f),
             Action::Low(f) => low.push(*f),
-            Action::Stream(v) => stream = v.clone(),
+            Action::Stream(v) => stream_frames = v.clone(),
         }
     }
     let mut expected = high;
     expected.extend(low);
-    expected.extend(stream);
+    expected.extend(stream_frames);
     expected
 }
 
