@@ -436,9 +436,9 @@ without panicking and correctly round-trips valid frames.
 
 **Test Construction:** Random `Envelope` instances are serialized and then
 parsed back with trailing junk bytes. The test asserts that the parsed frame
-matches the original and that only the exact number of bytes are consumed.
-Another property feeds random byte sequences to the parser and checks that it
-never panics.
+matches the original, that only the exact number of bytes are consumed, and
+that the unconsumed tail equals the injected junk bytes. Another property feeds
+random byte sequences to the parser and checks that it never panics.
 
 **Measurable Objective:** The test suite must pass **100,000 generated test
 cases**, confirming robustness against malformed input.

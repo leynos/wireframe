@@ -153,6 +153,7 @@ proptest! {
         let (parsed, consumed) = serializer.parse(&bytes).expect("failed to parse envelope");
         prop_assert_eq!(parsed, env);
         prop_assert_eq!(consumed, len);
+        prop_assert_eq!(&bytes[consumed..], &extra[..]);
     }
 }
 
