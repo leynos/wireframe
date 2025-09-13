@@ -23,6 +23,7 @@ pub mod preamble;
 pub mod push;
 pub mod response;
 pub mod rewind_stream;
+#[cfg(not(loom))]
 pub mod server;
 pub mod session;
 

@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for the `SessionRegistry`.
 use rstest::{fixture, rstest};
 use wireframe::{

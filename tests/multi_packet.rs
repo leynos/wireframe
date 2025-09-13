@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for multi-packet responses using channels.
 
 use futures::TryStreamExt;

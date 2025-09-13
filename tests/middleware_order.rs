@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests ensuring middleware registration order is reversed during execution.
 //!
 //! Verifies tags are applied in reverse to request and response bodies.

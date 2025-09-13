@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for frame metadata parsing using custom serializers.
 //!
 //! They ensure parse callbacks run before deserialization and errors fall back correctly.

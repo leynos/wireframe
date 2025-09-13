@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Test worlds for Cucumber suites:
 //! - Panic resilience during connection setup
 //! - Correlation ID propagation across frames

@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for `PacketParts` conversions and helpers.
 
 use wireframe::app::{Envelope, Packet, PacketParts};

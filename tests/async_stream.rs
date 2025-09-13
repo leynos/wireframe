@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for streams generated with the `async-stream` crate.
 //!
 //! These ensure that a `ConnectionActor` correctly drains frames from an

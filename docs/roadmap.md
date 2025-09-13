@@ -171,7 +171,7 @@ production environments.
 
 - [ ] **Testing:**
 
-  - [ ] Implement fuzz testing for the protocol parser
+  - [x] Implement fuzz testing for the protocol parser
     (`tests/advanced/interaction_fuzz.rs`).
 
   - [ ] Use `loom` for concurrency testing of shared state

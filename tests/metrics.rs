@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for `wireframe` metrics helpers.
 //!
 //! These tests verify that counters and gauges update as expected using

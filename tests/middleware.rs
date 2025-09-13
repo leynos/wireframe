@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for middleware transformations.
 //!
 //! Confirm that a custom middleware can modify requests and responses.
