@@ -1,9 +1,9 @@
-#![cfg(feature = "advanced-tests")]
+#![cfg(all(feature = "advanced-tests", not(loom)))]
 //! Advanced property-based fuzzing tests for push, stream, and protocol parsing.
 //!
 //! This module provides comprehensive fuzzing tests using proptest to verify
 //! the correctness of push queue priorities, stream frame handling, and envelope parsing in
-//! various randomised scenarios.
+//! various randomized scenarios.
 
 use futures::stream;
 use proptest::prelude::*;

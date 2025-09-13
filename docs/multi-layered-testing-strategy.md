@@ -445,14 +445,19 @@ cases**, confirming robustness against malformed input.
 
 > Execution hint: run with an increased case budget
 >
-> `PROPTEST_CASES=100000 cargo test -F advanced-tests -- \
-> tests/advanced/interaction_fuzz.rs`
+> ```shell
+> PROPTEST_CASES=100000 cargo test -F advanced-tests -- \
+>   tests/advanced/interaction_fuzz.rs
+> ```
 >
-> If default features are disabled, pass `--no-default-features` and
-> explicitly enable the `advanced-tests` feature:
+> If default features are disabled, enable the required features explicitly:
 >
-> `PROPTEST_CASES=100000 cargo test --no-default-features -F advanced-tests -- \
-> tests/advanced/interaction_fuzz.rs`
+> ```shell
+> PROPTEST_CASES=100000 cargo test --no-default-features \
+>   -F advanced-tests -F serializer-bincode -- \
+>   tests/advanced/interaction_fuzz.rs
+> ```
+>
 
 ## 5. Layer 4: Performance & Benchmarking
 
