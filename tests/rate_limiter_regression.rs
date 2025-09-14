@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Regression test for rate limiter token reservation behaviour.
 //!
 //! Ensures that probing a pending push future with `now_or_never()` does not

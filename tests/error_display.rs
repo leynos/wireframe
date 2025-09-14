@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for Display and Error trait implementations on error types.
 //!
 //! Verifies that error types provide human-readable messages via Display

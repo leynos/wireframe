@@ -56,7 +56,7 @@ async fn test_streaming_response_order() {
 ```
 
 **Expected Outcome & Measurable Objective:** The write buffer must contain all
-10 frames, correctly serialised, in the exact order they were sent. The
+10 frames, correctly serialized, in the exact order they were sent. The
 `on_logical_response_end` hook must be called exactly once after the final
 frame is flushed. The objective is **100% frame delivery with strict ordering
 confirmed.**
@@ -424,6 +424,47 @@ observe periodic low-priority frames.
 
 **Measurable Objective:** The test suite must pass **1,000,000 generated test
 cases**, verifying frame ordering and completeness on every run.
+
+### 4.4 Protocol parser fuzzing with `proptest`
+
+This test ensures the envelope parser gracefully handles arbitrary input
+without panicking and correctly round-trips valid frames.
+
+- **Tooling:** `proptest`
+
+- **Target Area:** `BincodeSerializer::parse`
+
+**Test Construction:** Random `Envelope` instances are serialized and then
+parsed back with trailing junk bytes. The test asserts that the parsed frame
+matches the original, that only the exact number of bytes are consumed, and
+that the unconsumed tail equals the injected junk bytes. Another property feeds
+random byte sequences to the parser and checks that it never panics.
+
+**Measurable Objective:** The test suite must pass **100,000 generated test
+cases**, confirming robustness against malformed input.
+
+> Execution hint: run with an increased case budget
+>
+> ```shell
+> PROPTEST_CASES=100000 cargo test -F advanced-tests -- \
+>   tests/advanced/interaction_fuzz.rs
+> ```
+>
+> To reproduce a failing case by seed, rerun with the reported seed:
+>
+> ```shell
+> PROPTEST_CASES=100000 PROPTEST_SEED=<seed> \
+>   cargo test -F advanced-tests -- tests/advanced/interaction_fuzz.rs
+> ```
+>
+> If default features are disabled, enable the required features explicitly:
+>
+> ```shell
+> PROPTEST_CASES=100000 cargo test --no-default-features \
+>   -F advanced-tests -F serializer-bincode -- \
+>   tests/advanced/interaction_fuzz.rs
+> ```
+>
 
 ## 5. Layer 4: Performance & Benchmarking
 

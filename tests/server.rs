@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for [`WireframeServer`] configuration.
 
 mod common;

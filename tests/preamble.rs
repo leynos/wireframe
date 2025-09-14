@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for connection preamble reading.
 
 use std::{

@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for extracting shared state from message requests.
 //!
 //! They verify successful extraction and error handling when state is missing.

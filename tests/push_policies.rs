@@ -1,3 +1,4 @@
+#![cfg(not(loom))]
 //! Tests for push queue policy behaviour.
 
 mod support;

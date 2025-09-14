@@ -79,7 +79,7 @@ impl<C: Clock> FairnessTracker<C> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use std::sync::{Arc, Mutex};
 
@@ -89,30 +89,47 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[tokio::test]
-    async fn yield_after_threshold() {
+    #[case::threshold_2_then_reset(2, 2, true, false)]
+    #[case::threshold_1_then_reset(1, 1, true, false)]
+    #[test]
+    fn fairness_threshold_behaviour(
+        #[case] max_high_before_low: usize,
+        #[case] calls_before_assert: usize,
+        #[case] expected_before_reset: bool,
+        #[case] expected_after_reset: bool,
+    ) {
         let cfg = FairnessConfig {
-            max_high_before_low: 2,
+            max_high_before_low,
+            time_slice: None,
+        };
+        let mut fairness = FairnessTracker::new(cfg);
+        for _ in 0..calls_before_assert {
+            fairness.record_high_priority();
+        }
+
+        assert_eq!(
+            fairness.should_yield_to_low_priority(),
+            expected_before_reset
+        );
+
+        fairness.reset();
+        assert_eq!(
+            fairness.should_yield_to_low_priority(),
+            expected_after_reset
+        );
+    }
+
+    #[rstest]
+    #[test]
+    fn zero_threshold_without_slice_does_not_yield() {
+        let cfg = FairnessConfig {
+            max_high_before_low: 0,
             time_slice: None,
         };
         let mut fairness = FairnessTracker::new(cfg);
         fairness.record_high_priority();
         assert!(!fairness.should_yield_to_low_priority());
         fairness.record_high_priority();
-        assert!(fairness.should_yield_to_low_priority());
-    }
-
-    #[rstest]
-    #[tokio::test]
-    async fn after_low_resets_counter() {
-        let cfg = FairnessConfig {
-            max_high_before_low: 1,
-            time_slice: None,
-        };
-        let mut fairness = FairnessTracker::new(cfg);
-        fairness.record_high_priority();
-        assert!(fairness.should_yield_to_low_priority());
-        fairness.reset();
         assert!(!fairness.should_yield_to_low_priority());
     }
 

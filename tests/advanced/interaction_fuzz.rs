@@ -1,9 +1,9 @@
-#![cfg(feature = "advanced-tests")]
-//! Advanced property-based fuzzing tests for push and stream handling.
+#![cfg(all(feature = "advanced-tests", not(loom)))]
+//! Advanced property-based fuzzing tests for push, stream, and protocol parsing.
 //!
 //! This module provides comprehensive fuzzing tests using proptest to verify
-//! the correctness of push queue priorities and stream frame handling in
-//! various randomised scenarios.
+//! the correctness of push queue priorities, stream frame handling, and envelope parsing in
+//! various randomized scenarios.
 
 use futures::stream;
 use proptest::prelude::*;
@@ -11,9 +11,12 @@ use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::ConnectionActor,
-    push::PushQueues,
     response::FrameStream,
 };
+
+#[cfg(feature = "serializer-bincode")]
+use wireframe::{app::Envelope, serializer::BincodeSerializer};
+
 
 #[path = "../support.rs"]
 mod support;
@@ -34,7 +37,7 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
         .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
 
-    let mut stream: Option<FrameStream<u8, ()>> = None;
+    let mut resp_stream: Option<FrameStream<u8, ()>> = None;
     for act in actions {
         match act {
             Action::High(f) => handle
@@ -46,14 +49,14 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
                 .await
                 .expect("failed to push low priority frame"),
             Action::Stream(frames) => {
-                let s = stream::iter(frames.clone().into_iter().map(Ok));
-                stream = Some(Box::pin(s));
+                let s = stream::iter(frames.clone().into_iter().map(Ok::<u8, ()>));
+                resp_stream = Some(Box::pin(s));
             }
         }
     }
 
     let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, handle, stream, shutdown);
+        ConnectionActor::new(queues, handle, resp_stream, shutdown);
     let mut out = Vec::new();
     actor
         .run(&mut out)
@@ -65,17 +68,17 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
 fn expected_from(actions: &[Action]) -> Vec<u8> {
     let mut high = Vec::new();
     let mut low = Vec::new();
-    let mut stream = Vec::new();
+    let mut stream_frames = Vec::new();
     for act in actions {
         match act {
             Action::High(f) => high.push(*f),
             Action::Low(f) => low.push(*f),
-            Action::Stream(v) => stream = v.clone(),
+            Action::Stream(v) => stream_frames.extend_from_slice(v),
         }
     }
     let mut expected = high;
     expected.extend(low);
-    expected.extend(stream);
+    expected.extend(stream_frames);
     expected
 }
 
@@ -129,3 +132,36 @@ async fn test_boundary_cases(#[case] actions: Vec<Action>) {
     assert_eq!(out, expected);
 }
 
+#[cfg(feature = "serializer-bincode")]
+prop_compose! {
+    fn envelope_strategy()
+        (id in any::<u32>(), correlation in proptest::option::of(any::<u64>()), payload in proptest::collection::vec(any::<u8>(), 0..32))
+        -> Envelope {
+            Envelope::new(id, correlation, payload.into())
+        }
+}
+#[cfg(feature = "serializer-bincode")]
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100_000))]
+    #[test]
+    fn envelope_roundtrip(env in envelope_strategy(), extra in proptest::collection::vec(any::<u8>(), 0..32)) {
+        let serializer = BincodeSerializer;
+        let mut bytes = env.to_bytes().expect("failed to serialize envelope");
+        let len = bytes.len();
+        bytes.extend(extra);
+        let (parsed, consumed) = serializer.parse(&bytes).expect("failed to parse envelope");
+        prop_assert_eq!(parsed, env);
+        prop_assert_eq!(consumed, len);
+        prop_assert_eq!(&bytes[consumed..], &extra[..]);
+    }
+}
+
+#[cfg(feature = "serializer-bincode")]
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100_000))]
+    #[test]
+    fn fuzz_parse_does_not_panic(data in proptest::collection::vec(any::<u8>(), 0..64)) {
+        let serializer = BincodeSerializer;
+        let _ = serializer.parse(&data);
+    }
+}
