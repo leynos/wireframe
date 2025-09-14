@@ -10,13 +10,12 @@ use proptest::prelude::*;
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    app::Envelope,
     connection::ConnectionActor,
     response::FrameStream,
 };
 
 #[cfg(feature = "serializer-bincode")]
-use wireframe::serializer::BincodeSerializer;
+use wireframe::{app::Envelope, serializer::BincodeSerializer};
 
 
 #[path = "../support.rs"]
@@ -74,7 +73,7 @@ fn expected_from(actions: &[Action]) -> Vec<u8> {
         match act {
             Action::High(f) => high.push(*f),
             Action::Low(f) => low.push(*f),
-            Action::Stream(v) => stream_frames = v.clone(),
+            Action::Stream(v) => stream_frames.extend_from_slice(v),
         }
     }
     let mut expected = high;

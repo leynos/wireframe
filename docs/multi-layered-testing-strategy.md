@@ -425,7 +425,7 @@ observe periodic low-priority frames.
 **Measurable Objective:** The test suite must pass **1,000,000 generated test
 cases**, verifying frame ordering and completeness on every run.
 
-### 4.4 Protocol Parser Fuzzing with `proptest`
+### 4.4 Protocol parser fuzzing with `proptest`
 
 This test ensures the envelope parser gracefully handles arbitrary input
 without panicking and correctly round-trips valid frames.
@@ -448,6 +448,13 @@ cases**, confirming robustness against malformed input.
 > ```shell
 > PROPTEST_CASES=100000 cargo test -F advanced-tests -- \
 >   tests/advanced/interaction_fuzz.rs
+> ```
+>
+> To reproduce a failing case by seed, rerun with the reported seed:
+>
+> ```shell
+> PROPTEST_CASES=100000 PROPTEST_SEED=<seed> \
+>   cargo test -F advanced-tests -- tests/advanced/interaction_fuzz.rs
 > ```
 >
 > If default features are disabled, enable the required features explicitly:
