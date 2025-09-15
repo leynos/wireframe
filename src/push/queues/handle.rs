@@ -1,19 +1,32 @@
 //! Cloneable handle used by producers to push frames to a connection.
 
-use std::{
-    sync::{
+#[cfg(loom)]
+mod sync {
+    pub use std::sync::{Arc, Weak};
+
+    pub use loom::sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+}
+
+#[cfg(not(loom))]
+mod sync {
+    pub use std::sync::{
         Arc,
         Mutex,
         Weak,
         atomic::{AtomicUsize, Ordering},
-    },
-    time::{Duration, Instant},
-};
+    };
+}
+
+use std::time::{Duration, Instant};
 
 use leaky_bucket::RateLimiter;
 use log::{debug, warn};
 use tokio::{sync::mpsc, time::sleep};
 
+use self::sync::{Arc, AtomicUsize, Mutex, Ordering, Weak};
 use super::{FrameLike, PushError, PushPolicy, PushPriority};
 
 /// Shared state for [`PushHandle`].
@@ -40,8 +53,29 @@ pub(crate) struct PushHandleInner<F> {
 #[derive(Clone)]
 pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
+/// Instrumentation helper exposing internal counters when running under loom.
+#[cfg(loom)]
+pub struct PushHandleProbe<F> {
+    inner: Arc<PushHandleInner<F>>,
+}
+
+#[cfg(loom)]
+impl<F> PushHandleProbe<F> {
+    /// Return the number of frames dropped into the DLQ since the last log flush.
+    #[must_use]
+    pub fn dlq_drop_count(&self) -> usize { self.inner.dlq_drops.load(Ordering::SeqCst) }
+}
+
 impl<F: FrameLike> PushHandle<F> {
     pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
+
+    #[cfg(loom)]
+    #[must_use]
+    pub fn probe(&self) -> PushHandleProbe<F> {
+        PushHandleProbe {
+            inner: self.0.clone(),
+        }
+    }
 
     /// Internal helper to push a frame with the requested priority.
     ///

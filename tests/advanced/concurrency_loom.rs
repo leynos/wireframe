@@ -1,76 +1,97 @@
-#![cfg(feature = "advanced-tests")]
-//! Concurrency tests for push delivery using loom.
+#![cfg(all(feature = "advanced-tests", loom))]
+//! Concurrency tests for push queues using loom.
 //!
-//! These tests model concurrent push execution to validate fairness and
-//! correct shutdown behaviour under various interleavings.
+//! These tests exercise the `PushHandle` shared state without Tokio. `loom`
+//! explores interleavings to ensure DLQ accounting and queue-full errors remain
+//! deterministic under concurrent producers.
 
-use loom::model;
-use tokio::runtime::Builder;
-use tokio_util::sync::CancellationToken;
-use wireframe::{
-    connection::ConnectionActor,
-    push::PushQueues,
-};
+use loom::{model, thread};
+use tokio::sync::mpsc;
+use wireframe::push::{PushError, PushPolicy, PushPriority, PushQueues};
 
 #[test]
-fn concurrent_push_delivery() {
+fn concurrent_drops_reset_dlq_counter() {
     model(|| {
-        let rt = Builder::new_current_thread()
-            .enable_all()
+        let (dlq_tx, mut dlq_rx) = mpsc::channel(4);
+        let (queues, handle) = PushQueues::<u8>::builder()
+            .high_capacity(1)
+            .low_capacity(1)
+            .dlq(Some(dlq_tx))
+            .dlq_log_every_n(2)
+            .unlimited()
             .build()
-            .expect("failed to build tokio runtime");
+            .expect("failed to build PushQueues");
+        let _queues = queues;
 
-        rt.block_on(async {
-            let (queues, handle) = PushQueues::<u8>::builder()
-                .high_capacity(1)
-                .low_capacity(1)
-                .unlimited()
-                .build()
-                .expect("failed to build PushQueues");
-            let token = CancellationToken::new();
+        handle
+            .try_push(0, PushPriority::High, PushPolicy::ReturnErrorIfFull)
+            .expect("initial push should succeed");
 
-            let out = loom::sync::Arc::new(loom::sync::Mutex::new(Vec::new()));
-            let out_clone = out.clone();
-            let mut actor: ConnectionActor<_, ()> =
-                ConnectionActor::new(queues, handle.clone(), None, token.clone());
+        let probe = handle.probe();
+        let h1 = handle.clone();
+        let h2 = handle.clone();
 
-            let actor_task = tokio::spawn(async move {
-                let mut buf = Vec::new();
-                actor
-                    .run(&mut buf)
-                    .await
-                    .expect("connection actor failed to run");
-                out_clone
-                    .lock()
-                    .expect("mutex poisoned")
-                    .extend(buf);
-            });
-
-            let h1 = handle.clone();
-            let t1 = tokio::spawn(async move {
-                h1
-                    .push_high_priority(1u8)
-                    .await
-                    .expect("failed to push high priority frame");
-            });
-
-            let h2 = handle.clone();
-            let t2 = tokio::spawn(async move {
-                h2
-                    .push_low_priority(2u8)
-                    .await
-                    .expect("failed to push low priority frame");
-            });
-
-            t1.await.expect("high priority task join failed");
-            t2.await.expect("low priority task join failed");
-            token.cancel();
-            actor_task.await.expect("actor task join failed");
-
-            let buf = out.lock().expect("mutex poisoned");
-            assert!(buf.contains(&1));
-            assert!(buf.contains(&2));
+        let t1 = thread::spawn(move || {
+            h1.try_push(1, PushPriority::High, PushPolicy::WarnAndDropIfFull)
+                .expect("first drop should succeed");
         });
+        let t2 = thread::spawn(move || {
+            h2.try_push(2, PushPriority::High, PushPolicy::WarnAndDropIfFull)
+                .expect("second drop should succeed");
+        });
+
+        t1.join().expect("first drop thread panicked");
+        t2.join().expect("second drop thread panicked");
+
+        assert_eq!(
+            probe.dlq_drop_count(),
+            0,
+            "counter should reset after reaching the logging threshold"
+        );
+
+        let mut drops = Vec::new();
+        while let Ok(frame) = dlq_rx.try_recv() {
+            drops.push(frame);
+        }
+        drops.sort();
+        assert_eq!(drops, vec![1, 2]);
     });
 }
 
+#[test]
+fn concurrent_queue_full_errors_are_reported() {
+    model(|| {
+        let (queues, handle) = PushQueues::<u8>::builder()
+            .high_capacity(1)
+            .low_capacity(1)
+            .unlimited()
+            .build()
+            .expect("failed to build PushQueues");
+        let _queues = queues;
+
+        handle
+            .try_push(0, PushPriority::High, PushPolicy::ReturnErrorIfFull)
+            .expect("initial push should succeed");
+
+        let h1 = handle.clone();
+        let h2 = handle.clone();
+
+        let t1 = thread::spawn(move || {
+            let res = h1.try_push(1, PushPriority::High, PushPolicy::ReturnErrorIfFull);
+            assert!(
+                matches!(res, Err(PushError::QueueFull)),
+                "expected queue full error for first producer"
+            );
+        });
+        let t2 = thread::spawn(move || {
+            let res = h2.try_push(2, PushPriority::High, PushPolicy::ReturnErrorIfFull);
+            assert!(
+                matches!(res, Err(PushError::QueueFull)),
+                "expected queue full error for second producer"
+            );
+        });
+
+        t1.join().expect("first producer thread panicked");
+        t2.join().expect("second producer thread panicked");
+    });
+}

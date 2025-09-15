@@ -174,7 +174,7 @@ production environments.
   - [x] Implement fuzz testing for the protocol parser
     (`tests/advanced/interaction_fuzz.rs`).
 
-  - [ ] Use `loom` for concurrency testing of shared state
+  - [x] Use `loom` for concurrency testing of shared state
     (`tests/advanced/concurrency_loom.rs`).
 
 ## Phase 6: Multi-Packet Streaming Responses (Priority Focus)
