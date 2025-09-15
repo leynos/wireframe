@@ -69,6 +69,10 @@ impl<F> PushHandleProbe<F> {
 impl<F: FrameLike> PushHandle<F> {
     pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
 
+    /// Returns a probe for inspecting internal state during loom verification.
+    ///
+    /// Exposes dead-letter drop counters so loom tests can assert behaviour
+    /// without altering the production API.
     #[cfg(loom)]
     #[must_use]
     pub fn probe(&self) -> PushHandleProbe<F> {

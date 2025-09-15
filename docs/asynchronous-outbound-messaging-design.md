@@ -484,9 +484,10 @@ To reason about concurrent producers we added a loom-specific probe to
 `PushHandle`. The probe exposes the dead-letter queue drop counter when tests
 are compiled with `--cfg loom`. The `tests/advanced/concurrency_loom.rs` suite
 drives `PushHandle::try_push` from multiple `loom::thread`s to assert that drop
-counts reset after the logging threshold and that queue-full errors remain
-deterministic. This keeps the production API unchanged whilst enabling
-exhaustive interleaving checks during the advanced test workflow.
+counts reset after the logging threshold across both priority queues, that
+queue-full errors remain deterministic, and that the probe reports zero when
+the DLQ is absent or idle. This keeps the production API unchanged whilst
+enabling exhaustive interleaving checks during the advanced test workflow.
 
 ### 4.2 The `SessionRegistry`
 
