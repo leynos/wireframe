@@ -489,6 +489,21 @@ queue-full errors remain deterministic, and that the probe reports zero when
 the DLQ is absent or idle. This keeps the production API unchanged whilst
 enabling exhaustive interleaving checks during the advanced test workflow.
 
+```rust
+#[cfg(loom)]
+{
+    use wireframe::push::queues::PushHandleProbe;
+
+    let probe: PushHandleProbe<_> = handle.probe();
+    let dlq_drops = probe.dlq_drop_count();
+    assert_eq!(dlq_drops, 0);
+}
+```
+
+```
+RUSTFLAGS="--cfg loom" cargo test --features advanced-tests --test concurrency_loom
+```
+
 ### 4.2 The `SessionRegistry`
 
 To allow background tasks to discover and message active connections, a
