@@ -500,7 +500,7 @@ enabling exhaustive interleaving checks during the advanced test workflow.
 }
 ```
 
-```
+```plaintext
 RUSTFLAGS="--cfg loom" cargo test --features advanced-tests --test concurrency_loom
 ```
 
