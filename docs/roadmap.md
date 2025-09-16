@@ -199,11 +199,30 @@ stream.
 
   - [ ] Modify the `Connection` actor: upon receiving `Response::MultiPacket`,
     it should consume messages from the receiver and send each one as a `Frame`.
+    - [ ] Extend the outbound `select!` loop to own the receiver so
+      multi-packet responses share the same back-pressure and shutdown handling
+      as other frame sources.
+    - [ ] Convert each received `Message` into a `Frame` via the existing
+      serialization helpers rather than bypassing protocol hooks or metrics.
+    - [ ] Emit tracing and metrics for each forwarded frame so streaming
+      traffic remains visible to observability pipelines.
 
   - [ ] Each sent frame must carry the correct `correlation_id` from the
     initial request.
+    - [ ] Capture the originating request's `correlation_id` before handing
+      control to the multi-packet dispatcher.
+    - [ ] Stamp the stored `correlation_id` onto every frame emitted from the
+      channel before it is queued for transmission.
+    - [ ] Guard against accidental omission by asserting in debug builds and
+      covering the behaviour with targeted tests.
 
   - [ ] When the channel closes, send the end-of-stream marker frame.
+    - [ ] Detect channel closure (`None` from `recv`) and log the termination
+      reason for operational insight.
+    - [ ] Send the designated end-of-stream marker frame through the same
+      send path, reusing the request's `correlation_id`.
+    - [ ] Notify protocol lifecycle hooks so higher layers can tidy any
+      per-request state when a stream drains naturally.
 
 - [ ] **Ergonomics & API:**
 
