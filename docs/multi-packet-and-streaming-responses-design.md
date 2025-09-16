@@ -260,7 +260,7 @@ not hang.
 
 <!-- markdownlint-enable MD013 -->
 
-## 9. Design Decisions
+## 9. Design decisions
 
 - Multi-packet channels are driven inside the existing connection actor
   `select!` loop rather than by a detached task. This keeps a single locus for
@@ -270,6 +270,13 @@ not hang.
   channel and stamps it onto every serialised frame. This preserves protocol
   invariants without requiring handlers to mutate frames post-creation and
   mirrors the message attribution strategy outlined in the capability roadmap.
+
+Debug-mode assertions must guard this stamping by checking
+`frame.correlation_id == request.correlation_id` before a frame is dispatched.
+The implementing change should document the assertion and add tests covering
+normal streaming, early receiver closure, and error paths so reviewers can
+confirm the stamping cannot regress or be removed.
+
 - When the receiver reports closure, the actor emits the configured
   end-of-stream marker via the normal send path and then triggers the protocol
   lifecycle hooks. This guarantees downstream clean-up and observability cues
