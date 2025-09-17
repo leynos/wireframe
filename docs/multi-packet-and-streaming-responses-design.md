@@ -259,3 +259,25 @@ not hang.
 | Error Handling  | A WireframeError::Protocol error yielded from a stream correctly triggers the handle_error protocol callback without terminating the connection. | An integration test confirms that a protocol-level error is correctly formatted and sent to the client, while the connection remains open.                 |
 
 <!-- markdownlint-enable MD013 -->
+
+## 9. Design decisions
+
+- Multi-packet channels are driven inside the existing connection actor
+  `select!` loop rather than by a detached task. This keeps a single locus for
+  back-pressure, aligns with the production resilience guidance on avoiding
+  orphaned tasks, and ensures orderly shutdown propagates to streaming work.
+- The actor captures the request's `correlation_id` before iterating the
+  channel and stamps it onto every serialised frame. This preserves protocol
+  invariants without requiring handlers to mutate frames post-creation and
+  mirrors the message attribution strategy outlined in the capability roadmap.
+
+Debug-mode assertions must guard this stamping by checking
+`frame.correlation_id == request.correlation_id` before a frame is dispatched.
+The implementing change should document the assertion and add tests covering
+normal streaming, early receiver closure, and error paths so reviewers can
+confirm the stamping cannot regress or be removed.
+
+- When the receiver reports closure, the actor emits the configured
+  end-of-stream marker via the normal send path and then triggers the protocol
+  lifecycle hooks. This guarantees downstream clean-up and observability cues
+  stay consistent with other stream completions.
