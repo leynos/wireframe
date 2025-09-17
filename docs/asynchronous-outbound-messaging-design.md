@@ -480,14 +480,15 @@ back-pressure behaviour of their pushed messages.
 
 #### 4.1.1 Loom-based concurrency verification
 
-To reason about concurrent producers we added a loom-specific probe to
-`PushHandle`. The probe exposes the dead-letter queue drop counter when tests
-are compiled with `--cfg loom`. The `tests/advanced/concurrency_loom.rs` suite
+Reasoning about concurrent producers requires a loom-specific probe in
+`PushHandle`. When tests compile with `--cfg loom`, the probe exposes the
+dead-letter queue drop counter. The `tests/advanced/concurrency_loom.rs` suite
 drives `PushHandle::try_push` from multiple `loom::thread`s to assert that drop
 counts reset after the logging threshold across both priority queues, that
 queue-full errors remain deterministic, and that the probe reports zero when
-the DLQ is absent or idle. This keeps the production API unchanged whilst
-enabling exhaustive interleaving checks during the advanced test workflow.
+the DLQ is absent or idle. This arrangement keeps the production API unchanged
+whilst enabling exhaustive interleaving checks during the advanced test
+workflow.
 
 ```rust
 #[cfg(loom)]
