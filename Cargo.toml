@@ -68,6 +68,9 @@ tokio = { version = "1.47.1", default-features = false, features = [
     "test-util",
 ] }
 
+[target.'cfg(loom)'.dependencies]
+loom = "0.7.2"
+
 [target.'cfg(not(loom))'.dependencies]
 metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = ["http-listener"] }
 
@@ -106,3 +109,8 @@ required-features = ["examples"]
 name = "cucumber"
 harness = false
 required-features = ["advanced-tests", "cucumber-tests"]
+
+[[test]]
+name = "concurrency_loom"
+path = "tests/advanced/concurrency_loom.rs"
+required-features = ["advanced-tests"]

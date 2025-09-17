@@ -6,12 +6,18 @@
 //! level. An optional rate limiter caps throughput at [`MAX_PUSH_RATE`] pushes
 //! per second.
 
+#[cfg(not(loom))]
+use std::sync::{Mutex, atomic::AtomicUsize};
 use std::{
-    sync::{Arc, Mutex, atomic::AtomicUsize},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use leaky_bucket::RateLimiter;
+#[cfg(loom)]
+use loom::sync::Mutex;
+#[cfg(loom)]
+use loom::sync::atomic::AtomicUsize;
 use static_assertions::const_assert;
 use tokio::sync::mpsc;
 
