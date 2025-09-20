@@ -62,6 +62,7 @@ enum Event<F, E> {
     Shutdown,
     High(Option<F>),
     Low(Option<F>),
+    MultiPacket(Option<F>),
     Response(Option<Result<F, WireframeError<E>>>),
     Idle,
 }
@@ -111,6 +112,7 @@ pub struct ConnectionActor<F, E> {
     high_rx: Option<mpsc::Receiver<F>>,
     low_rx: Option<mpsc::Receiver<F>>,
     response: Option<FrameStream<F, E>>, // current streaming response
+    multi_packet: Option<mpsc::Receiver<F>>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
@@ -173,6 +175,7 @@ where
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             response,
+            multi_packet: None,
             shutdown,
             counter: Some(counter),
             hooks,
@@ -195,6 +198,11 @@ where
 
     /// Set or replace the current streaming response.
     pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) { self.response = stream; }
+
+    /// Set or replace the current multi-packet response channel.
+    pub fn set_multi_packet(&mut self, channel: Option<mpsc::Receiver<F>>) {
+        self.multi_packet = channel;
+    }
 
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
@@ -221,7 +229,7 @@ where
             return Ok(());
         }
 
-        let mut state = ActorState::new(self.response.is_some());
+        let mut state = ActorState::new(self.response.is_some(), self.multi_packet.is_some());
 
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
@@ -237,7 +245,8 @@ where
     /// Await the next ready event using biased priority ordering.
     ///
     /// Shutdown is observed first, followed by high-priority pushes, then
-    /// low-priority pushes and finally the response stream. This mirrors the
+    /// low-priority pushes, multi-packet channels, and finally the response
+    /// stream. This mirrors the
     /// original behaviour and matches the design documentation. The final
     /// `else` branch prevents `tokio::select!` from panicking if all guards are
     /// false.
@@ -247,6 +256,7 @@ where
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
         let high_available = self.high_rx.is_some();
         let low_available = self.low_rx.is_some();
+        let multi_available = self.multi_packet.is_some() && !state.is_shutting_down();
         let resp_available = self.response.is_some() && !state.is_shutting_down();
 
         tokio::select! {
@@ -257,6 +267,8 @@ where
             res = Self::poll_priority(self.high_rx.as_mut()), if high_available => Event::High(res),
 
             res = Self::poll_priority(self.low_rx.as_mut()), if low_available => Event::Low(res),
+
+            res = Self::poll_multi_packet(self.multi_packet.as_mut()), if multi_available => Event::MultiPacket(res),
 
             res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
 
@@ -290,6 +302,7 @@ where
             Event::Shutdown => self.process_shutdown(state),
             Event::High(res) => self.process_high(res, state, out),
             Event::Low(res) => self.process_low(res, state, out),
+            Event::MultiPacket(res) => self.process_multi_packet(res, state, out),
             Event::Response(res) => self.process_response(res, state, out)?,
             Event::Idle => {}
         }
@@ -321,6 +334,28 @@ where
             self.after_low();
         } else {
             Self::handle_closed_receiver(&mut self.low_rx, state);
+        }
+    }
+
+    /// Handle frames drained from the multi-packet channel.
+    fn process_multi_packet(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
+        if let Some(frame) = res {
+            self.process_frame_common(frame, out);
+            self.after_low();
+        } else {
+            self.multi_packet = None;
+            state.mark_closed();
+            let mut emitted_end = false;
+            if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+                self.hooks.before_send(&mut frame, &mut self.ctx);
+                out.push(frame);
+                crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
+                emitted_end = true;
+            }
+            self.hooks.on_command_end(&mut self.ctx);
+            if emitted_end {
+                self.after_low();
+            }
         }
     }
 
@@ -478,6 +513,11 @@ where
         Self::poll_optional(rx, Self::recv_push).await
     }
 
+    /// Poll the multi-packet channel.
+    async fn poll_multi_packet(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
+        Self::poll_optional(rx, Self::recv_push).await
+    }
+
     /// Poll the streaming response.
     async fn poll_response(
         resp: Option<&mut FrameStream<F, E>>,
@@ -508,23 +548,24 @@ impl ActorState {
     ///
     /// `has_response` indicates whether a streaming response is currently
     /// attached.
+    /// `has_multi_packet` signals that a channel-backed response is active.
     ///
     /// # Examples
     ///
     /// ```ignore
     /// use wireframe::connection::ActorState;
     ///
-    /// let state = ActorState::new(true);
+    /// let state = ActorState::new(true, false);
     /// assert!(state.is_active());
     /// ```
-    fn new(has_response: bool) -> Self {
+    fn new(has_response: bool, has_multi_packet: bool) -> Self {
         Self {
             run_state: RunState::Active,
             // The shutdown token is considered closed until cancellation
             // occurs, matching previous behaviour where draining sources
             // without explicit shutdown terminates the actor.
             closed_sources: 1,
-            total_sources: 3 + usize::from(has_response),
+            total_sources: 3 + usize::from(has_response) + usize::from(has_multi_packet),
         }
     }
 

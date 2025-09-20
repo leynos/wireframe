@@ -20,7 +20,6 @@ use wireframe::{
     serializer::BincodeSerializer,
     server::WireframeServer,
 };
-use wireframe_testing::collect_multi_packet;
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -227,8 +226,16 @@ impl MultiPacketWorld {
             tx.send(msg).await.expect("send");
         }
         drop(tx);
-        let resp: wireframe::Response<u8, ()> = wireframe::Response::MultiPacket(ch_rx);
-        self.messages = collect_multi_packet(resp).await;
+
+        let (queues, handle) = build_small_queues::<u8>();
+        let shutdown = CancellationToken::new();
+        let mut actor: ConnectionActor<_, ()> =
+            ConnectionActor::new(queues, handle, None, shutdown);
+        actor.set_multi_packet(Some(ch_rx));
+
+        let mut frames = Vec::new();
+        actor.run(&mut frames).await.expect("actor run failed");
+        self.messages = frames;
     }
 
     /// Send messages through a multi-packet response and record them.

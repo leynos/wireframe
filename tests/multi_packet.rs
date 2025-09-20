@@ -4,7 +4,8 @@
 use futures::TryStreamExt;
 use rstest::rstest;
 use tokio::sync::mpsc;
-use wireframe::Response;
+use tokio_util::sync::CancellationToken;
+use wireframe::{Response, connection::ConnectionActor, push::PushQueues};
 use wireframe_testing::collect_multi_packet;
 
 #[derive(PartialEq, Debug)]
@@ -41,6 +42,31 @@ async fn multi_packet_drains_all_messages(count: usize) {
             .map(|i| TestMsg(u8::try_from(i).expect("<= u8::MAX")))
             .collect::<Vec<_>>()
     );
+}
+
+/// Drains frames from a multi-packet channel via the connection actor.
+#[tokio::test]
+async fn connection_actor_drains_multi_packet_channel() {
+    let frames = vec![11u8, 12, 13];
+    let (tx, rx) = mpsc::channel(frames.len());
+    for &value in &frames {
+        tx.send(value).await.expect("send frame");
+    }
+    drop(tx);
+
+    let (queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .build()
+        .expect("failed to build PushQueues");
+    let shutdown = CancellationToken::new();
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    actor.set_multi_packet(Some(rx));
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+
+    assert_eq!(out, frames);
 }
 
 /// Returns an empty stream for an empty vector response.

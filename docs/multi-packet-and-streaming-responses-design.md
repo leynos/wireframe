@@ -266,6 +266,11 @@ not hang.
   `select!` loop rather than by a detached task. This keeps a single locus for
   back-pressure, aligns with the production resilience guidance on avoiding
   orphaned tasks, and ensures orderly shutdown propagates to streaming work.
+- The `ConnectionActor` owns the channel receiver and polls it via the
+  main `select!` loop. Frames pass through `process_frame_common` so protocol
+  hooks and metrics observe every packet. When the channel drains, the actor
+  emits the protocol end-of-stream marker and invokes `on_command_end` to
+  release per-request state.
 - The actor captures the request's `correlation_id` before iterating the
   channel and stamps it onto every serialised frame. This preserves protocol
   invariants without requiring handlers to mutate frames post-creation and
