@@ -1,17 +1,16 @@
 # Wireframe library guide
 
 Wireframe is a Rust library for building asynchronous binary protocol servers
-with pluggable routing, middleware, and connection utilities.[^1] The following
-sections describe the major components available today and explain how they fit
+with pluggable routing, middleware, and connection utilities.[^1] The guide
+below walks through the components that exist today and explains how they work
 together when assembling an application.
 
 ## Quick start: building an application
 
-A `WireframeApp` collects routes and middleware, then drives a framed transport
-when `handle_connection` is called on an I/O stream.[^2][^3] Routes are keyed
-by numeric identifiers and map to handler functions. Each handler is wrapped in
-an `Arc` and returns a future that resolves to `()` once handler execution
-completes.[^4]
+A `WireframeApp` collects route handlers and middleware. Each handler is stored
+as an `Arc` pointing to an async function that receives a packet reference and
+returns `()`. The builder caches these registrations until `handle_connection`
+constructs the middleware chain for an accepted stream.[^2]
 
 ```rust
 use std::sync::Arc;
@@ -35,326 +34,233 @@ fn build_app() -> wireframe::Result<WireframeApp> {
 }
 ```
 
-Register each route with a unique identifier; the builder returns
-`WireframeError::DuplicateRoute` if a handler is already registered for an id,
-helping maintain an unambiguous table.[^5][^6] By default the builder uses the
-bundled bincode serializer, accepts frames up to 1024 bytes, and enforces a 100
-ms read timeout on each request. These limits are adjustable via
-`buffer_capacity` and `read_timeout_ms`; values are clamped between 64 bytes
-and 16 MiB, and between 1 ms and 24 h respectively.[^7] Store connection-wide
-state for extractors using `app_data`, which registers values keyed by `TypeId`
-so they can be retrieved from request contexts.[^8][^9]
+Route identifiers must be unique; the builder returns
+`WireframeError::DuplicateRoute` when you try to register a handler twice,
+keeping the dispatch table unambiguous.[^2][^5] New applications default to the
+bundled bincode serializer, a 1024-byte frame buffer, and a 100 ms read
+timeout. Clamp these limits with `buffer_capacity` and `read_timeout_ms`, or
+swap the serializer with `with_serializer` when you need a different encoding
+strategy.[^3][^4]
 
 Once a stream is accepted—either from a manual accept loop or via
-`WireframeServer`—`handle_connection(stream)` deserializes frames, builds or
-reuses the middleware chain, executes handlers, and writes responses back using
-length-delimited framing. Deserialization failures are logged, counted, and the
-connection is closed after ten consecutive errors.[^10] Immediate responses can
-be emitted via `send_response` or `send_response_framed`, which serialize a
-`Message` value with the configured `Serializer` and write it to an async
-stream; errors surface as `SendError` variants that distinguish serialization
-failures from I/O problems.[^11][^12]
+`WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
+chain, wraps the transport in a length-delimited codec, enforces per-frame read
+timeouts, and writes responses. Serialisation helpers `send_response` and
+`send_response_framed` return typed `SendError` variants when encoding or I/O
+fails, and the connection closes after ten consecutive deserialisation
+errors.[^6][^7]
 
-## Understanding packets and serialization
+## Packets, payloads, and serialisation
 
-Wireframe works with user-defined messages that implement the `Message` trait,
-which provides helpers for bincode encoding and decoding.[^13] Serializers plug
-into the `Serializer` trait; the default `BincodeSerializer` uses bincode’s
-standard configuration and also implements `FrameMetadata` so the framework can
-extract envelope metadata without decoding the full payload.[^14] Swap
-serializers with `WireframeApp::with_serializer` during construction or the
-`serializer` method later in the builder chain when a different encoding
-strategy is required.[^15] Messages are wrapped in packets implementing the
-`Packet` trait. The bundled `Envelope` stores the route identifier, an optional
-correlation identifier, and raw payload bytes. Utilities on `PacketParts`
-permit correlation identifiers to be inherited or overwritten before a response
-is sent.[^16] When processing frames the application first tries to parse
-metadata via `FrameMetadata::parse`, falling back to full deserialization if
-the shortcut fails.[^17]
+Packets drive routing. Implement the `Packet` trait (or use the bundled
+`Envelope`) to expose a message identifier, optional correlation id, and raw
+payload. `PacketParts` rebuilds packets after middleware has finished editing
+frames, and `inherit_correlation` patches mismatched response identifiers while
+logging the discrepancy.[^8] Serialisers plug into the `Serializer` trait;
+`WireframeApp` defaults to `BincodeSerializer` but can run any implementation
+that meets the trait bounds.[^4]
 
-## Accessing request data with extractors
+When `FrameMetadata::parse` succeeds, the framework extracts identifiers from
+metadata without deserialising the payload. If parsing fails, it falls back to
+full deserialisation.[^9][^6] Application messages implement the `Message`
+trait, gaining `to_bytes` and `from_bytes` helpers that use bincode with the
+standard configuration.[^10]
 
-`MessageRequest` records connection metadata and shared state populated by
-`WireframeApp::app_data`, making it available to extractors without global
-variables.[^18] Custom extractors implement `FromMessageRequest`, receiving the
-request context and a `Payload` view over the remaining bytes; helper methods
-advance the payload safely or report the remaining length.[^19] Built-in
-extractors cover common needs: `SharedState<T>` retrieves registered state,
-`Message<T>` decodes the payload into a concrete type that implements
-`Message`, and `ConnectionInfo` exposes the peer socket address.[^20] Failures
-return `ExtractError`, distinguishing missing shared state from payload decode
-issues so that responses can be shaped appropriately.[^21]
+## Working with requests and middleware
 
-## Handling requests with middleware
+Every inbound frame becomes a `ServiceRequest`. Middleware can inspect or
+mutate the byte buffer through `frame` and `frame_mut`, adjust correlation
+identifiers, or wrap the remainder of the pipeline using `Transform`. The
+`Next` continuation calls the inner service, returning a `ServiceResponse`
+containing the frame that will be serialised back to the client.[^11]
 
-Middleware is responsible for decoding incoming frames, applying cross-cutting
-behaviour, and shaping the response payload. Each request flows through a chain
-of `Service` implementations that accept a `ServiceRequest` and return a
-`ServiceResponse`. Both wrappers expose methods to inspect or mutate the frame
-buffer and correlation identifier when building a reply.[^22] The `Next`
-continuation gives middleware access to the remainder of the chain, while the
-`Transform` trait wraps services to build new pipeline stages.[^23] For simple
-cases, use `middleware::from_fn` to adapt an async function into a middleware
-component. The function receives the request and a `Next` reference, enabling
-payload decoding, invocation of the inner service, and response editing before
-it is serialized.[^24] When the pipeline reaches a registered route,
-`HandlerService` reconstructs the packet, invokes the handler, then converts
-the handler’s packet back into a `ServiceResponse` for the framework to
-serialize.[^25]
+The `middleware::from_fn` helper adapts async functions into middleware
+components, letting you decode payloads, call the inner service, and then
+modify `ServiceResponse` before the response is serialised. `HandlerService`
+rebuilds a packet from the request bytes, invokes the registered handler, and
+by default returns the original payload, so middleware (or custom packet types
+with interior mutability) is the place to craft replies.[^12] Use the `Message`
+helpers to decode typed payloads, then write the encoded response into
+`ServiceResponse::frame_mut()`.[^10][^12]
+
+Advanced integrations can adopt the `wireframe::extractor` module, which
+defines `MessageRequest`, `Payload`, and `FromMessageRequest` for building
+Actix-style extractors in custom middleware or services. These types expose
+shared state, peer addresses, and payload cursors for frameworks that want to
+layer additional ergonomics on top of the core primitives.[^13]
 
 ## Connection lifecycle
 
-During `handle_connection`, the builder optionally runs per-connection setup
-and teardown callbacks. Setup is invoked once per connection and may return
-state of any type; the returned value is held until teardown runs after the
-stream finishes processing.[^26] The connection driver runs the teardown
-callback once the stream completes processing.[^27] Framed I/O uses a
-`LengthDelimitedCodec` configured with the application’s buffer capacity, and
-every read is wrapped in a timeout window derived from `read_timeout_ms`.[^28]
-Inbound frames increment the inbound metrics counter, while serialization and
-handler failures bump error counters before warnings are logged.[^29][^30]
-Responses inherit correlation identifiers via
-`PacketParts::inherit_correlation` so that mis-matched values are corrected and
-logged rather than silently propagated.[^31]
+`WireframeApp` supports optional setup and teardown callbacks that run once per
+connection. Setup can return arbitrary state retained until teardown executes
+after the stream finishes processing.[^2] During `handle_connection` the
+framework caches middleware chains, enforces read timeouts, and records metrics
+for inbound frames, serialisation failures, and handler errors before logging
+warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
+carry the correct correlation identifier even when middleware omits it.[^8]
+
+Immediate responses are available through `send_response` and
+`send_response_framed`, both of which report serialisation or I/O problems via
+`SendError`.[^6][^5]
 
 ## Protocol hooks
 
-Implement `WireframeProtocol` when custom logic around outbound frames is
-required. The trait exposes callbacks for connection setup, pre-send mutation,
-command completion, protocol error handling, and optional end-of-stream frame
-generation.[^32] Attach a protocol to the builder with `with_protocol`. Use
-`protocol_hooks()` to convert the stored implementation into `ProtocolHooks`
-when constructing a `ConnectionActor`.[^33] `ConnectionActor::with_hooks`
-installs these callbacks so that pushes and streamed responses invoke them
-consistently alongside any connection metrics or fairness logic.[^34][^35]
+Install a custom protocol with `with_protocol`. `protocol_hooks()` converts the
+stored implementation into `ProtocolHooks`, which the connection actor consumes
+when draining responses and push queues.[^2][^7] `WireframeProtocol` exposes
+callbacks for connection setup, per-frame mutation, command completion,
+protocol errors, and optional end-of-stream frames. The connection actor
+invokes these hooks around every outbound frame and when response streams end
+or emit errors.[^14]
 
 ## Running servers
 
-`WireframeServer::new` clones an application factory per worker and starts in
-the unbound state; bind a socket with `bind` or `bind_existing_listener` before
-calling any run method. A convenience `worker_count` accessor reports the
-current worker total, which defaults to the host CPU count but never drops
-below one.[^36] A one-shot readiness notifier is installed with `ready_signal`,
-and `accept_backoff` customizes accept-loop backoff delays by normalizing
-values via `BackoffConfig` to keep them within sensible bounds.[^37] The
-runtime enforces those normalized limits inside the accept loop to prevent
-runaway retries.[^38] Binding transitions the server into the `Bound`
-typestate, exposes `local_addr`, and supports rebinding to a new listener when
-required; failures surface as `ServerError::Bind` or `ServerError::Accept`
-variants.[^39][^40]
+`WireframeServer::new` clones the application factory per worker, defaults the
+worker count to the host CPU total (never below one), supports a readiness
+signal, and normalises accept-loop backoff settings through
+`accept_backoff`.[^15][^16] Servers start in an unbound state; call `bind` or
+`bind_existing_listener` to transition into the `Bound` typestate, inspect the
+bound address, or rebind later.[^17]
 
-`run` awaits Ctrl+C for shutdown, while `run_with_shutdown` accepts any future
-and cancels all worker tasks once it resolves.[^41] Each worker runs an accept
-loop that clones the factory, applies optional preamble handlers, rewinds
-leftover bytes, and hands the stream to the application. Transient accept
-failures trigger exponential backoff capped by the configured maximum
-delay.[^42] Accepted streams are processed by `spawn_connection_task`, which
-rewinds leftover bytes, runs optional handlers, and then invokes the
-application.[^43] Custom preambles are enabled via `with_preamble` alongside
-success and failure callbacks; both hooks run before the stream reaches the
-application, enabling handshakes or structured logging of validation
-errors.[^44] The preamble module also exposes `read_preamble`, which
-incrementally decodes up to 1 KiB using bincode, and `RewindStream`, which
-replays leftover bytes before continuing with the underlying
-transport.[^45][^46]
+`run` awaits Ctrl+C, while `run_with_shutdown` cancels all worker tasks when
+the supplied future resolves.[^18] Each worker runs `accept_loop`, which clones
+the factory, rewinds leftover preamble bytes, and hands the stream to the
+application. Transient accept failures trigger exponential backoff capped by
+the configured maximum delay.[^18][^19] Preamble hooks support asynchronous
+success handlers and synchronous failure callbacks, letting you reject
+connections or log decode errors before the application runs.[^20]
+
+`spawn_connection_task` wraps each accepted stream in `read_preamble` and
+`RewindStream`, records connection panics, and logs failures without crashing
+worker tasks.[^20][^37][^38] `ServerError` surfaces bind and accept failures as
+typed errors so callers can react appropriately.[^21]
 
 ## Push queues and connection actors
 
-Push queues buffer outbound frames that originate from background tasks.[^47]
-The fluent `PushQueuesBuilder` configures separate capacities for high- and
-low-priority queues, an optional global rate limit (default 100 pushes per
-second), and an optional dead-letter queue with adjustable logging cadence for
-dropped frames.[^48] Builder helpers such as `unlimited`, `dlq`, and
-`dlq_log_every_n` simplify throughput and observability tuning.[^48] Validation
-ensures capacities are non-zero and that rate limits fall within
-`1..=MAX_PUSH_RATE` (10 000 messages per second).[^49] Frames are drained with
-`recv`, which prioritizes the high-priority queue but eventually yields
-low-priority frames, and `close` allows tests to release resources when no
-actor is draining the queues.[^50] `PushHandle` instances are cloneable and
-expose async methods for pushing high- or low-priority frames subject to the
-configured rate limiter. The synchronous `try_push` supports policies that
-either return an error, drop the frame, or drop and log a warning; when a
-dead-letter queue is present, dropped frames are forwarded there with throttled
-logging to avoid noise.[^51] Push operations report back using the `PushError`
-enum, while configuration errors use `PushConfigError` to signal invalid
-capacities or rates.[^52] All frame types must implement the marker trait
-`FrameLike`, which simply requires `Send + 'static`.[^53]
+Background work interacts with connections through `PushQueues`. The fluent
+builder configures high- and low-priority capacities, optional rate limits, and
+an optional dead-letter queue with tunable logging cadence for dropped
+frames.[^23] Queue construction validates capacities and rate limits, clamping
+rates to the supported range.[^24] `PushHandle` exposes async
+`push_high_priority` and `push_low_priority` helpers that honour the rate
+limiter before awaiting channel capacity, while `try_push` implements
+policy-controlled drops with optional warnings and dead-letter forwarding.[^26]
+Cloneable handles downgrade to `Weak` references for registration in a session
+registry.[^25]
 
-`ConnectionActor` consumes the push queues, optional streaming responses, and a
-shutdown token. It keeps per-connection metrics via a Resource Acquisition Is
-Initialization (RAII) guard, exposes `set_response` for attaching a
-`FrameStream`, and offers `set_fairness` to tune how often low-priority frames
-are drained. The main `run` loop honours cancellation, preserves strict
-ordering for high-priority frames, and emits protocol hooks around every
-outbound frame.[^54] Fairness is governed by `FairnessConfig`, which limits
-consecutive high-priority frames and can enforce a time slice;
-`FairnessTracker` records usage and determines when to yield to low-priority
-work.[^55][^56] When a streaming response yields `WireframeError::Protocol`,
-the actor invokes `handle_error` on the installed protocol and continues
-draining; transport errors abort the run with the error so callers can log or
-reconnect.[^57] Use `active_connection_count()` to inspect the current
-connection gauge, or query the shutdown token when cancellation from another
-thread is required.[^58]
+`PushQueues::recv` prefers high-priority frames but eventually drains the
+low-priority queue; `close` lets tests release resources when no actor is
+running.[^27] The connection actor consumes these queues, an optional streaming
+response, and a cancellation token.
+
+`FairnessConfig` and `FairnessTracker` limit consecutive high-priority frames
+and optionally enforce a time slice. Resetting the tracker after low-priority
+work keeps fairness predictable.[^28][^29] `ConnectionActor::run` polls the
+shutdown token, push queues, and response stream using a biased `select!` loop,
+invokes protocol hooks, records metrics for outbound frames, and returns a
+`WireframeError` when the response stream hits an I/O problem.[^30][^33] Active
+connection counts are tracked with a guard that increments on creation and
+decrements on drop; the `active_connection_count()` helper exposes the current
+gauge.[^31]
 
 ## Session management
 
-`ConnectionId` wraps a `u64` identifier with convenience constructors and
-formatting helpers.[^59] `SessionRegistry` stores weak references to
-`PushHandle` instances keyed by `ConnectionId`, allowing other tasks to
-discover active connections without preventing cleanup. Lookups attempt to
-upgrade the stored pointer and prune dead entries automatically; explicit
-`prune` calls remove stale handles in bulk. Dedicated methods insert or remove
-handles, and helper accessors return either the live handle pairs or just their
-identifiers.[^60]
+`ConnectionId` wraps a `u64` identifier with helpers for construction,
+formatting, and retrieval. `SessionRegistry` stores weak references to
+`PushHandle` instances keyed by `ConnectionId`, automatically pruning dead
+entries during lookups. Helpers insert and remove handles, bulk-prune stale
+entries, or return live handle/identifier pairs for background tasks that need
+to enumerate active sessions.[^40]
 
 ## Streaming responses
 
-The `Response` enum models several response styles: a single frame, a vector of
-frames, a streamed response, a multi-packet channel backed by `tokio::mpsc`, or
-an empty response. Call `into_stream` to convert any variant into a boxed
-`FrameStream`, suitable for passing to `ConnectionActor::set_response` when
-interleaving pushes and streamed handler output is required. Protocol or
-transport errors are wrapped in `WireframeError`, enabling clients to
-differentiate between logical failures and I/O issues.[^61][^62]
+The `Response` enum models several reply styles: a single frame, a vector of
+frames, a streamed response, a channel-backed multi-packet response, or an
+empty reply. `into_stream` converts any variant into a boxed `FrameStream`,
+ready to install on a connection actor with `set_response` so streaming output
+can be interleaved with push traffic. `WireframeError` distinguishes transport
+failures from protocol-level errors emitted by streaming
+responses.[^34][^35][^31]
 
-When constructing imperative streams within handlers, prefer the `async-stream`
-crate’s `stream!` macro as the canonical approach. The macro produces
-`FrameStream` values once items are wrapped in `Result` and mapped into
-`WireframeError`:[^66]
+When constructing imperative streams, the `async-stream` crate integrates
+smoothly. The example below yields five frames and converts them into a
+`Response::Stream` value:
 
 ```rust
-use async_stream::stream;
+use async_stream::try_stream;
 use futures::StreamExt;
-use wireframe::response::{Response, WireframeError};
+use wireframe::response::Response;
 
-fn stream_response() -> Response<u32> {
-    let frames = stream! {
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
+struct Frame(u32);
+
+fn stream_response() -> Response<Frame> {
+    let frames = try_stream! {
         for value in 0..5 {
-            yield Ok::<u32, ()>(value);
+            yield Frame(value);
         }
-    }
-    .map(|frame| frame.map_err(WireframeError::from));
+    };
     Response::Stream(Box::pin(frames))
 }
 ```
 
-## Versioning and graceful deprecation
-
-When evolving message schemas, deprecate older versions in stages:
-
-- Accept N and N-1 on ingress; emit N on egress using the `Message` extractor
-  and canonical `Response` conversion.[^20][^61]
-- Add adapters to up-convert N-1 payloads to N inside extractors, keeping
-  routing logic focused on the newest data shape.[^19][^20]
-- Emit deprecation metrics and logs through the `metrics` helpers with
-  rate-limited warnings to avoid noise.[^63][^67]
-- Announce removal dates; delete adapters after the sunset date.
-
-Example up-conversion adapter:
-
-```rust
-#[derive(serde::Deserialize)]
-struct MsgV1 { id: u64, name: String }
-
-#[derive(serde::Deserialize, serde::Serialize)]
-struct MsgV2 { id: u64, display_name: String }
-
-impl From<MsgV1> for MsgV2 {
-    fn from(v1: MsgV1) -> Self {
-        MsgV2 { id: v1.id, display_name: v1.name }
-    }
-}
-```
-
-Expose both decoders temporarily, then standardize on `MsgV2` internally.
+[^36]
 
 ## Metrics and observability
 
-When the optional `metrics` feature is enabled, Wireframe updates several named
-counters and gauges: `wireframe_connections_active`,
-`wireframe_frames_processed_total` tagged by direction,
-`wireframe_errors_total` with error type labels, and
-`wireframe_connection_panics_total` for panicking connection tasks.[^63][^64]
-Each helper becomes a no-op when the feature is disabled, allowing
-instrumentation without sprinkling conditional compilation throughout the
-codebase. Outbound and inbound frames call these helpers from both the
-connection actor and the request-processing pipeline.[^29][^58]
+When the optional `metrics` feature is enabled, Wireframe updates the
+`wireframe_connections_active` gauge, frame counters tagged by direction, error
+counters tagged by kind, and a counter for panicking connection tasks. All
+helpers become no-ops when the feature is disabled so instrumentation can stay
+in place.[^33] `handle_connection`, the connection actor, and the panic wrapper
+call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 
 ## Additional utilities
 
-For manual integrations, call `read_preamble` directly when it is necessary to
-validate an initial handshake. The helper reads up to 1 KiB, decoding
-additional bytes as required, and returns any leftover data alongside the
-decoded value. Wrap the stream in `RewindStream` so the leftover bytes are
-replayed before normal processing begins.[^45][^46] If a connection task
-panics, call `panic::format_panic` to render the payload for consistent logging
-across `log` and `tracing` consumers.[^65]
+- `read_preamble` decodes up to 1 KiB using bincode, returning the decoded
+  value plus any leftover bytes that must be replayed before normal frame
+  processing.[^37]
+- `RewindStream` replays leftover bytes before delegating reads and writes to
+  the underlying stream, keeping the framing layer transparent.[^38]
+- `panic::format_panic` renders panic payloads for consistent logging across
+  `log` and `tracing` consumers.[^39]
 
 [^1]: Implemented in `src/lib.rs` (lines 2-33).
 [^2]: Implemented in `src/app/builder.rs` (lines 66-209).
-[^3]: Implemented in `src/app/connection.rs` (lines 121-289).
-[^4]: Implemented in `src/app/builder.rs` (lines 66-179).
-[^5]: Implemented in `src/app/builder.rs` (lines 166-179).
-[^6]: Implemented in `src/app/error.rs` (lines 7-24).
-[^7]: Implemented in `src/app/builder.rs` (lines 100-361).
-[^8]: Implemented in `src/app/builder.rs` (lines 181-195).
-[^9]: Implemented in `src/extractor.rs` (lines 31-84).
-[^10]: Implemented in `src/app/connection.rs` (lines 26-289).
-[^11]: Implemented in `src/app/connection.rs` (lines 41-97).
-[^12]: Implemented in `src/app/error.rs` (lines 16-26).
-[^13]: Implemented in `src/message.rs` (lines 15-58).
-[^14]: Implemented in `src/serializer.rs` (lines 11-57).
-[^15]: Implemented in `src/app/builder.rs` (lines 153-345).
-[^16]: Implemented in `src/app/envelope.rs` (lines 11-172).
-[^17]: Implemented in `src/app/connection.rs` (lines 99-120).
-[^18]: Implemented in `src/extractor.rs` (lines 1-84).
-[^19]: Implemented in `src/extractor.rs` (lines 87-172).
-[^20]: Implemented in `src/extractor.rs` (lines 188-359).
-[^21]: Implemented in `src/extractor.rs` (lines 200-236).
-[^22]: Implemented in `src/middleware.rs` (lines 13-116).
-[^23]: Implemented in `src/middleware.rs` (lines 119-189).
-[^24]: Implemented in `src/middleware.rs` (lines 191-273).
-[^25]: Implemented in `src/middleware.rs` (lines 275-347).
-[^26]: Implemented in `src/app/builder.rs` (lines 211-264).
-[^27]: Implemented in `src/app/connection.rs` (lines 130-152).
-[^28]: Implemented in `src/app/connection.rs` (lines 41-193).
-[^29]: Implemented in `src/app/connection.rs` (lines 200-280).
-[^30]: Implemented in `src/metrics.rs` (lines 21-111).
-[^31]: Implemented in `src/app/envelope.rs` (lines 104-149).
-[^32]: Implemented in `src/hooks.rs` (lines 1-186).
-[^33]: Implemented in `src/app/builder.rs` (lines 266-324).
-[^34]: Implemented in `src/connection.rs` (lines 161-205).
-[^35]: Implemented in `src/hooks.rs` (lines 80-186).
-[^36]: Implemented in `src/server/config/mod.rs` (lines 47-152).
-[^37]: Implemented in `src/server/config/mod.rs` (lines 89-152).
-[^38]: Implemented in `src/server/runtime.rs` (lines 46-107).
-[^39]: Implemented in `src/server/config/binding.rs` (lines 70-200).
-[^40]: Implemented in `src/server/error.rs` (lines 1-13).
-[^41]: Implemented in `src/server/runtime.rs` (lines 85-205).
-[^42]: Implemented in `src/server/runtime.rs` (lines 200-333).
-[^43]: Implemented in `src/server/connection.rs` (lines 17-85).
-[^44]: Implemented in `src/server/config/preamble.rs` (lines 20-100).
-[^45]: Implemented in `src/preamble.rs` (lines 5-128).
-[^46]: Implemented in `src/rewind_stream.rs` (lines 1-66).
-[^47]: Implemented in `src/push/queues/mod.rs` (lines 1-172).
-[^48]: Implemented in `src/push/queues/builder.rs` (lines 16-166).
-[^49]: Implemented in `src/push/queues/mod.rs` (lines 112-173).
-[^50]: Implemented in `src/push/queues/mod.rs` (lines 255-318).
-[^51]: Implemented in `src/push/queues/handle.rs` (lines 84-298).
-[^52]: Implemented in `src/push/queues/errors.rs` (lines 7-19).
-[^53]: Implemented in `src/push/queues/mod.rs` (lines 33-45).
-[^54]: Implemented in `src/connection.rs` (lines 22-400).
-[^55]: Implemented in `src/connection.rs` (lines 69-205).
-[^56]: Implemented in `src/fairness.rs` (lines 1-86).
-[^57]: Implemented in `src/connection.rs` (lines 400-434).
-[^58]: Implemented in `src/connection.rs` (lines 22-205).
-[^59]: Implemented in `src/session.rs` (lines 7-46).
-[^60]: Implemented in `src/session.rs` (lines 57-216).
-[^61]: Implemented in `src/response.rs` (lines 1-189).
-[^62]: Implemented in `src/connection.rs` (lines 193-205).
-[^63]: Implemented in `src/metrics.rs` (lines 1-89).
-[^64]: Implemented in `src/server/connection.rs` (lines 41-47).
-[^65]: Implemented in `src/panic.rs` (lines 1-13).
-[^66]: Demonstrated in `examples/async_stream.rs` (lines 1-30).
-[^67]: Illustrated in `docs/asynchronous-outbound-messaging-design.md`
-    (lines 344-359).
+[^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
+[^4]: Implemented in `src/app/builder.rs` (lines 326-344).
+[^5]: Implemented in `src/app/error.rs` (lines 7-26).
+[^6]: Implemented in `src/app/connection.rs` (lines 41-205).
+[^7]: Implemented in `src/app/connection.rs` (lines 207-289).
+[^8]: Implemented in `src/app/envelope.rs` (lines 11-172).
+[^9]: Implemented in `src/frame/metadata.rs` (lines 1-40).
+[^10]: Implemented in `src/message.rs` (lines 4-41).
+[^11]: Implemented in `src/middleware.rs` (lines 13-206).
+[^12]: Implemented in `src/middleware.rs` (lines 252-347).
+[^13]: Implemented in `src/extractor.rs` (lines 1-236).
+[^14]: Implemented in `src/hooks.rs` (lines 18-175).
+[^15]: Implemented in `src/server/config/mod.rs` (lines 47-152).
+[^16]: Implemented in `src/server/runtime.rs` (lines 46-83).
+[^17]: Implemented in `src/server/config/binding.rs` (lines 68-214).
+[^18]: Implemented in `src/server/runtime.rs` (lines 90-233).
+[^19]: Implemented in `src/server/runtime.rs` (lines 240-333).
+[^20]: Implemented in `src/server/config/preamble.rs` (lines 14-100) and
+    `src/server/connection.rs` (lines 17-84).
+[^21]: Implemented in `src/server/error.rs` (lines 7-18).
+[^23]: Implemented in `src/push/queues/mod.rs` (lines 41-190).
+[^24]: Implemented in `src/push/queues/errors.rs` (lines 7-28).
+[^25]: Implemented in `src/push/queues/handle.rs` (lines 84-225).
+[^26]: Implemented in `src/push/queues/handle.rs` (lines 198-295).
+[^27]: Implemented in `src/push/queues/mod.rs` (lines 255-318).
+[^28]: Implemented in `src/connection.rs` (lines 69-205).
+[^29]: Implemented in `src/fairness.rs` (lines 1-79).
+[^30]: Implemented in `src/connection.rs` (lines 240-441).
+[^31]: Implemented in `src/connection.rs` (lines 22-46).
+[^33]: Implemented in `src/metrics.rs` (lines 21-111).
+[^34]: Implemented in `src/response.rs` (lines 46-151).
+[^35]: Implemented in `src/response.rs` (lines 156-209).
+[^36]: Demonstrated in `examples/async_stream.rs` (lines 1-23).
+[^37]: Implemented in `src/preamble.rs` (lines 1-128).
+[^38]: Implemented in `src/rewind_stream.rs` (lines 14-76).
+[^39]: Implemented in `src/panic.rs` (lines 1-18).
+[^40]: Implemented in `src/session.rs` (lines 13-255).
