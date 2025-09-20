@@ -197,14 +197,14 @@ stream.
   - [x] Introduce a `Response::MultiPacket` variant that contains a channel
     `Receiver<Message>`.
 
-  - [ ] Modify the `Connection` actor: upon receiving `Response::MultiPacket`,
+  - [x] Modify the `Connection` actor: upon receiving `Response::MultiPacket`,
     it should consume messages from the receiver and send each one as a `Frame`.
-    - [ ] Extend the outbound `select!` loop to own the receiver so
+    - [x] Extend the outbound `select!` loop to own the receiver so
       multi-packet responses share the same back-pressure and shutdown handling
       as other frame sources.
-    - [ ] Convert each received `Message` into a `Frame` via the existing
+    - [x] Convert each received `Message` into a `Frame` via the existing
       serialization helpers rather than bypassing protocol hooks or metrics.
-    - [ ] Emit tracing and metrics for each forwarded frame so streaming
+    - [x] Emit tracing and metrics for each forwarded frame so streaming
       traffic remains visible to observability pipelines.
 
   - [ ] Each sent frame must carry the correct `correlation_id` from the
