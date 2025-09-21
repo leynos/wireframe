@@ -45,24 +45,24 @@ strategy.[^3][^4]
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
 chain, wraps the transport in a length-delimited codec, enforces per-frame read
-timeouts, and writes responses. Serialisation helpers `send_response` and
+timeouts, and writes responses. Serialization helpers `send_response` and
 `send_response_framed` return typed `SendError` variants when encoding or I/O
-fails, and the connection closes after ten consecutive deserialisation
+fails, and the connection closes after ten consecutive deserialization
 errors.[^6][^7]
 
-## Packets, payloads, and serialisation
+## Packets, payloads, and serialization
 
 Packets drive routing. Implement the `Packet` trait (or use the bundled
 `Envelope`) to expose a message identifier, optional correlation id, and raw
 payload. `PacketParts` rebuilds packets after middleware has finished editing
 frames, and `inherit_correlation` patches mismatched response identifiers while
-logging the discrepancy.[^8] Serialisers plug into the `Serializer` trait;
+logging the discrepancy.[^8] Serializers plug into the `Serializer` trait;
 `WireframeApp` defaults to `BincodeSerializer` but can run any implementation
 that meets the trait bounds.[^4]
 
 When `FrameMetadata::parse` succeeds, the framework extracts identifiers from
-metadata without deserialising the payload. If parsing fails, it falls back to
-full deserialisation.[^9][^6] Application messages implement the `Message`
+metadata without deserializing the payload. If parsing fails, it falls back to
+full deserialization.[^9][^6] Application messages implement the `Message`
 trait, gaining `to_bytes` and `from_bytes` helpers that use bincode with the
 standard configuration.[^10]
 
@@ -72,15 +72,15 @@ Every inbound frame becomes a `ServiceRequest`. Middleware can inspect or
 mutate the byte buffer through `frame` and `frame_mut`, adjust correlation
 identifiers, or wrap the remainder of the pipeline using `Transform`. The
 `Next` continuation calls the inner service, returning a `ServiceResponse`
-containing the frame that will be serialised back to the client.[^11]
+containing the frame that will be serialized back to the client.[^11]
 
 The `middleware::from_fn` helper adapts async functions into middleware
-components, letting you decode payloads, call the inner service, and then
-modify `ServiceResponse` before the response is serialised. `HandlerService`
-rebuilds a packet from the request bytes, invokes the registered handler, and
-by default returns the original payload, so middleware (or custom packet types
-with interior mutability) is the place to craft replies.[^12] Use the `Message`
-helpers to decode typed payloads, then write the encoded response into
+components, enabling payload decoding, invocation of the inner service, and
+response editing before the response is serialized. `HandlerService` rebuilds a
+packet from the request bytes, invokes the registered handler, and by default
+returns the original payload; replies are crafted in middleware (or custom
+packet types with interior mutability). Decode typed payloads via the `Message`
+helpers, then write the encoded response into
 `ServiceResponse::frame_mut()`.[^10][^12]
 
 Advanced integrations can adopt the `wireframe::extractor` module, which
@@ -95,12 +95,12 @@ layer additional ergonomics on top of the core primitives.[^13]
 connection. Setup can return arbitrary state retained until teardown executes
 after the stream finishes processing.[^2] During `handle_connection` the
 framework caches middleware chains, enforces read timeouts, and records metrics
-for inbound frames, serialisation failures, and handler errors before logging
+for inbound frames, serialization failures, and handler errors before logging
 warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
 carry the correct correlation identifier even when middleware omits it.[^8]
 
 Immediate responses are available through `send_response` and
-`send_response_framed`, both of which report serialisation or I/O problems via
+`send_response_framed`, both of which report serialization or I/O problems via
 `SendError`.[^6][^5]
 
 ## Protocol hooks
@@ -117,7 +117,7 @@ or emit errors.[^14]
 
 `WireframeServer::new` clones the application factory per worker, defaults the
 worker count to the host CPU total (never below one), supports a readiness
-signal, and normalises accept-loop backoff settings through
+signal, and normalizes accept-loop backoff settings through
 `accept_backoff`.[^15][^16] Servers start in an unbound state; call `bind` or
 `bind_existing_listener` to transition into the `Bound` typestate, inspect the
 bound address, or rebind later.[^17]
@@ -184,11 +184,10 @@ responses.[^34][^35][^31]
 
 When constructing imperative streams, the `async-stream` crate integrates
 smoothly. The example below yields five frames and converts them into a
-`Response::Stream` value:
+`Response::Stream` value:[^36]
 
 ```rust
 use async_stream::try_stream;
-use futures::StreamExt;
 use wireframe::response::Response;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
@@ -204,7 +203,74 @@ fn stream_response() -> Response<Frame> {
 }
 ```
 
-[^36]
+## Versioning and graceful deprecation
+
+Phase out older message versions without breaking clients:
+
+- Accept versions N and N-1 on ingress; rewrite legacy payloads in middleware so
+  downstream handlers see the current schema.[^10][^12]
+- Emit version N on egress so clients observe a single schema.
+- Publish metrics and logs describing legacy usage to support operator
+  dashboards.[^33][^8]
+- Remove adapters once the sunset window ends.
+
+```rust
+use std::sync::Arc;
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    middleware,
+    message::Message,
+    Result,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct MsgV1 {
+    id: u64,
+    name: String,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct MsgV2 {
+    id: u64,
+    display_name: String,
+}
+
+impl From<MsgV1> for MsgV2 {
+    fn from(v1: MsgV1) -> Self {
+        Self {
+            id: v1.id,
+            display_name: v1.name,
+        }
+    }
+}
+
+async fn handle_v2(_env: &Envelope) {}
+
+fn build_app() -> Result<WireframeApp> {
+    let handler: Handler<Envelope> = Arc::new(|env: &Envelope| Box::pin(handle_v2(env)));
+
+    WireframeApp::new()?
+        .route(42, handler)?
+        .wrap(middleware::from_fn(|mut req, next| async move {
+            if let Ok((legacy, _)) = MsgV1::from_bytes(req.frame()) {
+                let upgraded = MsgV2::from(legacy);
+                let bytes = upgraded.to_bytes().expect("encode MsgV2");
+                req.frame_mut().clear();
+                req.frame_mut().extend_from_slice(&bytes);
+            }
+
+            let mut response = next.call(req).await?;
+            if let Ok((legacy, _)) = MsgV1::from_bytes(response.frame()) {
+                let upgraded = MsgV2::from(legacy);
+                let bytes = upgraded.to_bytes().expect("encode MsgV2");
+                response.frame_mut().clear();
+                response.frame_mut().extend_from_slice(&bytes);
+            }
+
+            Ok(response)
+        }))
+}
+```
 
 ## Metrics and observability
 
