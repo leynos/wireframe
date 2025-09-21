@@ -391,13 +391,19 @@ where
         Ok(())
     }
 
-    /// Close all receivers and mark the response stream as closed if present.
+    /// Close all receivers and mark streaming sources as closed if present.
     fn start_shutdown(&mut self, state: &mut ActorState) {
         if let Some(rx) = &mut self.high_rx {
             rx.close();
         }
         if let Some(rx) = &mut self.low_rx {
             rx.close();
+        }
+        if let Some(rx) = &mut self.multi_packet {
+            rx.close();
+        }
+        if self.multi_packet.take().is_some() {
+            state.mark_closed();
         }
         if self.response.take().is_some() {
             state.mark_closed();
@@ -514,6 +520,9 @@ where
     }
 
     /// Poll the multi-packet channel.
+    ///
+    /// This mirrors `poll_priority` so channel-backed streams share the same
+    /// back-pressure and shutdown behaviour as queued frames.
     async fn poll_multi_packet(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
         Self::poll_optional(rx, Self::recv_push).await
     }

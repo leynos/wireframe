@@ -6,7 +6,6 @@ use rstest::rstest;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{Response, connection::ConnectionActor, push::PushQueues};
-use wireframe_testing::collect_multi_packet;
 
 #[derive(PartialEq, Debug)]
 struct TestMsg(u8);
@@ -18,7 +17,7 @@ async fn drain_all<F, E: std::fmt::Debug>(stream: wireframe::FrameStream<F, E>) 
     stream.try_collect::<Vec<_>>().await.expect("stream error")
 }
 
-/// `collect_multi_packet` drains every frame regardless of channel state.
+/// Multi-packet responses drain every frame regardless of channel state.
 ///
 /// This covers empty channels, partial sends, and when senders outpace the
 /// channel's capacity.
@@ -34,7 +33,7 @@ async fn multi_packet_drains_all_messages(count: usize) {
         }
     });
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
-    let received = collect_multi_packet(resp).await;
+    let received = drain_all(resp.into_stream()).await;
     send_task.await.expect("sender join");
     assert_eq!(
         received,
