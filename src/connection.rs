@@ -201,6 +201,11 @@ where
 
     /// Set or replace the current multi-packet response channel.
     pub fn set_multi_packet(&mut self, channel: Option<mpsc::Receiver<F>>) {
+        debug_assert!(
+            self.response.is_none(),
+            "ConnectionActor invariant violated: cannot set multi_packet while a response stream \
+             is active"
+        );
         self.multi_packet = channel;
     }
 
@@ -229,6 +234,11 @@ where
             return Ok(());
         }
 
+        debug_assert!(
+            usize::from(self.response.is_some()) + usize::from(self.multi_packet.is_some()) <= 1,
+            "ConnectionActor invariant violated: at most one of response or multi_packet may be \
+             active"
+        );
         let mut state = ActorState::new(self.response.is_some(), self.multi_packet.is_some());
 
         while !state.is_done() {
@@ -264,11 +274,11 @@ where
 
             () = Self::await_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
 
-            res = Self::poll_priority(self.high_rx.as_mut()), if high_available => Event::High(res),
+            res = Self::poll_queue(self.high_rx.as_mut()), if high_available => Event::High(res),
 
-            res = Self::poll_priority(self.low_rx.as_mut()), if low_available => Event::Low(res),
+            res = Self::poll_queue(self.low_rx.as_mut()), if low_available => Event::Low(res),
 
-            res = Self::poll_multi_packet(self.multi_packet.as_mut()), if multi_available => Event::MultiPacket(res),
+            res = Self::poll_queue(self.multi_packet.as_mut()), if multi_available => Event::MultiPacket(res),
 
             res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
 
@@ -514,16 +524,10 @@ where
     /// Await shutdown cancellation on the provided token.
     async fn await_shutdown(token: CancellationToken) { Self::wait_shutdown(token).await; }
 
-    /// Poll whichever priority queue is provided.
-    async fn poll_priority(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
-        Self::poll_optional(rx, Self::recv_push).await
-    }
-
-    /// Poll the multi-packet channel.
+    /// Poll whichever receiver is provided, returning `None` when absent.
     ///
-    /// This mirrors `poll_priority` so channel-backed streams share the same
-    /// back-pressure and shutdown behaviour as queued frames.
-    async fn poll_multi_packet(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
+    /// Multi-packet channels reuse this helper so they share back-pressure with queued frames.
+    async fn poll_queue(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
         Self::poll_optional(rx, Self::recv_push).await
     }
 
