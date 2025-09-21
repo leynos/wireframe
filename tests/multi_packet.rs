@@ -1,9 +1,11 @@
 #![cfg(not(loom))]
 //! Tests for multi-packet responses using channels.
 
+use std::time::Duration;
+
 use futures::TryStreamExt;
 use rstest::rstest;
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::yield_now, time::timeout};
 use tokio_util::sync::CancellationToken;
 use wireframe::{Response, connection::ConnectionActor, push::PushQueues};
 
@@ -72,6 +74,38 @@ async fn connection_actor_drains_multi_packet_channel(frames: Vec<u8>) {
     actor.run(&mut out).await.expect("actor run failed");
 
     assert_eq!(out, frames);
+}
+
+#[tokio::test]
+async fn shutdown_completes_multi_packet_channel() {
+    let (queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .build()
+        .expect("failed to build PushQueues");
+    let (tx, rx) = mpsc::channel(1);
+    let shutdown = CancellationToken::new();
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    actor.set_multi_packet(Some(rx));
+
+    let cancel = actor.shutdown_token();
+
+    let join = tokio::spawn(async move {
+        let mut out = Vec::new();
+        actor.run(&mut out).await.expect("actor run failed");
+        out
+    });
+
+    yield_now().await;
+    cancel.cancel();
+
+    let out = timeout(Duration::from_millis(250), join)
+        .await
+        .expect("actor shutdown timed out")
+        .expect("actor task panicked");
+
+    assert!(out.is_empty());
+    drop(tx);
 }
 
 /// Returns an empty stream for an empty vector response.

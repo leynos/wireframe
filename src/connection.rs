@@ -337,36 +337,48 @@ where
         }
     }
 
-    /// Handle the result of polling the low-priority queue.
-    fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
+    /// Process a queue-backed source with shared low-priority semantics.
+    fn process_queue<CloseFn>(
+        &mut self,
+        res: Option<F>,
+        state: &mut ActorState,
+        out: &mut Vec<F>,
+        on_close: CloseFn,
+    ) where
+        CloseFn: FnOnce(&mut Self, &mut ActorState, &mut Vec<F>),
+    {
         if let Some(frame) = res {
             self.process_frame_common(frame, out);
             self.after_low();
         } else {
-            Self::handle_closed_receiver(&mut self.low_rx, state);
+            on_close(self, state, out);
         }
+    }
+
+    /// Handle the result of polling the low-priority queue.
+    fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
+        self.process_queue(res, state, out, |s, st, _out| {
+            Self::handle_closed_receiver(&mut s.low_rx, st);
+        });
     }
 
     /// Handle frames drained from the multi-packet channel.
     fn process_multi_packet(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        if let Some(frame) = res {
-            self.process_frame_common(frame, out);
-            self.after_low();
-        } else {
-            self.multi_packet = None;
-            state.mark_closed();
+        self.process_queue(res, state, out, |s, st, out| {
+            s.multi_packet = None;
+            st.mark_closed();
             let mut emitted_end = false;
-            if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-                self.hooks.before_send(&mut frame, &mut self.ctx);
+            if let Some(mut frame) = s.hooks.stream_end_frame(&mut s.ctx) {
+                s.hooks.before_send(&mut frame, &mut s.ctx);
                 out.push(frame);
                 crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
                 emitted_end = true;
             }
-            self.hooks.on_command_end(&mut self.ctx);
+            s.hooks.on_command_end(&mut s.ctx);
             if emitted_end {
-                self.after_low();
+                s.after_low();
             }
-        }
+        });
     }
 
     /// Common logic for processing frames from push queues.
@@ -409,10 +421,8 @@ where
         if let Some(rx) = &mut self.low_rx {
             rx.close();
         }
-        if let Some(rx) = &mut self.multi_packet {
+        if let Some(mut rx) = self.multi_packet.take() {
             rx.close();
-        }
-        if self.multi_packet.take().is_some() {
             state.mark_closed();
         }
         if self.response.take().is_some() {
