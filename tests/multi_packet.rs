@@ -61,13 +61,15 @@ async fn multi_packet_drains_all_messages(count: usize) {
 }
 
 /// Drains frames from a multi-packet channel via the connection actor.
-#[rstest]
-#[case::empty(Vec::<u8>::new())]
-#[case::single(vec![42])]
-#[case::multiple(vec![11, 12, 13])]
+#[rstest(
+    frames,
+    case::empty(Vec::<u8>::new()),
+    case::single(vec![42]),
+    case::multiple(vec![11, 12, 13]),
+)]
 #[tokio::test]
 async fn connection_actor_drains_multi_packet_channel(
-    #[case] frames: Vec<u8>,
+    frames: Vec<u8>,
     actor_components: (PushQueues<u8>, PushHandle<u8>, CancellationToken),
 ) {
     let capacity = frames.len().max(1);
