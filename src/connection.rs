@@ -434,36 +434,56 @@ where
     fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
         self.fairness.record_high_priority();
 
-        if self.fairness.should_yield_to_low_priority() {
-            // 1) Try low-priority queue first.
-            if let Some(res) = self.low_rx.as_mut().map(mpsc::Receiver::try_recv) {
-                match res {
-                    Ok(mut frame) => {
-                        self.hooks.before_send(&mut frame, &mut self.ctx);
-                        out.push(frame);
-                        self.after_low();
-                        return;
-                    }
-                    Err(TryRecvError::Empty) => {}
-                    Err(TryRecvError::Disconnected) => {
-                        Self::handle_closed_receiver(&mut self.low_rx, state);
-                    }
-                }
+        if !self.fairness.should_yield_to_low_priority() {
+            return;
+        }
+
+        if self.try_opportunistic_low_drain(out, state) {
+            return;
+        }
+
+        self.try_opportunistic_multi_packet_drain(out, state);
+    }
+
+    /// Try to opportunistically drain the low-priority queue when fairness allows.
+    ///
+    /// Returns `true` when a frame is forwarded to `out`.
+    fn try_opportunistic_low_drain(&mut self, out: &mut Vec<F>, state: &mut ActorState) -> bool {
+        let Some(res) = self.low_rx.as_mut().map(mpsc::Receiver::try_recv) else {
+            return false;
+        };
+
+        match res {
+            Ok(mut frame) => {
+                self.hooks.before_send(&mut frame, &mut self.ctx);
+                out.push(frame);
+                self.after_low();
+                true
             }
-            // 2) Opportunistically yield to the multi-packet channel as the same class.
-            if let Some(res) = self.multi_packet.as_mut().map(mpsc::Receiver::try_recv) {
-                match res {
-                    Ok(mut frame) => {
-                        self.hooks.before_send(&mut frame, &mut self.ctx);
-                        out.push(frame);
-                        self.after_low();
-                    }
-                    Err(TryRecvError::Empty) => {}
-                    Err(TryRecvError::Disconnected) => {
-                        self.multi_packet = None;
-                        state.mark_closed();
-                    }
-                }
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => {
+                Self::handle_closed_receiver(&mut self.low_rx, state);
+                false
+            }
+        }
+    }
+
+    /// Opportunistically drain the multi-packet channel when fairness allows.
+    fn try_opportunistic_multi_packet_drain(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
+        let Some(res) = self.multi_packet.as_mut().map(mpsc::Receiver::try_recv) else {
+            return;
+        };
+
+        match res {
+            Ok(mut frame) => {
+                self.hooks.before_send(&mut frame, &mut self.ctx);
+                out.push(frame);
+                self.after_low();
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                self.multi_packet = None;
+                state.mark_closed();
             }
         }
     }
