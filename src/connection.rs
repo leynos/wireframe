@@ -62,6 +62,10 @@ enum Event<F, E> {
     Shutdown,
     High(Option<F>),
     Low(Option<F>),
+    /// Frames drained from the multi-packet response channel.
+    /// They honour low-priority fairness and reuse push-queue back-pressure.
+    /// The actor emits the protocol terminator when the sender closes the
+    /// channel.
     MultiPacket(Option<F>),
     Response(Option<Result<F, WireframeError<E>>>),
     Idle,
@@ -197,14 +201,25 @@ where
     pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness.set_config(fairness); }
 
     /// Set or replace the current streaming response.
-    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) { self.response = stream; }
+    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
+        debug_assert!(
+            self.multi_packet.is_none(),
+            concat!(
+                "ConnectionActor invariant violated: cannot set response while a ",
+                "multi_packet channel is active"
+            ),
+        );
+        self.response = stream;
+    }
 
     /// Set or replace the current multi-packet response channel.
     pub fn set_multi_packet(&mut self, channel: Option<mpsc::Receiver<F>>) {
         debug_assert!(
             self.response.is_none(),
-            "ConnectionActor invariant violated: cannot set multi_packet while a response stream \
-             is active"
+            concat!(
+                "ConnectionActor invariant violated: cannot set multi_packet while a ",
+                "response stream is active"
+            ),
         );
         self.multi_packet = channel;
     }

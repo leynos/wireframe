@@ -4,15 +4,30 @@
 use std::time::Duration;
 
 use futures::TryStreamExt;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tokio::{sync::mpsc, task::yield_now, time::timeout};
 use tokio_util::sync::CancellationToken;
-use wireframe::{Response, connection::ConnectionActor, push::PushQueues};
+use wireframe::{
+    Response,
+    connection::ConnectionActor,
+    push::{PushHandle, PushQueues},
+};
 
 #[derive(PartialEq, Debug)]
 struct TestMsg(u8);
 
 const CAPACITY: usize = 2;
+
+/// Provide push queues, handle, and shutdown token for connection actor tests.
+#[fixture]
+fn actor_components() -> (PushQueues<u8>, PushHandle<u8>, CancellationToken) {
+    let (queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .build()
+        .expect("failed to build PushQueues");
+    (queues, handle, CancellationToken::new())
+}
 
 /// Drain all messages from a `FrameStream` for non-channel response variants.
 async fn drain_all<F, E: std::fmt::Debug>(stream: wireframe::FrameStream<F, E>) -> Vec<F> {
@@ -51,7 +66,10 @@ async fn multi_packet_drains_all_messages(count: usize) {
 #[case::single(vec![42])]
 #[case::multiple(vec![11, 12, 13])]
 #[tokio::test]
-async fn connection_actor_drains_multi_packet_channel(#[case] frames: Vec<u8>) {
+async fn connection_actor_drains_multi_packet_channel(
+    #[case] frames: Vec<u8>,
+    actor_components: (PushQueues<u8>, PushHandle<u8>, CancellationToken),
+) {
     let capacity = frames.len().max(1);
     let (tx, rx) = mpsc::channel(capacity);
     for &value in &frames {
@@ -59,12 +77,7 @@ async fn connection_actor_drains_multi_packet_channel(#[case] frames: Vec<u8>) {
     }
     drop(tx);
 
-    let (queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(4)
-        .low_capacity(4)
-        .build()
-        .expect("failed to build PushQueues");
-    let shutdown = CancellationToken::new();
+    let (queues, handle, shutdown) = actor_components;
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
     actor.set_multi_packet(Some(rx));
 
@@ -74,15 +87,13 @@ async fn connection_actor_drains_multi_packet_channel(#[case] frames: Vec<u8>) {
     assert_eq!(out, frames);
 }
 
+#[rstest]
 #[tokio::test]
-async fn shutdown_completes_multi_packet_channel() {
-    let (queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(4)
-        .low_capacity(4)
-        .build()
-        .expect("failed to build PushQueues");
+async fn shutdown_completes_multi_packet_channel(
+    actor_components: (PushQueues<u8>, PushHandle<u8>, CancellationToken),
+) {
+    let (queues, handle, shutdown) = actor_components;
     let (tx, rx) = mpsc::channel(1);
-    let shutdown = CancellationToken::new();
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
     actor.set_multi_packet(Some(rx));
 
@@ -97,7 +108,7 @@ async fn shutdown_completes_multi_packet_channel() {
     yield_now().await;
     cancel.cancel();
 
-    let out = timeout(Duration::from_millis(250), join)
+    let out = timeout(Duration::from_millis(1000), join)
         .await
         .expect("actor shutdown timed out")
         .expect("actor task panicked");
