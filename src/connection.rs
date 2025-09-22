@@ -430,13 +430,28 @@ where
         }
     }
 
-    /// Update counters and opportunistically drain the low-priority queue.
+    /// Update counters and opportunistically drain the low-priority and multi-packet queues.
     fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
         self.fairness.record_high_priority();
 
         if self.fairness.should_yield_to_low_priority() {
-            let res = self.low_rx.as_mut().map(mpsc::Receiver::try_recv);
-            if let Some(res) = res {
+            // 1) Try low-priority queue first.
+            if let Some(res) = self.low_rx.as_mut().map(mpsc::Receiver::try_recv) {
+                match res {
+                    Ok(mut frame) => {
+                        self.hooks.before_send(&mut frame, &mut self.ctx);
+                        out.push(frame);
+                        self.after_low();
+                        return;
+                    }
+                    Err(TryRecvError::Empty) => {}
+                    Err(TryRecvError::Disconnected) => {
+                        Self::handle_closed_receiver(&mut self.low_rx, state);
+                    }
+                }
+            }
+            // 2) Opportunistically yield to the multi-packet channel as the same class.
+            if let Some(res) = self.multi_packet.as_mut().map(mpsc::Receiver::try_recv) {
                 match res {
                     Ok(mut frame) => {
                         self.hooks.before_send(&mut frame, &mut self.ctx);
@@ -445,7 +460,8 @@ where
                     }
                     Err(TryRecvError::Empty) => {}
                     Err(TryRecvError::Disconnected) => {
-                        Self::handle_closed_receiver(&mut self.low_rx, state);
+                        self.multi_packet = None;
+                        state.mark_closed();
                     }
                 }
             }
