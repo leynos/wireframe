@@ -384,20 +384,26 @@ where
     /// Handle frames drained from the multi-packet channel.
     fn process_multi_packet(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
         self.process_queue(res, state, out, |s, st, out| {
-            s.multi_packet = None;
-            st.mark_closed();
-            let mut emitted_end = false;
-            if let Some(mut frame) = s.hooks.stream_end_frame(&mut s.ctx) {
-                s.hooks.before_send(&mut frame, &mut s.ctx);
-                out.push(frame);
-                crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
-                emitted_end = true;
-            }
-            s.hooks.on_command_end(&mut s.ctx);
-            if emitted_end {
-                s.after_low();
-            }
+            s.handle_multi_packet_closed(st, out);
         });
+    }
+
+    /// Handle a closed multi-packet channel by emitting the protocol terminator and notifying
+    /// hooks.
+    fn handle_multi_packet_closed(&mut self, state: &mut ActorState, out: &mut Vec<F>) {
+        self.multi_packet = None;
+        state.mark_closed();
+        let mut emitted_end = false;
+        if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+            self.hooks.before_send(&mut frame, &mut self.ctx);
+            out.push(frame);
+            crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
+            emitted_end = true;
+        }
+        self.hooks.on_command_end(&mut self.ctx);
+        if emitted_end {
+            self.after_low();
+        }
     }
 
     /// Common logic for processing frames from push queues.
@@ -501,8 +507,7 @@ where
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
-                self.multi_packet = None;
-                state.mark_closed();
+                self.handle_multi_packet_closed(state, out);
             }
         }
     }
