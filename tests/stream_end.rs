@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use rstest::{fixture, rstest};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::ConnectionActor,
@@ -43,6 +44,72 @@ async fn emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) {
     actor.run(&mut out).await.expect("actor run failed");
 
     assert_eq!(out, vec![1, 2, 0]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn multi_packet_emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) {
+    let (queues, handle) = queues;
+    let (tx, rx) = mpsc::channel(4);
+    tx.send(1).await.expect("send frame");
+    tx.send(2).await.expect("send frame");
+    drop(tx);
+
+    let shutdown = CancellationToken::new();
+    let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    actor.set_multi_packet(Some(rx));
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+
+    assert_eq!(out, vec![1, 2, 0]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn multi_packet_respects_no_terminator(queues: (PushQueues<u8>, PushHandle<u8>)) {
+    struct NoTerminator;
+
+    impl WireframeProtocol for NoTerminator {
+        type Frame = u8;
+        type ProtocolError = ();
+
+        fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
+    }
+
+    let (queues, handle) = queues;
+    let (tx, rx) = mpsc::channel(2);
+    tx.send(9).await.expect("send frame");
+    drop(tx);
+
+    let shutdown = CancellationToken::new();
+    let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
+    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    actor.set_multi_packet(Some(rx));
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+
+    assert_eq!(out, vec![9]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn multi_packet_empty_channel_emits_end(queues: (PushQueues<u8>, PushHandle<u8>)) {
+    let (queues, handle) = queues;
+    let (tx, rx) = mpsc::channel(1);
+    drop(tx);
+
+    let shutdown = CancellationToken::new();
+    let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    actor.set_multi_packet(Some(rx));
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+
+    assert_eq!(out, vec![0]);
 }
 
 #[rstest]
