@@ -63,9 +63,10 @@ enum Event<F, E> {
     High(Option<F>),
     Low(Option<F>),
     /// Frames drained from the multi-packet response channel.
-    /// They honour low-priority fairness and reuse push-queue back-pressure.
+    /// They are forwarded in channel order, honour low-priority fairness, and
+    /// reuse push-queue back-pressure.
     /// The actor emits the protocol terminator when the sender closes the
-    /// channel.
+    /// channel so downstream observers see end-of-stream signalling.
     MultiPacket(Option<F>),
     Response(Option<Result<F, WireframeError<E>>>),
     Idle,
