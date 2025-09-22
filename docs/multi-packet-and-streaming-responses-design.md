@@ -12,8 +12,8 @@ request to elicit a multi-part or open-ended sequence of response frames.
 This document details the design for a first-class, protocol-agnostic streaming
 response feature. The core philosophy is to enable this complex functionality
 through a simple, declarative, and ergonomic API. By embracing modern
-asynchronous Rust patterns, we will avoid the complexities of imperative,
-sink-based APIs and provide a unified handler model that is both powerful for
+asynchronous Rust patterns, the design avoids the complexities of imperative,
+sink-based APIs and provides a unified handler model that is both powerful for
 streaming and simple for single-frame replies.
 
 This feature is a key component of the "Road to Wireframe 1.0," working in
@@ -278,9 +278,22 @@ not hang.
 
 Debug-mode assertions must guard this stamping by checking
 `frame.correlation_id == request.correlation_id` before a frame is dispatched.
-The implementing change should document the assertion and add tests covering
-normal streaming, early receiver closure, and error paths so reviewers can
-confirm the stamping cannot regress or be removed.
+The actor enforces this invariant when accepting a new multi-packet channel:
+
+```rust
+// src/connection.rs
+pub fn set_multi_packet(&mut self, channel: Option<mpsc::Receiver<F>>) {
+    debug_assert!(
+        self.response.is_none(),
+        "ConnectionActor invariant violated: multi_packet requires no active response",
+    );
+    self.multi_packet = channel;
+}
+```
+
+Document the assertion and add tests covering normal streaming, early receiver
+closure, and error paths. This ensures reviewers can confirm the stamping
+cannot regress or be removed.
 
 - When the receiver reports closure, the actor emits the configured
   end-of-stream marker via the normal send path and then triggers the protocol

@@ -117,6 +117,9 @@ pub struct ConnectionActor<F, E> {
     high_rx: Option<mpsc::Receiver<F>>,
     low_rx: Option<mpsc::Receiver<F>>,
     response: Option<FrameStream<F, E>>, // current streaming response
+    /// Optional multi-packet channel drained after low-priority frames.
+    /// This preserves fairness with queued sources.
+    /// The actor emits the protocol terminator when the sender closes the channel.
     multi_packet: Option<mpsc::Receiver<F>>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
