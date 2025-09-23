@@ -347,28 +347,33 @@ where
 
     /// Handle the result of polling the high-priority queue.
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        if let Some(frame) = res {
-            self.process_frame_common(frame, out);
-            self.after_high(out, state);
-        } else {
-            Self::handle_closed_receiver(&mut self.high_rx, state);
-            self.fairness.reset();
-        }
+        self.process_queue(
+            res,
+            state,
+            out,
+            ConnectionActor::after_high,
+            |s, st, _out| {
+                Self::handle_closed_receiver(&mut s.high_rx, st);
+                s.fairness.reset();
+            },
+        );
     }
 
     /// Process a queue-backed source with shared low-priority semantics.
-    fn process_queue<CloseFn>(
+    fn process_queue<OnFrame, OnClose>(
         &mut self,
         res: Option<F>,
         state: &mut ActorState,
         out: &mut Vec<F>,
-        on_close: CloseFn,
+        on_frame: OnFrame,
+        on_close: OnClose,
     ) where
-        CloseFn: FnOnce(&mut Self, &mut ActorState, &mut Vec<F>),
+        OnFrame: FnOnce(&mut Self, &mut Vec<F>, &mut ActorState),
+        OnClose: FnOnce(&mut Self, &mut ActorState, &mut Vec<F>),
     {
         if let Some(frame) = res {
             self.process_frame_common(frame, out);
-            self.after_low();
+            on_frame(self, out, state);
         } else {
             on_close(self, state, out);
         }
@@ -376,16 +381,28 @@ where
 
     /// Handle the result of polling the low-priority queue.
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(res, state, out, |s, st, _out| {
-            Self::handle_closed_receiver(&mut s.low_rx, st);
-        });
+        self.process_queue(
+            res,
+            state,
+            out,
+            |s, _out, _st| s.after_low(),
+            |s, st, _out| {
+                Self::handle_closed_receiver(&mut s.low_rx, st);
+            },
+        );
     }
 
     /// Handle frames drained from the multi-packet channel.
     fn process_multi_packet(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(res, state, out, |s, st, out| {
-            s.handle_multi_packet_closed(st, out);
-        });
+        self.process_queue(
+            res,
+            state,
+            out,
+            |s, _out, _st| s.after_low(),
+            |s, st, out| {
+                s.handle_multi_packet_closed(st, out);
+            },
+        );
     }
 
     /// Handle a closed multi-packet channel by emitting the protocol terminator and notifying
@@ -393,17 +410,13 @@ where
     fn handle_multi_packet_closed(&mut self, state: &mut ActorState, out: &mut Vec<F>) {
         self.multi_packet = None;
         state.mark_closed();
-        let mut emitted_end = false;
         if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
             self.hooks.before_send(&mut frame, &mut self.ctx);
             out.push(frame);
             crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
-            emitted_end = true;
-        }
-        self.hooks.on_command_end(&mut self.ctx);
-        if emitted_end {
             self.after_low();
         }
+        self.hooks.on_command_end(&mut self.ctx);
     }
 
     /// Common logic for processing frames from push queues.
@@ -463,19 +476,38 @@ where
             return;
         }
 
-        if self.try_opportunistic_low_drain(out, state) {
+        let mut low_rx = self.low_rx.take();
+        if self.try_opportunistic_drain(&mut low_rx, out, state, |s, st, _out| {
+            Self::handle_closed_receiver(&mut s.low_rx, st);
+        }) {
+            self.low_rx = low_rx;
             return;
         }
+        self.low_rx = low_rx;
 
-        self.try_opportunistic_multi_packet_drain(out, state);
+        let mut multi_rx = self.multi_packet.take();
+        let _ = self.try_opportunistic_drain(&mut multi_rx, out, state, |s, st, out| {
+            s.handle_multi_packet_closed(st, out);
+        });
+        self.multi_packet = multi_rx;
     }
 
-    /// Try to opportunistically drain the low-priority queue when fairness allows.
+    /// Try to opportunistically drain a queue-backed source when fairness allows.
     ///
     /// Returns `true` when a frame is forwarded to `out`.
-    fn try_opportunistic_low_drain(&mut self, out: &mut Vec<F>, state: &mut ActorState) -> bool {
-        let Some(res) = self.low_rx.as_mut().map(mpsc::Receiver::try_recv) else {
-            return false;
+    fn try_opportunistic_drain<OnClose>(
+        &mut self,
+        rx: &mut Option<mpsc::Receiver<F>>,
+        out: &mut Vec<F>,
+        state: &mut ActorState,
+        on_close: OnClose,
+    ) -> bool
+    where
+        OnClose: FnOnce(&mut Self, &mut ActorState, &mut Vec<F>),
+    {
+        let res = match rx {
+            Some(receiver) => receiver.try_recv(),
+            None => return false,
         };
 
         match res {
@@ -487,27 +519,9 @@ where
             }
             Err(TryRecvError::Empty) => false,
             Err(TryRecvError::Disconnected) => {
-                Self::handle_closed_receiver(&mut self.low_rx, state);
+                *rx = None;
+                on_close(self, state, out);
                 false
-            }
-        }
-    }
-
-    /// Opportunistically drain the multi-packet channel when fairness allows.
-    fn try_opportunistic_multi_packet_drain(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
-        let Some(res) = self.multi_packet.as_mut().map(mpsc::Receiver::try_recv) else {
-            return;
-        };
-
-        match res {
-            Ok(mut frame) => {
-                self.hooks.before_send(&mut frame, &mut self.ctx);
-                out.push(frame);
-                self.after_low();
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                self.handle_multi_packet_closed(state, out);
             }
         }
     }
@@ -648,6 +662,10 @@ impl ActorState {
             // occurs, matching previous behaviour where draining sources
             // without explicit shutdown terminates the actor.
             closed_sources: 1,
+            // total_sources counts all possible sources that can keep the actor alive:
+            // - 3 for the base sources (main, shutdown, and drain)
+            // - +1 if a response is expected (has_response)
+            // - +1 if multi-packet handling is enabled (has_multi_packet)
             total_sources: 3 + usize::from(has_response) + usize::from(has_multi_packet),
         }
     }
@@ -675,4 +693,250 @@ impl ActorState {
 
     /// Returns `true` when all sources have finished.
     fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
+}
+
+#[cfg(all(test, not(loom)))]
+mod tests {
+    use std::{
+        cell::Cell,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
+
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+    use crate::{hooks::ConnectionContext, push::PushQueues};
+
+    fn build_actor_with_hooks(hooks: ProtocolHooks<u8, ()>) -> ConnectionActor<u8, ()> {
+        let (queues, handle) = PushQueues::<u8>::builder()
+            .high_capacity(4)
+            .low_capacity(4)
+            .build()
+            .expect("failed to build PushQueues");
+        ConnectionActor::with_hooks(queues, handle, None, CancellationToken::new(), hooks)
+    }
+
+    #[test]
+    fn process_multi_packet_forwards_frame() {
+        let hooks = ProtocolHooks {
+            before_send: Some(Box::new(|frame: &mut u8, _ctx: &mut ConnectionContext| {
+                *frame += 1;
+            })),
+            ..ProtocolHooks::<u8, ()>::default()
+        };
+        let mut actor = build_actor_with_hooks(hooks);
+        let mut state = ActorState::new(false, false);
+        let mut out = Vec::new();
+
+        actor.process_multi_packet(Some(5), &mut state, &mut out);
+
+        assert_eq!(out, vec![6]);
+        assert!(actor.multi_packet.is_none());
+        assert!(state.is_active());
+    }
+
+    #[test]
+    fn process_multi_packet_none_emits_end_frame() {
+        let end_calls = Arc::new(AtomicUsize::new(0));
+        let before_calls = Arc::new(AtomicUsize::new(0));
+        let end_clone = end_calls.clone();
+        let before_clone = before_calls.clone();
+        let hooks = ProtocolHooks {
+            before_send: Some(Box::new(
+                move |frame: &mut u8, _ctx: &mut ConnectionContext| {
+                    before_clone.fetch_add(1, Ordering::SeqCst);
+                    *frame += 1;
+                },
+            )),
+            on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
+                end_clone.fetch_add(1, Ordering::SeqCst);
+            })),
+            stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| Some(9))),
+            ..ProtocolHooks::<u8, ()>::default()
+        };
+        let mut actor = build_actor_with_hooks(hooks);
+        let (_tx, rx) = mpsc::channel(1);
+        actor.multi_packet = Some(rx);
+        let mut state = ActorState::new(false, true);
+        let mut out = Vec::new();
+
+        actor.process_multi_packet(None, &mut state, &mut out);
+
+        assert_eq!(out, vec![10]);
+        assert!(actor.multi_packet.is_none());
+        assert_eq!(before_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(end_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn handle_multi_packet_closed_emits_terminator() {
+        let end_calls = Arc::new(AtomicUsize::new(0));
+        let end_clone = end_calls.clone();
+        let hooks = ProtocolHooks {
+            before_send: Some(Box::new(|frame: &mut u8, _ctx: &mut ConnectionContext| {
+                *frame += 2;
+            })),
+            on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
+                end_clone.fetch_add(1, Ordering::SeqCst);
+            })),
+            stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| Some(5))),
+            ..ProtocolHooks::<u8, ()>::default()
+        };
+        let mut actor = build_actor_with_hooks(hooks);
+        let (_tx, rx) = mpsc::channel(1);
+        actor.multi_packet = Some(rx);
+        let mut state = ActorState::new(false, true);
+        let mut out = Vec::new();
+
+        actor.handle_multi_packet_closed(&mut state, &mut out);
+
+        assert_eq!(out, vec![7]);
+        assert!(actor.multi_packet.is_none());
+        assert_eq!(end_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn handle_multi_packet_closed_without_terminator_emits_nothing() {
+        let end_calls = Arc::new(AtomicUsize::new(0));
+        let end_clone = end_calls.clone();
+        let hooks = ProtocolHooks {
+            on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
+                end_clone.fetch_add(1, Ordering::SeqCst);
+            })),
+            ..ProtocolHooks::<u8, ()>::default()
+        };
+        let mut actor = build_actor_with_hooks(hooks);
+        let (_tx, rx) = mpsc::channel(1);
+        actor.multi_packet = Some(rx);
+        let mut state = ActorState::new(false, true);
+        let mut out = Vec::new();
+
+        actor.handle_multi_packet_closed(&mut state, &mut out);
+
+        assert!(out.is_empty());
+        assert!(actor.multi_packet.is_none());
+        assert_eq!(end_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn try_opportunistic_drain_forwards_frame() {
+        let before_calls = Arc::new(AtomicUsize::new(0));
+        let before_clone = before_calls.clone();
+        let hooks = ProtocolHooks {
+            before_send: Some(Box::new(
+                move |frame: &mut u8, _ctx: &mut ConnectionContext| {
+                    before_clone.fetch_add(1, Ordering::SeqCst);
+                    *frame += 1;
+                },
+            )),
+            ..ProtocolHooks::<u8, ()>::default()
+        };
+        let mut actor = build_actor_with_hooks(hooks);
+        let mut state = ActorState::new(false, false);
+        let mut out = Vec::new();
+
+        let (tx, rx) = mpsc::channel(1);
+        tx.try_send(9).expect("send frame");
+        drop(tx);
+
+        let mut queue = Some(rx);
+        let drained = actor.try_opportunistic_drain(&mut queue, &mut out, &mut state, |_, _, _| {
+            panic!("on_close should not be called");
+        });
+
+        assert!(drained);
+        assert_eq!(out, vec![10]);
+        assert_eq!(before_calls.load(Ordering::SeqCst), 1);
+        assert!(queue.is_some());
+    }
+
+    #[test]
+    fn try_opportunistic_drain_returns_false_when_empty() {
+        let mut actor = build_actor_with_hooks(ProtocolHooks::<u8, ()>::default());
+        let mut state = ActorState::new(false, false);
+        let mut out = Vec::new();
+
+        let (_tx, rx) = mpsc::channel(1);
+        let mut queue = Some(rx);
+
+        let drained = actor.try_opportunistic_drain(&mut queue, &mut out, &mut state, |_, _, _| {
+            panic!("on_close should not be called");
+        });
+
+        assert!(!drained);
+        assert!(out.is_empty());
+        assert!(queue.is_some());
+    }
+
+    #[test]
+    fn try_opportunistic_drain_handles_disconnect() {
+        let mut actor = build_actor_with_hooks(ProtocolHooks::<u8, ()>::default());
+        let mut state = ActorState::new(false, false);
+        let mut out = Vec::new();
+
+        let (tx, rx) = mpsc::channel(1);
+        drop(tx);
+        let mut queue = Some(rx);
+        let closed = Cell::new(false);
+
+        let drained =
+            actor.try_opportunistic_drain(&mut queue, &mut out, &mut state, |_, st, _| {
+                closed.set(true);
+                st.mark_closed();
+            });
+
+        assert!(!drained);
+        assert!(queue.is_none());
+        assert!(closed.get());
+        assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn poll_queue_reads_frame() {
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.send(42).await.expect("send frame");
+
+        let value = ConnectionActor::<u8, ()>::poll_queue(Some(&mut rx)).await;
+
+        assert_eq!(value, Some(42));
+    }
+
+    #[tokio::test]
+    async fn poll_queue_returns_none_for_absent_receiver() {
+        let value = ConnectionActor::<u8, ()>::poll_queue(None).await;
+        assert!(value.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_queue_returns_none_after_close() {
+        let (tx, mut rx) = mpsc::channel(1);
+        drop(tx);
+
+        let value = ConnectionActor::<u8, ()>::poll_queue(Some(&mut rx)).await;
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn actor_state_counts_sources_with_multi_packet() {
+        let mut with_multi = ActorState::new(false, true);
+        assert!(with_multi.is_active());
+        with_multi.mark_closed();
+        assert!(with_multi.is_active());
+        with_multi.mark_closed();
+        assert!(with_multi.is_active());
+        with_multi.mark_closed();
+        assert!(with_multi.is_done());
+
+        let mut without_multi = ActorState::new(false, false);
+        assert!(without_multi.is_active());
+        without_multi.mark_closed();
+        assert!(without_multi.is_active());
+        without_multi.mark_closed();
+        assert!(without_multi.is_done());
+    }
 }
