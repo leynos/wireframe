@@ -361,17 +361,12 @@ where
 
     /// Handle the result of polling the high-priority queue.
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(QueueKind::High, res, state, out);
+        self.process_queue(QueueKind::High, res, DrainContext { out, state });
     }
 
     /// Process a queue-backed source with shared low-priority semantics.
-    fn process_queue(
-        &mut self,
-        kind: QueueKind,
-        res: Option<F>,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) {
+    fn process_queue(&mut self, kind: QueueKind, res: Option<F>, ctx: DrainContext<'_, F>) {
+        let DrainContext { out, state } = ctx;
         match res {
             Some(frame) => {
                 self.process_frame_with_hooks_and_metrics(frame, out);
@@ -397,12 +392,12 @@ where
 
     /// Handle the result of polling the low-priority queue.
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(QueueKind::Low, res, state, out);
+        self.process_queue(QueueKind::Low, res, DrainContext { out, state });
     }
 
     /// Handle frames drained from the multi-packet channel.
     fn process_multi_packet(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(QueueKind::Multi, res, state, out);
+        self.process_queue(QueueKind::Multi, res, DrainContext { out, state });
     }
 
     /// Handle a closed multi-packet channel by emitting the protocol terminator and notifying
