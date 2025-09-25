@@ -38,14 +38,7 @@ fn assert_frame_processed(
     actual_counts: HookCounts,
 ) {
     assert_eq!(out, expected, "frames should match expected output");
-    assert_eq!(
-        actual_counts.before, expected_counts.before,
-        "before_send hook count",
-    );
-    assert_eq!(
-        actual_counts.end, expected_counts.end,
-        "on_command_end hook count",
-    );
+    assert_eq!(actual_counts, expected_counts, "hook counts should match");
 }
 
 #[test]
@@ -62,7 +55,8 @@ fn process_multi_packet_forwards_frame() {
         ..ProtocolHooks::<u8, ()>::default()
     };
 
-    let mut harness = ActorHarness::new_with_state(hooks, false, false);
+    let mut harness =
+        ActorHarness::new_with_state(hooks, false, false).expect("failed to create harness");
     harness.process_multi_packet(Some(5));
 
     let snapshot = harness.snapshot();
@@ -95,7 +89,8 @@ fn process_multi_packet_none_emits_end_frame() {
         ..ProtocolHooks::<u8, ()>::default()
     };
 
-    let mut harness = ActorHarness::new_with_state(hooks, false, true);
+    let mut harness =
+        ActorHarness::new_with_state(hooks, false, true).expect("failed to create harness");
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
@@ -141,7 +136,8 @@ fn handle_multi_packet_closed_behaviour(
         ..ProtocolHooks::<u8, ()>::default()
     };
 
-    let mut harness = ActorHarness::new_with_state(hooks, false, true);
+    let mut harness =
+        ActorHarness::new_with_state(hooks, false, true).expect("failed to create harness");
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
@@ -178,7 +174,8 @@ fn try_opportunistic_drain_forwards_frame() {
         ..ProtocolHooks::<u8, ()>::default()
     };
 
-    let mut harness = ActorHarness::new_with_state(hooks, false, false);
+    let mut harness =
+        ActorHarness::new_with_state(hooks, false, false).expect("failed to create harness");
     let (tx, rx) = mpsc::channel(1);
     tx.try_send(9).expect("send frame");
     drop(tx);
@@ -198,7 +195,7 @@ fn try_opportunistic_drain_forwards_frame() {
 
 #[test]
 fn try_opportunistic_drain_returns_false_when_empty() {
-    let mut harness = ActorHarness::new();
+    let mut harness = ActorHarness::new().expect("failed to create harness");
     let (_tx, rx) = mpsc::channel(1);
     harness.set_low_queue(Some(rx));
 
@@ -211,7 +208,7 @@ fn try_opportunistic_drain_returns_false_when_empty() {
 
 #[test]
 fn try_opportunistic_drain_handles_disconnect() {
-    let mut harness = ActorHarness::new();
+    let mut harness = ActorHarness::new().expect("failed to create harness");
     let (tx, rx) = mpsc::channel(1);
     harness.set_low_queue(Some(rx));
     drop(tx);

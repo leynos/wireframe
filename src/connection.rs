@@ -242,6 +242,10 @@ where
         self.multi_packet = channel;
     }
 
+    /// Replace the low-priority queue used for tests.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<F>>) { self.low_rx = queue; }
+
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
     pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
@@ -520,24 +524,11 @@ where
         let DrainContext { out, state } = ctx;
         match kind {
             QueueKind::High => {
-                let res = match self.high_rx.as_mut() {
-                    Some(receiver) => receiver.try_recv(),
-                    None => return false,
-                };
-
-                match res {
-                    Ok(frame) => {
-                        self.process_frame_with_hooks_and_metrics(frame, out);
-                        self.after_low();
-                        true
-                    }
-                    Err(TryRecvError::Empty) => false,
-                    Err(TryRecvError::Disconnected) => {
-                        Self::handle_closed_receiver(&mut self.high_rx, state);
-                        self.fairness.reset();
-                        false
-                    }
-                }
+                debug_assert!(
+                    false,
+                    "try_opportunistic_drain(High) is unsupported; High is handled by biased polling",
+                );
+                false
             }
             QueueKind::Low => {
                 let res = match self.low_rx.as_mut() {
@@ -748,5 +739,5 @@ impl ActorState {
     fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 }
 
-#[cfg(not(loom))]
+#[cfg(all(not(loom), any(test, feature = "test-support")))]
 pub mod test_support;

@@ -1,24 +1,31 @@
+#![cfg(any(test, feature = "test-support"))]
 //! Helpers for exercising private connection actor paths in integration tests.
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{ActorState, ConnectionActor, DrainContext, ProtocolHooks, QueueKind};
-use crate::push::PushQueues;
+use crate::push::{PushConfigError, PushQueues};
 
 /// Build a connection actor configured with the supplied protocol hooks.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if the push queues cannot be constructed.
-#[must_use]
-pub fn create_test_actor_with_hooks(hooks: ProtocolHooks<u8, ()>) -> ConnectionActor<u8, ()> {
+/// Returns an error if the push queues cannot be constructed.
+pub fn create_test_actor_with_hooks(
+    hooks: ProtocolHooks<u8, ()>,
+) -> Result<ConnectionActor<u8, ()>, PushConfigError> {
     let (queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(4)
         .low_capacity(4)
-        .build()
-        .expect("failed to build PushQueues");
-    ConnectionActor::with_hooks(queues, handle, None, CancellationToken::new(), hooks)
+        .build()?;
+    Ok(ConnectionActor::with_hooks(
+        queues,
+        handle,
+        None,
+        CancellationToken::new(),
+        hooks,
+    ))
 }
 
 /// Convenience harness wrapping an actor, its state, and buffered output.
@@ -29,28 +36,36 @@ pub struct ActorHarness {
 }
 
 impl Default for ActorHarness {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self { Self::new().expect("failed to build ActorHarness") }
 }
 
 impl ActorHarness {
     /// Create a harness with custom hooks and state flags.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the push queues cannot be constructed.
     pub fn new_with_state(
         hooks: ProtocolHooks<u8, ()>,
         has_response: bool,
         has_multi_packet: bool,
-    ) -> Self {
-        let actor = create_test_actor_with_hooks(hooks);
-        Self {
+    ) -> Result<Self, PushConfigError> {
+        let actor = create_test_actor_with_hooks(hooks)?;
+        Ok(Self {
             actor,
             state: ActorState::new(has_response, has_multi_packet),
             out: Vec::new(),
-        }
+        })
     }
 
     /// Create a harness using default hooks and no active streams.
-    #[must_use]
-    pub fn new() -> Self { Self::new_with_state(ProtocolHooks::<u8, ()>::default(), false, false) }
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the push queues cannot be constructed.
+    pub fn new() -> Result<Self, PushConfigError> {
+        Self::new_with_state(ProtocolHooks::<u8, ()>::default(), false, false)
+    }
 
     /// Snapshot the internal actor state.
     #[must_use]
@@ -63,20 +78,14 @@ impl ActorHarness {
             closed_sources: self.state.closed_sources,
         }
     }
-
     /// Replace the low-priority receiver.
     pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<u8>>) {
-        self.actor.low_rx = queue;
+        self.actor.set_low_queue(queue);
     }
 
     /// Replace the multi-packet receiver.
     pub fn set_multi_queue(&mut self, queue: Option<mpsc::Receiver<u8>>) {
-        self.actor.multi_packet = queue;
-    }
-
-    /// Borrow the multi-packet receiver mutably.
-    pub fn multi_queue_mut(&mut self) -> &mut Option<mpsc::Receiver<u8>> {
-        &mut self.actor.multi_packet
+        self.actor.set_multi_packet(queue);
     }
 
     /// Returns `true` when the low-priority queue is still available.
