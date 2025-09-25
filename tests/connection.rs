@@ -14,17 +14,38 @@ use wireframe::{
     hooks::ConnectionContext,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HookCounts {
+    before: usize,
+    end: usize,
+}
+
+impl HookCounts {
+    /// Snapshot hook counters from shared state.
+    fn from_counters(before: &Arc<AtomicUsize>, end: Option<&Arc<AtomicUsize>>) -> Self {
+        let end = end.map_or(0, |counter| counter.load(Ordering::SeqCst));
+        Self {
+            before: before.load(Ordering::SeqCst),
+            end,
+        }
+    }
+}
+
 fn assert_frame_processed(
     out: &[u8],
     expected: &[u8],
-    before_expected: usize,
-    after_expected: usize,
-    before_actual: usize,
-    after_actual: usize,
+    expected_counts: HookCounts,
+    actual_counts: HookCounts,
 ) {
     assert_eq!(out, expected, "frames should match expected output");
-    assert_eq!(before_actual, before_expected, "before_send hook count");
-    assert_eq!(after_actual, after_expected, "on_command_end hook count");
+    assert_eq!(
+        actual_counts.before, expected_counts.before,
+        "before_send hook count",
+    );
+    assert_eq!(
+        actual_counts.end, expected_counts.end,
+        "on_command_end hook count",
+    );
 }
 
 #[test]
@@ -49,10 +70,8 @@ fn process_multi_packet_forwards_frame() {
     assert_frame_processed(
         &harness.out,
         &[6],
-        1,
-        0,
-        before_calls.load(Ordering::SeqCst),
-        0,
+        HookCounts { before: 1, end: 0 },
+        HookCounts::from_counters(&before_calls, None),
     );
 }
 
@@ -87,10 +106,8 @@ fn process_multi_packet_none_emits_end_frame() {
     assert_frame_processed(
         &harness.out,
         &[11],
-        1,
-        1,
-        before_calls.load(Ordering::SeqCst),
-        end_calls.load(Ordering::SeqCst),
+        HookCounts { before: 1, end: 1 },
+        HookCounts::from_counters(&before_calls, Some(&end_calls)),
     );
 }
 
@@ -139,10 +156,11 @@ fn handle_multi_packet_closed_behaviour(
     assert_frame_processed(
         &harness.out,
         &expected_output,
-        expected_before,
-        1,
-        before_calls.load(Ordering::SeqCst),
-        end_calls.load(Ordering::SeqCst),
+        HookCounts {
+            before: expected_before,
+            end: 1,
+        },
+        HookCounts::from_counters(&before_calls, Some(&end_calls)),
     );
 }
 
@@ -173,10 +191,8 @@ fn try_opportunistic_drain_forwards_frame() {
     assert_frame_processed(
         &harness.out,
         &[10],
-        1,
-        0,
-        before_calls.load(Ordering::SeqCst),
-        0,
+        HookCounts { before: 1, end: 0 },
+        HookCounts::from_counters(&before_calls, None),
     );
 }
 

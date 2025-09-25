@@ -715,10 +715,10 @@ impl ActorState {
             // occurs, matching previous behaviour where draining sources
             // without explicit shutdown terminates the actor.
             closed_sources: 1,
-            // total_sources counts all possible sources that can keep the actor alive:
-            // - 3 for the base sources (main, shutdown, and drain)
-            // - +1 if a response is expected (has_response)
-            // - +1 if multi-packet handling is enabled (has_multi_packet)
+            // total_sources counts sources that keep the actor alive:
+            // - 3 baseline: shutdown (pre-counted as closed) + high queue + low queue
+            // - +1 if a streaming response is active (has_response)
+            // - +1 if a multi-packet channel is active (has_multi_packet)
             total_sources: 3 + usize::from(has_response) + usize::from(has_multi_packet),
         }
     }
