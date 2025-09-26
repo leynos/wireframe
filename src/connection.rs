@@ -525,8 +525,10 @@ where
             QueueKind::High => {
                 debug_assert!(
                     false,
-                    "try_opportunistic_drain(High) is unsupported; High is handled by biased \
-                     polling",
+                    concat!(
+                        "try_opportunistic_drain(High) is unsupported; ",
+                        "High is handled by biased polling",
+                    ),
                 );
                 false
             }
@@ -739,5 +741,5 @@ impl ActorState {
     fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 }
 
-#[cfg(not(loom))]
+#[cfg(all(not(loom), any(test, feature = "test-support")))]
 pub mod test_support;
