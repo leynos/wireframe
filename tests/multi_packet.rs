@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for multi-packet responses using channels.
+#![cfg(not(loom))]
 
 use std::time::Duration;
 
@@ -9,7 +9,7 @@ use tokio::{sync::mpsc, task::yield_now, time::timeout};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     Response,
-    connection::ConnectionActor,
+    connection::{ConnectionActor, FairnessConfig},
     push::{PushHandle, PushQueues},
 };
 
@@ -91,6 +91,49 @@ async fn connection_actor_drains_multi_packet_channel(
 
 #[rstest]
 #[tokio::test]
+async fn connection_actor_interleaves_multi_packet_and_priority_frames(
+    actor_components: (PushQueues<u8>, PushHandle<u8>, CancellationToken),
+) {
+    let (queues, handle, shutdown) = actor_components;
+    let multi_frames = [1_u8, 2, 3];
+    let (multi_tx, multi_rx) = mpsc::channel(multi_frames.len());
+    for &frame in &multi_frames {
+        multi_tx.send(frame).await.expect("send multi-packet frame");
+    }
+    drop(multi_tx);
+
+    handle
+        .push_high_priority(10)
+        .await
+        .expect("push high-priority frame");
+    handle
+        .push_high_priority(11)
+        .await
+        .expect("push high-priority frame");
+    handle
+        .push_low_priority(100)
+        .await
+        .expect("push low-priority frame");
+    handle
+        .push_low_priority(101)
+        .await
+        .expect("push low-priority frame");
+
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    actor.set_fairness(FairnessConfig {
+        max_high_before_low: 1,
+        time_slice: None,
+    });
+    actor.set_multi_packet(Some(multi_rx));
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+
+    assert_eq!(out, vec![10, 100, 11, 101, 1, 2, 3]);
+}
+
+#[rstest]
+#[tokio::test]
 async fn shutdown_completes_multi_packet_channel(
     actor_components: (PushQueues<u8>, PushHandle<u8>, CancellationToken),
 ) {
@@ -116,6 +159,39 @@ async fn shutdown_completes_multi_packet_channel(
         .expect("actor task panicked");
 
     assert!(out.is_empty());
+    drop(tx);
+}
+
+#[rstest]
+#[tokio::test]
+async fn shutdown_during_active_multi_packet_send(
+    actor_components: (PushQueues<u8>, PushHandle<u8>, CancellationToken),
+) {
+    let (queues, handle, shutdown) = actor_components;
+    let (tx, rx) = mpsc::channel(4);
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    actor.set_multi_packet(Some(rx));
+
+    let cancel = actor.shutdown_token();
+
+    let join = tokio::spawn(async move {
+        let mut out = Vec::new();
+        actor.run(&mut out).await.expect("actor run failed");
+        out
+    });
+
+    tx.send(1).await.expect("send frame");
+    tx.send(2).await.expect("send frame");
+    yield_now().await;
+    cancel.cancel();
+
+    let _ = tx.send(3).await;
+
+    let out = timeout(Duration::from_millis(1000), join)
+        .await
+        .expect("actor shutdown timed out")
+        .expect("actor task panicked");
+    assert!(out.is_empty() || out == vec![1, 2], "actor output: {out:?}");
     drop(tx);
 }
 

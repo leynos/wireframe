@@ -130,6 +130,20 @@ pub struct ConnectionActor<F, E> {
     peer_addr: Option<SocketAddr>,
 }
 
+/// Context for drain operations containing mutable references to output and actor state.
+struct DrainContext<'a, F> {
+    out: &'a mut Vec<F>,
+    state: &'a mut ActorState,
+}
+
+/// Queue variants processed by the connection actor.
+#[derive(Clone, Copy)]
+enum QueueKind {
+    High,
+    Low,
+    Multi,
+}
+
 impl<F, E> ConnectionActor<F, E>
 where
     F: FrameLike,
@@ -227,6 +241,9 @@ where
         );
         self.multi_packet = channel;
     }
+
+    /// Replace the low-priority queue used for tests.
+    pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<F>>) { self.low_rx = queue; }
 
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
@@ -347,67 +364,84 @@ where
 
     /// Handle the result of polling the high-priority queue.
     fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        if let Some(frame) = res {
-            self.process_frame_common(frame, out);
-            self.after_high(out, state);
-        } else {
-            Self::handle_closed_receiver(&mut self.high_rx, state);
-            self.fairness.reset();
-        }
+        self.process_queue(QueueKind::High, res, DrainContext { out, state });
     }
 
     /// Process a queue-backed source with shared low-priority semantics.
-    fn process_queue<CloseFn>(
-        &mut self,
-        res: Option<F>,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-        on_close: CloseFn,
-    ) where
-        CloseFn: FnOnce(&mut Self, &mut ActorState, &mut Vec<F>),
-    {
-        if let Some(frame) = res {
-            self.process_frame_common(frame, out);
-            self.after_low();
-        } else {
-            on_close(self, state, out);
+    fn process_queue(&mut self, kind: QueueKind, res: Option<F>, ctx: DrainContext<'_, F>) {
+        let DrainContext { out, state } = ctx;
+        match res {
+            Some(frame) => {
+                self.process_frame_with_hooks_and_metrics(frame, out);
+                match kind {
+                    QueueKind::High => self.after_high(out, state),
+                    QueueKind::Low | QueueKind::Multi => self.after_low(),
+                }
+            }
+            None => match kind {
+                QueueKind::High => {
+                    Self::handle_closed_receiver(&mut self.high_rx, state);
+                    self.fairness.reset();
+                }
+                QueueKind::Low => {
+                    Self::handle_closed_receiver(&mut self.low_rx, state);
+                }
+                QueueKind::Multi => {
+                    self.handle_multi_packet_closed(state, out);
+                }
+            },
         }
     }
 
     /// Handle the result of polling the low-priority queue.
     fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(res, state, out, |s, st, _out| {
-            Self::handle_closed_receiver(&mut s.low_rx, st);
-        });
+        self.process_queue(QueueKind::Low, res, DrainContext { out, state });
     }
 
     /// Handle frames drained from the multi-packet channel.
     fn process_multi_packet(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(res, state, out, |s, st, out| {
-            s.handle_multi_packet_closed(st, out);
-        });
+        self.process_queue(QueueKind::Multi, res, DrainContext { out, state });
     }
 
     /// Handle a closed multi-packet channel by emitting the protocol terminator and notifying
     /// hooks.
     fn handle_multi_packet_closed(&mut self, state: &mut ActorState, out: &mut Vec<F>) {
-        self.multi_packet = None;
-        state.mark_closed();
-        let mut emitted_end = false;
-        if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-            self.hooks.before_send(&mut frame, &mut self.ctx);
-            out.push(frame);
-            crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
-            emitted_end = true;
-        }
-        self.hooks.on_command_end(&mut self.ctx);
-        if emitted_end {
-            self.after_low();
-        }
+        let rx = self.multi_packet.take();
+        self.handle_multi_packet_closed_with(rx, state, out);
     }
 
-    /// Common logic for processing frames from push queues.
-    fn process_frame_common(&mut self, frame: F, out: &mut Vec<F>) {
+    /// Handle multi-packet closure using an already-extracted receiver option.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// actor.handle_multi_packet_closed_with(None, &mut state, &mut out);
+    /// ```
+    fn handle_multi_packet_closed_with(
+        &mut self,
+        rx: Option<mpsc::Receiver<F>>,
+        state: &mut ActorState,
+        out: &mut Vec<F>,
+    ) {
+        if let Some(mut receiver) = rx {
+            receiver.close();
+        }
+        state.mark_closed();
+        if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+            self.process_frame_with_hooks_and_metrics(frame, out);
+            self.after_low();
+        }
+        self.hooks.on_command_end(&mut self.ctx);
+    }
+
+    /// Apply protocol hooks and increment metrics before emitting a frame.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// actor.process_frame_with_hooks_and_metrics(frame, &mut out);
+    /// ```
+    fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>) {
         let mut frame = frame;
         self.hooks.before_send(&mut frame, &mut self.ctx);
         out.push(frame);
@@ -463,51 +497,81 @@ where
             return;
         }
 
-        if self.try_opportunistic_low_drain(out, state) {
+        if self.try_opportunistic_drain(
+            QueueKind::Low,
+            DrainContext {
+                out: &mut *out,
+                state: &mut *state,
+            },
+        ) {
             return;
         }
 
-        self.try_opportunistic_multi_packet_drain(out, state);
+        let _ = self.try_opportunistic_drain(
+            QueueKind::Multi,
+            DrainContext {
+                out: &mut *out,
+                state: &mut *state,
+            },
+        );
     }
 
-    /// Try to opportunistically drain the low-priority queue when fairness allows.
+    /// Try to opportunistically drain a queue-backed source when fairness allows.
     ///
     /// Returns `true` when a frame is forwarded to `out`.
-    fn try_opportunistic_low_drain(&mut self, out: &mut Vec<F>, state: &mut ActorState) -> bool {
-        let Some(res) = self.low_rx.as_mut().map(mpsc::Receiver::try_recv) else {
-            return false;
-        };
-
-        match res {
-            Ok(mut frame) => {
-                self.hooks.before_send(&mut frame, &mut self.ctx);
-                out.push(frame);
-                self.after_low();
-                true
-            }
-            Err(TryRecvError::Empty) => false,
-            Err(TryRecvError::Disconnected) => {
-                Self::handle_closed_receiver(&mut self.low_rx, state);
+    fn try_opportunistic_drain(&mut self, kind: QueueKind, ctx: DrainContext<'_, F>) -> bool {
+        let DrainContext { out, state } = ctx;
+        match kind {
+            QueueKind::High => {
+                debug_assert!(
+                    false,
+                    concat!(
+                        "try_opportunistic_drain(High) is unsupported; ",
+                        "High is handled by biased polling",
+                    ),
+                );
                 false
             }
-        }
-    }
+            QueueKind::Low => {
+                let res = match self.low_rx.as_mut() {
+                    Some(receiver) => receiver.try_recv(),
+                    None => return false,
+                };
 
-    /// Opportunistically drain the multi-packet channel when fairness allows.
-    fn try_opportunistic_multi_packet_drain(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
-        let Some(res) = self.multi_packet.as_mut().map(mpsc::Receiver::try_recv) else {
-            return;
-        };
-
-        match res {
-            Ok(mut frame) => {
-                self.hooks.before_send(&mut frame, &mut self.ctx);
-                out.push(frame);
-                self.after_low();
+                match res {
+                    Ok(frame) => {
+                        self.process_frame_with_hooks_and_metrics(frame, out);
+                        self.after_low();
+                        true
+                    }
+                    Err(TryRecvError::Empty) => false,
+                    Err(TryRecvError::Disconnected) => {
+                        Self::handle_closed_receiver(&mut self.low_rx, state);
+                        false
+                    }
+                }
             }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                self.handle_multi_packet_closed(state, out);
+            QueueKind::Multi => {
+                let Some(mut rx) = self.multi_packet.take() else {
+                    return false;
+                };
+
+                match rx.try_recv() {
+                    Ok(frame) => {
+                        self.process_frame_with_hooks_and_metrics(frame, out);
+                        self.after_low();
+                        self.multi_packet = Some(rx);
+                        true
+                    }
+                    Err(TryRecvError::Empty) => {
+                        self.multi_packet = Some(rx);
+                        false
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        self.handle_multi_packet_closed_with(Some(rx), state, out);
+                        false
+                    }
+                }
             }
         }
     }
@@ -529,10 +593,8 @@ where
     ) -> Result<bool, WireframeError<E>> {
         let mut produced = false;
         match res {
-            Some(Ok(mut frame)) => {
-                self.hooks.before_send(&mut frame, &mut self.ctx);
-                out.push(frame);
-                crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
+            Some(Ok(frame)) => {
+                self.process_frame_with_hooks_and_metrics(frame, out);
                 produced = true;
             }
             Some(Err(WireframeError::Protocol(e))) => {
@@ -548,10 +610,8 @@ where
             Some(Err(e)) => return Err(e),
             None => {
                 state.mark_closed();
-                if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-                    self.hooks.before_send(&mut frame, &mut self.ctx);
-                    out.push(frame);
-                    crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
+                if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+                    self.process_frame_with_hooks_and_metrics(frame, out);
                     produced = true;
                 }
                 self.hooks.on_command_end(&mut self.ctx);
@@ -648,6 +708,10 @@ impl ActorState {
             // occurs, matching previous behaviour where draining sources
             // without explicit shutdown terminates the actor.
             closed_sources: 1,
+            // total_sources counts all sources that keep the actor alive:
+            // - 3 for the baseline sources (main loop, shutdown token, and queue drains)
+            // - +1 if a streaming response is active (has_response)
+            // - +1 if multi-packet handling is enabled (has_multi_packet)
             total_sources: 3 + usize::from(has_response) + usize::from(has_multi_packet),
         }
     }
@@ -655,7 +719,7 @@ impl ActorState {
     /// Mark a source as closed and update the run state if all are closed.
     fn mark_closed(&mut self) {
         self.closed_sources += 1;
-        if self.closed_sources == self.total_sources {
+        if self.closed_sources >= self.total_sources {
             self.run_state = RunState::Finished;
         }
     }
@@ -676,3 +740,6 @@ impl ActorState {
     /// Returns `true` when all sources have finished.
     fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 }
+
+#[cfg(not(loom))]
+pub mod test_support;

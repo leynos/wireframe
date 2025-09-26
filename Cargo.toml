@@ -81,6 +81,7 @@ serializer-bincode = []
 advanced-tests = []
 examples = []
 cucumber-tests = []
+test-support = []
 
 [lints.clippy]
 pedantic = "warn"

@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for explicit end-of-stream signalling.
+#![cfg(not(loom))]
 
 mod support;
 
@@ -110,6 +110,35 @@ async fn multi_packet_empty_channel_emits_end(queues: (PushQueues<u8>, PushHandl
     actor.run(&mut out).await.expect("actor run failed");
 
     assert_eq!(out, vec![0]);
+}
+
+#[rstest]
+#[tokio::test]
+async fn multi_packet_empty_channel_no_terminator_emits_nothing(
+    queues: (PushQueues<u8>, PushHandle<u8>),
+) {
+    struct NoTerminator;
+
+    impl WireframeProtocol for NoTerminator {
+        type Frame = u8;
+        type ProtocolError = ();
+
+        fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
+    }
+
+    let (queues, handle) = queues;
+    let (tx, rx) = mpsc::channel(1);
+    drop(tx);
+
+    let shutdown = CancellationToken::new();
+    let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
+    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    actor.set_multi_packet(Some(rx));
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+
+    assert!(out.is_empty());
 }
 
 #[rstest]
