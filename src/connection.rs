@@ -526,7 +526,8 @@ where
             QueueKind::High => {
                 debug_assert!(
                     false,
-                    "try_opportunistic_drain(High) is unsupported; High is handled by biased polling",
+                    "try_opportunistic_drain(High) is unsupported; High is handled by biased \
+                     polling",
                 );
                 false
             }

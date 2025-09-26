@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for multi-packet responses using channels.
+#![cfg(not(loom))]
 
 use std::time::Duration;
 

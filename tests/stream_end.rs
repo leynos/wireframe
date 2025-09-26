@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for explicit end-of-stream signalling.
+#![cfg(not(loom))]
 
 mod support;
 

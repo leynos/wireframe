@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Integration tests for connection actor queue helpers and multi-packet handling.
+#![cfg(not(loom))]
 
 use std::sync::{
     Arc,
