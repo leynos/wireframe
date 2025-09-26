@@ -243,7 +243,6 @@ where
     }
 
     /// Replace the low-priority queue used for tests.
-    #[cfg(any(test, feature = "test-support"))]
     pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<F>>) { self.low_rx = queue; }
 
     /// Get a clone of the shutdown token used by the actor.
