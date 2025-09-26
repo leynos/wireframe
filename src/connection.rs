@@ -740,5 +740,5 @@ impl ActorState {
     fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 }
 
-#[cfg(all(not(loom), any(test, feature = "test-support")))]
+#[cfg(not(loom))]
 pub mod test_support;

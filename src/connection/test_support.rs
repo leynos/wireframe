@@ -1,5 +1,5 @@
 //! Helpers for exercising private connection actor paths in integration tests.
-#![cfg(any(test, feature = "test-support"))]
+#![cfg(not(loom))]
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
