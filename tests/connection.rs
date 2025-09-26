@@ -78,6 +78,58 @@ impl HookCounters {
     }
 }
 
+type StreamEndHook = Box<dyn Fn(&mut ConnectionContext) -> Option<u8> + Send + Sync + 'static>;
+
+/// Configuration for building connection actor harnesses.
+#[derive(Default)]
+struct HarnessConfig {
+    has_response: bool,
+    has_multi_packet: bool,
+    increment: u8,
+    stream_end_value: Option<StreamEndHook>,
+}
+
+impl HarnessConfig {
+    /// Create a harness configuration with the default increment.
+    fn new() -> Self {
+        Self {
+            increment: 1,
+            ..Self::default()
+        }
+    }
+
+    /// Enable response tracking for the harness under construction.
+    #[expect(
+        dead_code,
+        reason = "Harness builders retain response toggles for future scenarios."
+    )]
+    fn with_response(mut self) -> Self {
+        self.has_response = true;
+        self
+    }
+
+    /// Enable multi-packet support for the harness under construction.
+    fn with_multi_packet(mut self) -> Self {
+        self.has_multi_packet = true;
+        self
+    }
+
+    /// Override the amount added to each forwarded frame.
+    fn with_increment(mut self, increment: u8) -> Self {
+        self.increment = increment;
+        self
+    }
+
+    /// Provide a stream-end hook for the harness under construction.
+    fn with_stream_end<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&mut ConnectionContext) -> Option<u8> + Send + Sync + 'static,
+    {
+        self.stream_end_value = Some(Box::new(f));
+        self
+    }
+}
+
 #[derive(Clone)]
 struct HarnessFactory {
     counters: HookCounters,
@@ -85,16 +137,18 @@ struct HarnessFactory {
 
 impl HarnessFactory {
     /// Build a connection actor harness with shared hook counters.
-    fn create(
-        &self,
-        has_response: bool,
-        has_multi_packet: bool,
-        increment: u8,
-        stream_end_value: impl Fn(&mut ConnectionContext) -> Option<u8> + Send + Sync + 'static,
-    ) -> ActorHarness {
+    fn create(&self, config: HarnessConfig) -> ActorHarness {
+        let HarnessConfig {
+            has_response,
+            has_multi_packet,
+            increment,
+            stream_end_value,
+        } = config;
+        let stream_end_fn =
+            stream_end_value.unwrap_or_else(|| Box::new(|_: &mut ConnectionContext| None));
         let hooks = self
             .counters
-            .build_hooks_with_increment(increment, stream_end_value);
+            .build_hooks_with_increment(increment, stream_end_fn);
         ActorHarness::new_with_state(hooks, has_response, has_multi_packet)
             .expect("failed to create harness")
     }
@@ -146,7 +200,7 @@ fn assert_multi_packet_processing_result(
 
 #[rstest]
 fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) {
-    let mut harness = harness_factory.create(false, false, 1, |_| None);
+    let mut harness = harness_factory.create(HarnessConfig::new());
     harness.process_multi_packet(Some(5));
 
     assert_multi_packet_processing_result(
@@ -159,7 +213,12 @@ fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) {
 
 #[rstest]
 fn process_multi_packet_none_emits_end_frame(harness_factory: HarnessFactory) {
-    let mut harness = harness_factory.create(false, true, 2, |_| Some(9));
+    let mut harness = harness_factory.create(
+        HarnessConfig::new()
+            .with_multi_packet()
+            .with_increment(2)
+            .with_stream_end(|_| Some(9)),
+    );
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
@@ -186,7 +245,11 @@ fn handle_multi_packet_closed_behaviour(
     expected_output: Vec<u8>,
     expected_before: usize,
 ) {
-    let mut harness = harness_factory.create(false, true, 1, move |_| terminator);
+    let mut harness = harness_factory.create(
+        HarnessConfig::new()
+            .with_multi_packet()
+            .with_stream_end(move |_| terminator),
+    );
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
@@ -211,7 +274,7 @@ fn handle_multi_packet_closed_behaviour(
 
 #[rstest]
 fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) {
-    let mut harness = harness_factory.create(false, false, 1, |_| None);
+    let mut harness = harness_factory.create(HarnessConfig::new());
     let (tx, rx) = mpsc::channel(1);
     tx.try_send(9).expect("send frame");
     drop(tx);
