@@ -6,7 +6,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tokio::sync::mpsc;
 use wireframe::{
     ProtocolHooks,
@@ -31,62 +31,89 @@ impl HookCounts {
     }
 }
 
-/// Builder for protocol hook configurations used in connection tests.
-struct TestHookBuilder {
+/// Shared counters for protocol hook configurations used in connection tests.
+#[derive(Clone)]
+struct HookCounters {
     before_calls: Arc<AtomicUsize>,
-    end_calls: Option<Arc<AtomicUsize>>,
+    end_calls: Arc<AtomicUsize>,
 }
 
-impl TestHookBuilder {
-    /// Create a builder tracking before-send invocations without an end hook.
+impl HookCounters {
+    /// Create counters tracking before-send and on-command-end hook invocations.
     fn new() -> Self {
         Self {
             before_calls: Arc::new(AtomicUsize::new(0)),
-            end_calls: None,
+            end_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    /// Enable tracking for on-command-end hook invocations.
-    fn with_end_hook(mut self) -> Self {
-        self.end_calls = Some(Arc::new(AtomicUsize::new(0)));
-        self
-    }
-
     /// Construct protocol hooks that increment frames and record hook usage.
-    fn build_hooks_with_increment<F>(
-        self,
+    fn build_hooks_with_increment(
+        &self,
         increment: u8,
-        stream_end_value: F,
-    ) -> (ProtocolHooks<u8, ()>, Self)
-    where
-        F: Fn(&mut ConnectionContext) -> Option<u8> + Send + Sync + 'static,
-    {
-        let before_clone = self.before_calls.clone();
-        let end_clone = self.end_calls.clone();
+        stream_end_value: impl Fn(&mut ConnectionContext) -> Option<u8> + Send + Sync + 'static,
+    ) -> ProtocolHooks<u8, ()> {
+        let before_clone = Arc::clone(&self.before_calls);
+        let end_clone = Arc::clone(&self.end_calls);
 
-        let hooks = ProtocolHooks {
+        ProtocolHooks {
             before_send: Some(Box::new(
                 move |frame: &mut u8, _ctx: &mut ConnectionContext| {
                     before_clone.fetch_add(1, Ordering::SeqCst);
                     *frame += increment;
                 },
             )),
-            on_command_end: end_clone.as_ref().map(|end_calls| {
-                let end_calls = end_calls.clone();
-                Box::new(move |_ctx: &mut ConnectionContext| {
-                    end_calls.fetch_add(1, Ordering::SeqCst);
-                }) as Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>
-            }),
+            on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
+                end_clone.fetch_add(1, Ordering::SeqCst);
+            })
+                as Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>),
             stream_end: Some(Box::new(stream_end_value)),
             ..ProtocolHooks::<u8, ()>::default()
-        };
-
-        (hooks, self)
+        }
     }
 
     /// Snapshot the recorded hook counts for verification.
     fn get_counts(&self) -> HookCounts {
-        HookCounts::from_counters(&self.before_calls, self.end_calls.as_ref())
+        HookCounts::from_counters(&self.before_calls, Some(&self.end_calls))
+    }
+}
+
+#[derive(Clone)]
+struct HarnessFactory {
+    counters: HookCounters,
+}
+
+impl HarnessFactory {
+    /// Build a connection actor harness with shared hook counters.
+    fn create(
+        &self,
+        has_response: bool,
+        has_multi_packet: bool,
+        increment: u8,
+        stream_end_value: impl Fn(&mut ConnectionContext) -> Option<u8> + Send + Sync + 'static,
+    ) -> ActorHarness {
+        let hooks = self
+            .counters
+            .build_hooks_with_increment(increment, stream_end_value);
+        ActorHarness::new_with_state(hooks, has_response, has_multi_packet)
+            .expect("failed to create harness")
+    }
+
+    /// Read the accumulated hook counters for the most recent harness.
+    fn counts(&self) -> HookCounts { self.counters.get_counts() }
+}
+
+#[fixture]
+fn hook_counters() -> HookCounters {
+    let counters = HookCounters::new();
+    debug_assert_eq!(counters.get_counts(), HookCounts { before: 0, end: 0 });
+    counters
+}
+
+#[fixture]
+fn harness_factory(hook_counters: HookCounters) -> HarnessFactory {
+    HarnessFactory {
+        counters: hook_counters,
     }
 }
 
@@ -100,12 +127,9 @@ fn assert_frame_processed(
     assert_eq!(actual_counts, expected_counts, "hook counts should match");
 }
 
-#[test]
-fn process_multi_packet_forwards_frame() {
-    let (hooks, hook_builder) = TestHookBuilder::new().build_hooks_with_increment(1, |_| None);
-
-    let mut harness =
-        ActorHarness::new_with_state(hooks, false, false).expect("failed to create harness");
+#[rstest]
+fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) {
+    let mut harness = harness_factory.create(false, false, 1, |_| None);
     harness.process_multi_packet(Some(5));
 
     let snapshot = harness.snapshot();
@@ -114,18 +138,13 @@ fn process_multi_packet_forwards_frame() {
         &harness.out,
         &[6],
         HookCounts { before: 1, end: 0 },
-        hook_builder.get_counts(),
+        harness_factory.counts(),
     );
 }
 
-#[test]
-fn process_multi_packet_none_emits_end_frame() {
-    let (hooks, hook_builder) = TestHookBuilder::new()
-        .with_end_hook()
-        .build_hooks_with_increment(2, |_| Some(9));
-
-    let mut harness =
-        ActorHarness::new_with_state(hooks, false, true).expect("failed to create harness");
+#[rstest]
+fn process_multi_packet_none_emits_end_frame(harness_factory: HarnessFactory) {
+    let mut harness = harness_factory.create(false, true, 2, |_| Some(9));
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
@@ -137,7 +156,7 @@ fn process_multi_packet_none_emits_end_frame() {
         &harness.out,
         &[11],
         HookCounts { before: 1, end: 1 },
-        hook_builder.get_counts(),
+        harness_factory.counts(),
     );
 }
 
@@ -149,17 +168,12 @@ fn process_multi_packet_none_emits_end_frame() {
     case::without_terminator(None, Vec::new(), 0),
 )]
 fn handle_multi_packet_closed_behaviour(
+    harness_factory: HarnessFactory,
     terminator: Option<u8>,
     expected_output: Vec<u8>,
     expected_before: usize,
 ) {
-    let terminator_value = terminator;
-    let (hooks, hook_builder) = TestHookBuilder::new()
-        .with_end_hook()
-        .build_hooks_with_increment(1, move |_ctx| terminator_value);
-
-    let mut harness =
-        ActorHarness::new_with_state(hooks, false, true).expect("failed to create harness");
+    let mut harness = harness_factory.create(false, true, 1, move |_| terminator);
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
@@ -178,16 +192,13 @@ fn handle_multi_packet_closed_behaviour(
             before: expected_before,
             end: 1,
         },
-        hook_builder.get_counts(),
+        harness_factory.counts(),
     );
 }
 
-#[test]
-fn try_opportunistic_drain_forwards_frame() {
-    let (hooks, hook_builder) = TestHookBuilder::new().build_hooks_with_increment(1, |_| None);
-
-    let mut harness =
-        ActorHarness::new_with_state(hooks, false, false).expect("failed to create harness");
+#[rstest]
+fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) {
+    let mut harness = harness_factory.create(false, false, 1, |_| None);
     let (tx, rx) = mpsc::channel(1);
     tx.try_send(9).expect("send frame");
     drop(tx);
@@ -201,7 +212,7 @@ fn try_opportunistic_drain_forwards_frame() {
         &harness.out,
         &[10],
         HookCounts { before: 1, end: 0 },
-        hook_builder.get_counts(),
+        harness_factory.counts(),
     );
 }
 
@@ -230,7 +241,7 @@ fn try_opportunistic_drain_handles_disconnect() {
     assert!(!drained, "disconnect should not produce a frame");
     assert!(
         !harness.has_low_queue(),
-        "queue should be cleared after disconnect"
+        "queue should be cleared after disconnect",
     );
     let snapshot = harness.snapshot();
     assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
