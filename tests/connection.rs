@@ -127,18 +127,33 @@ fn assert_frame_processed(
     assert_eq!(actual_counts, expected_counts, "hook counts should match");
 }
 
+/// Helper to verify common multi-packet processing assertions.
+fn assert_multi_packet_processing_result(
+    harness: &ActorHarness,
+    harness_factory: &HarnessFactory,
+    expected_output: &[u8],
+    expected_counts: HookCounts,
+) {
+    let snapshot = harness.snapshot();
+    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
+    assert_frame_processed(
+        &harness.out,
+        expected_output,
+        expected_counts,
+        harness_factory.counts(),
+    );
+}
+
 #[rstest]
 fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) {
     let mut harness = harness_factory.create(false, false, 1, |_| None);
     harness.process_multi_packet(Some(5));
 
-    let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
-    assert_frame_processed(
-        &harness.out,
+    assert_multi_packet_processing_result(
+        &harness,
+        &harness_factory,
         &[6],
         HookCounts { before: 1, end: 0 },
-        harness_factory.counts(),
     );
 }
 
@@ -150,13 +165,11 @@ fn process_multi_packet_none_emits_end_frame(harness_factory: HarnessFactory) {
 
     harness.process_multi_packet(None);
 
-    let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
-    assert_frame_processed(
-        &harness.out,
+    assert_multi_packet_processing_result(
+        &harness,
+        &harness_factory,
         &[11],
         HookCounts { before: 1, end: 1 },
-        harness_factory.counts(),
     );
 }
 
