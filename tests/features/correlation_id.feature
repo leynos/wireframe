@@ -8,3 +8,8 @@ Feature: Multi-packet response correlation
     Given a correlation id 11
     When a multi-packet channel emits frames
     Then each emitted frame uses correlation id 11
+
+  Scenario: Multi-packet responses clear correlation ids without a request id
+    Given no correlation id
+    When a multi-packet channel emits frames
+    Then each emitted frame has no correlation id

@@ -25,3 +25,39 @@ impl CorrelatableFrame for Vec<u8> {
 
     fn set_correlation_id(&mut self, _correlation_id: Option<u64>) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+    use crate::app::Envelope;
+
+    #[rstest]
+    #[case(None)]
+    #[case(Some(27))]
+    fn envelope_correlation_round_trip(#[case] initial: Option<u64>) {
+        let mut frame = Envelope::new(7, initial, vec![1, 2, 3]);
+        assert_eq!(frame.correlation_id(), initial);
+
+        frame.set_correlation_id(Some(99));
+        assert_eq!(frame.correlation_id(), Some(99));
+
+        frame.set_correlation_id(None);
+        assert_eq!(frame.correlation_id(), None);
+    }
+
+    #[rstest]
+    #[case::byte(0u8)]
+    #[case::buffer(Vec::<u8>::new())]
+    fn noop_implementations_ignore_correlation<T>(#[case] mut frame: T)
+    where
+        T: CorrelatableFrame,
+    {
+        assert_eq!(frame.correlation_id(), None);
+        frame.set_correlation_id(Some(42));
+        assert_eq!(frame.correlation_id(), None);
+        frame.set_correlation_id(None);
+        assert_eq!(frame.correlation_id(), None);
+    }
+}
