@@ -122,7 +122,6 @@ pub struct ConnectionActor<F, E> {
     /// This preserves fairness with queued sources.
     /// The actor emits the protocol terminator when the sender closes the channel.
     multi_packet: Option<mpsc::Receiver<F>>,
-    multi_packet_stamper: Option<MultiPacketStamper<F>>,
     multi_packet_correlation: Option<u64>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
@@ -147,12 +146,10 @@ enum QueueKind {
     Multi,
 }
 
-/// Closure type used to stamp correlation identifiers onto frames.
-type MultiPacketStamper<F> = Box<dyn FnMut(&mut F) + Send + 'static>;
 
 impl<F, E> ConnectionActor<F, E>
 where
-    F: FrameLike,
+    F: FrameLike + CorrelatableFrame,
     E: std::fmt::Debug,
 {
     /// Create a new `ConnectionActor` from the provided components.
@@ -204,7 +201,6 @@ where
             low_rx: Some(queues.low_priority_rx),
             response,
             multi_packet: None,
-            multi_packet_stamper: None,
             multi_packet_correlation: None,
             shutdown,
             counter: Some(counter),
@@ -247,7 +243,7 @@ where
                 "response stream is active"
             ),
         );
-        self.install_multi_packet(channel, None, None);
+        self.install_multi_packet(channel, None);
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
@@ -255,9 +251,7 @@ where
         &mut self,
         channel: Option<mpsc::Receiver<F>>,
         correlation_id: Option<u64>,
-    ) where
-        F: CorrelatableFrame,
-    {
+    ) {
         debug_assert!(
             self.response.is_none(),
             concat!(
@@ -265,42 +259,43 @@ where
                 "response stream is active"
             ),
         );
-        let expected = correlation_id;
-        let stamper: Box<dyn FnMut(&mut F) + Send + 'static> = Box::new(move |frame: &mut F| {
-            frame.set_correlation_id(expected);
-            debug_assert_eq!(
-                frame.correlation_id(),
-                expected,
-                "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
-                expected,
-                frame.correlation_id()
-            );
-        });
-        self.install_multi_packet(channel, Some(stamper), correlation_id);
+        self.install_multi_packet(channel, correlation_id);
     }
 
     fn install_multi_packet(
         &mut self,
         channel: Option<mpsc::Receiver<F>>,
-        stamper: Option<MultiPacketStamper<F>>,
         correlation_id: Option<u64>,
     ) {
         self.multi_packet = channel;
-        self.multi_packet_stamper = stamper;
-        self.multi_packet_correlation = correlation_id;
+        self.multi_packet_correlation = if self.multi_packet.is_some() {
+            correlation_id
+        } else {
+            None
+        };
+    }
+
+    fn clear_multi_packet(&mut self) {
+        self.multi_packet = None;
+        self.multi_packet_correlation = None;
     }
 
     fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
-        if let Some(stamper) = &mut self.multi_packet_stamper {
-            debug_assert!(
-                self.multi_packet_correlation.is_some(),
-                "multi_packet correlation state missing despite stamper"
+        if let Some(expected) = self.multi_packet_correlation {
+            frame.set_correlation_id(Some(expected));
+            debug_assert_eq!(
+                frame.correlation_id(),
+                Some(expected),
+                "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
+                Some(expected),
+                frame.correlation_id(),
             );
-            stamper(frame);
         } else {
+            frame.set_correlation_id(None);
             debug_assert!(
-                self.multi_packet_correlation.is_none(),
-                "multi_packet correlation id retained without stamper"
+                frame.correlation_id().is_none(),
+                "multi-packet frame correlation unexpectedly present: got={:?}",
+                frame.correlation_id(),
             );
         }
     }
@@ -493,8 +488,7 @@ where
             self.process_frame_with_hooks_and_metrics(frame, out);
             self.after_low();
         }
-        self.multi_packet_stamper = None;
-        self.multi_packet_correlation = None;
+        self.clear_multi_packet();
         self.hooks.on_command_end(&mut self.ctx);
     }
 
@@ -547,8 +541,7 @@ where
         if let Some(mut rx) = self.multi_packet.take() {
             rx.close();
             state.mark_closed();
-            self.multi_packet_stamper = None;
-            self.multi_packet_correlation = None;
+            self.clear_multi_packet();
         }
         if self.response.take().is_some() {
             state.mark_closed();

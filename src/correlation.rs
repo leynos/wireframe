@@ -13,3 +13,15 @@ pub trait CorrelatableFrame {
     /// Set or clear the correlation identifier.
     fn set_correlation_id(&mut self, correlation_id: Option<u64>);
 }
+
+impl CorrelatableFrame for u8 {
+    fn correlation_id(&self) -> Option<u64> { None }
+
+    fn set_correlation_id(&mut self, _correlation_id: Option<u64>) {}
+}
+
+impl CorrelatableFrame for Vec<u8> {
+    fn correlation_id(&self) -> Option<u64> { None }
+
+    fn set_correlation_id(&mut self, _correlation_id: Option<u64>) {}
+}
