@@ -275,10 +275,10 @@ not hang.
   channel and stamps it onto every serialised frame. This preserves protocol
   invariants without requiring handlers to mutate frames post-creation and
   mirrors the message attribution strategy outlined in the capability roadmap.
-  - Implementation stores the expected identifier alongside a closure built
-    from the new `CorrelatableFrame` trait, ensuring frames can be stamped in a
-    generic actor without constraining other protocols. Debug builds assert the
-    stamped frame exposes the expected identifier so regressions fail fast.
+- Implementation stores the expected identifier alongside a closure built from
+  the new `CorrelatableFrame` trait, ensuring frames can be stamped in a
+  generic actor without constraining other protocols. Debug builds assert the
+  stamped frame exposes the expected identifier so regressions fail fast.
 
 Debug-mode assertions must guard this stamping by checking
 `frame.correlation_id == request.correlation_id` before a frame is dispatched.
