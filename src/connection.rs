@@ -499,7 +499,10 @@ where
             receiver.close();
         }
         state.mark_closed();
-        if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+        if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+            if self.multi_packet_correlation.is_some() {
+                self.apply_multi_packet_correlation(&mut frame);
+            }
             self.process_frame_with_hooks_and_metrics(frame, out);
             self.after_low();
         }

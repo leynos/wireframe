@@ -8,6 +8,7 @@ use wireframe::{
     CorrelatableFrame,
     app::Envelope,
     connection::ConnectionActor,
+    hooks::{ConnectionContext, ProtocolHooks},
     push::PushQueues,
     response::FrameStream,
 };
@@ -35,6 +36,7 @@ async fn stream_frames_carry_request_correlation_id() {
 async fn run_multi_packet_channel(
     request_correlation: Option<u64>,
     frame_correlations: &[Option<u64>],
+    hooks: ProtocolHooks<Envelope, ()>,
 ) -> Vec<Envelope> {
     let capacity = frame_correlations.len().max(1);
     let (tx, rx) = mpsc::channel(capacity);
@@ -55,7 +57,7 @@ async fn run_multi_packet_channel(
         .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
     let mut actor: ConnectionActor<Envelope, ()> =
-        ConnectionActor::new(queues, handle, None, shutdown);
+        ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
     actor.set_multi_packet_with_correlation(Some(rx), request_correlation);
 
     let mut out = Vec::new();
@@ -73,10 +75,31 @@ async fn multi_packet_frames_apply_expected_correlation(
     #[case] initial: Vec<Option<u64>>,
     #[case] expected: Vec<Option<u64>>,
 ) {
-    let frames = run_multi_packet_channel(request, &initial).await;
+    let frames = run_multi_packet_channel(request, &initial, ProtocolHooks::default()).await;
     let correlations: Vec<Option<u64>> = frames
         .iter()
         .map(CorrelatableFrame::correlation_id)
         .collect();
     assert_eq!(correlations, expected);
+}
+
+#[rstest]
+#[case::terminator_stamped(Some(11), Some(11))]
+#[case::terminator_cleared(None, None)]
+#[tokio::test]
+async fn multi_packet_terminator_applies_correlation(
+    #[case] request: Option<u64>,
+    #[case] expected: Option<u64>,
+) {
+    let hooks = ProtocolHooks {
+        stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
+            Some(Envelope::new(255, None, vec![]))
+        })),
+        ..ProtocolHooks::default()
+    };
+
+    let frames = run_multi_packet_channel(request, &[], hooks).await;
+    assert_eq!(frames.len(), 1, "terminator frame missing");
+    let terminator = frames.last().expect("terminator frame missing");
+    assert_eq!(terminator.correlation_id(), expected);
 }
