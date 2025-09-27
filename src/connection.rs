@@ -122,7 +122,9 @@ pub struct ConnectionActor<F, E> {
     /// This preserves fairness with queued sources.
     /// The actor emits the protocol terminator when the sender closes the channel.
     multi_packet: Option<mpsc::Receiver<F>>,
-    multi_packet_correlation: Option<u64>,
+    #[allow(clippy::option_option)]
+    // Required to distinguish stamping activation from the stored identifier.
+    multi_packet_correlation: Option<Option<u64>>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
@@ -145,7 +147,6 @@ enum QueueKind {
     Low,
     Multi,
 }
-
 
 impl<F, E> ConnectionActor<F, E>
 where
@@ -243,7 +244,8 @@ where
                 "response stream is active"
             ),
         );
-        self.install_multi_packet(channel, None);
+        let correlation = channel.as_ref().map(|_| None);
+        self.install_multi_packet(channel, correlation);
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
@@ -259,20 +261,23 @@ where
                 "response stream is active"
             ),
         );
-        self.install_multi_packet(channel, correlation_id);
+        let correlation = channel.as_ref().map(|_| correlation_id);
+        self.install_multi_packet(channel, correlation);
     }
 
+    #[allow(clippy::option_option)] // Parameter retains explicit stamping activation state.
     fn install_multi_packet(
         &mut self,
         channel: Option<mpsc::Receiver<F>>,
-        correlation_id: Option<u64>,
+        correlation_id: Option<Option<u64>>,
     ) {
+        debug_assert_eq!(
+            channel.is_some(),
+            correlation_id.is_some(),
+            "multi-packet correlation must be provided when the channel is active",
+        );
         self.multi_packet = channel;
-        self.multi_packet_correlation = if self.multi_packet.is_some() {
-            correlation_id
-        } else {
-            None
-        };
+        self.multi_packet_correlation = correlation_id;
     }
 
     fn clear_multi_packet(&mut self) {
@@ -281,22 +286,32 @@ where
     }
 
     fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
-        if let Some(expected) = self.multi_packet_correlation {
-            frame.set_correlation_id(Some(expected));
-            debug_assert_eq!(
-                frame.correlation_id(),
-                Some(expected),
-                "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
-                Some(expected),
-                frame.correlation_id(),
-            );
-        } else {
-            frame.set_correlation_id(None);
-            debug_assert!(
-                frame.correlation_id().is_none(),
-                "multi-packet frame correlation unexpectedly present: got={:?}",
-                frame.correlation_id(),
-            );
+        match self.multi_packet_correlation {
+            Some(Some(expected)) => {
+                frame.set_correlation_id(Some(expected));
+                debug_assert_eq!(
+                    frame.correlation_id(),
+                    Some(expected),
+                    "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
+                    Some(expected),
+                    frame.correlation_id(),
+                );
+            }
+            Some(None) => {
+                frame.set_correlation_id(None);
+                debug_assert!(
+                    frame.correlation_id().is_none(),
+                    "multi-packet frame correlation unexpectedly present: got={:?}",
+                    frame.correlation_id(),
+                );
+            }
+            None => {
+                debug_assert!(
+                    false,
+                    "multi-packet correlation invoked without configuration",
+                );
+                frame.set_correlation_id(None);
+            }
         }
     }
 
@@ -426,7 +441,7 @@ where
         match res {
             Some(frame) => {
                 let mut frame = frame;
-                if matches!(kind, QueueKind::Multi) {
+                if matches!(kind, QueueKind::Multi) && self.multi_packet_correlation.is_some() {
                     self.apply_multi_packet_correlation(&mut frame);
                 }
                 self.process_frame_with_hooks_and_metrics(frame, out);
