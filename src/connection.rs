@@ -121,10 +121,7 @@ pub struct ConnectionActor<F, E> {
     /// Optional multi-packet channel drained after low-priority frames.
     /// This preserves fairness with queued sources.
     /// The actor emits the protocol terminator when the sender closes the channel.
-    multi_packet: Option<mpsc::Receiver<F>>,
-    #[allow(clippy::option_option)]
-    // Required to distinguish stamping activation from the stored identifier.
-    multi_packet_correlation: Option<Option<u64>>,
+    multi_packet: MultiPacketContext<F>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
@@ -138,6 +135,48 @@ pub struct ConnectionActor<F, E> {
 struct DrainContext<'a, F> {
     out: &'a mut Vec<F>,
     state: &'a mut ActorState,
+}
+
+/// Multi-packet channel state tracking the active receiver and stamping config.
+struct MultiPacketContext<F> {
+    channel: Option<mpsc::Receiver<F>>,
+    #[allow(clippy::option_option)]
+    /// Active stamping configuration. `None` disables stamping entirely.
+    correlation: Option<Option<u64>>,
+}
+
+impl<F> MultiPacketContext<F> {
+    const fn new() -> Self {
+        Self {
+            channel: None,
+            correlation: None,
+        }
+    }
+
+    #[allow(clippy::option_option)]
+    fn install(&mut self, channel: Option<mpsc::Receiver<F>>, correlation: Option<Option<u64>>) {
+        debug_assert_eq!(
+            channel.is_some(),
+            correlation.is_some(),
+            "multi-packet correlation must be provided when the channel is active",
+        );
+        self.channel = channel;
+        self.correlation = correlation;
+    }
+
+    fn clear(&mut self) {
+        self.channel = None;
+        self.correlation = None;
+    }
+
+    fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
+
+    fn take_channel(&mut self) -> Option<mpsc::Receiver<F>> { self.channel.take() }
+
+    #[allow(clippy::option_option)]
+    fn correlation(&self) -> Option<Option<u64>> { self.correlation }
+
+    fn is_active(&self) -> bool { self.channel.is_some() }
 }
 
 /// Queue variants processed by the connection actor.
@@ -201,8 +240,7 @@ where
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             response,
-            multi_packet: None,
-            multi_packet_correlation: None,
+            multi_packet: MultiPacketContext::new(),
             shutdown,
             counter: Some(counter),
             hooks,
@@ -226,7 +264,7 @@ where
     /// Set or replace the current streaming response.
     pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
         debug_assert!(
-            self.multi_packet.is_none(),
+            !self.multi_packet.is_active(),
             concat!(
                 "ConnectionActor invariant violated: cannot set response while a ",
                 "multi_packet channel is active"
@@ -245,7 +283,7 @@ where
             ),
         );
         let correlation = channel.as_ref().map(|_| None);
-        self.install_multi_packet(channel, correlation);
+        self.multi_packet.install(channel, correlation);
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
@@ -262,31 +300,13 @@ where
             ),
         );
         let correlation = channel.as_ref().map(|_| correlation_id);
-        self.install_multi_packet(channel, correlation);
+        self.multi_packet.install(channel, correlation);
     }
 
-    #[allow(clippy::option_option)] // Parameter retains explicit stamping activation state.
-    fn install_multi_packet(
-        &mut self,
-        channel: Option<mpsc::Receiver<F>>,
-        correlation_id: Option<Option<u64>>,
-    ) {
-        debug_assert_eq!(
-            channel.is_some(),
-            correlation_id.is_some(),
-            "multi-packet correlation must be provided when the channel is active",
-        );
-        self.multi_packet = channel;
-        self.multi_packet_correlation = correlation_id;
-    }
-
-    fn clear_multi_packet(&mut self) {
-        self.multi_packet = None;
-        self.multi_packet_correlation = None;
-    }
+    fn clear_multi_packet(&mut self) { self.multi_packet.clear(); }
 
     fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
-        match self.multi_packet_correlation {
+        match self.multi_packet.correlation() {
             Some(Some(expected)) => {
                 frame.set_correlation_id(Some(expected));
                 debug_assert_eq!(
@@ -344,11 +364,11 @@ where
         }
 
         debug_assert!(
-            usize::from(self.response.is_some()) + usize::from(self.multi_packet.is_some()) <= 1,
+            usize::from(self.response.is_some()) + usize::from(self.multi_packet.is_active()) <= 1,
             "ConnectionActor invariant violated: at most one of response or multi_packet may be \
              active"
         );
-        let mut state = ActorState::new(self.response.is_some(), self.multi_packet.is_some());
+        let mut state = ActorState::new(self.response.is_some(), self.multi_packet.is_active());
 
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
@@ -375,7 +395,7 @@ where
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
         let high_available = self.high_rx.is_some();
         let low_available = self.low_rx.is_some();
-        let multi_available = self.multi_packet.is_some() && !state.is_shutting_down();
+        let multi_available = self.multi_packet.is_active() && !state.is_shutting_down();
         let resp_available = self.response.is_some() && !state.is_shutting_down();
 
         tokio::select! {
@@ -384,7 +404,7 @@ where
             () = Self::await_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
             res = Self::poll_queue(self.high_rx.as_mut()), if high_available => Event::High(res),
             res = Self::poll_queue(self.low_rx.as_mut()), if low_available => Event::Low(res),
-            res = Self::poll_queue(self.multi_packet.as_mut()), if multi_available => Event::MultiPacket(res),
+            res = Self::poll_queue(self.multi_packet.channel_mut()), if multi_available => Event::MultiPacket(res),
             res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
             else => Event::Idle,
         }
@@ -441,7 +461,7 @@ where
         match res {
             Some(frame) => {
                 let mut frame = frame;
-                if matches!(kind, QueueKind::Multi) && self.multi_packet_correlation.is_some() {
+                if matches!(kind, QueueKind::Multi) && self.multi_packet.correlation().is_some() {
                     self.apply_multi_packet_correlation(&mut frame);
                 }
                 self.process_frame_with_hooks_and_metrics(frame, out);
@@ -478,7 +498,7 @@ where
     /// Handle a closed multi-packet channel by emitting the protocol terminator and notifying
     /// hooks.
     fn handle_multi_packet_closed(&mut self, state: &mut ActorState, out: &mut Vec<F>) {
-        let rx = self.multi_packet.take();
+        let rx = self.multi_packet.take_channel();
         self.handle_multi_packet_closed_with(rx, state, out);
     }
 
@@ -500,7 +520,7 @@ where
         }
         state.mark_closed();
         if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-            if self.multi_packet_correlation.is_some() {
+            if self.multi_packet.correlation().is_some() {
                 self.apply_multi_packet_correlation(&mut frame);
             }
             self.process_frame_with_hooks_and_metrics(frame, out);
@@ -556,7 +576,7 @@ where
         if let Some(rx) = &mut self.low_rx {
             rx.close();
         }
-        if let Some(mut rx) = self.multi_packet.take() {
+        if let Some(mut rx) = self.multi_packet.take_channel() {
             rx.close();
             state.mark_closed();
             self.clear_multi_packet();
@@ -629,25 +649,23 @@ where
                 }
             }
             QueueKind::Multi => {
-                let Some(mut rx) = self.multi_packet.take() else {
-                    return false;
+                let result = match self.multi_packet.channel_mut() {
+                    Some(rx) => rx.try_recv(),
+                    None => return false,
                 };
 
-                match rx.try_recv() {
+                match result {
                     Ok(frame) => {
                         let mut frame = frame;
                         self.apply_multi_packet_correlation(&mut frame);
                         self.process_frame_with_hooks_and_metrics(frame, out);
                         self.after_low();
-                        self.multi_packet = Some(rx);
                         true
                     }
-                    Err(TryRecvError::Empty) => {
-                        self.multi_packet = Some(rx);
-                        false
-                    }
+                    Err(TryRecvError::Empty) => false,
                     Err(TryRecvError::Disconnected) => {
-                        self.handle_multi_packet_closed_with(Some(rx), state, out);
+                        let rx = self.multi_packet.take_channel();
+                        self.handle_multi_packet_closed_with(rx, state, out);
                         false
                     }
                 }

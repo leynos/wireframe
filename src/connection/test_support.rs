@@ -96,7 +96,7 @@ impl ActorHarness {
 
     /// Returns `true` when the multi-packet queue is still available.
     #[must_use]
-    pub fn has_multi_queue(&self) -> bool { self.actor.multi_packet.is_some() }
+    pub fn has_multi_queue(&self) -> bool { self.actor.multi_packet.is_active() }
 
     /// Process a multi-packet poll result.
     pub fn process_multi_packet(&mut self, res: Option<u8>) {
