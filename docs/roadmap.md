@@ -207,13 +207,13 @@ stream.
     - [x] Emit tracing and metrics for each forwarded frame so streaming
       traffic remains visible to observability pipelines.
 
-  - [ ] Each sent frame must carry the correct `correlation_id` from the
+  - [x] Each sent frame must carry the correct `correlation_id` from the
     initial request.
-    - [ ] Capture the originating request's `correlation_id` before handing
+    - [x] Capture the originating request's `correlation_id` before handing
       control to the multi-packet dispatcher.
-    - [ ] Stamp the stored `correlation_id` onto every frame emitted from the
+    - [x] Stamp the stored `correlation_id` onto every frame emitted from the
       channel before it is queued for transmission.
-    - [ ] Guard against accidental omission by asserting in debug builds and
+    - [x] Guard against accidental omission by asserting in debug builds and
       covering the behaviour with targeted tests.
 
   - [ ] When the channel closes, send the end-of-stream marker frame.
