@@ -46,6 +46,7 @@ impl Drop for ActiveConnection {
 pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
+    correlation::CorrelatableFrame,
     fairness::FairnessTracker,
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
@@ -121,6 +122,8 @@ pub struct ConnectionActor<F, E> {
     /// This preserves fairness with queued sources.
     /// The actor emits the protocol terminator when the sender closes the channel.
     multi_packet: Option<mpsc::Receiver<F>>,
+    multi_packet_stamper: Option<MultiPacketStamper<F>>,
+    multi_packet_correlation: Option<u64>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
@@ -143,6 +146,9 @@ enum QueueKind {
     Low,
     Multi,
 }
+
+/// Closure type used to stamp correlation identifiers onto frames.
+type MultiPacketStamper<F> = Box<dyn FnMut(&mut F) + Send + 'static>;
 
 impl<F, E> ConnectionActor<F, E>
 where
@@ -198,6 +204,8 @@ where
             low_rx: Some(queues.low_priority_rx),
             response,
             multi_packet: None,
+            multi_packet_stamper: None,
+            multi_packet_correlation: None,
             shutdown,
             counter: Some(counter),
             hooks,
@@ -239,7 +247,62 @@ where
                 "response stream is active"
             ),
         );
+        self.install_multi_packet(channel, None, None);
+    }
+
+    /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
+    pub fn set_multi_packet_with_correlation(
+        &mut self,
+        channel: Option<mpsc::Receiver<F>>,
+        correlation_id: Option<u64>,
+    ) where
+        F: CorrelatableFrame,
+    {
+        debug_assert!(
+            self.response.is_none(),
+            concat!(
+                "ConnectionActor invariant violated: cannot set multi_packet while a ",
+                "response stream is active"
+            ),
+        );
+        let expected = correlation_id;
+        let stamper: Box<dyn FnMut(&mut F) + Send + 'static> = Box::new(move |frame: &mut F| {
+            frame.set_correlation_id(expected);
+            debug_assert_eq!(
+                frame.correlation_id(),
+                expected,
+                "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
+                expected,
+                frame.correlation_id()
+            );
+        });
+        self.install_multi_packet(channel, Some(stamper), correlation_id);
+    }
+
+    fn install_multi_packet(
+        &mut self,
+        channel: Option<mpsc::Receiver<F>>,
+        stamper: Option<MultiPacketStamper<F>>,
+        correlation_id: Option<u64>,
+    ) {
         self.multi_packet = channel;
+        self.multi_packet_stamper = stamper;
+        self.multi_packet_correlation = correlation_id;
+    }
+
+    fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
+        if let Some(stamper) = &mut self.multi_packet_stamper {
+            debug_assert!(
+                self.multi_packet_correlation.is_some(),
+                "multi_packet correlation state missing despite stamper"
+            );
+            stamper(frame);
+        } else {
+            debug_assert!(
+                self.multi_packet_correlation.is_none(),
+                "multi_packet correlation id retained without stamper"
+            );
+        }
     }
 
     /// Replace the low-priority queue used for tests.
@@ -309,15 +372,10 @@ where
             biased;
 
             () = Self::await_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
-
             res = Self::poll_queue(self.high_rx.as_mut()), if high_available => Event::High(res),
-
             res = Self::poll_queue(self.low_rx.as_mut()), if low_available => Event::Low(res),
-
             res = Self::poll_queue(self.multi_packet.as_mut()), if multi_available => Event::MultiPacket(res),
-
             res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
-
             else => Event::Idle,
         }
     }
@@ -372,6 +430,10 @@ where
         let DrainContext { out, state } = ctx;
         match res {
             Some(frame) => {
+                let mut frame = frame;
+                if matches!(kind, QueueKind::Multi) {
+                    self.apply_multi_packet_correlation(&mut frame);
+                }
                 self.process_frame_with_hooks_and_metrics(frame, out);
                 match kind {
                     QueueKind::High => self.after_high(out, state),
@@ -431,6 +493,8 @@ where
             self.process_frame_with_hooks_and_metrics(frame, out);
             self.after_low();
         }
+        self.multi_packet_stamper = None;
+        self.multi_packet_correlation = None;
         self.hooks.on_command_end(&mut self.ctx);
     }
 
@@ -483,6 +547,8 @@ where
         if let Some(mut rx) = self.multi_packet.take() {
             rx.close();
             state.mark_closed();
+            self.multi_packet_stamper = None;
+            self.multi_packet_correlation = None;
         }
         if self.response.take().is_some() {
             state.mark_closed();
@@ -558,6 +624,8 @@ where
 
                 match rx.try_recv() {
                     Ok(frame) => {
+                        let mut frame = frame;
+                        self.apply_multi_packet_correlation(&mut frame);
                         self.process_frame_with_hooks_and_metrics(frame, out);
                         self.after_low();
                         self.multi_packet = Some(rx);

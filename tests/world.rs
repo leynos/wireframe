@@ -9,7 +9,10 @@ use std::{net::SocketAddr, sync::Arc};
 
 use async_stream::try_stream;
 use cucumber::World;
-use tokio::{net::TcpStream, sync::oneshot};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc, oneshot},
+};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet},
@@ -160,6 +163,29 @@ impl CorrelationWorld {
         let (queues, handle) = build_small_queues::<Envelope>();
         let shutdown = CancellationToken::new();
         let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
+        actor.run(&mut self.frames).await.expect("actor run failed");
+    }
+
+    /// Run the connection actor for a multi-packet channel and collect frames.
+    ///
+    /// # Panics
+    /// Panics if sending to the channel or running the actor fails.
+    pub async fn process_multi(&mut self) {
+        let cid = self.cid;
+        let (tx, rx) = mpsc::channel(4);
+        tx.send(Envelope::new(1, None, vec![1]))
+            .await
+            .expect("send frame");
+        tx.send(Envelope::new(1, Some(99), vec![2]))
+            .await
+            .expect("send frame");
+        drop(tx);
+
+        let (queues, handle) = build_small_queues::<Envelope>();
+        let shutdown = CancellationToken::new();
+        let mut actor: ConnectionActor<Envelope, ()> =
+            ConnectionActor::new(queues, handle, None, shutdown);
+        actor.set_multi_packet_with_correlation(Some(rx), Some(cid));
         actor.run(&mut self.frames).await.expect("actor run failed");
     }
 
