@@ -137,53 +137,51 @@ struct DrainContext<'a, F> {
     state: &'a mut ActorState,
 }
 
+/// Multi-packet correlation stamping state.
+///
+/// Tracks the active receiver and how frames should be stamped before emission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MultiPacketStamp {
+    /// Stamping is disabled because no multi-packet channel is active.
+    Disabled,
+    /// Stamping is enabled and frames are stamped with the provided identifier.
+    Enabled(Option<u64>),
+}
+
 /// Multi-packet channel state tracking the active receiver and stamping config.
 struct MultiPacketContext<F> {
     channel: Option<mpsc::Receiver<F>>,
-    #[expect(
-        clippy::option_option,
-        reason = "Nested Option used to distinguish stamping activation from stored identifier"
-    )]
-    /// Active stamping configuration. `None` disables stamping entirely.
-    correlation: Option<Option<u64>>,
+    stamp: MultiPacketStamp,
 }
 
 impl<F> MultiPacketContext<F> {
     const fn new() -> Self {
         Self {
             channel: None,
-            correlation: None,
+            stamp: MultiPacketStamp::Disabled,
         }
     }
 
-    #[expect(
-        clippy::option_option,
-        reason = "Nested Option used to distinguish stamping activation from stored identifier"
-    )]
-    fn install(&mut self, channel: Option<mpsc::Receiver<F>>, correlation: Option<Option<u64>>) {
+    fn install(&mut self, channel: Option<mpsc::Receiver<F>>, stamp: MultiPacketStamp) {
         debug_assert_eq!(
             channel.is_some(),
-            correlation.is_some(),
+            matches!(stamp, MultiPacketStamp::Enabled(_)),
             "multi-packet correlation must be provided when the channel is active",
         );
         self.channel = channel;
-        self.correlation = correlation;
+        self.stamp = stamp;
     }
 
     fn clear(&mut self) {
         self.channel = None;
-        self.correlation = None;
+        self.stamp = MultiPacketStamp::Disabled;
     }
 
     fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
 
     fn take_channel(&mut self) -> Option<mpsc::Receiver<F>> { self.channel.take() }
 
-    #[expect(
-        clippy::option_option,
-        reason = "Nested Option used to distinguish stamping activation from stored identifier"
-    )]
-    fn correlation(&self) -> Option<Option<u64>> { self.correlation }
+    fn stamp(&self) -> MultiPacketStamp { self.stamp }
 
     fn is_active(&self) -> bool { self.channel.is_some() }
 }
@@ -291,8 +289,12 @@ where
                 "response stream is active"
             ),
         );
-        let correlation = channel.as_ref().map(|_| None);
-        self.multi_packet.install(channel, correlation);
+        let stamp = if channel.is_some() {
+            MultiPacketStamp::Enabled(None)
+        } else {
+            MultiPacketStamp::Disabled
+        };
+        self.multi_packet.install(channel, stamp);
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
@@ -308,15 +310,19 @@ where
                 "response stream is active"
             ),
         );
-        let correlation = channel.as_ref().map(|_| correlation_id);
-        self.multi_packet.install(channel, correlation);
+        let stamp = if channel.is_some() {
+            MultiPacketStamp::Enabled(correlation_id)
+        } else {
+            MultiPacketStamp::Disabled
+        };
+        self.multi_packet.install(channel, stamp);
     }
 
     fn clear_multi_packet(&mut self) { self.multi_packet.clear(); }
 
     fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
-        match self.multi_packet.correlation() {
-            Some(Some(expected)) => {
+        match self.multi_packet.stamp() {
+            MultiPacketStamp::Enabled(Some(expected)) => {
                 frame.set_correlation_id(Some(expected));
                 debug_assert_eq!(
                     frame.correlation_id(),
@@ -326,7 +332,7 @@ where
                     frame.correlation_id(),
                 );
             }
-            Some(None) => {
+            MultiPacketStamp::Enabled(None) => {
                 frame.set_correlation_id(None);
                 debug_assert!(
                     frame.correlation_id().is_none(),
@@ -334,12 +340,8 @@ where
                     frame.correlation_id(),
                 );
             }
-            None => {
-                debug_assert!(
-                    false,
-                    "multi-packet correlation invoked without configuration",
-                );
-                frame.set_correlation_id(None);
+            MultiPacketStamp::Disabled => {
+                unreachable!("multi-packet correlation invoked without configuration");
             }
         }
     }
@@ -469,11 +471,16 @@ where
         let DrainContext { out, state } = ctx;
         match res {
             Some(frame) => {
-                let mut frame = frame;
-                if matches!(kind, QueueKind::Multi) && self.multi_packet.correlation().is_some() {
-                    self.apply_multi_packet_correlation(&mut frame);
+                match kind {
+                    QueueKind::Multi
+                        if matches!(self.multi_packet.stamp(), MultiPacketStamp::Enabled(_)) =>
+                    {
+                        self.emit_multi_packet_frame(frame, out);
+                    }
+                    _ => {
+                        self.process_frame_with_hooks_and_metrics(frame, out);
+                    }
                 }
-                self.process_frame_with_hooks_and_metrics(frame, out);
                 match kind {
                     QueueKind::High => self.after_high(out, state),
                     QueueKind::Low | QueueKind::Multi => self.after_low(),
@@ -504,6 +511,12 @@ where
         self.process_queue(QueueKind::Multi, res, DrainContext { out, state });
     }
 
+    fn emit_multi_packet_frame(&mut self, frame: F, out: &mut Vec<F>) {
+        let mut frame = frame;
+        self.apply_multi_packet_correlation(&mut frame);
+        self.process_frame_with_hooks_and_metrics(frame, out);
+    }
+
     /// Handle a closed multi-packet channel by emitting the protocol terminator and notifying
     /// hooks.
     fn handle_multi_packet_closed(&mut self, state: &mut ActorState, out: &mut Vec<F>) {
@@ -528,11 +541,8 @@ where
             receiver.close();
         }
         state.mark_closed();
-        if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-            if self.multi_packet.correlation().is_some() {
-                self.apply_multi_packet_correlation(&mut frame);
-            }
-            self.process_frame_with_hooks_and_metrics(frame, out);
+        if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+            self.emit_multi_packet_frame(frame, out);
             self.after_low();
         }
         self.clear_multi_packet();
@@ -628,16 +638,10 @@ where
     fn try_opportunistic_drain(&mut self, kind: QueueKind, ctx: DrainContext<'_, F>) -> bool {
         let DrainContext { out, state } = ctx;
         match kind {
-            QueueKind::High => {
-                debug_assert!(
-                    false,
-                    concat!(
-                        "try_opportunistic_drain(High) is unsupported; ",
-                        "High is handled by biased polling",
-                    ),
-                );
-                false
-            }
+            QueueKind::High => unreachable!(concat!(
+                "try_opportunistic_drain(High) is unsupported; ",
+                "High is handled by biased polling",
+            )),
             QueueKind::Low => {
                 let res = match self.low_rx.as_mut() {
                     Some(receiver) => receiver.try_recv(),
@@ -665,9 +669,7 @@ where
 
                 match result {
                     Ok(frame) => {
-                        let mut frame = frame;
-                        self.apply_multi_packet_correlation(&mut frame);
-                        self.process_frame_with_hooks_and_metrics(frame, out);
+                        self.emit_multi_packet_frame(frame, out);
                         self.after_low();
                         true
                     }

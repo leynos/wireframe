@@ -180,3 +180,46 @@ impl ActorStateHarness {
 pub async fn poll_queue_next(rx: Option<&mut mpsc::Receiver<u8>>) -> Option<u8> {
     ConnectionActor::<u8, ()>::poll_queue(rx).await
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use super::*;
+
+    #[test]
+    fn has_multi_queue_false_by_default() {
+        let harness = ActorHarness::new().expect("build ActorHarness");
+        assert!(
+            !harness.has_multi_queue(),
+            "multi-packet queue should start inactive"
+        );
+    }
+
+    #[test]
+    fn has_multi_queue_true_after_install() {
+        let mut harness = ActorHarness::new().expect("build ActorHarness");
+        let (_tx, rx) = mpsc::channel(1);
+        harness.set_multi_queue(Some(rx));
+        assert!(
+            harness.has_multi_queue(),
+            "multi-packet queue should be active after install"
+        );
+    }
+
+    #[test]
+    fn has_multi_queue_false_after_clear() {
+        let mut harness = ActorHarness::new().expect("build ActorHarness");
+        let (_tx, rx) = mpsc::channel(1);
+        harness.set_multi_queue(Some(rx));
+        assert!(
+            harness.has_multi_queue(),
+            "multi-packet queue should be active after install"
+        );
+        harness.set_multi_queue(None);
+        assert!(
+            !harness.has_multi_queue(),
+            "multi-packet queue should be inactive after clear"
+        );
+    }
+}
