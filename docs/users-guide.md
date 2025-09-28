@@ -203,6 +203,47 @@ fn stream_response() -> Response<Frame> {
 }
 ```
 
+`Response::MultiPacket` exposes a different surface: callers hand ownership of
+the receiving half of a `tokio::sync::mpsc` channel to the connection actor,
+retain the sender, and push frames whenever back-pressure allows. The library
+awaits channel capacity before accepting each frame, so producers can rely on
+the `send().await` future to coordinate flow control with the peer.
+
+```rust
+use tokio::sync::mpsc;
+use wireframe::response::{Frame, Response};
+
+async fn multi_packet() -> Response<Frame> {
+    let (sender, receiver) = mpsc::channel(16);
+
+    tokio::spawn(async move {
+        // Back-pressure: `send` awaits whenever the channel is full.
+        for chunk in [b"alpha".as_slice(), b"beta".as_slice()] {
+            let frame = Frame::from(chunk);
+            if sender.send(frame).await.is_err() {
+                return; // connection dropped; stop producing
+            }
+        }
+
+        // Dropping the last sender releases the channel and triggers the
+        // terminator. Explicitly drop when the stream should end.
+        drop(sender);
+    });
+
+    Response::MultiPacket(receiver)
+}
+```
+
+Multi-packet responders rely on the protocol hook `stream_end_frame` to emit a
+terminator when the producer side of the channel closes naturally. The
+connection actor records why the channel ended (`drained`, `disconnected`, or
+`shutdown`), stamps the stored `correlation_id` on the terminator frame, and
+routes it through the standard `before_send` instrumentation so telemetry and
+higher-level lifecycle hooks observe a consistent end-of-stream signal.
+Dropping all senders causes the channel to close; the connection actor logs the
+termination reason and forwards the terminator through the same hooks used for
+regular frames so existing observability continues to work.
+
 ## Versioning and graceful deprecation
 
 Phase out older message versions without breaking clients:

@@ -8,3 +8,9 @@ async fn when_stream(world: &mut StreamEndWorld) { world.process().await; }
 
 #[then("an end-of-stream frame is sent")]
 fn then_end(world: &mut StreamEndWorld) { world.verify(); }
+
+#[when("a multi-packet channel drains")]
+async fn when_multi_channel(world: &mut StreamEndWorld) { world.process_multi().await; }
+
+#[then("a multi-packet end-of-stream frame is sent")]
+fn then_multi_end(world: &mut StreamEndWorld) { world.verify_multi(); }

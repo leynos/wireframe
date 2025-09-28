@@ -6,7 +6,14 @@
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{ActorState, ConnectionActor, DrainContext, ProtocolHooks, QueueKind};
+use super::{
+    ActorState,
+    ConnectionActor,
+    DrainContext,
+    MultiPacketTerminationReason,
+    ProtocolHooks,
+    QueueKind,
+};
 use crate::push::{PushConfigError, PushQueues};
 
 /// Build a connection actor configured with the supplied protocol hooks.
@@ -112,8 +119,11 @@ impl ActorHarness {
 
     /// Handle closure of the multi-packet receiver.
     pub fn handle_multi_packet_closed(&mut self) {
-        self.actor
-            .handle_multi_packet_closed(&mut self.state, &mut self.out);
+        self.actor.handle_multi_packet_closed(
+            MultiPacketTerminationReason::Drained,
+            &mut self.state,
+            &mut self.out,
+        );
     }
 
     /// Attempt a low-priority opportunistic drain.

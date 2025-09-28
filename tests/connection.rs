@@ -292,6 +292,32 @@ fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) {
     );
 }
 
+#[rstest]
+fn try_opportunistic_drain_multi_disconnect_emits_terminator(harness_factory: HarnessFactory) {
+    let mut harness = harness_factory.create(
+        HarnessConfig::new()
+            .with_multi_packet()
+            .with_stream_end(|_| Some(5)),
+    );
+    let (tx, rx) = mpsc::channel(1);
+    harness.set_multi_queue(Some(rx));
+    drop(tx);
+
+    let drained = harness.try_drain_multi();
+
+    assert!(!drained, "disconnect should not report a drained frame",);
+    assert!(
+        !harness.has_multi_queue(),
+        "multi-packet queue should be cleared after disconnect",
+    );
+    assert_frame_processed(
+        &harness.out,
+        &[6],
+        HookCounts { before: 1, end: 1 },
+        harness_factory.counts(),
+    );
+}
+
 #[test]
 fn try_opportunistic_drain_returns_false_when_empty() {
     let mut harness = ActorHarness::new().expect("failed to create harness");

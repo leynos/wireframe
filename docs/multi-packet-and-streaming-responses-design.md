@@ -64,6 +64,27 @@ compliant `Stream` object. This gives developers the intuitive feel of
 imperative code generation with minimal API complexity. The library recommends
 this pattern as the canonical way to build `Response::Stream` values.
 
+### 3.3 End-of-stream Signalling
+
+`ConnectionActor` classifies how a multi-packet channel finished using a
+`MultiPacketTerminationReason` helper. When `recv` returns `None`, the actor
+records a `Drained` completion, logs an `info!` event that includes the
+connection identifier, peer address, and correlation identifier, and fetches a
+protocol-specific terminator frame via `stream_end_frame`. That frame is
+stamped with the stored `correlation_id`, passed through the standard
+`before_send` hook, and recorded by outbound metrics before being queued for
+transmission.
+
+If the channel disconnects unexpectedly the termination reason becomes
+`Disconnected`. The actor emits a `warn!` level log so operators can spot
+broken senders, but it still forwards the terminator frame and calls
+`on_command_end` to ensure higher layers release any per-request resources.
+
+Shutdown-driven closure is tracked separately through the `Shutdown` variant.
+The actor logs the closure so observability tools can correlate it with control
+plane events and clears any remaining state without synthesising an end-of-
+stream marker.
+
 ## 4. Public API Surface
 
 The public API is designed for clarity, performance, and ergonomic flexibility.

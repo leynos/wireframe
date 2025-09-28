@@ -220,6 +220,7 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if the actor fails to run successfully.
     pub async fn process(&mut self) {
+        self.frames.clear();
         let stream: FrameStream<u8> = Box::pin(try_stream! {
             yield 1u8;
             yield 2u8;
@@ -232,11 +233,38 @@ impl StreamEndWorld {
         actor.run(&mut self.frames).await.expect("actor run failed");
     }
 
+    /// Run the connection actor with a multi-packet channel and record emitted frames.
+    ///
+    /// # Panics
+    /// Panics if sending to the channel or running the actor fails.
+    pub async fn process_multi(&mut self) {
+        self.frames.clear();
+        let (tx, rx) = mpsc::channel(4);
+        tx.send(1u8).await.expect("send frame");
+        tx.send(2u8).await.expect("send frame");
+        drop(tx);
+
+        let (queues, handle) = build_small_queues::<u8>();
+        let shutdown = CancellationToken::new();
+        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+        let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+        actor.set_multi_packet(Some(rx));
+        actor.run(&mut self.frames).await.expect("actor run failed");
+    }
+
     /// Verify that a terminator frame was appended to the stream.
     ///
     /// # Panics
     /// Panics if the expected terminator is missing.
     pub fn verify(&self) {
+        assert_eq!(self.frames, vec![1, 2, 0]);
+    }
+
+    /// Verify that a multi-packet terminator frame was appended to the stream.
+    ///
+    /// # Panics
+    /// Panics if the expected terminator is missing.
+    pub fn verify_multi(&self) {
         assert_eq!(self.frames, vec![1, 2, 0]);
     }
 }

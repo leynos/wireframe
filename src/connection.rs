@@ -148,6 +148,30 @@ enum MultiPacketStamp {
     Enabled(Option<u64>),
 }
 
+/// Reasons why a multi-packet stream closed.
+///
+/// The reason informs logging severity so operators can distinguish between
+/// natural completion and abrupt termination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MultiPacketTerminationReason {
+    /// The sender dropped the channel after producing all frames.
+    Drained,
+    /// The sender was dropped without yielding an explicit end-of-stream.
+    Disconnected,
+    /// Shutdown cancelled the stream before it completed.
+    Shutdown,
+}
+
+impl MultiPacketTerminationReason {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Drained => "drained",
+            Self::Disconnected => "disconnected",
+            Self::Shutdown => "shutdown",
+        }
+    }
+}
+
 /// Multi-packet channel state tracking the active receiver and stamping config.
 struct MultiPacketContext<F> {
     channel: Option<mpsc::Receiver<F>>,
@@ -513,7 +537,11 @@ where
                     Self::handle_closed_receiver(&mut self.low_rx, state);
                 }
                 QueueKind::Multi => {
-                    self.handle_multi_packet_closed(state, out);
+                    self.handle_multi_packet_closed(
+                        MultiPacketTerminationReason::Drained,
+                        state,
+                        out,
+                    );
                 }
             },
         }
@@ -535,11 +563,16 @@ where
         self.process_frame_with_hooks_and_metrics(frame, out);
     }
 
-    /// Handle a closed multi-packet channel by emitting the protocol terminator and notifying
-    /// hooks.
-    fn handle_multi_packet_closed(&mut self, state: &mut ActorState, out: &mut Vec<F>) {
+    /// Handle a closed multi-packet channel by emitting the protocol terminator
+    /// and notifying hooks.
+    fn handle_multi_packet_closed(
+        &mut self,
+        reason: MultiPacketTerminationReason,
+        state: &mut ActorState,
+        out: &mut Vec<F>,
+    ) {
         let rx = self.multi_packet.take_channel();
-        self.handle_multi_packet_closed_with(rx, state, out);
+        self.handle_multi_packet_closed_with(rx, reason, state, out);
     }
 
     /// Handle multi-packet closure using an already-extracted receiver option.
@@ -547,14 +580,25 @@ where
     /// # Examples
     ///
     /// ```ignore
-    /// actor.handle_multi_packet_closed_with(None, &mut state, &mut out);
+    /// actor.handle_multi_packet_closed_with(
+    ///     None,
+    ///     MultiPacketTerminationReason::Drained,
+    ///     &mut state,
+    ///     &mut out,
+    /// );
     /// ```
     fn handle_multi_packet_closed_with(
         &mut self,
         rx: Option<mpsc::Receiver<F>>,
+        reason: MultiPacketTerminationReason,
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) {
+        let correlation = match self.multi_packet.stamp() {
+            MultiPacketStamp::Enabled(value) => value,
+            MultiPacketStamp::Disabled => None,
+        };
+        self.log_multi_packet_closure(reason, correlation);
         if let Some(mut receiver) = rx {
             receiver.close();
         }
@@ -565,6 +609,30 @@ where
         }
         self.clear_multi_packet();
         self.hooks.on_command_end(&mut self.ctx);
+    }
+
+    fn log_multi_packet_closure(
+        &self,
+        reason: MultiPacketTerminationReason,
+        correlation_id: Option<u64>,
+    ) {
+        let message = "multi-packet stream closed";
+        match reason {
+            MultiPacketTerminationReason::Disconnected => warn!(
+                "{message}: reason={}, connection_id={:?}, peer={:?}, correlation_id={:?}",
+                reason.as_str(),
+                self.connection_id,
+                self.peer_addr,
+                correlation_id,
+            ),
+            _ => info!(
+                "{message}: reason={}, connection_id={:?}, peer={:?}, correlation_id={:?}",
+                reason.as_str(),
+                self.connection_id,
+                self.peer_addr,
+                correlation_id,
+            ),
+        }
     }
 
     /// Apply protocol hooks and increment metrics before emitting a frame.
@@ -612,6 +680,13 @@ where
         }
         if let Some(rx) = &mut self.low_rx {
             rx.close();
+        }
+        if self.multi_packet.is_active() {
+            let correlation = match self.multi_packet.stamp() {
+                MultiPacketStamp::Enabled(value) => value,
+                MultiPacketStamp::Disabled => None,
+            };
+            self.log_multi_packet_closure(MultiPacketTerminationReason::Shutdown, correlation);
         }
         if let Some(mut rx) = self.multi_packet.take_channel() {
             rx.close();
@@ -694,7 +769,12 @@ where
                     Err(TryRecvError::Empty) => false,
                     Err(TryRecvError::Disconnected) => {
                         let rx = self.multi_packet.take_channel();
-                        self.handle_multi_packet_closed_with(rx, state, out);
+                        self.handle_multi_packet_closed_with(
+                            rx,
+                            MultiPacketTerminationReason::Disconnected,
+                            state,
+                            out,
+                        );
                         false
                     }
                 }
