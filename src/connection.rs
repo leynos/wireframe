@@ -166,7 +166,8 @@ impl<F> MultiPacketContext<F> {
         debug_assert_eq!(
             channel.is_some(),
             matches!(stamp, MultiPacketStamp::Enabled(_)),
-            "multi-packet correlation must be provided when the channel is active",
+            "channel presence must match stamp: channel is Some iff stamp is \
+             MultiPacketStamp::Enabled(...)",
         );
         self.channel = channel;
         self.stamp = stamp;
@@ -298,6 +299,23 @@ where
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use tokio::sync::mpsc;
+    /// # use tokio_util::sync::CancellationToken;
+    /// # use wireframe::{ConnectionActor, push::PushQueues};
+    /// # let (queues, handle) = PushQueues::<u8>::builder()
+    /// #     .high_capacity(1)
+    /// #     .low_capacity(1)
+    /// #     .build()
+    /// #     .expect("failed to build PushQueues");
+    /// # let shutdown = CancellationToken::new();
+    /// # let mut actor = ConnectionActor::new(queues, handle, None, shutdown);
+    /// # let (_tx, rx) = mpsc::channel(4);
+    /// actor.set_multi_packet_with_correlation(Some(rx), Some(7));
+    /// ```
     pub fn set_multi_packet_with_correlation(
         &mut self,
         channel: Option<mpsc::Receiver<F>>,
