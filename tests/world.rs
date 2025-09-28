@@ -218,15 +218,22 @@ pub struct StreamEndWorld {
 }
 
 impl StreamEndWorld {
+    fn prepare_test(&mut self) -> LoggerHandle {
+        self.frames.clear();
+        self.logs.clear();
+        let mut logger = logger();
+        logger.clear();
+        logger
+    }
+
+    fn finalize_test(&mut self, logger: &mut LoggerHandle) { self.capture_logs(logger); }
+
     /// Run the connection actor and record emitted frames.
     ///
     /// # Panics
     /// Panics if the actor fails to run successfully.
     pub async fn process(&mut self) {
-        self.frames.clear();
-        self.logs.clear();
-        let mut log = logger();
-        log.clear();
+        let mut log = self.prepare_test();
 
         let stream: FrameStream<u8> = Box::pin(try_stream! {
             yield 1u8;
@@ -238,7 +245,7 @@ impl StreamEndWorld {
         let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
         let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
         actor.run(&mut self.frames).await.expect("actor run failed");
-        self.capture_logs(&mut log);
+        self.finalize_test(&mut log);
     }
 
     /// Run the connection actor with a multi-packet channel and record emitted frames.
@@ -246,10 +253,7 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if sending to the channel or running the actor fails.
     pub async fn process_multi(&mut self) {
-        self.frames.clear();
-        self.logs.clear();
-        let mut log = logger();
-        log.clear();
+        let mut log = self.prepare_test();
 
         let (tx, rx) = mpsc::channel(4);
         tx.send(1u8).await.expect("send frame");
@@ -262,7 +266,7 @@ impl StreamEndWorld {
         let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
         actor.set_multi_packet(Some(rx));
         actor.run(&mut self.frames).await.expect("actor run failed");
-        self.capture_logs(&mut log);
+        self.finalize_test(&mut log);
     }
 
     fn capture_logs(&mut self, logger: &mut LoggerHandle) {
@@ -283,10 +287,7 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if creating the harness or sending frames fails.
     pub fn process_multi_disconnect(&mut self) {
-        self.frames.clear();
-        self.logs.clear();
-        let mut log = logger();
-        log.clear();
+        let mut log = self.prepare_test();
 
         let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
         let mut harness = ActorHarness::new_with_state(hooks, false, true)
@@ -301,7 +302,7 @@ impl StreamEndWorld {
         log.clear();
         while harness.try_drain_multi() {}
         self.frames.clone_from(&harness.out);
-        self.capture_logs(&mut log);
+        self.finalize_test(&mut log);
     }
 
     /// Trigger shutdown handling on a multi-packet channel without emitting a terminator.
@@ -309,10 +310,7 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if creating the harness fails.
     pub fn process_multi_shutdown(&mut self) {
-        self.frames.clear();
-        self.logs.clear();
-        let mut log = logger();
-        log.clear();
+        let mut log = self.prepare_test();
 
         let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
         let mut harness = ActorHarness::new_with_state(hooks, false, true)
@@ -324,7 +322,7 @@ impl StreamEndWorld {
         log.clear();
         harness.start_shutdown();
         self.frames.clone_from(&harness.out);
-        self.capture_logs(&mut log);
+        self.finalize_test(&mut log);
     }
 
     /// Verify that a terminator frame was appended to the stream.
