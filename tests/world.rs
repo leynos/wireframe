@@ -9,6 +9,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use async_stream::try_stream;
 use cucumber::World;
+use log::Level;
 use tokio::{
     net::TcpStream,
     sync::{mpsc, oneshot},
@@ -16,13 +17,14 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet},
-    connection::ConnectionActor,
+    connection::{ConnectionActor, test_support::ActorHarness},
     hooks::ProtocolHooks,
     push::PushQueues,
     response::FrameStream,
     serializer::BincodeSerializer,
     server::WireframeServer,
 };
+use wireframe_testing::{LoggerHandle, logger};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -212,6 +214,7 @@ impl CorrelationWorld {
 #[derive(Debug, Default, World)]
 pub struct StreamEndWorld {
     frames: Vec<u8>,
+    logs: Vec<(Level, String)>,
 }
 
 impl StreamEndWorld {
@@ -221,6 +224,10 @@ impl StreamEndWorld {
     /// Panics if the actor fails to run successfully.
     pub async fn process(&mut self) {
         self.frames.clear();
+        self.logs.clear();
+        let mut log = logger();
+        log.clear();
+
         let stream: FrameStream<u8> = Box::pin(try_stream! {
             yield 1u8;
             yield 2u8;
@@ -231,6 +238,7 @@ impl StreamEndWorld {
         let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
         let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
         actor.run(&mut self.frames).await.expect("actor run failed");
+        self.capture_logs(&mut log);
     }
 
     /// Run the connection actor with a multi-packet channel and record emitted frames.
@@ -239,6 +247,10 @@ impl StreamEndWorld {
     /// Panics if sending to the channel or running the actor fails.
     pub async fn process_multi(&mut self) {
         self.frames.clear();
+        self.logs.clear();
+        let mut log = logger();
+        log.clear();
+
         let (tx, rx) = mpsc::channel(4);
         tx.send(1u8).await.expect("send frame");
         tx.send(2u8).await.expect("send frame");
@@ -250,6 +262,69 @@ impl StreamEndWorld {
         let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
         actor.set_multi_packet(Some(rx));
         actor.run(&mut self.frames).await.expect("actor run failed");
+        self.capture_logs(&mut log);
+    }
+
+    fn capture_logs(&mut self, logger: &mut LoggerHandle) {
+        while let Some(record) = logger.pop() {
+            self.logs.push((record.level(), record.args().to_string()));
+        }
+    }
+
+    fn closure_log(&self) -> Option<&(Level, String)> {
+        self.logs
+            .iter()
+            .rev()
+            .find(|(_, message)| message.contains("multi-packet stream closed"))
+    }
+
+    /// Simulate a disconnected multi-packet channel by dropping the sender before draining.
+    ///
+    /// # Panics
+    /// Panics if creating the harness or sending frames fails.
+    pub fn process_multi_disconnect(&mut self) {
+        self.frames.clear();
+        self.logs.clear();
+        let mut log = logger();
+        log.clear();
+
+        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+        let mut harness = ActorHarness::new_with_state(hooks, false, true)
+            .expect("failed to create ActorHarness");
+        let (tx, rx) = mpsc::channel(4);
+        tx.try_send(1u8).expect("send frame");
+        tx.try_send(2u8).expect("send frame");
+        harness
+            .actor_mut()
+            .set_multi_packet_with_correlation(Some(rx), Some(42));
+        drop(tx);
+        log.clear();
+        while harness.try_drain_multi() {}
+        self.frames.clone_from(&harness.out);
+        self.capture_logs(&mut log);
+    }
+
+    /// Trigger shutdown handling on a multi-packet channel without emitting a terminator.
+    ///
+    /// # Panics
+    /// Panics if creating the harness fails.
+    pub fn process_multi_shutdown(&mut self) {
+        self.frames.clear();
+        self.logs.clear();
+        let mut log = logger();
+        log.clear();
+
+        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+        let mut harness = ActorHarness::new_with_state(hooks, false, true)
+            .expect("failed to create ActorHarness");
+        let (_tx, rx) = mpsc::channel(4);
+        harness
+            .actor_mut()
+            .set_multi_packet_with_correlation(Some(rx), Some(77));
+        log.clear();
+        harness.start_shutdown();
+        self.frames.clone_from(&harness.out);
+        self.capture_logs(&mut log);
     }
 
     /// Verify that a terminator frame was appended to the stream.
@@ -266,6 +341,39 @@ impl StreamEndWorld {
     /// Panics if the expected terminator is missing.
     pub fn verify_multi(&self) {
         assert_eq!(self.frames, vec![1, 2, 0]);
+    }
+
+    /// Verify that no terminator frame was emitted.
+    ///
+    /// # Panics
+    /// Panics if a terminator frame is present.
+    pub fn verify_no_multi(&self) {
+        assert!(
+            self.frames.iter().all(|&frame| frame != 0),
+            "unexpected terminator frame present",
+        );
+    }
+
+    /// Verify the logged multi-packet termination reason.
+    ///
+    /// # Panics
+    /// Panics if the closure log is missing or contains unexpected details.
+    pub fn verify_reason(&self, expected: &str) {
+        let (level, message) = self
+            .closure_log()
+            .expect("multi-packet closure log missing");
+        let expected_level = match expected {
+            "disconnected" => Level::Warn,
+            _ => Level::Info,
+        };
+        assert_eq!(
+            *level, expected_level,
+            "unexpected log level: message={message}",
+        );
+        assert!(
+            message.contains(&format!("reason={expected}")),
+            "closure log missing reason: message={message}",
+        );
     }
 }
 

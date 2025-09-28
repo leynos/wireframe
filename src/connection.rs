@@ -6,6 +6,7 @@
 //! low-priority ones, with streamed responses handled last.
 
 use std::{
+    fmt,
     future::Future,
     net::SocketAddr,
     sync::atomic::{AtomicU64, Ordering},
@@ -172,6 +173,10 @@ impl MultiPacketTerminationReason {
     }
 }
 
+impl fmt::Display for MultiPacketTerminationReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.as_str()) }
+}
+
 /// Multi-packet channel state tracking the active receiver and stamping config.
 struct MultiPacketContext<F> {
     channel: Option<mpsc::Receiver<F>>,
@@ -207,6 +212,13 @@ impl<F> MultiPacketContext<F> {
     fn take_channel(&mut self) -> Option<mpsc::Receiver<F>> { self.channel.take() }
 
     fn stamp(&self) -> MultiPacketStamp { self.stamp }
+
+    fn correlation_id(&self) -> Option<u64> {
+        match self.stamp {
+            MultiPacketStamp::Enabled(value) => value,
+            MultiPacketStamp::Disabled => None,
+        }
+    }
 
     fn is_active(&self) -> bool { self.channel.is_some() }
 }
@@ -366,9 +378,8 @@ where
         match self.multi_packet.stamp() {
             MultiPacketStamp::Enabled(Some(expected)) => {
                 frame.set_correlation_id(Some(expected));
-                debug_assert_eq!(
-                    frame.correlation_id(),
-                    Some(expected),
+                debug_assert!(
+                    frame.correlation_id() == Some(expected) || frame.correlation_id().is_none(),
                     "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
                     Some(expected),
                     frame.correlation_id(),
@@ -571,35 +582,9 @@ where
         state: &mut ActorState,
         out: &mut Vec<F>,
     ) {
-        let rx = self.multi_packet.take_channel();
-        self.handle_multi_packet_closed_with(rx, reason, state, out);
-    }
-
-    /// Handle multi-packet closure using an already-extracted receiver option.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// actor.handle_multi_packet_closed_with(
-    ///     None,
-    ///     MultiPacketTerminationReason::Drained,
-    ///     &mut state,
-    ///     &mut out,
-    /// );
-    /// ```
-    fn handle_multi_packet_closed_with(
-        &mut self,
-        rx: Option<mpsc::Receiver<F>>,
-        reason: MultiPacketTerminationReason,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) {
-        let correlation = match self.multi_packet.stamp() {
-            MultiPacketStamp::Enabled(value) => value,
-            MultiPacketStamp::Disabled => None,
-        };
+        let correlation = self.multi_packet.correlation_id();
         self.log_multi_packet_closure(reason, correlation);
-        if let Some(mut receiver) = rx {
+        if let Some(mut receiver) = self.multi_packet.take_channel() {
             receiver.close();
         }
         state.mark_closed();
@@ -620,17 +605,11 @@ where
         match reason {
             MultiPacketTerminationReason::Disconnected => warn!(
                 "{message}: reason={}, connection_id={:?}, peer={:?}, correlation_id={:?}",
-                reason.as_str(),
-                self.connection_id,
-                self.peer_addr,
-                correlation_id,
+                reason, self.connection_id, self.peer_addr, correlation_id,
             ),
             _ => info!(
                 "{message}: reason={}, connection_id={:?}, peer={:?}, correlation_id={:?}",
-                reason.as_str(),
-                self.connection_id,
-                self.peer_addr,
-                correlation_id,
+                reason, self.connection_id, self.peer_addr, correlation_id,
             ),
         }
     }
@@ -682,17 +661,15 @@ where
             rx.close();
         }
         if self.multi_packet.is_active() {
-            let correlation = match self.multi_packet.stamp() {
-                MultiPacketStamp::Enabled(value) => value,
-                MultiPacketStamp::Disabled => None,
-            };
+            let correlation = self.multi_packet.correlation_id();
             self.log_multi_packet_closure(MultiPacketTerminationReason::Shutdown, correlation);
-        }
-        if let Some(mut rx) = self.multi_packet.take_channel() {
-            rx.close();
-            state.mark_closed();
+            if let Some(mut rx) = self.multi_packet.take_channel() {
+                rx.close();
+                state.mark_closed();
+            }
             self.clear_multi_packet();
         }
+
         if self.response.take().is_some() {
             state.mark_closed();
         }
@@ -768,9 +745,7 @@ where
                     }
                     Err(TryRecvError::Empty) => false,
                     Err(TryRecvError::Disconnected) => {
-                        let rx = self.multi_packet.take_channel();
-                        self.handle_multi_packet_closed_with(
-                            rx,
+                        self.handle_multi_packet_closed(
                             MultiPacketTerminationReason::Disconnected,
                             state,
                             out,

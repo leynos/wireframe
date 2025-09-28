@@ -6,13 +6,16 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+use log::Level;
 use rstest::{fixture, rstest};
+use serial_test::serial;
 use tokio::sync::mpsc;
 use wireframe::{
     ProtocolHooks,
     connection::test_support::{ActorHarness, ActorStateHarness, poll_queue_next},
     hooks::ConnectionContext,
 };
+use wireframe_testing::{LoggerHandle, logger};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HookCounts {
@@ -198,6 +201,37 @@ fn assert_multi_packet_processing_result(
     );
 }
 
+fn assert_reason_logged(
+    logger: &mut LoggerHandle,
+    expected_level: Level,
+    expected_reason: &str,
+    expected_correlation: Option<u64>,
+) {
+    let mut found = false;
+    while let Some(record) = logger.pop() {
+        let message = record.args().to_string();
+        if !message.contains("multi-packet stream closed") {
+            continue;
+        }
+        assert_eq!(
+            record.level(),
+            expected_level,
+            "unexpected log level for closure: message={message}",
+        );
+        assert!(
+            message.contains(&format!("reason={expected_reason}")),
+            "closure log missing reason: message={message}",
+        );
+        assert!(
+            message.contains(&format!("correlation_id={expected_correlation:?}")),
+            "closure log missing correlation: message={message}",
+        );
+        found = true;
+        break;
+    }
+    assert!(found, "multi-packet closure log not found");
+}
+
 #[rstest]
 fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) {
     let mut harness = harness_factory.create(HarnessConfig::new());
@@ -289,6 +323,72 @@ fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) {
         &[10],
         HookCounts { before: 1, end: 0 },
         harness_factory.counts(),
+    );
+}
+
+#[rstest]
+#[serial(connection_logs)]
+fn handle_multi_packet_closed_logs_reason(
+    harness_factory: HarnessFactory,
+    mut logger: LoggerHandle,
+) {
+    logger.clear();
+    let mut harness = harness_factory.create(
+        HarnessConfig::new()
+            .with_multi_packet()
+            .with_stream_end(|_| Some(5)),
+    );
+    let (_tx, rx) = mpsc::channel(1);
+    harness
+        .actor_mut()
+        .set_multi_packet_with_correlation(Some(rx), Some(11));
+    logger.clear();
+    harness.handle_multi_packet_closed();
+    assert_reason_logged(&mut logger, Level::Info, "drained", Some(11));
+}
+
+#[rstest]
+#[serial(connection_logs)]
+fn try_opportunistic_drain_multi_disconnect_logs_reason(
+    harness_factory: HarnessFactory,
+    mut logger: LoggerHandle,
+) {
+    logger.clear();
+    let mut harness = harness_factory.create(
+        HarnessConfig::new()
+            .with_multi_packet()
+            .with_stream_end(|_| Some(5)),
+    );
+    let (tx, rx) = mpsc::channel(1);
+    harness
+        .actor_mut()
+        .set_multi_packet_with_correlation(Some(rx), Some(12));
+    drop(tx);
+    logger.clear();
+    let drained = harness.try_drain_multi();
+    assert!(!drained, "disconnect should not report a drained frame");
+    assert_reason_logged(&mut logger, Level::Warn, "disconnected", Some(12));
+}
+
+#[rstest]
+#[serial(connection_logs)]
+fn start_shutdown_logs_reason(harness_factory: HarnessFactory, mut logger: LoggerHandle) {
+    logger.clear();
+    let mut harness = harness_factory.create(
+        HarnessConfig::new()
+            .with_multi_packet()
+            .with_stream_end(|_| Some(5)),
+    );
+    let (_tx, rx) = mpsc::channel(1);
+    harness
+        .actor_mut()
+        .set_multi_packet_with_correlation(Some(rx), Some(13));
+    logger.clear();
+    harness.start_shutdown();
+    assert_reason_logged(&mut logger, Level::Info, "shutdown", Some(13));
+    assert!(
+        !harness.has_multi_queue(),
+        "multi-packet queue should be cleared after shutdown",
     );
 }
 

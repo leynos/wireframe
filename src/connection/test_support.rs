@@ -126,6 +126,9 @@ impl ActorHarness {
         );
     }
 
+    /// Trigger shutdown handling on the underlying actor.
+    pub fn start_shutdown(&mut self) { self.actor.start_shutdown(&mut self.state); }
+
     /// Attempt a low-priority opportunistic drain.
     pub fn try_drain_low(&mut self) -> bool {
         let state = &mut self.state;

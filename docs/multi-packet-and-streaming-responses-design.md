@@ -82,8 +82,8 @@ broken senders, but it still forwards the terminator frame and calls
 
 Shutdown-driven closure is tracked separately through the `Shutdown` variant.
 The actor logs the closure so observability tools can correlate it with control
-plane events and clears any remaining state without synthesising an end-of-
-stream marker.
+plane events and clears any remaining state without synthesising an
+end-of-stream marker.
 
 ## 4. Public API Surface
 

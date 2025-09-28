@@ -240,9 +240,9 @@ connection actor records why the channel ended (`drained`, `disconnected`, or
 `shutdown`), stamps the stored `correlation_id` on the terminator frame, and
 routes it through the standard `before_send` instrumentation so telemetry and
 higher-level lifecycle hooks observe a consistent end-of-stream signal.
-Dropping all senders causes the channel to close; the connection actor logs the
-termination reason and forwards the terminator through the same hooks used for
-regular frames so existing observability continues to work.
+Dropping all senders closes the channel; the actor logs the termination reason
+and forwards the terminator through the same hooks used for regular frames so
+existing observability continues to work.
 
 ## Versioning and graceful deprecation
 
