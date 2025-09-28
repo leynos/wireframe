@@ -140,7 +140,10 @@ struct DrainContext<'a, F> {
 /// Multi-packet channel state tracking the active receiver and stamping config.
 struct MultiPacketContext<F> {
     channel: Option<mpsc::Receiver<F>>,
-    #[allow(clippy::option_option)]
+    #[expect(
+        clippy::option_option,
+        reason = "Nested Option used to distinguish stamping activation from stored identifier"
+    )]
     /// Active stamping configuration. `None` disables stamping entirely.
     correlation: Option<Option<u64>>,
 }
@@ -153,7 +156,10 @@ impl<F> MultiPacketContext<F> {
         }
     }
 
-    #[allow(clippy::option_option)]
+    #[expect(
+        clippy::option_option,
+        reason = "Nested Option used to distinguish stamping activation from stored identifier"
+    )]
     fn install(&mut self, channel: Option<mpsc::Receiver<F>>, correlation: Option<Option<u64>>) {
         debug_assert_eq!(
             channel.is_some(),
@@ -173,7 +179,10 @@ impl<F> MultiPacketContext<F> {
 
     fn take_channel(&mut self) -> Option<mpsc::Receiver<F>> { self.channel.take() }
 
-    #[allow(clippy::option_option)]
+    #[expect(
+        clippy::option_option,
+        reason = "Nested Option used to distinguish stamping activation from stored identifier"
+    )]
     fn correlation(&self) -> Option<Option<u64>> { self.correlation }
 
     fn is_active(&self) -> bool { self.channel.is_some() }

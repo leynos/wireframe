@@ -41,8 +41,8 @@ async fn run_multi_packet_channel(
     let capacity = frame_correlations.len().max(1);
     let (tx, rx) = mpsc::channel(capacity);
     for (idx, correlation) in frame_correlations.iter().enumerate() {
-        let marker = u8::try_from(idx).expect("frame index fits in u8") + 1;
-        let payload = vec![marker];
+        let marker = u64::try_from(idx + 1).expect("frame index fits in u64");
+        let payload = marker.to_le_bytes().to_vec();
         tx.send(Envelope::new(1, *correlation, payload))
             .await
             .expect("send frame");
