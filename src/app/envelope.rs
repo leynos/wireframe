@@ -6,7 +6,7 @@
 //! deserialisation. See [`crate::app::builder::WireframeApp`] for how envelopes
 //! are used when registering routes.
 
-use crate::message::Message;
+use crate::{correlation::CorrelatableFrame, message::Message};
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
 ///
@@ -99,6 +99,14 @@ impl Packet for Envelope {
     fn into_parts(self) -> PacketParts { self.into() }
 
     fn from_parts(parts: PacketParts) -> Self { parts.into() }
+}
+
+impl CorrelatableFrame for Envelope {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
+        self.correlation_id = correlation_id;
+    }
 }
 
 impl PacketParts {

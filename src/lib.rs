@@ -11,6 +11,7 @@ pub use app::error::Result;
 pub mod serializer;
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;
+pub mod correlation;
 pub mod extractor;
 mod fairness;
 pub mod frame;
@@ -28,6 +29,7 @@ pub mod server;
 pub mod session;
 
 pub use connection::ConnectionActor;
+pub use correlation::CorrelatableFrame;
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
 pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
 pub use response::{FrameStream, Response, WireframeError};
