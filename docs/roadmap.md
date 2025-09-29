@@ -192,7 +192,7 @@ stream.
   - [x] Define a mechanism to signal the end of a multi-packet stream, such as
     a frame with a specific flag and no payload.
 
-- [ ] **Core Library Implementation:**
+- [x] **Core Library Implementation:**
 
   - [x] Introduce a `Response::MultiPacket` variant that contains a channel
     `Receiver<Message>`.
