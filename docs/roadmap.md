@@ -216,12 +216,12 @@ stream.
     - [x] Guard against accidental omission by asserting in debug builds and
       covering the behaviour with targeted tests.
 
-  - [ ] When the channel closes, send the end-of-stream marker frame.
-    - [ ] Detect channel closure (`None` from `recv`) and log the termination
+  - [x] When the channel closes, send the end-of-stream marker frame.
+    - [x] Detect channel closure (`None` from `recv`) and log the termination
       reason for operational insight.
-    - [ ] Send the designated end-of-stream marker frame through the same
+    - [x] Send the designated end-of-stream marker frame through the same
       send path, reusing the request's `correlation_id`.
-    - [ ] Notify protocol lifecycle hooks so higher layers can tidy any
+    - [x] Notify protocol lifecycle hooks so higher layers can tidy any
       per-request state when a stream drains naturally.
 
 - [ ] **Ergonomics & API:**
