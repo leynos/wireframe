@@ -668,6 +668,7 @@ where
                 state.mark_closed();
             }
             self.clear_multi_packet();
+            self.hooks.on_command_end(&mut self.ctx);
         }
 
         if self.response.take().is_some() {
