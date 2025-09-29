@@ -5,7 +5,7 @@
 //! - End-of-stream signalling
 //! - Channel-backed multi-packet responses (ordered delivery)
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{future::Future, marker::PhantomData, net::SocketAddr, ptr, sync::Arc};
 
 use async_stream::try_stream;
 use cucumber::World;
@@ -217,6 +217,51 @@ pub struct StreamEndWorld {
     logs: Vec<(Level, String)>,
 }
 
+struct StreamEndTestGuard<'a> {
+    world: *mut StreamEndWorld,
+    logger: LoggerHandle,
+    _marker: PhantomData<&'a mut StreamEndWorld>,
+}
+
+impl<'a> StreamEndTestGuard<'a> {
+    fn new(world: &'a mut StreamEndWorld) -> Self {
+        let logger = world.prepare_test();
+        Self {
+            world: ptr::from_mut(world),
+            logger,
+            _marker: PhantomData,
+        }
+    }
+
+    fn run<F, R>(mut self, f: F) -> R
+    where
+        F: FnOnce(&'a mut StreamEndWorld, &mut LoggerHandle) -> R,
+    {
+        // Safety: the guard guarantees exclusive access to the world while the closure runs.
+        let world = unsafe { &mut *self.world };
+        f(world, &mut self.logger)
+    }
+
+    async fn run_async<F, Fut, R>(mut self, f: F) -> R
+    where
+        F: FnOnce(&'a mut StreamEndWorld, &mut LoggerHandle) -> Fut,
+        Fut: Future<Output = R> + 'a,
+    {
+        // Safety: the guard guarantees exclusive access to the world while the future runs.
+        let world = unsafe { &mut *self.world };
+        f(world, &mut self.logger).await
+    }
+}
+
+impl Drop for StreamEndTestGuard<'_> {
+    fn drop(&mut self) {
+        // Safety: the guard created the pointer from a unique mutable reference.
+        unsafe {
+            (&mut *self.world).finalize_test(&mut self.logger);
+        }
+    }
+}
+
 impl StreamEndWorld {
     fn prepare_test(&mut self) -> LoggerHandle {
         self.frames.clear();
@@ -228,24 +273,40 @@ impl StreamEndWorld {
 
     fn finalize_test(&mut self, logger: &mut LoggerHandle) { self.capture_logs(logger); }
 
+    fn with_sync_test<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self, &mut LoggerHandle) -> R,
+    {
+        StreamEndTestGuard::new(self).run(f)
+    }
+
+    async fn with_async_test<'a, F, Fut, R>(&'a mut self, f: F) -> R
+    where
+        F: FnOnce(&'a mut Self, &mut LoggerHandle) -> Fut,
+        Fut: Future<Output = R> + 'a,
+    {
+        StreamEndTestGuard::new(self).run_async(f).await
+    }
+
     /// Run the connection actor and record emitted frames.
     ///
     /// # Panics
     /// Panics if the actor fails to run successfully.
     pub async fn process(&mut self) {
-        let mut log = self.prepare_test();
+        self.with_async_test(|this, _log| async {
+            let stream: FrameStream<u8> = Box::pin(try_stream! {
+                yield 1u8;
+                yield 2u8;
+            });
 
-        let stream: FrameStream<u8> = Box::pin(try_stream! {
-            yield 1u8;
-            yield 2u8;
-        });
-
-        let (queues, handle) = build_small_queues::<u8>();
-        let shutdown = CancellationToken::new();
-        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-        let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
-        actor.run(&mut self.frames).await.expect("actor run failed");
-        self.finalize_test(&mut log);
+            let (queues, handle) = build_small_queues::<u8>();
+            let shutdown = CancellationToken::new();
+            let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+            let mut actor =
+                ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
+            actor.run(&mut this.frames).await.expect("actor run failed");
+        })
+        .await;
     }
 
     /// Run the connection actor with a multi-packet channel and record emitted frames.
@@ -253,20 +314,20 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if sending to the channel or running the actor fails.
     pub async fn process_multi(&mut self) {
-        let mut log = self.prepare_test();
+        self.with_async_test(|this, _log| async {
+            let (tx, rx) = mpsc::channel(4);
+            tx.send(1u8).await.expect("send frame");
+            tx.send(2u8).await.expect("send frame");
+            drop(tx);
 
-        let (tx, rx) = mpsc::channel(4);
-        tx.send(1u8).await.expect("send frame");
-        tx.send(2u8).await.expect("send frame");
-        drop(tx);
-
-        let (queues, handle) = build_small_queues::<u8>();
-        let shutdown = CancellationToken::new();
-        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-        let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
-        actor.set_multi_packet(Some(rx));
-        actor.run(&mut self.frames).await.expect("actor run failed");
-        self.finalize_test(&mut log);
+            let (queues, handle) = build_small_queues::<u8>();
+            let shutdown = CancellationToken::new();
+            let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+            let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+            actor.set_multi_packet(Some(rx));
+            actor.run(&mut this.frames).await.expect("actor run failed");
+        })
+        .await;
     }
 
     fn capture_logs(&mut self, logger: &mut LoggerHandle) {
@@ -287,22 +348,21 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if creating the harness or sending frames fails.
     pub fn process_multi_disconnect(&mut self) {
-        let mut log = self.prepare_test();
-
-        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-        let mut harness = ActorHarness::new_with_state(hooks, false, true)
-            .expect("failed to create ActorHarness");
-        let (tx, rx) = mpsc::channel(4);
-        tx.try_send(1u8).expect("send frame");
-        tx.try_send(2u8).expect("send frame");
-        harness
-            .actor_mut()
-            .set_multi_packet_with_correlation(Some(rx), Some(42));
-        drop(tx);
-        log.clear();
-        while harness.try_drain_multi() {}
-        self.frames.clone_from(&harness.out);
-        self.finalize_test(&mut log);
+        self.with_sync_test(|this, log| {
+            let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+            let mut harness = ActorHarness::new_with_state(hooks, false, true)
+                .expect("failed to create ActorHarness");
+            let (tx, rx) = mpsc::channel(4);
+            tx.try_send(1u8).expect("send frame");
+            tx.try_send(2u8).expect("send frame");
+            harness
+                .actor_mut()
+                .set_multi_packet_with_correlation(Some(rx), Some(42));
+            drop(tx);
+            log.clear();
+            while harness.try_drain_multi() {}
+            this.frames.clone_from(&harness.out);
+        });
     }
 
     /// Trigger shutdown handling on a multi-packet channel without emitting a terminator.
@@ -310,19 +370,18 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if creating the harness fails.
     pub fn process_multi_shutdown(&mut self) {
-        let mut log = self.prepare_test();
-
-        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-        let mut harness = ActorHarness::new_with_state(hooks, false, true)
-            .expect("failed to create ActorHarness");
-        let (_tx, rx) = mpsc::channel(4);
-        harness
-            .actor_mut()
-            .set_multi_packet_with_correlation(Some(rx), Some(77));
-        log.clear();
-        harness.start_shutdown();
-        self.frames.clone_from(&harness.out);
-        self.finalize_test(&mut log);
+        self.with_sync_test(|this, log| {
+            let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
+            let mut harness = ActorHarness::new_with_state(hooks, false, true)
+                .expect("failed to create ActorHarness");
+            let (_tx, rx) = mpsc::channel(4);
+            harness
+                .actor_mut()
+                .set_multi_packet_with_correlation(Some(rx), Some(77));
+            log.clear();
+            harness.start_shutdown();
+            this.frames.clone_from(&harness.out);
+        });
     }
 
     /// Verify that a terminator frame was appended to the stream.
