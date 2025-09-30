@@ -92,7 +92,7 @@ The public API is designed for clarity, performance, and ergonomic flexibility.
 ### 4.1 The `Response` Enum
 
 The `Response` enum is the primary return type for all handlers. It is enhanced
-to provide optimized paths for common response patterns.
+to provide optimised paths for common response patterns.
 
 ```rust
 use futures_core::stream::Stream;
@@ -136,7 +136,33 @@ variant into a `FrameStream`. Downstream code can iterate over frames without
 matching `MultiPacket` or wiring channels. Both `Response::Vec` with an empty
 vector and `Response::Empty` yield an empty stream.
 
-### 4.2 The `WireframeError` Enum
+### 4.2 Tuple-Based Multi-Packet Responses
+
+To make `Response::MultiPacket` ergonomic for developers, handlers can return a
+tuple containing a Tokio `mpsc::Sender` and an initial `Response`. The helper
+`Response::with_channel(capacity)` creates a bounded channel, returns the
+sender, and constructs a `Response::MultiPacket` that owns the receiver. The
+initial `Response` MAY be `Single`, `Vec`, or `Empty` depending on whether the
+handler needs to send frames immediately.[^adr-0001]
+
+When a tuple is returned, the connection actor:
+
+- sends any frames embedded in the initial `Response` before transitioning into
+  streaming mode;
+- attaches the stored receiver to its outbound loop so subsequent frames flow
+  through the same middleware, instrumentation, and hook pipeline; and
+- observes Tokio channel semantics for back-pressure and cancellation. A slow
+  client causes the receiver to stop draining, which in turn suspends
+  `Sender::send` calls, while dropping all senders closes the channel and
+  triggers the usual end-of-stream marker emission.
+
+This approach preserves the simplicity of single-frame handlers whilst giving
+handlers a declarative mechanism to orchestrate long-running responses. The
+helpers also make multi-source producers straightforward: background tasks can
+hold clones of the sender and deliver frames as they become available without
+re-implementing connection logic.
+
+### 4.3 The `WireframeError` Enum
 
 To enable more robust error handling, a generic error enum will be introduced.
 This allows the framework and protocol implementations to distinguish between
@@ -324,3 +350,6 @@ cannot regress or be removed.
   end-of-stream marker via the normal send path and then triggers the protocol
   lifecycle hooks. This guarantees downstream clean-up and observability cues
   stay consistent with other stream completions.
+
+[^adr-0001]:
+    Refer to [ADR 0001](./adr/0001-multi-packet-streaming-response-api.md).

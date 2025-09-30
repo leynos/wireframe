@@ -226,8 +226,15 @@ stream.
 
 - [ ] **Ergonomics & API:**
 
-  - [ ] Provide a clean API for handlers to return a multi-packet response,
-    likely by returning a `(Sender<Message>, Response)`.
+  - [ ] Provide a helper (for example `Response::with_channel`) that returns a
+    bounded channel sender alongside a `Response::MultiPacket` so handlers can
+    opt into streaming ergonomically.[^adr-0001]
+  - [ ] Update the multi-packet design documentation and user guide with tuple
+    return examples that explain initial-frame handling, back-pressure, and
+    graceful termination.[^adr-0001]
+  - [ ] Add an example handler (or test fixture) demonstrating spawning a
+    background task that pushes frames through the returned sender while the
+    connection actor manages delivery.
 
 - [ ] **Testing:**
 
@@ -257,8 +264,8 @@ logic.
   - [ ] Implement a `Reassembler` on the receiving end to collect fragments and
     reconstruct the original `Message`.
 
-  - [ ] Manage a reassembly buffer with timeouts to prevent resource exhaustion
-    from incomplete messages.
+  - [ ] Manage a reassembly buffer with timeouts to prevent resource
+    exhaustion from incomplete messages.
 
 - [ ] **Integration with Core Library:**
 
@@ -327,3 +334,6 @@ and usability.
   - [ ] Ensure all public items have clear, useful documentation examples.
 
   - [ ] Publish documentation to `docs.rs`.
+
+[^adr-0001]:
+    Refer to [ADR 0001](./adr/0001-multi-packet-streaming-response-api.md).
