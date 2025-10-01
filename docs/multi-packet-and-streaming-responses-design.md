@@ -139,11 +139,21 @@ vector and `Response::Empty` yield an empty stream.
 ### 4.2 Tuple-Based Multi-Packet Responses
 
 To make `Response::MultiPacket` ergonomic for developers, handlers can return a
-tuple containing a Tokio `mpsc::Sender` and an initial `Response`. The helper
-`Response::with_channel(capacity)` creates a bounded channel, returns the
-sender, and constructs a `Response::MultiPacket` that owns the receiver. The
-initial `Response` MAY be `Single`, `Vec`, or `Empty` depending on whether the
-handler needs to send frames immediately.[^adr-0001]
+tuple containing a Tokio `mpsc::Sender` and an initial `Response`. The
+connection actor interprets this tuple as a request to stream follow-up frames
+from the paired channel after any immediate frames have been dispatched. This
+is the blessed pattern recorded in ADR 0001.[^adr-0001]
+
+Two helpers codify the intended ergonomics:
+
+- `Response::with_channel(capacity)` constructs a bounded channel, returns the
+  sender, and wraps the receiver inside a `Response::MultiPacket`. This is the
+  minimal entry-point for streams that do not need to send frames immediately.
+- `Response::with_channel_and_initial(capacity, initial)` extends the previous
+  helper by allowing callers to provide the initial `Response` explicitly. The
+  helper records the initial variant (`Single`, `Vec`, or `Empty`) alongside
+  the multi-packet receiver so the connection actor can first emit the up-front
+  frames and then enter streaming mode.
 
 When a tuple is returned, the connection actor:
 
@@ -156,11 +166,52 @@ When a tuple is returned, the connection actor:
   `Sender::send` calls, while dropping all senders closes the channel and
   triggers the usual end-of-stream marker emission.
 
-This approach preserves the simplicity of single-frame handlers whilst giving
-handlers a declarative mechanism to orchestrate long-running responses. The
-helpers also make multi-source producers straightforward: background tasks can
-hold clones of the sender and deliver frames as they become available without
-re-implementing connection logic.
+The helpers keep single-frame handlers unchanged whilst giving developers a
+declarative mechanism to orchestrate long-running responses. Background tasks
+can hold clones of the sender and deliver frames as they become available
+without re-implementing connection logic.
+
+```rust
+use futures::StreamExt;
+use tokio::sync::mpsc;
+use wireframe::Response;
+
+async fn handle_long_query(
+    req: QueryRequest,
+) -> Result<(mpsc::Sender<MyFrame>, Response<MyFrame, MyError>), MyError> {
+    let header = MyFrame::ack(req.correlation_id);
+
+    let (tx, response) = Response::with_channel_and_initial(
+        16,
+        Response::Single(header),
+    );
+
+    let query = req.clone();
+    let mut producer = tx.clone();
+    tokio::spawn(async move {
+        if producer.send(MyFrame::starting_chunk()).await.is_err() {
+            return;
+        }
+
+        let mut rows = stream_rows(query);
+        while let Some(Ok(row)) = rows.next().await {
+            let frame = MyFrame::from(row);
+            if producer.send(frame).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    Ok((tx, response))
+}
+```
+
+The example illustrates how the helper lifts the receiver management out of the
+handler. The initial response variant can be changed to `Response::Vec` for a
+small batch of up-front frames or `Response::Empty` when no immediate message
+is required. In every case the connection actor preserves ordering: the initial
+frames are sent synchronously, the streamed frames follow, and the channel
+closure triggers the protocol-specific end-of-stream marker.
 
 ### 4.3 The `WireframeError` Enum
 
@@ -307,7 +358,32 @@ not hang.
 
 <!-- markdownlint-enable MD013 -->
 
-## 9. Design decisions
+## 9. Alternatives considered
+
+Several options were evaluated before the tuple-based design was selected. Each
+alternative fell short against one or more requirements in Section 2.
+
+- **Exclusive use of `Response::Stream` with `async-stream`.** This approach
+  keeps the API surface minimal but forces every producer to operate from a
+  single async context. It struggles with goal **G1** (multiple producers) and
+  erodes the ergonomics demanded by **G4** for simple upgrades, because
+  handlers must manually interleave initial frames and ongoing data inside one
+  stream.
+- **Sink or callback-oriented APIs.** Providing a bespoke responder object would
+  satisfy back-pressure but duplicates Tokio channel functionality, adds new
+  abstractions contrary to the "adhere to existing architecture" constraint,
+  and complicates lifecycle management. The tuple proposal retains the familiar
+  Tokio channels and meets **G2** without bespoke sinks.
+- **Blocking or partially streaming handlers.** Allowing handlers to emit
+  frames sequentially without yielding undermines the framework's concurrency
+  story and violates **G2** by removing natural back-pressure. It also risks
+  head-of-line blocking for unrelated work, conflicting with the connection
+  actor design described earlier.
+
+Adopting the tuple with helpers therefore best satisfies the goals matrix while
+staying true to the architecture already in production use.
+
+## 10. Design decisions
 
 - Multi-packet channels are driven inside the existing connection actor
   `select!` loop rather than by a detached task. This keeps a single locus for
