@@ -20,6 +20,67 @@ This feature is a key component of the "Road to Wireframe 1.0," working in
 concert with asynchronous push messaging and fragmentation to create a fully
 duplex and capable framework.
 
+## Contents
+
+- [1. Introduction & Philosophy](#1-introduction--philosophy)
+- [2. Design Goals & Requirements](#2-design-goals--requirements)
+- [3. Core Architecture: Declarative Streaming][sec-3]
+  - [3.1 The Connection Actor's Role][sec-31]
+  - [3.2 The `async-stream` Crate][sec-32]
+  - [3.3 End-of-stream Signalling][sec-33]
+- [4. Public API Surface][sec-4]
+  - [4.1 The `Response` Enum][sec-41]
+  - [4.2 Tuple-Based Multi-Packet Responses][sec-42]
+  - [4.3 The `WireframeError` Enum][sec-43]
+- [5. Handler Implementation Patterns][sec-5]
+  - [5.1 Single-Frame Reply (Unchanged)][sec-51]
+  - [5.2 Small, Multi-Part Result (`Response::Vec`)][sec-52]
+  - [5.3 Large or Dynamic Stream (`Response::Stream`)][sec-53]
+- [6. Stream Lifecycle and Error Handling][sec-6]
+  - [6.1 Stream Termination][sec-61]
+  - [6.2 Error Propagation][sec-62]
+  - [6.3 Cancellation Safety & `Drop` Semantics][sec-63]
+- [7. Synergy with Other 1.0 Features][sec-7]
+- [8. Measurable Objectives & Success Criteria][sec-8]
+- [9. Alternatives considered](#9-alternatives-considered)
+- [10. Design decisions](#10-design-decisions)
+
+[sec-3]: #3-core-architecture-declarative-streaming
+
+[sec-31]: #31-the-connection-actors-role
+
+[sec-32]: #32-the-async-stream-crate
+
+[sec-33]: #33-end-of-stream-signalling
+
+[sec-4]: #4-public-api-surface
+
+[sec-41]: #41-the-response-enum
+
+[sec-42]: #42-tuple-based-multi-packet-responses
+
+[sec-43]: #43-the-wireframeerror-enum
+
+[sec-5]: #5-handler-implementation-patterns
+
+[sec-51]: #51-single-frame-reply-unchanged
+
+[sec-52]: #52-small-multi-part-result-responsevec
+
+[sec-53]: #53-large-or-dynamic-stream-responsestream
+
+[sec-6]: #6-stream-lifecycle-and-error-handling
+
+[sec-61]: #61-stream-termination
+
+[sec-62]: #62-error-propagation
+
+[sec-63]: #63-cancellation-safety--drop-semantics
+
+[sec-7]: #7-synergy-with-other-10-features
+
+[sec-8]: #8-measurable-objectives--success-criteria
+
 ## 2. Design Goals & Requirements
 
 The implementation must satisfy the following core requirements:
@@ -142,7 +203,8 @@ To make `Response::MultiPacket` ergonomic for developers, handlers can return a
 tuple containing a Tokio `mpsc::Sender` and an initial `Response`. The
 connection actor interprets this tuple as a request to stream follow-up frames
 from the paired channel after any immediate frames have been dispatched. This
-is the blessed pattern recorded in ADR 0001.[^adr-0001]
+is the blessed pattern recorded in
+[ADR 0001](adr/0001-multi-packet-streaming-response-api.md).
 
 Two helpers are planned to codify the intended ergonomics (they are specified
 here for implementation in the follow-up to ADR 0001):
@@ -367,7 +429,8 @@ not hang.
 ## 9. Alternatives considered
 
 Several options were evaluated before the tuple-based design was selected. Each
-alternative fell short against one or more requirements in Section 2.
+alternative fell short against one or more requirements in
+[Section 2](#2-design-goals--requirements).
 
 - **Exclusive use of `Response::Stream` with `async-stream`.** This approach
   keeps the API surface minimal but forces every producer to operate from a
@@ -432,6 +495,3 @@ cannot regress or be removed.
   end-of-stream marker via the normal send path and then triggers the protocol
   lifecycle hooks. This guarantees downstream clean-up and observability cues
   stay consistent with other stream completions.
-
-[^adr-0001]:
-    Refer to [ADR 0001](./adr/0001-multi-packet-streaming-response-api.md).
