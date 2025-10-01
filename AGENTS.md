@@ -117,6 +117,20 @@ project:
   These targets wrap `cargo fmt --check`, `cargo clippy`, and `cargo test` with
   the appropriate flags. Use `make fmt` to apply formatting fixes when
   `make check-fmt` identifies violations.
+- Use NewTypes to model domain values and eliminate "integer soup". Reach for
+  `newt-hype` when introducing many homogeneous wrappers that share behaviour;
+  add small shims such as `From<&str>` and `AsRef<str>` for string-backed
+  wrappers. For path-centric wrappers implement `AsRef<Path>` alongside
+  `into_inner()` and `to_path_buf()`; avoid attempting
+  `impl From<Wrapper> for PathBuf` because of the orphan rule. Prefer explicit
+  tuple structs whenever bespoke validation or tailored trait surfaces are
+  required, customising `Deref`, `AsRef`, and `TryFrom` per type. Use
+  `the-newtype` when defining traits and needing blanket implementations that
+  apply across wrappers satisfying `Newtype + AsRef/AsMut<Inner>`, or when
+  establishing a coherent internal convention that keeps trait forwarding
+  consistent without per-type boilerplate. Combine approaches: lean on
+  `newt-hype` for the common case, tuple structs for outliers, and
+  `the-newtype` to unify behaviour when you own the trait definitions.
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
