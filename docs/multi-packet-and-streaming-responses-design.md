@@ -144,16 +144,18 @@ connection actor interprets this tuple as a request to stream follow-up frames
 from the paired channel after any immediate frames have been dispatched. This
 is the blessed pattern recorded in ADR 0001.[^adr-0001]
 
-Two helpers codify the intended ergonomics:
+Two helpers are planned to codify the intended ergonomics (they are specified
+here for implementation in the follow-up to ADR 0001):
 
-- `Response::with_channel(capacity)` constructs a bounded channel, returns the
-  sender, and wraps the receiver inside a `Response::MultiPacket`. This is the
-  minimal entry-point for streams that do not need to send frames immediately.
-- `Response::with_channel_and_initial(capacity, initial)` extends the previous
-  helper by allowing callers to provide the initial `Response` explicitly. The
-  helper records the initial variant (`Single`, `Vec`, or `Empty`) alongside
-  the multi-packet receiver so the connection actor can first emit the up-front
-  frames and then enter streaming mode.
+- `Response::with_channel(capacity)` will construct a bounded channel, return
+  the sender, and wrap the receiver inside a `Response::MultiPacket`. This is
+  the minimal entry-point for streams that do not need to send frames
+  immediately.
+- `Response::with_channel_and_initial(capacity, initial)` will extend the
+  previous helper by allowing callers to provide the initial `Response`
+  explicitly. The helper records the initial variant (`Single`, `Vec`, or
+  `Empty`) alongside the multi-packet receiver so the connection actor can
+  first emit the up-front frames and then enter streaming mode.
 
 When a tuple is returned, the connection actor:
 
@@ -181,6 +183,9 @@ async fn handle_long_query(
 ) -> Result<(mpsc::Sender<MyFrame>, Response<MyFrame, MyError>), MyError> {
     let header = MyFrame::ack(req.correlation_id);
 
+    // Planned helper from this design; until shipped, handlers can manually
+    // build the tuple by calling `tokio::sync::mpsc::channel` and constructing
+    // `Response::MultiPacket`.
     let (tx, response) = Response::with_channel_and_initial(
         16,
         Response::Single(header),
@@ -206,12 +211,13 @@ async fn handle_long_query(
 }
 ```
 
-The example illustrates how the helper lifts the receiver management out of the
-handler. The initial response variant can be changed to `Response::Vec` for a
-small batch of up-front frames or `Response::Empty` when no immediate message
-is required. In every case the connection actor preserves ordering: the initial
-frames are sent synchronously, the streamed frames follow, and the channel
-closure triggers the protocol-specific end-of-stream marker.
+The example illustrates how the planned helper lifts the receiver management
+out of the handler. The initial response variant can be changed to
+`Response::Vec` for a small batch of up-front frames or `Response::Empty` when
+no immediate message is required. In every case the connection actor preserves
+ordering: the initial frames are sent synchronously, the streamed frames
+follow, and the channel closure triggers the protocol-specific end-of-stream
+marker.
 
 ### 4.3 The `WireframeError` Enum
 
