@@ -53,11 +53,11 @@
 - **Quality Gates:** Before considering a change complete or proposing a commit,
   ensure it meets the following criteria:
   - New functionality or changes in behaviour are fully validated by relevant
-    unittests and behavioural tests.
+    unit tests and behavioural tests.
   - Where a bug is being fixed, a unittest has been provided demonstrating the
     behaviour being corrected both to validate the fix and to guard against
     regression.
-  - Passes all relevant unit and behavioral tests according to the guidelines
+  - Passes all relevant unit and behavioural tests according to the guidelines
     above.
   - Passes lint checks
   - Adheres to formatting standards tested using a formatting validator.
@@ -113,8 +113,33 @@ This repository is written in Rust and uses Cargo for building and dependency
 management. Contributors should follow these best practices when working on the
 project:
 
-- Run `make fmt`, `make lint`, and `make test` before committing. These targets
-  wrap `cargo fmt`, `cargo clippy`, and `cargo test` with the appropriate flags.
+- Run `make check-fmt`, `make lint`, and `make test` before committing. These
+  targets wrap the following commands so contributors understand the exact
+  behaviour and policy enforced:
+  - `make check-fmt` executes:
+
+    ```
+    cargo fmt --workspace -- --check
+    ```
+
+    validating formatting across the entire workspace without modifying files.
+  - `make lint` executes:
+
+    ```
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    ```
+
+    linting every target with all features enabled and denying all Clippy
+    warnings.
+  - `make test` executes:
+
+    ```
+    cargo test --workspace
+    ```
+
+    running the full workspace test suite.
+  Use `make fmt` (`cargo fmt --workspace`) to apply formatting fixes reported
+  by the formatter check.
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
@@ -160,6 +185,21 @@ project:
       Self(id)
   }
   ```
+
+- Use NewTypes to model domain values and eliminate "integer soup". Reach for
+  `newt-hype` when introducing many homogeneous wrappers that share behaviour;
+  add small shims such as `From<&str>` and `AsRef<str>` for string-backed
+  wrappers. For path-centric wrappers implement `AsRef<Path>` alongside
+  `into_inner()` and `to_path_buf()`; avoid attempting
+  `impl From<Wrapper> for PathBuf` because of the orphan rule. Prefer explicit
+  tuple structs whenever bespoke validation or tailored trait surfaces are
+  required, customising `Deref`, `AsRef`, and `TryFrom` per type. Use
+  `the-newtype` when defining traits and needing blanket implementations that
+  apply across wrappers satisfying `Newtype + AsRef/AsMut<Inner>`, or when
+  establishing a coherent internal convention that keeps trait forwarding
+  consistent without per-type boilerplate. Combine approaches: lean on
+  `newt-hype` for the common case, tuple structs for outliers, and
+  `the-newtype` to unify behaviour when you own the trait definitions.
 
 ### Dependency Management
 
