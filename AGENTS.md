@@ -239,6 +239,45 @@ project:
 - Use GitHub-flavoured Markdown footnotes (`[^1]`) for references and
   footnotes.
 
+## Additional tooling
+
+The following tooling is available in this environment:
+
+- `mbake` – A Makefile validator. Run using `mbake validate Makefile`.
+- `strace` – Traces system calls and signals made by a process; useful for
+  debugging runtime behaviour and syscalls.
+- `gdb` – The GNU Debugger, for inspecting and controlling programs as they
+  execute (or post-mortem via core dumps).
+- `ripgrep` – Fast, recursive text search tool (`grep` alternative) that
+  respects `.gitignore` files.
+- `ltrace` – Traces calls to dynamic library functions made by a process.
+- `valgrind` – Suite for detecting memory leaks, profiling, and debugging
+  low-level memory errors.
+- `bpftrace` – High-level tracing tool for eBPF, using a custom scripting
+  language for kernel and application tracing.
+- `lsof` – Lists open files and the processes using them.
+- `htop` – Interactive process viewer (visual upgrade to `top`).
+- `iotop` – Displays and monitors I/O usage by processes.
+- `ncdu` – NCurses-based disk usage viewer for finding large files/folders.
+- `tree` – Displays directory structure as a tree.
+- `bat` – `cat` clone with syntax highlighting, Git integration, and paging.
+- `delta` – Syntax-highlighted pager for Git and diff output.
+- `tcpdump` – Captures and analyses network traffic at the packet level.
+- `nmap` – Network scanner for host discovery, port scanning, and service
+  identification.
+- `lldb` – LLVM debugger, alternative to `gdb`.
+- `eza` – Modern `ls` replacement with more features and better defaults.
+- `fzf` – Interactive fuzzy finder for selecting files, commands, etc.
+- `hyperfine` – Command-line benchmarking tool with statistical output.
+- `shellcheck` – Linter for shell scripts, identifying errors and bad practices.
+- `fd` – Fast, user-friendly `find` alternative with sensible defaults.
+- `checkmake` – Linter for `Makefile`s, ensuring they follow best practices and
+  conventions.
+- `srgn` – [Structural grep](https://github.com/alexpovel/srgn), searches code
+  and enables editing by syntax tree patterns.
+- `difft` **(Difftastic)** – Semantic diff tool that compares code structure
+  rather than just text differences.
+
 ## Key Takeaway
 
 These practices help maintain a high-quality codebase and facilitate
