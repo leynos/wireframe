@@ -224,15 +224,15 @@ stream.
     - [x] Notify protocol lifecycle hooks so higher layers can tidy any
       per-request state when a stream drains naturally.
 
-- [ ] **Ergonomics & API:**
+- [x] **Ergonomics & API:**
 
-  - [ ] Provide a helper (for example `Response::with_channel`) that returns a
+  - [x] Provide a helper (for example `Response::with_channel`) that returns a
     bounded channel sender alongside a `Response::MultiPacket` so handlers can
     opt into streaming ergonomically.[^adr-0001]
-  - [ ] Update the multi-packet design documentation and user guide with tuple
+  - [x] Update the multi-packet design documentation and user guide with tuple
     return examples that explain initial-frame handling, back-pressure, and
     graceful termination.[^adr-0001]
-  - [ ] Add an example handler (or test fixture) demonstrating spawning a
+  - [x] Add an example handler (or test fixture) demonstrating spawning a
     background task that pushes frames through the returned sender while the
     connection actor manages delivery.
 

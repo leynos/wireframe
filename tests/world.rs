@@ -16,6 +16,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use wireframe::{
+    Response,
     app::{Envelope, Packet},
     connection::{ConnectionActor, test_support::ActorHarness},
     hooks::ProtocolHooks,
@@ -440,25 +441,36 @@ pub struct MultiPacketWorld {
 }
 
 impl MultiPacketWorld {
-    /// Helper method to process messages through a multi-packet response.
+    /// Helper method to process messages through a multi-packet response built
+    /// via [`Response::with_channel`].
     ///
     /// # Panics
-    /// Panics if sending to the channel fails.
+    /// Panics if spawning or joining the producer task fails.
     async fn process_messages(&mut self, messages: &[u8]) {
-        let (tx, ch_rx) = tokio::sync::mpsc::channel(4);
-        for &msg in messages {
-            tx.send(msg).await.expect("send");
-        }
-        drop(tx);
+        let (sender, response): (mpsc::Sender<u8>, Response<u8, ()>) = Response::with_channel(4);
+        let Response::MultiPacket(rx) = response else {
+            panic!("helper did not return a MultiPacket response");
+        };
+
+        let payload = messages.to_vec();
+        let producer = tokio::spawn(async move {
+            for msg in payload {
+                if sender.send(msg).await.is_err() {
+                    return;
+                }
+            }
+            drop(sender);
+        });
 
         let (queues, handle) = build_small_queues::<u8>();
         let shutdown = CancellationToken::new();
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle, None, shutdown);
-        actor.set_multi_packet(Some(ch_rx));
+        actor.set_multi_packet(Some(rx));
 
         let mut frames = Vec::new();
         actor.run(&mut frames).await.expect("actor run failed");
+        producer.await.expect("producer task panicked");
         self.messages = frames;
     }
 
