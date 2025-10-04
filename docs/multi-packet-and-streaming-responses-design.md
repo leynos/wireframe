@@ -219,6 +219,19 @@ here for implementation in the follow-up to ADR 0001):
   `Empty`) alongside the multi-packet receiver so the connection actor can
   first emit the up-front frames and then enter streaming mode.
 
+#### 4.2.1 Implemented helper: `Response::with_channel`
+
+`Response::with_channel` is now available. It forwards to Tokio's
+`mpsc::channel`, returning the sender with a `Response::MultiPacket` that owns
+the receiver. The helper intentionally mirrors Tokio's panic on zero capacity;
+propagating this behaviour keeps the API predictable for developers already
+familiar with Tokio channels. Unit tests assert that the helper enforces
+bounded capacity and drains frames in order, while the multi-packet Cucumber
+feature exercises the helper end-to-end through a background producer task. The
+fixture demonstrates the intended tuple return pattern: spawn a producer,
+stream frames through the sender, and rely on the connection actor to manage
+delivery and shutdown semantics.
+
 When a tuple is returned, the connection actor:
 
 - sends any frames embedded in the initial `Response` before transitioning into
