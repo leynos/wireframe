@@ -115,6 +115,48 @@ impl<F, E> From<Vec<F>> for Response<F, E> {
 }
 
 impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
+    /// Construct a bounded channel and wrap its receiver in a
+    /// `Response::MultiPacket`.
+    ///
+    /// Returns the sending half of the channel alongside the response so a
+    /// handler can spawn background tasks that stream frames. The channel is
+    /// bounded: once `capacity` frames are buffered, additional `send`
+    /// operations await until the connection actor drains the queue.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `capacity` is zero. This mirrors the behaviour of
+    /// [`tokio::sync::mpsc::channel`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tokio::spawn;
+    /// use wireframe::Response;
+    ///
+    /// async fn stream_frames() -> (tokio::sync::mpsc::Sender<u8>, Response<u8>) {
+    ///     let (sender, response) = Response::with_channel(8);
+    ///
+    ///     let mut producer = sender.clone();
+    ///     spawn(async move {
+    ///         for frame in 0..3u8 {
+    ///             if producer.send(frame).await.is_err() {
+    ///                 return;
+    ///             }
+    ///         }
+    ///
+    ///         drop(producer);
+    ///     });
+    ///
+    ///     (sender, response)
+    /// }
+    /// ```
+    #[must_use]
+    pub fn with_channel(capacity: usize) -> (mpsc::Sender<F>, Response<F, E>) {
+        let (sender, receiver) = mpsc::channel(capacity);
+        (sender, Response::MultiPacket(receiver))
+    }
+
     /// Convert this response into a stream of frames.
     ///
     /// `Response::Vec` with no frames and `Response::Empty` produce an empty
@@ -206,5 +248,69 @@ where
             WireframeError::Io(e) => Some(e),
             WireframeError::Protocol(e) => Some(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::{fixture, rstest};
+    use tokio::sync::mpsc::{self, error::TrySendError};
+
+    use super::*;
+
+    #[fixture]
+    fn single_capacity_channel() -> (mpsc::Sender<u8>, Response<u8, ()>) {
+        Response::with_channel(1)
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn with_channel_streams_frames_and_respects_capacity(
+        single_capacity_channel: (mpsc::Sender<u8>, Response<u8, ()>),
+    ) {
+        let (sender, response) = single_capacity_channel;
+        let Response::MultiPacket(mut rx) = response else {
+            panic!("with_channel did not return a MultiPacket response");
+        };
+
+        sender.send(1).await.expect("send first frame");
+        assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
+
+        assert_eq!(rx.recv().await, Some(1));
+
+        sender
+            .send(3)
+            .await
+            .expect("send follow-up frame after draining");
+        drop(sender);
+
+        assert_eq!(rx.recv().await, Some(3));
+        assert_eq!(rx.recv().await, None);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn with_channel_sender_errors_when_receiver_dropped(
+        single_capacity_channel: (mpsc::Sender<u8>, Response<u8, ()>),
+    ) {
+        let (sender, response) = single_capacity_channel;
+        drop(response);
+
+        assert!(matches!(sender.try_send(7), Err(TrySendError::Closed(7))));
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn with_channel_receiver_detects_sender_drop(
+        single_capacity_channel: (mpsc::Sender<u8>, Response<u8, ()>),
+    ) {
+        let (sender, response) = single_capacity_channel;
+        let Response::MultiPacket(mut rx) = response else {
+            panic!("with_channel did not return a MultiPacket response");
+        };
+
+        drop(sender);
+
+        assert_eq!(rx.recv().await, None);
     }
 }
