@@ -253,30 +253,64 @@ where
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::mpsc::error::TrySendError;
+    use rstest::{fixture, rstest};
+    use tokio::sync::mpsc::{self, error::TrySendError};
 
     use super::*;
 
+    #[fixture]
+    fn single_capacity_channel() -> (mpsc::Sender<u8>, Response<u8, ()>) {
+        Response::with_channel(1)
+    }
+
+    #[rstest]
     #[tokio::test]
-    async fn with_channel_streams_frames_and_respects_capacity() {
-        let (sender, response): (mpsc::Sender<u8>, Response<u8, ()>) = Response::with_channel(1);
-
-        if let Response::MultiPacket(mut rx) = response {
-            sender.send(1).await.expect("send first frame");
-            assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
-
-            assert_eq!(rx.recv().await, Some(1));
-
-            sender
-                .send(3)
-                .await
-                .expect("send follow-up frame after draining");
-            drop(sender);
-
-            assert_eq!(rx.recv().await, Some(3));
-            assert_eq!(rx.recv().await, None);
-        } else {
+    async fn with_channel_streams_frames_and_respects_capacity(
+        single_capacity_channel: (mpsc::Sender<u8>, Response<u8, ()>),
+    ) {
+        let (sender, response) = single_capacity_channel;
+        let Response::MultiPacket(mut rx) = response else {
             panic!("with_channel did not return a MultiPacket response");
-        }
+        };
+
+        sender.send(1).await.expect("send first frame");
+        assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
+
+        assert_eq!(rx.recv().await, Some(1));
+
+        sender
+            .send(3)
+            .await
+            .expect("send follow-up frame after draining");
+        drop(sender);
+
+        assert_eq!(rx.recv().await, Some(3));
+        assert_eq!(rx.recv().await, None);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn with_channel_sender_errors_when_receiver_dropped(
+        single_capacity_channel: (mpsc::Sender<u8>, Response<u8, ()>),
+    ) {
+        let (sender, response) = single_capacity_channel;
+        drop(response);
+
+        assert!(matches!(sender.try_send(7), Err(TrySendError::Closed(7))));
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn with_channel_receiver_detects_sender_drop(
+        single_capacity_channel: (mpsc::Sender<u8>, Response<u8, ()>),
+    ) {
+        let (sender, response) = single_capacity_channel;
+        let Response::MultiPacket(mut rx) = response else {
+            panic!("with_channel did not return a MultiPacket response");
+        };
+
+        drop(sender);
+
+        assert_eq!(rx.recv().await, None);
     }
 }

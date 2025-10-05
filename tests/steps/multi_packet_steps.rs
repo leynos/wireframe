@@ -14,3 +14,9 @@ async fn when_multi_empty(world: &mut MultiPacketWorld) { world.process_empty().
 
 #[then("no messages are received")]
 fn then_multi_empty(world: &mut MultiPacketWorld) { world.verify_empty(); }
+
+#[when("a handler emits more messages than the channel capacity")]
+async fn when_multi_overflow(world: &mut MultiPacketWorld) { world.process_overflow().await; }
+
+#[then("overflow messages are handled according to channel policy")]
+fn then_multi_overflow(world: &mut MultiPacketWorld) { world.verify_overflow(); }
