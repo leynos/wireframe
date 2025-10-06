@@ -176,46 +176,6 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHa
     assert!(saw_disconnect, "missing disconnect log");
 }
 
-#[tokio::test]
-async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
-    let mut harness = ActorHarness::new();
-    let (tx, rx) = mpsc::channel(4);
-    let stream_correlation = Some(73_u64);
-
-    prime_stream_channel(tx, &[&[10_u8][..], &[20][..], &[30][..]]).await;
-
-    harness
-        .actor
-        .set_multi_packet_with_correlation(Some(rx), stream_correlation);
-    harness.actor.set_fairness(interleaving_fairness());
-
-    push_sequence(harness.handle(), PushPriority::High, &HIGH_PRIORITY_FRAMES).await;
-    push_sequence(harness.handle(), PushPriority::Low, &LOW_PRIORITY_FRAMES).await;
-
-    harness.release_handle();
-
-    let out = harness.run().await;
-
-    assert_correlation_sequence(
-        &out,
-        &[
-            Some(1),
-            Some(2),
-            Some(3),
-            Some(4),
-            stream_correlation,
-            stream_correlation,
-            stream_correlation,
-            stream_correlation,
-        ],
-    );
-
-    assert_id_sequence(
-        &out,
-        &[2, 3, 4, 5, STREAM_ID, STREAM_ID, STREAM_ID, TERMINATOR_ID],
-    );
-}
-
 struct FrameSpec {
     id: u32,
     correlation: u64,
@@ -275,26 +235,71 @@ async fn push_sequence(
     }
 }
 
-async fn prime_stream_channel(tx: mpsc::Sender<Envelope>, payloads: &[&[u8]]) {
+async fn setup_stream_channel(payloads: &[&[u8]]) -> mpsc::Receiver<Envelope> {
+    let capacity = payloads.len().max(1);
+    let (tx, rx) = mpsc::channel(capacity);
     for payload in payloads {
         tx.send(envelope_with_payload(STREAM_ID, None, payload))
             .await
             .expect("send frame to multi-packet stream");
     }
+    drop(tx);
+    rx
 }
 
-fn assert_correlation_sequence(out: &[Envelope], expected: &[Option<u64>]) {
-    let correlations: Vec<Option<u64>> = out
+async fn push_interleaved_frames(handle: &PushHandle<Envelope>) {
+    push_sequence(handle, PushPriority::High, &HIGH_PRIORITY_FRAMES).await;
+    push_sequence(handle, PushPriority::Low, &LOW_PRIORITY_FRAMES).await;
+}
+
+fn assert_correlation_ordering(frames: &[Envelope], expected: &[Option<u64>]) {
+    let correlations: Vec<Option<u64>> = frames
         .iter()
         .map(|frame| parts(frame).correlation_id())
         .collect();
-    assert_eq!(correlations, expected, "unexpected correlation ordering",);
+    assert_eq!(correlations, expected, "unexpected correlation ordering");
 }
 
-fn assert_id_sequence(out: &[Envelope], expected: &[u32]) {
-    let ids: Vec<u32> = out.iter().map(|frame| parts(frame).id()).collect();
+fn assert_frame_identities(frames: &[Envelope], expected: &[u32]) {
+    let ids: Vec<u32> = frames.iter().map(|frame| parts(frame).id()).collect();
     assert_eq!(
         ids, expected,
         "frame sequence did not preserve request identities",
+    );
+}
+
+#[tokio::test]
+async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
+    let mut harness = ActorHarness::new();
+    let stream_correlation = Some(73_u64);
+    let rx = setup_stream_channel(&[&[10_u8][..], &[20][..], &[30][..]]).await;
+
+    harness
+        .actor
+        .set_multi_packet_with_correlation(Some(rx), stream_correlation);
+    harness.actor.set_fairness(interleaving_fairness());
+
+    push_interleaved_frames(harness.handle()).await;
+    harness.release_handle();
+
+    let frames = harness.run().await;
+
+    assert_correlation_ordering(
+        &frames,
+        &[
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            stream_correlation,
+            stream_correlation,
+            stream_correlation,
+            stream_correlation,
+        ],
+    );
+
+    assert_frame_identities(
+        &frames,
+        &[2, 3, 4, 5, STREAM_ID, STREAM_ID, STREAM_ID, TERMINATOR_ID],
     );
 }
