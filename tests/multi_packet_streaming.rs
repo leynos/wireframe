@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
-    connection::ConnectionActor,
+    connection::{ConnectionActor, FairnessConfig},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{PushHandle, PushQueues},
 };
@@ -76,6 +76,15 @@ impl ActorHarness {
     }
 
     fn release_handle(&mut self) { self.handle.take(); }
+
+    async fn run(&mut self) -> Vec<Envelope> {
+        let mut out = Vec::new();
+        self.actor
+            .run(&mut out)
+            .await
+            .expect("connection actor run failed");
+        out
+    }
 }
 
 fn parts(frame: &Envelope) -> PacketParts { frame.clone().into_parts() }
@@ -99,12 +108,7 @@ async fn client_receives_multi_packet_stream_with_terminator() {
 
     harness.release_handle();
 
-    let mut out = Vec::new();
-    harness
-        .actor
-        .run(&mut out)
-        .await
-        .expect("connection actor run failed");
+    let out = harness.run().await;
 
     assert_eq!(out.len(), 3, "expected two frames plus terminator");
     let payloads: Vec<Vec<u8>> = out.iter().map(|frame| parts(frame).payload()).collect();
@@ -138,12 +142,7 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHa
         .actor
         .set_multi_packet_with_correlation(Some(rx), correlation);
 
-    harness
-        .actor
-        .set_fairness(wireframe::connection::FairnessConfig {
-            max_high_before_low: 1,
-            time_slice: None,
-        });
+    harness.actor.set_fairness(interleaving_fairness());
 
     harness
         .handle()
@@ -153,12 +152,7 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHa
 
     harness.release_handle();
 
-    let mut out = Vec::new();
-    harness
-        .actor
-        .run(&mut out)
-        .await
-        .expect("connection actor run failed");
+    let out = harness.run().await;
 
     assert_eq!(out.len(), 2, "expected push frame followed by terminator");
     let last = out.last().expect("terminator missing");
@@ -193,56 +187,14 @@ async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
     harness
         .actor
         .set_multi_packet_with_correlation(Some(rx), stream_correlation);
-    harness
-        .actor
-        .set_fairness(wireframe::connection::FairnessConfig {
-            max_high_before_low: 1,
-            time_slice: None,
-        });
+    harness.actor.set_fairness(interleaving_fairness());
 
-    push_sequence(
-        harness.handle(),
-        PushPriority::High,
-        &[
-            FrameSpec {
-                id: 2,
-                correlation: 1,
-                payload: b"A",
-            },
-            FrameSpec {
-                id: 4,
-                correlation: 3,
-                payload: b"C",
-            },
-        ],
-    )
-    .await;
-    push_sequence(
-        harness.handle(),
-        PushPriority::Low,
-        &[
-            FrameSpec {
-                id: 3,
-                correlation: 2,
-                payload: b"B",
-            },
-            FrameSpec {
-                id: 5,
-                correlation: 4,
-                payload: b"D",
-            },
-        ],
-    )
-    .await;
+    push_sequence(harness.handle(), PushPriority::High, &HIGH_PRIORITY_FRAMES).await;
+    push_sequence(harness.handle(), PushPriority::Low, &LOW_PRIORITY_FRAMES).await;
 
     harness.release_handle();
 
-    let mut out = Vec::new();
-    harness
-        .actor
-        .run(&mut out)
-        .await
-        .expect("connection actor run failed");
+    let out = harness.run().await;
 
     assert_correlation_sequence(
         &out,
@@ -270,9 +222,42 @@ struct FrameSpec {
     payload: &'static [u8],
 }
 
+const HIGH_PRIORITY_FRAMES: [FrameSpec; 2] = [
+    FrameSpec {
+        id: 2,
+        correlation: 1,
+        payload: b"A",
+    },
+    FrameSpec {
+        id: 4,
+        correlation: 3,
+        payload: b"C",
+    },
+];
+
+const LOW_PRIORITY_FRAMES: [FrameSpec; 2] = [
+    FrameSpec {
+        id: 3,
+        correlation: 2,
+        payload: b"B",
+    },
+    FrameSpec {
+        id: 5,
+        correlation: 4,
+        payload: b"D",
+    },
+];
+
 enum PushPriority {
     High,
     Low,
+}
+
+fn interleaving_fairness() -> FairnessConfig {
+    FairnessConfig {
+        max_high_before_low: 1,
+        time_slice: None,
+    }
 }
 
 async fn push_sequence(
