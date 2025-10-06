@@ -236,15 +236,15 @@ stream.
     background task that pushes frames through the returned sender while the
     connection actor manages delivery.
 
-- [ ] **Testing:**
+- [x] **Testing:**
 
-  - [ ] Develop integration tests where a client sends one request and receives
+  - [x] Develop integration tests where a client sends one request and receives
     multiple, correlated response messages.
 
-  - [ ] Test that the end-of-stream marker is sent correctly and handled by the
+  - [x] Test that the end-of-stream marker is sent correctly and handled by the
     client.
 
-  - [ ] Test client-side handling of interleaved multi-packet responses from
+  - [x] Test client-side handling of interleaved multi-packet responses from
     different requests.
 
 ## Phase 7: Transport-Level Fragmentation & Reassembly
