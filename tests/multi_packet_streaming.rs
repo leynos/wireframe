@@ -10,6 +10,7 @@
 use std::sync::{Arc, OnceLock};
 
 use log::Level as LogLevel;
+use logtest as flexi_logger;
 use rstest::rstest;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -129,6 +130,12 @@ async fn client_receives_multi_packet_stream_with_terminator() {
     }
 }
 
+fn is_disconnect_log(record: &flexi_logger::Record) -> bool {
+    record.level() == LogLevel::Warn
+        && record.args().contains("multi-packet stream closed")
+        && record.args().contains("reason=disconnected")
+}
+
 #[rstest]
 #[tokio::test]
 async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHandle) {
@@ -164,11 +171,7 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHa
 
     let mut saw_disconnect = false;
     while let Some(record) = logger.pop() {
-        let msg = record.args().to_string();
-        if record.level() == LogLevel::Warn
-            && msg.contains("multi-packet stream closed")
-            && msg.contains("reason=disconnected")
-        {
+        if is_disconnect_log(&record) {
             saw_disconnect = true;
             break;
         }
