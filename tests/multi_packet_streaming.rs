@@ -7,8 +7,9 @@
 //! responses to ensure correlation identifiers allow clients to demultiplex
 //! concurrent activity.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, OnceLock};
 
+use log::Level as LogLevel;
 use rstest::rstest;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -42,11 +43,13 @@ impl ActorHarness {
             .unlimited()
             .build()
             .expect("failed to build PushQueues");
-        let shared_handle: Arc<Mutex<Option<PushHandle<Envelope>>>> = Arc::new(Mutex::new(None));
+        let shared_handle: Arc<OnceLock<PushHandle<Envelope>>> = Arc::new(OnceLock::new());
         let handle_slot = Arc::clone(&shared_handle);
         let hooks = ProtocolHooks {
             on_connection_setup: Some(Box::new(move |handle, _ctx| {
-                *handle_slot.lock().expect("handle slot poisoned") = Some(handle);
+                handle_slot
+                    .set(handle)
+                    .unwrap_or_else(|_| panic!("push handle already captured"));
             })),
             stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
                 Some(terminator_frame())
@@ -56,10 +59,10 @@ impl ActorHarness {
 
         let shutdown = CancellationToken::new();
         let actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+        let shared_handle =
+            Arc::try_unwrap(shared_handle).unwrap_or_else(|_| panic!("push handle still shared"));
         let handle = shared_handle
-            .lock()
-            .expect("handle slot poisoned")
-            .take()
+            .into_inner()
             .expect("connection setup hook did not run");
 
         Self {
@@ -168,7 +171,10 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHa
     let mut saw_disconnect = false;
     while let Some(record) = logger.pop() {
         let msg = record.args().to_string();
-        if msg.contains("multi-packet stream closed") && msg.contains("reason=disconnected") {
+        if record.level() == LogLevel::Warn
+            && msg.contains("multi-packet stream closed")
+            && msg.contains("reason=disconnected")
+        {
             saw_disconnect = true;
             break;
         }
@@ -182,12 +188,7 @@ async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
     let (tx, rx) = mpsc::channel(4);
     let stream_correlation = Some(73_u64);
 
-    for payload in [&[10_u8][..], &[20][..], &[30][..]] {
-        tx.send(envelope_with_payload(STREAM_ID, None, payload))
-            .await
-            .expect("send frame");
-    }
-    drop(tx);
+    prime_stream_channel(tx, &[&[10_u8][..], &[20][..], &[30][..]]).await;
 
     harness
         .actor
@@ -199,26 +200,40 @@ async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
             time_slice: None,
         });
 
-    harness
-        .handle()
-        .push_high_priority(envelope_with_payload(2, Some(1), b"A"))
-        .await
-        .expect("push first high priority frame");
-    harness
-        .handle()
-        .push_low_priority(envelope_with_payload(3, Some(2), b"B"))
-        .await
-        .expect("push first low priority frame");
-    harness
-        .handle()
-        .push_high_priority(envelope_with_payload(4, Some(3), b"C"))
-        .await
-        .expect("push second high priority frame");
-    harness
-        .handle()
-        .push_low_priority(envelope_with_payload(5, Some(4), b"D"))
-        .await
-        .expect("push second low priority frame");
+    push_sequence(
+        harness.handle(),
+        PushPriority::High,
+        &[
+            FrameSpec {
+                id: 2,
+                correlation: 1,
+                payload: b"A",
+            },
+            FrameSpec {
+                id: 4,
+                correlation: 3,
+                payload: b"C",
+            },
+        ],
+    )
+    .await;
+    push_sequence(
+        harness.handle(),
+        PushPriority::Low,
+        &[
+            FrameSpec {
+                id: 3,
+                correlation: 2,
+                payload: b"B",
+            },
+            FrameSpec {
+                id: 5,
+                correlation: 4,
+                payload: b"D",
+            },
+        ],
+    )
+    .await;
 
     harness.release_handle();
 
@@ -229,13 +244,9 @@ async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
         .await
         .expect("connection actor run failed");
 
-    let correlations: Vec<Option<u64>> = out
-        .iter()
-        .map(|frame| parts(frame).correlation_id())
-        .collect();
-    assert_eq!(
-        correlations,
-        vec![
+    assert_correlation_sequence(
+        &out,
+        &[
             Some(1),
             Some(2),
             Some(3),
@@ -243,15 +254,62 @@ async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
             stream_correlation,
             stream_correlation,
             stream_correlation,
-            stream_correlation
+            stream_correlation,
         ],
-        "unexpected correlation ordering",
     );
 
+    assert_id_sequence(
+        &out,
+        &[2, 3, 4, 5, STREAM_ID, STREAM_ID, STREAM_ID, TERMINATOR_ID],
+    );
+}
+
+struct FrameSpec {
+    id: u32,
+    correlation: u64,
+    payload: &'static [u8],
+}
+
+enum PushPriority {
+    High,
+    Low,
+}
+
+async fn push_sequence(
+    handle: &PushHandle<Envelope>,
+    priority: PushPriority,
+    frames: &[FrameSpec],
+) {
+    for spec in frames {
+        let envelope = envelope_with_payload(spec.id, Some(spec.correlation), spec.payload);
+        let result = match priority {
+            PushPriority::High => handle.push_high_priority(envelope).await,
+            PushPriority::Low => handle.push_low_priority(envelope).await,
+        };
+        result.expect("push frame");
+    }
+}
+
+async fn prime_stream_channel(tx: mpsc::Sender<Envelope>, payloads: &[&[u8]]) {
+    for payload in payloads {
+        tx.send(envelope_with_payload(STREAM_ID, None, payload))
+            .await
+            .expect("send frame to multi-packet stream");
+    }
+}
+
+fn assert_correlation_sequence(out: &[Envelope], expected: &[Option<u64>]) {
+    let correlations: Vec<Option<u64>> = out
+        .iter()
+        .map(|frame| parts(frame).correlation_id())
+        .collect();
+    assert_eq!(correlations, expected, "unexpected correlation ordering",);
+}
+
+fn assert_id_sequence(out: &[Envelope], expected: &[u32]) {
     let ids: Vec<u32> = out.iter().map(|frame| parts(frame).id()).collect();
     assert_eq!(
-        ids,
-        vec![2, 3, 4, 5, STREAM_ID, STREAM_ID, STREAM_ID, TERMINATOR_ID],
+        ids, expected,
         "frame sequence did not preserve request identities",
     );
 }
