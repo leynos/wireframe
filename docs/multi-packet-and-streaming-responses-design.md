@@ -508,3 +508,8 @@ cannot regress or be removed.
   end-of-stream marker via the normal send path and then triggers the protocol
   lifecycle hooks. This guarantees downstream clean-up and observability cues
   stay consistent with other stream completions.
+- Integration tests exercise the actor in a client-like configuration. They
+  stream multiple envelopes, assert the terminator inherits the request's
+  `correlation_id`, verify a dropped producer logs a `reason=disconnected`
+  warning, and ensure push-queue traffic interleaves with streamed frames
+  without corrupting correlation identifiers.
