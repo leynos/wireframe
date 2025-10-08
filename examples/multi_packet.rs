@@ -51,26 +51,29 @@ fn multi_packet_response() -> Response<Frame> {
     // effect for demonstration purposes.
     let (sender, response) = Response::with_channel(2);
 
-    let chunk_sender = sender.clone();
-    tokio::spawn(async move {
+    let summary_sender = sender.clone();
+    let chunk_task = tokio::spawn(async move {
+        // Capture the join handle so the summary task can wait for completion
+        // before sending its final frame.
         for (index, line) in TRANSCRIPT.iter().enumerate() {
             let frame = Frame::chunk(index, line);
-            if chunk_sender.send(frame).await.is_err() {
+            if sender.send(frame).await.is_err() {
                 // The connection dropped; stop work early.
-                return;
+                break;
             }
 
             // The brief pause simulates I/O or computation between frames.
             sleep(Duration::from_millis(25)).await;
         }
-        // Dropping the clone releases the channel once the summary is sent.
-        drop(chunk_sender);
     });
 
     tokio::spawn(async move {
-        // The summary is delivered once all chunk senders have finished.
+        // Wait for all chunks to be sent before delivering the summary.
+        let _ = chunk_task.await;
         let summary = Frame::summary(TRANSCRIPT.len());
-        let _ = sender.send(summary).await;
+        if summary_sender.send(summary).await.is_err() {
+            // The connection dropped; stop work early.
+        }
     });
 
     response
