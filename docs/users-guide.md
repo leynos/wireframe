@@ -34,6 +34,70 @@ fn build_app() -> wireframe::Result<WireframeApp> {
 }
 ```
 
+The snippet below wires the builder into a Tokio runtime, decodes inbound
+payloads, and emits a serialised response. It showcases the typical `main`
+function for a microservice that listens on localhost and responds to a `Ping`
+message with a `Pong` payload.[^2][^10][^15]
+
+```rust,no_run
+use std::{net::SocketAddr, sync::Arc};
+
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    middleware,
+    message::Message,
+    server::{ServerError, WireframeServer},
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
+struct Ping {
+    body: String,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
+struct Pong {
+    body: String,
+}
+
+async fn ping(env: &Envelope) {
+    log::info!("received correlation id: {:?}", env.clone().into_parts().correlation_id());
+}
+
+fn build_app() -> wireframe::app::Result<WireframeApp> {
+    let handler: Handler<Envelope> = Arc::new(|env: &Envelope| Box::pin(ping(env)));
+
+    WireframeApp::new()?
+        .route(1, handler)?
+        .wrap(middleware::from_fn(|req, next| async move {
+            let ping = Ping::from_bytes(req.frame()).map(|(msg, _)| msg).ok();
+            let mut response = next.call(req).await?;
+
+            if let Some(ping) = ping {
+                let payload = Pong {
+                    body: format!("pong {}", ping.body),
+                }
+                .to_bytes()
+                .expect("encode Pong message");
+                response.frame_mut().clear();
+                response.frame_mut().extend_from_slice(&payload);
+            }
+
+            Ok(response)
+        }))
+}
+
+fn app_factory() -> WireframeApp {
+    build_app().expect("configure Wireframe application")
+}
+
+#[tokio::main]
+async fn main() -> Result<(), ServerError> {
+    let addr: SocketAddr = "127.0.0.1:4000".parse().expect("valid socket address");
+    let server = WireframeServer::new(app_factory).bind(addr)?;
+    server.run().await
+}
+```
+
 Route identifiers must be unique; the builder returns
 `WireframeError::DuplicateRoute` when you try to register a handler twice,
 keeping the dispatch table unambiguous.[^2][^5] New applications default to the
@@ -83,6 +147,42 @@ packet types with interior mutability). Decode typed payloads via the `Message`
 helpers, then write the encoded response into
 `ServiceResponse::frame_mut()`.[^10][^12]
 
+```rust
+use std::convert::Infallible;
+
+use wireframe::{
+    app::Envelope,
+    message::Message,
+    middleware::{from_fn, HandlerService, Next, ServiceRequest, ServiceResponse},
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Ping(u8);
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Pong(u8);
+
+async fn decode_and_respond(
+    mut req: ServiceRequest,
+    next: Next<'_, HandlerService<Envelope>>,
+) -> Result<ServiceResponse, Infallible> {
+    let ping = Ping::from_bytes(req.frame()).map(|(msg, _)| msg).ok();
+    let mut response = next.call(req).await?;
+
+    if let Some(Ping(value)) = ping {
+        let bytes = Pong(value + 1)
+            .to_bytes()
+            .expect("encode Pong");
+        response.frame_mut().clear();
+        response.frame_mut().extend_from_slice(&bytes);
+    }
+
+    Ok(response)
+}
+
+let middleware = from_fn(decode_and_respond);
+```
+
 Advanced integrations can adopt the `wireframe::extractor` module, which
 defines `MessageRequest`, `Payload`, and `FromMessageRequest` for building
 Actix-style extractors in custom middleware or services. These types expose
@@ -102,6 +202,124 @@ carry the correct correlation identifier even when middleware omits it.[^8]
 Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via
 `SendError`.[^6][^5]
+
+```rust,no_run
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+
+use wireframe::{
+    app::{SendError, WireframeApp},
+    message::Message,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
+struct Ready(&'static str);
+
+#[tokio::main]
+async fn main() -> Result<(), SendError> {
+    let app = WireframeApp::default();
+    let (mut client, mut server) = io::duplex(64);
+
+    let ready = Ready("ready");
+    app.send_response(&mut server, &ready).await?;
+    server.shutdown().await?;
+
+    let mut buffer = Vec::new();
+    client.read_to_end(&mut buffer).await?;
+    let (decoded, _) = Ready::from_bytes(&buffer).expect("decode Ready frame");
+    assert_eq!(decoded, ready);
+
+    Ok(())
+}
+```
+
+## Message fragmentation
+
+Length-delimited framing absorbs partial reads before invoking a handler, so a
+single logical message can arrive as many transport-level fragments without the
+application noticing.[^6] The example below constrains the application buffer
+to 64 bytes, writes a 512-byte payload in 16-byte chunks, and shows the handler
+receiving the fully reassembled message.
+
+```rust
+use std::sync::Arc;
+
+use bytes::BytesMut;
+use tokio::{
+    io::{self, AsyncWriteExt},
+    sync::mpsc,
+};
+use tokio_util::codec::Encoder;
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    message::Message,
+    serializer::BincodeSerializer,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
+struct Large(Vec<u8>);
+
+#[tokio::main]
+async fn main() -> wireframe::app::Result<()> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let handler_tx = tx.clone();
+
+    let handler: Handler<Envelope> = Arc::new(move |env: &Envelope| {
+        let handler_tx = handler_tx.clone();
+        let envelope = env.clone();
+
+        Box::pin(async move {
+            let parts = envelope.into_parts();
+            let payload = parts.payload();
+            let (Large(bytes), _) =
+                Large::from_bytes(&payload).expect("decode fragmented payload");
+
+            handler_tx
+                .send(bytes)
+                .expect("receiver dropped before handler completed");
+        })
+    });
+
+    let app = WireframeApp::new()?
+        .buffer_capacity(64)
+        .read_timeout_ms(500)
+        .route(42, handler)?;
+
+    let mut codec = app.length_codec();
+    let (mut client, server) = io::duplex(16);
+    let server_task = tokio::spawn(async move { app.handle_connection(server).await });
+
+    let expected = Large(vec![b'Z'; 512]);
+    let serializer = BincodeSerializer;
+    let payload = expected.to_bytes().expect("encode Large payload");
+    let envelope = Envelope::new(42, Some(9001), payload);
+    let bytes = serializer
+        .serialize(&envelope)
+        .expect("serialize envelope");
+    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
+    codec
+        .encode(bytes.into(), &mut framed)
+        .expect("frame encoding");
+    let frame = framed.to_vec();
+
+    for chunk in frame.chunks(16) {
+        client.write_all(chunk).await.expect("chunk write");
+        client.flush().await.expect("flush chunk");
+    }
+    client.shutdown().await.expect("finish writes");
+
+    let received = rx.recv().await.expect("message delivered");
+    assert_eq!(received.len(), expected.0.len());
+    assert!(received.iter().all(|&b| b == b'Z'));
+
+    server_task.await.expect("connection finished");
+    Ok(())
+}
+```
+
+Increase `buffer_capacity` when the length-delimited codec should accept larger
+frames; any payload that exceeds the cap is rejected before the handler runs.
+Slow links that fragment heavily may require raising `read_timeout_ms` so the
+codec has time to aggregate every chunk before the timeout elapses.[^3][^6]
 
 ## Protocol hooks
 
