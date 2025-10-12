@@ -13,8 +13,7 @@ reduce this boilerplate through layered abstractions:
 
 - **Transport adapter** built on Tokio I/O
 - **Framing layer** for length‑prefixed or custom frames
-- **Connection preamble** with customizable validation callbacks
-  \[[docs](docs/preamble-validator.md)\]
+- **Connection preamble** with customizable validation callbacks [^1]
 - Call `with_preamble::<T>()` before registering success or failure callbacks
 - **Serialization engine** using `bincode` or a `wire-rs` wrapper
 - **Routing engine** that dispatches messages by ID
@@ -23,8 +22,7 @@ reduce this boilerplate through layered abstractions:
 - **[Connection lifecycle hooks](#connection-lifecycle)** for per-connection
   setup and teardown
 
-These layers correspond to the architecture outlined in the design
-document【F:docs/rust-binary-router-library-design.md†L292-L344】.
+These layers correspond to the architecture outlined in the design document[^2].
 
 ## API overview
 
@@ -50,13 +48,11 @@ CPU count cannot be determined, the server falls back to a single worker.
 The builder supports methods like `route`, `app_data`, and `wrap` for
 middleware configuration. `app_data` stores any `Send + Sync` value keyed by
 type; registering another value of the same type overwrites the previous one.
-Handlers retrieve these values using the `SharedState<T>`
-extractor【F:docs/rust-binary-router-library-design.md†L622-L710】.
+Handlers retrieve these values using the `SharedState<T>` extractor[^3].
 
 Handlers are asynchronous functions whose parameters implement extractor traits
 and may return responses implementing the `Responder` trait. This pattern
-mirrors Actix Web handlers and keeps protocol logic
-concise【F:docs/rust-binary-router-library-design.md†L682-L710】.
+mirrors Actix Web handlers and keeps protocol logic concise[^4].
 
 ## Example
 
@@ -130,11 +126,11 @@ This allows integration with existing packet formats without modifying
 
 Handlers can return types implementing the `Responder` trait. These values are
 encoded using the application's configured serializer and framed by a
-length‑delimited codec【F:docs/rust-binary-router-library-design.md†L724-L730】.
+length‑delimited codec[^5].
 
 Frames are length prefixed using `tokio_util::codec::LengthDelimitedCodec`. The
 prefix length and byte order are configurable and default to a 4‑byte
-big‑endian header【F:docs/rust-binary-router-library-design.md†L1082-L1123】.
+big‑endian header[^6].
 
 ```rust
 let app = WireframeApp::new()?;
@@ -264,8 +260,8 @@ access app state or expose peer information.
 
 Custom extractors let you centralize parsing and validation logic that would
 otherwise be duplicated across handlers. A session token parser, for example,
-can verify the token before any route-specific code executes [Design Guide:
-Data Extraction and Type Safety][data-extraction-guide].
+can verify the token before any route-specific code executes Design Guide: Data
+Extraction and Type Safety[^7].
 
 ```rust
 use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
@@ -355,13 +351,18 @@ production use.
 
 Development priorities are tracked in [docs/roadmap.md](docs/roadmap.md). Key
 tasks include building the Actix‑inspired API, implementing middleware and
-extractor traits, and providing example
-applications【F:docs/roadmap.md†L1-L24】.
+extractor traits, and providing example applications[^8].
 
 ## Licence
 
 Wireframe is distributed under the terms of the ISC licence. See
 [LICENSE](LICENSE) for details.
 
-[data-extraction-guide]:
-docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety
+[^1]: <docs/preamble-validator.md>
+[^2]: <docs/rust-binary-router-library-design.md#L292-L344>
+[^3]: <docs/rust-binary-router-library-design.md#L622-L710>
+[^4]: <docs/rust-binary-router-library-design.md#L682-L710>
+[^5]: <docs/rust-binary-router-library-design.md#L724-L730>
+[^6]: <docs/rust-binary-router-library-design.md#L1082-L1123>
+[^7]: <docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety>
+[^8]: <docs/roadmap.md#L1-L24>
