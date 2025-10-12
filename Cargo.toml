@@ -1,8 +1,8 @@
 [package]
 name = "wireframe"
-version = "0.1.0"
+version = "0.1.0-alpha1"
 edition = "2024"
-description = "An experimental Rust library that simplifies building servers and clients for custom binary protocols."
+description = "Simplify building servers and clients for custom binary protocols."
 license = "ISC"
 repository = "https://github.com/leynos/wireframe"
 readme = "README.md"
