@@ -48,7 +48,7 @@ static_assertions = "1"
 rstest = "0.26.1"
 wireframe_testing = { path = "./wireframe_testing" }
 logtest = "2.0.0"
-proptest = "1.7.0"
+proptest = "1.8.0"
 loom = "0.7.2"
 async-stream = "0.3.6"
 serial_test = "3.2.0"
