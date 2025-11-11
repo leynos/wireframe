@@ -284,14 +284,99 @@ logic.
   - [ ] Test edge cases: out-of-order fragments, duplicate fragments, and
     reassembly timeouts.
 
-## Phase 8: Advanced Features & Ecosystem (Future)
+## Phase 8: Wireframe client library foundation
+
+This phase delivers a first-class client runtime that mirrors the server's
+framing, serialisation, and lifecycle layers so both sides share the same
+behavioural guarantees.
+
+- [ ] **Connection runtime:**
+
+  - [ ] Implement `WireframeClient` and its builder so callers can configure
+    serializers, codec settings (including `max_frame_length` parity), and
+    socket options before connecting.
+
+  - [ ] Integrate the existing preamble helpers so clients can emit and verify
+    preambles before exchanging frames, with integration tests covering success
+    and failure callbacks.
+
+  - [ ] Expose connection lifecycle hooks (setup, teardown, error) that mirror
+    the server hooks so middleware and instrumentation receive matching events.
+
+- [ ] **Request/response pipeline:**
+
+  - [ ] Provide async `send`, `receive`, and `call` APIs that encode `Message`
+    implementers, forward correlation identifiers, and deserialize typed
+    responses using the configured serializer.
+
+  - [ ] Map decode and transport failures into `WireframeError` variants and
+    add integration tests that round-trip multiple message types through a
+    sample server.
+
+- [ ] **Streaming and multi-packet parity:**
+
+  - [ ] Support `Response::Stream` and `Response::MultiPacket` on the client by
+    propagating back-pressure, validating terminator frames, and draining
+    push traffic without starving request-driven responses.
+
+  - [ ] Exercise interleaved high- and low-priority push queues to prove
+    fairness and rate limits remain symmetrical.
+
+- [ ] **Documentation and examples:**
+
+  - [ ] Publish a runnable example where a client connects to the `echo`
+    server, issues a login request, and decodes the acknowledgement.
+
+  - [ ] Extend `docs/users-guide.md` and `docs/wireframe-client-design.md`
+    with configuration tables, lifecycle diagrams, and troubleshooting
+    guidance for the new APIs.
+
+## Phase 9: Client ergonomics & extensions
+
+This phase layers on the ergonomic features outlined in the client design
+document so larger deployments can adopt the library confidently.
+
+- [ ] **Middleware and observability:**
+
+  - [ ] Add middleware hooks for outgoing requests and incoming frames so
+    metrics, retries, and authentication tokens can be injected symmetrically
+    with server middleware.
+
+  - [ ] Provide structured logging and tracing spans around connect, send,
+    receive, and stream lifecycle events, plus configuration for per-command
+    timing.
+
+- [ ] **Connection pooling and concurrency:**
+
+  - [ ] Implement a configurable connection pool that preserves preamble state,
+    enforces in-flight request limits per socket, and recycles idle
+    connections.
+
+  - [ ] Expose a `PoolHandle` API with fairness policies so callers can
+    multiplex many logical sessions without violating back-pressure.
+
+- [ ] **Streaming helpers and test utilities:**
+
+  - [ ] Ship helper traits or macros for consuming streaming responses (for
+    example typed iterators over `Response::Stream`) so multiplexed protocols
+    remain ergonomic.
+
+  - [ ] Publish reusable test harnesses that spin up an in-process server and
+    client pair, allowing downstream crates to verify compatibility.
+
+- [ ] **Docs and adoption:**
+
+  - [ ] Update the user guide with migration advice for the pooled client and
+    document known limitations or out-of-scope behaviours.
+
+  - [ ] Add a troubleshooting section that enumerates the most common client
+    misconfigurations (codec length mismatch, preamble errors, TLS issues) and
+    how to detect them.
+
+## Phase 10: Advanced Features & Ecosystem (Future)
 
 This phase includes features that will broaden the library's applicability and
 ecosystem.
-
-- [ ] **Client Library:**
-
-  - [ ] Develop a dedicated, ergonomic Rust client library for Wireframe.
 
 - [ ] **Alternative Transports:**
 
@@ -307,7 +392,7 @@ ecosystem.
 
   - [ ] Provide built-in middleware or guides for implementing TLS.
 
-## Phase 9: Documentation & Community (Ongoing)
+## Phase 11: Documentation & Community (Ongoing)
 
 Continuous improvement of documentation and examples is essential for adoption
 and usability.
