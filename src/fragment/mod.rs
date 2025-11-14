@@ -341,6 +341,8 @@ mod tests {
     #[test]
     fn series_detects_index_overflow() {
         let mut series = FragmentSeries::new(MessageId::new(1));
+        // Prime the series so it expects the maximum index next.
+        series.next_index = FragmentIndex::new(u32::MAX);
         let header = FragmentHeader::new(MessageId::new(1), FragmentIndex::new(u32::MAX), false);
         let err = series
             .accept(header)
