@@ -14,8 +14,8 @@ pub mod connection;
 pub mod correlation;
 pub mod extractor;
 mod fairness;
-pub mod frame;
 pub mod fragment;
+pub mod frame;
 pub mod hooks;
 pub mod message;
 pub mod metrics;
@@ -31,8 +31,15 @@ pub mod session;
 
 pub use connection::ConnectionActor;
 pub use correlation::CorrelatableFrame;
+pub use fragment::{
+    FragmentError,
+    FragmentHeader,
+    FragmentIndex,
+    FragmentSeries,
+    FragmentStatus,
+    MessageId,
+};
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
 pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
-pub use fragment::{FragmentError, FragmentHeader, FragmentIndex, FragmentSeries, FragmentStatus, MessageId};
 pub use response::{FrameStream, Response, WireframeError};
 pub use session::{ConnectionId, SessionRegistry};

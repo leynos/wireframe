@@ -177,6 +177,12 @@ a concurrent hash map (e.g., `dashmap::DashMap`) keyed by `msg_id`, the
 same connection. This is essential for supporting modern protocols like HTTP/2
 or gRPC.
 
+> **14 November 2025 update:** `wireframe::fragment` now provides the
+> serialiser-agnostic `FragmentHeader`, `MessageId`, `FragmentIndex`, and
+> `FragmentSeries` types. Codec implementers emit and inspect those headers,
+> keeping transport logic consistent while letting each protocol choose how the
+> data is encoded on the wire.
+
 ## III. Capability Maturity: From Functional to Production-Grade
 
 A feature-complete library is not necessarily a mature one. The road to

@@ -84,9 +84,7 @@ impl FragmentIndex {
 impl TryFrom<usize> for FragmentIndex {
     type Error = TryFromIntError;
 
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        u32::try_from(value).map(Self)
-    }
+    fn try_from(value: usize) -> Result<Self, Self::Error> { u32::try_from(value).map(Self) }
 }
 
 impl From<u32> for FragmentIndex {
@@ -165,10 +163,16 @@ pub enum FragmentStatus {
 pub enum FragmentError {
     /// The fragment belongs to a different message.
     #[error("fragment message mismatch: expected {expected}, found {found}")]
-    MessageMismatch { expected: MessageId, found: MessageId },
+    MessageMismatch {
+        expected: MessageId,
+        found: MessageId,
+    },
     /// A fragment arrived out of order.
     #[error("fragment index mismatch: expected {expected}, found {found}")]
-    IndexMismatch { expected: FragmentIndex, found: FragmentIndex },
+    IndexMismatch {
+        expected: FragmentIndex,
+        found: FragmentIndex,
+    },
     /// The series already consumed a last fragment.
     #[error("fragment series already complete")]
     SeriesComplete,
@@ -213,7 +217,13 @@ impl FragmentSeries {
     /// # Examples
     ///
     /// ```
-    /// use wireframe::fragment::{FragmentHeader, FragmentIndex, FragmentSeries, FragmentStatus, MessageId};
+    /// use wireframe::fragment::{
+    ///     FragmentHeader,
+    ///     FragmentIndex,
+    ///     FragmentSeries,
+    ///     FragmentStatus,
+    ///     MessageId,
+    /// };
     /// let mut series = FragmentSeries::new(MessageId::new(99));
     /// let first = FragmentHeader::new(MessageId::new(99), FragmentIndex::zero(), false);
     /// let final_fragment = FragmentHeader::new(MessageId::new(99), FragmentIndex::new(1), true);
@@ -248,11 +258,13 @@ impl FragmentSeries {
             });
         }
 
-        let next_index = fragment.fragment_index.checked_increment().ok_or(
-            FragmentError::IndexOverflow {
-                last: fragment.fragment_index,
-            },
-        )?;
+        let next_index =
+            fragment
+                .fragment_index
+                .checked_increment()
+                .ok_or(FragmentError::IndexOverflow {
+                    last: fragment.fragment_index,
+                })?;
 
         self.next_index = next_index;
         if fragment.is_last_fragment {
@@ -317,7 +329,11 @@ mod tests {
         let first = FragmentHeader::new(MessageId::new(1), FragmentIndex::zero(), true);
         assert_eq!(series.accept(first), Ok(FragmentStatus::Complete));
         let err = series
-            .accept(FragmentHeader::new(MessageId::new(1), FragmentIndex::new(1), true))
+            .accept(FragmentHeader::new(
+                MessageId::new(1),
+                FragmentIndex::new(1),
+                true,
+            ))
             .expect_err("series must reject fragments after completion");
         assert!(matches!(err, FragmentError::SeriesComplete));
     }

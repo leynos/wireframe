@@ -112,14 +112,13 @@ each with distinct characteristics.
   context-aware parsing, where deserialization logic can depend on external
   context, a feature potentially valuable for complex protocols.
 
-The common thread among the more ergonomic libraries
-(`bincode`, `postcard`, `bin-proto`) is the provision of derive macros. This
-significantly simplifies the process of making custom data structures
-serializable, aligning directly with "wireframe's" complexity reduction
-objective. The choice of serialization library for "wireframe" will heavily
-depend on the feasibility of integrating `wire-rs` with such derivable traits
-or the need to adopt an alternative like `bincode` or `postcard` that already
-offers this crucial feature.
+The common thread among the more ergonomic libraries (`bincode`, `postcard`,
+`bin-proto`) is the provision of derive macros. This significantly simplifies
+the process of making custom data structures serializable, aligning directly
+with "wireframe's" complexity reduction objective. The choice of serialization
+library for "wireframe" will heavily depend on the feasibility of integrating
+`wire-rs` with such derivable traits or the need to adopt an alternative like
+`bincode` or `postcard` that already offers this crucial feature.
 
 ### 3.2. Existing Rust Libraries for Custom Network Protocols
 
@@ -226,8 +225,8 @@ of "wireframe":
 
 1. **Derive Macros are Essential**: For message definition and
    (de)serialization, derive macros are paramount for reducing boilerplate and
-   improving developer experience, as seen in
-   `bin-proto`, `protocol`, `bincode`, and `postcard`.
+   improving developer experience, as seen in `bin-proto`, `protocol`,
+   `bincode`, and `postcard`.
 2. **Robust (De)serialization Strategy**: The choice of `wire-rs` is contingent
    on its ability to support derivable `Encode`/`Decode` traits. If this is not
    feasible, well-established alternatives like `bincode` or `postcard` offer

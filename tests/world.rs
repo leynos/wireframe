@@ -22,6 +22,14 @@ use wireframe::{
     Response,
     app::{Envelope, Packet},
     connection::{ConnectionActor, test_support::ActorHarness},
+    fragment::{
+        FragmentError,
+        FragmentHeader,
+        FragmentIndex,
+        FragmentSeries,
+        FragmentStatus,
+        MessageId,
+    },
     hooks::ProtocolHooks,
     push::PushQueues,
     response::FrameStream,
@@ -551,5 +559,105 @@ impl MultiPacketWorld {
             "expected overflow error when channel capacity was exceeded",
         );
         assert_eq!(self.messages, vec![1, 2]);
+    }
+}
+
+#[derive(Debug, Default, World)]
+pub struct FragmentWorld {
+    series: Option<FragmentSeries>,
+    last_result: Option<Result<FragmentStatus, FragmentError>>,
+}
+
+impl FragmentWorld {
+    /// Start tracking a new logical message.
+    pub fn start_series(&mut self, message_id: u64) {
+        self.series = Some(FragmentSeries::new(MessageId::new(message_id)));
+        self.last_result = None;
+    }
+
+    /// Feed a fragment that references the currently tracked message.
+    ///
+    /// # Panics
+    /// Panics if [`start_series`] has not been called.
+    pub fn accept_fragment(&mut self, index: u32, is_last: bool) {
+        let message = self
+            .series
+            .as_ref()
+            .expect("fragment series not initialised")
+            .message_id()
+            .get();
+        self.accept_fragment_from(message, index, is_last);
+    }
+
+    /// Feed a fragment for an explicit message identifier.
+    ///
+    /// # Panics
+    /// Panics if [`start_series`] has not been called.
+    pub fn accept_fragment_from(&mut self, message: u64, index: u32, is_last: bool) {
+        let header =
+            FragmentHeader::new(MessageId::new(message), FragmentIndex::new(index), is_last);
+        let series = self
+            .series
+            .as_mut()
+            .expect("fragment series not initialised");
+        self.last_result = Some(series.accept(header));
+    }
+
+    /// Return the most recent fragment outcome.
+    ///
+    /// # Panics
+    /// Panics if no fragment has been processed yet.
+    fn last_result(&self) -> &Result<FragmentStatus, FragmentError> {
+        self.last_result
+            .as_ref()
+            .expect("no fragment processed yet")
+    }
+
+    /// Assert that the latest fragment completed the logical message.
+    ///
+    /// # Panics
+    /// Panics if no fragment was processed or if the fragment failed to
+    /// complete the message.
+    pub fn assert_completion(&self) {
+        match self.last_result() {
+            Ok(FragmentStatus::Complete) => {}
+            Ok(status) => panic!("unexpected status: {status:?}"),
+            Err(err) => panic!("expected completion but got error: {err}"),
+        }
+        let series = self.series.as_ref().expect("series missing");
+        assert!(series.is_complete(), "series should be marked complete");
+    }
+
+    /// Assert that the latest fragment failed due to an index mismatch.
+    ///
+    /// # Panics
+    /// Panics if no fragment was processed or if the fragment failed for some
+    /// other reason.
+    pub fn assert_index_mismatch(&self) {
+        let err = match self.last_result() {
+            Err(err) => err,
+            Ok(status) => panic!("expected error but received {status:?}"),
+        };
+        assert!(
+            matches!(err, FragmentError::IndexMismatch { .. }),
+            "expected index mismatch, got {err}"
+        );
+    }
+
+    /// Assert that the latest fragment failed because the message identifier
+    /// did not match the tracked series.
+    ///
+    /// # Panics
+    /// Panics if no fragment was processed or if the fragment failed for a
+    /// different reason.
+    pub fn assert_message_mismatch(&self) {
+        let err = match self.last_result() {
+            Err(err) => err,
+            Ok(status) => panic!("expected error but received {status:?}"),
+        };
+        assert!(
+            matches!(err, FragmentError::MessageMismatch { .. }),
+            "expected message mismatch, got {err}"
+        );
     }
 }

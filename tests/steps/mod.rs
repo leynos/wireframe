@@ -4,6 +4,7 @@
 //! behaviour-driven tests under `tests/features`.
 
 mod correlation_steps;
+mod fragment_steps;
 mod multi_packet_steps;
 mod panic_steps;
 mod stream_end_steps;
