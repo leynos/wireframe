@@ -1,10 +1,12 @@
 #![cfg(not(loom))]
 //! Cucumber test runner for integration tests.
 //!
-//! Orchestrates three distinct test suites:
+//! Orchestrates five distinct test suites:
 //! - `PanicWorld`: Tests server resilience during connection panics
 //! - `CorrelationWorld`: Tests correlation ID propagation in multi-frame responses
 //! - `StreamEndWorld`: Verifies end-of-stream signalling
+//! - `MultiPacketWorld`: Tests channel-backed multi-packet response delivery
+//! - `FragmentWorld`: Tests fragment metadata enforcement and reassembly primitives
 //!
 //! # Example
 //!
@@ -13,6 +15,8 @@
 //! tests/features/connection_panic.feature    -> PanicWorld context
 //! tests/features/correlation_id.feature      -> CorrelationWorld context
 //! tests/features/stream_end.feature          -> StreamEndWorld context
+//! tests/features/multi_packet.feature        -> MultiPacketWorld context
+//! tests/features/fragment.feature            -> FragmentWorld context
 //! ```
 //!
 //! Each context provides specialised step definitions and state management
