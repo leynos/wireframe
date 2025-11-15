@@ -15,3 +15,15 @@ Feature: Fragment metadata enforcement
     Given a fragment series for message 5
     When fragment 0 from message 6 arrives marked non-final
     Then the fragment is rejected for the wrong message
+
+  Scenario: Fragment beyond the maximum index is rejected
+    Given a fragment series for message 9
+    And the series expects fragment index 4294967295
+    When fragment 4294967295 arrives marked non-final
+    Then the fragment is rejected for index overflow
+
+  Scenario: Series rejects fragments after completion
+    Given a fragment series for message 11
+    When fragment 0 arrives marked final
+    And fragment 1 arrives marked final
+    Then the fragment is rejected because the series is complete
