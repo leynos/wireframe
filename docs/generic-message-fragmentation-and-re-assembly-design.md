@@ -91,6 +91,36 @@ The use of `dashmap::DashMap` allows for lock-free reads and sharded writes,
 providing efficient and concurrent access to the re-assembly buffers without
 blocking the entire connection task.
 
+### 3.2 Canonical fragment header (November 2025 update)
+
+Phase 7 introduces a reusable header carried by every fragment, regardless of
+the concrete protocol strategy. The new `FragmentHeader` struct records three
+fields that every strategy must surface:
+
+- `message_id: MessageId` – a unique identifier for the logical message.
+- `fragment_index: FragmentIndex` – a zero-based counter tracking fragment
+  ordering.
+- `is_last_fragment: bool` – signals that the logical message is complete.
+
+These primitives live in `wireframe::fragment` alongside helper types such as
+`FragmentSeries`, which validates ordering and completion for a single message.
+The series keeps only lightweight state (message identifier, expected next
+index, completion flag) so codecs can embed it without heap allocations.
+
+```rust
+use wireframe::fragment::{FragmentHeader, FragmentIndex, FragmentSeries, MessageId};
+
+let mut series = FragmentSeries::new(MessageId::new(7));
+let header = FragmentHeader::new(MessageId::new(7), FragmentIndex::zero(), false);
+assert!(series.accept(header).is_ok());
+```
+
+By standardising this metadata, higher layers—behavioural tests, connection
+actors, and observability hooks—can reason about fragments without depending on
+protocol-specific codecs. The forthcoming `FragmentStrategy` continues to
+control how headers are encoded on the wire, but it now produces a
+`FragmentHeader` so downstream components share a single representation.
+
 ## 4. Public API: the `FragmentStrategy` trait
 
 The power and flexibility of this feature come from the `FragmentStrategy`
@@ -297,3 +327,16 @@ This feature is designed as a foundational layer that other features build upon.
 | Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                     | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                    |
 | Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                                | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                    |
 | Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                     | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter. |
+
+## 8. Design decisions (14 November 2025)
+
+- Adopted `FragmentHeader`, `MessageId`, and `FragmentIndex` as the canonical,
+  serialiser-agnostic metadata describing every fragment emitted or consumed by
+  the transport layer. These types now live in `wireframe::fragment` so any
+  protocol component can construct, inspect, or log fragment details without
+  talking to codec internals.
+- Added `FragmentSeries` to enforce ordering invariants per logical message,
+  surfacing precise diagnostics (`MessageMismatch`, `IndexMismatch`,
+  `SeriesComplete`, `IndexOverflow`). This helper keeps the re-assembly logic
+  deterministic and enables behavioural tests to assert transport-level
+  guarantees without standing up a full codec pipeline.

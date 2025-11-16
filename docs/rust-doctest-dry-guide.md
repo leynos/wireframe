@@ -642,11 +642,11 @@ July 15, 2025, <https://doc.rust-lang.org/rustdoc/documentation-tests.html>
 [^10]: Best practice for doc testing README - help - The Rust Programming
        Language Forum, accessed on July 15, 2025,
        <https://users.rust-lang.org/t/best-practice-for-doc-testing-readme/114862>
-[^11]: Compile_fail doc test ignored in cfg(test) - help - The Rust Programming
+[^11]: Compile_fail doc test ignored in cfg(test) – help – The Rust Programming
 Language Forum, accessed on July 15, 2025,
 <https://users.rust-lang.org/t/compile-fail-doc-test-ignored-in-cfg-test/124927>
-accessed on July 15, 2025,
-<https://users.rust-lang.org/t/test-setup-for-doctests/50426>
+ Test setup for doctests – help – The Rust Programming Language Forum, accessed
+on July 15, 2025, <https://users.rust-lang.org/t/test-setup-for-doctests/50426>
 [^12]: quote_doctest - Rust - [Docs.rs](http://Docs.rs), accessed on July 15,
 2025, <https://docs.rs/quote-doctest>
 [^13]: Advanced features - The rustdoc boOK - Rust Documentation, accessed on

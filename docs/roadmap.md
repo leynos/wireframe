@@ -255,7 +255,7 @@ logic.
 
 - [ ] **Core Fragmentation & Reassembly (F&R) Layer:**
 
-  - [ ] Define a generic `Fragment` header or metadata containing `message_id`,
+  - [x] Define a generic `Fragment` header or metadata containing `message_id`,
     `fragment_index`, and `is_last_fragment` fields.
 
   - [ ] Implement a `Fragmenter` to split a large `Message` into multiple
