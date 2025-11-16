@@ -74,7 +74,6 @@ impl Drop for StreamEndTestGuard<'_> {
 }
 
 impl StreamEndWorld {
-
     fn prepare_test(&mut self) -> LoggerHandle {
         self.frames.clear();
         self.logs.clear();
