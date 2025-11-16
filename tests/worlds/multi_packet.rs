@@ -1,5 +1,8 @@
 #![cfg(not(loom))]
-//! Test world for multi-packet channel behaviour and ergonomics.
+//! Test world for multi-packet channel scenarios.
+//!
+//! Provides [`MultiPacketWorld`] to verify message ordering, back-pressure
+//! handling, and channel lifecycle in cucumber-based behaviour tests.
 
 use cucumber::World;
 use tokio::sync::mpsc::{self, error::TrySendError};

@@ -1,5 +1,8 @@
 #![cfg(not(loom))]
 //! Test world for panic-on-connection scenarios.
+//!
+//! Provides [`PanicWorld`] to ensure the server remains resilient when
+//! connection setup handlers panic before a client fully connects.
 
 use std::net::SocketAddr;
 

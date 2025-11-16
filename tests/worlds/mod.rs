@@ -1,8 +1,10 @@
 #![cfg(not(loom))]
-//! Shared infrastructure for the Cucumber test worlds.
+//! Cucumber test world implementations and shared helpers.
 //!
-//! This module re-exports the individual worlds and exposes utilities such as
-//! `build_small_queues` so each world stays focused on its behaviour.
+//! Provides world types for behaviour-driven tests covering fragmentation,
+//! correlation, panic recovery, stream termination, and multi-packet channels.
+//! Shared utilities like `build_small_queues` keep individual worlds focused on
+//! their respective scenarios.
 
 #[path = "../common/mod.rs"]
 mod common;

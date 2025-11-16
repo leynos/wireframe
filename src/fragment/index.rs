@@ -1,7 +1,7 @@
-//! Zero-based fragment position tracking helper.
+//! Zero-based fragment positioning within logical messages.
 //!
-//! `FragmentIndex` wraps `u32` so protocols can reason about ordering without
-//! mixing raw integers throughout the fragmentation logic.
+//! Provides [`FragmentIndex`], a type-safe wrapper around `u32` that offers
+//! overflow-safe increment operations for tracking fragment order.
 
 use std::num::TryFromIntError;
 

@@ -1,5 +1,8 @@
 #![cfg(not(loom))]
 //! Test world for verifying stream terminators and multi-packet lifecycle logs.
+//!
+//! Provides [`StreamEndWorld`] so cucumber scenarios can observe terminator
+//! frames, closure reasons, and shutdown handling for streaming responses.
 
 use std::{future::Future, marker::PhantomData, ptr, sync::Arc};
 

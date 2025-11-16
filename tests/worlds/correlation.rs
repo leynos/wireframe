@@ -1,5 +1,8 @@
 #![cfg(not(loom))]
-//! Test world driving correlation ID verification scenarios.
+//! Test world for correlation identifier scenarios.
+//!
+//! Provides [`CorrelationWorld`] to verify that frames carry the correct
+//! correlation identifiers across streaming and multi-packet contexts.
 
 use async_stream::try_stream;
 use cucumber::World;

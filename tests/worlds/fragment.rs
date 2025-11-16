@@ -1,5 +1,8 @@
 #![cfg(not(loom))]
-//! Test world validating fragment ordering, completion, and error semantics.
+//! Test world for fragment reassembly scenarios.
+//!
+//! Provides [`FragmentWorld`] to verify ordering, completion detection, and
+//! error handling across the fragmentation behavioural tests.
 
 use cucumber::World;
 use wireframe::fragment::{
