@@ -1,4 +1,5 @@
 #![cfg(not(loom))]
+//! Test world validating fragment ordering, completion, and error semantics.
 
 use cucumber::World;
 use wireframe::fragment::{
@@ -73,6 +74,17 @@ impl FragmentWorld {
             .expect("no fragment processed yet")
     }
 
+    fn assert_error<F>(&self, predicate: F, expected_desc: &str)
+    where
+        F: FnOnce(&FragmentError) -> bool,
+    {
+        let err = match self.last_result() {
+            Err(err) => err,
+            Ok(status) => panic!("expected error but received {status:?}"),
+        };
+        assert!(predicate(err), "expected {expected_desc}, got {err}");
+    }
+
     /// Assert that the latest fragment completed the logical message.
     ///
     /// # Panics
@@ -94,14 +106,7 @@ impl FragmentWorld {
     /// Panics if no fragment was processed or if the fragment failed for some
     /// other reason.
     pub fn assert_index_mismatch(&self) {
-        let err = match self.last_result() {
-            Err(err) => err,
-            Ok(status) => panic!("expected error but received {status:?}"),
-        };
-        assert!(
-            matches!(err, FragmentError::IndexMismatch { .. }),
-            "expected index mismatch, got {err}"
-        );
+        self.assert_error(|err| matches!(err, FragmentError::IndexMismatch { .. }), "index mismatch");
     }
 
     /// Assert that the latest fragment failed because the message identifier
@@ -111,13 +116,9 @@ impl FragmentWorld {
     /// Panics if no fragment was processed or if the fragment failed for a
     /// different reason.
     pub fn assert_message_mismatch(&self) {
-        let err = match self.last_result() {
-            Err(err) => err,
-            Ok(status) => panic!("expected error but received {status:?}"),
-        };
-        assert!(
-            matches!(err, FragmentError::MessageMismatch { .. }),
-            "expected message mismatch, got {err}"
+        self.assert_error(
+            |err| matches!(err, FragmentError::MessageMismatch { .. }),
+            "message mismatch",
         );
     }
 
@@ -126,14 +127,7 @@ impl FragmentWorld {
     /// # Panics
     /// Panics if the series did not report an overflow.
     pub fn assert_index_overflow(&self) {
-        let err = match self.last_result() {
-            Err(err) => err,
-            Ok(status) => panic!("expected overflow error but received {status:?}"),
-        };
-        assert!(
-            matches!(err, FragmentError::IndexOverflow { .. }),
-            "expected overflow error, got {err}"
-        );
+        self.assert_error(|err| matches!(err, FragmentError::IndexOverflow { .. }), "overflow error");
     }
 
     /// Assert that the latest fragment failed because the series was already complete.
@@ -141,13 +135,6 @@ impl FragmentWorld {
     /// # Panics
     /// Panics if the series did not report a completion error.
     pub fn assert_series_complete_error(&self) {
-        let err = match self.last_result() {
-            Err(err) => err,
-            Ok(status) => panic!("expected series completion error but received {status:?}"),
-        };
-        assert!(
-            matches!(err, FragmentError::SeriesComplete),
-            "expected series completion error, got {err}"
-        );
+        self.assert_error(|err| matches!(err, FragmentError::SeriesComplete), "series completion error");
     }
 }

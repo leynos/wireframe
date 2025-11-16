@@ -68,3 +68,12 @@ fn series_detects_index_overflow() {
         .expect_err("overflow must raise an error");
     assert!(matches!(err, FragmentError::IndexOverflow { .. }));
 }
+
+#[test]
+fn series_accepts_final_fragment_at_max_index() {
+    let mut series = FragmentSeries::new(MessageId::new(2));
+    series.force_next_index_for_tests(FragmentIndex::new(u32::MAX));
+    let header = FragmentHeader::new(MessageId::new(2), FragmentIndex::new(u32::MAX), true);
+    assert_eq!(series.accept(header), Ok(FragmentStatus::Complete));
+    assert!(series.is_complete());
+}

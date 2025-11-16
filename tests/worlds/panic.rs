@@ -1,4 +1,5 @@
 #![cfg(not(loom))]
+//! Test world for panic-on-connection scenarios.
 
 use std::net::SocketAddr;
 

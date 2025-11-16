@@ -1,3 +1,8 @@
+//! Error and status types emitted by the fragmentation layer.
+//!
+//! These enums keep the series logic decoupled from specific protocols while
+//! still surfacing precise diagnostics for behavioural tests.
+
 use thiserror::Error;
 
 use super::{FragmentIndex, MessageId};

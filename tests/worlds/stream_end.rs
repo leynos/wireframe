@@ -1,4 +1,5 @@
 #![cfg(not(loom))]
+//! Test world for verifying stream terminators and multi-packet lifecycle logs.
 
 use std::{future::Future, marker::PhantomData, ptr, sync::Arc};
 
@@ -20,6 +21,11 @@ use super::{Terminator, build_small_queues};
 pub struct StreamEndWorld {
     frames: Vec<u8>,
     logs: Vec<(Level, String)>,
+}
+
+enum MultiPacketMode {
+    Disconnect { send_frames: bool },
+    Shutdown,
 }
 
 struct StreamEndTestGuard<'a> {
@@ -68,6 +74,7 @@ impl Drop for StreamEndTestGuard<'_> {
 }
 
 impl StreamEndWorld {
+
     fn prepare_test(&mut self) -> LoggerHandle {
         self.frames.clear();
         self.logs.clear();
@@ -148,26 +155,41 @@ impl StreamEndWorld {
             .find(|(_, message)| message.contains("multi-packet stream closed"))
     }
 
-    /// Simulate a disconnected multi-packet channel by dropping the sender before draining.
-    ///
-    /// # Panics
-    /// Panics if creating the harness or sending frames fails.
-    pub fn process_multi_disconnect(&mut self) {
+    fn run_multi_packet_harness(&mut self, mode: &MultiPacketMode, correlation_id: u64) {
         self.with_sync_test(|this, log| {
             let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
             let mut harness = ActorHarness::new_with_state(hooks, false, true)
                 .expect("failed to create ActorHarness");
             let (tx, rx) = mpsc::channel(4);
-            tx.try_send(1u8).expect("send frame");
-            tx.try_send(2u8).expect("send frame");
             harness
                 .actor_mut()
-                .set_multi_packet_with_correlation(Some(rx), Some(42));
-            drop(tx);
-            log.clear();
-            while harness.try_drain_multi() {}
+                .set_multi_packet_with_correlation(Some(rx), Some(correlation_id));
+            match mode {
+                MultiPacketMode::Disconnect { send_frames } => {
+                    if *send_frames {
+                        tx.try_send(1u8).expect("send frame");
+                        tx.try_send(2u8).expect("send frame");
+                    }
+                    drop(tx);
+                    log.clear();
+                    while harness.try_drain_multi() {}
+                }
+                MultiPacketMode::Shutdown => {
+                    drop(tx);
+                    log.clear();
+                    harness.start_shutdown();
+                }
+            }
             this.frames.clone_from(&harness.out);
         });
+    }
+
+    /// Simulate a disconnected multi-packet channel by dropping the sender before draining.
+    ///
+    /// # Panics
+    /// Panics if creating the harness or sending frames fails.
+    pub fn process_multi_disconnect(&mut self) {
+        self.run_multi_packet_harness(&MultiPacketMode::Disconnect { send_frames: true }, 42);
     }
 
     /// Trigger shutdown handling on a multi-packet channel without emitting a terminator.
@@ -175,18 +197,7 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if creating the harness fails.
     pub fn process_multi_shutdown(&mut self) {
-        self.with_sync_test(|this, log| {
-            let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-            let mut harness = ActorHarness::new_with_state(hooks, false, true)
-                .expect("failed to create ActorHarness");
-            let (_tx, rx) = mpsc::channel(4);
-            harness
-                .actor_mut()
-                .set_multi_packet_with_correlation(Some(rx), Some(77));
-            log.clear();
-            harness.start_shutdown();
-            this.frames.clone_from(&harness.out);
-        });
+        self.run_multi_packet_harness(&MultiPacketMode::Shutdown, 77);
     }
 
     /// Verify that a terminator frame was appended to the stream.

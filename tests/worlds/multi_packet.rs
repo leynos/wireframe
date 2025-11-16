@@ -1,4 +1,5 @@
 #![cfg(not(loom))]
+//! Test world for multi-packet channel behaviour and ergonomics.
 
 use cucumber::World;
 use tokio::sync::mpsc::{self, error::TrySendError};

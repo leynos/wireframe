@@ -1,3 +1,8 @@
+//! Lightweight descriptor for individual fragments.
+//!
+//! `FragmentHeader` captures the identifiers required to correlate fragments
+//! without tying the fragmentation logic to any specific serializer.
+
 use bincode::{Decode, Encode};
 
 use super::{FragmentIndex, MessageId};

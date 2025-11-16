@@ -1,3 +1,8 @@
+//! Ordering tracker used to re-assemble logical messages from fragments.
+//!
+//! `FragmentSeries` is intentionally small so it can be embedded in codecs or
+//! adapters without imposing allocation overhead.
+
 use super::{FragmentError, FragmentHeader, FragmentIndex, FragmentStatus, MessageId};
 
 /// Track the expected ordering of fragments for a single logical message.
@@ -77,24 +82,28 @@ impl FragmentSeries {
             });
         }
 
-        let Some(next_index) = fragment.fragment_index().checked_increment() else {
+        let next_index = fragment.fragment_index().checked_increment();
+        if fragment.is_last_fragment() {
+            self.complete = true;
+            if let Some(incremented) = next_index {
+                self.next_index = incremented;
+            }
+            return Ok(FragmentStatus::Complete);
+        }
+
+        let Some(incremented) = next_index else {
             return Err(FragmentError::IndexOverflow {
                 last: fragment.fragment_index(),
             });
         };
 
-        self.next_index = next_index;
-        if fragment.is_last_fragment() {
-            self.complete = true;
-            Ok(FragmentStatus::Complete)
-        } else {
-            Ok(FragmentStatus::Incomplete)
-        }
+        self.next_index = incremented;
+        Ok(FragmentStatus::Incomplete)
     }
 }
 
-#[cfg(any(test, feature = "cucumber-tests"))]
 impl FragmentSeries {
     /// Testing helper that forces the next expected fragment index.
+    #[doc(hidden)]
     pub fn force_next_index_for_tests(&mut self, next: FragmentIndex) { self.next_index = next; }
 }

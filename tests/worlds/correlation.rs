@@ -1,4 +1,5 @@
 #![cfg(not(loom))]
+//! Test world driving correlation ID verification scenarios.
 
 use async_stream::try_stream;
 use cucumber::World;

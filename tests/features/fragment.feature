@@ -22,6 +22,12 @@ Feature: Fragment metadata enforcement
     When fragment 4294967295 arrives marked non-final
     Then the fragment is rejected for index overflow
 
+  Scenario: Final fragment at the maximum index completes the message
+    Given a fragment series for message 10
+    And the series expects fragment index 4294967295
+    When fragment 4294967295 arrives marked final
+    Then the fragment completes the message
+
   Scenario: Series rejects fragments after completion
     Given a fragment series for message 11
     When fragment 0 arrives marked final

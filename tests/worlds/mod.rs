@@ -1,4 +1,8 @@
 #![cfg(not(loom))]
+//! Shared infrastructure for the Cucumber test worlds.
+//!
+//! This module re-exports the individual worlds and exposes utilities such as
+//! `build_small_queues` so each world stays focused on its behaviour.
 
 #[path = "../common/mod.rs"]
 mod common;

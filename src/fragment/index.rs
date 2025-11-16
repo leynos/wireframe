@@ -1,7 +1,12 @@
+//! Zero-based fragment position tracking helper.
+//!
+//! `FragmentIndex` wraps `u32` so protocols can reason about ordering without
+//! mixing raw integers throughout the fragmentation logic.
+
 use std::num::TryFromIntError;
 
 use bincode::{Decode, Encode};
-use derive_more::{Display, From, Into};
+use derive_more::{Display, From};
 
 /// Zero-based ordinal describing a fragment's position within its message.
 ///
@@ -14,7 +19,7 @@ use derive_more::{Display, From, Into};
 /// assert!(index.checked_increment().is_some());
 /// ```
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode, Display, From, Into,
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode, Display, From,
 )]
 #[display("{_0}")]
 pub struct FragmentIndex(u32);
@@ -41,4 +46,8 @@ impl TryFrom<usize> for FragmentIndex {
     type Error = TryFromIntError;
 
     fn try_from(value: usize) -> Result<Self, Self::Error> { u32::try_from(value).map(Self) }
+}
+
+impl From<FragmentIndex> for u32 {
+    fn from(value: FragmentIndex) -> Self { value.0 }
 }
