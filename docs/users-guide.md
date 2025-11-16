@@ -613,6 +613,6 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^38]: Implemented in `src/rewind_stream.rs` (lines 14-76).
 [^39]: Implemented in `src/panic.rs` (lines 1-18).
 [^40]: Implemented in `src/session.rs` (lines 13-255).
-[^41]: Implemented in `src/fragment/mod.rs` and supporting sub-modules.
+[^41]: Implemented in `src/fragment/mod.rs` and supporting submodules.
 [^42]: Exercised in `tests/features/fragment.feature`.
 [^43]: Step definitions in `tests/steps/fragment_steps.rs`.

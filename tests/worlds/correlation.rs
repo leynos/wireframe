@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Test world for correlation identifier scenarios.
+#![cfg(not(loom))]
 //!
 //! Provides [`CorrelationWorld`] to verify that frames carry the correct
 //! correlation identifiers across streaming and multi-packet contexts.
@@ -31,7 +31,7 @@ impl CorrelationWorld {
     /// Run the connection actor and collect frames for later verification.
     ///
     /// # Panics
-    /// Panics if the actor fails to run successfully.
+    /// Panics if no correlation id was configured or if running the actor fails.
     pub async fn process(&mut self) {
         let cid = self
             .expected

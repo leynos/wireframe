@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Cucumber test world implementations and shared helpers.
+#![cfg(not(loom))]
 //!
 //! Provides world types for behaviour-driven tests covering fragmentation,
 //! correlation, panic recovery, stream termination, and multi-packet channels.

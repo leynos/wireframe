@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Test world for fragment reassembly scenarios.
+#![cfg(not(loom))]
 //!
 //! Provides [`FragmentWorld`] to verify ordering, completion detection, and
 //! error handling across the fragmentation behavioural tests.

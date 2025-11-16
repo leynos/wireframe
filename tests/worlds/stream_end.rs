@@ -1,10 +1,10 @@
-#![cfg(not(loom))]
 //! Test world for verifying stream terminators and multi-packet lifecycle logs.
+#![cfg(not(loom))]
 //!
 //! Provides [`StreamEndWorld`] so cucumber scenarios can observe terminator
 //! frames, closure reasons, and shutdown handling for streaming responses.
 
-use std::{future::Future, marker::PhantomData, ptr, sync::Arc};
+use std::{future::Future, sync::Arc};
 
 use async_stream::try_stream;
 use cucumber::World;
@@ -32,48 +32,34 @@ enum MultiPacketMode {
 }
 
 struct StreamEndTestGuard<'a> {
-    world: *mut StreamEndWorld,
+    world: &'a mut StreamEndWorld,
     logger: LoggerHandle,
-    _marker: PhantomData<&'a mut StreamEndWorld>,
 }
 
 impl<'a> StreamEndTestGuard<'a> {
     fn new(world: &'a mut StreamEndWorld) -> Self {
         let logger = world.prepare_test();
-        Self {
-            world: ptr::from_mut(world),
-            logger,
-            _marker: PhantomData,
-        }
+        Self { world, logger }
     }
 
     fn run<F, R>(mut self, f: F) -> R
     where
-        F: FnOnce(&'a mut StreamEndWorld, &mut LoggerHandle) -> R,
+        F: FnOnce(&mut StreamEndWorld, &mut LoggerHandle) -> R,
     {
-        // Safety: the guard guarantees exclusive access to the world while the closure runs.
-        let world = unsafe { &mut *self.world };
-        f(world, &mut self.logger)
+        f(self.world, &mut self.logger)
     }
 
     async fn run_async<F, Fut, R>(mut self, f: F) -> R
     where
-        F: FnOnce(&'a mut StreamEndWorld, &mut LoggerHandle) -> Fut,
+        F: FnOnce(&mut StreamEndWorld, &mut LoggerHandle) -> Fut,
         Fut: Future<Output = R> + 'a,
     {
-        // Safety: the guard guarantees exclusive access to the world while the future runs.
-        let world = unsafe { &mut *self.world };
-        f(world, &mut self.logger).await
+        f(self.world, &mut self.logger).await
     }
 }
 
 impl Drop for StreamEndTestGuard<'_> {
-    fn drop(&mut self) {
-        // Safety: the guard created the pointer from a unique mutable reference.
-        unsafe {
-            (&mut *self.world).finalize_test(&mut self.logger);
-        }
-    }
+    fn drop(&mut self) { self.world.finalize_test(&mut self.logger); }
 }
 
 impl StreamEndWorld {

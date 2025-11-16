@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Test world for multi-packet channel scenarios.
+#![cfg(not(loom))]
 //!
 //! Provides [`MultiPacketWorld`] to verify message ordering, back-pressure
 //! handling, and channel lifecycle in cucumber-based behaviour tests.
@@ -14,7 +14,7 @@ use super::build_small_queues;
 #[derive(Debug, Default, World)]
 pub struct MultiPacketWorld {
     messages: Vec<u8>,
-    overflow_error: bool,
+    has_overflow_error: bool,
 }
 
 impl MultiPacketWorld {
@@ -54,19 +54,21 @@ impl MultiPacketWorld {
         let frames = Self::collect_frames_from(rx).await;
         producer.await.expect("producer task panicked");
         self.messages = frames;
-        self.overflow_error = false;
+        self.has_overflow_error = false;
     }
 
     /// Send messages through a multi-packet response and record them.
     ///
     /// # Panics
-    /// Panics if sending to the channel fails.
+    /// Panics if constructing the multi-packet response fails or if the
+    /// producer task panics.
     pub async fn process(&mut self) { self.process_messages(&[1, 2, 3]).await; }
 
     /// Record zero messages from a closed channel.
     ///
     /// # Panics
-    /// Does not panic.
+    /// Panics if constructing the multi-packet response fails or if the
+    /// producer task panics.
     pub async fn process_empty(&mut self) { self.process_messages(&[]).await; }
 
     /// Attempt to send more messages than the channel can buffer at once.
@@ -94,7 +96,7 @@ impl MultiPacketWorld {
         producer.await.expect("producer task panicked");
 
         self.messages = frames;
-        self.overflow_error = overflow_error;
+        self.has_overflow_error = overflow_error;
     }
 
     /// Verify that no messages were received.
@@ -120,7 +122,7 @@ impl MultiPacketWorld {
     /// Panics if no overflow occurred or if the expected messages are missing.
     pub fn verify_overflow(&self) {
         assert!(
-            self.overflow_error,
+            self.has_overflow_error,
             "expected overflow error when channel capacity was exceeded",
         );
         assert_eq!(self.messages, vec![1, 2]);
