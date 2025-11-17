@@ -31,6 +31,11 @@ enum MultiPacketMode {
     Shutdown,
 }
 
+enum ActorMode {
+    Stream,
+    MultiPacket,
+}
+
 impl StreamEndWorld {
     fn prepare_test(&mut self) -> LoggerHandle {
         self.frames.clear();
@@ -42,54 +47,52 @@ impl StreamEndWorld {
 
     fn finalize_test(&mut self, logger: &mut LoggerHandle) { self.capture_logs(logger); }
 
-    /// Run the connection actor and record emitted frames.
-    ///
-    /// # Panics
-    /// Panics if the actor fails to run successfully.
-    pub async fn process(&mut self) {
+    async fn run_actor_test(&mut self, mode: ActorMode) {
         let mut temp = StreamEndWorld::default();
         mem::swap(self, &mut temp);
         let mut logger = temp.prepare_test();
 
-        let stream: FrameStream<u8> = Box::pin(try_stream! {
-            yield 1u8;
-            yield 2u8;
-        });
-
         let (queues, handle) = build_small_queues::<u8>();
         let shutdown = CancellationToken::new();
         let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-        let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
-        actor.run(&mut temp.frames).await.expect("actor run failed");
+
+        match mode {
+            ActorMode::Stream => {
+                let stream: FrameStream<u8> = Box::pin(try_stream! {
+                    yield 1u8;
+                    yield 2u8;
+                });
+                let mut actor =
+                    ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
+                actor.run(&mut temp.frames).await.expect("actor run failed");
+            }
+            ActorMode::MultiPacket => {
+                let (tx, rx) = mpsc::channel(4);
+                tx.send(1u8).await.expect("send frame");
+                tx.send(2u8).await.expect("send frame");
+                drop(tx);
+
+                let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+                actor.set_multi_packet(Some(rx));
+                actor.run(&mut temp.frames).await.expect("actor run failed");
+            }
+        }
 
         temp.finalize_test(&mut logger);
         mem::swap(self, &mut temp);
     }
+
+    /// Run the connection actor and record emitted frames.
+    ///
+    /// # Panics
+    /// Panics if the actor fails to run successfully.
+    pub async fn process(&mut self) { self.run_actor_test(ActorMode::Stream).await; }
 
     /// Run the connection actor with a multi-packet channel and record emitted frames.
     ///
     /// # Panics
     /// Panics if sending to the channel or running the actor fails.
-    pub async fn process_multi(&mut self) {
-        let mut temp = StreamEndWorld::default();
-        mem::swap(self, &mut temp);
-        let mut logger = temp.prepare_test();
-
-        let (tx, rx) = mpsc::channel(4);
-        tx.send(1u8).await.expect("send frame");
-        tx.send(2u8).await.expect("send frame");
-        drop(tx);
-
-        let (queues, handle) = build_small_queues::<u8>();
-        let shutdown = CancellationToken::new();
-        let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-        let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
-        actor.set_multi_packet(Some(rx));
-        actor.run(&mut temp.frames).await.expect("actor run failed");
-
-        temp.finalize_test(&mut logger);
-        mem::swap(self, &mut temp);
-    }
+    pub async fn process_multi(&mut self) { self.run_actor_test(ActorMode::MultiPacket).await; }
 
     fn capture_logs(&mut self, logger: &mut LoggerHandle) {
         while let Some(record) = logger.pop() {
