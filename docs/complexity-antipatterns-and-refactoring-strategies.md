@@ -84,9 +84,9 @@ Core Principles of Calculation:
 Cognitive Complexity is incremented based on three main rules.
 
 1. **Breaks in Linear Flow:** Each time the code breaks the normal linear
-   reading flow (e.g., loops, conditionals like
-   `if`/`else`/`switch`, `try-catch` blocks, jumps to labels, and sequences of
-   logical operators like `&&` and `||`), a penalty is applied.
+   reading flow (e.g., loops, conditionals like `if`/`else`/`switch`,
+   `try-catch` blocks, jumps to labels, and sequences of logical operators like
+   `&&` and `||`), a penalty is applied.
 
 2. **Nesting:** Each level of nesting of these flow-breaking structures adds an
    additional penalty. This is because deeper nesting makes it harder to keep

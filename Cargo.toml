@@ -43,6 +43,7 @@ tracing-subscriber = "0.3"
 metrics = { version = "0.24.2", optional = true }
 thiserror = "2.0.16"
 static_assertions = "1"
+derive_more = { version = "2.0.1", features = ["display", "from"] }
 
 [dev-dependencies]
 rstest = "0.26.1"

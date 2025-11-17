@@ -130,6 +130,24 @@ full deserialization.[^9][^6] Application messages implement the `Message`
 trait, gaining `to_bytes` and `from_bytes` helpers that use bincode with the
 standard configuration.[^10]
 
+### Fragmentation metadata
+
+`wireframe::fragment` exposes small, copy-friendly structs to describe the
+transport-level fragmentation state.[^41]
+
+- `MessageId` uniquely identifies the logical message a fragment belongs to.
+- `FragmentIndex` records the fragment's zero-based order.
+- `FragmentHeader` bundles the identifier, index, and a boolean that signals
+  whether the fragment is the last one in the sequence.
+- `FragmentSeries` tracks the next expected fragment index and reports
+  mismatches via structured errors.
+
+Protocol implementers can emit a `FragmentHeader` for every physical frame and
+feed the header back into `FragmentSeries` to guarantee ordering before a fully
+re-assembled message is surfaced to handlers. Behavioural tests can reuse the
+same types to assert that new codecs obey the transport invariants without
+spinning up a full server.[^42][^43]
+
 ## Working with requests and middleware
 
 Every inbound frame becomes a `ServiceRequest`. Middleware can inspect or
@@ -595,3 +613,6 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^38]: Implemented in `src/rewind_stream.rs` (lines 14-76).
 [^39]: Implemented in `src/panic.rs` (lines 1-18).
 [^40]: Implemented in `src/session.rs` (lines 13-255).
+[^41]: Implemented in `src/fragment/mod.rs` and supporting submodules.
+[^42]: Exercised in `tests/features/fragment.feature`.
+[^43]: Step definitions in `tests/steps/fragment_steps.rs`.
