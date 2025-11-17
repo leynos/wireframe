@@ -1,8 +1,8 @@
 //! Test world for correlation identifier scenarios.
-#![cfg(not(loom))]
 //!
 //! Provides [`CorrelationWorld`] to verify that frames carry the correct
 //! correlation identifiers across streaming and multi-packet contexts.
+#![cfg(not(loom))]
 
 use async_stream::try_stream;
 use cucumber::World;
@@ -31,7 +31,9 @@ impl CorrelationWorld {
     /// Run the connection actor and collect frames for later verification.
     ///
     /// # Panics
-    /// Panics if no correlation id was configured or if running the actor fails.
+    /// Panics if `self.expected` is `None` when the streaming scenario requires
+    /// a correlation id (via `expect("streaming scenario requires a correlation
+    /// id")`), or if running the actor fails.
     pub async fn process(&mut self) {
         let cid = self
             .expected

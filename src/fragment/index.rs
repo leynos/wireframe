@@ -21,7 +21,7 @@ use derive_more::{Display, From};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode, Display, From,
 )]
-#[display(fmt = "{}")]
+#[display("{_0}")]
 pub struct FragmentIndex(u32);
 
 impl FragmentIndex {

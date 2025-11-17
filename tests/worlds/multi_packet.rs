@@ -14,7 +14,7 @@ use super::build_small_queues;
 #[derive(Debug, Default, World)]
 pub struct MultiPacketWorld {
     messages: Vec<u8>,
-    has_overflow_error: bool,
+    is_overflow_error: bool,
 }
 
 impl MultiPacketWorld {
@@ -34,7 +34,8 @@ impl MultiPacketWorld {
     /// via [`Response::with_channel`].
     ///
     /// # Panics
-    /// Panics if spawning or joining the producer task fails.
+    /// Panics if [`Response::with_channel`] fails to produce a `MultiPacket`
+    /// response or if spawning or joining the producer task fails.
     async fn process_messages(&mut self, messages: &[u8]) {
         let (sender, response): (mpsc::Sender<u8>, Response<u8, ()>) = Response::with_channel(4);
         let Response::MultiPacket(rx) = response else {
@@ -54,21 +55,21 @@ impl MultiPacketWorld {
         let frames = Self::collect_frames_from(rx).await;
         producer.await.expect("producer task panicked");
         self.messages = frames;
-        self.has_overflow_error = false;
+        self.is_overflow_error = false;
     }
 
     /// Send messages through a multi-packet response and record them.
     ///
     /// # Panics
-    /// Panics if constructing the multi-packet response fails or if the
-    /// producer task panics.
+    /// Panics if [`Response::with_channel`] fails to produce a `MultiPacket`
+    /// response or if spawning or joining the producer task fails.
     pub async fn process(&mut self) { self.process_messages(&[1, 2, 3]).await; }
 
     /// Record zero messages from a closed channel.
     ///
     /// # Panics
-    /// Panics if constructing the multi-packet response fails or if the
-    /// producer task panics.
+    /// Panics if [`Response::with_channel`] fails to produce a `MultiPacket`
+    /// response or if spawning or joining the producer task fails.
     pub async fn process_empty(&mut self) { self.process_messages(&[]).await; }
 
     /// Attempt to send more messages than the channel can buffer at once.
@@ -96,7 +97,7 @@ impl MultiPacketWorld {
         producer.await.expect("producer task panicked");
 
         self.messages = frames;
-        self.has_overflow_error = overflow_error;
+        self.is_overflow_error = overflow_error;
     }
 
     /// Verify that no messages were received.
@@ -122,7 +123,7 @@ impl MultiPacketWorld {
     /// Panics if no overflow occurred or if the expected messages are missing.
     pub fn verify_overflow(&self) {
         assert!(
-            self.has_overflow_error,
+            self.is_overflow_error,
             "expected overflow error when channel capacity was exceeded",
         );
         assert_eq!(self.messages, vec![1, 2]);

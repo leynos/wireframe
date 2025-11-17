@@ -1,8 +1,8 @@
 //! Test world for fragment reassembly scenarios.
-#![cfg(not(loom))]
 //!
 //! Provides [`FragmentWorld`] to verify ordering, completion detection, and
 //! error handling across the fragmentation behavioural tests.
+#![cfg(not(loom))]
 
 use cucumber::World;
 use wireframe::fragment::{
@@ -32,11 +32,8 @@ impl FragmentWorld {
     /// # Panics
     /// Panics if [`start_series`] has not been called.
     pub fn force_next_index(&mut self, index: u32) {
-        let series = self
-            .series
-            .as_mut()
-            .expect("fragment series not initialised");
-        series.force_next_index_for_tests(FragmentIndex::new(index));
+        self.series_mut()
+            .force_next_index_for_tests(FragmentIndex::new(index));
     }
 
     /// Feed a fragment that references the currently tracked message.
@@ -44,12 +41,7 @@ impl FragmentWorld {
     /// # Panics
     /// Panics if [`start_series`] has not been called.
     pub fn accept_fragment(&mut self, index: u32, is_last: bool) {
-        let message = self
-            .series
-            .as_ref()
-            .expect("fragment series not initialised")
-            .message_id()
-            .get();
+        let message = self.series().message_id().get();
         self.accept_fragment_from(message, index, is_last);
     }
 
@@ -60,11 +52,7 @@ impl FragmentWorld {
     pub fn accept_fragment_from(&mut self, message: u64, index: u32, is_last: bool) {
         let header =
             FragmentHeader::new(MessageId::new(message), FragmentIndex::new(index), is_last);
-        let series = self
-            .series
-            .as_mut()
-            .expect("fragment series not initialised");
-        self.last_result = Some(series.accept(header));
+        self.last_result = Some(self.series_mut().accept(header));
     }
 
     /// Return the most recent fragment outcome.
@@ -99,8 +87,22 @@ impl FragmentWorld {
             Ok(status) => panic!("unexpected status: {status:?}"),
             Err(err) => panic!("expected completion but got error: {err}"),
         }
-        let series = self.series.as_ref().expect("series missing");
-        assert!(series.is_complete(), "series should be marked complete");
+        assert!(
+            self.series().is_complete(),
+            "series should be marked complete"
+        );
+    }
+
+    fn series(&self) -> &FragmentSeries {
+        self.series
+            .as_ref()
+            .expect("fragment series not initialised")
+    }
+
+    fn series_mut(&mut self) -> &mut FragmentSeries {
+        self.series
+            .as_mut()
+            .expect("fragment series not initialised")
     }
 
     /// Assert that the latest fragment failed due to an index mismatch.

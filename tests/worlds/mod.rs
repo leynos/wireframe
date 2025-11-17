@@ -1,10 +1,10 @@
 //! Cucumber test world implementations and shared helpers.
-#![cfg(not(loom))]
 //!
 //! Provides world types for behaviour-driven tests covering fragmentation,
 //! correlation, panic recovery, stream termination, and multi-packet channels.
 //! Shared utilities like `build_small_queues` keep individual worlds focused on
 //! their respective scenarios.
+#![cfg(not(loom))]
 
 #[path = "../common/mod.rs"]
 mod common;

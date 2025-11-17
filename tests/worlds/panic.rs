@@ -1,8 +1,8 @@
 //! Test world for panic-on-connection scenarios.
-#![cfg(not(loom))]
 //!
 //! Provides [`PanicWorld`] to ensure the server remains resilient when
 //! connection setup handlers panic before a client fully connects.
+#![cfg(not(loom))]
 
 use std::net::SocketAddr;
 
@@ -81,7 +81,8 @@ impl PanicWorld {
     /// Start a server that panics during connection setup.
     ///
     /// # Panics
-    /// Panics if binding the server fails or the server task fails.
+    /// Panics if `TestApp::new()` fails, `.on_connection_setup(...)` fails,
+    /// binding the server fails, or the server task fails.
     pub async fn start_panic_server(&mut self) { self.server.replace(PanicServer::spawn().await); }
 
     /// Connect to the running server once.
