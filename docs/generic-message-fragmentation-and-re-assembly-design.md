@@ -28,7 +28,7 @@ capabilities.
 
 The implementation must satisfy the following core requirements:
 
-<!-- markdownlint-disable-next-line MD013 -->
+<!-- markdownlint-disable MD013 MD060 -->
 | ID | Goal                                                                                                                                                                                                                   |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | G1 | Transparent inbound re-assembly → The router and handlers must always receive one complete, logical Frame.                                                                                                             |
@@ -36,6 +36,7 @@ The implementation must satisfy the following core requirements:
 | G3 | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
 | G4 | Denial‑of‑service (DoS) protection: The re-assembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                    |
 | G5 | Zero Friction: Protocols that do not use fragmentation must incur no performance or complexity overhead. This feature must be strictly opt-in.                                                                         |
+<!-- markdownlint-enable MD013 MD060 -->
 
 ## 3. Core architecture: the `FragmentAdapter`
 
@@ -120,6 +121,28 @@ actors, and observability hooks—can reason about fragments without depending o
 protocol-specific codecs. The forthcoming `FragmentStrategy` continues to
 control how headers are encoded on the wire, but it now produces a
 `FragmentHeader` so downstream components share a single representation.
+
+### 3.3 Fragmenter helper (17 November 2025 update)
+
+To simplify outbound slicing before the full adapter arrives, the crate now
+ships a small `Fragmenter` helper. It accepts a `NonZeroUsize` payload cap and
+creates sequential fragments tagged with `MessageId`, `FragmentIndex`, and the
+`is_last_fragment` flag described above. The helper exposes three entry points:
+
+- `fragment_message` serialises any type implementing the `Message` trait and
+  splits the resulting bytes into fragments.
+- `fragment_bytes` chunks an owned `Vec<u8>` and allocates a fresh `MessageId`.
+- `fragment_with_id` lets callers supply the identifier explicitly when a
+  higher transport layer already tracks the logical message identifier.
+
+Each call yields a `FragmentBatch`, a lightweight container that exposes the
+shared `MessageId`, reports whether the message was fragmented, and can be
+iterated to drain individual `FragmentFrame` structs. Those frames surface the
+`FragmentHeader` alongside their payload bytes, making it trivial to wrap them
+in a protocol-specific envelope or log detailed fragment metadata during tests.
+The helper detects `FragmentIndex` overflow and returns an explicit error so
+protocols can downgrade to streaming or reject the payload before building an
+invalid sequence.
 
 ## 4. Public API: the `FragmentStrategy` trait
 
@@ -328,7 +351,7 @@ This feature is designed as a foundational layer that other features build upon.
 | Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                                | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                    |
 | Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                     | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter. |
 
-## 8. Design decisions (14 November 2025)
+## 8. Design decisions (14 November 2025, updated 17 November 2025)
 
 - Adopted `FragmentHeader`, `MessageId`, and `FragmentIndex` as the canonical,
   serialiser-agnostic metadata describing every fragment emitted or consumed by
@@ -340,3 +363,8 @@ This feature is designed as a foundational layer that other features build upon.
   `SeriesComplete`, `IndexOverflow`). This helper keeps the re-assembly logic
   deterministic and enables behavioural tests to assert transport-level
   guarantees without standing up a full codec pipeline.
+- Introduced `Fragmenter`, `FragmentBatch`, and `FragmentFrame` as reusable
+  outbound helpers. They generate monotonic `MessageId` values, split large
+  payloads into capped fragments, and return typed collections that are simple
+  to wrap in protocol-specific envelopes or feed into behavioural tests before
+  the full `FragmentAdapter` lands.

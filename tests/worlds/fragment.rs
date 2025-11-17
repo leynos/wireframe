@@ -4,13 +4,17 @@
 //! error handling across the fragmentation behavioural tests.
 #![cfg(not(loom))]
 
+use std::num::NonZeroUsize;
+
 use cucumber::World;
 use wireframe::fragment::{
+    FragmentBatch,
     FragmentError,
     FragmentHeader,
     FragmentIndex,
     FragmentSeries,
     FragmentStatus,
+    Fragmenter,
     MessageId,
 };
 
@@ -18,6 +22,8 @@ use wireframe::fragment::{
 pub struct FragmentWorld {
     series: Option<FragmentSeries>,
     last_result: Option<Result<FragmentStatus, FragmentError>>,
+    fragmenter: Option<Fragmenter>,
+    last_batch: Option<FragmentBatch>,
 }
 
 impl FragmentWorld {
@@ -25,6 +31,29 @@ impl FragmentWorld {
     pub fn start_series(&mut self, message_id: u64) {
         self.series = Some(FragmentSeries::new(MessageId::new(message_id)));
         self.last_result = None;
+    }
+
+    /// Configure a fragmenter with the provided payload cap.
+    ///
+    /// # Panics
+    /// Panics if `max_payload` is zero.
+    pub fn configure_fragmenter(&mut self, max_payload: usize) {
+        let cap = NonZeroUsize::new(max_payload).expect("fragment cap must be non-zero");
+        self.fragmenter = Some(Fragmenter::new(cap));
+        self.last_batch = None;
+    }
+
+    /// Request fragmentation for a payload of `len` bytes.
+    ///
+    /// # Panics
+    /// Panics if [`configure_fragmenter`] has not been called yet.
+    pub fn fragment_payload(&mut self, len: usize) {
+        let fragmenter = self.fragmenter.as_ref().expect("fragmenter not configured");
+        let payload = vec![0_u8; len];
+        let batch = fragmenter
+            .fragment_bytes(&payload)
+            .expect("fragmentation must succeed in tests");
+        self.last_batch = Some(batch);
     }
 
     /// Force the next expected fragment index for overflow scenarios.
@@ -63,6 +92,10 @@ impl FragmentWorld {
         self.last_result
             .as_ref()
             .expect("no fragment processed yet")
+    }
+
+    fn batch(&self) -> &FragmentBatch {
+        self.last_batch.as_ref().expect("no payload fragmented yet")
     }
 
     fn assert_error<F>(&self, predicate: F, expected_desc: &str)
@@ -149,6 +182,58 @@ impl FragmentWorld {
         self.assert_error(
             |err| matches!(err, FragmentError::SeriesComplete),
             "series completion error",
+        );
+    }
+
+    /// Assert that the most recent fragmentation produced `expected` fragments.
+    ///
+    /// # Panics
+    /// Panics if no payload has been fragmented yet.
+    pub fn assert_fragment_count(&self, expected: usize) {
+        assert_eq!(self.batch().len(), expected, "unexpected fragment count");
+    }
+
+    /// Assert that the payload length of fragment `index` matches `expected` bytes.
+    ///
+    /// # Panics
+    /// Panics if no payload has been fragmented or if `index` exceeds the batch.
+    pub fn assert_fragment_payload_len(&self, index: usize, expected: usize) {
+        let fragments = self.batch().fragments();
+        let fragment = fragments
+            .get(index)
+            .unwrap_or_else(|| panic!("fragment {index} missing"));
+        assert_eq!(
+            fragment.payload().len(),
+            expected,
+            "payload length mismatch"
+        );
+    }
+
+    /// Assert that fragment `index` carries the expected final flag.
+    ///
+    /// # Panics
+    /// Panics if no payload has been fragmented or if `index` exceeds the batch.
+    pub fn assert_fragment_final_flag(&self, index: usize, expected_final: bool) {
+        let fragments = self.batch().fragments();
+        let fragment = fragments
+            .get(index)
+            .unwrap_or_else(|| panic!("fragment {index} missing"));
+        assert_eq!(
+            fragment.header().is_last_fragment(),
+            expected_final,
+            "fragment {index} final flag mismatch",
+        );
+    }
+
+    /// Assert that the batch carries the expected message identifier.
+    ///
+    /// # Panics
+    /// Panics if no payload has been fragmented yet.
+    pub fn assert_message_id(&self, expected: u64) {
+        assert_eq!(
+            self.batch().message_id(),
+            MessageId::new(expected),
+            "unexpected message identifier",
         );
     }
 }
