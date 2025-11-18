@@ -98,6 +98,14 @@ impl FragmentWorld {
         self.last_batch.as_ref().expect("no payload fragmented yet")
     }
 
+    /// Retrieve the fragment at `index`, panicking if it is missing.
+    fn get_fragment_at(&self, index: usize) -> &FragmentFrame {
+        self.batch()
+            .fragments()
+            .get(index)
+            .unwrap_or_else(|| panic!("fragment {index} missing"))
+    }
+
     fn assert_error<F>(&self, predicate: F, expected_desc: &str)
     where
         F: FnOnce(&FragmentError) -> bool,
@@ -198,10 +206,7 @@ impl FragmentWorld {
     /// # Panics
     /// Panics if no payload has been fragmented or if `index` exceeds the batch.
     pub fn assert_fragment_payload_len(&self, index: usize, expected: usize) {
-        let fragments = self.batch().fragments();
-        let fragment = fragments
-            .get(index)
-            .unwrap_or_else(|| panic!("fragment {index} missing"));
+        let fragment = self.get_fragment_at(index);
         assert_eq!(
             fragment.payload().len(),
             expected,
@@ -214,10 +219,7 @@ impl FragmentWorld {
     /// # Panics
     /// Panics if no payload has been fragmented or if `index` exceeds the batch.
     pub fn assert_fragment_final_flag(&self, index: usize, expected_final: bool) {
-        let fragments = self.batch().fragments();
-        let fragment = fragments
-            .get(index)
-            .unwrap_or_else(|| panic!("fragment {index} missing"));
+        let fragment = self.get_fragment_at(index);
         assert_eq!(
             fragment.header().is_last_fragment(),
             expected_final,
