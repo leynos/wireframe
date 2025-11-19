@@ -10,6 +10,7 @@ use cucumber::World;
 use wireframe::fragment::{
     FragmentBatch,
     FragmentError,
+    FragmentFrame,
     FragmentHeader,
     FragmentIndex,
     FragmentSeries,
