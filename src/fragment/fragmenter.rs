@@ -41,9 +41,21 @@ impl Fragmenter {
     pub const fn max_fragment_size(&self) -> NonZeroUsize { self.max_fragment_size }
 
     /// Generate and return the next [`MessageId`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the identifier counter reaches `u64::MAX` and overflows. Callers
+    /// should provisionally treat `MessageId` values as unique for the lifetime of
+    /// the fragmenter.
     #[must_use]
     pub fn next_message_id(&self) -> MessageId {
-        MessageId::new(self.next_message_id.fetch_add(1, Ordering::Relaxed))
+        let previous = self
+            .next_message_id
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .unwrap_or_else(|_| panic!("message id counter exhausted"));
+        MessageId::new(previous)
     }
 
     /// Serialize `message` and split it into fragments.
@@ -58,7 +70,7 @@ impl Fragmenter {
         message: &M,
     ) -> Result<FragmentBatch, FragmentationError> {
         let bytes = message.to_bytes()?;
-        self.fragment_bytes(bytes.as_slice())
+        self.fragment_bytes(bytes)
     }
 
     /// Split `payload` into fragments, generating a fresh [`MessageId`].
@@ -67,9 +79,12 @@ impl Fragmenter {
     ///
     /// Returns [`FragmentationError::IndexOverflow`] if more than
     /// `u32::MAX + 1` fragments are required.
-    pub fn fragment_bytes(&self, payload: &[u8]) -> Result<FragmentBatch, FragmentationError> {
+    pub fn fragment_bytes(
+        &self,
+        payload: impl AsRef<[u8]>,
+    ) -> Result<FragmentBatch, FragmentationError> {
         let message_id = self.next_message_id();
-        self.fragment_with_id(message_id, payload)
+        self.fragment_with_id(message_id, payload.as_ref())
     }
 
     /// Split `payload` into fragments, tagging them with `message_id`.
@@ -175,12 +190,12 @@ impl FragmentBatch {
     pub fn fragments(&self) -> &[FragmentFrame] { self.fragments.as_slice() }
 
     /// Number of fragments in the batch.
+    #[allow(
+        clippy::len_without_is_empty,
+        reason = "batches are guaranteed non-empty"
+    )]
     #[must_use]
     pub fn len(&self) -> usize { self.fragments.len() }
-
-    /// Whether the batch contains no fragments.
-    #[must_use]
-    pub fn is_empty(&self) -> bool { self.fragments.is_empty() }
 
     /// Whether the logical message required more than one fragment.
     #[must_use]

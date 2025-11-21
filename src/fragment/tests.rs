@@ -86,7 +86,7 @@ fn fragmenter_splits_payload_into_multiple_frames() {
     let fragmenter = Fragmenter::new(NonZeroUsize::new(3).expect("non-zero"));
     let payload: Vec<u8> = (0..8).collect();
     let batch = fragmenter
-        .fragment_bytes(&payload)
+        .fragment_bytes(payload)
         .expect("fragment payload");
 
     assert_eq!(batch.len(), 3);
@@ -105,7 +105,7 @@ fn fragmenter_splits_payload_into_multiple_frames() {
 #[test]
 fn fragmenter_handles_empty_payload() {
     let fragmenter = Fragmenter::new(NonZeroUsize::new(8).expect("non-zero"));
-    let batch = fragmenter.fragment_bytes(&[]).expect("fragment empty");
+    let batch = fragmenter.fragment_bytes([]).expect("fragment empty");
 
     assert_eq!(batch.len(), 1);
     assert!(!batch.is_fragmented());
@@ -132,7 +132,7 @@ fn fragmenter_fragments_messages_and_increments_ids() {
 
     let next_payload = vec![9, 9, 9];
     let next = fragmenter
-        .fragment_bytes(&next_payload)
+        .fragment_bytes(next_payload)
         .expect("fragment bytes");
     assert_eq!(next.message_id(), MessageId::new(8));
     assert_eq!(next.len(), 1);
@@ -144,7 +144,7 @@ fn fragment_batch_into_iterator_yields_all_fragments() {
     let fragmenter = Fragmenter::new(NonZeroUsize::new(2).expect("non-zero"));
     let payload = [1_u8, 2, 3];
     let batch = fragmenter
-        .fragment_bytes(&payload)
+        .fragment_bytes(payload)
         .expect("split into fragments");
 
     let payloads: Vec<Vec<u8>> = batch
@@ -152,4 +152,19 @@ fn fragment_batch_into_iterator_yields_all_fragments() {
         .map(|fragment| fragment.payload().to_vec())
         .collect();
     assert_eq!(payloads, vec![vec![1, 2], vec![3]]);
+}
+
+#[test]
+fn fragmenter_respects_explicit_message_ids() {
+    let fragmenter =
+        Fragmenter::with_starting_id(NonZeroUsize::new(2).expect("non-zero"), MessageId::new(10));
+    let payload = [7_u8, 8, 9];
+    let batch = fragmenter
+        .fragment_with_id(MessageId::new(500), payload)
+        .expect("fragment with explicit id");
+    assert_eq!(batch.message_id(), MessageId::new(500));
+    assert_eq!(batch.len(), 2);
+
+    let next = fragmenter.fragment_bytes([1_u8]).expect("next fragment");
+    assert_eq!(next.message_id(), MessageId::new(10));
 }

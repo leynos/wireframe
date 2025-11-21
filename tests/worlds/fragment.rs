@@ -52,7 +52,7 @@ impl FragmentWorld {
         let fragmenter = self.fragmenter.as_ref().expect("fragmenter not configured");
         let payload = vec![0_u8; len];
         let batch = fragmenter
-            .fragment_bytes(&payload)
+            .fragment_bytes(payload)
             .expect("fragmentation must succeed in tests");
         self.last_batch = Some(batch);
     }

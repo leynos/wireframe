@@ -153,7 +153,9 @@ fragments while stamping the shared `MessageId` and sequential `FragmentIndex`.
 Each call returns a `FragmentBatch` that reports whether the message required
 fragmentation and yields individual `FragmentFrame` values for serialization or
 logging. This keeps transport experiments lightweight while the full adapter
-layer evolves.
+layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
+failures or index overflows—so production code should bubble the error up or
+log it rather than unwrapping.
 
 ```rust
 use std::num::NonZeroUsize;
