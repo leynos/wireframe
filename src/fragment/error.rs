@@ -1,8 +1,10 @@
 //! Error and status types emitted by the fragmentation layer.
 //!
-//! These enums keep the series logic decoupled from specific protocols while
-//! still surfacing precise diagnostics for behavioural tests.
+//! These enums keep both the outbound and inbound logic decoupled from
+//! specific protocols while still surfacing precise diagnostics for
+//! behavioural tests.
 
+use bincode::error::EncodeError;
 use thiserror::Error;
 
 use super::{FragmentIndex, MessageId};
@@ -35,6 +37,17 @@ pub enum FragmentError {
     #[error("fragment series already complete")]
     SeriesComplete,
     /// The fragment index overflowed `u32::MAX`.
+    #[error("fragment index overflow after {last}")]
+    IndexOverflow { last: FragmentIndex },
+}
+
+/// Errors produced while fragmenting outbound messages.
+#[derive(Debug, Error)]
+pub enum FragmentationError {
+    /// Serialisation failed before chunking.
+    #[error("failed to encode message: {0}")]
+    Encode(#[from] EncodeError),
+    /// The fragment index cannot advance because it would overflow `u32`.
     #[error("fragment index overflow after {last}")]
     IndexOverflow { last: FragmentIndex },
 }

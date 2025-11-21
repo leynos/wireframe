@@ -38,6 +38,7 @@ design and possible refinements. See
 
 The implementation must satisfy the following core requirements:
 
+<!-- markdownlint-disable MD060 -->
 | ID | Requirement                                                                                                                                            |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | G1 | Any async task must be able to push frames to a live connection.                                                                                       |
@@ -45,6 +46,7 @@ The implementation must satisfy the following core requirements:
 | G3 | Back-pressure: Writers must block (or fail fast) when the peer cannot drain the socket, preventing unbounded memory consumption.                       |
 | G4 | Generic—independent of any particular protocol; usable by both servers and clients built on wireframe.                                                 |
 | G5 | Preserve the simple “return a reply” path for code that does not need pushes, ensuring backward compatibility and low friction for existing users.     |
+<!-- markdownlint-enable MD060 -->
 
 ## 3. Core architecture: the connection actor
 

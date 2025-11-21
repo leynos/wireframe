@@ -32,11 +32,15 @@ pub mod session;
 pub use connection::ConnectionActor;
 pub use correlation::CorrelatableFrame;
 pub use fragment::{
+    FragmentBatch,
     FragmentError,
+    FragmentFrame,
     FragmentHeader,
     FragmentIndex,
     FragmentSeries,
     FragmentStatus,
+    FragmentationError,
+    Fragmenter,
     MessageId,
 };
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};

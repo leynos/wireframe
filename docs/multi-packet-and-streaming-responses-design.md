@@ -85,6 +85,7 @@ duplex and capable framework.
 
 The implementation must satisfy the following core requirements:
 
+<!-- markdownlint-disable MD060 -->
 | ID | Requirement                                                                                                          |
 | --- | -------------------------------------------------------------------------------------------------------------------- |
 | G1 | Allow a handler to send zero, one, or many frames for a single logical response.                                     |
@@ -92,6 +93,7 @@ The implementation must satisfy the following core requirements:
 | G3 | Integrate with protocol-specific sequencing rules (e.g., per-command counters) without hard-coding any one protocol. |
 | G4 | Keep the simple “single-frame reply” path untouched; upgrading should be optional and ergonomic.                     |
 | G5 | Work symmetrically for servers and clients built with wireframe.                                                     |
+<!-- markdownlint-enable MD060 -->
 
 ## 3. Core Architecture: Declarative Streaming
 
