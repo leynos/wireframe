@@ -1,7 +1,9 @@
-//! Test world for fragment reassembly scenarios.
+//! Test world for fragmentation scenarios covering both directions.
 //!
 //! Provides [`FragmentWorld`] to verify ordering, completion detection, and
-//! error handling across the fragmentation behavioural tests.
+//! error handling across the fragmentation behavioural tests while also
+//! exercising outbound fragmentation by chunking payloads via the helper
+//! `Fragmenter` and inspecting the resulting `FragmentBatch` state.
 #![cfg(not(loom))]
 
 use std::num::NonZeroUsize;
@@ -34,7 +36,8 @@ impl FragmentWorld {
         self.last_result = None;
     }
 
-    /// Configure a fragmenter with the provided payload cap.
+    /// Configure a fragmenter with the provided payload cap so outbound
+    /// fragmentation scenarios can chunk messages during behavioural tests.
     ///
     /// # Panics
     /// Panics if `max_payload` is zero.
@@ -44,7 +47,8 @@ impl FragmentWorld {
         self.last_batch = None;
     }
 
-    /// Request fragmentation for a payload of `len` bytes.
+    /// Request fragmentation for a payload of `len` bytes, simulating outbound
+    /// fragment production for the behavioural scenarios.
     ///
     /// # Panics
     /// Panics if [`configure_fragmenter`] has not been called yet.
@@ -194,7 +198,8 @@ impl FragmentWorld {
         );
     }
 
-    /// Assert that the most recent fragmentation produced `expected` fragments.
+    /// Assert that the most recent fragmentation produced `expected` fragments
+    /// for outbound fragmentation scenarios.
     ///
     /// # Panics
     /// Panics if no payload has been fragmented yet.
@@ -202,7 +207,8 @@ impl FragmentWorld {
         assert_eq!(self.batch().len(), expected, "unexpected fragment count");
     }
 
-    /// Assert that the payload length of fragment `index` matches `expected` bytes.
+    /// Assert that the payload length of fragment `index` matches `expected`
+    /// bytes for outbound fragments.
     ///
     /// # Panics
     /// Panics if no payload has been fragmented or if `index` exceeds the batch.
@@ -215,7 +221,7 @@ impl FragmentWorld {
         );
     }
 
-    /// Assert that fragment `index` carries the expected final flag.
+    /// Assert that outbound fragment `index` carries the expected final flag.
     ///
     /// # Panics
     /// Panics if no payload has been fragmented or if `index` exceeds the batch.
@@ -228,7 +234,8 @@ impl FragmentWorld {
         );
     }
 
-    /// Assert that the batch carries the expected message identifier.
+    /// Assert that the outbound fragment batch carries the expected message
+    /// identifier.
     ///
     /// # Panics
     /// Panics if no payload has been fragmented yet.
