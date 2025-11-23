@@ -162,7 +162,7 @@ use std::num::NonZeroUsize;
 use wireframe::fragment::Fragmenter;
 
 let fragmenter = Fragmenter::new(NonZeroUsize::new(512).unwrap());
-let payload = vec![0_u8; 1400];
+let payload = [0_u8; 1400];
 let batch = fragmenter.fragment_bytes(&payload).expect("fragment");
 assert_eq!(batch.len(), 3);
 

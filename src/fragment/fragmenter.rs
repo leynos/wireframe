@@ -190,7 +190,7 @@ impl FragmentBatch {
     pub fn fragments(&self) -> &[FragmentFrame] { self.fragments.as_slice() }
 
     /// Number of fragments in the batch.
-    #[allow(
+    #[expect(
         clippy::len_without_is_empty,
         reason = "batches are guaranteed non-empty"
     )]
