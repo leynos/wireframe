@@ -45,3 +45,27 @@ Feature: Fragment metadata enforcement
     And fragment 2 carries 2 bytes
     And fragment 2 is marked final
     And the fragments use message id 0
+
+  Scenario: Reassembler rebuilds sequential fragments
+    Given a reassembler allowing 10 bytes with a 30-second reassembly timeout
+    When fragment 0 for message 21 with 4 bytes arrives marked non-final
+    And fragment 1 for message 21 with 3 bytes arrives marked final
+    Then the reassembler outputs a payload of 7 bytes
+    And the reassembler is buffering 0 messages
+
+  Scenario: Reassembler rejects messages that exceed the cap
+    Given a reassembler allowing 4 bytes with a 30-second reassembly timeout
+    When fragment 0 for message 22 with 3 bytes arrives marked non-final
+    And fragment 1 for message 22 with 2 bytes arrives marked final
+    Then the reassembler reports a message-too-large error
+    And no message has been reassembled yet
+    And the reassembler is buffering 0 messages
+
+  Scenario: Reassembler evicts stale partial messages
+    Given a reassembler allowing 8 bytes with a 1-second reassembly timeout
+    When fragment 0 for message 23 with 5 bytes arrives marked non-final
+    And time advances by 2 seconds
+    And expired reassembly buffers are purged
+    Then the reassembler is buffering 0 messages
+    And message 23 is evicted
+    And no message has been reassembled yet

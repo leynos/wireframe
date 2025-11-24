@@ -42,6 +42,9 @@ pub use fragment::{
     FragmentationError,
     Fragmenter,
     MessageId,
+    ReassembledMessage,
+    Reassembler,
+    ReassemblyError,
 };
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
 pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};

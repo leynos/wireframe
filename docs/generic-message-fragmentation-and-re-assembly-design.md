@@ -368,3 +368,8 @@ This feature is designed as a foundational layer that other features build upon.
   payloads into capped fragments, and return typed collections that are simple
   to wrap in protocol-specific envelopes or feed into behavioural tests before
   the full `FragmentAdapter` lands.
+- Added a transport-agnostic `Reassembler` that mirrors the outbound helper on
+  the inbound path. It buffers fragments per `MessageId` via `FragmentSeries`,
+  drops the partial buffer when ordering breaks, enforces a configurable
+  `max_message_size`, and exposes caller-driven timeout purging. This prevents
+  abandoned assemblies from exhausting memory.

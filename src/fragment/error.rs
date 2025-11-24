@@ -4,6 +4,8 @@
 //! specific protocols while still surfacing precise diagnostics for
 //! behavioural tests.
 
+use std::num::NonZeroUsize;
+
 use bincode::error::EncodeError;
 use thiserror::Error;
 
@@ -50,4 +52,22 @@ pub enum FragmentationError {
     /// The fragment index cannot advance because it would overflow `u32`.
     #[error("fragment index overflow after {last}")]
     IndexOverflow { last: FragmentIndex },
+}
+
+/// Errors produced while re-assembling inbound fragments.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum ReassemblyError {
+    /// The fragment broke ordering or message tracking guarantees.
+    #[error("fragment rejected during reassembly: {0}")]
+    Fragment(#[from] FragmentError),
+    /// The combined fragment payloads would exceed the configured cap.
+    #[error("message {message_id} exceeds reassembly cap: {attempted} bytes > {limit} byte limit")]
+    MessageTooLarge {
+        /// Identifier for the logical message being assembled.
+        message_id: MessageId,
+        /// Total size that triggered the guard.
+        attempted: usize,
+        /// Configured reassembly cap.
+        limit: NonZeroUsize,
+    },
 }

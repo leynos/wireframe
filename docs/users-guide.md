@@ -176,6 +176,34 @@ for fragment in batch.fragments() {
 }
 ```
 
+A companion `Reassembler` mirrors the helper on the inbound path. It buffers
+fragments per `MessageId`, rejects out-of-order fragments, and enforces a
+maximum assembled size while exposing `purge_expired` to clear stale partial
+messages after a configurable timeout. When the final fragment arrives it
+returns a `ReassembledMessage` that can be decoded into the original type.
+
+```rust
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe::fragment::{
+    FragmentHeader,
+    FragmentIndex,
+    MessageId,
+    Reassembler,
+};
+
+let mut reassembler =
+    Reassembler::new(NonZeroUsize::new(512).unwrap(), Duration::from_secs(30));
+
+let header = FragmentHeader::new(MessageId::new(9), FragmentIndex::zero(), true);
+let complete = reassembler
+    .push(header, [0_u8; 12])
+    .expect("fragments accepted")
+    .expect("single fragment completes the message");
+
+// Decode when ready:
+// let message: MyType = complete.decode().expect("decode");
+```
+
 ## Working with requests and middleware
 
 Every inbound frame becomes a `ServiceRequest`. Middleware can inspect or

@@ -1,4 +1,6 @@
 //! Steps for fragment metadata behavioural tests.
+use std::time::Duration;
+
 use cucumber::{given, then, when};
 
 use crate::world::FragmentWorld;
@@ -72,4 +74,58 @@ fn then_fragment_non_final(world: &mut FragmentWorld, index: usize) {
 #[then(expr = "the fragments use message id {int}")]
 fn then_fragment_message_id(world: &mut FragmentWorld, message_id: u64) {
     world.assert_message_id(message_id);
+}
+
+#[given(expr = "a reassembler allowing {int} bytes with a {int}-second reassembly timeout")]
+fn given_reassembler(world: &mut FragmentWorld, max_bytes: usize, timeout_secs: u64) {
+    world.configure_reassembler(max_bytes, timeout_secs);
+}
+
+#[when(expr = "fragment {int} for message {int} with {int} bytes arrives marked non-final")]
+fn when_reassembler_fragment_non_final(
+    world: &mut FragmentWorld,
+    index: u32,
+    message: u64,
+    len: usize,
+) {
+    world.push_fragment(message, index, false, len);
+}
+
+#[when(expr = "fragment {int} for message {int} with {int} bytes arrives marked final")]
+fn when_reassembler_fragment_final(
+    world: &mut FragmentWorld,
+    index: u32,
+    message: u64,
+    len: usize,
+) {
+    world.push_fragment(message, index, true, len);
+}
+
+#[when(expr = "time advances by {int} seconds")]
+fn when_time_advances(world: &mut FragmentWorld, seconds: u64) {
+    world.advance_time(Duration::from_secs(seconds));
+}
+
+#[when("expired reassembly buffers are purged")]
+fn when_reassembly_purged(world: &mut FragmentWorld) { world.purge_reassembly(); }
+
+#[then(expr = "the reassembler outputs a payload of {int} bytes")]
+fn then_reassembled_len(world: &mut FragmentWorld, expected: usize) {
+    world.assert_reassembled_len(expected);
+}
+
+#[then("no message has been reassembled yet")]
+fn then_no_reassembled_message(world: &mut FragmentWorld) { world.assert_no_reassembly(); }
+
+#[then("the reassembler reports a message-too-large error")]
+fn then_reassembly_over_limit(world: &mut FragmentWorld) { world.assert_reassembly_over_limit(); }
+
+#[then(expr = "the reassembler is buffering {int} messages")]
+fn then_buffered_messages(world: &mut FragmentWorld, expected: usize) {
+    world.assert_buffered_messages(expected);
+}
+
+#[then(expr = "message {int} is evicted")]
+fn then_message_evicted(world: &mut FragmentWorld, message: u64) {
+    world.assert_evicted_message(message);
 }
