@@ -69,3 +69,9 @@ Feature: Fragment metadata enforcement
     Then the reassembler is buffering 0 messages
     And message 23 is evicted
     And no message has been reassembled yet
+
+  Scenario: Reassembler rejects out-of-order fragments
+    Given a reassembler allowing 8 bytes with a 30-second reassembly timeout
+    When fragment 1 for message 24 with 2 bytes arrives marked non-final
+    Then the reassembler reports an out-of-order fragment error
+    And the reassembler is buffering 0 messages

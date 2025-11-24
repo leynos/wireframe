@@ -8,7 +8,10 @@
 //! behavioural tests can reuse it without depending on socket types.
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{
+        HashMap,
+        hash_map::{Entry, OccupiedEntry},
+    },
     num::NonZeroUsize,
     time::{Duration, Instant},
 };
@@ -27,11 +30,9 @@ struct PartialMessage {
 
 impl PartialMessage {
     fn new(series: FragmentSeries, payload: &[u8], started_at: Instant) -> Self {
-        let mut buffer = Vec::with_capacity(payload.len());
-        buffer.extend_from_slice(payload);
         Self {
             series,
-            buffer,
+            buffer: payload.to_vec(),
             started_at,
         }
     }
@@ -150,33 +151,20 @@ impl Reassembler {
                     .map_err(ReassemblyError::from);
 
                 match status {
-                    Ok(FragmentStatus::Incomplete) => {
-                        let attempted = occupied.get().len() + payload.len();
-                        if let Err(err) = Self::assert_within_limit(
-                            self.max_message_size,
-                            header.message_id(),
-                            attempted,
-                        ) {
-                            occupied.remove();
-                            return Err(err);
-                        }
-                        occupied.get_mut().push(payload);
-                        Ok(None)
-                    }
-                    Ok(FragmentStatus::Complete) => {
-                        let attempted = occupied.get().len() + payload.len();
-                        if let Err(err) = Self::assert_within_limit(
-                            self.max_message_size,
-                            header.message_id(),
-                            attempted,
-                        ) {
-                            occupied.remove();
-                            return Err(err);
-                        }
-                        occupied.get_mut().push(payload);
-                        let buffer = occupied.remove().into_buffer();
-                        Ok(Some(ReassembledMessage::new(header.message_id(), buffer)))
-                    }
+                    Ok(FragmentStatus::Incomplete) => Self::append_and_maybe_complete(
+                        self.max_message_size,
+                        occupied,
+                        header.message_id(),
+                        payload,
+                        false,
+                    ),
+                    Ok(FragmentStatus::Complete) => Self::append_and_maybe_complete(
+                        self.max_message_size,
+                        occupied,
+                        header.message_id(),
+                        payload,
+                        true,
+                    ),
                     Err(err) => {
                         occupied.remove();
                         Err(err)
@@ -244,5 +232,27 @@ impl Reassembler {
             });
         }
         Ok(())
+    }
+
+    fn append_and_maybe_complete(
+        limit: NonZeroUsize,
+        mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
+        message_id: MessageId,
+        payload: &[u8],
+        completes: bool,
+    ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
+        let attempted = occupied.get().len() + payload.len();
+        if let Err(err) = Self::assert_within_limit(limit, message_id, attempted) {
+            occupied.remove();
+            return Err(err);
+        }
+
+        occupied.get_mut().push(payload);
+        if completes {
+            let buffer = occupied.remove().into_buffer();
+            Ok(Some(ReassembledMessage::new(message_id, buffer)))
+        } else {
+            Ok(None)
+        }
     }
 }

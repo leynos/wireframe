@@ -399,4 +399,23 @@ impl FragmentWorld {
             "message {message_id} was not evicted"
         );
     }
+
+    /// Assert that the latest reassembly error was triggered by an out-of-order fragment.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no reassembly error was captured or if the error was not an index mismatch.
+    pub fn assert_reassembly_out_of_order(&self) {
+        let err = self
+            .last_reassembly_error
+            .as_ref()
+            .expect("no reassembly error captured");
+        assert!(
+            matches!(
+                err,
+                ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
+            ),
+            "expected out-of-order error, got {err}"
+        );
+    }
 }

@@ -123,6 +123,11 @@ fn then_no_reassembled_message(world: &mut FragmentWorld) { world.assert_no_reas
 #[then("the reassembler reports a message-too-large error")]
 fn then_reassembly_over_limit(world: &mut FragmentWorld) { world.assert_reassembly_over_limit(); }
 
+#[then("the reassembler reports an out-of-order fragment error")]
+fn then_reassembly_out_of_order(world: &mut FragmentWorld) {
+    world.assert_reassembly_out_of_order();
+}
+
 #[then(expr = "the reassembler is buffering {int} messages")]
 fn then_buffered_messages(world: &mut FragmentWorld, expected: usize) {
     world.assert_buffered_messages(expected);

@@ -191,6 +191,51 @@ fn fragmenter_respects_explicit_message_ids() {
 }
 
 #[test]
+fn reassembler_allows_single_fragment_at_max_message_size() {
+    let max_message_size = NonZeroUsize::new(16).expect("non-zero");
+    let mut reassembler = Reassembler::new(max_message_size, Duration::from_secs(5));
+
+    let header = FragmentHeader::new(MessageId::new(20), FragmentIndex::zero(), true);
+    let payload = vec![0_u8; max_message_size.get()];
+
+    let result = reassembler
+        .push(header, payload)
+        .expect("fragment within limit should be accepted");
+
+    let assembled = result.expect("single fragment should complete reassembly");
+    assert_eq!(assembled.payload().len(), max_message_size.get());
+    assert_eq!(reassembler.buffered_len(), 0);
+}
+
+#[test]
+fn reassembler_allows_multi_fragment_at_max_message_size() {
+    let max_message_size = NonZeroUsize::new(16).expect("non-zero");
+    let mut reassembler = Reassembler::new(max_message_size, Duration::from_secs(5));
+
+    let first_header = FragmentHeader::new(MessageId::new(21), FragmentIndex::zero(), false);
+    let second_header = FragmentHeader::new(MessageId::new(21), FragmentIndex::new(1), true);
+
+    let first_payload = vec![0_u8; 8];
+    let second_payload = vec![1_u8; max_message_size.get() - first_payload.len()];
+
+    assert!(
+        reassembler
+            .push(first_header, first_payload)
+            .expect("first fragment within limit")
+            .is_none(),
+        "first fragment should not complete the message",
+    );
+
+    let result = reassembler
+        .push(second_header, second_payload)
+        .expect("second fragment keeps total at limit");
+
+    let assembled = result.expect("fragments should complete reassembly at exact limit");
+    assert_eq!(assembled.payload().len(), max_message_size.get());
+    assert_eq!(reassembler.buffered_len(), 0);
+}
+
+#[test]
 fn reassembler_returns_single_fragment_immediately() {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(16).expect("non-zero"),
