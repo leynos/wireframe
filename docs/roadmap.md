@@ -258,7 +258,7 @@ logic.
   - [x] Define a generic `Fragment` header or metadata containing `message_id`,
     `fragment_index`, and `is_last_fragment` fields.
 
-  - [ ] Implement a `Fragmenter` to split a large `Message` into multiple
+  - [x] Implement a `Fragmenter` to split a large `Message` into multiple
     `Frame`s, each with a `Fragment` header.
 
   - [ ] Implement a `Reassembler` on the receiving end to collect fragments and

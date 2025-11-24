@@ -33,3 +33,15 @@ Feature: Fragment metadata enforcement
     When fragment 0 arrives marked final
     And fragment 1 arrives marked final
     Then the fragment is rejected because the series is complete
+
+  Scenario: Fragmenter splits oversized payloads into sequential fragments
+    Given a fragmenter capped at 3 bytes per fragment
+    When the fragmenter splits a payload of 8 bytes
+    Then the fragmenter produces 3 fragments
+    And fragment 0 carries 3 bytes
+    And fragment 0 is marked non-final
+    And fragment 1 carries 3 bytes
+    And fragment 1 is marked non-final
+    And fragment 2 carries 2 bytes
+    And fragment 2 is marked final
+    And the fragments use message id 0

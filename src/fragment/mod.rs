@@ -6,12 +6,14 @@
 //! crate root.
 
 pub mod error;
+pub mod fragmenter;
 pub mod header;
 pub mod id;
 pub mod index;
 pub mod series;
 
-pub use error::{FragmentError, FragmentStatus};
+pub use error::{FragmentError, FragmentStatus, FragmentationError};
+pub use fragmenter::{FragmentBatch, FragmentFrame, Fragmenter};
 pub use header::FragmentHeader;
 pub use id::MessageId;
 pub use index::FragmentIndex;

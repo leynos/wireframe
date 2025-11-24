@@ -148,6 +148,34 @@ re-assembled message is surfaced to handlers. Behavioural tests can reuse the
 same types to assert that new codecs obey the transport invariants without
 spinning up a full server.[^42][^43]
 
+The standalone `Fragmenter` helper now slices oversized payloads into capped
+fragments while stamping the shared `MessageId` and sequential `FragmentIndex`.
+Each call returns a `FragmentBatch` that reports whether the message required
+fragmentation and yields individual `FragmentFrame` values for serialization or
+logging. This keeps transport experiments lightweight while the full adapter
+layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
+failures or index overflows—so production code should bubble the error up or
+log it rather than unwrapping.
+
+```rust
+use std::num::NonZeroUsize;
+use wireframe::fragment::Fragmenter;
+
+let fragmenter = Fragmenter::new(NonZeroUsize::new(512).unwrap());
+let payload = [0_u8; 1400];
+let batch = fragmenter.fragment_bytes(&payload).expect("fragment");
+assert_eq!(batch.len(), 3);
+
+for fragment in batch.fragments() {
+    tracing::info!(
+        msg_id = fragment.header().message_id().get(),
+        index = fragment.header().fragment_index().get(),
+        final = fragment.header().is_last_fragment(),
+        payload_len = fragment.payload().len(),
+    );
+}
+```
+
 ## Working with requests and middleware
 
 Every inbound frame becomes a `ServiceRequest`. Middleware can inspect or
