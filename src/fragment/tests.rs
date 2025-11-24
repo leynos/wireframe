@@ -8,6 +8,24 @@ use rstest::rstest;
 
 use super::*;
 
+fn setup_reassembler_with_first_fragment(
+    message_id: u64,
+    first_payload: impl AsRef<[u8]>,
+) -> Reassembler {
+    let mut reassembler = Reassembler::new(
+        NonZeroUsize::new(8).expect("non-zero"),
+        Duration::from_secs(30),
+    );
+    let first = FragmentHeader::new(MessageId::new(message_id), FragmentIndex::zero(), false);
+    assert!(
+        reassembler
+            .push(first, first_payload)
+            .expect("first fragment accepted")
+            .is_none()
+    );
+    reassembler
+}
+
 #[test]
 fn fragment_header_exposes_fields() {
     let header = FragmentHeader::new(MessageId::new(9), FragmentIndex::new(2), true);
@@ -193,19 +211,8 @@ fn reassembler_returns_single_fragment_immediately() {
 
 #[test]
 fn reassembler_accumulates_ordered_fragments() {
-    let mut reassembler = Reassembler::new(
-        NonZeroUsize::new(8).expect("non-zero"),
-        Duration::from_secs(30),
-    );
-    let first = FragmentHeader::new(MessageId::new(2), FragmentIndex::zero(), false);
+    let mut reassembler = setup_reassembler_with_first_fragment(2, [5_u8, 6, 7]);
     let final_fragment = FragmentHeader::new(MessageId::new(2), FragmentIndex::new(1), true);
-
-    assert!(
-        reassembler
-            .push(first, [5_u8, 6, 7])
-            .expect("first fragment accepted")
-            .is_none()
-    );
 
     let complete = reassembler
         .push(final_fragment, [8_u8, 9])
@@ -218,19 +225,8 @@ fn reassembler_accumulates_ordered_fragments() {
 
 #[test]
 fn reassembler_rejects_out_of_order_and_drops_partial() {
-    let mut reassembler = Reassembler::new(
-        NonZeroUsize::new(8).expect("non-zero"),
-        Duration::from_secs(30),
-    );
-    let first = FragmentHeader::new(MessageId::new(3), FragmentIndex::zero(), false);
+    let mut reassembler = setup_reassembler_with_first_fragment(3, [1_u8, 2]);
     let skipped = FragmentHeader::new(MessageId::new(3), FragmentIndex::new(2), true);
-
-    assert!(
-        reassembler
-            .push(first, [1_u8, 2])
-            .expect("first fragment accepted")
-            .is_none()
-    );
 
     let err = reassembler
         .push(skipped, [3_u8])

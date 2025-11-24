@@ -2,6 +2,7 @@
 use std::time::Duration;
 
 use cucumber::{given, then, when};
+use wireframe::{FragmentHeader, FragmentIndex, MessageId};
 
 use crate::world::FragmentWorld;
 
@@ -88,7 +89,8 @@ fn when_reassembler_fragment_non_final(
     message: u64,
     len: usize,
 ) {
-    world.push_fragment(message, index, false, len);
+    let header = FragmentHeader::new(MessageId::new(message), FragmentIndex::new(index), false);
+    world.push_fragment(header, len);
 }
 
 #[when(expr = "fragment {int} for message {int} with {int} bytes arrives marked final")]
@@ -98,7 +100,8 @@ fn when_reassembler_fragment_final(
     message: u64,
     len: usize,
 ) {
-    world.push_fragment(message, index, true, len);
+    let header = FragmentHeader::new(MessageId::new(message), FragmentIndex::new(index), true);
+    world.push_fragment(header, len);
 }
 
 #[when(expr = "time advances by {int} seconds")]

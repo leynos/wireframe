@@ -290,22 +290,11 @@ impl FragmentWorld {
     ///
     /// # Panics
     /// Panics if the reassembler has not been configured.
-    pub fn push_fragment(
-        &mut self,
-        message_id: u64,
-        index: u32,
-        is_last: bool,
-        payload_len: usize,
-    ) {
+    pub fn push_fragment(&mut self, header: FragmentHeader, payload_len: usize) {
         let reassembler = self
             .reassembler
             .as_mut()
             .expect("reassembler not configured");
-        let header = FragmentHeader::new(
-            MessageId::new(message_id),
-            FragmentIndex::new(index),
-            is_last,
-        );
         let payload = vec![0_u8; payload_len];
         self.last_reassembly_error = None;
         self.last_reassembled = None;
