@@ -15,7 +15,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{
     Bound,
-    PreambleErrorHandler,
+    PreambleFailure,
     PreambleHandler,
     ServerError,
     WireframeServer,
@@ -79,6 +79,32 @@ impl BackoffConfig {
             std::mem::swap(&mut self.initial_delay, &mut self.max_delay);
         }
         self
+    }
+}
+
+pub(super) struct PreambleHooks<T> {
+    pub on_success: Option<PreambleHandler<T>>,
+    pub on_failure: Option<PreambleFailure<T>>,
+    pub timeout: Option<Duration>,
+}
+
+impl<T> Clone for PreambleHooks<T> {
+    fn clone(&self) -> Self {
+        Self {
+            on_success: self.on_success.clone(),
+            on_failure: self.on_failure.clone(),
+            timeout: self.timeout,
+        }
+    }
+}
+
+impl<T> Default for PreambleHooks<T> {
+    fn default() -> Self {
+        Self {
+            on_success: None,
+            on_failure: None,
+            timeout: None,
+        }
     }
 }
 
@@ -195,23 +221,27 @@ where
             ready_tx,
             state: Bound { listener },
             backoff_config,
+            preamble_timeout,
             ..
         } = self;
         let shutdown_token = CancellationToken::new();
         let tracker = TaskTracker::new();
+        let preamble = PreambleHooks {
+            on_success: on_preamble_success,
+            on_failure: on_preamble_failure,
+            timeout: preamble_timeout,
+        };
 
         for _ in 0..workers {
             let listener = Arc::clone(&listener);
             let factory = factory.clone();
-            let on_success = on_preamble_success.clone();
-            let on_failure = on_preamble_failure.clone();
+            let preamble_hooks = preamble.clone();
             let token = shutdown_token.clone();
             let t = tracker.clone();
             tracker.spawn(accept_loop(
                 listener,
                 factory,
-                on_success,
-                on_failure,
+                preamble_hooks,
                 token,
                 t,
                 backoff_config,
@@ -247,8 +277,7 @@ where
 ///
 /// - `listener`: Source of incoming TCP connections.
 /// - `factory`: Creates a fresh [`WireframeApp`] for each connection.
-/// - `on_success`: Callback invoked after a successful preamble.
-/// - `on_failure`: Callback invoked when the preamble fails.
+/// - `preamble`: Preamble handlers and timeout configuration.
 /// - `shutdown`: Signal used to stop the accept loop.
 /// - `tracker`: Task tracker used for graceful shutdown.
 /// - `backoff_config`: Controls exponential back-off behaviour.
@@ -265,7 +294,7 @@ where
 /// use std::sync::Arc;
 ///
 /// use tokio_util::{sync::CancellationToken, task::TaskTracker};
-/// use wireframe::{app::WireframeApp /*, server::runtime::{AcceptListener, BackoffConfig, accept_loop} */};
+/// use wireframe::{app::WireframeApp /*, server::runtime::{AcceptListener, BackoffConfig, PreambleHooks, accept_loop} */};
 ///
 /// async fn run<L: AcceptListener + Send + Sync + 'static>(listener: Arc<L>) {
 ///     let tracker = TaskTracker::new();
@@ -273,8 +302,7 @@ where
 ///     accept_loop::<_, (), _>(
 ///         listener,
 ///         || WireframeApp::default(),
-///         None,
-///         None,
+///         PreambleHooks::default(),
 ///         token,
 ///         tracker,
 ///         BackoffConfig::default(),
@@ -285,8 +313,7 @@ where
 pub(super) async fn accept_loop<F, T, L>(
     listener: Arc<L>,
     factory: F,
-    on_success: Option<PreambleHandler<T>>,
-    on_failure: Option<PreambleErrorHandler>,
+    preamble: PreambleHooks<T>,
     shutdown: CancellationToken,
     tracker: TaskTracker,
     backoff_config: BackoffConfig,
@@ -312,11 +339,13 @@ pub(super) async fn accept_loop<F, T, L>(
 
             res = listener.accept() => match res {
                 Ok((stream, _)) => {
+                    let hooks = preamble.clone();
                     spawn_connection_task(
                         stream,
                         factory.clone(),
-                        on_success.clone(),
-                        on_failure.clone(),
+                        hooks.on_success,
+                        hooks.on_failure,
+                        hooks.timeout,
                         &tracker,
                     );
                     delay = backoff_config.initial_delay;
@@ -426,8 +455,7 @@ mod tests {
         tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
-            None,
-            None,
+            PreambleHooks::default(),
             token.clone(),
             tracker.clone(),
             BackoffConfig::default(),
@@ -473,8 +501,7 @@ mod tests {
         tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
-            None,
-            None,
+            PreambleHooks::default(),
             token.clone(),
             tracker.clone(),
             backoff,

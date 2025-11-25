@@ -1,14 +1,13 @@
 //! Preamble configuration for [`WireframeServer`].
 
 use core::marker::PhantomData;
-
-use bincode::error::DecodeError;
+use std::time::Duration;
 
 use super::WireframeServer;
 use crate::{
     app::WireframeApp,
     preamble::Preamble,
-    server::{PreambleSuccessHandler, ServerState},
+    server::{PreambleFailureHandler, PreambleSuccessHandler, ServerState},
 };
 
 impl<F, T, S> WireframeServer<F, T, S>
@@ -47,9 +46,34 @@ where
             on_preamble_failure: None,
             ready_tx: self.ready_tx,
             backoff_config: self.backoff_config,
+            preamble_timeout: self.preamble_timeout,
             state: self.state,
             _preamble: PhantomData,
         }
+    }
+
+    /// Configure a timeout for reading the connection preamble.
+    ///
+    /// The timeout is applied around the preamble read. When it elapses, the
+    /// preamble decode failure handler is invoked (if registered) and the
+    /// connection is closed. Values below 1 ms are clamped to 1 ms to avoid
+    /// immediate expiry. Omit this setter to disable the timeout.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server =
+    ///     WireframeServer::new(|| WireframeApp::default()).preamble_timeout(Duration::from_secs(1));
+    /// ```
+    #[must_use]
+    pub fn preamble_timeout(mut self, timeout: Duration) -> Self {
+        let normalised = timeout.max(Duration::from_millis(1));
+        self.preamble_timeout = Some(normalised);
+        self
     }
 
     builder_callback!(
@@ -81,21 +105,29 @@ where
     builder_callback!(
         /// Register a handler invoked when the connection preamble fails to decode.
         ///
-        /// The handler receives a [`bincode::error::DecodeError`].
+        /// The handler receives a [`bincode::error::DecodeError`] and a mutable
+        /// [`tokio::net::TcpStream`] so it may emit a response before the
+        /// connection is closed. This callback is awaited; if it returns an
+        /// error, the error is logged and the connection is closed.
         ///
         /// # Examples
         ///
         /// ```
+        /// use futures::FutureExt;
+        /// use tokio::io::AsyncWriteExt;
         /// use wireframe::{app::WireframeApp, server::WireframeServer};
         ///
-        /// let server = WireframeServer::new(|| WireframeApp::default()).on_preamble_decode_failure(
-        ///     |_err: &bincode::error::DecodeError| {
-        ///         eprintln!("Failed to decode preamble");
-        ///     },
-        /// );
+        /// let server = WireframeServer::new(|| WireframeApp::default())
+        ///     .on_preamble_decode_failure(|_err: &bincode::error::DecodeError, stream| {
+        ///         async move {
+        ///             stream.write_all(b\"BAD\").await?;
+        ///             Ok(())
+        ///         }
+        ///         .boxed()
+        ///     });
         /// ```
         on_preamble_decode_failure,
         on_preamble_failure,
-        Fn(&DecodeError) + Send + Sync + 'static
+        PreambleFailureHandler<T>
     );
 }

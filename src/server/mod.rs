@@ -4,7 +4,7 @@
 //! decode an optional preamble before handing the stream to the application.
 
 use core::marker::PhantomData;
-use std::{io, sync::Arc};
+use std::{io, sync::Arc, time::Duration};
 
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
@@ -59,7 +59,27 @@ impl<T, F> PreambleSuccessHandler<T> for F where
 pub type PreambleHandler<T> = Arc<dyn PreambleSuccessHandler<T>>;
 
 /// Handler invoked when decoding a connection preamble fails.
-pub type PreambleErrorHandler = Arc<dyn Fn(&DecodeError) + Send + Sync + 'static>;
+///
+/// Implementors may perform asynchronous I/O on the provided stream to emit a
+/// response before the connection is closed.
+pub trait PreambleFailureHandler<T>:
+    for<'a> Fn(&'a DecodeError, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+    + Send
+    + Sync
+    + 'static
+{
+}
+
+impl<T, F> PreambleFailureHandler<T> for F where
+    F: for<'a> Fn(&'a DecodeError, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+        + Send
+        + Sync
+        + 'static
+{
+}
+
+/// [`PreambleFailureHandler`] wrapped in `Arc`.
+pub type PreambleFailure<T> = Arc<dyn PreambleFailureHandler<T>>;
 
 /// Tokio-based server for [`WireframeApp`] instances.
 ///
@@ -104,7 +124,7 @@ where
     pub(crate) factory: F,
     pub(crate) workers: usize,
     pub(crate) on_preamble_success: Option<PreambleHandler<T>>,
-    pub(crate) on_preamble_failure: Option<PreambleErrorHandler>,
+    pub(crate) on_preamble_failure: Option<PreambleFailure<T>>,
     /// Channel used to notify when the server is ready.
     ///
     /// # Thread Safety
@@ -119,6 +139,11 @@ where
     /// provided each time the server is started.
     pub(crate) ready_tx: Option<oneshot::Sender<()>>,
     pub(crate) backoff_config: BackoffConfig,
+    /// Maximum duration allowed for reading a preamble before timing out.
+    ///
+    /// `None` disables the timeout. A zero or sub-millisecond timeout is
+    /// normalised to 1 ms when configured.
+    pub(crate) preamble_timeout: Option<Duration>,
     /// Typestate tracking whether the server has been bound to a listener.
     /// [`Unbound`] servers require binding before they can run.
     pub(crate) state: S,

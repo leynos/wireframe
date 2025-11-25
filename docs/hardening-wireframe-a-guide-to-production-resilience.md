@@ -235,6 +235,15 @@ The solution is to store non-owning `Weak` pointers in the registry.
 
 This pattern entirely prevents the registry from causing memory leaks.
 
+### 3.3 Guarding the preamble phase
+
+Connections that never deliver a preamble can tie up sockets and worker tasks.
+A configurable `preamble_timeout` now wraps `read_preamble`, and expiry routes
+through the failure callback. Because the failure handler is asynchronous and
+receives the `TcpStream`, it can emit a protocol-specific error before the
+socket closes. This keeps resource usage bounded while preserving custom
+handshake responses.
+
 ## 4. Denial-of-Service (DoS) Mitigation
 
 As a library exposed to the network, `wireframe` must be hardened against

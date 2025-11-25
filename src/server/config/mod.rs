@@ -74,6 +74,7 @@ where
             on_preamble_failure: None,
             ready_tx: None,
             backoff_config: BackoffConfig::default(),
+            preamble_timeout: None,
             state: Unbound,
             _preamble: PhantomData,
         }

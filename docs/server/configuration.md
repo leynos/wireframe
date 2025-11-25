@@ -82,3 +82,31 @@ let cfg = BackoffConfig {
 let server = WireframeServer::new(|| WireframeApp::default())
     .accept_backoff(cfg);
 ```
+
+## Preamble handling
+
+Servers that expect a preamble can bound how long they wait for it and decide
+what to do when decoding fails. `preamble_timeout(Duration)` wraps
+`read_preamble` in a timeout; values below 1 ms are clamped to 1 ms, and
+omitting the setter leaves the read unbounded. When decoding fails or times
+out, an optional failure handler runs before the connection is closed. The
+handler is asynchronous and receives both the error and the mutable
+`TcpStream`, allowing a response to be written back to the client.
+
+```rust,no_run
+use std::time::Duration;
+
+use futures::FutureExt;
+use tokio::io::AsyncWriteExt;
+use wireframe::{app::WireframeApp, server::WireframeServer};
+
+let server = WireframeServer::new(|| WireframeApp::default())
+    .preamble_timeout(Duration::from_secs(2))
+    .on_preamble_decode_failure(|_err, stream| {
+        async move {
+            stream.write_all(b"preamble required").await?;
+            Ok(())
+        }
+        .boxed()
+    });
+```

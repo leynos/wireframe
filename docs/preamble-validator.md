@@ -31,7 +31,10 @@ sequenceDiagram
 
 The success callback receives the decoded preamble and a mutable `TcpStream`.
 It may write a handshake response before the connection is passed to
-`WireframeApp`. In the tests, a `HotlinePreamble` struct illustrates the
+`WireframeApp`. The failure callback is also asynchronous and receives the
+mutable stream so it can emit an error reply before the connection closes. Use
+`preamble_timeout` to cap how long the read may take; the timeout follows the
+failure callback path. In the tests, a `HotlinePreamble` struct illustrates the
 pattern, but any preamble type may be used. Register callbacks via
 `on_preamble_decode_success` and `on_preamble_decode_failure` on
 `WireframeServer`.

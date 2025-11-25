@@ -6,6 +6,7 @@
 //! cases via `rstest`.
 
 use std::{
+    io,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -13,10 +14,11 @@ use std::{
     time::Duration,
 };
 
+use bincode::error::DecodeError;
 use rstest::rstest;
+use tokio::net::{TcpListener, TcpStream};
 
 use super::*;
-use bincode::error::DecodeError;
 use crate::server::{
     test_util::{
         TestPreamble,
@@ -27,7 +29,7 @@ use crate::server::{
         server_with_preamble,
     },
     BackoffConfig,
-use tokio::net::{TcpListener, TcpStream};
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PreambleHandlerKind {
@@ -70,6 +72,18 @@ fn test_with_preamble_type_conversion(
 ) {
     let server = WireframeServer::new(factory).with_preamble::<TestPreamble>();
     assert_eq!(server.worker_count(), expected_default_worker_count());
+}
+
+#[rstest]
+fn test_preamble_timeout_configuration(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let timeout = Duration::from_millis(25);
+    let server = WireframeServer::new(factory).preamble_timeout(timeout);
+    assert_eq!(server.preamble_timeout, Some(timeout));
+
+    let clamped = WireframeServer::new(factory).preamble_timeout(Duration::ZERO);
+    assert_eq!(clamped.preamble_timeout, Some(Duration::from_millis(1)));
 }
 
 #[rstest]
@@ -125,9 +139,15 @@ async fn test_preamble_handler_registration(
                 Ok(())
             })
         }),
-        PreambleHandlerKind::Failure => server.on_preamble_decode_failure(move |_err: &DecodeError| {
-            c.fetch_add(1, Ordering::SeqCst);
-        }),
+        PreambleHandlerKind::Failure => server.on_preamble_decode_failure(
+            move |_err: &DecodeError, _stream| {
+                let c = c.clone();
+                Box::pin(async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    Ok::<(), io::Error>(())
+                })
+            },
+        ),
     };
 
     assert_eq!(counter.load(Ordering::SeqCst), 0);
@@ -157,7 +177,17 @@ async fn test_preamble_handler_registration(
                 .on_preamble_failure
                 .as_ref()
                 .expect("failure handler missing");
-            handler(&DecodeError::UnexpectedEnd);
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind listener");
+            let addr = listener.local_addr().expect("listener addr");
+            let _client = TcpStream::connect(addr)
+                .await
+                .expect("client connect failed");
+            let (mut stream, _) = listener.accept().await.expect("accept stream");
+            handler(&DecodeError::UnexpectedEnd, &mut stream)
+                .await
+                .expect("handler failed");
         }
     }
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -181,7 +211,7 @@ async fn test_method_chaining(
                 Ok(())
             })
         })
-        .on_preamble_decode_failure(|_: &DecodeError| {})
+        .on_preamble_decode_failure(|_: &DecodeError, _| Box::pin(async { Ok::<(), io::Error>(()) }))
         .bind_existing_listener(free_listener)
         .expect("Failed to bind");
     assert_eq!(server.worker_count(), 2);
