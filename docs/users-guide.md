@@ -179,7 +179,7 @@ for fragment in batch.fragments() {
 A companion `Reassembler` mirrors the helper on the inbound path. It buffers
 fragments per `MessageId`, rejects out-of-order fragments, and enforces a
 maximum assembled size while exposing `purge_expired` to clear stale partial
-messages after a configurable timeout. When the final fragment arrives it
+messages after a configurable timeout. When the final fragment arrives, it
 returns a `ReassembledMessage` that can be decoded into the original type.
 
 ```rust
@@ -192,7 +192,7 @@ use wireframe::fragment::{
 };
 
 let mut reassembler =
-    Reassembler::new(NonZeroUsize::new(512).unwrap(), Duration::from_secs(30));
+    Reassembler::new(NonZeroUsize::new(512).expect("non-zero capacity"), Duration::from_secs(30));
 
 let header = FragmentHeader::new(MessageId::new(9), FragmentIndex::zero(), true);
 let complete = reassembler

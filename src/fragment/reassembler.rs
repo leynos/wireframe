@@ -241,7 +241,14 @@ impl Reassembler {
         payload: &[u8],
         completes: bool,
     ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
-        let attempted = occupied.get().len() + payload.len();
+        let Some(attempted) = occupied.get().len().checked_add(payload.len()) else {
+            occupied.remove();
+            return Err(ReassemblyError::MessageTooLarge {
+                message_id,
+                attempted: usize::MAX,
+                limit,
+            });
+        };
         if let Err(err) = Self::assert_within_limit(limit, message_id, attempted) {
             occupied.remove();
             return Err(err);
