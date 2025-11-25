@@ -82,9 +82,10 @@ impl BackoffConfig {
     }
 }
 
+#[derive(Default)]
 pub(super) struct PreambleHooks<T> {
     pub on_success: Option<PreambleHandler<T>>,
-    pub on_failure: Option<PreambleFailure<T>>,
+    pub on_failure: Option<PreambleFailure>,
     pub timeout: Option<Duration>,
 }
 
@@ -94,16 +95,6 @@ impl<T> Clone for PreambleHooks<T> {
             on_success: self.on_success.clone(),
             on_failure: self.on_failure.clone(),
             timeout: self.timeout,
-        }
-    }
-}
-
-impl<T> Default for PreambleHooks<T> {
-    fn default() -> Self {
-        Self {
-            on_success: None,
-            on_failure: None,
-            timeout: None,
         }
     }
 }

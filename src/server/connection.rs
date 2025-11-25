@@ -19,7 +19,7 @@ pub(super) fn spawn_connection_task<F, T>(
     stream: TcpStream,
     factory: F,
     on_success: Option<PreambleHandler<T>>,
-    on_failure: Option<PreambleFailure<T>>,
+    on_failure: Option<PreambleFailure>,
     preamble_timeout: Option<Duration>,
     tracker: &TaskTracker,
 ) where
@@ -59,7 +59,7 @@ async fn process_stream<F, T>(
     peer_addr: Option<SocketAddr>,
     factory: F,
     on_success: Option<PreambleHandler<T>>,
-    on_failure: Option<PreambleFailure<T>>,
+    on_failure: Option<PreambleFailure>,
     preamble_timeout: Option<Duration>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,

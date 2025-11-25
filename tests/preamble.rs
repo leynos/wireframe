@@ -274,7 +274,7 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection(
     let server = WireframeServer::new(factory)
         .with_preamble::<HotlinePreamble>()
         .preamble_timeout(Duration::from_millis(50))
-        .on_preamble_decode_failure(move |err, _| {
+        .on_preamble_decode_failure(move |err, stream| {
             let failure_holder = failure_holder.clone();
             Box::pin(async move {
                 assert!(
@@ -285,6 +285,9 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection(
                     ),
                     "expected timed out error, got {err:?}"
                 );
+                stream.write_all(b"ERR").await.expect("write failed");
+                stream.flush().await.expect("flush failed");
+                stream.shutdown().await.expect("shutdown failed");
                 if let Some(tx) = failure_holder.lock().expect("lock").take() {
                     let _ = tx.send(());
                 }
@@ -298,8 +301,14 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection(
             .await
             .expect("timeout waiting for failure callback")
             .expect("failure callback send");
-        let mut buf = [0u8; 1];
-        let read = timeout(Duration::from_millis(200), stream.read(&mut buf)).await;
+        let mut buf = [0u8; 3];
+        timeout(Duration::from_millis(500), stream.read_exact(&mut buf))
+            .await
+            .expect("did not receive timeout response in time")
+            .expect("read timeout response failed");
+        assert_eq!(&buf, b"ERR");
+        let mut eof = [0u8; 1];
+        let read = timeout(Duration::from_millis(200), stream.read(&mut eof)).await;
         match read.expect("timeout waiting for close") {
             Ok(0) => {}
             Ok(n) => panic!("expected connection to close, read {n} bytes"),
@@ -343,6 +352,112 @@ async fn success_handler_runs_without_failure_handler(
             .expect("timeout waiting for success")
             .expect("success send");
         assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
+    })
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn preamble_timeout_allows_timely_preamble(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (success_holder, success_rx) = channel_holder();
+    let (failure_holder, failure_rx) = channel_holder();
+    let server = WireframeServer::new(factory)
+        .with_preamble::<HotlinePreamble>()
+        .preamble_timeout(Duration::from_millis(150))
+        .on_preamble_decode_success({
+            let success_holder = success_holder.clone();
+            move |p, stream| {
+                let success_holder = success_holder.clone();
+                let clone = p.clone();
+                Box::pin(async move {
+                    if let Some(tx) = success_holder.lock().expect("lock").take() {
+                        let _ = tx.send(());
+                    }
+                    stream.write_all(b"OK").await.expect("write failed");
+                    stream.flush().await.expect("flush failed");
+                    // keep connection open by not shutting down here
+                    assert_eq!(clone.magic, HotlinePreamble::MAGIC);
+                    Ok(())
+                })
+            }
+        })
+        .on_preamble_decode_failure({
+            let failure_holder = failure_holder.clone();
+            move |_, _| {
+                let failure_holder = failure_holder.clone();
+                Box::pin(async move {
+                    if let Some(tx) = failure_holder.lock().expect("lock").take() {
+                        let _ = tx.send(());
+                    }
+                    Ok(())
+                })
+            }
+        });
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
+        stream.write_all(bytes).await.expect("write failed");
+
+        timeout(Duration::from_millis(200), success_rx)
+            .await
+            .expect("timeout waiting for success")
+            .expect("success send");
+        assert!(
+            timeout(Duration::from_millis(150), failure_rx)
+                .await
+                .is_err(),
+            "failure handler should not fire for timely preamble"
+        );
+
+        let mut buf = [0u8; 2];
+        stream
+            .read_exact(&mut buf)
+            .await
+            .expect("expected response from success handler");
+        assert_eq!(&buf, b"OK");
+    })
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn failure_handler_error_is_logged_and_connection_closes(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (failure_holder, failure_rx) = channel_holder();
+    let server = WireframeServer::new(factory)
+        .with_preamble::<HotlinePreamble>()
+        .on_preamble_decode_failure(move |_, _| {
+            let failure_holder = failure_holder.clone();
+            Box::pin(async move {
+                if let Some(tx) = failure_holder.lock().expect("lock").take() {
+                    let _ = tx.send(());
+                }
+                Err::<(), io::Error>(io::Error::other("boom"))
+            })
+        });
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        stream.write_all(b"BAD").await.expect("write failed");
+        stream.shutdown().await.expect("shutdown failed");
+
+        timeout(Duration::from_secs(1), failure_rx)
+            .await
+            .expect("failure handler not invoked")
+            .expect("failure handler send failed");
+
+        let mut buf = [0u8; 1];
+        let read = timeout(Duration::from_millis(200), stream.read(&mut buf)).await;
+        match read.expect("timeout waiting for close") {
+            Ok(0) => {}
+            Ok(n) => panic!("expected connection close, read {n} bytes"),
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
+            Err(e) => panic!("unexpected read error: {e:?}"),
+        }
     })
     .await;
 }

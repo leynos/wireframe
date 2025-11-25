@@ -62,24 +62,12 @@ pub type PreambleHandler<T> = Arc<dyn PreambleSuccessHandler<T>>;
 ///
 /// Implementors may perform asynchronous I/O on the provided stream to emit a
 /// response before the connection is closed.
-pub trait PreambleFailureHandler<T>:
-    for<'a> Fn(&'a DecodeError, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
-    + Send
-    + Sync
-    + 'static
-{
-}
-
-impl<T, F> PreambleFailureHandler<T> for F where
-    F: for<'a> Fn(&'a DecodeError, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
+pub type PreambleFailure = Arc<
+    dyn for<'a> Fn(&'a DecodeError, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<()>>
         + Send
         + Sync
-        + 'static
-{
-}
-
-/// [`PreambleFailureHandler`] wrapped in `Arc`.
-pub type PreambleFailure<T> = Arc<dyn PreambleFailureHandler<T>>;
+        + 'static,
+>;
 
 /// Tokio-based server for [`WireframeApp`] instances.
 ///
@@ -124,7 +112,7 @@ where
     pub(crate) factory: F,
     pub(crate) workers: usize,
     pub(crate) on_preamble_success: Option<PreambleHandler<T>>,
-    pub(crate) on_preamble_failure: Option<PreambleFailure<T>>,
+    pub(crate) on_preamble_failure: Option<PreambleFailure>,
     /// Channel used to notify when the server is ready.
     ///
     /// # Thread Safety

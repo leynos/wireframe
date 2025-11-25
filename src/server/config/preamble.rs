@@ -1,13 +1,16 @@
 //! Preamble configuration for [`WireframeServer`].
 
 use core::marker::PhantomData;
-use std::time::Duration;
+use std::{io, time::Duration};
+
+use bincode::error::DecodeError;
+use futures::future::BoxFuture;
 
 use super::WireframeServer;
 use crate::{
     app::WireframeApp,
     preamble::Preamble,
-    server::{PreambleFailureHandler, PreambleSuccessHandler, ServerState},
+    server::{PreambleSuccessHandler, ServerState},
 };
 
 impl<F, T, S> WireframeServer<F, T, S>
@@ -102,32 +105,42 @@ where
         PreambleSuccessHandler<T>
     );
 
-    builder_callback!(
-        /// Register a handler invoked when the connection preamble fails to decode.
-        ///
-        /// The handler receives a [`bincode::error::DecodeError`] and a mutable
-        /// [`tokio::net::TcpStream`] so it may emit a response before the
-        /// connection is closed. This callback is awaited; if it returns an
-        /// error, the error is logged and the connection is closed.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// use futures::FutureExt;
-        /// use tokio::io::AsyncWriteExt;
-        /// use wireframe::{app::WireframeApp, server::WireframeServer};
-        ///
-        /// let server = WireframeServer::new(|| WireframeApp::default())
-        ///     .on_preamble_decode_failure(|_err: &bincode::error::DecodeError, stream| {
-        ///         async move {
-        ///             stream.write_all(b\"BAD\").await?;
-        ///             Ok(())
-        ///         }
-        ///         .boxed()
-        ///     });
-        /// ```
-        on_preamble_decode_failure,
-        on_preamble_failure,
-        PreambleFailureHandler<T>
-    );
+    /// Register a handler invoked when the connection preamble fails to decode.
+    ///
+    /// The handler receives a [`bincode::error::DecodeError`] and a mutable
+    /// [`tokio::net::TcpStream`] so it may emit a response before the
+    /// connection is closed. This callback is awaited; if it returns an
+    /// error, the error is logged and the connection is closed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use futures::FutureExt;
+    /// use tokio::io::AsyncWriteExt;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| WireframeApp::default()).on_preamble_decode_failure(
+    ///     |_err: &bincode::error::DecodeError, stream| {
+    ///         async move {
+    ///             stream.write_all(b"BAD").await?;
+    ///             Ok(())
+    ///         }
+    ///         .boxed()
+    ///     },
+    /// );
+    /// ```
+    #[must_use]
+    pub fn on_preamble_decode_failure<H>(mut self, handler: H) -> Self
+    where
+        H: for<'a> Fn(
+                &'a DecodeError,
+                &'a mut tokio::net::TcpStream,
+            ) -> BoxFuture<'a, io::Result<()>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.on_preamble_failure = Some(std::sync::Arc::new(handler));
+        self
+    }
 }

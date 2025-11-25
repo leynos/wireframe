@@ -392,9 +392,9 @@ the factory, rewinds leftover preamble bytes, and hands the stream to the
 application. Transient accept failures trigger exponential backoff capped by
 the configured maximum delay.[^18][^19] Preamble hooks support asynchronous
 success handlers and asynchronous failure callbacks that receive the stream,
-letting you reply or log decode errors before the application runs. An optional
-`preamble_timeout` caps how long `read_preamble` waits; timeouts use the
-failure callback path.[^20]
+enabling replies or decode-error logging before the application runs. An
+optional `preamble_timeout` caps how long `read_preamble` waits; timeouts use
+the failure callback path.[^20]
 
 `spawn_connection_task` wraps each accepted stream in `read_preamble` and
 `RewindStream`, records connection panics, and logs failures without crashing
