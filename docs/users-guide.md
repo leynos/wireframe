@@ -391,8 +391,10 @@ the supplied future resolves.[^18] Each worker runs `accept_loop`, which clones
 the factory, rewinds leftover preamble bytes, and hands the stream to the
 application. Transient accept failures trigger exponential backoff capped by
 the configured maximum delay.[^18][^19] Preamble hooks support asynchronous
-success handlers and synchronous failure callbacks, letting you reject
-connections or log decode errors before the application runs.[^20]
+success handlers and asynchronous failure callbacks that receive the stream,
+enabling replies or decode-error logging before the application runs. An
+optional `preamble_timeout` caps how long `read_preamble` waits; timeouts use
+the failure callback path.[^20]
 
 `spawn_connection_task` wraps each accepted stream in `read_preamble` and
 `RewindStream`, records connection panics, and logs failures without crashing
@@ -621,8 +623,8 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^17]: Implemented in `src/server/config/binding.rs` (lines 68-214).
 [^18]: Implemented in `src/server/runtime.rs` (lines 90-233).
 [^19]: Implemented in `src/server/runtime.rs` (lines 240-333).
-[^20]: Implemented in `src/server/config/preamble.rs` (lines 14-100) and
-    `src/server/connection.rs` (lines 17-84).
+[^20]: Implemented in `src/server/config/preamble.rs` (lines 14-135) and
+    `src/server/connection.rs` (lines 1-222).
 [^21]: Implemented in `src/server/error.rs` (lines 7-18).
 [^23]: Implemented in `src/push/queues/mod.rs` (lines 41-190).
 [^24]: Implemented in `src/push/queues/errors.rs` (lines 7-28).

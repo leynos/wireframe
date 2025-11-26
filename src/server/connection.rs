@@ -1,25 +1,25 @@
 //! Connection handling for [`WireframeServer`].
 
-use std::net::SocketAddr;
+use std::{io, net::SocketAddr, time::Duration};
 
 use futures::FutureExt;
 use log::{error, warn};
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, time::timeout};
 use tokio_util::task::TaskTracker;
 
-use super::{PreambleErrorHandler, PreambleHandler};
+use super::{PreambleFailure, PreambleHandler};
 use crate::{
     app::WireframeApp,
     preamble::{Preamble, read_preamble},
     rewind_stream::RewindStream,
+    server::runtime::PreambleHooks,
 };
 
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
 pub(super) fn spawn_connection_task<F, T>(
     stream: TcpStream,
     factory: F,
-    on_success: Option<PreambleHandler<T>>,
-    on_failure: Option<PreambleErrorHandler>,
+    hooks: PreambleHooks<T>,
     tracker: &TaskTracker,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -33,8 +33,18 @@ pub(super) fn spawn_connection_task<F, T>(
         }
     };
     tracker.spawn(async move {
+        let PreambleHooks {
+            on_success,
+            on_failure,
+            timeout: preamble_timeout,
+        } = hooks;
         let fut = std::panic::AssertUnwindSafe(process_stream(
-            stream, peer_addr, factory, on_success, on_failure,
+            stream,
+            peer_addr,
+            factory,
+            on_success,
+            on_failure,
+            preamble_timeout,
         ))
         .catch_unwind();
 
@@ -53,12 +63,21 @@ async fn process_stream<F, T>(
     peer_addr: Option<SocketAddr>,
     factory: F,
     on_success: Option<PreambleHandler<T>>,
-    on_failure: Option<PreambleErrorHandler>,
+    on_failure: Option<PreambleFailure>,
+    preamble_timeout: Option<Duration>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,
     T: Preamble,
 {
-    match read_preamble::<_, T>(&mut stream).await {
+    let preamble_result = match preamble_timeout {
+        Some(limit) => match timeout(limit, read_preamble::<_, T>(&mut stream)).await {
+            Ok(result) => result,
+            Err(_) => Err(timeout_error()),
+        },
+        None => read_preamble::<_, T>(&mut stream).await,
+    };
+
+    match preamble_result {
         Ok((preamble, leftover)) => {
             if let Some(handler) = on_success.as_ref()
                 && let Err(e) = handler(&preamble, &mut stream).await
@@ -73,7 +92,12 @@ async fn process_stream<F, T>(
         }
         Err(err) => {
             if let Some(handler) = on_failure.as_ref() {
-                handler(&err);
+                if let Err(e) = handler(&err, &mut stream).await {
+                    error!(
+                        "preamble failure handler error: error={e}, error_debug={e:?}, \
+                         peer_addr={peer_addr:?}"
+                    );
+                }
             } else {
                 error!(
                     "preamble decode failed and no failure handler set: error={err:?}, \
@@ -81,6 +105,13 @@ async fn process_stream<F, T>(
                 );
             }
         }
+    }
+}
+
+fn timeout_error() -> bincode::error::DecodeError {
+    bincode::error::DecodeError::Io {
+        inner: io::Error::new(io::ErrorKind::TimedOut, "preamble read timed out"),
+        additional: 0,
     }
 }
 
@@ -125,7 +156,12 @@ mod tests {
             let tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
+                spawn_connection_task::<_, ()>(
+                    stream,
+                    app_factory,
+                    PreambleHooks::default(),
+                    &tracker,
+                );
                 tracker.close();
                 tracker.wait().await;
             }
@@ -175,7 +211,12 @@ mod tests {
             let tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task::<_, ()>(stream, app_factory, None, None, &tracker);
+                spawn_connection_task::<_, ()>(
+                    stream,
+                    app_factory,
+                    PreambleHooks::default(),
+                    &tracker,
+                );
                 tracker.close();
                 tracker.wait().await;
             }

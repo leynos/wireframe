@@ -52,7 +52,10 @@ where
         + Send
         + Sync
         + 'static,
-    E: Fn(&DecodeError) + Send + Sync + 'static,
+    E: for<'a> Fn(&'a DecodeError, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>>
+        + Send
+        + Sync
+        + 'static,
 {
     WireframeServer::new(factory)
         .workers(1)
@@ -151,10 +154,14 @@ async fn server_triggers_expected_callback(
         },
         {
             let failure_tx = failure_tx.clone();
-            move |_| {
-                if let Some(tx) = failure_tx.lock().expect("lock poisoned").take() {
-                    let _ = tx.send(());
-                }
+            move |_, _| {
+                let failure_tx = failure_tx.clone();
+                Box::pin(async move {
+                    if let Some(tx) = failure_tx.lock().expect("lock poisoned").take() {
+                        let _ = tx.send(());
+                    }
+                    Ok(())
+                })
             }
         },
     );
@@ -207,7 +214,7 @@ async fn success_callback_can_write_response(
                 Ok(())
             })
         },
-        |_| {},
+        |_, _| Box::pin(async { Ok::<(), io::Error>(()) }),
     );
 
     with_running_server(server, |addr| async move {
@@ -217,6 +224,240 @@ async fn success_callback_can_write_response(
         let mut buf = [0u8; 3];
         stream.read_exact(&mut buf).await.expect("read failed");
         assert_eq!(&buf, b"ACK");
+    })
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn failure_callback_can_write_response(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (failure_holder, failure_rx) = channel_holder();
+    let server = WireframeServer::new(factory)
+        .with_preamble::<HotlinePreamble>()
+        .on_preamble_decode_failure(move |_, stream| {
+            let failure_holder = failure_holder.clone();
+            Box::pin(async move {
+                stream.write_all(b"ERR").await.expect("write failed");
+                stream.flush().await.expect("flush failed");
+                if let Some(tx) = failure_holder.lock().expect("lock").take() {
+                    let _ = tx.send(());
+                }
+                Ok(())
+            })
+        });
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        stream.write_all(b"BAD").await.expect("write failed");
+        stream.shutdown().await.expect("shutdown failed");
+        let mut buf = [0u8; 3];
+        let read = timeout(Duration::from_secs(1), stream.read_exact(&mut buf)).await;
+        let result = read.expect("timeout waiting for failure handler");
+        result.expect("read error");
+        assert_eq!(&buf, b"ERR");
+        timeout(Duration::from_millis(200), failure_rx)
+            .await
+            .expect("timeout waiting for failure callback")
+            .expect("failure callback send");
+    })
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn preamble_timeout_invokes_failure_handler_and_closes_connection(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (failure_holder, failure_rx) = channel_holder();
+    let server = WireframeServer::new(factory)
+        .with_preamble::<HotlinePreamble>()
+        .preamble_timeout(Duration::from_millis(50))
+        .on_preamble_decode_failure(move |err, stream| {
+            let failure_holder = failure_holder.clone();
+            Box::pin(async move {
+                assert!(
+                    matches!(
+                        err,
+                        DecodeError::Io { inner, .. }
+                            if inner.kind() == io::ErrorKind::TimedOut
+                    ),
+                    "expected timed out error, got {err:?}"
+                );
+                stream.write_all(b"ERR").await.expect("write failed");
+                stream.flush().await.expect("flush failed");
+                stream.shutdown().await.expect("shutdown failed");
+                if let Some(tx) = failure_holder.lock().expect("lock").take() {
+                    let _ = tx.send(());
+                }
+                Ok(())
+            })
+        });
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        timeout(Duration::from_secs(1), failure_rx)
+            .await
+            .expect("timeout waiting for failure callback")
+            .expect("failure callback send");
+        let mut buf = [0u8; 3];
+        timeout(Duration::from_millis(500), stream.read_exact(&mut buf))
+            .await
+            .expect("did not receive timeout response in time")
+            .expect("read timeout response failed");
+        assert_eq!(&buf, b"ERR");
+        let mut eof = [0u8; 1];
+        let read = timeout(Duration::from_millis(200), stream.read(&mut eof)).await;
+        match read.expect("timeout waiting for close") {
+            Ok(0) => {}
+            Ok(n) => panic!("expected connection to close, read {n} bytes"),
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
+            Err(e) => panic!("unexpected read error: {e:?}"),
+        }
+    })
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn success_handler_runs_without_failure_handler(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (success_tx, success_rx) = tokio::sync::oneshot::channel::<HotlinePreamble>();
+    let success_tx = Arc::new(Mutex::new(Some(success_tx)));
+    let server = WireframeServer::new(factory)
+        .with_preamble::<HotlinePreamble>()
+        .on_preamble_decode_success({
+            let success_tx = success_tx.clone();
+            move |p, _| {
+                let success_tx = success_tx.clone();
+                let preamble = p.clone();
+                Box::pin(async move {
+                    if let Some(tx) = success_tx.lock().expect("lock").take() {
+                        let _ = tx.send(preamble);
+                    }
+                    Ok(())
+                })
+            }
+        });
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
+        stream.write_all(bytes).await.expect("write failed");
+        stream.shutdown().await.expect("shutdown failed");
+        let preamble = timeout(Duration::from_secs(1), success_rx)
+            .await
+            .expect("timeout waiting for success")
+            .expect("success send");
+        assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
+    })
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn preamble_timeout_allows_timely_preamble(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (success_holder, success_rx) = channel_holder();
+    let (failure_holder, failure_rx) = channel_holder();
+    let server = WireframeServer::new(factory)
+        .with_preamble::<HotlinePreamble>()
+        .preamble_timeout(Duration::from_millis(150))
+        .on_preamble_decode_success({
+            let success_holder = success_holder.clone();
+            move |p, stream| {
+                let success_holder = success_holder.clone();
+                let clone = p.clone();
+                Box::pin(async move {
+                    if let Some(tx) = success_holder.lock().expect("lock").take() {
+                        let _ = tx.send(());
+                    }
+                    stream.write_all(b"OK").await.expect("write failed");
+                    stream.flush().await.expect("flush failed");
+                    // keep connection open by not shutting down here
+                    assert_eq!(clone.magic, HotlinePreamble::MAGIC);
+                    Ok(())
+                })
+            }
+        })
+        .on_preamble_decode_failure({
+            let failure_holder = failure_holder.clone();
+            move |_, _| {
+                let failure_holder = failure_holder.clone();
+                Box::pin(async move {
+                    if let Some(tx) = failure_holder.lock().expect("lock").take() {
+                        let _ = tx.send(());
+                    }
+                    Ok(())
+                })
+            }
+        });
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
+        stream.write_all(bytes).await.expect("write failed");
+
+        timeout(Duration::from_millis(200), success_rx)
+            .await
+            .expect("timeout waiting for success")
+            .expect("success send");
+        assert!(
+            timeout(Duration::from_millis(150), failure_rx)
+                .await
+                .is_err(),
+            "failure handler should not fire for timely preamble"
+        );
+
+        let mut buf = [0u8; 2];
+        stream
+            .read_exact(&mut buf)
+            .await
+            .expect("expected response from success handler");
+        assert_eq!(&buf, b"OK");
+    })
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn failure_handler_error_is_logged_and_connection_closes(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let (failure_holder, failure_rx) = channel_holder();
+    let server = WireframeServer::new(factory)
+        .with_preamble::<HotlinePreamble>()
+        .on_preamble_decode_failure(move |_, _| {
+            let failure_holder = failure_holder.clone();
+            Box::pin(async move {
+                if let Some(tx) = failure_holder.lock().expect("lock").take() {
+                    let _ = tx.send(());
+                }
+                Err::<(), io::Error>(io::Error::other("boom"))
+            })
+        });
+
+    with_running_server(server, |addr| async move {
+        let mut stream = TcpStream::connect(addr).await.expect("connect failed");
+        stream.write_all(b"BAD").await.expect("write failed");
+        stream.shutdown().await.expect("shutdown failed");
+
+        timeout(Duration::from_secs(1), failure_rx)
+            .await
+            .expect("failure handler not invoked")
+            .expect("failure handler send failed");
+
+        let mut buf = [0u8; 1];
+        let read = timeout(Duration::from_millis(200), stream.read(&mut buf)).await;
+        match read.expect("timeout waiting for close") {
+            Ok(0) => {}
+            Ok(n) => panic!("expected connection close, read {n} bytes"),
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
+            Err(e) => panic!("unexpected read error: {e:?}"),
+        }
     })
     .await;
 }
@@ -248,11 +489,18 @@ fn success_cb<P>(
 
 fn failure_cb(
     holder: Arc<Mutex<Option<oneshot::Sender<()>>>>,
-) -> impl Fn(&DecodeError) + Send + Sync + 'static {
-    move |_| {
-        if let Some(tx) = holder.lock().expect("lock").take() {
-            let _ = tx.send(());
-        }
+) -> impl for<'a> Fn(&'a DecodeError, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>>
++ Send
++ Sync
++ 'static {
+    move |_, _| {
+        let holder = holder.clone();
+        Box::pin(async move {
+            if let Some(tx) = holder.lock().expect("lock").take() {
+                let _ = tx.send(());
+            }
+            Ok(())
+        })
     }
 }
 

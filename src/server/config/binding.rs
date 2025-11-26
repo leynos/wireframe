@@ -41,6 +41,7 @@ where
             on_preamble_failure,
             ready_tx,
             backoff_config,
+            preamble_timeout,
             _preamble: preamble,
             ..
         } = self;
@@ -57,6 +58,7 @@ where
             on_preamble_failure,
             ready_tx,
             backoff_config,
+            preamble_timeout,
             state: Bound {
                 listener: Arc::new(tokio_listener),
             },
