@@ -334,9 +334,7 @@ pub(super) async fn accept_loop<F, T, L>(
                     spawn_connection_task(
                         stream,
                         factory.clone(),
-                        hooks.on_success,
-                        hooks.on_failure,
-                        hooks.timeout,
+                        hooks,
                         &tracker,
                     );
                     delay = backoff_config.initial_delay;

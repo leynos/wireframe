@@ -12,15 +12,14 @@ use crate::{
     app::WireframeApp,
     preamble::{Preamble, read_preamble},
     rewind_stream::RewindStream,
+    server::runtime::PreambleHooks,
 };
 
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
 pub(super) fn spawn_connection_task<F, T>(
     stream: TcpStream,
     factory: F,
-    on_success: Option<PreambleHandler<T>>,
-    on_failure: Option<PreambleFailure>,
-    preamble_timeout: Option<Duration>,
+    hooks: PreambleHooks<T>,
     tracker: &TaskTracker,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -34,6 +33,11 @@ pub(super) fn spawn_connection_task<F, T>(
         }
     };
     tracker.spawn(async move {
+        let PreambleHooks {
+            on_success,
+            on_failure,
+            timeout: preamble_timeout,
+        } = hooks;
         let fut = std::panic::AssertUnwindSafe(process_stream(
             stream,
             peer_addr,
@@ -152,7 +156,12 @@ mod tests {
             let tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task::<_, ()>(stream, app_factory, None, None, None, &tracker);
+                spawn_connection_task::<_, ()>(
+                    stream,
+                    app_factory,
+                    PreambleHooks::default(),
+                    &tracker,
+                );
                 tracker.close();
                 tracker.wait().await;
             }
@@ -202,7 +211,12 @@ mod tests {
             let tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task::<_, ()>(stream, app_factory, None, None, None, &tracker);
+                spawn_connection_task::<_, ()>(
+                    stream,
+                    app_factory,
+                    PreambleHooks::default(),
+                    &tracker,
+                );
                 tracker.close();
                 tracker.wait().await;
             }

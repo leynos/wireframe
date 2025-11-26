@@ -67,7 +67,7 @@ sequenceDiagram
     Client->>WireframeServer: connect
     WireframeServer->>AcceptLoop: start accept_loop
     AcceptLoop->>AcceptLoop: listener.accept()
-    AcceptLoop->>ConnectionTask: spawn_connection_task(stream, factory, hooks.on_success, hooks.on_failure, hooks.timeout)
+    AcceptLoop->>ConnectionTask: spawn_connection_task(stream, factory, hooks)
 
     ConnectionTask->>ProcessStream: process_stream(stream, peer_addr, factory, on_success, on_failure, preamble_timeout)
 
