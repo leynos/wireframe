@@ -9,7 +9,10 @@ use std::{
     fmt,
     future::Future,
     net::SocketAddr,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use futures::StreamExt;
@@ -47,13 +50,17 @@ impl Drop for ActiveConnection {
 pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
+    app::{Packet, PacketParts},
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
+    fragment::{FragmentationConfig, FragmentationError, Fragmenter, encode_fragment_payload},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
     session::ConnectionId,
 };
+
+type OutboundFragmenter<F> = Arc<dyn Fn(F) -> Result<Vec<F>, FragmentationError> + Send + Sync>;
 
 /// Events returned by [`next_event`].
 ///
@@ -128,6 +135,7 @@ pub struct ConnectionActor<F, E> {
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
     fairness: FairnessTracker,
+    fragmentation: Option<OutboundFragmenter<F>>,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
 }
@@ -290,6 +298,7 @@ where
             hooks,
             ctx,
             fairness: FairnessTracker::new(FairnessConfig::default()),
+            fragmentation: None,
             connection_id: None,
             peer_addr: None,
         };
@@ -304,6 +313,49 @@ where
 
     /// Replace the fairness configuration.
     pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness.set_config(fairness); }
+
+    /// Enable transparent fragmentation for outbound frames.
+    ///
+    /// When configured, frames that exceed `fragment_payload_cap` are split
+    /// into multiple fragments carrying a standard fragment header inside the
+    /// payload. Callers continue to enqueue complete frames; fragmentation
+    /// occurs just before hooks and metrics are applied.
+    pub fn enable_fragmentation(&mut self, config: FragmentationConfig)
+    where
+        F: Packet,
+    {
+        let fragmenter = Arc::new(Fragmenter::new(config.fragment_payload_cap));
+        self.fragmentation = Some(Arc::new(move |frame: F| {
+            let parts = frame.into_parts();
+            let id = parts.id();
+            let correlation = parts.correlation_id();
+            let payload = parts.payload();
+            if payload.len() <= fragmenter.max_fragment_size().get() {
+                return Ok(vec![F::from_parts(PacketParts::new(
+                    id,
+                    correlation,
+                    payload,
+                ))]);
+            }
+
+            let batch = fragmenter.fragment_bytes(&payload)?;
+            if !batch.is_fragmented() {
+                return Ok(vec![F::from_parts(PacketParts::new(
+                    id,
+                    correlation,
+                    payload,
+                ))]);
+            }
+
+            let mut frames = Vec::with_capacity(batch.len());
+            for fragment in batch {
+                let (header, payload) = fragment.into_parts();
+                let encoded = encode_fragment_payload(header, &payload)?;
+                frames.push(F::from_parts(PacketParts::new(id, correlation, encoded)));
+            }
+            Ok(frames)
+        }));
+    }
 
     /// Set or replace the current streaming response.
     pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
@@ -622,6 +674,27 @@ where
     /// actor.process_frame_with_hooks_and_metrics(frame, &mut out);
     /// ```
     fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>) {
+        if let Some(fragment) = &self.fragmentation {
+            match fragment(frame) {
+                Ok(frames) => {
+                    for frame in frames {
+                        self.push_frame(frame, out);
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
+                        self.connection_id, self.peer_addr,
+                    );
+                    crate::metrics::inc_handler_errors();
+                }
+            }
+        } else {
+            self.push_frame(frame, out);
+        }
+    }
+
+    fn push_frame(&mut self, frame: F, out: &mut Vec<F>) {
         let mut frame = frame;
         self.hooks.before_send(&mut frame, &mut self.ctx);
         out.push(frame);

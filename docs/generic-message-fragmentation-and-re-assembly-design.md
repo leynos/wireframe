@@ -144,6 +144,19 @@ The helper detects `FragmentIndex` overflow and returns an explicit error so
 protocols can downgrade to streaming or reject the payload before building an
 invalid sequence.
 
+### 3.4 Wire encoding (November 2025 implementation)
+
+Phase 7 adopts a concrete on-wire layout for fragments. Each fragment payload
+is prefixed with the ASCII marker `FRAG`, a big-endian `u16` header length, the
+bincode-encoded `FragmentHeader`, and finally the fragment bytes. The
+length-delimited codec therefore observes one frame per fragment; the encoded
+body is bounded by `fragment_payload_cap + fragment_overhead`.
+
+`WireframeApp` and `ConnectionActor` enable this adapter by default when a
+frame budget is available. Defaults derive `fragment_payload_cap` from
+`buffer_capacity`, cap re-assembled messages at 16× that budget, and evict
+partial assemblies after 30 seconds.
+
 ## 4. Public API: the `FragmentStrategy` trait
 
 The power and flexibility of this feature come from the `FragmentStrategy`

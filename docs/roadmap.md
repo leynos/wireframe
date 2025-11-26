@@ -269,19 +269,19 @@ logic.
 
 - [ ] **Integration with Core Library:**
 
-  - [ ] Integrate the F&R layer into the `Connection` actor's read/write paths.
+  - [x] Integrate the F&R layer into the `Connection` actor's read/write paths.
 
-  - [ ] Ensure the F&R logic is transparent to handler functions; they should
+  - [x] Ensure the F&R logic is transparent to handler functions; they should
     continue to send and receive complete `Message` objects.
 
 - [ ] **Testing:**
 
   - [x] Create unit tests for the `Fragmenter` and `Reassembler`.
 
-  - [ ] Develop integration tests sending and receiving large messages that
+  - [x] Develop integration tests sending and receiving large messages that
     require fragmentation.
 
-  - [ ] Test edge cases: out-of-order fragments, duplicate fragments, and
+  - [x] Test edge cases: out-of-order fragments, duplicate fragments, and
     reassembly timeouts.
 
 ## Phase 8: Wireframe client library foundation

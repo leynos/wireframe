@@ -9,8 +9,10 @@ use std::{
     boxed::Box,
     collections::HashMap,
     future::Future,
+    num::NonZeroUsize,
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 
 use tokio::sync::{OnceCell, mpsc};
@@ -20,6 +22,7 @@ use super::{
     error::{Result, WireframeError},
 };
 use crate::{
+    fragment::FragmentationConfig,
     hooks::{ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Transform},
     serializer::{BincodeSerializer, Serializer},
@@ -29,6 +32,16 @@ const MIN_BUFFER_CAP: usize = 64;
 const MAX_BUFFER_CAP: usize = 16 * 1024 * 1024;
 const MIN_READ_TIMEOUT_MS: u64 = 1;
 const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
+const DEFAULT_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_MESSAGE_SIZE_MULTIPLIER: usize = 16;
+
+pub(super) fn default_fragmentation(capacity: usize) -> Option<FragmentationConfig> {
+    let max_message = NonZeroUsize::new(capacity.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
+        .or_else(|| NonZeroUsize::new(capacity));
+    max_message.and_then(|limit| {
+        FragmentationConfig::for_frame_budget(capacity, limit, DEFAULT_FRAGMENT_TIMEOUT)
+    })
+}
 /// Callback invoked when a connection is established.
 ///
 /// # Examples
@@ -79,6 +92,7 @@ pub struct WireframeApp<
     pub(super) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
     pub(super) buffer_capacity: usize,
     pub(super) read_timeout_ms: u64,
+    pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
 }
 
 /// Alias for asynchronous route handlers.
@@ -118,6 +132,7 @@ where
             push_dlq: None,
             buffer_capacity: 1024,
             read_timeout_ms: 100,
+            fragmentation: default_fragmentation(1024),
         }
     }
 }
@@ -242,6 +257,7 @@ where
             push_dlq: self.push_dlq,
             buffer_capacity: self.buffer_capacity,
             read_timeout_ms: self.read_timeout_ms,
+            fragmentation: self.fragmentation,
         })
     }
 
@@ -341,6 +357,7 @@ where
             push_dlq: self.push_dlq,
             buffer_capacity: self.buffer_capacity,
             read_timeout_ms: self.read_timeout_ms,
+            fragmentation: self.fragmentation,
         }
     }
 
@@ -349,6 +366,7 @@ where
     #[must_use]
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
         self.buffer_capacity = capacity.clamp(MIN_BUFFER_CAP, MAX_BUFFER_CAP);
+        self.fragmentation = default_fragmentation(self.buffer_capacity);
         self
     }
 
@@ -357,6 +375,15 @@ where
     #[must_use]
     pub fn read_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.read_timeout_ms = timeout_ms.clamp(MIN_READ_TIMEOUT_MS, MAX_READ_TIMEOUT_MS);
+        self
+    }
+
+    /// Override the fragmentation configuration.
+    ///
+    /// Provide `None` to disable fragmentation entirely.
+    #[must_use]
+    pub fn fragmentation(mut self, config: Option<FragmentationConfig>) -> Self {
+        self.fragmentation = config;
         self
     }
 }
