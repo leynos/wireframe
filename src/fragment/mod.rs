@@ -10,13 +10,15 @@ pub mod fragmenter;
 pub mod header;
 pub mod id;
 pub mod index;
+pub mod reassembler;
 pub mod series;
 
-pub use error::{FragmentError, FragmentStatus, FragmentationError};
+pub use error::{FragmentError, FragmentStatus, FragmentationError, ReassemblyError};
 pub use fragmenter::{FragmentBatch, FragmentFrame, Fragmenter};
 pub use header::FragmentHeader;
 pub use id::MessageId;
 pub use index::FragmentIndex;
+pub use reassembler::{ReassembledMessage, Reassembler};
 pub use series::FragmentSeries;
 
 #[cfg(test)]

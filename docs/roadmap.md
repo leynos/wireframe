@@ -261,10 +261,10 @@ logic.
   - [x] Implement a `Fragmenter` to split a large `Message` into multiple
     `Frame`s, each with a `Fragment` header.
 
-  - [ ] Implement a `Reassembler` on the receiving end to collect fragments and
+  - [x] Implement a `Reassembler` on the receiving end to collect fragments and
     reconstruct the original `Message`.
 
-  - [ ] Manage a reassembly buffer with timeouts to prevent resource
+  - [x] Manage a reassembly buffer with timeouts to prevent resource
     exhaustion from incomplete messages.
 
 - [ ] **Integration with Core Library:**
@@ -276,7 +276,7 @@ logic.
 
 - [ ] **Testing:**
 
-  - [ ] Create unit tests for the `Fragmenter` and `Reassembler`.
+  - [x] Create unit tests for the `Fragmenter` and `Reassembler`.
 
   - [ ] Develop integration tests sending and receiving large messages that
     require fragmentation.

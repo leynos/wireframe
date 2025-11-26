@@ -6,7 +6,9 @@
 //! `Fragmenter` and inspecting the resulting `FragmentBatch` state.
 #![cfg(not(loom))]
 
-use std::num::NonZeroUsize;
+mod reassembly;
+
+use std::{num::NonZeroUsize, time::Instant};
 
 use cucumber::World;
 use wireframe::fragment::{
@@ -19,14 +21,38 @@ use wireframe::fragment::{
     FragmentStatus,
     Fragmenter,
     MessageId,
+    ReassembledMessage,
+    Reassembler,
+    ReassemblyError,
 };
 
-#[derive(Debug, Default, World)]
+#[derive(Debug, World)]
 pub struct FragmentWorld {
     series: Option<FragmentSeries>,
     last_result: Option<Result<FragmentStatus, FragmentError>>,
     fragmenter: Option<Fragmenter>,
     last_batch: Option<FragmentBatch>,
+    reassembler: Option<Reassembler>,
+    last_reassembled: Option<ReassembledMessage>,
+    last_reassembly_error: Option<ReassemblyError>,
+    now: Instant,
+    last_evicted: Vec<MessageId>,
+}
+
+impl Default for FragmentWorld {
+    fn default() -> Self {
+        Self {
+            series: None,
+            last_result: None,
+            fragmenter: None,
+            last_batch: None,
+            reassembler: None,
+            last_reassembled: None,
+            last_reassembly_error: None,
+            now: Instant::now(),
+            last_evicted: Vec::new(),
+        }
+    }
 }
 
 impl FragmentWorld {
