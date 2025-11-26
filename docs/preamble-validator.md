@@ -46,3 +46,60 @@ callbacks with `on_preamble_decode_success` or `on_preamble_decode_failure`.
 The method converts the server to use a custom preamble type, dropping any
 callbacks configured on the default `()` preamble. Registering callbacks after
 calling `with_preamble::<T>()` ensures they are retained.
+
+## Preamble processing flow with timeout handling
+
+Sequence diagram showing how the accept loop, connection task, preamble
+decoding, timeout handling, and callbacks coordinate before handing the
+connection to the application:
+
+```mermaid
+sequenceDiagram
+    actor Client
+    participant WireframeServer
+    participant AcceptLoop
+    participant ConnectionTask
+    participant ProcessStream
+    participant ReadPreamble
+    participant PreambleFailureHandler
+    participant WireframeApp
+
+    Client->>WireframeServer: connect
+    WireframeServer->>AcceptLoop: start accept_loop
+    AcceptLoop->>AcceptLoop: listener.accept()
+    AcceptLoop->>ConnectionTask: spawn_connection_task(stream, factory, hooks.on_success, hooks.on_failure, hooks.timeout)
+
+    ConnectionTask->>ProcessStream: process_stream(stream, peer_addr, factory, on_success, on_failure, preamble_timeout)
+
+    alt preamble_timeout is Some
+        ProcessStream->>ProcessStream: timeout(preamble_timeout, read_preamble)
+        ProcessStream->>ReadPreamble: read_preamble(stream)
+        alt preamble read completes in time
+            ReadPreamble-->>ProcessStream: Ok(preamble, leftover)
+        else preamble read times out
+            ProcessStream-->>ProcessStream: Err(timeout_error)
+        end
+    else preamble_timeout is None
+        ProcessStream->>ReadPreamble: read_preamble(stream)
+        ReadPreamble-->>ProcessStream: Result(preamble or error)
+    end
+
+    alt preamble_result is Ok
+        ProcessStream->>ProcessStream: invoke on_success if Some
+        opt on_success is Some
+            ProcessStream->>WireframeApp: on_preamble_success(preamble, stream)
+            WireframeApp-->>ProcessStream: Result
+        end
+        ProcessStream->>WireframeApp: hand off stream and preamble
+    else preamble_result is Err (decode failure or timeout)
+        alt on_failure is Some
+            ProcessStream->>PreambleFailureHandler: on_preamble_failure(error, stream)
+            PreambleFailureHandler-->>ProcessStream: io::Result
+            ProcessStream->>Client: optional protocol error reply via stream
+            ProcessStream->>Client: close connection
+        else on_failure is None
+            ProcessStream->>ProcessStream: log error with peer_addr
+            ProcessStream->>Client: close connection
+        end
+    end
+```
