@@ -95,19 +95,30 @@ impl FragmentWorld {
         );
     }
 
+    /// Helper for asserting on the latest captured reassembly error.
+    ///
+    /// # Panics
+    /// Panics if no reassembly error was captured or if the predicate returns false.
+    fn assert_reassembly_error_matches<F>(&self, predicate: F, expected_description: &str)
+    where
+        F: FnOnce(&ReassemblyError) -> bool,
+    {
+        let err = self
+            .last_reassembly_error
+            .as_ref()
+            .expect("no reassembly error captured");
+        assert!(predicate(err), "expected {expected_description}, got {err}");
+    }
+
     /// Assert the latest reassembly error signalled an over-limit message.
     ///
     /// # Panics
     ///
     /// Panics if no reassembly error was captured.
     pub fn assert_reassembly_over_limit(&self) {
-        let err = self
-            .last_reassembly_error
-            .as_ref()
-            .expect("no reassembly error captured");
-        assert!(
-            matches!(err, ReassemblyError::MessageTooLarge { .. }),
-            "expected message-too-large error, got {err}"
+        self.assert_reassembly_error_matches(
+            |err| matches!(err, ReassemblyError::MessageTooLarge { .. }),
+            "message-too-large error",
         );
     }
 
@@ -117,16 +128,14 @@ impl FragmentWorld {
     ///
     /// Panics if no reassembly error was captured or if the error was not an index mismatch.
     pub fn assert_reassembly_out_of_order(&self) {
-        let err = self
-            .last_reassembly_error
-            .as_ref()
-            .expect("no reassembly error captured");
-        assert!(
-            matches!(
-                err,
-                ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
-            ),
-            "expected out-of-order error, got {err}"
+        self.assert_reassembly_error_matches(
+            |err| {
+                matches!(
+                    err,
+                    ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
+                )
+            },
+            "out-of-order error",
         );
     }
 
