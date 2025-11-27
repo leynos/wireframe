@@ -188,25 +188,48 @@ async fn unfragmented_request_and_response_round_trip() {
     server.await.expect("server task");
 }
 
+struct FragmentRejectionSetup {
+    client: Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
+    server: tokio::task::JoinHandle<()>,
+    fragments: Vec<Envelope>,
+    rx: mpsc::UnboundedReceiver<Vec<u8>>,
+}
+
+impl FragmentRejectionSetup {
+    fn new(config: FragmentationConfig, fragment_mutator: impl FnOnce(&mut Vec<Envelope>)) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let app = make_app(config.fragment_payload_cap.get(), config, &tx);
+        let codec = app.length_codec();
+        let (client_stream, server_stream) = tokio::io::duplex(256);
+        let client = Framed::new(client_stream, codec.clone());
+        let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+        let fragmenter = Fragmenter::new(config.fragment_payload_cap);
+
+        let payload = vec![1_u8; 800];
+        let request = Envelope::new(ROUTE_ID, CORRELATION, payload);
+        let mut fragments = fragment_envelope(&request, &fragmenter);
+        fragment_mutator(&mut fragments);
+
+        Self {
+            client,
+            server,
+            fragments,
+            rx,
+        }
+    }
+}
+
 async fn test_fragment_rejection<F>(fragment_mutator: F, rejection_message: &str)
 where
     F: FnOnce(&mut Vec<Envelope>),
 {
-    let buffer_capacity = 512;
-    let config = fragmentation_config(buffer_capacity);
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = make_app(buffer_capacity, config, &tx);
-    let codec = app.length_codec();
-    let (client_stream, server_stream) = tokio::io::duplex(256);
-    let mut client = Framed::new(client_stream, codec.clone());
-    let fragmenter = Fragmenter::new(config.fragment_payload_cap);
-
-    let payload = vec![1_u8; 800];
-    let request = Envelope::new(ROUTE_ID, CORRELATION, payload);
-    let mut fragments = fragment_envelope(&request, &fragmenter);
-    fragment_mutator(&mut fragments);
-
-    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+    let config = fragmentation_config(512);
+    let FragmentRejectionSetup {
+        mut client,
+        server,
+        fragments,
+        mut rx,
+    } = FragmentRejectionSetup::new(config, fragment_mutator);
 
     send_envelopes(&mut client, &fragments).await;
     client.get_mut().shutdown().await.expect("shutdown write");

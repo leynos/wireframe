@@ -1,3 +1,7 @@
+//! Tests for `ConnectionActor` outbound fragmentation behaviour.
+//!
+//! Verifies that frames exceeding the fragment payload cap are split into
+//! multiple fragments and that small frames pass through unfragmented.
 #![cfg(not(loom))]
 
 use std::{num::NonZeroUsize, time::Duration};
