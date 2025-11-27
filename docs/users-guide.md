@@ -316,8 +316,8 @@ marker. The connection re-assembles fragments before invoking handlers, so
 handlers continue to work with complete `Envelope` values.[^6]
 
 Fragmented messages enforce two guards: `max_message_size` caps the total
-reassembled payload and `reassembly_timeout` evicts stale partial messages.
-Customise or disable fragmentation via the builder:
+reassembled payload, and `reassembly_timeout` evicts stale partial messages.
+Customize or disable fragmentation via the builder:
 
 ```rust
 use std::{num::NonZeroUsize, time::Duration};
