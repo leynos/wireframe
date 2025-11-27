@@ -8,6 +8,10 @@ use crate::{
 /// Fragment a packet using the provided fragmenter, returning one or more frames.
 ///
 /// Small payloads that fit within the fragment cap are returned unchanged.
+///
+/// # Errors
+///
+/// Returns [`FragmentationError`] when fragmenting the payload fails.
 pub fn fragment_packet<E: Packet>(
     fragmenter: &Fragmenter,
     packet: E,

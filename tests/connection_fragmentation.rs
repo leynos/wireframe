@@ -89,7 +89,7 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() {
 
     assert_eq!(out.len(), 1, "expected unfragmented single frame");
     let only = out.into_iter().next().expect("frame present");
-    let payload_out = only.payload.clone();
+    let payload_out = only.clone().into_parts().payload();
     match decode_fragment_payload(&payload_out) {
         Ok(None) => {}
         other => panic!("expected unfragmented payload, got {other:?}"),

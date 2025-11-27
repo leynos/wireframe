@@ -13,7 +13,7 @@ use tokio::{
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
-    builder::{default_fragmentation, WireframeApp},
+    builder::{WireframeApp, default_fragmentation},
     envelope::{Envelope, Packet, PacketParts},
     error::SendError,
     fragment_utils::fragment_packet,
@@ -27,7 +27,6 @@ use crate::{
         Reassembler,
         ReassemblyError,
         decode_fragment_payload,
-        encode_fragment_payload,
     },
     frame::FrameMetadata,
     message::Message,
@@ -288,9 +287,7 @@ where
         let Some(env) = self.decode_envelope(frame, deser_failures)? else {
             return Ok(());
         };
-        let Some(env) =
-            Self::reassemble_if_needed(fragmentation, deser_failures, env)?
-        else {
+        let Some(env) = Self::reassemble_if_needed(fragmentation, deser_failures, env)? else {
             return Ok(());
         };
 
@@ -362,10 +359,7 @@ where
                 Ok(None) => Ok(None),
                 Err(FragmentProcessError::Decode(err)) => {
                     *deser_failures += 1;
-                    warn!(
-                        "failed to decode fragment header: correlation_id={:?}, error={err:?}",
-                        correlation_id
-                    );
+                    warn!("failed to decode fragment header: correlation_id={correlation_id:?}, error={err:?}");
                     crate::metrics::inc_deser_errors();
                     if *deser_failures >= MAX_DESER_FAILURES {
                         return Err(io::Error::new(
@@ -377,10 +371,7 @@ where
                 }
                 Err(FragmentProcessError::Reassembly(err)) => {
                     *deser_failures += 1;
-                    warn!(
-                        "fragment reassembly failed: correlation_id={:?}, error={err:?}",
-                        correlation_id
-                    );
+                    warn!("fragment reassembly failed: correlation_id={correlation_id:?}, error={err:?}");
                     crate::metrics::inc_deser_errors();
                     if *deser_failures >= MAX_DESER_FAILURES {
                         return Err(io::Error::new(

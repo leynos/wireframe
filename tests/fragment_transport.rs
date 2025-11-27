@@ -13,12 +13,12 @@ use wireframe::{
     Serializer,
     app::{Envelope, Handler, Packet, PacketParts, WireframeApp},
     fragment::{
+        FRAGMENT_MAGIC,
         FragmentationConfig,
         Fragmenter,
         Reassembler,
         decode_fragment_payload,
         encode_fragment_payload,
-        FRAGMENT_MAGIC,
     },
     serializer::BincodeSerializer,
 };
@@ -212,17 +212,17 @@ async fn duplicate_fragments_clear_reassembly() {
 async fn fragment_rejection_malformed_fragment_header() {
     test_fragment_rejection(
         |fragments| {
-            let first = fragments
+            let parts = fragments
                 .first()
                 .cloned()
-                .expect("fragmenter must produce at least one fragment");
-            let mut parts = first.into_parts();
-            let mut payload = parts.payload();
+                .expect("fragmenter must produce at least one fragment")
+                .into_parts();
+            let mut payload = parts.clone().payload();
             assert!(
                 payload.starts_with(FRAGMENT_MAGIC),
                 "expected fragment to start with marker"
             );
-            let truncate_len = FRAGMENT_MAGIC.len() + 1;
+            let truncate_len = FRAGMENT_MAGIC.len() + 2;
             if payload.len() > truncate_len {
                 payload.truncate(truncate_len);
             } else {
@@ -230,8 +230,12 @@ async fn fragment_rejection_malformed_fragment_header() {
                     payload.push(0);
                 }
             }
-            fragments[0] =
-                Envelope::from_parts(PacketParts::new(parts.id(), parts.correlation_id(), payload));
+            fragments[0] = Envelope::from_parts(PacketParts::new(
+                parts.id(),
+                parts.correlation_id(),
+                payload,
+            ));
+            fragments.truncate(1);
         },
         "malformed fragment header is rejected",
     )
@@ -294,7 +298,7 @@ async fn fragmentation_can_be_disabled_via_public_api() {
         })
     };
 
-    let app = WireframeApp::new()
+    let app: WireframeApp = WireframeApp::new()
         .expect("build app")
         .buffer_capacity(capacity)
         .fragmentation(None)
@@ -312,6 +316,7 @@ async fn fragmentation_can_be_disabled_via_public_api() {
     let bytes = serializer.serialize(&request).expect("serialize envelope");
     client.send(bytes.into()).await.expect("send frame");
     client.get_mut().shutdown().await.expect("shutdown write");
+    drop(client);
 
     let observed = rx.recv().await.expect("handler payload");
     assert_eq!(observed, payload);

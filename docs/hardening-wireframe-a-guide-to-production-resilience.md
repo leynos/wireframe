@@ -305,7 +305,7 @@ fragmentation layer must be hardened.
 
 - **Re-assembly Timeout:** A long-running connection could be attacked by a
   client that sends the first fragment of many different large messages but
-  never sends the final fragments, slowly filling the re-assembly buffer. The
+  never sends the final fragments, slowly filling the reassembly buffer. The
   `FragmentAdapter` must therefore include a **non-optional, configurable
   timeout** for partial messages. A `tokio-util`-based timer or a simple
   `dashmap` of `(MessageId, Instant)` can be used to track the age of partial
@@ -313,7 +313,7 @@ fragmentation layer must be hardened.
   (e.g., 30 seconds).
 
 `WireframeApp` enables these guards by default, deriving the fragment payload
-cap from `buffer_capacity`, capping re-assembled messages at 16× that budget,
+cap from `buffer_capacity`, capping reassembled messages at 16× that budget,
 and evicting stale assemblies after 30 seconds. Applications can override or
 disable the defaults via `fragmentation(...)`.
 

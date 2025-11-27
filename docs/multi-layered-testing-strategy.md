@@ -125,7 +125,7 @@ fn test_fragment_reassembly() {
 
 **Expected Outcome & Measurable Objective:** The adapter must return `Ok(None)`
 for partial fragments and `Ok(Some(Frame))` for the final fragment. The
-re-assembled `Frame`'s payload must be byte-for-byte identical to the original
+reassembled `Frame`'s payload must be byte-for-byte identical to the original
 payload. The objective is **100% byte-for-byte reconstruction accuracy.**
 
 ### 2.4 Fragment Splitting: Correctness of Generated Fragments
@@ -490,7 +490,7 @@ more than 15% slower** than with 1 producer thread, indicating low contention.
 ### 5.2 Micro-benchmark: `FragmentAdapter` Throughput
 
 This benchmark measures the raw byte-shuffling performance of the fragmentation
-and re-assembly logic.
+and reassembly logic.
 
 - **Tooling:** `criterion`
 

@@ -10,11 +10,11 @@ encryption block sizes. `wireframe`'s current model, which processes one
 inbound frame to one logical frame, cannot handle this.
 
 This document details the design for a generic, protocol-agnostic fragmentation
-and re-assembly layer. The core philosophy is to treat this as a **transparent
+and reassembly layer. The core philosophy is to treat this as a **transparent
 middleware**. Application-level code, such as handlers, should remain unaware
 of the underlying fragmentation, dealing only with complete, logical messages.
 This new layer will be responsible for automatically splitting oversized
-outbound frames and meticulously re-assembling inbound fragments into a single,
+outbound frames and meticulously reassembling inbound fragments into a single,
 coherent message before they reach the router.
 
 > Status: design proposal. API names, trait bounds, and configuration shapes
@@ -31,10 +31,10 @@ The implementation must satisfy the following core requirements:
 <!-- markdownlint-disable MD013 MD060 -->
 | ID | Goal                                                                                                                                                                                                                   |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| G1 | Transparent inbound re-assembly → The router and handlers must always receive one complete, logical Frame.                                                                                                             |
+| G1 | Transparent inbound reassembly → The router and handlers must always receive one complete, logical Frame.                                                                                                              |
 | G2 | Transparent outbound fragmentation when a payload exceeds a configurable, protocol-specific size.                                                                                                                      |
 | G3 | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
-| G4 | Denial‑of‑service (DoS) protection: The re-assembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                    |
+| G4 | Denial‑of‑service (DoS) protection: The reassembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                     |
 | G5 | Zero Friction: Protocols that do not use fragmentation must incur no performance or complexity overhead. This feature must be strictly opt-in.                                                                         |
 <!-- markdownlint-enable MD013 MD060 -->
 
@@ -55,8 +55,8 @@ uncompressed data, as required by most protocol specifications.
 
 A critical requirement for modern protocols is the ability to handle
 interleaved fragments from different logical messages on the same connection.
-To support this, the `FragmentAdapter` will not maintain a single re-assembly
-state, but a map of concurrent re-assembly processes.
+To support this, the `FragmentAdapter` will not maintain a single reassembly
+state, but a map of concurrent reassembly processes.
 
 ```rust
 use dashmap::DashMap;
@@ -65,17 +65,17 @@ use std::time::{Duration, Instant};
 
 pub struct FragmentAdapter<S: FragmentStrategy> {
     strategy: S,
-    /// Hard cap on the size of a re-assembled logical message.
+    /// Hard cap on the size of a reassembled logical message.
     max_message_size: usize,
-    /// Timeout for completing a partial message re-assembly.
+    /// Timeout for completing a partial message reassembly.
     reassembly_timeout: Duration,
-    /// Concurrently accessible map for in-flight message re-assembly.
+    /// Concurrently accessible map for in-flight message reassembly.
     reassembly_buffers: DashMap<u64, PartialMessage>,
     /// Atomic counter for generating unique outbound message IDs.
     next_outbound_msg_id: AtomicU64,
 }
 
-/// State for a single, in-progress message re-assembly.
+/// State for a single, in-progress message reassembly.
 struct PartialMessage {
     /// The buffer holding the accumulating payload.
     buffer: BytesMut,
@@ -89,7 +89,7 @@ struct PartialMessage {
 ```
 
 The use of `dashmap::DashMap` allows for lock-free reads and sharded writes,
-providing efficient and concurrent access to the re-assembly buffers without
+providing efficient and concurrent access to the reassembly buffers without
 blocking the entire connection task.
 
 ### 3.2 Canonical fragment header (November 2025 update)
@@ -154,7 +154,7 @@ body is bounded by `fragment_payload_cap + fragment_overhead`.
 
 `WireframeApp` and `ConnectionActor` enable this adapter by default when a
 frame budget is available. Defaults derive `fragment_payload_cap` from
-`buffer_capacity`, cap re-assembled messages at 16× that budget, and evict
+`buffer_capacity`, cap reassembled messages at 16× that budget, and evict
 partial assemblies after 30 seconds.
 
 ## 4. Public API: the `FragmentStrategy` trait
@@ -177,8 +177,8 @@ use std::io;
 pub struct FragmentMeta {
     /// The size of the payload in this specific fragment.
     pub payload_len: usize,
-    /// The total size of the fully re-assembled message, if known.
-    /// This allows for efficient pre-allocation of the re-assembly buffer.
+    /// The total size of the fully reassembled message, if known.
+    /// This allows for efficient pre-allocation of the reassembly buffer.
     pub total_message_len: Option<usize>,
     /// True if this is the final fragment of a logical message.
     pub is_final: bool,
@@ -264,8 +264,8 @@ async fn streamed() -> Response<Vec<u8>> {
 
 ### 5.1 Inbound path (re‑assembly)
 
-The re-assembly logic is the most complex part of the feature and must be
-robust against errors and attacks.
+The reassembly logic is the most complex part of the feature and must be robust
+against errors and attacks.
 
 1. **Header Decoding:** The adapter reads from the socket buffer and calls
    `strategy.decode_header()`. If it returns `Ok(None)`, it waits for more data.
@@ -277,7 +277,7 @@ robust against errors and attacks.
 
    - If `meta.msg_id` is `None`, the fragment is treated as a standalone message
      (if `is_final`) or an error (if not `is_final` and a non-multiplexed
-     re-assembly is already in progress).
+     reassembly is already in progress).
 
    - If `meta.msg_id` is `Some(id)`, the adapter accesses the
      `reassembly_buffers` map.
@@ -355,14 +355,14 @@ This feature is designed as a foundational layer that other features build upon.
 ## 7. Measurable objectives and success criteria
 
 <!-- markdownlint-disable-next-line MD013 -->
-| Category        | Objective                                                                                                                                   | Success Metric                                                                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                       | 100% of the public API surface is present and correctly typed.                                                                                                                    |
-| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly re-assembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and re-assembled.                                       |
-| Multiplexing    | The adapter can correctly re-assemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly re-assembled messages, A and B.                                                                      |
-| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                     | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                    |
-| Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                                | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                    |
-| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                     | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter. |
+| Category        | Objective                                                                                                                                  | Success Metric                                                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                      | 100% of the public API surface is present and correctly typed.                                                                                                                    |
+| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly reassembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and reassembled.                                        |
+| Multiplexing    | The adapter can correctly re-assemble two messages whose fragments are interleaved.                                                        | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly reassembled messages, A and B.                                                                       |
+| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                    | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                    |
+| Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                               | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                    |
+| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                    | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter. |
 
 ## 8. Design decisions (14 November 2025, updated 17 November 2025)
 
@@ -373,7 +373,7 @@ This feature is designed as a foundational layer that other features build upon.
   talking to codec internals.
 - Added `FragmentSeries` to enforce ordering invariants per logical message,
   surfacing precise diagnostics (`MessageMismatch`, `IndexMismatch`,
-  `SeriesComplete`, `IndexOverflow`). This helper keeps the re-assembly logic
+  `SeriesComplete`, `IndexOverflow`). This helper keeps the reassembly logic
   deterministic and enables behavioural tests to assert transport-level
   guarantees without standing up a full codec pipeline.
 - Introduced `Fragmenter`, `FragmentBatch`, and `FragmentFrame` as reusable
