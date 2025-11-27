@@ -152,8 +152,10 @@ async fn fragmented_request_and_response_round_trip() {
     server.await.expect("server task");
 }
 
-#[tokio::test]
-async fn out_of_order_fragments_are_rejected() {
+async fn test_fragment_rejection<F>(fragment_mutator: F, rejection_message: &str)
+where
+    F: FnOnce(&mut Vec<Envelope>),
+{
     let buffer_capacity = 512;
     let config = fragmentation_config(buffer_capacity);
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -166,7 +168,7 @@ async fn out_of_order_fragments_are_rejected() {
     let payload = vec![1_u8; 800];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload);
     let mut fragments = fragment_envelope(&request, &fragmenter);
-    fragments.swap(0, 1);
+    fragment_mutator(&mut fragments);
 
     let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
 
@@ -177,7 +179,7 @@ async fn out_of_order_fragments_are_rejected() {
         timeout(Duration::from_millis(200), rx.recv())
             .await
             .is_err(),
-        "handler should not receive out-of-order fragments"
+        "{rejection_message}"
     );
 
     drop(client);
@@ -185,36 +187,24 @@ async fn out_of_order_fragments_are_rejected() {
 }
 
 #[tokio::test]
+async fn out_of_order_fragments_are_rejected() {
+    test_fragment_rejection(
+        |fragments| fragments.swap(0, 1),
+        "handler should not receive out-of-order fragments",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn duplicate_fragments_clear_reassembly() {
-    let buffer_capacity = 512;
-    let config = fragmentation_config(buffer_capacity);
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = make_app(buffer_capacity, config, &tx);
-    let codec = app.length_codec();
-    let (client_stream, server_stream) = tokio::io::duplex(256);
-    let mut client = Framed::new(client_stream, codec.clone());
-    let fragmenter = Fragmenter::new(config.fragment_payload_cap);
-
-    let payload = vec![2_u8; 800];
-    let request = Envelope::new(ROUTE_ID, CORRELATION, payload);
-    let mut fragments = fragment_envelope(&request, &fragmenter);
-    let duplicate = fragments[0].clone();
-    fragments.insert(1, duplicate);
-
-    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
-
-    send_envelopes(&mut client, &fragments).await;
-    client.get_mut().shutdown().await.expect("shutdown write");
-
-    assert!(
-        timeout(Duration::from_millis(200), rx.recv())
-            .await
-            .is_err(),
-        "handler should not receive after duplicate fragment"
-    );
-
-    drop(client);
-    server.await.expect("server task");
+    test_fragment_rejection(
+        |fragments| {
+            let duplicate = fragments[0].clone();
+            fragments.insert(1, duplicate);
+        },
+        "handler should not receive after duplicate fragment",
+    )
+    .await;
 }
 
 #[tokio::test]
