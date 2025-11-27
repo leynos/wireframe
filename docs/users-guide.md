@@ -144,7 +144,7 @@ transport-level fragmentation state.[^41]
 
 Protocol implementers can emit a `FragmentHeader` for every physical frame and
 feed the header back into `FragmentSeries` to guarantee ordering before a fully
-re-assembled message is surfaced to handlers. Behavioural tests can reuse the
+reassembled message is surfaced to handlers. Behavioural tests can reuse the
 same types to assert that new codecs obey the transport invariants without
 spinning up a full server.[^42][^43]
 

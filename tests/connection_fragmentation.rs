@@ -59,4 +59,42 @@ async fn connection_actor_fragments_outbound_frames() {
     assert_eq!(assembled.expect("assembled payload"), payload);
 }
 
+#[tokio::test]
+async fn connection_actor_passes_through_small_outbound_frames_unfragmented() {
+    let (queues, handle) = PushQueues::<Envelope>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .build()
+        .expect("build queues");
+    let shutdown = CancellationToken::new();
+    let mut actor: ConnectionActor<_, ()> =
+        ConnectionActor::new(queues, handle.clone(), None, shutdown);
+
+    let cfg = FragmentationConfig::for_frame_budget(
+        96,
+        NonZeroUsize::new(256).expect("non-zero message cap"),
+        Duration::from_secs(5),
+    )
+    .expect("frame budget must exceed overhead");
+    actor.enable_fragmentation(cfg);
+
+    let payload_cap = cfg.fragment_payload_cap.get();
+    let payload = vec![5_u8; payload_cap.saturating_sub(1)];
+    let frame = Envelope::new(ROUTE_ID, Some(1), payload.clone());
+    handle.push_low_priority(frame).await.expect("push frame");
+    drop(handle);
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("actor run failed");
+
+    assert_eq!(out.len(), 1, "expected unfragmented single frame");
+    let only = out.into_iter().next().expect("frame present");
+    let payload_out = only.payload.clone();
+    match decode_fragment_payload(&payload_out) {
+        Ok(None) => {}
+        other => panic!("expected unfragmented payload, got {other:?}"),
+    }
+    assert_eq!(payload_out, payload);
+}
+
 const ROUTE_ID: u32 = 7;

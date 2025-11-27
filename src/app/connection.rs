@@ -288,7 +288,9 @@ where
         let Some(env) = self.decode_envelope(frame, deser_failures)? else {
             return Ok(());
         };
-        let Some(env) = Self::reassemble_if_needed(fragmentation, deser_failures, env) else {
+        let Some(env) =
+            Self::reassemble_if_needed(fragmentation, deser_failures, env)?
+        else {
             return Ok(());
         };
 
@@ -352,32 +354,45 @@ where
         fragmentation: &mut Option<FragmentationState>,
         deser_failures: &mut u32,
         env: Envelope,
-    ) -> Option<Envelope> {
+    ) -> io::Result<Option<Envelope>> {
         if let Some(state) = fragmentation.as_mut() {
+            let correlation_id = env.correlation_id;
             match state.reassemble(env) {
-                Ok(Some(env)) => Some(env),
-                Ok(None) => None,
+                Ok(Some(env)) => Ok(Some(env)),
+                Ok(None) => Ok(None),
                 Err(FragmentProcessError::Decode(err)) => {
                     *deser_failures += 1;
                     warn!(
                         "failed to decode fragment header: correlation_id={:?}, error={err:?}",
-                        None::<u64>
+                        correlation_id
                     );
                     crate::metrics::inc_deser_errors();
-                    None
+                    if *deser_failures >= MAX_DESER_FAILURES {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "too many deserialization failures",
+                        ));
+                    }
+                    Ok(None)
                 }
                 Err(FragmentProcessError::Reassembly(err)) => {
                     *deser_failures += 1;
                     warn!(
                         "fragment reassembly failed: correlation_id={:?}, error={err:?}",
-                        None::<u64>
+                        correlation_id
                     );
                     crate::metrics::inc_deser_errors();
-                    None
+                    if *deser_failures >= MAX_DESER_FAILURES {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "too many deserialization failures",
+                        ));
+                    }
+                    Ok(None)
                 }
             }
         } else {
-            Some(env)
+            Ok(Some(env))
         }
     }
 

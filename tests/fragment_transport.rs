@@ -11,13 +11,14 @@ use tokio::{
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     Serializer,
-    app::{Envelope, Handler, Packet, WireframeApp},
+    app::{Envelope, Handler, Packet, PacketParts, WireframeApp},
     fragment::{
         FragmentationConfig,
         Fragmenter,
         Reassembler,
         decode_fragment_payload,
         encode_fragment_payload,
+        FRAGMENT_MAGIC,
     },
     serializer::BincodeSerializer,
 };
@@ -208,6 +209,36 @@ async fn duplicate_fragments_clear_reassembly() {
 }
 
 #[tokio::test]
+async fn fragment_rejection_malformed_fragment_header() {
+    test_fragment_rejection(
+        |fragments| {
+            let first = fragments
+                .first()
+                .cloned()
+                .expect("fragmenter must produce at least one fragment");
+            let mut parts = first.into_parts();
+            let mut payload = parts.payload();
+            assert!(
+                payload.starts_with(FRAGMENT_MAGIC),
+                "expected fragment to start with marker"
+            );
+            let truncate_len = FRAGMENT_MAGIC.len() + 1;
+            if payload.len() > truncate_len {
+                payload.truncate(truncate_len);
+            } else {
+                while payload.len() < truncate_len {
+                    payload.push(0);
+                }
+            }
+            fragments[0] =
+                Envelope::from_parts(PacketParts::new(parts.id(), parts.correlation_id(), payload));
+        },
+        "malformed fragment header is rejected",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn expired_fragments_are_evicted() {
     let buffer_capacity = 512;
     let timeout_ms = 10;
@@ -244,5 +275,46 @@ async fn expired_fragments_are_evicted() {
     );
 
     drop(client);
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn fragmentation_can_be_disabled_via_public_api() {
+    let capacity = 1024;
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    let handler: Handler<Envelope> = {
+        let tx = tx.clone();
+        std::sync::Arc::new(move |env: &Envelope| {
+            let tx = tx.clone();
+            let payload = env.clone().into_parts().payload();
+            Box::pin(async move {
+                tx.send(payload).expect("record payload");
+            })
+        })
+    };
+
+    let app = WireframeApp::new()
+        .expect("build app")
+        .buffer_capacity(capacity)
+        .fragmentation(None)
+        .route(ROUTE_ID, handler)
+        .expect("register route");
+
+    let codec = app.length_codec();
+    let (client_stream, server_stream) = tokio::io::duplex(256);
+    let mut client = Framed::new(client_stream, codec.clone());
+    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+
+    let payload = vec![b'X'; capacity / 2];
+    let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
+    let serializer = BincodeSerializer;
+    let bytes = serializer.serialize(&request).expect("serialize envelope");
+    client.send(bytes.into()).await.expect("send frame");
+    client.get_mut().shutdown().await.expect("shutdown write");
+
+    let observed = rx.recv().await.expect("handler payload");
+    assert_eq!(observed, payload);
+
     server.await.expect("server task");
 }

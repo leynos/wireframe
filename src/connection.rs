@@ -326,34 +326,7 @@ where
     {
         let fragmenter = Arc::new(Fragmenter::new(config.fragment_payload_cap));
         self.fragmentation = Some(Arc::new(move |frame: F| {
-            let parts = frame.into_parts();
-            let id = parts.id();
-            let correlation = parts.correlation_id();
-            let payload = parts.payload();
-            if payload.len() <= fragmenter.max_fragment_size().get() {
-                return Ok(vec![F::from_parts(PacketParts::new(
-                    id,
-                    correlation,
-                    payload,
-                ))]);
-            }
-
-            let batch = fragmenter.fragment_bytes(&payload)?;
-            if !batch.is_fragmented() {
-                return Ok(vec![F::from_parts(PacketParts::new(
-                    id,
-                    correlation,
-                    payload,
-                ))]);
-            }
-
-            let mut frames = Vec::with_capacity(batch.len());
-            for fragment in batch {
-                let (header, payload) = fragment.into_parts();
-                let encoded = encode_fragment_payload(header, &payload)?;
-                frames.push(F::from_parts(PacketParts::new(id, correlation, encoded)));
-            }
-            Ok(frames)
+            fragment_packet(&fragmenter, frame)
         }));
     }
 
