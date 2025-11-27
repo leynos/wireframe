@@ -253,7 +253,7 @@ This phase will handle the transport of a single message that is too large to
 fit into a single frame, making the process transparent to the application
 logic.
 
-- [ ] **Core Fragmentation & Reassembly (F&R) Layer:**
+- [x] **Core Fragmentation & Reassembly (F&R) Layer:**
 
   - [x] Define a generic `Fragment` header or metadata containing `message_id`,
     `fragment_index`, and `is_last_fragment` fields.
@@ -267,14 +267,14 @@ logic.
   - [x] Manage a reassembly buffer with timeouts to prevent resource
     exhaustion from incomplete messages.
 
-- [ ] **Integration with Core Library:**
+- [x] **Integration with Core Library:**
 
   - [x] Integrate the F&R layer into the `Connection` actor's read/write paths.
 
   - [x] Ensure the F&R logic is transparent to handler functions; they should
     continue to send and receive complete `Message` objects.
 
-- [ ] **Testing:**
+- [x] **Testing:**
 
   - [x] Create unit tests for the `Fragmenter` and `Reassembler`.
 

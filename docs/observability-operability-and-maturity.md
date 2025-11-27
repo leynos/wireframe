@@ -138,7 +138,7 @@ metrics, suitable for export to systems like Prometheus or OpenTelemetry.
 | wireframe_connections_active      | Gauge     | The current number of active connections.                                                              |
 | wireframe_frames_processed_total  | Counter   | Total frames processed, with labels for direction (inbound/outbound) and protocol_type.                |
 | wireframe_push_queue_depth        | Histogram | A distribution of the push queue depth, sampled periodically. Essential for diagnosing back-pressure.  |
-| wireframe_pushes_dropped_total    | Counter   | The number of frames dropped due to a full push queue. Should be zero in a healthy system.             |
+| wireframe_pushes_dropped_total    | Counter   | The number of frames dropped due to a full push queue. This should be zero in a healthy system.        |
 | wireframe_request_latency_seconds | Histogram | A distribution of handler processing times, from frame receipt to response completion.                 |
 | wireframe_reassembly_errors_total | Counter   | The number of times message reassembly failed due to timeouts, oversized messages, or sequence errors. |
 

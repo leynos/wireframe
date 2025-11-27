@@ -10,6 +10,8 @@ use wireframe::{
     push::PushQueues,
 };
 
+const ROUTE_ID: u32 = 7;
+
 #[tokio::test]
 async fn connection_actor_fragments_outbound_frames() {
     let (queues, handle) = PushQueues::<Envelope>::builder()
@@ -97,5 +99,3 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() {
     }
     assert_eq!(payload_out, payload);
 }
-
-const ROUTE_ID: u32 = 7;

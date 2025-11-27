@@ -7,7 +7,7 @@ reference when navigating the project's design and architecture material.
 
 - [Outbound messaging design](asynchronous-outbound-messaging-design.md)
   Comprehensive design for server-initiated pushes.
-- [Message fragments](generic-message-fragmentation-and-reassembly-design.md)
+- [Message fragments](generic-message-fragmentation-and-re-assembly-design.md)
   Design for fragmenting and reassembling messages.
 - [Streaming response design](multi-packet-and-streaming-responses-design.md)
   Design for handling multi-packet and streaming responses.

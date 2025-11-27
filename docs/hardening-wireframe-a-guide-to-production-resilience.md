@@ -299,11 +299,11 @@ fragmentation layer must be hardened.
 
 - **Strict Memory Cap (**`max_message_size`**):** The `FragmentAdapter` will
   enforce a non-optional, configurable limit on the total size of a logical
-  message it is willing to re-assemble. Any fragment that would cause the
+  message it is willing to reassemble. Any fragment that would cause the
   partial message buffer to exceed this limit will result in an immediate error
   and connection termination.
 
-- **Re-assembly Timeout:** A long-running connection could be attacked by a
+- **Reassembly Timeout:** A long-running connection could be attacked by a
   client that sends the first fragment of many different large messages but
   never sends the final fragments, slowly filling the reassembly buffer. The
   `FragmentAdapter` must therefore include a **non-optional, configurable

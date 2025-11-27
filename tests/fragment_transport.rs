@@ -153,6 +153,41 @@ async fn fragmented_request_and_response_round_trip() {
     server.await.expect("server task");
 }
 
+#[tokio::test]
+async fn unfragmented_request_and_response_round_trip() {
+    let buffer_capacity = 512;
+    let config = fragmentation_config(buffer_capacity);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let app = make_app(buffer_capacity, config, &tx);
+
+    let codec = app.length_codec();
+    let (client_stream, server_stream) = tokio::io::duplex(256);
+    let mut client = Framed::new(client_stream, codec.clone());
+
+    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+
+    let cap = config.fragment_payload_cap.get();
+    let payload_len = cap.saturating_sub(8).max(1);
+    let payload = vec![b's'; payload_len];
+    let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
+
+    send_envelopes(&mut client, &[request]).await;
+    client.flush().await.expect("flush client");
+
+    let observed = rx.recv().await.expect("handler payload");
+    assert_eq!(observed, payload);
+
+    client.get_mut().shutdown().await.expect("shutdown write");
+    let response = read_reassembled_response(&mut client, &config).await;
+    assert_eq!(response, payload);
+    assert!(
+        matches!(decode_fragment_payload(&response), Ok(None)),
+        "small payload should pass through unfragmented"
+    );
+
+    server.await.expect("server task");
+}
+
 async fn test_fragment_rejection<F>(fragment_mutator: F, rejection_message: &str)
 where
     F: FnOnce(&mut Vec<Envelope>),
