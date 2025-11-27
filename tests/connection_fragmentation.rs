@@ -29,7 +29,8 @@ async fn connection_actor_fragments_outbound_frames() {
     .expect("frame budget must exceed overhead");
     actor.enable_fragmentation(cfg);
 
-    let payload = vec![1_u8; 80];
+    let cap = cfg.fragment_payload_cap.get();
+    let payload = vec![1_u8; cap.saturating_add(16)];
     let frame = Envelope::new(ROUTE_ID, Some(9), payload.clone());
     handle.push_low_priority(frame).await.expect("push frame");
     drop(handle);
@@ -89,7 +90,7 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() {
 
     assert_eq!(out.len(), 1, "expected unfragmented single frame");
     let only = out.into_iter().next().expect("frame present");
-    let payload_out = only.clone().into_parts().payload();
+    let payload_out = only.into_parts().payload();
     match decode_fragment_payload(&payload_out) {
         Ok(None) => {}
         other => panic!("expected unfragmented payload, got {other:?}"),

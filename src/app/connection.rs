@@ -359,7 +359,10 @@ where
                 Ok(None) => Ok(None),
                 Err(FragmentProcessError::Decode(err)) => {
                     *deser_failures += 1;
-                    warn!("failed to decode fragment header: correlation_id={correlation_id:?}, error={err:?}");
+                    warn!(
+                        "failed to decode fragment header: correlation_id={correlation_id:?}, \
+                         error={err:?}"
+                    );
                     crate::metrics::inc_deser_errors();
                     if *deser_failures >= MAX_DESER_FAILURES {
                         return Err(io::Error::new(
@@ -371,7 +374,10 @@ where
                 }
                 Err(FragmentProcessError::Reassembly(err)) => {
                     *deser_failures += 1;
-                    warn!("fragment reassembly failed: correlation_id={correlation_id:?}, error={err:?}");
+                    warn!(
+                        "fragment reassembly failed: correlation_id={correlation_id:?}, \
+                         error={err:?}"
+                    );
                     crate::metrics::inc_deser_errors();
                     if *deser_failures >= MAX_DESER_FAILURES {
                         return Err(io::Error::new(

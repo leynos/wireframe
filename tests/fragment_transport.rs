@@ -42,7 +42,7 @@ fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> Vec<Envelope> {
     let payload = parts.payload();
 
     if payload.len() <= fragmenter.max_fragment_size().get() {
-        return vec![env.clone()];
+        return vec![Envelope::new(id, correlation, payload)];
     }
 
     fragmenter
@@ -98,27 +98,27 @@ async fn read_reassembled_response(
     panic!("response stream ended before reassembly completed");
 }
 
+fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope> {
+    let tx = sender.clone();
+    std::sync::Arc::new(move |env: &Envelope| {
+        let tx = tx.clone();
+        let payload = env.clone().into_parts().payload();
+        Box::pin(async move {
+            tx.send(payload).expect("record payload");
+        })
+    })
+}
+
 fn make_app(
     capacity: usize,
     config: FragmentationConfig,
     sender: &mpsc::UnboundedSender<Vec<u8>>,
 ) -> WireframeApp {
-    let handler: Handler<Envelope> = {
-        let tx = sender.clone();
-        std::sync::Arc::new(move |env: &Envelope| {
-            let tx = tx.clone();
-            let payload = env.clone().into_parts().payload();
-            Box::pin(async move {
-                tx.send(payload).expect("record payload");
-            })
-        })
-    };
-
     WireframeApp::new()
         .expect("build app")
         .buffer_capacity(capacity)
         .fragmentation(Some(config))
-        .route(ROUTE_ID, handler)
+        .route(ROUTE_ID, make_handler(sender))
         .expect("register route")
 }
 
@@ -287,16 +287,7 @@ async fn fragmentation_can_be_disabled_via_public_api() {
     let capacity = 1024;
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let handler: Handler<Envelope> = {
-        let tx = tx.clone();
-        std::sync::Arc::new(move |env: &Envelope| {
-            let tx = tx.clone();
-            let payload = env.clone().into_parts().payload();
-            Box::pin(async move {
-                tx.send(payload).expect("record payload");
-            })
-        })
-    };
+    let handler = make_handler(&tx);
 
     let app: WireframeApp = WireframeApp::new()
         .expect("build app")

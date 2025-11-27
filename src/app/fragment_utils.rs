@@ -11,7 +11,8 @@ use crate::{
 ///
 /// # Errors
 ///
-/// Returns [`FragmentationError`] when fragmenting the payload fails.
+/// Returns [`FragmentationError`] if fragmenting the payload fails or if
+/// encoding the fragment header and payload into an on-wire frame fails.
 pub fn fragment_packet<E: Packet>(
     fragmenter: &Fragmenter,
     packet: E,
