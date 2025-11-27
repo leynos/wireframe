@@ -13,9 +13,10 @@ use tokio::{
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
-    builder::{WireframeApp, default_fragmentation},
+    builder::{default_fragmentation, WireframeApp},
     envelope::{Envelope, Packet, PacketParts},
     error::SendError,
+    fragment_utils::fragment_packet,
 };
 use crate::{
     fragment::{
@@ -63,35 +64,7 @@ impl FragmentationState {
     }
 
     fn fragment<E: Packet>(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
-        let parts = packet.into_parts();
-        let id = parts.id();
-        let correlation = parts.correlation_id();
-        let payload = parts.payload();
-
-        if payload.len() <= self.fragmenter.max_fragment_size().get() {
-            return Ok(vec![E::from_parts(PacketParts::new(
-                id,
-                correlation,
-                payload,
-            ))]);
-        }
-
-        let batch = self.fragmenter.fragment_bytes(&payload)?;
-        if !batch.is_fragmented() {
-            return Ok(vec![E::from_parts(PacketParts::new(
-                id,
-                correlation,
-                payload,
-            ))]);
-        }
-
-        let mut frames = Vec::with_capacity(batch.len());
-        for fragment in batch {
-            let (header, payload) = fragment.into_parts();
-            let encoded = encode_fragment_payload(header, &payload)?;
-            frames.push(E::from_parts(PacketParts::new(id, correlation, encoded)));
-        }
-        Ok(frames)
+        fragment_packet(&self.fragmenter, packet)
     }
 
     fn reassemble<E: Packet>(&mut self, packet: E) -> Result<Option<E>, FragmentProcessError> {

@@ -11,6 +11,7 @@
 mod builder;
 mod connection;
 mod envelope;
+pub mod fragment_utils;
 pub mod error;
 
 pub use builder::{ConnectionSetup, ConnectionTeardown, Handler, Middleware, WireframeApp};

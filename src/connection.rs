@@ -50,10 +50,10 @@ impl Drop for ActiveConnection {
 pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
-    app::{Packet, PacketParts},
+    app::{Packet, PacketParts, fragment_utils::fragment_packet},
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
-    fragment::{FragmentationConfig, FragmentationError, Fragmenter, encode_fragment_payload},
+    fragment::{FragmentationConfig, FragmentationError, Fragmenter},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
