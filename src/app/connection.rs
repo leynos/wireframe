@@ -13,7 +13,7 @@ use tokio::{
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
-    builder::{default_fragmentation, WireframeApp},
+    builder::{WireframeApp, default_fragmentation},
     envelope::{Envelope, Packet, PacketParts},
     error::SendError,
     fragment_utils::fragment_packet,
