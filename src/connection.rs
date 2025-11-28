@@ -9,10 +9,7 @@ use std::{
     fmt,
     future::Future,
     net::SocketAddr,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use futures::StreamExt;
@@ -53,14 +50,12 @@ use crate::{
     app::{Packet, fragment_utils::fragment_packet},
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
-    fragment::{FragmentationConfig, FragmentationError, Fragmenter},
+    fragment::{FragmentationConfig, Fragmenter},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
     session::ConnectionId,
 };
-
-type OutboundFragmenter<F> = Arc<dyn Fn(F) -> Result<Vec<F>, FragmentationError> + Send + Sync>;
 
 /// Events returned by [`next_event`].
 ///
@@ -135,7 +130,7 @@ pub struct ConnectionActor<F, E> {
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
     fairness: FairnessTracker,
-    fragmentation: Option<OutboundFragmenter<F>>,
+    fragmenter: Option<Fragmenter>,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
 }
@@ -241,7 +236,7 @@ enum QueueKind {
 
 impl<F, E> ConnectionActor<F, E>
 where
-    F: FrameLike + CorrelatableFrame,
+    F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
 {
     /// Create a new `ConnectionActor` from the provided components.
@@ -298,7 +293,7 @@ where
             hooks,
             ctx,
             fairness: FairnessTracker::new(FairnessConfig::default()),
-            fragmentation: None,
+            fragmenter: None,
             connection_id: None,
             peer_addr: None,
         };
@@ -324,10 +319,7 @@ where
     where
         F: Packet,
     {
-        let fragmenter = Arc::new(Fragmenter::new(config.fragment_payload_cap));
-        self.fragmentation = Some(Arc::new(move |frame: F| {
-            fragment_packet(&fragmenter, frame)
-        }));
+        self.fragmenter = Some(Fragmenter::new(config.fragment_payload_cap));
     }
 
     /// Set or replace the current streaming response.
@@ -404,18 +396,19 @@ where
             MultiPacketStamp::Enabled(Some(expected)) => {
                 frame.set_correlation_id(Some(expected));
                 debug_assert!(
-                    frame.correlation_id() == Some(expected) || frame.correlation_id().is_none(),
+                    CorrelatableFrame::correlation_id(frame) == Some(expected)
+                        || CorrelatableFrame::correlation_id(frame).is_none(),
                     "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
                     Some(expected),
-                    frame.correlation_id(),
+                    CorrelatableFrame::correlation_id(frame),
                 );
             }
             MultiPacketStamp::Enabled(None) => {
                 frame.set_correlation_id(None);
                 debug_assert!(
-                    frame.correlation_id().is_none(),
+                    CorrelatableFrame::correlation_id(frame).is_none(),
                     "multi-packet frame correlation unexpectedly present: got={:?}",
-                    frame.correlation_id(),
+                    CorrelatableFrame::correlation_id(frame),
                 );
             }
             MultiPacketStamp::Disabled => {
@@ -646,9 +639,12 @@ where
     /// ```ignore
     /// actor.process_frame_with_hooks_and_metrics(frame, &mut out);
     /// ```
-    fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>) {
-        if let Some(fragment) = &self.fragmentation {
-            match fragment(frame) {
+    fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>)
+    where
+        F: Packet,
+    {
+        if let Some(fragmenter) = &self.fragmenter {
+            match fragment_packet(fragmenter, frame) {
                 Ok(frames) => {
                     for frame in frames {
                         self.push_frame(frame, out);

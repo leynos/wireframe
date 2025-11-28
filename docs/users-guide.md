@@ -312,7 +312,7 @@ async fn main() -> Result<(), SendError> {
 derives a `FragmentationConfig` from `buffer_capacity`: any payload that will
 not fit into a single frame is split into fragments carrying a `FragmentHeader`
 (`message_id`, `fragment_index`, `is_last_fragment`) wrapped with the `FRAG`
-marker. The connection re-assembles fragments before invoking handlers, so
+marker. The connection reassembles fragments before invoking handlers, so
 handlers continue to work with complete `Envelope` values.[^6]
 
 Fragmented messages enforce two guards: `max_message_size` caps the total
@@ -337,7 +337,7 @@ let app = WireframeApp::new()?
     .route(42, handler)?;
 ```
 
-Set `fragmentation(None)` when the transport already supports large frames or
+Set `fragmentation(None)` when the transport already supports large frames, or
 when fragmentation should be deferred to an upstream gateway. The
 `ConnectionActor` mirrors the same behaviour for push traffic and streaming
 responses through `enable_fragmentation`, ensuring client-visible frames follow

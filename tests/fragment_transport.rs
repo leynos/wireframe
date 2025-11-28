@@ -1,4 +1,5 @@
 #![cfg(not(loom))]
+//! Integration tests for transport-level fragmentation and reassembly.
 
 use std::{num::NonZeroUsize, time::Duration};
 
@@ -122,18 +123,26 @@ fn make_app(
         .expect("register route")
 }
 
+fn spawn_app(
+    app: WireframeApp,
+) -> (
+    Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
+    tokio::task::JoinHandle<()>,
+) {
+    let codec = app.length_codec();
+    let (client_stream, server_stream) = tokio::io::duplex(256);
+    let client = Framed::new(client_stream, codec.clone());
+    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+    (client, server)
+}
+
 #[tokio::test]
 async fn fragmented_request_and_response_round_trip() {
     let buffer_capacity = 512;
     let config = fragmentation_config(buffer_capacity);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let app = make_app(buffer_capacity, config, &tx);
-
-    let codec = app.length_codec();
-    let (client_stream, server_stream) = tokio::io::duplex(256);
-    let mut client = Framed::new(client_stream, codec.clone());
-
-    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+    let (mut client, server) = spawn_app(app);
 
     let payload = vec![b'Z'; 1_200];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
@@ -159,12 +168,7 @@ async fn unfragmented_request_and_response_round_trip() {
     let config = fragmentation_config(buffer_capacity);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let app = make_app(buffer_capacity, config, &tx);
-
-    let codec = app.length_codec();
-    let (client_stream, server_stream) = tokio::io::duplex(256);
-    let mut client = Framed::new(client_stream, codec.clone());
-
-    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+    let (mut client, server) = spawn_app(app);
 
     let cap = config.fragment_payload_cap.get();
     let payload_len = cap.saturating_sub(8).max(1);
@@ -196,13 +200,14 @@ struct FragmentRejectionSetup {
 }
 
 impl FragmentRejectionSetup {
-    fn new(config: FragmentationConfig, fragment_mutator: impl FnOnce(&mut Vec<Envelope>)) -> Self {
+    fn new(
+        capacity: usize,
+        config: FragmentationConfig,
+        fragment_mutator: impl FnOnce(&mut Vec<Envelope>),
+    ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
-        let app = make_app(config.fragment_payload_cap.get(), config, &tx);
-        let codec = app.length_codec();
-        let (client_stream, server_stream) = tokio::io::duplex(256);
-        let client = Framed::new(client_stream, codec.clone());
-        let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+        let app = make_app(capacity, config, &tx);
+        let (client, server) = spawn_app(app);
         let fragmenter = Fragmenter::new(config.fragment_payload_cap);
 
         let payload = vec![1_u8; 800];
@@ -223,23 +228,22 @@ async fn test_fragment_rejection<F>(fragment_mutator: F, rejection_message: &str
 where
     F: FnOnce(&mut Vec<Envelope>),
 {
-    let config = fragmentation_config(512);
+    let buffer_capacity = 512;
+    let config = fragmentation_config(buffer_capacity);
     let FragmentRejectionSetup {
         mut client,
         server,
         fragments,
         mut rx,
-    } = FragmentRejectionSetup::new(config, fragment_mutator);
+    } = FragmentRejectionSetup::new(buffer_capacity, config, fragment_mutator);
 
     send_envelopes(&mut client, &fragments).await;
     client.get_mut().shutdown().await.expect("shutdown write");
 
-    assert!(
-        timeout(Duration::from_millis(200), rx.recv())
-            .await
-            .is_err(),
-        "{rejection_message}"
-    );
+    match timeout(Duration::from_millis(200), rx.recv()).await {
+        Ok(Some(_)) => panic!("{rejection_message}"),
+        _ => {}
+    }
 
     drop(client);
     server.await.expect("server task");
@@ -354,10 +358,7 @@ async fn fragmentation_can_be_disabled_via_public_api() {
         .route(ROUTE_ID, handler)
         .expect("register route");
 
-    let codec = app.length_codec();
-    let (client_stream, server_stream) = tokio::io::duplex(256);
-    let mut client = Framed::new(client_stream, codec.clone());
-    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+    let (mut client, server) = spawn_app(app);
 
     let payload = vec![b'X'; capacity / 2];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());

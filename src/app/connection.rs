@@ -43,7 +43,7 @@ enum EnvelopeDecodeError<E> {
     Deserialize(Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Bundles outbound fragmentation and inbound re-assembly state for a connection.
+/// Bundles outbound fragmentation and inbound reassembly state for a connection.
 struct FragmentationState {
     fragmenter: Fragmenter,
     reassembler: Reassembler,

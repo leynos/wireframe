@@ -1,10 +1,10 @@
-//! Configuration used by transport-level fragmentation and re-assembly.
+//! Configuration used by transport-level fragmentation and reassembly.
 
 use std::{num::NonZeroUsize, time::Duration};
 
 use super::fragment_overhead;
 
-/// Settings that bound fragment sizes and re-assembly resource usage.
+/// Settings that bound fragment sizes and reassembly resource usage.
 #[derive(Clone, Copy, Debug)]
 pub struct FragmentationConfig {
     /// Maximum number of logical payload bytes carried by a single fragment.
@@ -14,10 +14,12 @@ pub struct FragmentationConfig {
     pub fragment_payload_cap: NonZeroUsize,
     /// Hard cap on the fully re-assembled logical message size.
     pub max_message_size: NonZeroUsize,
-    /// Duration after which incomplete re-assembly buffers are evicted.
+    /// Duration after which incomplete reassembly buffers are evicted.
     pub reassembly_timeout: Duration,
 }
 
+/// Guard bytes reserved for envelope framing overhead beyond the fragment body
+/// and header. This accommodates length prefixes and serialisation slack.
 const ENVELOPE_GUARD_BYTES: usize = 32;
 
 impl FragmentationConfig {
