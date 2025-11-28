@@ -2,7 +2,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use bincode::error::DecodeError;
 use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
 use log::{debug, warn};
@@ -14,23 +13,16 @@ use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
     builder::{WireframeApp, default_fragmentation},
-    envelope::{Envelope, Packet, PacketParts},
+    envelope::{Envelope, Packet},
     error::SendError,
-    fragment_utils::fragment_packet,
+    fragmentation_state::FragmentationState,
+    frame_handling,
 };
 use crate::{
-    fragment::{
-        FragmentationConfig,
-        FragmentationError,
-        Fragmenter,
-        MessageId,
-        Reassembler,
-        ReassemblyError,
-        decode_fragment_payload,
-    },
+    fragment::FragmentationConfig,
     frame::FrameMetadata,
     message::Message,
-    middleware::{HandlerService, Service, ServiceRequest},
+    middleware::HandlerService,
     serializer::Serializer,
 };
 
@@ -41,58 +33,6 @@ const MAX_DESER_FAILURES: u32 = 10;
 enum EnvelopeDecodeError<E> {
     Parse(E),
     Deserialize(Box<dyn std::error::Error + Send + Sync>),
-}
-
-/// Bundles outbound fragmentation and inbound reassembly state for a connection.
-struct FragmentationState {
-    fragmenter: Fragmenter,
-    reassembler: Reassembler,
-}
-
-enum FragmentProcessError {
-    Decode(DecodeError),
-    Reassembly(ReassemblyError),
-}
-
-impl FragmentationState {
-    fn new(config: FragmentationConfig) -> Self {
-        Self {
-            fragmenter: Fragmenter::new(config.fragment_payload_cap),
-            reassembler: Reassembler::new(config.max_message_size, config.reassembly_timeout),
-        }
-    }
-
-    fn fragment<E: Packet>(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
-        fragment_packet(&self.fragmenter, packet)
-    }
-
-    fn reassemble<E: Packet>(&mut self, packet: E) -> Result<Option<E>, FragmentProcessError> {
-        let parts = packet.into_parts();
-        let id = parts.id();
-        let correlation = parts.correlation_id();
-        let payload = parts.payload();
-
-        match decode_fragment_payload(&payload) {
-            Ok(Some((header, fragment_payload))) => {
-                match self.reassembler.push(header, fragment_payload) {
-                    Ok(Some(message)) => {
-                        let rebuilt = PacketParts::new(id, correlation, message.into_payload());
-                        Ok(Some(E::from_parts(rebuilt)))
-                    }
-                    Ok(None) => Ok(None),
-                    Err(err) => Err(FragmentProcessError::Reassembly(err)),
-                }
-            }
-            Ok(None) => Ok(Some(E::from_parts(PacketParts::new(
-                id,
-                correlation,
-                payload,
-            )))),
-            Err(err) => Err(FragmentProcessError::Decode(err)),
-        }
-    }
-
-    fn purge_expired(&mut self) -> Vec<MessageId> { self.reassembler.purge_expired() }
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -287,12 +227,18 @@ where
         let Some(env) = self.decode_envelope(frame, deser_failures)? else {
             return Ok(());
         };
-        let Some(env) = Self::reassemble_if_needed(fragmentation, deser_failures, env)? else {
+        let Some(env) = frame_handling::reassemble_if_needed(
+            fragmentation,
+            deser_failures,
+            env,
+            MAX_DESER_FAILURES,
+        )?
+        else {
             return Ok(());
         };
 
         if let Some(service) = routes.get(&env.id) {
-            self.forward_response(env, service, framed, fragmentation)
+            frame_handling::forward_response(&self.serializer, env, service, framed, fragmentation)
                 .await?;
         } else {
             warn!(
@@ -345,121 +291,5 @@ where
                 Ok(None)
             }
         }
-    }
-
-    fn reassemble_if_needed(
-        fragmentation: &mut Option<FragmentationState>,
-        deser_failures: &mut u32,
-        env: Envelope,
-    ) -> io::Result<Option<Envelope>> {
-        if let Some(state) = fragmentation.as_mut() {
-            let correlation_id = env.correlation_id;
-            match state.reassemble(env) {
-                Ok(Some(env)) => Ok(Some(env)),
-                Ok(None) => Ok(None),
-                Err(FragmentProcessError::Decode(err)) => {
-                    *deser_failures += 1;
-                    warn!(
-                        "failed to decode fragment header: correlation_id={correlation_id:?}, \
-                         error={err:?}"
-                    );
-                    crate::metrics::inc_deser_errors();
-                    if *deser_failures >= MAX_DESER_FAILURES {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "too many deserialization failures",
-                        ));
-                    }
-                    Ok(None)
-                }
-                Err(FragmentProcessError::Reassembly(err)) => {
-                    *deser_failures += 1;
-                    warn!(
-                        "fragment reassembly failed: correlation_id={correlation_id:?}, \
-                         error={err:?}"
-                    );
-                    crate::metrics::inc_deser_errors();
-                    if *deser_failures >= MAX_DESER_FAILURES {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "too many deserialization failures",
-                        ));
-                    }
-                    Ok(None)
-                }
-            }
-        } else {
-            Ok(Some(env))
-        }
-    }
-
-    async fn forward_response<W>(
-        &self,
-        env: Envelope,
-        service: &HandlerService<E>,
-        framed: &mut Framed<W, LengthDelimitedCodec>,
-        fragmentation: &mut Option<FragmentationState>,
-    ) -> io::Result<()>
-    where
-        W: AsyncRead + AsyncWrite + Unpin,
-    {
-        let request = ServiceRequest::new(env.payload, env.correlation_id);
-        match service.call(request).await {
-            Ok(resp) => {
-                let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
-                    .inherit_correlation(env.correlation_id);
-                let correlation_id = parts.correlation_id();
-                let responses = if let Some(state) = fragmentation.as_mut() {
-                    match state.fragment(Envelope::from_parts(parts)) {
-                        Ok(fragmented) => fragmented,
-                        Err(err) => {
-                            warn!(
-                                "failed to fragment response: id={}, correlation_id={:?}, \
-                                 error={err:?}",
-                                env.id, correlation_id
-                            );
-                            crate::metrics::inc_handler_errors();
-                            return Ok(());
-                        }
-                    }
-                } else {
-                    vec![Envelope::from_parts(parts)]
-                };
-
-                for response in responses {
-                    match self.serializer.serialize(&response) {
-                        Ok(bytes) => {
-                            if let Err(e) = framed.send(bytes.into()).await {
-                                warn!(
-                                    "failed to send response: id={}, correlation_id={:?}, \
-                                     error={e:?}",
-                                    env.id, correlation_id
-                                );
-                                crate::metrics::inc_handler_errors();
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "failed to serialize response: id={}, correlation_id={:?}, \
-                                 error={e:?}",
-                                env.id, correlation_id
-                            );
-                            crate::metrics::inc_handler_errors();
-                            break;
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "handler error: id={}, correlation_id={:?}, error={e:?}",
-                    env.id, env.correlation_id
-                );
-                crate::metrics::inc_handler_errors();
-            }
-        }
-
-        Ok(())
     }
 }
