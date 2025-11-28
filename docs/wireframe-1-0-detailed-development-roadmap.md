@@ -50,14 +50,14 @@ mechanics usable and intuitive.*
 operation in a production environment. This phase moves the library from
 "functional" to "resilient".*
 
-| Item | Name                           | Details                                                                                                                                                                                              | Size   | Depends on |
-| ---- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------- |
-| 3.1  | Graceful Shutdown              | Implement the server-wide graceful shutdown pattern. Use `tokio_util::sync::CancellationToken` for signalling and `tokio_util::task::TaskTracker` to ensure all connection actors terminate cleanly. | Large  | #1.3       |
-| 3.2  | Reassembly DoS Protection (Done)     | Harden the `FragmentAdapter` by adding a non-optional, configurable timeout for partial message reassembly and strictly enforcing the `max_message_size` limit to prevent memory exhaustion.         | Medium | #1.5       |
-| 3.3  | Multiplexed Re-assembly        | Enhance the `FragmentAdapter`'s inbound logic to support concurrent reassembly of multiple messages. Use the `msg_id` from `FragmentMeta` as a key into a `dashmap::DashMap` of partial messages.    | Large  | #3.2       |
-| 3.4  | Per-Connection Rate Limiting   | Integrate an asynchronous, token-bucket rate limiter into the `PushHandle`. The rate limit should be configurable on the `WireframeApp` builder and enforced on every push.                          | Medium | #2.2       |
-| 3.5  | Dead Letter Queue (DLQ)        | Implement the optional Dead Letter Queue mechanism. Allow a user to provide a DLQ channel sender during app setup; failed pushes (due to a full queue) can be routed there instead of being dropped. | Medium | #2.2       |
-| 3.6  | Context-Aware FragmentStrategy | Enhance the `FragmentStrategy` trait. `max_fragment_payload` and `encode_header` should receive a reference to the logical `Frame` being processed, allowing for more dynamic fragmentation rules.   | Small  | #1.4       |
+| Item | Name                             | Details                                                                                                                                                                                              | Size   | Depends on |
+| ---- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------- |
+| 3.1  | Graceful Shutdown                | Implement the server-wide graceful shutdown pattern. Use `tokio_util::sync::CancellationToken` for signalling and `tokio_util::task::TaskTracker` to ensure all connection actors terminate cleanly. | Large  | #1.3       |
+| 3.2  | Reassembly DoS Protection (Done) | Harden the `FragmentAdapter` by adding a non-optional, configurable timeout for partial message reassembly and strictly enforcing the `max_message_size` limit to prevent memory exhaustion.         | Medium | #1.5       |
+| 3.3  | Multiplexed Re-assembly          | Enhance the `FragmentAdapter`'s inbound logic to support concurrent reassembly of multiple messages. Use the `msg_id` from `FragmentMeta` as a key into a `dashmap::DashMap` of partial messages.    | Large  | #3.2       |
+| 3.4  | Per-Connection Rate Limiting     | Integrate an asynchronous, token-bucket rate limiter into the `PushHandle`. The rate limit should be configurable on the `WireframeApp` builder and enforced on every push.                          | Medium | #2.2       |
+| 3.5  | Dead Letter Queue (DLQ)          | Implement the optional Dead Letter Queue mechanism. Allow a user to provide a DLQ channel sender during app setup; failed pushes (due to a full queue) can be routed there instead of being dropped. | Medium | #2.2       |
+| 3.6  | Context-Aware FragmentStrategy   | Enhance the `FragmentStrategy` trait. `max_fragment_payload` and `encode_header` should receive a reference to the logical `Frame` being processed, allowing for more dynamic fragmentation rules.   | Small  | #1.4       |
 
 *Focus: Finalizing the library with comprehensive instrumentation, advanced
 testing, and high-quality documentation to ensure it is stable, debuggable, and

@@ -14,8 +14,10 @@ use super::{
     ProtocolHooks,
     QueueKind,
 };
-use crate::app::{Packet, PacketParts};
-use crate::push::{PushConfigError, PushQueues};
+use crate::{
+    app::{Packet, PacketParts},
+    push::{PushConfigError, PushQueues},
+};
 
 impl Packet for u8 {
     fn id(&self) -> u32 { 0 }

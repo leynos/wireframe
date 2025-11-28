@@ -146,9 +146,13 @@ invalid sequence.
 
 ### 3.4 Wire encoding (November 2025 implementation)
 
-Phase 7 adopts a concrete on-wire layout for fragments. Each fragment payload
-is prefixed with the ASCII marker `FRAG`, a big-endian `u16` header length, the
-bincode-encoded `FragmentHeader`, and finally the fragment bytes. The
+Phase 7 adopts a concrete on-wire layout for fragments that mirrors
+`fragment::payload::{encode_fragment_payload, decode_fragment_payload}`. Each
+fragment payload is prefixed with the ASCII marker `FRAG`, a big-endian `u16`
+header length (derived from `fragment_overhead()`), the bincode-encoded
+`FragmentHeader` using `config::standard()`, and finally the fragment bytes.
+The header must fit within `u16::MAX`; changing the header structure or bincode
+configuration requires updating this section alongside the code. The
 length-delimited codec therefore observes one frame per fragment; the encoded
 body is bounded by `fragment_payload_cap + fragment_overhead`.
 
@@ -355,14 +359,15 @@ This feature is designed as a foundational layer that other features build upon.
 ## 7. Measurable objectives and success criteria
 
 <!-- markdownlint-disable-next-line MD013 -->
-| Category        | Objective                                                                                                                                  | Success Metric                                                                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                      | 100% of the public API surface is present and correctly typed.                                                                                                                    |
-| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly reassembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and reassembled.                                        |
-| Multiplexing    | The adapter can correctly re-assemble two messages whose fragments are interleaved.                                                        | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly reassembled messages, A and B.                                                                       |
-| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                    | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                    |
-| Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                               | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                    |
-| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                    | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter. |
+| Category        | Objective                                                                                                                                  | Success Metric                                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                      | 100% of the public API surface is present and correctly typed.                                                                                                                              |
+| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly reassembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and reassembled.                                                  |
+| Multiplexing    | The adapter can correctly re-assemble two messages whose fragments are interleaved.                                                        | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly reassembled messages, A and B.                                                                                 |
+| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                    | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                              |
+| Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                               | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                              |
+| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                    | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter.           |
+| Resilience      | The adapter enforces the configured `max_message_size`, `fragment_payload_cap`, and `reassembly_timeout` used in production.               | Benchmarks and regression tests assert the 16× message cap, per-fragment payload cap derived from buffer capacity, and a 30s timeout for purging stale assemblies (WireframeApp defaults).  |
 
 ## 8. Design decisions (14 November 2025, updated 17 November 2025)
 

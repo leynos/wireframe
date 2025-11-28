@@ -4,6 +4,7 @@
 use std::{num::NonZeroUsize, time::Duration};
 
 use futures::{SinkExt, StreamExt};
+use rstest::rstest;
 use tokio::{
     io::AsyncWriteExt,
     sync::mpsc,
@@ -203,7 +204,7 @@ impl FragmentRejectionSetup {
     fn new(
         capacity: usize,
         config: FragmentationConfig,
-        fragment_mutator: impl FnOnce(&mut Vec<Envelope>),
+        fragment_mutator: impl FnOnce(Vec<Envelope>) -> Vec<Envelope>,
     ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let app = make_app(capacity, config, &tx);
@@ -212,8 +213,7 @@ impl FragmentRejectionSetup {
 
         let payload = vec![1_u8; 800];
         let request = Envelope::new(ROUTE_ID, CORRELATION, payload);
-        let mut fragments = fragment_envelope(&request, &fragmenter);
-        fragment_mutator(&mut fragments);
+        let fragments = fragment_mutator(fragment_envelope(&request, &fragmenter));
 
         Self {
             client,
@@ -226,7 +226,7 @@ impl FragmentRejectionSetup {
 
 async fn test_fragment_rejection<F>(fragment_mutator: F, rejection_message: &str)
 where
-    F: FnOnce(&mut Vec<Envelope>),
+    F: FnOnce(Vec<Envelope>) -> Vec<Envelope>,
 {
     let buffer_capacity = 512;
     let config = fragmentation_config(buffer_capacity);
@@ -240,68 +240,71 @@ where
     send_envelopes(&mut client, &fragments).await;
     client.get_mut().shutdown().await.expect("shutdown write");
 
-    match timeout(Duration::from_millis(200), rx.recv()).await {
-        Ok(Some(_)) => panic!("{rejection_message}"),
-        _ => {}
+    if let Ok(Some(_)) = timeout(Duration::from_millis(200), rx.recv()).await {
+        panic!("{rejection_message}");
     }
 
     drop(client);
     server.await.expect("server task");
 }
 
-#[tokio::test]
-async fn out_of_order_fragments_are_rejected() {
-    test_fragment_rejection(
-        |fragments| fragments.swap(0, 1),
-        "handler should not receive out-of-order fragments",
-    )
-    .await;
+type FragmentMutator = fn(Vec<Envelope>) -> Vec<Envelope>;
+
+fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> Vec<Envelope> {
+    fragments.swap(0, 1);
+    fragments
 }
 
-#[tokio::test]
-async fn duplicate_fragments_clear_reassembly() {
-    test_fragment_rejection(
-        |fragments| {
-            let duplicate = fragments[0].clone();
-            fragments.insert(1, duplicate);
-        },
-        "handler should not receive after duplicate fragment",
-    )
-    .await;
+fn mutate_duplicate(mut fragments: Vec<Envelope>) -> Vec<Envelope> {
+    let duplicate = fragments[0].clone();
+    fragments.insert(1, duplicate);
+    fragments
 }
 
+fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> Vec<Envelope> {
+    let parts = fragments
+        .first()
+        .cloned()
+        .expect("fragmenter must produce at least one fragment")
+        .into_parts();
+    let mut payload = parts.clone().payload();
+    assert!(
+        payload.starts_with(FRAGMENT_MAGIC),
+        "expected fragment to start with marker"
+    );
+    let truncate_len = FRAGMENT_MAGIC.len() + 2;
+    if payload.len() > truncate_len {
+        payload.truncate(truncate_len);
+    } else {
+        while payload.len() < truncate_len {
+            payload.push(0);
+        }
+    }
+    fragments[0] = Envelope::from_parts(PacketParts::new(
+        parts.id(),
+        parts.correlation_id(),
+        payload,
+    ));
+    fragments.truncate(1);
+    fragments
+}
+
+#[rstest]
+#[case::out_of_order(
+    mutate_out_of_order,
+    "handler should not receive out-of-order fragments"
+)]
+#[case::duplicate(
+    mutate_duplicate,
+    "handler should not receive after duplicate fragment"
+)]
+#[case::malformed(mutate_malformed_header, "malformed fragment header is rejected")]
 #[tokio::test]
-async fn fragment_rejection_malformed_fragment_header() {
-    test_fragment_rejection(
-        |fragments| {
-            let parts = fragments
-                .first()
-                .cloned()
-                .expect("fragmenter must produce at least one fragment")
-                .into_parts();
-            let mut payload = parts.clone().payload();
-            assert!(
-                payload.starts_with(FRAGMENT_MAGIC),
-                "expected fragment to start with marker"
-            );
-            let truncate_len = FRAGMENT_MAGIC.len() + 2;
-            if payload.len() > truncate_len {
-                payload.truncate(truncate_len);
-            } else {
-                while payload.len() < truncate_len {
-                    payload.push(0);
-                }
-            }
-            fragments[0] = Envelope::from_parts(PacketParts::new(
-                parts.id(),
-                parts.correlation_id(),
-                payload,
-            ));
-            fragments.truncate(1);
-        },
-        "malformed fragment header is rejected",
-    )
-    .await;
+async fn fragment_rejection_cases(
+    #[case] mutator: FragmentMutator,
+    #[case] rejection_message: &str,
+) {
+    test_fragment_rejection(mutator, rejection_message).await;
 }
 
 #[tokio::test]

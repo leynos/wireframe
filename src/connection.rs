@@ -9,7 +9,10 @@ use std::{
     fmt,
     future::Future,
     net::SocketAddr,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use futures::StreamExt;
@@ -130,7 +133,7 @@ pub struct ConnectionActor<F, E> {
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
     fairness: FairnessTracker,
-    fragmenter: Option<Fragmenter>,
+    fragmenter: Option<Arc<Fragmenter>>,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
 }
@@ -319,7 +322,7 @@ where
     where
         F: Packet,
     {
-        self.fragmenter = Some(Fragmenter::new(config.fragment_payload_cap));
+        self.fragmenter = Some(Arc::new(Fragmenter::new(config.fragment_payload_cap)));
     }
 
     /// Set or replace the current streaming response.
