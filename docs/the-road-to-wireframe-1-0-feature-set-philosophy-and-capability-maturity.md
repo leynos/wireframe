@@ -171,8 +171,8 @@ pub trait FragmentStrategy: 'static + Send + Sync {
 #### Robust Re-assembly for Modern Protocols
 
 A critical enhancement to the initial design is support for multiplexing. The
-re-assembly logic will not assume that fragments arrive sequentially. By using
-a concurrent hash map (e.g., `dashmap::DashMap`) keyed by `msg_id`, the
+reassembly logic will not assume that fragments arrive sequentially. By using a
+concurrent hash map (e.g., `dashmap::DashMap`) keyed by `msg_id`, the
 `FragmentAdapter` can re-assemble multiple logical messages concurrently on the
 same connection. This is essential for supporting modern protocols like HTTP/2
 or gRPC.
@@ -237,7 +237,7 @@ Rust's ownership model and `Drop` trait are the foundation of resource safety.
     `max_message_size` to prevent a single client from consuming excessive
     memory.
 
-  - **Timeouts:** The re-assembly logic will include a non-optional,
+  - **Timeouts:** The reassembly logic will include a non-optional,
     configurable timeout to automatically purge partial messages that are
     abandoned or sent too slowly.
 
@@ -366,7 +366,7 @@ traditional unit and integration tests.
   be implemented.
 
 - **Stateful Property Testing:** For validating complex, stateful protocol
-  conversations (like fragmentation and re-assembly), `proptest` will be used.
+  conversations (like fragmentation and reassembly), `proptest` will be used.
   This technique generates thousands of random-but-valid sequences of
   operations to uncover edge cases that manual tests would miss.
 
@@ -388,7 +388,7 @@ components.
 | Phase                       | Focus                                                        | Key Deliverables                                                                                                                            |
 | 1. Foundational Mechanics   | Implement the core, non-public machinery.                    | Internal actor loop with select!(biased!), dual-channel push plumbing, basic FragmentAdapter logic.                                         |
 | 2. Public APIs & Ergonomics | Expose functionality to users in a clean, idiomatic way.     | Fluent WireframeApp builder, WireframeProtocol trait, enhanced Response enum, FragmentStrategy trait, SessionRegistry with Weak references. |
-| 3. Production Hardening     | Add features for resilience and security.                    | CancellationToken-based graceful shutdown, re-assembly timeouts, per-connection rate limiting, optional Dead Letter Queue.                  |
+| 3. Production Hardening     | Add features for resilience and security.                    | CancellationToken-based graceful shutdown, reassembly timeouts, per-connection rate limiting, optional Dead Letter Queue.                   |
 | 4. Maturity and Polish      | Focus on observability, advanced testing, and documentation. | Full tracing instrumentation, criterion benchmarks, loom and proptest test suites, comprehensive user guides and API documentation.         |
 
 <!-- markdownlint-enable MD013 -->

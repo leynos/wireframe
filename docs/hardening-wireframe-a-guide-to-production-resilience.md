@@ -299,18 +299,25 @@ fragmentation layer must be hardened.
 
 - **Strict Memory Cap (**`max_message_size`**):** The `FragmentAdapter` will
   enforce a non-optional, configurable limit on the total size of a logical
-  message it is willing to re-assemble. Any fragment that would cause the
+  message it is willing to reassemble. Any fragment that would cause the
   partial message buffer to exceed this limit will result in an immediate error
   and connection termination.
 
-- **Re-assembly Timeout:** A long-running connection could be attacked by a
+- **Reassembly Timeout:** A long-running connection could be attacked by a
   client that sends the first fragment of many different large messages but
-  never sends the final fragments, slowly filling the re-assembly buffer. The
+  never sends the final fragments, slowly filling the reassembly buffer. The
   `FragmentAdapter` must therefore include a **non-optional, configurable
   timeout** for partial messages. A `tokio-util`-based timer or a simple
   `dashmap` of `(MessageId, Instant)` can be used to track the age of partial
   assemblies, which are purged if they are not completed within the time limit
   (e.g., 30 seconds).
+
+`WireframeApp` enables these guards by default via
+`default_fragmentation(buffer_capacity)`, which builds a `FragmentationConfig`
+from the connection's `buffer_capacity`. The fragment payload cap matches the
+usable frame budget, `max_message_size` defaults to 16× `buffer_capacity`, and
+partial assemblies are purged after 30 seconds. Applications can override or
+disable these defaults via `fragmentation(...)`.
 
 ## 5. Advanced Resilience Patterns
 

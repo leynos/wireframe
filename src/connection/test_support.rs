@@ -14,7 +14,32 @@ use super::{
     ProtocolHooks,
     QueueKind,
 };
-use crate::push::{PushConfigError, PushQueues};
+use crate::{
+    app::{Packet, PacketParts},
+    push::{PushConfigError, PushQueues},
+};
+
+impl Packet for u8 {
+    fn id(&self) -> u32 { 0 }
+
+    fn correlation_id(&self) -> Option<u64> { None }
+
+    fn into_parts(self) -> PacketParts { PacketParts::new(0, None, vec![self]) }
+
+    fn from_parts(parts: PacketParts) -> Self {
+        parts.payload().first().copied().unwrap_or_default()
+    }
+}
+
+impl Packet for Vec<u8> {
+    fn id(&self) -> u32 { 0 }
+
+    fn correlation_id(&self) -> Option<u64> { None }
+
+    fn into_parts(self) -> PacketParts { PacketParts::new(0, None, self) }
+
+    fn from_parts(parts: PacketParts) -> Self { parts.payload() }
+}
 
 /// Build a connection actor configured with the supplied protocol hooks.
 ///

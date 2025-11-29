@@ -9,7 +9,10 @@ use std::{
     fmt,
     future::Future,
     net::SocketAddr,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use futures::StreamExt;
@@ -47,8 +50,10 @@ impl Drop for ActiveConnection {
 pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
+    app::{Packet, fragment_utils::fragment_packet},
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
+    fragment::{FragmentationConfig, Fragmenter},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
@@ -128,6 +133,7 @@ pub struct ConnectionActor<F, E> {
     hooks: ProtocolHooks<F, E>,
     ctx: ConnectionContext,
     fairness: FairnessTracker,
+    fragmenter: Option<Arc<Fragmenter>>,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
 }
@@ -233,7 +239,7 @@ enum QueueKind {
 
 impl<F, E> ConnectionActor<F, E>
 where
-    F: FrameLike + CorrelatableFrame,
+    F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
 {
     /// Create a new `ConnectionActor` from the provided components.
@@ -290,6 +296,7 @@ where
             hooks,
             ctx,
             fairness: FairnessTracker::new(FairnessConfig::default()),
+            fragmenter: None,
             connection_id: None,
             peer_addr: None,
         };
@@ -304,6 +311,19 @@ where
 
     /// Replace the fairness configuration.
     pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness.set_config(fairness); }
+
+    /// Enable transparent fragmentation for outbound frames.
+    ///
+    /// When configured, frames that exceed `fragment_payload_cap` are split
+    /// into multiple fragments carrying a standard fragment header inside the
+    /// payload. Callers continue to enqueue complete frames; fragmentation
+    /// occurs just before hooks and metrics are applied.
+    pub fn enable_fragmentation(&mut self, config: FragmentationConfig)
+    where
+        F: Packet,
+    {
+        self.fragmenter = Some(Arc::new(Fragmenter::new(config.fragment_payload_cap)));
+    }
 
     /// Set or replace the current streaming response.
     pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
@@ -379,18 +399,19 @@ where
             MultiPacketStamp::Enabled(Some(expected)) => {
                 frame.set_correlation_id(Some(expected));
                 debug_assert!(
-                    frame.correlation_id() == Some(expected) || frame.correlation_id().is_none(),
+                    CorrelatableFrame::correlation_id(frame) == Some(expected)
+                        || CorrelatableFrame::correlation_id(frame).is_none(),
                     "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
                     Some(expected),
-                    frame.correlation_id(),
+                    CorrelatableFrame::correlation_id(frame),
                 );
             }
             MultiPacketStamp::Enabled(None) => {
                 frame.set_correlation_id(None);
                 debug_assert!(
-                    frame.correlation_id().is_none(),
+                    CorrelatableFrame::correlation_id(frame).is_none(),
                     "multi-packet frame correlation unexpectedly present: got={:?}",
-                    frame.correlation_id(),
+                    CorrelatableFrame::correlation_id(frame),
                 );
             }
             MultiPacketStamp::Disabled => {
@@ -621,7 +642,31 @@ where
     /// ```ignore
     /// actor.process_frame_with_hooks_and_metrics(frame, &mut out);
     /// ```
-    fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>) {
+    fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>)
+    where
+        F: Packet,
+    {
+        if let Some(fragmenter) = &self.fragmenter {
+            match fragment_packet(fragmenter, frame) {
+                Ok(frames) => {
+                    for frame in frames {
+                        self.push_frame(frame, out);
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
+                        self.connection_id, self.peer_addr,
+                    );
+                    crate::metrics::inc_handler_errors();
+                }
+            }
+        } else {
+            self.push_frame(frame, out);
+        }
+    }
+
+    fn push_frame(&mut self, frame: F, out: &mut Vec<F>) {
         let mut frame = frame;
         self.hooks.before_send(&mut frame, &mut self.ctx);
         out.push(frame);

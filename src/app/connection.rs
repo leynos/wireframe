@@ -12,14 +12,17 @@ use tokio::{
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
-    builder::WireframeApp,
-    envelope::{Envelope, Packet, PacketParts},
+    builder::{WireframeApp, default_fragmentation},
+    envelope::{Envelope, Packet},
     error::SendError,
+    fragmentation_state::FragmentationState,
+    frame_handling,
 };
 use crate::{
+    fragment::FragmentationConfig,
     frame::FrameMetadata,
     message::Message,
-    middleware::{HandlerService, Service, ServiceRequest},
+    middleware::HandlerService,
     serializer::Serializer,
 };
 
@@ -45,6 +48,11 @@ where
         LengthDelimitedCodec::builder()
             .max_frame_length(self.buffer_capacity)
             .new_codec()
+    }
+
+    fn fragmentation_config(&self) -> Option<FragmentationConfig> {
+        self.fragmentation
+            .or_else(|| default_fragmentation(self.buffer_capacity))
     }
 
     /// Serialize `msg` and write it to `stream` using a length-delimited codec.
@@ -175,18 +183,28 @@ where
         let mut framed = Framed::new(stream, codec);
         framed.read_buffer_mut().reserve(self.buffer_capacity);
         let mut deser_failures = 0u32;
+        let mut fragmentation = self.fragmentation_config().map(FragmentationState::new);
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
             match timeout(timeout_dur, framed.next()).await {
                 Ok(Some(Ok(buf))) => {
-                    self.handle_frame(&mut framed, buf.as_ref(), &mut deser_failures, routes)
-                        .await?;
+                    self.handle_frame(
+                        &mut framed,
+                        buf.as_ref(),
+                        &mut deser_failures,
+                        routes,
+                        &mut fragmentation,
+                    )
+                    .await?;
                 }
                 Ok(Some(Err(e))) => return Err(e),
                 Ok(None) => break,
                 Err(_) => {
                     debug!("read timeout elapsed; continuing to wait for next frame");
+                    if let Some(state) = fragmentation.as_mut() {
+                        state.purge_expired();
+                    }
                 }
             }
         }
@@ -200,15 +218,47 @@ where
         frame: &[u8],
         deser_failures: &mut u32,
         routes: &HashMap<u32, HandlerService<E>>,
+        fragmentation: &mut Option<FragmentationState>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
-        let (env, _) = match self.parse_envelope(frame) {
-            Ok(result) => {
+        let Some(env) = self.decode_envelope(frame, deser_failures)? else {
+            return Ok(());
+        };
+        let Some(env) = frame_handling::reassemble_if_needed(
+            fragmentation,
+            deser_failures,
+            env,
+            MAX_DESER_FAILURES,
+        )?
+        else {
+            return Ok(());
+        };
+
+        if let Some(service) = routes.get(&env.id) {
+            frame_handling::forward_response(&self.serializer, env, service, framed, fragmentation)
+                .await?;
+        } else {
+            warn!(
+                "no handler for message id: id={}, correlation_id={:?}",
+                env.id, env.correlation_id
+            );
+        }
+
+        Ok(())
+    }
+
+    fn decode_envelope(
+        &self,
+        frame: &[u8],
+        deser_failures: &mut u32,
+    ) -> Result<Option<Envelope>, io::Error> {
+        match self.parse_envelope(frame) {
+            Ok((env, _)) => {
                 *deser_failures = 0;
-                result
+                Ok(Some(env))
             }
             Err(EnvelopeDecodeError::Parse(e)) => {
                 *deser_failures += 1;
@@ -223,7 +273,7 @@ where
                         "too many deserialization failures",
                     ));
                 }
-                return Ok(());
+                Ok(None)
             }
             Err(EnvelopeDecodeError::Deserialize(e)) => {
                 *deser_failures += 1;
@@ -238,54 +288,8 @@ where
                         "too many deserialization failures",
                     ));
                 }
-                return Ok(());
+                Ok(None)
             }
-        };
-
-        if let Some(service) = routes.get(&env.id) {
-            let request = ServiceRequest::new(env.payload, env.correlation_id);
-            match service.call(request).await {
-                Ok(resp) => {
-                    let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
-                        .inherit_correlation(env.correlation_id);
-                    let correlation_id = parts.correlation_id();
-                    let response = Envelope::from_parts(parts);
-                    match self.serializer.serialize(&response) {
-                        Ok(bytes) => {
-                            if let Err(e) = framed.send(bytes.into()).await {
-                                warn!(
-                                    "failed to send response: id={}, correlation_id={:?}, \
-                                     error={e:?}",
-                                    env.id, correlation_id
-                                );
-                                crate::metrics::inc_handler_errors();
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "failed to serialize response: id={}, correlation_id={:?}, \
-                                 error={e:?}",
-                                env.id, correlation_id
-                            );
-                            crate::metrics::inc_handler_errors();
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "handler error: id={}, correlation_id={:?}, error={e:?}",
-                        env.id, env.correlation_id
-                    );
-                    crate::metrics::inc_handler_errors();
-                }
-            }
-        } else {
-            warn!(
-                "no handler for message id: id={}, correlation_id={:?}",
-                env.id, env.correlation_id
-            );
         }
-
-        Ok(())
     }
 }

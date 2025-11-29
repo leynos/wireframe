@@ -144,7 +144,7 @@ transport-level fragmentation state.[^41]
 
 Protocol implementers can emit a `FragmentHeader` for every physical frame and
 feed the header back into `FragmentSeries` to guarantee ordering before a fully
-re-assembled message is surfaced to handlers. Behavioural tests can reuse the
+reassembled message is surfaced to handlers. Behavioural tests can reuse the
 same types to assert that new codecs obey the transport invariants without
 spinning up a full server.[^42][^43]
 
@@ -308,92 +308,41 @@ async fn main() -> Result<(), SendError> {
 
 ## Message fragmentation
 
-Length-delimited framing absorbs partial reads before invoking a handler, so a
-single logical message can arrive as many transport-level fragments without the
-application noticing.[^6] The example below constrains the application buffer
-to 64 bytes, writes a 512-byte payload in 16-byte chunks, and shows the handler
-receiving the fully reassembled message.
+`WireframeApp` now fragments oversized payloads automatically. The builder
+derives a `FragmentationConfig` from `buffer_capacity`: any payload that will
+not fit into a single frame is split into fragments carrying a `FragmentHeader`
+(`message_id`, `fragment_index`, `is_last_fragment`) wrapped with the `FRAG`
+marker. The connection reassembles fragments before invoking handlers, so
+handlers continue to work with complete `Envelope` values.[^6]
+
+Fragmented messages enforce two guards: `max_message_size` caps the total
+reassembled payload, and `reassembly_timeout` evicts stale partial messages.
+Customize or disable fragmentation via the builder:
 
 ```rust
-use std::sync::Arc;
-
-use bytes::BytesMut;
-use tokio::{
-    io::{self, AsyncWriteExt},
-    sync::mpsc,
-};
-use tokio_util::codec::Encoder;
+use std::{num::NonZeroUsize, time::Duration};
 use wireframe::{
-    app::{Envelope, Handler, WireframeApp},
-    message::Message,
-    serializer::BincodeSerializer,
+    app::WireframeApp,
+    fragment::FragmentationConfig,
 };
 
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
-struct Large(Vec<u8>);
+// Assume `handler` is defined elsewhere; any Handler compatible with WireframeApp works.
+let cfg = FragmentationConfig::for_frame_budget(
+    1024,
+    NonZeroUsize::new(16 * 1024).unwrap(),
+    Duration::from_secs(30),
+).expect("frame budget too small for fragments");
 
-#[tokio::main]
-async fn main() -> wireframe::app::Result<()> {
-    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
-    let handler_tx = tx.clone();
-
-    let handler: Handler<Envelope> = Arc::new(move |env: &Envelope| {
-        let handler_tx = handler_tx.clone();
-        let envelope = env.clone();
-
-        Box::pin(async move {
-            let parts = envelope.into_parts();
-            let payload = parts.payload();
-            let (Large(bytes), _) =
-                Large::from_bytes(&payload).expect("decode fragmented payload");
-
-            handler_tx
-                .send(bytes)
-                .expect("receiver dropped before handler completed");
-        })
-    });
-
-    let app = WireframeApp::new()?
-        .buffer_capacity(64)
-        .read_timeout_ms(500)
-        .route(42, handler)?;
-
-    let mut codec = app.length_codec();
-    let (mut client, server) = io::duplex(16);
-    let server_task = tokio::spawn(async move { app.handle_connection(server).await });
-
-    let expected = Large(vec![b'Z'; 512]);
-    let serializer = BincodeSerializer;
-    let payload = expected.to_bytes().expect("encode Large payload");
-    let envelope = Envelope::new(42, Some(9001), payload);
-    let bytes = serializer
-        .serialize(&envelope)
-        .expect("serialize envelope");
-    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
-    codec
-        .encode(bytes.into(), &mut framed)
-        .expect("frame encoding");
-    let frame = framed.to_vec();
-
-    for chunk in frame.chunks(16) {
-        client.write_all(chunk).await.expect("chunk write");
-        client.flush().await.expect("flush chunk");
-    }
-    client.shutdown().await.expect("finish writes");
-
-    let received = rx.recv().await.expect("message delivered");
-    assert_eq!(received.len(), expected.0.len());
-    assert!(received.iter().all(|&b| b == b'Z'));
-
-    server_task.await.expect("connection finished");
-    Ok(())
-}
+let app = WireframeApp::new()?
+    .fragmentation(Some(cfg))
+    .route(42, handler)?;
 ```
 
-Increase `buffer_capacity` when the length-delimited codec should accept larger
-frames; any payload that exceeds the cap is rejected before the handler runs.
-Slow links that fragment heavily may require raising `read_timeout_ms` so the
-codec has time to aggregate every chunk before the timeout elapses.[^3][^6]
+Set `fragmentation(None)` when the transport already supports large frames, or
+when fragmentation should be deferred to an upstream gateway. The
+`ConnectionActor` mirrors the same behaviour for push traffic and streaming
+responses through `enable_fragmentation`, ensuring client-visible frames follow
+the same format.
 
 ## Protocol hooks
 
