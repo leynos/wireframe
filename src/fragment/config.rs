@@ -12,7 +12,7 @@ pub struct FragmentationConfig {
     /// overhead; the constructor ensures the final size fits within the
     /// caller's frame budget.
     pub fragment_payload_cap: NonZeroUsize,
-    /// Hard cap on the fully re-assembled logical message size.
+    /// Hard cap on the fully reassembled logical message size.
     pub max_message_size: NonZeroUsize,
     /// Duration after which incomplete reassembly buffers are evicted.
     pub reassembly_timeout: Duration,

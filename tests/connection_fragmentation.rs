@@ -11,13 +11,16 @@ use wireframe::{
     ConnectionActor,
     app::{Envelope, Packet},
     fragment::{FragmentationConfig, Reassembler, decode_fragment_payload},
-    push::PushQueues,
+    push::{PushHandle, PushQueues},
 };
 
 const ROUTE_ID: u32 = 7;
 
-#[tokio::test]
-async fn connection_actor_fragments_outbound_frames() {
+fn setup_fragmented_actor() -> (
+    ConnectionActor<Envelope, ()>,
+    PushHandle<Envelope>,
+    FragmentationConfig,
+) {
     let (queues, handle) = PushQueues::<Envelope>::builder()
         .high_capacity(4)
         .low_capacity(4)
@@ -34,6 +37,12 @@ async fn connection_actor_fragments_outbound_frames() {
     )
     .expect("frame budget must exceed overhead");
     actor.enable_fragmentation(cfg);
+    (actor, handle, cfg)
+}
+
+#[tokio::test]
+async fn connection_actor_fragments_outbound_frames() {
+    let (mut actor, handle, cfg) = setup_fragmented_actor();
 
     let cap = cfg.fragment_payload_cap.get();
     let payload = vec![1_u8; cap.saturating_add(16)];
@@ -68,22 +77,7 @@ async fn connection_actor_fragments_outbound_frames() {
 
 #[tokio::test]
 async fn connection_actor_passes_through_small_outbound_frames_unfragmented() {
-    let (queues, handle) = PushQueues::<Envelope>::builder()
-        .high_capacity(4)
-        .low_capacity(4)
-        .build()
-        .expect("build queues");
-    let shutdown = CancellationToken::new();
-    let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, handle.clone(), None, shutdown);
-
-    let cfg = FragmentationConfig::for_frame_budget(
-        96,
-        NonZeroUsize::new(256).expect("non-zero message cap"),
-        Duration::from_secs(5),
-    )
-    .expect("frame budget must exceed overhead");
-    actor.enable_fragmentation(cfg);
+    let (mut actor, handle, cfg) = setup_fragmented_actor();
 
     let payload_cap = cfg.fragment_payload_cap.get();
     let payload = vec![5_u8; payload_cap.saturating_sub(1)];

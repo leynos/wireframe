@@ -326,6 +326,7 @@ use wireframe::{
     fragment::FragmentationConfig,
 };
 
+// Assume `handler` is defined elsewhere; any Handler compatible with WireframeApp works.
 let cfg = FragmentationConfig::for_frame_budget(
     1024,
     NonZeroUsize::new(16 * 1024).unwrap(),

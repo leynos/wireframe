@@ -4,6 +4,7 @@
 //! and `WireframeApp` to keep the main connection module concise.
 
 use bincode::error::DecodeError;
+use thiserror::Error;
 
 use super::{Packet, PacketParts};
 use crate::fragment::{
@@ -22,8 +23,11 @@ pub(crate) struct FragmentationState {
 }
 
 /// Decode or reassembly failures encountered while handling fragments.
+#[derive(Debug, Error)]
 pub(crate) enum FragmentProcessError {
+    #[error("decode error: {0}")]
     Decode(DecodeError),
+    #[error("reassembly error: {0}")]
     Reassembly(ReassemblyError),
 }
 

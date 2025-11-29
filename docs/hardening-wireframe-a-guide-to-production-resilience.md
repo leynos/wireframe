@@ -312,10 +312,12 @@ fragmentation layer must be hardened.
   assemblies, which are purged if they are not completed within the time limit
   (e.g., 30 seconds).
 
-`WireframeApp` enables these guards by default, deriving the fragment payload
-cap from `buffer_capacity`, capping reassembled messages at 16× that budget,
-and evicting stale assemblies after 30 seconds. Applications can override or
-disable the defaults via `fragmentation(...)`.
+`WireframeApp` enables these guards by default via
+`default_fragmentation(buffer_capacity)`, which builds a `FragmentationConfig`
+from the connection's `buffer_capacity`. The fragment payload cap matches the
+usable frame budget, `max_message_size` defaults to 16× `buffer_capacity`, and
+partial assemblies are purged after 30 seconds. Applications can override or
+disable these defaults via `fragmentation(...)`.
 
 ## 5. Advanced Resilience Patterns
 

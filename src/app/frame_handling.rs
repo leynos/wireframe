@@ -27,40 +27,44 @@ pub(crate) fn reassemble_if_needed(
     env: Envelope,
     max_deser_failures: u32,
 ) -> io::Result<Option<Envelope>> {
+    fn handle_fragment_error(
+        deser_failures: &mut u32,
+        max_deser_failures: u32,
+        correlation_id: Option<u64>,
+        context: &str,
+        err: impl std::fmt::Debug,
+    ) -> io::Result<Option<Envelope>> {
+        *deser_failures += 1;
+        warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
+        crate::metrics::inc_deser_errors();
+        if *deser_failures >= max_deser_failures {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "too many deserialization failures",
+            ));
+        }
+        Ok(None)
+    }
+
     if let Some(state) = fragmentation.as_mut() {
         let correlation_id = env.correlation_id;
         match state.reassemble(env) {
             Ok(Some(env)) => Ok(Some(env)),
             Ok(None) => Ok(None),
-            Err(FragmentProcessError::Decode(err)) => {
-                *deser_failures += 1;
-                warn!(
-                    "failed to decode fragment header: correlation_id={correlation_id:?}, \
-                     error={err:?}"
-                );
-                crate::metrics::inc_deser_errors();
-                if *deser_failures >= max_deser_failures {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "too many deserialization failures",
-                    ));
-                }
-                Ok(None)
-            }
-            Err(FragmentProcessError::Reassembly(err)) => {
-                *deser_failures += 1;
-                warn!(
-                    "fragment reassembly failed: correlation_id={correlation_id:?}, error={err:?}"
-                );
-                crate::metrics::inc_deser_errors();
-                if *deser_failures >= max_deser_failures {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "too many deserialization failures",
-                    ));
-                }
-                Ok(None)
-            }
+            Err(FragmentProcessError::Decode(err)) => handle_fragment_error(
+                deser_failures,
+                max_deser_failures,
+                correlation_id,
+                "failed to decode fragment header",
+                err,
+            ),
+            Err(FragmentProcessError::Reassembly(err)) => handle_fragment_error(
+                deser_failures,
+                max_deser_failures,
+                correlation_id,
+                "fragment reassembly failed",
+                err,
+            ),
         }
     } else {
         Ok(Some(env))
