@@ -87,7 +87,16 @@ test-support = []
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
+# 1. hygiene
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+blanket_clippy_restriction_lints = "deny"
+cognitive_complexity = "deny"
+needless_pass_by_value = "deny"
+implicit_hasher = "deny"
 [lints.rust]
+unknown_lints = "deny"
+renamed_and_removed_lints = "deny"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 
 [lints.rustdoc]
