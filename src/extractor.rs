@@ -144,7 +144,7 @@ impl Payload<'_> {
     /// ```
     pub fn advance(&mut self, count: usize) {
         let n = count.min(self.data.len());
-        self.data = &self.data[n..];
+        self.data = self.data.get(n..).unwrap_or_default();
     }
 
     /// Returns the number of bytes remaining.
