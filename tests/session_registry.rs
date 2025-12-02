@@ -1,5 +1,10 @@
-#![cfg(not(loom))]
 //! Tests for the `SessionRegistry`.
+#![cfg(not(loom))]
+#![allow(
+    unfulfilled_lint_expectations,
+    reason = "Needed for rustc suppressing false positives"
+)]
+
 use rstest::{fixture, rstest};
 use wireframe::{
     push::{PushHandle, PushQueues},

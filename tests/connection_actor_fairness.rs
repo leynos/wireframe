@@ -1,5 +1,9 @@
-#![cfg(not(loom))]
 //! Fairness and priority tests for `ConnectionActor`.
+#![cfg(not(loom))]
+#![allow(
+    unfulfilled_lint_expectations,
+    reason = "Needed for rustc suppressing false positives"
+)]
 
 use futures::stream;
 use rstest::{fixture, rstest};
