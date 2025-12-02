@@ -63,7 +63,8 @@ async fn send_response_encodes_and_frames() {
 
     let frames = decode_frames(out);
     assert_eq!(frames.len(), 1, "expected a single response frame");
-    let (decoded, _) = TestResp::from_bytes(&frames[0]).expect("deserialize failed");
+    let frame = frames.first().expect("expected frame missing");
+    let (decoded, _) = TestResp::from_bytes(frame).expect("deserialize failed");
     assert_eq!(decoded, TestResp(7));
 }
 
@@ -139,7 +140,10 @@ fn custom_length_roundtrip(
     codec
         .encode(frame.clone().into(), &mut buf)
         .expect("encode failed");
-    assert_eq!(&buf[..prefix.len()], &prefix[..]);
+    let head = buf
+        .get(..prefix.len())
+        .expect("encoded buffer shorter than prefix");
+    assert_eq!(head, &prefix[..]);
     let decoded = codec
         .decode(&mut buf)
         .expect("decode failed")
