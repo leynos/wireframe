@@ -29,6 +29,17 @@ use crate::{
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
 
+struct FrameHandlingContext<'a, E, W>
+where
+    E: Packet,
+    W: AsyncRead + AsyncWrite + Unpin,
+{
+    framed: &'a mut Framed<W, LengthDelimitedCodec>,
+    deser_failures: &'a mut u32,
+    routes: &'a HashMap<u32, HandlerService<E>>,
+    fragmentation: &'a mut Option<FragmentationState>,
+}
+
 #[derive(Debug)]
 enum EnvelopeDecodeError<E> {
     Parse(E),
@@ -187,26 +198,36 @@ where
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
-            match timeout(timeout_dur, framed.next()).await {
-                Ok(Some(Ok(buf))) => {
-                    self.handle_frame(
-                        &mut framed,
-                        buf.as_ref(),
-                        &mut deser_failures,
-                        routes,
-                        &mut fragmentation,
-                    )
-                    .await?;
-                }
-                Ok(Some(Err(e))) => return Err(e),
-                Ok(None) => break,
+            let maybe_frame = match timeout(timeout_dur, framed.next()).await {
+                Ok(frame) => frame,
                 Err(_) => {
                     debug!("read timeout elapsed; continuing to wait for next frame");
                     if let Some(state) = fragmentation.as_mut() {
                         state.purge_expired();
                     }
+                    continue;
                 }
-            }
+            };
+
+            let Some(frame_result) = maybe_frame else {
+                break;
+            };
+
+            let buf = match frame_result {
+                Ok(buf) => buf,
+                Err(e) => return Err(e),
+            };
+
+            self.handle_frame(
+                buf.as_ref(),
+                FrameHandlingContext {
+                    framed: &mut framed,
+                    deser_failures: &mut deser_failures,
+                    routes,
+                    fragmentation: &mut fragmentation,
+                },
+            )
+            .await?;
         }
 
         Ok(())
@@ -214,15 +235,19 @@ where
 
     async fn handle_frame<W>(
         &self,
-        framed: &mut Framed<W, LengthDelimitedCodec>,
         frame: &[u8],
-        deser_failures: &mut u32,
-        routes: &HashMap<u32, HandlerService<E>>,
-        fragmentation: &mut Option<FragmentationState>,
+        ctx: FrameHandlingContext<'_, E, W>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
+        let FrameHandlingContext {
+            framed,
+            deser_failures,
+            routes,
+            fragmentation,
+        } = ctx;
+
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
         let Some(env) = self.decode_envelope(frame, deser_failures)? else {
             return Ok(());
