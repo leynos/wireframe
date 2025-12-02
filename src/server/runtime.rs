@@ -216,7 +216,7 @@ where
     /// Returns an [`io::Error`] if the server was not bound to a listener.
     /// Accept failures are retried with exponential back-off and do not
     /// surface as errors.
-    #[allow(
+    #[expect(
         clippy::integer_division_remainder_used,
         reason = "tokio::select! expands to modulus internally"
     )]
@@ -362,7 +362,7 @@ pub(super) async fn accept_loop<F, T, L>(
     }
 }
 
-#[allow(
+#[expect(
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
