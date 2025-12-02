@@ -100,6 +100,16 @@ dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
 
+# 2. panic-prone operations
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+integer_division = "deny"
+integer_division_remainder_used = "deny"
+panic_in_result_fn = "deny"
+unreachable = "deny"
+
 [lints.rust]
 unknown_lints = "deny"
 renamed_and_removed_lints = "deny"
