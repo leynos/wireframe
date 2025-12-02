@@ -19,14 +19,19 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger, push_expect};
 
-#[fixture]
+#[expect(
+    clippy::allow_attributes,
+    reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
+)]
+#[allow(
+    unfulfilled_lint_expectations,
+    reason = "rstest occasionally misses the expected lint for single-line fixtures on stable"
+)]
 #[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
+#[fixture]
 fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
     PushQueues::<u8>::builder()
         .high_capacity(8)
@@ -35,14 +40,19 @@ fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
         .expect("failed to build PushQueues")
 }
 
-#[fixture]
+#[expect(
+    clippy::allow_attributes,
+    reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
+)]
+#[allow(
+    unfulfilled_lint_expectations,
+    reason = "rstest occasionally misses the expected lint for single-line fixtures on stable"
+)]
 #[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
+#[fixture]
 fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
 #[rstest]
