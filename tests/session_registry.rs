@@ -89,7 +89,7 @@ async fn active_handles_lists_live_connections(registry: SessionRegistry<u8>) ->
     let handles = registry.active_handles();
     assert_eq!(handles.len(), 1);
     let first = handles
-        .get(0)
+        .first()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no active handles"))?;
     assert_eq!(first.0, id2);
     Ok(())
