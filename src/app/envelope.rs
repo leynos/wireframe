@@ -1,16 +1,17 @@
 //! Packet abstraction and envelope types.
 //!
 //! These types decouple serialisation from routing by wrapping raw payloads in
-//! identifiers understood by [`crate::app::WireframeApp`]. This allows the
-//! builder (`crate::app::WireframeApp`) to route frames before full
-//! deserialisation. See [`crate::app::builder::WireframeApp`] for how envelopes
-//! are used when registering routes.
+//! identifiers understood by [`crate::app::builder::WireframeApp`]. This
+//! allows the builder to route frames before full deserialisation. See
+//! [`crate::app::builder::WireframeApp`] for how envelopes are used when
+//! registering routes.
 
 use crate::{correlation::CorrelatableFrame, message::Message};
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
 ///
-/// Custom envelope types must implement this trait so [`WireframeApp`] can
+/// Custom envelope types must implement this trait so
+/// [`crate::app::builder::WireframeApp`] can
 /// route messages and construct responses.
 ///
 /// # Example
@@ -66,7 +67,8 @@ pub struct PacketParts {
     payload: Vec<u8>,
 }
 
-/// Basic envelope type used by [`WireframeApp::handle_connection`].
+/// Basic envelope type used by
+/// [`crate::app::builder::WireframeApp::handle_connection`].
 ///
 /// Incoming frames are deserialised into an `Envelope` containing the
 /// message identifier and raw payload bytes.
