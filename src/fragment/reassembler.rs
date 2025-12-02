@@ -154,14 +154,12 @@ impl Reassembler {
                     Ok(FragmentStatus::Incomplete) => Self::append_and_maybe_complete(
                         self.max_message_size,
                         occupied,
-                        header.message_id(),
                         payload,
                         false,
                     ),
                     Ok(FragmentStatus::Complete) => Self::append_and_maybe_complete(
                         self.max_message_size,
                         occupied,
-                        header.message_id(),
                         payload,
                         true,
                     ),
@@ -237,10 +235,10 @@ impl Reassembler {
     fn append_and_maybe_complete(
         limit: NonZeroUsize,
         mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
-        message_id: MessageId,
         payload: &[u8],
         completes: bool,
     ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
+        let message_id = *occupied.key();
         let Some(attempted) = occupied.get().len().checked_add(payload.len()) else {
             occupied.remove();
             return Err(ReassemblyError::MessageTooLarge {
