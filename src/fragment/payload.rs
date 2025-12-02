@@ -8,7 +8,12 @@
 
 use std::num::NonZeroUsize;
 
-use bincode::{borrow_decode_from_slice, config, encode_to_vec, error::DecodeError};
+use bincode::{
+    borrow_decode_from_slice,
+    config,
+    encode_to_vec,
+    error::{DecodeError, EncodeError},
+};
 
 use super::{FragmentHeader, FragmentIndex, MessageId};
 
@@ -27,11 +32,14 @@ pub fn fragment_overhead() -> NonZeroUsize {
     // header size is stable for the fixed-width fields used here and must
     // remain well below `u16::MAX` to satisfy the framing format.
     let header = FragmentHeader::new(MessageId::new(0), FragmentIndex::zero(), false);
-    let header_bytes = encode_to_vec(header, config::standard())
-        .expect("fragment header encoding must be infallible for constants");
+    let header_bytes = encode_to_vec(header, config::standard()).unwrap_or_else(|err| {
+        panic!("fragment header encoding must be infallible for constants: {err}")
+    });
     // Magic + length prefix (u16 big-endian) + encoded header.
     let overhead = FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + header_bytes.len();
-    NonZeroUsize::new(overhead).expect("fragment overhead must be non-zero")
+    NonZeroUsize::new(overhead).unwrap_or_else(|| {
+        panic!("fragment overhead must be non-zero (computed {overhead})");
+    })
 }
 
 /// Encode a fragment for transport by prefixing marker and header bytes.
@@ -52,10 +60,12 @@ pub fn encode_fragment_payload(
     payload: &[u8],
 ) -> Result<Vec<u8>, bincode::error::EncodeError> {
     let header_bytes = encode_to_vec(header, config::standard())?;
-    let header_len: u16 = header_bytes
-        .len()
-        .try_into()
-        .expect("fragment header length must fit in u16");
+    if header_bytes.len() > u16::MAX as usize {
+        return Err(EncodeError::Other(
+            "fragment header length must fit within u16::MAX",
+        ));
+    }
+    let header_len: u16 = header_bytes.len() as u16;
 
     let mut buf = Vec::with_capacity(
         FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + header_bytes.len() + payload.len(),
@@ -80,19 +90,42 @@ pub fn encode_fragment_payload(
 pub fn decode_fragment_payload(
     payload: &[u8],
 ) -> Result<Option<(FragmentHeader, &[u8])>, DecodeError> {
-    if payload.len() < FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() {
+    let minimum_len = FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>();
+    if payload.len() < minimum_len {
         return Ok(None);
     }
 
-    if &payload[..FRAGMENT_MAGIC.len()] != FRAGMENT_MAGIC {
+    let Some(prefix) = payload.get(..FRAGMENT_MAGIC.len()) else {
+        return Ok(None);
+    };
+    if prefix != FRAGMENT_MAGIC {
         return Ok(None);
     }
 
     let header_len_offset = FRAGMENT_MAGIC.len();
-    let len_bytes = [payload[header_len_offset], payload[header_len_offset + 1]];
+    let len_bytes = match (
+        payload.get(header_len_offset),
+        payload.get(header_len_offset + 1),
+    ) {
+        (Some(a), Some(b)) => [*a, *b],
+        _ => {
+            return Err(DecodeError::UnexpectedEnd {
+                additional: minimum_len - payload.len(),
+            });
+        }
+    };
     let header_len = u16::from_be_bytes(len_bytes) as usize;
     let header_start = header_len_offset + std::mem::size_of::<u16>();
     let header_end = header_start + header_len;
+
+    let header_bytes = match payload.get(header_start..header_end) {
+        Some(slice) => slice,
+        None => {
+            return Err(DecodeError::UnexpectedEnd {
+                additional: header_end.saturating_sub(payload.len()),
+            });
+        }
+    };
 
     if payload.len() < header_end {
         return Err(DecodeError::UnexpectedEnd {
@@ -100,17 +133,16 @@ pub fn decode_fragment_payload(
         });
     }
 
-    let (header, consumed) = borrow_decode_from_slice::<FragmentHeader, _>(
-        &payload[header_start..header_end],
-        config::standard(),
-    )?;
+    let (header, consumed) =
+        borrow_decode_from_slice::<FragmentHeader, _>(header_bytes, config::standard())?;
     if consumed != header_len {
         return Err(DecodeError::OtherString(
             "fragment header length mismatch".to_string(),
         ));
     }
 
-    Ok(Some((header, &payload[header_end..])))
+    let remainder = payload.get(header_end..).unwrap_or_default();
+    Ok(Some((header, remainder)))
 }
 
 #[cfg(test)]
