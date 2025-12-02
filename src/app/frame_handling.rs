@@ -142,8 +142,8 @@ fn fragment_responses(
             Ok(fragmented) => Some(fragmented),
             Err(err) => {
                 warn!(
-                    "failed to fragment response: id={}, correlation_id={:?}, error={err:?}",
-                    id, correlation_id
+                    "failed to fragment response: id={id}, correlation_id={correlation_id:?}, \
+                     error={err:?}"
                 );
                 crate::metrics::inc_handler_errors();
                 None
@@ -163,8 +163,8 @@ fn serialize_response<S: Serializer>(
         Ok(bytes) => Some(bytes),
         Err(e) => {
             warn!(
-                "failed to serialize response: id={}, correlation_id={:?}, error={e:?}",
-                id, correlation_id
+                "failed to serialize response: id={id}, correlation_id={correlation_id:?}, \
+                 error={e:?}"
             );
             crate::metrics::inc_handler_errors();
             None
@@ -182,10 +182,7 @@ where
     W: AsyncRead + AsyncWrite + Unpin,
 {
     if let Err(e) = framed.send(bytes.into()).await {
-        warn!(
-            "failed to send response: id={}, correlation_id={:?}, error={e:?}",
-            id, correlation_id
-        );
+        warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
         crate::metrics::inc_handler_errors();
         return Ok(false);
     }
