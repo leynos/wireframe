@@ -3,16 +3,16 @@
 //! The application defines an enum representing different packet variants and
 //! shows how to dispatch handlers based on the variant received.
 
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
+use tokio::net::TcpListener;
 use tracing::{info, warn};
 use wireframe::{
     app::Envelope,
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
-    server::{ServerError, WireframeServer},
 };
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -78,22 +78,27 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     })
 }
 
+fn build_app() -> wireframe::app::Result<App> {
+    App::new()?
+        .wrap(DecodeMiddleware)?
+        .route(1, std::sync::Arc::new(handle_packet))
+}
+
 #[tokio::main]
-async fn main() -> Result<(), ServerError> {
-    let factory = || {
-        App::new()
-            .expect("Failed to create WireframeApp")
-            .wrap(DecodeMiddleware)
-            .expect("Failed to wrap middleware")
-            .route(1, std::sync::Arc::new(handle_packet))
-            .expect("Failed to add route")
-    };
+async fn main() -> std::io::Result<()> {
+    let app = Arc::new(build_app().map_err(std::io::Error::other)?);
 
-    let addr = std::env::var("SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:7879".to_string());
+    let addr: SocketAddr = std::env::var("SERVER_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:7879".to_string())
+        .parse()
+        .map_err(std::io::Error::other)?;
 
-    WireframeServer::new(factory)
-        .bind(addr.parse().expect("Invalid server address"))?
-        .run()
-        .await?;
-    Ok(())
+    let listener = TcpListener::bind(addr).await?;
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let app = Arc::clone(&app);
+        tokio::spawn(async move {
+            app.handle_connection(stream).await;
+        });
+    }
 }
