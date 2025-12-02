@@ -98,51 +98,35 @@ pub fn u64_to_bytes(
         ));
     }
 
-    let write_bytes = |value: u64, e: Endianness, size: usize, out: &mut [u8]| match e {
-        Endianness::Big => {
-            if let Some(prefix) = out.get_mut(..size) {
-                for (i, b) in prefix.iter_mut().enumerate() {
-                    let shift = 8 * (size - 1 - i);
-                    *b = ((value >> shift) & 0xff) as u8;
-                }
-            } else {
-                debug_assert!(false, "validated size should fit output buffer");
-            }
-        }
-        Endianness::Little => {
-            if let Some(prefix) = out.get_mut(..size) {
-                for (i, b) in prefix.iter_mut().enumerate() {
-                    let shift = 8 * i;
-                    *b = ((value >> shift) & 0xff) as u8;
-                }
-            } else {
-                debug_assert!(false, "validated size should fit output buffer");
-            }
-        }
-    };
-
-    match size {
-        1 => {
-            let v: u8 = checked_prefix_cast(len)?;
-            write_bytes(u64::from(v), endianness, 1, out);
-        }
-        2 => {
-            let v: u16 = checked_prefix_cast(len)?;
-            write_bytes(u64::from(v), endianness, 2, out);
-        }
-        4 => {
-            let v: u32 = checked_prefix_cast(len)?;
-            write_bytes(u64::from(v), endianness, 4, out);
-        }
-        8 => {
-            let v: u64 = checked_prefix_cast(len)?;
-            write_bytes(v, endianness, 8, out);
-        }
+    let value = match size {
+        1 => u64::from(checked_prefix_cast::<u8>(len)?),
+        2 => u64::from(checked_prefix_cast::<u16>(len)?),
+        4 => u64::from(checked_prefix_cast::<u32>(len)?),
+        8 => checked_prefix_cast(len)?,
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 ERR_UNSUPPORTED_PREFIX,
             ));
+        }
+    };
+
+    let prefix = out
+        .get_mut(..size)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?;
+
+    match endianness {
+        Endianness::Big => {
+            for (i, byte) in prefix.iter_mut().enumerate() {
+                let shift = 8 * (size - 1 - i);
+                *byte = ((value >> shift) & 0xff) as u8;
+            }
+        }
+        Endianness::Little => {
+            for (i, byte) in prefix.iter_mut().enumerate() {
+                let shift = 8 * i;
+                *byte = ((value >> shift) & 0xff) as u8;
+            }
         }
     }
 
