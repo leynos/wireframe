@@ -21,10 +21,11 @@ fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
 where
     S: TestSerializer + Default,
 {
-    wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)
-        .expect("failed to create app")
-        .route(1, Arc::new(|_| Box::pin(async {})))
-        .expect("route registration failed")
+    let mut app = wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)
+        .expect("failed to create app");
+    app.route(1, Arc::new(|_| Box::pin(async {})))
+        .expect("route registration failed");
+    app
 }
 
 #[derive(Default)]
@@ -42,7 +43,7 @@ impl Serializer for CountingSerializer {
         &self,
         _bytes: &[u8],
     ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>> {
-        panic!("unexpected deserialize call")
+        Err("unexpected deserialize call".into())
     }
 }
 
