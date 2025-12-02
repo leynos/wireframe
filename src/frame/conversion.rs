@@ -37,9 +37,32 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     }
 
     let mut buf = [0u8; 8];
+    let prefix = bytes
+        .get(..size)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, ERR_INCOMPLETE_PREFIX))?;
     match endianness {
-        Endianness::Big => buf[8 - size..].copy_from_slice(&bytes[..size]),
-        Endianness::Little => buf[..size].copy_from_slice(&bytes[..size]),
+        Endianness::Big => {
+            if let Some(dst) = buf.get_mut(8 - size..) {
+                dst.copy_from_slice(prefix);
+            } else {
+                debug_assert!(false, "validated size should fit into prefix buffer");
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    ERR_UNSUPPORTED_PREFIX,
+                ));
+            }
+        }
+        Endianness::Little => {
+            if let Some(dst) = buf.get_mut(..size) {
+                dst.copy_from_slice(prefix);
+            } else {
+                debug_assert!(false, "validated size should fit into prefix buffer");
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    ERR_UNSUPPORTED_PREFIX,
+                ));
+            }
+        }
     }
 
     let val = match endianness {
@@ -77,15 +100,23 @@ pub fn u64_to_bytes(
 
     let write_bytes = |value: u64, e: Endianness, size: usize, out: &mut [u8]| match e {
         Endianness::Big => {
-            for (i, b) in out.iter_mut().enumerate().take(size) {
-                let shift = 8 * (size - 1 - i);
-                *b = u8::try_from((value >> shift) & 0xff).expect("masked < 256");
+            if let Some(prefix) = out.get_mut(..size) {
+                for (i, b) in prefix.iter_mut().enumerate() {
+                    let shift = 8 * (size - 1 - i);
+                    *b = ((value >> shift) & 0xff) as u8;
+                }
+            } else {
+                debug_assert!(false, "validated size should fit output buffer");
             }
         }
         Endianness::Little => {
-            for (i, b) in out.iter_mut().enumerate().take(size) {
-                let shift = 8 * i;
-                *b = u8::try_from((value >> shift) & 0xff).expect("masked < 256");
+            if let Some(prefix) = out.get_mut(..size) {
+                for (i, b) in prefix.iter_mut().enumerate() {
+                    let shift = 8 * i;
+                    *b = ((value >> shift) & 0xff) as u8;
+                }
+            } else {
+                debug_assert!(false, "validated size should fit output buffer");
             }
         }
     };
@@ -93,24 +124,31 @@ pub fn u64_to_bytes(
     match size {
         1 => {
             let v: u8 = checked_prefix_cast(len)?;
-            write_bytes(u64::from(v), endianness, 1, &mut out[..1]);
+            write_bytes(u64::from(v), endianness, 1, out);
         }
         2 => {
             let v: u16 = checked_prefix_cast(len)?;
-            write_bytes(u64::from(v), endianness, 2, &mut out[..2]);
+            write_bytes(u64::from(v), endianness, 2, out);
         }
         4 => {
             let v: u32 = checked_prefix_cast(len)?;
-            write_bytes(u64::from(v), endianness, 4, &mut out[..4]);
+            write_bytes(u64::from(v), endianness, 4, out);
         }
         8 => {
             let v: u64 = checked_prefix_cast(len)?;
-            write_bytes(v, endianness, 8, &mut out[..8]);
+            write_bytes(v, endianness, 8, out);
         }
-        _ => unreachable!(),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                ERR_UNSUPPORTED_PREFIX,
+            ));
+        }
     }
 
-    out[size..].fill(0);
+    if let Some(tail) = out.get_mut(size..) {
+        tail.fill(0);
+    }
 
     Ok(size)
 }
