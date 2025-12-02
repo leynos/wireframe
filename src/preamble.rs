@@ -31,10 +31,12 @@ where
     buf.resize(start + additional, 0);
     let mut read = 0;
     while read < additional {
-        match reader
-            .read(&mut buf[start + read..start + additional])
-            .await
-        {
+        let range_start = start + read;
+        let range_end = start + additional;
+        let chunk = buf
+            .get_mut(range_start..range_end)
+            .ok_or(DecodeError::Other("preamble buffer range invalid"))?;
+        match reader.read(chunk).await {
             Ok(0) => {
                 return Err(DecodeError::Io {
                     inner: io::Error::from(io::ErrorKind::UnexpectedEof),
