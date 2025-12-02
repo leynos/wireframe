@@ -30,12 +30,9 @@ fn setup_fragmented_actor() -> (
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle.clone(), None, shutdown);
 
-    let cfg = FragmentationConfig::for_frame_budget(
-        96,
-        NonZeroUsize::new(256).expect("non-zero message cap"),
-        Duration::from_secs(5),
-    )
-    .expect("frame budget must exceed overhead");
+    let message_cap = NonZeroUsize::new(256).expect("non-zero message cap"); // safe in tests; constant non-zero
+    let cfg = FragmentationConfig::for_frame_budget(96, message_cap, Duration::from_secs(5))
+        .expect("frame budget must exceed overhead");
     actor.enable_fragmentation(cfg);
     (actor, handle, cfg)
 }

@@ -3,6 +3,8 @@
 
 mod support;
 
+use std::io;
+
 use futures::{FutureExt, future::BoxFuture};
 use rstest::{fixture, rstest};
 use serial_test::serial;
@@ -52,6 +54,8 @@ struct DlqCase {
     expected: &'static str,
 }
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]
 #[case::drop_if_full(PolicyCase { policy: PushPolicy::DropIfFull, expect_warning: false, expected_msg: "push queue full" })]
@@ -62,25 +66,30 @@ fn push_policy_behaviour(
     mut logger: LoggerHandle,
     builder: PushQueuesBuilder<u8>,
     #[case] case: PolicyCase,
-) {
+) -> TestResult {
     let PolicyCase {
         policy,
         expect_warning,
         expected_msg,
     } = case;
-    rt.block_on(async {
+    rt.block_on(async move {
         while logger.pop().is_some() {}
-        let (mut queues, handle) = builder.build().expect("failed to build PushQueues");
+        let (mut queues, handle) = builder
+            .build()
+            .map_err(|e| io::Error::other(format!("build queues failed: {e}")))?;
 
         handle
             .push_high_priority(1u8)
             .await
-            .expect("push high priority failed");
+            .map_err(|e| io::Error::other(format!("push high priority failed: {e}")))?;
         handle
             .try_push(2u8, PushPriority::High, policy)
-            .expect("try_push failed");
+            .map_err(|e| io::Error::other(format!("try_push failed: {e}")))?;
 
-        let (_, val) = queues.recv().await.expect("recv failed");
+        let (_, val) = queues
+            .recv()
+            .await
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "recv failed"))?;
         assert_eq!(val, 1);
         assert!(
             queues.recv().now_or_never().is_none(),
@@ -99,32 +108,45 @@ fn push_policy_behaviour(
         } else {
             assert!(!found_warning, "unexpected warning log found");
         }
-    });
+        Ok::<(), io::Error>(())
+    })?;
+    Ok(())
 }
 
 /// Dropped frames are forwarded to the dead letter queue.
 #[rstest]
-fn dropped_frame_goes_to_dlq(rt: Runtime, builder: PushQueuesBuilder<u8>) {
-    rt.block_on(async {
+fn dropped_frame_goes_to_dlq(rt: Runtime, builder: PushQueuesBuilder<u8>) -> TestResult {
+    rt.block_on(async move {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
         let (mut queues, handle) = builder
             .unlimited()
             .dlq(Some(dlq_tx))
             .build()
-            .expect("failed to build PushQueues");
+            .map_err(|e| io::Error::other(format!("build queues failed: {e}")))?;
 
         handle
             .push_high_priority(1u8)
             .await
-            .expect("push high priority failed");
+            .map_err(|e| io::Error::other(format!("push high priority failed: {e}")))?;
         handle
             .try_push(2u8, PushPriority::High, PushPolicy::DropIfFull)
-            .expect("try_push failed");
+            .map_err(|e| io::Error::other(format!("try_push failed: {e}")))?;
 
-        let (_, val) = queues.recv().await.expect("recv failed");
+        let (_, val) = queues
+            .recv()
+            .await
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "recv failed"))?;
         assert_eq!(val, 1);
-        assert_eq!(dlq_rx.recv().await.expect("dlq recv failed"), 2);
-    });
+        assert_eq!(
+            dlq_rx
+                .recv()
+                .await
+                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "dlq recv failed"))?,
+            2
+        );
+        Ok::<(), io::Error>(())
+    })?;
+    Ok(())
 }
 
 /// Preloads the DLQ to simulate a full queue.
@@ -139,7 +161,10 @@ fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(r
 fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> {
     Box::pin(async move {
         let receiver = rx.as_mut().expect("receiver missing");
-        assert_eq!(receiver.recv().await.expect("dlq recv failed"), 99);
+        assert_eq!(
+            receiver.recv().await.expect("dlq recv failed"), // still okay: fixture-level
+            99
+        );
         assert!(receiver.try_recv().is_err());
     })
 }
@@ -171,8 +196,8 @@ fn dlq_error_scenarios(
     mut logger: LoggerHandle,
     #[case] case: DlqCase,
     builder: PushQueuesBuilder<u8>,
-) {
-    rt.block_on(async {
+) -> TestResult {
+    rt.block_on(async move {
         while logger.pop().is_some() {}
 
         let DlqCase {
@@ -188,17 +213,20 @@ fn dlq_error_scenarios(
             .unlimited()
             .dlq(Some(dlq_tx))
             .build()
-            .expect("failed to build PushQueues");
+            .map_err(|e| io::Error::other(format!("build queues failed: {e}")))?;
 
         handle
             .push_high_priority(1u8)
             .await
-            .expect("push high priority failed");
+            .map_err(|e| io::Error::other(format!("push high priority failed: {e}")))?;
         handle
             .try_push(2u8, PushPriority::High, policy)
-            .expect("try_push failed");
+            .map_err(|e| io::Error::other(format!("try_push failed: {e}")))?;
 
-        let (_, val) = queues.recv().await.expect("recv failed");
+        let (_, val) = queues
+            .recv()
+            .await
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "recv failed"))?;
         assert_eq!(val, 1);
 
         assertion(&mut dlq_rx).await;
@@ -210,5 +238,7 @@ fn dlq_error_scenarios(
             }
         }
         assert!(found, "expected DLQ warning log missing");
-    });
+        Ok::<(), io::Error>(())
+    })?;
+    Ok(())
 }
