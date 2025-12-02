@@ -16,16 +16,16 @@ use wireframe::{
 use wireframe_testing::{TestSerializer, drive_with_bincode};
 
 type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelope>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
+fn mock_wireframe_app_with_serializer<S>(
+    serializer: S,
+) -> Result<TestApp<S>, wireframe::app::WireframeError>
 where
     S: TestSerializer + Default,
 {
-    let mut app = wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)
-        .expect("failed to create app");
-    app.route(1, Arc::new(|_| Box::pin(async {})))
-        .expect("route registration failed");
-    app
+    wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)?
+        .route(1, Arc::new(|_| Box::pin(async {})))
 }
 
 #[derive(Default)]
@@ -58,18 +58,17 @@ impl FrameMetadata for CountingSerializer {
 }
 
 #[tokio::test]
-async fn metadata_parser_invoked_before_deserialize() {
+async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let serializer = CountingSerializer(counter.clone());
-    let app = mock_wireframe_app_with_serializer(serializer);
+    let app = mock_wireframe_app_with_serializer(serializer)?;
 
     let env = Envelope::new(1, Some(0), vec![42]);
 
-    let out = drive_with_bincode(app, env)
-        .await
-        .expect("drive_with_bincode failed");
+    let out = drive_with_bincode(app, env).await?;
     assert!(!out.is_empty());
     assert_eq!(counter.load(Ordering::Relaxed), 1);
+    Ok(())
 }
 
 #[derive(Default)]
@@ -103,18 +102,17 @@ impl FrameMetadata for FallbackSerializer {
 }
 
 #[tokio::test]
-async fn falls_back_to_deserialize_after_parse_error() {
+async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let parse_calls = Arc::new(AtomicUsize::new(0));
     let deser_calls = Arc::new(AtomicUsize::new(0));
     let serializer = FallbackSerializer(parse_calls.clone(), deser_calls.clone());
-    let app = mock_wireframe_app_with_serializer(serializer);
+    let app = mock_wireframe_app_with_serializer(serializer)?;
 
     let env = Envelope::new(1, Some(0), vec![7]);
 
-    let out = drive_with_bincode(app, env)
-        .await
-        .expect("drive_with_bincode failed");
+    let out = drive_with_bincode(app, env).await?;
     assert!(!out.is_empty());
     assert_eq!(parse_calls.load(Ordering::Relaxed), 1);
     assert_eq!(deser_calls.load(Ordering::Relaxed), 1);
+    Ok(())
 }
