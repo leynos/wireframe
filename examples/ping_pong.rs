@@ -6,6 +6,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
+use tracing::{error, info};
 use wireframe::{
     app::{Envelope, Packet, Result as AppResult},
     message::Message,
@@ -30,7 +31,7 @@ fn encode_error(msg: impl Into<String>) -> Vec<u8> {
     match err.to_bytes() {
         Ok(bytes) => bytes,
         Err(e) => {
-            eprintln!("failed to encode error: {e:?}");
+            error!(error = ?e, "failed to encode error");
             Vec::new()
         }
     }
@@ -66,7 +67,7 @@ where
         let (ping_req, _) = match Ping::from_bytes(req.frame()) {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("failed to decode ping: {e:?}");
+                error!(error = ?e, "failed to decode ping");
                 return Ok(ServiceResponse::new(
                     encode_error(format!("decode error: {e:?}")),
                     cid,
@@ -77,13 +78,13 @@ where
         let pong_resp = if let Some(v) = ping_req.0.checked_add(1) {
             Pong(v)
         } else {
-            eprintln!("ping overflowed at {}", ping_req.0);
+            error!(value = ping_req.0, "ping overflowed");
             return Ok(ServiceResponse::new(encode_error("overflow"), cid));
         };
         match pong_resp.to_bytes() {
             Ok(bytes) => *response.frame_mut() = bytes,
             Err(e) => {
-                eprintln!("failed to encode pong: {e:?}");
+                error!(error = ?e, "failed to encode pong");
                 return Ok(ServiceResponse::new(
                     encode_error(format!("encode error: {e:?}")),
                     cid,
@@ -118,9 +119,9 @@ where
     type Error = std::convert::Infallible;
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-        println!("request: {:?}", req.frame());
+        info!(frame = ?req.frame(), "request");
         let resp = self.inner.call(req).await?;
-        println!("response: {:?}", resp.frame());
+        info!(frame = ?resp.frame(), "response");
         Ok(resp)
     }
 }
@@ -145,6 +146,8 @@ fn build_app() -> AppResult<App> {
 
 #[tokio::main]
 async fn main() -> Result<(), ServerError> {
+    tracing_subscriber::fmt::init();
+
     let factory = || build_app().expect("app build failed");
 
     let default_addr = "127.0.0.1:7878";

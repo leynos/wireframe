@@ -13,15 +13,19 @@ type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 use std::pin::Pin;
 
+use tracing::info;
+
 fn echo_handler() -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
     Box::pin(async {
-        println!("echo request received");
+        info!("echo request received");
         // `WireframeApp` automatically echoes the envelope back.
     })
 }
 
 #[tokio::main]
 async fn main() -> Result<(), ServerError> {
+    tracing_subscriber::fmt::init();
+
     let handler = std::sync::Arc::new(
         |_: &Envelope| -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> { echo_handler() },
     );

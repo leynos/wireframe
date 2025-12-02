@@ -94,6 +94,12 @@ blanket_clippy_restriction_lints = "deny"
 cognitive_complexity = "deny"
 needless_pass_by_value = "deny"
 implicit_hasher = "deny"
+
+# 2. debugging leftovers
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
 [lints.rust]
 unknown_lints = "deny"
 renamed_and_removed_lints = "deny"

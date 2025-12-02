@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use futures::TryStreamExt;
 use tokio::time::sleep;
+use tracing::info;
 use wireframe::Response;
 
 const TRANSCRIPT: &[&str] = &[
@@ -81,6 +82,8 @@ fn multi_packet_response() -> Response<Frame> {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     let response = multi_packet_response();
     let mut stream = response.into_stream();
 
@@ -93,11 +96,11 @@ async fn main() {
             Frame {
                 kind: FrameKind::Chunk(index),
                 data,
-            } => println!("Chunk {index}: {data}"),
+            } => info!("Chunk {index}: {data}"),
             Frame {
                 kind: FrameKind::Summary,
                 data,
-            } => println!("Summary: {data}"),
+            } => info!("Summary: {data}"),
         }
     }
 }
