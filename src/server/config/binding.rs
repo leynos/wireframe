@@ -23,7 +23,10 @@ trait WireframePreamble: Preamble {}
 impl<T> WireframePreamble for T where T: Preamble {}
 
 /// Blanket impl uses private trait aliases; suppress visibility lint
-#[allow(private_bounds)]
+#[expect(
+    private_bounds,
+    reason = "helper trait aliases are module-private by design"
+)]
 impl<F, T, S> WireframeServer<F, T, S>
 where
     F: WireframeFactory,
@@ -68,7 +71,10 @@ where
 }
 
 /// Blanket impl uses private trait aliases; suppress visibility lint
-#[allow(private_bounds)]
+#[expect(
+    private_bounds,
+    reason = "helper trait aliases are module-private by design"
+)]
 impl<F, T> WireframeServer<F, T, Unbound>
 where
     F: WireframeFactory,
@@ -140,7 +146,10 @@ where
 }
 
 /// Blanket impl uses private trait aliases; suppress visibility lint
-#[allow(private_bounds)]
+#[expect(
+    private_bounds,
+    reason = "helper trait aliases are module-private by design"
+)]
 impl<F, T> WireframeServer<F, T, Bound>
 where
     F: WireframeFactory,
