@@ -263,8 +263,16 @@ where
         };
 
         if let Some(service) = routes.get(&env.id) {
-            frame_handling::forward_response(&self.serializer, env, service, framed, fragmentation)
-                .await?;
+            frame_handling::forward_response(
+                env,
+                service,
+                frame_handling::ResponseContext {
+                    serializer: &self.serializer,
+                    framed,
+                    fragmentation,
+                },
+            )
+            .await?;
         } else {
             warn!(
                 "no handler for message id: id={}, correlation_id={:?}",
