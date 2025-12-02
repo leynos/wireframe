@@ -426,7 +426,6 @@ where
             }
             MultiPacketStamp::Disabled => {
                 // No channel is active, so there is nothing to stamp.
-                return;
             }
         }
     }
@@ -488,7 +487,7 @@ where
     ///
     /// The `strict_priority_order` and `shutdown_signal_precedence` tests
     /// assert that this ordering is preserved across refactors.
-    #[allow(
+    #[expect(
         clippy::integer_division_remainder_used,
         reason = "tokio::select! expands to modulus operations internally"
     )]
