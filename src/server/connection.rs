@@ -1,6 +1,6 @@
 //! Connection handling for [`WireframeServer`].
 
-use std::{io, net::SocketAddr};
+use std::{io, net::SocketAddr, time::Duration};
 
 use futures::FutureExt;
 use log::{error, warn};
@@ -11,7 +11,7 @@ use crate::{
     app::WireframeApp,
     preamble::{Preamble, read_preamble},
     rewind_stream::RewindStream,
-    server::runtime::PreambleHooks,
+    server::{PreambleFailure, PreambleHandler, runtime::PreambleHooks},
 };
 
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
@@ -60,41 +60,14 @@ async fn process_stream<F, T>(
         timeout: preamble_timeout,
     } = hooks;
 
-    let preamble_result = match preamble_timeout {
-        Some(limit) => match timeout(limit, read_preamble::<_, T>(&mut stream)).await {
-            Ok(result) => result,
-            Err(_) => Err(timeout_error()),
-        },
-        None => read_preamble::<_, T>(&mut stream).await,
-    };
-
-    match preamble_result {
+    match read_preamble_with_timeout::<T>(&mut stream, preamble_timeout).await {
         Ok((preamble, leftover)) => {
-            if let Some(handler) = on_success.as_ref()
-                && let Err(e) = handler(&preamble, &mut stream).await
-            {
-                error!(
-                    "preamble handler error: error={e}, error_debug={e:?}, peer_addr={peer_addr:?}"
-                );
-            }
+            run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr).await;
             let stream = RewindStream::new(leftover, stream);
-            let app = (factory)();
-            app.handle_connection(stream).await;
+            (factory)().handle_connection(stream).await;
         }
         Err(err) => {
-            if let Some(handler) = on_failure.as_ref() {
-                if let Err(e) = handler(&err, &mut stream).await {
-                    error!(
-                        "preamble failure handler error: error={e}, error_debug={e:?}, \
-                         peer_addr={peer_addr:?}"
-                    );
-                }
-            } else {
-                error!(
-                    "preamble decode failed and no failure handler set: error={err:?}, \
-                     peer_addr={peer_addr:?}"
-                );
-            }
+            run_preamble_failure(on_failure.as_ref(), err, &mut stream, peer_addr).await;
         }
     }
 }
@@ -103,6 +76,53 @@ fn timeout_error() -> bincode::error::DecodeError {
     bincode::error::DecodeError::Io {
         inner: io::Error::new(io::ErrorKind::TimedOut, "preamble read timed out"),
         additional: 0,
+    }
+}
+
+async fn read_preamble_with_timeout<T: Preamble>(
+    stream: &mut TcpStream,
+    preamble_timeout: Option<Duration>,
+) -> Result<(T, Vec<u8>), bincode::error::DecodeError> {
+    match preamble_timeout {
+        Some(limit) => match timeout(limit, read_preamble::<_, T>(stream)).await {
+            Ok(result) => result,
+            Err(_) => Err(timeout_error()),
+        },
+        None => read_preamble::<_, T>(stream).await,
+    }
+}
+
+async fn run_preamble_success<T: Preamble>(
+    handler: Option<&PreambleHandler<T>>,
+    preamble: &T,
+    stream: &mut TcpStream,
+    peer_addr: Option<SocketAddr>,
+) {
+    if let Some(handler) = handler
+        && let Err(e) = handler(preamble, stream).await
+    {
+        error!("preamble handler error: error={e}, error_debug={e:?}, peer_addr={peer_addr:?}");
+    }
+}
+
+async fn run_preamble_failure(
+    handler: Option<&PreambleFailure>,
+    err: bincode::error::DecodeError,
+    stream: &mut TcpStream,
+    peer_addr: Option<SocketAddr>,
+) {
+    if let Some(handler) = handler {
+        if let Err(e) = handler(&err, stream).await {
+            error!(
+                "preamble failure handler error: error={e}, error_debug={e:?}, \
+                 peer_addr={peer_addr:?}"
+            );
+        }
+    } else {
+        error!(
+            "preamble decode failed and no failure handler set: error={err:?}, \
+             peer_addr={peer_addr:?}"
+        );
     }
 }
 
