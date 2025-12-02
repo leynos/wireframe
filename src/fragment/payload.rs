@@ -50,22 +50,13 @@ pub fn fragment_overhead() -> NonZeroUsize {
 /// # Errors
 ///
 /// Returns a [`bincode::error::EncodeError`] if the header cannot be encoded.
-///
-/// # Panics
-///
-/// Panics if the encoded header exceeds `u16::MAX` bytes, which should be
-/// impossible for the fixed-size `FragmentHeader`.
 pub fn encode_fragment_payload(
     header: FragmentHeader,
     payload: &[u8],
 ) -> Result<Vec<u8>, bincode::error::EncodeError> {
     let header_bytes = encode_to_vec(header, config::standard())?;
-    if header_bytes.len() > u16::MAX as usize {
-        return Err(EncodeError::Other(
-            "fragment header length must fit within u16::MAX",
-        ));
-    }
-    let header_len: u16 = header_bytes.len() as u16;
+    let header_len = u16::try_from(header_bytes.len())
+        .map_err(|_| EncodeError::Other("fragment header length must fit within u16::MAX"))?;
 
     let mut buf = Vec::with_capacity(
         FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + header_bytes.len() + payload.len(),
@@ -118,13 +109,10 @@ pub fn decode_fragment_payload(
     let header_start = header_len_offset + std::mem::size_of::<u16>();
     let header_end = header_start + header_len;
 
-    let header_bytes = match payload.get(header_start..header_end) {
-        Some(slice) => slice,
-        None => {
-            return Err(DecodeError::UnexpectedEnd {
-                additional: header_end.saturating_sub(payload.len()),
-            });
-        }
+    let Some(header_bytes) = payload.get(header_start..header_end) else {
+        return Err(DecodeError::UnexpectedEnd {
+            additional: header_end.saturating_sub(payload.len()),
+        });
     };
 
     if payload.len() < header_end {
