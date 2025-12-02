@@ -22,6 +22,8 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger};
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 const STREAM_ID: u32 = 7;
 const TERMINATOR_ID: u32 = 255;
 
@@ -37,20 +39,19 @@ struct ActorHarness {
 }
 
 impl ActorHarness {
-    fn new() -> Self {
+    fn new() -> TestResult<Self> {
         let (queues, handle) = PushQueues::<Envelope>::builder()
             .high_capacity(4)
             .low_capacity(4)
             .unlimited()
-            .build()
-            .expect("failed to build PushQueues");
+            .build()?;
         let shared_handle: Arc<OnceLock<PushHandle<Envelope>>> = Arc::new(OnceLock::new());
         let handle_slot = Arc::clone(&shared_handle);
         let hooks = ProtocolHooks {
             on_connection_setup: Some(Box::new(move |handle, _ctx| {
-                handle_slot
-                    .set(handle)
-                    .unwrap_or_else(|_| panic!("push handle already captured"));
+                if handle_slot.set(handle).is_err() {
+                    panic!("push handle already captured");
+                }
             })),
             stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
                 Some(terminator_frame())
@@ -66,45 +67,48 @@ impl ActorHarness {
             hooks,
         );
         let shared_handle =
-            Arc::try_unwrap(shared_handle).unwrap_or_else(|_| panic!("push handle still shared"));
+            Arc::try_unwrap(shared_handle).map_err(|_| "push handle still shared at teardown")?;
         let handle = shared_handle
             .into_inner()
-            .expect("connection setup hook did not run");
+            .ok_or_else(|| "connection setup hook did not run")?;
 
-        Self {
+        Ok(Self {
             actor,
             handle: Some(handle),
-        }
+        })
     }
 
-    fn handle(&self) -> &PushHandle<Envelope> {
-        self.handle.as_ref().expect("push handle already released")
+    fn handle(&self) -> TestResult<&PushHandle<Envelope>> {
+        self.handle
+            .as_ref()
+            .ok_or_else(|| "push handle already released".into())
     }
 
     fn release_handle(&mut self) { self.handle.take(); }
 
-    async fn run(&mut self) -> Vec<Envelope> {
+    async fn run(&mut self) -> TestResult<Vec<Envelope>> {
         let mut out = Vec::new();
-        self.actor
-            .run(&mut out)
-            .await
-            .expect("connection actor run failed");
-        out
+        self.actor.run(&mut out).await.map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "connection actor run failed: {e:?}"
+            ))) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        Ok(out)
     }
 }
 
 fn parts(frame: &Envelope) -> PacketParts { frame.clone().into_parts() }
 
 #[tokio::test]
-async fn client_receives_multi_packet_stream_with_terminator() {
-    let mut harness = ActorHarness::new();
+async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()> {
+    let mut harness = ActorHarness::new()?;
     let (tx, rx) = mpsc::channel(4);
     let correlation = Some(88_u64);
 
     for chunk in [&[1_u8][..], &[2, 3][..]] {
         tx.send(envelope_with_payload(STREAM_ID, None, chunk))
             .await
-            .expect("send frame");
+            .map_err(|e| format!("send frame: {e}"))?;
     }
     drop(tx);
 
@@ -114,25 +118,28 @@ async fn client_receives_multi_packet_stream_with_terminator() {
 
     harness.release_handle();
 
-    let out = harness.run().await;
+    let out = harness.run().await?;
 
-    assert_eq!(out.len(), 3, "expected two frames plus terminator");
+    if out.len() != 3 {
+        return Err("expected two frames plus terminator".into());
+    }
     let payloads: Vec<Vec<u8>> = out.iter().map(|frame| parts(frame).payload()).collect();
-    assert_eq!(payloads[0], vec![1]);
-    assert_eq!(payloads[1], vec![2, 3]);
-    assert_eq!(
-        payloads[2],
-        Vec::<u8>::new(),
-        "terminator payload should be empty"
-    );
+    if payloads.get(0) != Some(&vec![1]) {
+        return Err("first payload mismatch".into());
+    }
+    if payloads.get(1) != Some(&vec![2, 3]) {
+        return Err("second payload mismatch".into());
+    }
+    if payloads.get(2) != Some(&Vec::<u8>::new()) {
+        return Err("terminator payload should be empty".into());
+    }
 
     for frame in &out {
-        assert_eq!(
-            parts(frame).correlation_id(),
-            correlation,
-            "correlation id mismatch",
-        );
+        if parts(frame).correlation_id() != correlation {
+            return Err("correlation id mismatch".into());
+        }
     }
+    Ok(())
 }
 
 fn is_disconnect_log(record: &flexi_logger::Record) -> bool {
@@ -143,9 +150,11 @@ fn is_disconnect_log(record: &flexi_logger::Record) -> bool {
 
 #[rstest]
 #[tokio::test]
-async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHandle) {
+async fn multi_packet_logs_disconnected_when_sender_dropped(
+    mut logger: LoggerHandle,
+) -> TestResult<()> {
     logger.clear();
-    let mut harness = ActorHarness::new();
+    let mut harness = ActorHarness::new()?;
     let (tx, rx) = mpsc::channel(1);
     let correlation = Some(41_u64);
     drop(tx);
@@ -157,22 +166,21 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHa
     harness.actor.set_fairness(interleaving_fairness());
 
     harness
-        .handle()
+        .handle()?
         .push_high_priority(envelope_with_payload(11, Some(5), b"hi"))
-        .await
-        .expect("push high priority frame");
+        .await?;
 
     harness.release_handle();
 
-    let out = harness.run().await;
+    let out = harness.run().await?;
 
-    assert_eq!(out.len(), 2, "expected push frame followed by terminator");
-    let last = out.last().expect("terminator missing");
-    assert_eq!(
-        parts(last).correlation_id(),
-        correlation,
-        "terminator correlation mismatch",
-    );
+    if out.len() != 2 {
+        return Err("expected push frame followed by terminator".into());
+    }
+    let last = out.last().ok_or("terminator missing")?;
+    if parts(last).correlation_id() != correlation {
+        return Err("terminator correlation mismatch".into());
+    }
 
     let mut saw_disconnect = false;
     while let Some(record) = logger.pop() {
@@ -181,7 +189,10 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(mut logger: LoggerHa
             break;
         }
     }
-    assert!(saw_disconnect, "missing disconnect log");
+    if !saw_disconnect {
+        return Err("missing disconnect log".into());
+    }
+    Ok(())
 }
 
 struct FrameSpec {
@@ -232,32 +243,33 @@ async fn push_sequence(
     handle: &PushHandle<Envelope>,
     priority: PushPriority,
     frames: &[FrameSpec],
-) {
+) -> TestResult<()> {
     for spec in frames {
         let envelope = envelope_with_payload(spec.id, Some(spec.correlation), spec.payload);
-        let result = match priority {
-            PushPriority::High => handle.push_high_priority(envelope).await,
-            PushPriority::Low => handle.push_low_priority(envelope).await,
+        match priority {
+            PushPriority::High => handle.push_high_priority(envelope).await?,
+            PushPriority::Low => handle.push_low_priority(envelope).await?,
         };
-        result.expect("push frame");
     }
+    Ok(())
 }
 
-async fn setup_stream_channel(payloads: &[&[u8]]) -> mpsc::Receiver<Envelope> {
+async fn setup_stream_channel(payloads: &[&[u8]]) -> TestResult<mpsc::Receiver<Envelope>> {
     let capacity = payloads.len().max(1);
     let (tx, rx) = mpsc::channel(capacity);
     for payload in payloads {
         tx.send(envelope_with_payload(STREAM_ID, None, payload))
             .await
-            .expect("send frame to multi-packet stream");
+            .map_err(|e| format!("send frame to multi-packet stream: {e}"))?;
     }
     drop(tx);
-    rx
+    Ok(rx)
 }
 
-async fn push_interleaved_frames(handle: &PushHandle<Envelope>) {
-    push_sequence(handle, PushPriority::High, &HIGH_PRIORITY_FRAMES).await;
-    push_sequence(handle, PushPriority::Low, &LOW_PRIORITY_FRAMES).await;
+async fn push_interleaved_frames(handle: &PushHandle<Envelope>) -> TestResult<()> {
+    push_sequence(handle, PushPriority::High, &HIGH_PRIORITY_FRAMES).await?;
+    push_sequence(handle, PushPriority::Low, &LOW_PRIORITY_FRAMES).await?;
+    Ok(())
 }
 
 fn assert_correlation_ordering(frames: &[Envelope], expected: &[Option<u64>]) {
@@ -277,20 +289,20 @@ fn assert_frame_identities(frames: &[Envelope], expected: &[u32]) {
 }
 
 #[tokio::test]
-async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
-    let mut harness = ActorHarness::new();
+async fn interleaved_multi_packet_and_push_frames_preserve_correlations() -> TestResult<()> {
+    let mut harness = ActorHarness::new()?;
     let stream_correlation = Some(73_u64);
-    let rx = setup_stream_channel(&[&[10_u8][..], &[20][..], &[30][..]]).await;
+    let rx = setup_stream_channel(&[&[10_u8][..], &[20][..], &[30][..]]).await?;
 
     harness
         .actor
         .set_multi_packet_with_correlation(Some(rx), stream_correlation);
     harness.actor.set_fairness(interleaving_fairness());
 
-    push_interleaved_frames(harness.handle()).await;
+    push_interleaved_frames(harness.handle()?).await?;
     harness.release_handle();
 
-    let frames = harness.run().await;
+    let frames = harness.run().await?;
 
     assert_correlation_ordering(
         &frames,
@@ -310,4 +322,5 @@ async fn interleaved_multi_packet_and_push_frames_preserve_correlations() {
         &frames,
         &[2, 3, 4, 5, STREAM_ID, STREAM_ID, STREAM_ID, TERMINATOR_ID],
     );
+    Ok(())
 }
