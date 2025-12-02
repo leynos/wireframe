@@ -3,7 +3,7 @@ use std::io;
 
 use bytes::BytesMut;
 
-use super::conversion::{bytes_to_u64, u64_to_bytes};
+use super::conversion::{ERR_FRAME_TOO_LARGE, bytes_to_u64, u64_to_bytes};
 
 /// Byte order used for encoding and decoding length prefixes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,7 +96,10 @@ impl LengthFormat {
     pub fn write_len(&self, len: usize, dst: &mut BytesMut) -> io::Result<()> {
         let mut buf = [0u8; 8];
         let written = u64_to_bytes(len, self.bytes, self.endianness, &mut buf)?;
-        dst.extend_from_slice(&buf[..written]);
+        let prefix = buf
+            .get(..written)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))?;
+        dst.extend_from_slice(prefix);
         Ok(())
     }
 }
