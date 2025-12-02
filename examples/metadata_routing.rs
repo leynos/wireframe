@@ -69,7 +69,7 @@ struct Ping;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let app = App::with_serializer(HeaderSerializer)
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?
+        .map_err(io::Error::other)?
         .buffer_capacity(MAX_FRAME)
         .route(
             1,
@@ -79,7 +79,7 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?
+        .map_err(io::Error::other)?
         .route(
             2,
             Arc::new(|_env: &Envelope| {
@@ -88,7 +88,7 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        .map_err(io::Error::other)?;
 
     let mut codec = app.length_codec();
     let (mut client, server) = duplex(1024);
@@ -96,9 +96,7 @@ async fn main() -> io::Result<()> {
         app.handle_connection(server).await;
     });
 
-    let payload = Ping
-        .to_bytes()
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+    let payload = Ping.to_bytes().map_err(io::Error::other)?;
     let mut frame = Vec::new();
     frame.extend_from_slice(&1u16.to_be_bytes());
     frame.push(0);
@@ -109,8 +107,6 @@ async fn main() -> io::Result<()> {
     client.write_all(&bytes).await?;
     client.shutdown().await?;
 
-    server_task
-        .await
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+    server_task.await.map_err(io::Error::other)?;
     Ok(())
 }
