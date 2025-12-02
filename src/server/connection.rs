@@ -1,13 +1,12 @@
 //! Connection handling for [`WireframeServer`].
 
-use std::{io, net::SocketAddr, time::Duration};
+use std::{io, net::SocketAddr};
 
 use futures::FutureExt;
 use log::{error, warn};
 use tokio::{net::TcpStream, time::timeout};
 use tokio_util::task::TaskTracker;
 
-use super::{PreambleFailure, PreambleHandler};
 use crate::{
     app::WireframeApp,
     preamble::{Preamble, read_preamble},
@@ -33,20 +32,8 @@ pub(super) fn spawn_connection_task<F, T>(
         }
     };
     tracker.spawn(async move {
-        let PreambleHooks {
-            on_success,
-            on_failure,
-            timeout: preamble_timeout,
-        } = hooks;
-        let fut = std::panic::AssertUnwindSafe(process_stream(
-            stream,
-            peer_addr,
-            factory,
-            on_success,
-            on_failure,
-            preamble_timeout,
-        ))
-        .catch_unwind();
+        let fut = std::panic::AssertUnwindSafe(process_stream(stream, peer_addr, factory, hooks))
+            .catch_unwind();
 
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
@@ -62,13 +49,17 @@ async fn process_stream<F, T>(
     mut stream: TcpStream,
     peer_addr: Option<SocketAddr>,
     factory: F,
-    on_success: Option<PreambleHandler<T>>,
-    on_failure: Option<PreambleFailure>,
-    preamble_timeout: Option<Duration>,
+    hooks: PreambleHooks<T>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + 'static,
     T: Preamble,
 {
+    let PreambleHooks {
+        on_success,
+        on_failure,
+        timeout: preamble_timeout,
+    } = hooks;
+
     let preamble_result = match preamble_timeout {
         Some(limit) => match timeout(limit, read_preamble::<_, T>(&mut stream)).await {
             Ok(result) => result,
