@@ -130,12 +130,12 @@ impl<F: FrameLike> PushQueues<F> {
             dlq_log_every_n,
             dlq_log_interval,
         } = config;
-        if let Some(r) = rate {
-            if Self::is_invalid_rate(Some(r)) {
-                // Reject unsupported rates early to avoid building queues that cannot
-                // be used. The bounds prevent runaway resource consumption.
-                return Err(PushConfigError::InvalidRate(r));
-            }
+        if let Some(r) = rate
+            && Self::is_invalid_rate(Some(r))
+        {
+            // Reject unsupported rates early to avoid building queues that cannot
+            // be used. The bounds prevent runaway resource consumption.
+            return Err(PushConfigError::InvalidRate(r));
         }
         if high_capacity == 0 || low_capacity == 0 {
             return Err(PushConfigError::InvalidCapacity {
