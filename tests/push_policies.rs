@@ -29,19 +29,40 @@ fn rt() -> Runtime {
 #[fixture]
 fn builder() -> PushQueuesBuilder<u8> { support::builder::<u8>() }
 
+#[derive(Clone, Copy)]
+struct PolicyCase {
+    policy: PushPolicy,
+    expect_warning: bool,
+    expected_msg: &'static str,
+}
+
+type DlqSetup = fn(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>);
+type DlqAssertion = for<'a> fn(&'a mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'a, ()>;
+
+#[derive(Clone, Copy)]
+struct DlqCase {
+    setup: DlqSetup,
+    policy: PushPolicy,
+    assertion: DlqAssertion,
+    expected: &'static str,
+}
+
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]
-#[case::drop_if_full(PushPolicy::DropIfFull, false, "push queue full")]
-#[case::warn_and_drop(PushPolicy::WarnAndDropIfFull, true, "push queue full")]
+#[case::drop_if_full(PolicyCase { policy: PushPolicy::DropIfFull, expect_warning: false, expected_msg: "push queue full" })]
+#[case::warn_and_drop(PolicyCase { policy: PushPolicy::WarnAndDropIfFull, expect_warning: true, expected_msg: "push queue full" })]
 #[serial(push_policies)]
 fn push_policy_behaviour(
     rt: Runtime,
     mut logger: LoggerHandle,
     builder: PushQueuesBuilder<u8>,
-    #[case] policy: PushPolicy,
-    #[case] expect_warning: bool,
-    #[case] expected_msg: &str,
+    #[case] case: PolicyCase,
 ) {
+    let PolicyCase {
+        policy,
+        expect_warning,
+        expected_msg,
+    } = case;
     rt.block_on(async {
         while logger.pop().is_some() {}
         let (mut queues, handle) = builder.build().expect("failed to build PushQueues");
@@ -124,33 +145,37 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { 
 /// Parameterised checks for error logs when DLQ interactions fail.
 #[rstest]
 #[case::dlq_full(
-    fill_dlq,
-    PushPolicy::WarnAndDropIfFull,
-    assert_dlq_full,
-    "DLQ dropped frames"
+    DlqCase {
+        setup: fill_dlq,
+        policy: PushPolicy::WarnAndDropIfFull,
+        assertion: assert_dlq_full,
+        expected: "DLQ dropped frames"
+    }
 )]
 #[case::dlq_closed(
-    close_dlq,
-    PushPolicy::DropIfFull,
-    assert_dlq_closed,
-    "DLQ dropped frames"
+    DlqCase {
+        setup: close_dlq,
+        policy: PushPolicy::DropIfFull,
+        assertion: assert_dlq_closed,
+        expected: "DLQ dropped frames"
+    }
 )]
 #[serial(push_policies)]
-fn dlq_error_scenarios<Setup, AssertFn>(
+fn dlq_error_scenarios(
     rt: Runtime,
     mut logger: LoggerHandle,
-    #[case] setup: Setup,
-    #[case] policy: PushPolicy,
-    #[case] assertion: AssertFn,
-    #[case] expected: &str,
+    #[case] case: DlqCase,
     builder: PushQueuesBuilder<u8>,
-) where
-    Setup: FnOnce(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>),
-    AssertFn: FnOnce(&mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()>,
-{
+) {
     rt.block_on(async {
         while logger.pop().is_some() {}
 
+        let DlqCase {
+            setup,
+            policy,
+            assertion,
+            expected,
+        } = case;
         let (dlq_tx, dlq_rx) = mpsc::channel(1);
         let mut dlq_rx = Some(dlq_rx);
         setup(&dlq_tx, &mut dlq_rx);

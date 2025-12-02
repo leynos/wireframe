@@ -63,12 +63,14 @@ async fn connection_actor_fragments_outbound_frames() {
     let mut assembled: Option<Vec<u8>> = None;
     for env in out {
         let payload = env.into_parts().payload();
-        if let Some((header, frag)) = decode_fragment_payload(&payload).expect("decode payload") {
-            if let Some(message) = reassembler.push(header, frag).expect("reassemble fragment") {
-                assembled = Some(message.into_payload());
-            }
-        } else {
+        let Some((header, frag)) = decode_fragment_payload(&payload).expect("decode payload")
+        else {
             assembled = Some(payload);
+            continue;
+        };
+
+        if let Some(message) = reassembler.push(header, frag).expect("reassemble fragment") {
+            assembled = Some(message.into_payload());
         }
     }
 

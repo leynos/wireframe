@@ -198,15 +198,12 @@ where
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
-            let maybe_frame = match timeout(timeout_dur, framed.next()).await {
-                Ok(frame) => frame,
-                Err(_) => {
-                    debug!("read timeout elapsed; continuing to wait for next frame");
-                    if let Some(state) = fragmentation.as_mut() {
-                        state.purge_expired();
-                    }
-                    continue;
-                }
+            let Ok(maybe_frame) = timeout(timeout_dur, framed.next()).await else {
+                debug!("read timeout elapsed; continuing to wait for next frame");
+                fragmentation
+                    .as_mut()
+                    .map(FragmentationState::purge_expired);
+                continue;
             };
 
             let Some(frame_result) = maybe_frame else {

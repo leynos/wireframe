@@ -43,19 +43,20 @@ impl MultiPacketWorld {
         };
 
         let payload = messages.to_vec();
-        let producer = tokio::spawn(async move {
-            for msg in payload {
-                if sender.send(msg).await.is_err() {
-                    return;
-                }
-            }
-            drop(sender);
-        });
+        let producer = tokio::spawn(Self::send_payload(sender, payload));
 
         let frames = Self::collect_frames_from(rx).await;
         producer.await.expect("producer task panicked");
         self.messages = frames;
         self.is_overflow_error = false;
+    }
+
+    async fn send_payload(sender: mpsc::Sender<u8>, payload: Vec<u8>) {
+        for msg in payload {
+            if sender.send(msg).await.is_err() {
+                return;
+            }
+        }
     }
 
     /// Send messages through a multi-packet response and record them.

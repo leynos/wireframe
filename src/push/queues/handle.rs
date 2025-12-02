@@ -188,17 +188,13 @@ impl<F: FrameLike> PushHandle<F> {
     where
         F: std::fmt::Debug,
     {
-        let log_every_n = self.0.dlq_log_every_n;
-        let log_interval = self.0.dlq_log_interval;
-
-        if let Some(dlq) = &self.0.dlq_tx {
-            if let Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) =
+        if let Some(dlq) = &self.0.dlq_tx
+            && let Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) =
                 dlq.try_send(frame)
-            {
-                let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
-                let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
-                self.log_dlq_drop(&f, dropped, log_every_n, log_interval, &mut last);
-            }
+        {
+            let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
+            let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
+            self.log_dlq_drop(&f, dropped, &mut last);
         }
     }
 
@@ -214,18 +210,14 @@ impl<F: FrameLike> PushHandle<F> {
         }
     }
 
-    fn log_dlq_drop(
-        &self,
-        frame: &F,
-        dropped: usize,
-        log_every_n: usize,
-        log_interval: Duration,
-        last_log: &mut Instant,
-    ) where
+    fn log_dlq_drop(&self, frame: &F, dropped: usize, last_log: &mut Instant)
+    where
         F: std::fmt::Debug,
     {
-        let should_log =
-            (log_every_n != 0 && dropped % log_every_n == 0) || last_log.elapsed() > log_interval;
+        let log_every_n = self.0.dlq_log_every_n;
+        let log_interval = self.0.dlq_log_interval;
+        let should_log = (log_every_n != 0 && dropped.is_multiple_of(log_every_n))
+            || last_log.elapsed() > log_interval;
 
         if should_log {
             warn!(
