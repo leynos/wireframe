@@ -20,13 +20,6 @@ use wireframe::{
 use wireframe_testing::push_expect;
 
 #[fixture]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
 fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
     PushQueues::<u8>::builder()
         .high_capacity(8)
@@ -35,14 +28,11 @@ fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
         .expect("failed to build PushQueues")
 }
 
-#[fixture]
 #[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
+#[fixture]
 fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
 #[rstest]
