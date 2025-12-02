@@ -8,18 +8,9 @@ use std::io;
 use futures::{FutureExt, future::BoxFuture};
 use rstest::{fixture, rstest};
 use serial_test::serial;
-use tokio::{runtime::Runtime, sync::mpsc};
+use tokio::sync::mpsc;
 use wireframe::push::{PushPolicy, PushPriority, PushQueuesBuilder};
 use wireframe_testing::{LoggerHandle, logger};
-
-/// Builds a single-thread [`Runtime`] for async tests.
-#[fixture]
-fn rt() -> Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to build test runtime")
-}
 
 #[expect(
     clippy::allow_attributes,
@@ -43,8 +34,8 @@ struct PolicyCase {
     expected_msg: &'static str,
 }
 
-type DlqSetup = fn(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>);
-type DlqAssertion = for<'a> fn(&'a mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'a, ()>;
+type DlqSetup = fn(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>) -> TestResult<()>;
+type DlqAssertion = for<'a> fn(&'a mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'a, TestResult<()>>;
 
 #[derive(Clone, Copy)]
 struct DlqCase {
@@ -62,11 +53,13 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 #[case::warn_and_drop(PolicyCase { policy: PushPolicy::WarnAndDropIfFull, expect_warning: true, expected_msg: "push queue full" })]
 #[serial(push_policies)]
 fn push_policy_behaviour(
-    rt: Runtime,
     mut logger: LoggerHandle,
     builder: PushQueuesBuilder<u8>,
     #[case] case: PolicyCase,
 ) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let PolicyCase {
         policy,
         expect_warning,
@@ -90,11 +83,12 @@ fn push_policy_behaviour(
             .recv()
             .await
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "recv failed"))?;
-        assert_eq!(val, 1);
-        assert!(
-            queues.recv().now_or_never().is_none(),
-            "queue should be empty"
-        );
+        if val != 1 {
+            return Err(io::Error::other("unexpected value dequeued").into());
+        }
+        if queues.recv().now_or_never().is_some() {
+            return Err(io::Error::other("queue should be empty").into());
+        }
 
         let mut found_warning = false;
         while let Some(record) = logger.pop() {
@@ -104,18 +98,25 @@ fn push_policy_behaviour(
         }
 
         if expect_warning {
-            assert!(found_warning, "warning log not found");
+            if !found_warning {
+                return Err(io::Error::other("warning log not found").into());
+            }
         } else {
-            assert!(!found_warning, "unexpected warning log found");
+            if found_warning {
+                return Err(io::Error::other("unexpected warning log found").into());
+            }
         }
-        Ok::<(), io::Error>(())
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })?;
     Ok(())
 }
 
 /// Dropped frames are forwarded to the dead letter queue.
 #[rstest]
-fn dropped_frame_goes_to_dlq(rt: Runtime, builder: PushQueuesBuilder<u8>) -> TestResult {
+fn dropped_frame_goes_to_dlq(builder: PushQueuesBuilder<u8>) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     rt.block_on(async move {
         let (dlq_tx, mut dlq_rx) = mpsc::channel(1);
         let (mut queues, handle) = builder
@@ -136,41 +137,58 @@ fn dropped_frame_goes_to_dlq(rt: Runtime, builder: PushQueuesBuilder<u8>) -> Tes
             .recv()
             .await
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "recv failed"))?;
-        assert_eq!(val, 1);
-        assert_eq!(
-            dlq_rx
-                .recv()
-                .await
-                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "dlq recv failed"))?,
-            2
-        );
-        Ok::<(), io::Error>(())
+        if val != 1 {
+            return Err(io::Error::other("unexpected dequeued value").into());
+        }
+        let dlq_val = dlq_rx
+            .recv()
+            .await
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "dlq recv failed"))?;
+        if dlq_val != 2 {
+            return Err(io::Error::other("unexpected DLQ value").into());
+        }
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })?;
     Ok(())
 }
 
 /// Preloads the DLQ to simulate a full queue.
-fn fill_dlq(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) {
-    tx.try_send(99).expect("send failed");
+fn fill_dlq(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) -> TestResult<()> {
+    tx.try_send(99)
+        .map_err(|e| io::Error::other(format!("send failed: {e}")))?;
+    Ok(())
 }
 
 /// Drops the receiver to simulate a closed DLQ channel.
-fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) { drop(rx.take()); }
+fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) -> TestResult<()> {
+    drop(rx.take());
+    Ok(())
+}
 
 /// Asserts that one message is queued and the DLQ then reports empty.
-fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> {
+fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, TestResult<()>> {
     Box::pin(async move {
-        let receiver = rx.as_mut().expect("receiver missing");
-        assert_eq!(
-            receiver.recv().await.expect("dlq recv failed"), // still okay: fixture-level
-            99
-        );
-        assert!(receiver.try_recv().is_err());
+        let receiver = rx
+            .as_mut()
+            .ok_or_else(|| io::Error::other("receiver missing"))?;
+        let value = receiver
+            .recv()
+            .await
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "dlq recv failed"))?;
+        if value != 99 {
+            return Err(io::Error::other("unexpected DLQ value").into());
+        }
+        if receiver.try_recv().is_ok() {
+            return Err(io::Error::other("expected DLQ to be empty").into());
+        }
+        Ok(())
     })
 }
 
 /// Confirms no receiver is present when the DLQ is closed.
-fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { Box::pin(async {}) }
+fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, TestResult<()>> {
+    Box::pin(async { Ok(()) })
+}
 
 /// Parameterised checks for error logs when DLQ interactions fail.
 #[rstest]
@@ -192,11 +210,13 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, ()> { 
 )]
 #[serial(push_policies)]
 fn dlq_error_scenarios(
-    rt: Runtime,
     mut logger: LoggerHandle,
     #[case] case: DlqCase,
     builder: PushQueuesBuilder<u8>,
 ) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     rt.block_on(async move {
         while logger.pop().is_some() {}
 
@@ -208,7 +228,8 @@ fn dlq_error_scenarios(
         } = case;
         let (dlq_tx, dlq_rx) = mpsc::channel(1);
         let mut dlq_rx = Some(dlq_rx);
-        setup(&dlq_tx, &mut dlq_rx);
+        setup(&dlq_tx, &mut dlq_rx)
+            .map_err(|e| io::Error::other(format!("DLQ setup failed: {e}")))?;
         let (mut queues, handle) = builder
             .unlimited()
             .dlq(Some(dlq_tx))
@@ -227,9 +248,13 @@ fn dlq_error_scenarios(
             .recv()
             .await
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "recv failed"))?;
-        assert_eq!(val, 1);
+        if val != 1 {
+            return Err(io::Error::other("unexpected dequeued value").into());
+        }
 
-        assertion(&mut dlq_rx).await;
+        assertion(&mut dlq_rx)
+            .await
+            .map_err(|e| io::Error::other(format!("DLQ assertion failed: {e}")))?;
 
         let mut found = false;
         while let Some(record) = logger.pop() {
@@ -237,8 +262,10 @@ fn dlq_error_scenarios(
                 found = true;
             }
         }
-        assert!(found, "expected DLQ warning log missing");
-        Ok::<(), io::Error>(())
+        if !found {
+            return Err(io::Error::other("expected DLQ warning log missing").into());
+        }
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })?;
     Ok(())
 }
