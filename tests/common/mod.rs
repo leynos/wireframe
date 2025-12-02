@@ -15,6 +15,10 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
     dead_code,
     reason = "re-exported for integration tests that bind to random ports"
 )]
+#[expect(
+    clippy::expect_used,
+    reason = "binding to an ephemeral localhost port must abort the test immediately"
+)]
 pub fn unused_listener() -> StdTcpListener {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
     StdTcpListener::bind(addr).expect("failed to bind port")
@@ -27,5 +31,6 @@ pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>
 
 #[fixture]
 pub fn factory() -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
-    || TestApp::new().expect("TestApp::new failed")
+    fn build() -> TestApp { TestApp::default() }
+    build
 }
