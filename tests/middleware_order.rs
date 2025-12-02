@@ -13,6 +13,7 @@ use wireframe::{
 use wireframe_testing::{decode_frames, encode_frame};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 struct TagMiddleware(u8);
 
@@ -53,7 +54,7 @@ impl Transform<HandlerService<Envelope>> for TagMiddleware {
 }
 
 #[tokio::test]
-async fn middleware_applied_in_reverse_order() {
+async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let handler: Handler<Envelope> = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
     let app = TestApp::new()
         .expect("failed to create app")
@@ -68,26 +69,28 @@ async fn middleware_applied_in_reverse_order() {
 
     let env = Envelope::new(1, Some(7), vec![b'X']);
     let serializer = BincodeSerializer;
-    let bytes = serializer.serialize(&env).expect("serialization failed");
+    let bytes = serializer.serialize(&env)?;
     let mut codec = app.length_codec();
     let frame = encode_frame(&mut codec, bytes);
-    client.write_all(&frame).await.expect("write failed");
-    client.shutdown().await.expect("shutdown failed");
+    client.write_all(&frame).await?;
+    client.shutdown().await?;
 
     let handle = tokio::spawn(async move { app.handle_connection(server).await });
 
     let mut out = Vec::new();
-    client.read_to_end(&mut out).await.expect("read failed");
-    handle.await.expect("join failed");
+    client.read_to_end(&mut out).await?;
+    handle.await?;
 
     let frames = decode_frames(out);
     assert_eq!(frames.len(), 1, "expected a single response frame");
-    let (resp, _) = serializer
-        .deserialize::<Envelope>(&frames[0])
-        .expect("deserialize failed");
+    let first = frames.first().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "no frames decoded")
+    })?;
+    let (resp, _) = serializer.deserialize::<Envelope>(first)?;
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();
     let payload = parts.payload();
     assert_eq!(payload, vec![b'X', b'A', b'B', b'B', b'A']);
     assert_eq!(correlation_id, Some(7));
+    Ok(())
 }
