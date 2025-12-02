@@ -216,6 +216,10 @@ where
     /// Returns an [`io::Error`] if the server was not bound to a listener.
     /// Accept failures are retried with exponential back-off and do not
     /// surface as errors.
+    #[allow(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus internally"
+    )]
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
     where
         S: Future<Output = ()> + Send,
@@ -358,6 +362,10 @@ pub(super) async fn accept_loop<F, T, L>(
     }
 }
 
+#[allow(
+    clippy::integer_division_remainder_used,
+    reason = "tokio::select! expands to modulus internally"
+)]
 async fn accept_iteration<F, T, L>(
     context: &AcceptContext<'_, F, T, L>,
     delay: Duration,
