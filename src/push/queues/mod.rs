@@ -281,7 +281,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///     assert_eq!(frame, 2);
     /// }
     /// ```
-    #[allow(
+    #[expect(
         clippy::integer_division_remainder_used,
         reason = "tokio::select! expands to modulus internally"
     )]
