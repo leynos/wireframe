@@ -18,7 +18,7 @@ use wireframe::{
     ConnectionContext,
     WireframeProtocol,
     app::Envelope,
-    connection::ConnectionActor,
+    connection::{ConnectionActor, ConnectionChannels},
     push::PushQueues,
     serializer::BincodeSerializer,
 };
@@ -103,8 +103,7 @@ async fn connection_actor_uses_protocol_from_builder(
         .expect("push failed");
     let stream = stream::iter(vec![Ok(vec![2u8])]);
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         CancellationToken::new(),
         hooks,

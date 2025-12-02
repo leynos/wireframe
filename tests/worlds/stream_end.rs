@@ -12,7 +12,7 @@ use log::Level;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    connection::{ConnectionActor, test_support::ActorHarness},
+    connection::{ConnectionActor, ConnectionChannels, test_support::ActorHarness},
     hooks::ProtocolHooks,
     response::FrameStream,
 };
@@ -62,8 +62,12 @@ impl StreamEndWorld {
                     yield 1u8;
                     yield 2u8;
                 });
-                let mut actor =
-                    ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
+                let mut actor = ConnectionActor::with_hooks(
+                    ConnectionChannels::new(queues, handle),
+                    Some(stream),
+                    shutdown,
+                    hooks,
+                );
                 actor.run(&mut temp.frames).await.expect("actor run failed");
             }
             ActorMode::MultiPacket => {
@@ -72,7 +76,12 @@ impl StreamEndWorld {
                 tx.send(2u8).await.expect("send frame");
                 drop(tx);
 
-                let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+                let mut actor = ConnectionActor::with_hooks(
+                    ConnectionChannels::new(queues, handle),
+                    None,
+                    shutdown,
+                    hooks,
+                );
                 actor.set_multi_packet(Some(rx));
                 actor.run(&mut temp.frames).await.expect("actor run failed");
             }

@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     CorrelatableFrame,
     app::Envelope,
-    connection::ConnectionActor,
+    connection::{ConnectionActor, ConnectionChannels},
     hooks::{ConnectionContext, ProtocolHooks},
     push::PushQueues,
     response::FrameStream,
@@ -56,8 +56,12 @@ async fn run_multi_packet_channel(
         .build()
         .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
-    let mut actor: ConnectionActor<Envelope, ()> =
-        ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    let mut actor: ConnectionActor<Envelope, ()> = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        None,
+        shutdown,
+        hooks,
+    );
     actor.set_multi_packet_with_correlation(Some(rx), request_correlation);
 
     let mut out = Vec::new();

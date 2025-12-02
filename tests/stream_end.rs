@@ -10,7 +10,7 @@ use rstest::{fixture, rstest};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    connection::ConnectionActor,
+    connection::{ConnectionActor, ConnectionChannels},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     push::{PushHandle, PushQueues},
     response::FrameStream,
@@ -38,7 +38,12 @@ async fn emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) {
     });
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-    let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
+    let mut actor = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        Some(stream),
+        shutdown,
+        hooks,
+    );
 
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
@@ -57,7 +62,12 @@ async fn multi_packet_emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) 
 
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    let mut actor = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        None,
+        shutdown,
+        hooks,
+    );
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
@@ -85,7 +95,12 @@ async fn multi_packet_respects_no_terminator(queues: (PushQueues<u8>, PushHandle
 
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
-    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    let mut actor = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        None,
+        shutdown,
+        hooks,
+    );
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
@@ -103,7 +118,12 @@ async fn multi_packet_empty_channel_emits_end(queues: (PushQueues<u8>, PushHandl
 
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
-    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    let mut actor = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        None,
+        shutdown,
+        hooks,
+    );
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
@@ -132,7 +152,12 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
 
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
-    let mut actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+    let mut actor = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        None,
+        shutdown,
+        hooks,
+    );
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
@@ -162,7 +187,12 @@ async fn emits_no_end_frame_when_none(queues: (PushQueues<u8>, PushHandle<u8>)) 
 
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
-    let mut actor = ConnectionActor::with_hooks(queues, handle, Some(stream), shutdown, hooks);
+    let mut actor = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        Some(stream),
+        shutdown,
+        hooks,
+    );
 
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");

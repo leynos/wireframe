@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
-    connection::{ConnectionActor, FairnessConfig},
+    connection::{ConnectionActor, ConnectionChannels, FairnessConfig},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{PushHandle, PushQueues},
 };
@@ -59,7 +59,12 @@ impl ActorHarness {
         };
 
         let shutdown = CancellationToken::new();
-        let actor = ConnectionActor::with_hooks(queues, handle, None, shutdown, hooks);
+        let actor = ConnectionActor::with_hooks(
+            ConnectionChannels::new(queues, handle),
+            None,
+            shutdown,
+            hooks,
+        );
         let shared_handle =
             Arc::try_unwrap(shared_handle).unwrap_or_else(|_| panic!("push handle still shared"));
         let handle = shared_handle

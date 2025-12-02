@@ -94,6 +94,17 @@ pub struct FairnessConfig {
     pub time_slice: Option<Duration>,
 }
 
+/// Bundles push queues with their shared handle for actor construction.
+pub struct ConnectionChannels<F> {
+    pub queues: PushQueues<F>,
+    pub handle: PushHandle<F>,
+}
+
+impl<F> ConnectionChannels<F> {
+    #[must_use]
+    pub fn new(queues: PushQueues<F>, handle: PushHandle<F>) -> Self { Self { queues, handle } }
+}
+
 impl Default for FairnessConfig {
     fn default() -> Self {
         Self {
@@ -267,8 +278,7 @@ where
         shutdown: CancellationToken,
     ) -> Self {
         Self::with_hooks(
-            queues,
-            handle,
+            ConnectionChannels::new(queues, handle),
             response,
             shutdown,
             ProtocolHooks::<F, E>::default(),
@@ -278,12 +288,12 @@ where
     /// Create a new `ConnectionActor` with custom protocol hooks.
     #[must_use]
     pub fn with_hooks(
-        queues: PushQueues<F>,
-        handle: PushHandle<F>,
+        channels: ConnectionChannels<F>,
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
         hooks: ProtocolHooks<F, E>,
     ) -> Self {
+        let ConnectionChannels { queues, handle } = channels;
         let ctx = ConnectionContext;
         let counter = ActiveConnection::new();
         let mut actor = Self {
@@ -646,23 +656,28 @@ where
     where
         F: Packet,
     {
-        if let Some(fragmenter) = &self.fragmenter {
-            match fragment_packet(fragmenter, frame) {
-                Ok(frames) => {
-                    for frame in frames {
-                        self.push_frame(frame, out);
-                    }
-                }
-                Err(err) => {
-                    warn!(
-                        "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
-                        self.connection_id, self.peer_addr,
-                    );
-                    crate::metrics::inc_handler_errors();
-                }
-            }
+        if let Some(fragmenter) = self.fragmenter.clone() {
+            self.push_fragmented_frames(fragmenter.as_ref(), frame, out);
         } else {
             self.push_frame(frame, out);
+        }
+    }
+
+    fn push_fragmented_frames(&mut self, fragmenter: &Fragmenter, frame: F, out: &mut Vec<F>)
+    where
+        F: Packet,
+    {
+        match fragment_packet(fragmenter, frame) {
+            Ok(frames) => frames
+                .into_iter()
+                .for_each(|frame| self.push_frame(frame, out)),
+            Err(err) => {
+                warn!(
+                    "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
+                    self.connection_id, self.peer_addr,
+                );
+                crate::metrics::inc_handler_errors();
+            }
         }
     }
 

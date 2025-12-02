@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     ConnectionContext,
     ProtocolHooks,
-    connection::ConnectionActor,
+    connection::{ConnectionActor, ConnectionChannels},
     push::PushQueues,
     response::WireframeError,
 };
@@ -62,8 +62,7 @@ async fn before_send_hook_modifies_frames(
     };
 
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
@@ -93,8 +92,7 @@ async fn on_command_end_hook_runs(
     };
 
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
@@ -133,8 +131,7 @@ async fn error_propagation_from_stream(
         ..ProtocolHooks::<u8, TestError>::default()
     };
     let mut actor: ConnectionActor<_, TestError> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,

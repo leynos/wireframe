@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ActorState,
     ConnectionActor,
+    ConnectionChannels,
     DrainContext,
     MultiPacketTerminationReason,
     ProtocolHooks,
@@ -54,8 +55,7 @@ pub fn create_test_actor_with_hooks(
         .low_capacity(4)
         .build()?;
     Ok(ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         None,
         CancellationToken::new(),
         hooks,
