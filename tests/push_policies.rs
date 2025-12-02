@@ -20,12 +20,17 @@ fn rt() -> Runtime {
 }
 
 #[expect(
+    clippy::allow_attributes,
+    reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
+)]
+#[allow(
+    unfulfilled_lint_expectations,
+    reason = "rstest occasionally misses the expected lint for single-line fixtures on stable"
+)]
+#[expect(
     unused_braces,
     reason = "rustc false positive for single-line rstest fixtures"
 )]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
 #[fixture]
 fn builder() -> PushQueuesBuilder<u8> { support::builder::<u8>() }
 
