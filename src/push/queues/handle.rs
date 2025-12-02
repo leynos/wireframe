@@ -105,19 +105,7 @@ impl<F: FrameLike> PushHandle<F> {
         // the next refill window, tokens remain available to actively polled
         // tasks.
         if let Some(ref limiter) = self.0.limiter {
-            loop {
-                // Prefer a non-blocking acquisition. If not available, back
-                // off briefly before trying again. We intentionally do not
-                // poll the limiter's async acquire future to avoid enqueuing
-                // this task as a waiter and reserving a token prematurely.
-                if limiter.try_acquire(1) {
-                    break;
-                }
-                // The limiter is configured with a 1s refill interval; a
-                // short sleep yields to the scheduler and advances virtual
-                // time in tests (tokio::time::pause/advance).
-                sleep(Duration::from_millis(10)).await;
-            }
+            self.wait_for_permit(limiter).await;
         }
 
         // Then send the frame, awaiting capacity if the queue is currently
@@ -204,24 +192,48 @@ impl<F: FrameLike> PushHandle<F> {
         let log_interval = self.0.dlq_log_interval;
 
         if let Some(dlq) = &self.0.dlq_tx {
-            match dlq.try_send(frame) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) => {
-                    let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
-                    let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
-                    let now = Instant::now();
-                    if (log_every_n != 0 && dropped.is_multiple_of(log_every_n))
-                        || now.duration_since(*last) > log_interval
-                    {
-                        warn!(
-                            "DLQ dropped frames (full or closed): frame={f:?}, dropped={dropped}, \
-                             log_every_n={log_every_n}, log_interval={log_interval:?}"
-                        );
-                        *last = now;
-                        self.0.dlq_drops.store(0, Ordering::Relaxed);
-                    }
-                }
+            if let Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) =
+                dlq.try_send(frame)
+            {
+                let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
+                let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
+                self.log_dlq_drop(&f, dropped, log_every_n, log_interval, &mut last);
             }
+        }
+    }
+
+    async fn wait_for_permit(&self, limiter: &RateLimiter) {
+        loop {
+            if limiter.try_acquire(1) {
+                break;
+            }
+            // The limiter is configured with a 1s refill interval; a short
+            // sleep yields to the scheduler and advances virtual time in
+            // tests (tokio::time::pause/advance).
+            sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    fn log_dlq_drop(
+        &self,
+        frame: &F,
+        dropped: usize,
+        log_every_n: usize,
+        log_interval: Duration,
+        last_log: &mut Instant,
+    ) where
+        F: std::fmt::Debug,
+    {
+        let should_log =
+            (log_every_n != 0 && dropped % log_every_n == 0) || last_log.elapsed() > log_interval;
+
+        if should_log {
+            warn!(
+                "DLQ dropped frames (full or closed): frame={frame:?}, dropped={dropped}, \
+                 log_every_n={log_every_n}, log_interval={log_interval:?}"
+            );
+            *last_log = Instant::now();
+            self.0.dlq_drops.store(0, Ordering::Relaxed);
         }
     }
 
