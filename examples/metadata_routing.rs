@@ -41,16 +41,25 @@ impl FrameMetadata for HeaderSerializer {
     type Error = io::Error;
 
     fn parse(&self, src: &[u8]) -> Result<(Envelope, usize), io::Error> {
-        if src.len() < 3 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "header"));
-        }
-        let id = u32::from(u16::from_be_bytes([src[0], src[1]]));
+        let id_bytes: [u8; 2] = src
+            .get(..2)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "header"))?
+            .try_into()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "header id width"))?;
+
         // The third byte carries message flags. This example intentionally
         // ignores the flags, but a real protocol might parse and act on these
-        // bits.
-        let _ = src[2];
+        // bits. We still validate its presence to avoid panics.
+        let _flags = src
+            .get(2)
+            .copied()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "header flags"))?;
+
         // Only extract metadata here; defer payload handling to the serializer.
-        Ok((Envelope::new(id, None, Vec::new()), 3))
+        Ok((
+            Envelope::new(u32::from(u16::from_be_bytes(id_bytes)), None, Vec::new()),
+            3,
+        ))
     }
 }
 
@@ -60,7 +69,7 @@ struct Ping;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let app = App::with_serializer(HeaderSerializer)
-        .expect("failed to create app")
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?
         .buffer_capacity(MAX_FRAME)
         .route(
             1,
@@ -70,7 +79,7 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .expect("failed to add ping route")
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?
         .route(
             2,
             Arc::new(|_env: &Envelope| {
@@ -79,7 +88,7 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .expect("failed to add pong route");
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
 
     let mut codec = app.length_codec();
     let (mut client, server) = duplex(1024);
@@ -87,19 +96,21 @@ async fn main() -> io::Result<()> {
         app.handle_connection(server).await;
     });
 
-    let payload = Ping.to_bytes().expect("failed to serialize Ping message");
+    let payload = Ping
+        .to_bytes()
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
     let mut frame = Vec::new();
     frame.extend_from_slice(&1u16.to_be_bytes());
     frame.push(0);
     frame.extend_from_slice(&payload);
     let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix
-    codec
-        .encode(frame.into(), &mut bytes)
-        .expect("failed to encode frame");
+    codec.encode(frame.into(), &mut bytes)?;
 
     client.write_all(&bytes).await?;
     client.shutdown().await?;
 
-    server_task.await.expect("server task failed");
+    server_task
+        .await
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
     Ok(())
 }
