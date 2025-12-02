@@ -186,16 +186,30 @@ project:
   `newt-hype` when introducing many homogeneous wrappers that share behaviour;
   add small shims such as `From<&str>` and `AsRef<str>` for string-backed
   wrappers. For path-centric wrappers implement `AsRef<Path>` alongside
-  `into_inner()` and `to_path_buf()`; avoid attempting
+  `into_inner()` and `to_path_buf()`, avoid attempting
   `impl From<Wrapper> for PathBuf` because of the orphan rule. Prefer explicit
   tuple structs whenever bespoke validation or tailored trait surfaces are
-  required, customising `Deref`, `AsRef`, and `TryFrom` per type. Use
+  required, customizing `Deref`, `AsRef`, and `TryFrom` per type. Use
   `the-newtype` when defining traits and needing blanket implementations that
   apply across wrappers satisfying `Newtype + AsRef/AsMut<Inner>`, or when
   establishing a coherent internal convention that keeps trait forwarding
   consistent without per-type boilerplate. Combine approaches: lean on
   `newt-hype` for the common case, tuple structs for outliers, and
-  `the-newtype` to unify behaviour when you own the trait definitions.
+  `the-newtype` to unify behaviour when owning the trait definitions.
+- Use `cap_std` and `cap_std::fs_utf8` / `camino` in place of `std::fs` and
+  `std::path` for enhanced cross platform support and capabilities oriented
+  filesystem access.
+
+### Testing
+
+- Use `rstest` fixtures for shared setup.
+- Replace duplicated tests with `#[rstest(...)]` parameterized cases.
+- Prefer `mockall` for ad hoc mocks/stubs.
+- For testing of functionality depending upon environment variables, dependency
+  injection and the `mockable` crate are the preferred option.
+- If mockable cannot be used, env mutations in tests MUST be wrapped in shared
+  guards and mutexes placed in a shared `test_utils` or `test_helpers` crate.
+  Direct environment mutation is FORBIDDEN in tests.
 
 ### Dependency Management
 
@@ -221,6 +235,18 @@ project:
 - **Never export the opaque type from a library**. Convert to domain enums at
   API boundaries, and to `eyre` only in the main `main()` entrypoint or
   top-level async task.
+- In tests, prefer `.expect(...)` over `.unwrap()` to surface clearer failure
+  diagnostics.
+- In production code and shared fixtures, avoid `.expect()` entirely: return
+  `Result` and use `?` to propagate errors instead of panicking.
+- Keep `expect_used` **strict**; do not suppress the lint.
+- Recognise that `allow-expect-in-tests = true` **doesn’t cover** helpers
+  outside `#[cfg(test)]` or `#[test]`; avoid `expect` in such fixtures.
+- Use `anyhow`/`eyre` with `.context(...)` to **preserve backtraces** and
+  provide clear, typed failure paths.
+- Update helpers (e.g., `set_dir`) to **return errors** rather than panicking.
+- Consume fallible fixtures in `rstest` by **making the test return `Result`**
+  and applying `?` to the fixture.
 
 ## Markdown Guidance
 
