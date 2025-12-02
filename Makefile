@@ -4,6 +4,7 @@ CRATE ?= wireframe
 CARGO ?= cargo
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
+RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= markdownlint
 NIXIE ?= nixie
 
@@ -29,6 +30,7 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 	  $@
 
 lint: ## Run Clippy with warnings denied
+	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --no-deps
 	$(CARGO) clippy $(CLIPPY_FLAGS)
 
 fmt: ## Format Rust and Markdown sources
