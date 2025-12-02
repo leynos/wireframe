@@ -114,13 +114,9 @@ fn fragmenter_splits_payload_into_multiple_frames() {
     assert!(batch.is_fragmented());
     assert_eq!(batch.message_id(), MessageId::new(0));
 
-    let fragments = batch.fragments();
-    assert_eq!(fragments[0].payload(), &[0, 1, 2]);
-    assert!(!fragments[0].header().is_last_fragment());
-    assert_eq!(fragments[1].payload(), &[3, 4, 5]);
-    assert!(!fragments[1].header().is_last_fragment());
-    assert_eq!(fragments[2].payload(), &[6, 7]);
-    assert!(fragments[2].header().is_last_fragment());
+    assert_fragment(&batch, 0, &[0, 1, 2], false);
+    assert_fragment(&batch, 1, &[3, 4, 5], false);
+    assert_fragment(&batch, 2, &[6, 7], true);
 }
 
 #[test]
@@ -138,6 +134,12 @@ fn fragmenter_handles_empty_payload() {
 
 #[derive(Debug, Encode, BorrowDecode)]
 struct DummyMessage(Vec<u8>);
+
+fn assert_fragment(batch: &FragmentBatch, index: usize, payload: &[u8], is_last: bool) {
+    let fragment = &batch.fragments()[index];
+    assert_eq!(fragment.payload(), payload);
+    assert_eq!(fragment.header().is_last_fragment(), is_last);
+}
 
 #[test]
 fn fragmenter_fragments_messages_and_increments_ids() {
