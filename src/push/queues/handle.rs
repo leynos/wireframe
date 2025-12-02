@@ -193,7 +193,13 @@ impl<F: FrameLike> PushHandle<F> {
                 dlq.try_send(frame)
         {
             let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
-            let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
+            let mut last = match self.0.dlq_last_log.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    warn!("DLQ last-log mutex poisoned; continuing with stale state");
+                    poisoned.into_inner()
+                }
+            };
             self.log_dlq_drop(&f, dropped, &mut last);
         }
     }
