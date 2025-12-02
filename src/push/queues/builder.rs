@@ -18,7 +18,7 @@ use super::{
 /// Allows configuration of queue capacities, rate limiting and an optional
 /// dead-letter queue before constructing [`PushQueues`] and its paired
 /// [`PushHandle`]. Defaults mirror the previous constructors: both queues have
-/// a capacity of one and pushes are limited to [`DEFAULT_PUSH_RATE`] per
+/// a capacity of one and pushes are limited to the default push rate per
 /// second unless overridden. Construct via [`PushQueues::builder`] or
 /// [`Default::default`].
 ///
