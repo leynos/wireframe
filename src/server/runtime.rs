@@ -89,6 +89,15 @@ pub(super) struct AcceptLoopOptions<T> {
     pub backoff: BackoffConfig,
 }
 
+struct AcceptContext<'a, F, T, L> {
+    listener: &'a Arc<L>,
+    factory: &'a F,
+    preamble: &'a PreambleHooks<T>,
+    shutdown: &'a CancellationToken,
+    tracker: &'a TaskTracker,
+    backoff: &'a BackoffConfig,
+}
+
 #[derive(Default)]
 pub(super) struct PreambleHooks<T> {
     pub on_success: Option<PreambleHandler<T>>,
@@ -335,31 +344,62 @@ pub(super) async fn accept_loop<F, T, L>(
         backoff.initial_delay >= Duration::from_millis(1),
         "BackoffConfig invariant violated: initial_delay < 1ms"
     );
+    let context = AcceptContext {
+        listener: &listener,
+        factory: &factory,
+        preamble: &preamble,
+        shutdown: &shutdown,
+        tracker: &tracker,
+        backoff: &backoff,
+    };
     let mut delay = backoff.initial_delay;
-    loop {
-        select! {
-            biased;
+    while let Some(next_delay) = accept_iteration(&context, delay).await {
+        delay = next_delay;
+    }
+}
 
-            () = shutdown.cancelled() => break,
+async fn accept_iteration<F, T, L>(
+    context: &AcceptContext<'_, F, T, L>,
+    delay: Duration,
+) -> Option<Duration>
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
+    L: AcceptListener + Send + Sync + 'static,
+{
+    select! {
+        biased;
 
-            res = listener.accept() => match res {
-                Ok((stream, _)) => {
-                    let hooks = preamble.clone();
-                    spawn_connection_task(
-                        stream,
-                        factory.clone(),
-                        hooks,
-                        &tracker,
-                    );
-                    delay = backoff.initial_delay;
-                }
-                Err(e) => {
-                    let local_addr = listener.local_addr().ok();
-                    warn!("accept error: error={e:?}, local_addr={local_addr:?}");
-                    sleep(delay).await;
-                    delay = (delay * 2).min(backoff.max_delay);
-                }
-            },
+        () = context.shutdown.cancelled() => None,
+        res = context.listener.accept() => Some(handle_accept_result(res, context, delay).await),
+    }
+}
+
+async fn handle_accept_result<F, T, L>(
+    result: io::Result<(TcpStream, SocketAddr)>,
+    context: &AcceptContext<'_, F, T, L>,
+    delay: Duration,
+) -> Duration
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
+    L: AcceptListener + Send + Sync + 'static,
+{
+    match result {
+        Ok((stream, _)) => {
+            spawn_connection_task(
+                stream,
+                context.factory.clone(),
+                context.preamble.clone(),
+                context.tracker,
+            );
+            context.backoff.initial_delay
+        }
+        Err(e) => {
+            let local_addr = context.listener.local_addr().ok();
+            warn!("accept error: error={e:?}, local_addr={local_addr:?}");
+            sleep(delay).await;
+            (delay * 2).min(context.backoff.max_delay)
         }
     }
 }
