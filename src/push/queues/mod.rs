@@ -130,11 +130,12 @@ impl<F: FrameLike> PushQueues<F> {
             dlq_log_every_n,
             dlq_log_interval,
         } = config;
-        if Self::is_invalid_rate(rate) {
-            // Reject unsupported rates early to avoid building queues that cannot
-            // be used. The bounds prevent runaway resource consumption.
-            let r = rate.unwrap();
-            return Err(PushConfigError::InvalidRate(r));
+        if let Some(r) = rate {
+            if Self::is_invalid_rate(Some(r)) {
+                // Reject unsupported rates early to avoid building queues that cannot
+                // be used. The bounds prevent runaway resource consumption.
+                return Err(PushConfigError::InvalidRate(r));
+            }
         }
         if high_capacity == 0 || low_capacity == 0 {
             return Err(PushConfigError::InvalidCapacity {
@@ -199,8 +200,10 @@ impl<F: FrameLike> PushQueues<F> {
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
-        Self::build_via_builder(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None)
-            .expect("invalid capacities or rate in deprecated bounded()")
+        match Self::build_via_builder(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None) {
+            Ok(result) => result,
+            Err(err) => panic!("invalid capacities or rate in deprecated bounded(): {err:?}"),
+        }
     }
 
     /// Create queues with no rate limiting.
@@ -215,8 +218,10 @@ impl<F: FrameLike> PushQueues<F> {
         high_capacity: usize,
         low_capacity: usize,
     ) -> (Self, PushHandle<F>) {
-        Self::build_via_builder(high_capacity, low_capacity, None, None)
-            .expect("invalid capacities in deprecated bounded_no_rate_limit()")
+        match Self::build_via_builder(high_capacity, low_capacity, None, None) {
+            Ok(result) => result,
+            Err(err) => panic!("invalid capacities in deprecated bounded_no_rate_limit(): {err:?}"),
+        }
     }
 
     /// Create queues with a custom rate limit in pushes per second.
@@ -276,6 +281,10 @@ impl<F: FrameLike> PushQueues<F> {
     ///     assert_eq!(frame, 2);
     /// }
     /// ```
+    #[allow(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus internally"
+    )]
     pub async fn recv(&mut self) -> Option<(PushPriority, F)> {
         let mut high_closed = false;
         let mut low_closed = false;
