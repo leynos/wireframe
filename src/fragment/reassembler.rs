@@ -1,8 +1,8 @@
 //! Inbound helper that stitches fragments back into complete messages.
 //!
 //! [`Reassembler`] mirrors the outbound [`Fragmenter`](crate::fragment::Fragmenter) by
-//! collecting fragment payloads keyed by [`MessageId`](crate::fragment::MessageId).
-//! It enforces ordering via [`FragmentSeries`](crate::fragment::FragmentSeries), guards
+//! collecting fragment payloads keyed by [`MessageId`].
+//! It enforces ordering via [`FragmentSeries`], guards
 //! against unbounded allocation with a configurable cap, and purges stale partial
 //! assemblies after a fixed timeout. The helper is transport-agnostic so codecs and
 //! behavioural tests can reuse it without depending on socket types.
