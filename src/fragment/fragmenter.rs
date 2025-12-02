@@ -121,9 +121,20 @@ impl Fragmenter {
         while offset < total {
             let end = (offset + max).min(total);
             let is_last = end == total;
+            let chunk = match payload.get(offset..end) {
+                Some(slice) => slice.to_vec(),
+                None => {
+                    debug_assert!(
+                        false,
+                        "fragment slice calculation exceeded payload bounds: offset={offset}, \
+                         end={end}, total={total}"
+                    );
+                    return Err(FragmentationError::IndexOverflow { last: index });
+                }
+            };
             fragments.push(FragmentFrame::new(
                 FragmentHeader::new(message_id, index, is_last),
-                payload[offset..end].to_vec(),
+                chunk,
             ));
 
             if is_last {
