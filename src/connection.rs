@@ -425,7 +425,8 @@ where
                 );
             }
             MultiPacketStamp::Disabled => {
-                unreachable!("multi-packet correlation invoked without configuration");
+                // No channel is active, so there is nothing to stamp.
+                return;
             }
         }
     }
@@ -487,6 +488,10 @@ where
     ///
     /// The `strict_priority_order` and `shutdown_signal_precedence` tests
     /// assert that this ordering is preserved across refactors.
+    #[allow(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus operations internally"
+    )]
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
         let high_available = self.high_rx.is_some();
         let low_available = self.low_rx.is_some();
@@ -769,10 +774,14 @@ where
     fn try_opportunistic_drain(&mut self, kind: QueueKind, ctx: DrainContext<'_, F>) -> bool {
         let DrainContext { out, state } = ctx;
         match kind {
-            QueueKind::High => unreachable!(concat!(
-                "try_opportunistic_drain(High) is unsupported; ",
-                "High is handled by biased polling",
-            )),
+            QueueKind::High => {
+                debug_assert!(
+                    false,
+                    "try_opportunistic_drain(High) is unsupported; High is handled by biased \
+                     polling"
+                );
+                false
+            }
             QueueKind::Low => {
                 let res = match self.low_rx.as_mut() {
                     Some(receiver) => receiver.try_recv(),
