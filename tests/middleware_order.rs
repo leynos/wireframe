@@ -82,7 +82,9 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     handle.await?;
 
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
+    if frames.len() != 1 {
+        return Err("expected a single response frame".into());
+    }
     let first = frames.first().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "no frames decoded")
     })?;
@@ -90,7 +92,11 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();
     let payload = parts.payload();
-    assert_eq!(payload, vec![b'X', b'A', b'B', b'B', b'A']);
-    assert_eq!(correlation_id, Some(7));
+    if payload != [b'X', b'A', b'B', b'B', b'A'] {
+        return Err(format!("unexpected payload: {payload:?}").into());
+    }
+    if correlation_id != Some(7) {
+        return Err(format!("unexpected correlation id: {correlation_id:?}").into());
+    }
     Ok(())
 }

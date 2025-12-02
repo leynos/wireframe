@@ -11,7 +11,7 @@ use wireframe::{
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
-use std::pin::Pin;
+use std::{net::SocketAddr, pin::Pin};
 
 use tracing::info;
 
@@ -29,19 +29,21 @@ async fn main() -> Result<(), ServerError> {
     let handler = std::sync::Arc::new(
         |_: &Envelope| -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> { echo_handler() },
     );
-    let factory = {
+    let build_app = {
         let handler = handler.clone();
-        move || {
-            App::new()
-                .expect("failed to create WireframeApp")
-                .route(1, handler.clone())
-                .expect("failed to register route 1")
+        move || match App::default().route(1, handler.clone()) {
+            Ok(app) => app,
+            Err(err) => {
+                eprintln!("failed to build echo app: {err}");
+                std::process::exit(1);
+            }
         }
     };
+    let factory = { move || build_app() };
 
-    WireframeServer::new(factory)
-        .bind("127.0.0.1:7878".parse().expect("invalid socket address"))?
-        .run()
-        .await?;
+    let addr: SocketAddr = "127.0.0.1:7878".parse().map_err(|err| {
+        ServerError::Bind(std::io::Error::new(std::io::ErrorKind::InvalidInput, err))
+    })?;
+    WireframeServer::new(factory).bind(addr)?.run().await?;
     Ok(())
 }
