@@ -82,6 +82,13 @@ impl BackoffConfig {
     }
 }
 
+pub(super) struct AcceptLoopOptions<T> {
+    pub preamble: PreambleHooks<T>,
+    pub shutdown: CancellationToken,
+    pub tracker: TaskTracker,
+    pub backoff: BackoffConfig,
+}
+
 #[derive(Default)]
 pub(super) struct PreambleHooks<T> {
     pub on_success: Option<PreambleHandler<T>>,
@@ -232,10 +239,12 @@ where
             tracker.spawn(accept_loop(
                 listener,
                 factory,
-                preamble_hooks,
-                token,
-                t,
-                backoff_config,
+                AcceptLoopOptions {
+                    preamble: preamble_hooks,
+                    shutdown: token,
+                    tracker: t,
+                    backoff: backoff_config,
+                },
             ));
         }
 
@@ -293,10 +302,12 @@ where
 ///     accept_loop::<_, (), _>(
 ///         listener,
 ///         || WireframeApp::default(),
-///         PreambleHooks::default(),
-///         token,
-///         tracker,
-///         BackoffConfig::default(),
+///         AcceptLoopOptions {
+///             preamble: PreambleHooks::default(),
+///             shutdown: token,
+///             tracker,
+///             backoff: BackoffConfig::default(),
+///         },
 ///     )
 ///     .await;
 /// }
@@ -304,24 +315,27 @@ where
 pub(super) async fn accept_loop<F, T, L>(
     listener: Arc<L>,
     factory: F,
-    preamble: PreambleHooks<T>,
-    shutdown: CancellationToken,
-    tracker: TaskTracker,
-    backoff_config: BackoffConfig,
+    options: AcceptLoopOptions<T>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
 {
+    let AcceptLoopOptions {
+        preamble,
+        shutdown,
+        tracker,
+        backoff,
+    } = options;
     debug_assert!(
-        backoff_config.initial_delay <= backoff_config.max_delay,
+        backoff.initial_delay <= backoff.max_delay,
         "BackoffConfig invariant violated: initial_delay > max_delay"
     );
     debug_assert!(
-        backoff_config.initial_delay >= Duration::from_millis(1),
+        backoff.initial_delay >= Duration::from_millis(1),
         "BackoffConfig invariant violated: initial_delay < 1ms"
     );
-    let mut delay = backoff_config.initial_delay;
+    let mut delay = backoff.initial_delay;
     loop {
         select! {
             biased;
@@ -337,13 +351,13 @@ pub(super) async fn accept_loop<F, T, L>(
                         hooks,
                         &tracker,
                     );
-                    delay = backoff_config.initial_delay;
+                    delay = backoff.initial_delay;
                 }
                 Err(e) => {
                     let local_addr = listener.local_addr().ok();
                     warn!("accept error: error={e:?}, local_addr={local_addr:?}");
                     sleep(delay).await;
-                    delay = (delay * 2).min(backoff_config.max_delay);
+                    delay = (delay * 2).min(backoff.max_delay);
                 }
             },
         }
@@ -444,10 +458,12 @@ mod tests {
         tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
-            PreambleHooks::default(),
-            token.clone(),
-            tracker.clone(),
-            BackoffConfig::default(),
+            AcceptLoopOptions {
+                preamble: PreambleHooks::default(),
+                shutdown: token.clone(),
+                tracker: tracker.clone(),
+                backoff: BackoffConfig::default(),
+            },
         ));
 
         token.cancel();
@@ -490,10 +506,12 @@ mod tests {
         tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
-            PreambleHooks::default(),
-            token.clone(),
-            tracker.clone(),
-            backoff,
+            AcceptLoopOptions {
+                preamble: PreambleHooks::default(),
+                shutdown: token.clone(),
+                tracker: tracker.clone(),
+                backoff,
+            },
         ));
 
         yield_now().await;
