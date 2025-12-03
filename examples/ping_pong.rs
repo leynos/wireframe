@@ -145,6 +145,10 @@ fn build_app() -> AppResult<App> {
 }
 
 #[tokio::main]
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "tokio::select! macro expansion performs modulo internally"
+)]
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
 
