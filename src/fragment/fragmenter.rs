@@ -107,6 +107,16 @@ impl Fragmenter {
         message_id: MessageId,
         payload: &[u8],
     ) -> Result<Vec<FragmentFrame>, FragmentationError> {
+        self.build_fragments_from(message_id, payload, 0, FragmentIndex::zero())
+    }
+
+    fn build_fragments_from(
+        &self,
+        message_id: MessageId,
+        payload: &[u8],
+        mut offset: usize,
+        mut index: FragmentIndex,
+    ) -> Result<Vec<FragmentFrame>, FragmentationError> {
         let max = self.max_fragment_size.get();
         if payload.is_empty() {
             let header = FragmentHeader::new(message_id, FragmentIndex::zero(), true);
@@ -114,9 +124,10 @@ impl Fragmenter {
         }
 
         let total = payload.len();
+        if offset > total {
+            return Err(FragmentationError::IndexOverflow { last: index });
+        }
         let mut fragments = Vec::with_capacity(div_ceil(total, max));
-        let mut index = FragmentIndex::zero();
-        let mut offset = 0usize;
 
         while offset < total {
             let end = (offset + max).min(total);
@@ -147,6 +158,19 @@ impl Fragmenter {
         }
 
         Ok(fragments)
+    }
+}
+
+#[cfg(test)]
+impl Fragmenter {
+    pub(crate) fn build_fragments_from_for_tests(
+        &self,
+        message_id: MessageId,
+        payload: &[u8],
+        offset: usize,
+        index: FragmentIndex,
+    ) -> Result<Vec<FragmentFrame>, FragmentationError> {
+        self.build_fragments_from(message_id, payload, offset, index)
     }
 }
 

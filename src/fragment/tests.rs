@@ -199,6 +199,22 @@ fn fragmenter_respects_explicit_message_ids() {
 }
 
 #[test]
+fn fragmenter_returns_error_for_out_of_bounds_slice() {
+    let fragmenter = Fragmenter::new(NonZeroUsize::new(4).expect("non-zero"));
+    let payload = [1_u8, 2, 3, 4];
+
+    let err = fragmenter
+        .build_fragments_from_for_tests(
+            MessageId::new(1),
+            &payload,
+            payload.len() + 1,
+            FragmentIndex::zero(),
+        )
+        .expect_err("invalid slice should produce an error");
+    assert!(matches!(err, FragmentationError::IndexOverflow { .. }));
+}
+
+#[test]
 fn reassembler_allows_single_fragment_at_max_message_size() {
     let max_message_size = NonZeroUsize::new(16).expect("non-zero");
     let mut reassembler = Reassembler::new(max_message_size, Duration::from_secs(5));
