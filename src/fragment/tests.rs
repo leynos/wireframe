@@ -211,7 +211,14 @@ fn fragmenter_returns_error_for_out_of_bounds_slice() {
             FragmentCursor::new(payload.len() + 1, FragmentIndex::zero()),
         )
         .expect_err("invalid slice should produce an error");
-    assert!(matches!(err, FragmentationError::IndexOverflow { .. }));
+    match err {
+        FragmentationError::SliceBounds { offset, end, total } => {
+            assert_eq!(offset, payload.len() + 1);
+            assert_eq!(end, payload.len() + 1);
+            assert_eq!(total, payload.len());
+        }
+        other => panic!("expected SliceBounds, got {other:?}"),
+    }
 }
 
 #[test]

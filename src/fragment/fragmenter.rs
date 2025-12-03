@@ -74,7 +74,8 @@ impl Fragmenter {
     ///
     /// Returns [`FragmentationError::Encode`] if serialization fails, or
     /// [`FragmentationError::IndexOverflow`] if the fragment index would
-    /// overflow `u32`.
+    /// overflow `u32`. Slice calculations that exceed payload bounds return
+    /// [`FragmentationError::SliceBounds`].
     pub fn fragment_message<M: Message>(
         &self,
         message: &M,
@@ -88,7 +89,9 @@ impl Fragmenter {
     /// # Errors
     ///
     /// Returns [`FragmentationError::IndexOverflow`] if more than
-    /// `u32::MAX + 1` fragments are required.
+    /// `u32::MAX + 1` fragments are required, or
+    /// [`FragmentationError::SliceBounds`] if slice calculation exceeds payload
+    /// bounds.
     pub fn fragment_bytes(
         &self,
         payload: impl AsRef<[u8]>,
@@ -102,7 +105,9 @@ impl Fragmenter {
     /// # Errors
     ///
     /// Returns [`FragmentationError::IndexOverflow`] if more than
-    /// `u32::MAX + 1` fragments are required.
+    /// `u32::MAX + 1` fragments are required, or
+    /// [`FragmentationError::SliceBounds`] if slice calculation exceeds payload
+    /// bounds.
     pub fn fragment_with_id(
         &self,
         message_id: MessageId,
@@ -138,7 +143,11 @@ impl Fragmenter {
 
         let total = payload.len();
         if cursor.offset > total {
-            return Err(FragmentationError::IndexOverflow { last: cursor.index });
+            return Err(FragmentationError::SliceBounds {
+                offset: cursor.offset,
+                end: cursor.offset,
+                total,
+            });
         }
         let mut fragments = Vec::with_capacity(div_ceil(total, max));
 
@@ -149,12 +158,18 @@ impl Fragmenter {
                 slice.to_vec()
             } else {
                 debug_assert!(
-                    false,
+                    payload.get(cursor.offset..end).is_some(),
                     "fragment slice calculation exceeded payload bounds: offset={}, end={}, \
                      total={}",
-                    cursor.offset, end, total
+                    cursor.offset,
+                    end,
+                    total
                 );
-                return Err(FragmentationError::IndexOverflow { last: cursor.index });
+                return Err(FragmentationError::SliceBounds {
+                    offset: cursor.offset,
+                    end,
+                    total,
+                });
             };
             fragments.push(FragmentFrame::new(
                 FragmentHeader::new(message_id, cursor.index, is_last),
