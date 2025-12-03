@@ -9,9 +9,7 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
 use wireframe::{Response, connection::ConnectionActor};
 
-use super::build_small_queues;
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+use super::{TestResult, build_small_queues};
 
 #[derive(Debug, Default, World)]
 pub struct MultiPacketWorld {

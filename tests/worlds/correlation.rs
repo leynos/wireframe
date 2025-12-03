@@ -14,9 +14,7 @@ use wireframe::{
     response::FrameStream,
 };
 
-use super::build_small_queues;
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+use super::{TestResult, build_small_queues};
 
 #[derive(Debug, Default, World)]
 pub struct CorrelationWorld {

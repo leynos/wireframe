@@ -28,6 +28,7 @@ use rstest::fixture;
 use wireframe::{app::Envelope, serializer::BincodeSerializer};
 
 pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[fixture]
 pub fn factory() -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {

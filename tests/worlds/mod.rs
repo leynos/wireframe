@@ -8,7 +8,7 @@
 
 #[path = "../common/mod.rs"]
 mod common;
-pub(crate) use common::unused_listener;
+pub(crate) use common::{TestResult, unused_listener};
 
 #[path = "../common/terminator.rs"]
 mod terminator;

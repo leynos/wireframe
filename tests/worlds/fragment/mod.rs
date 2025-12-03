@@ -26,7 +26,7 @@ use wireframe::fragment::{
     ReassemblyError,
 };
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+use super::TestResult;
 
 #[derive(Debug, World)]
 pub struct FragmentWorld {

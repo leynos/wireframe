@@ -9,9 +9,8 @@ use super::{
     MessageId,
     Reassembler,
     ReassemblyError,
+    TestResult,
 };
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 impl FragmentWorld {
     /// Configure a reassembler with size and timeout guards.

@@ -3,12 +3,15 @@
 //!
 //! They validate handler invocation, echo responses, and sequential processing.
 
+mod common;
+
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
 use bytes::BytesMut;
+use common::TestResult;
 use rstest::rstest;
 use tokio_util::codec::Encoder;
 use wireframe::{
@@ -24,8 +27,6 @@ use wireframe_testing::{
     drive_with_frames,
     new_test_codec,
 };
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), TestEnvelope>;
 

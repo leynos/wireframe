@@ -10,9 +10,7 @@ use cucumber::World;
 use tokio::{net::TcpStream, sync::oneshot};
 use wireframe::server::WireframeServer;
 
-use super::{TestApp, unused_listener};
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+use super::{TestApp, TestResult, unused_listener};
 
 #[derive(Debug)]
 struct PanicServer {

@@ -2,38 +2,63 @@
 //! Tests for [`WireframeServer`] configuration.
 
 mod common;
-use common::{factory, unused_listener};
+use common::{TestResult, factory, unused_listener};
 use wireframe::server::WireframeServer;
 
 #[test]
-fn default_worker_count_matches_cpu_count() {
+fn default_worker_count_matches_cpu_count() -> TestResult {
     let server = WireframeServer::new(factory());
     let expected = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-    assert_eq!(server.worker_count(), expected);
+    if server.worker_count() != expected {
+        return Err(format!(
+            "worker count mismatch: actual={}, expected={}",
+            server.worker_count(),
+            expected
+        )
+        .into());
+    }
+    Ok(())
 }
 
 #[test]
-fn default_workers_at_least_one() {
+fn default_workers_at_least_one() -> TestResult {
     let server = WireframeServer::new(factory());
-    assert!(server.worker_count() >= 1);
+    if server.worker_count() < 1 {
+        return Err(format!("worker count below 1: {}", server.worker_count()).into());
+    }
+    Ok(())
 }
 
 #[test]
-fn workers_method_enforces_minimum() {
+fn workers_method_enforces_minimum() -> TestResult {
     let server = WireframeServer::new(factory()).workers(0);
-    assert_eq!(server.worker_count(), 1);
+    if server.worker_count() != 1 {
+        return Err(format!(
+            "worker count should clamp to 1, got {}",
+            server.worker_count()
+        )
+        .into());
+    }
+    Ok(())
 }
 
 #[test]
-fn workers_accepts_large_values() {
+fn workers_accepts_large_values() -> TestResult {
     let server = WireframeServer::new(factory()).workers(128);
-    assert_eq!(server.worker_count(), 128);
+    if server.worker_count() != 128 {
+        return Err(format!(
+            "worker count should be 128 after config, got {}",
+            server.worker_count()
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// Ensure dropping the readiness receiver logs a warning and does not
 /// prevent the server from accepting connections.
 #[tokio::test]
-async fn readiness_receiver_dropped() {
+async fn readiness_receiver_dropped() -> TestResult {
     use tokio::{
         net::TcpStream,
         sync::oneshot,
@@ -64,4 +89,5 @@ async fn readiness_receiver_dropped() {
 
     // Server should still accept connections
     let _stream = TcpStream::connect(addr).await.expect("connect failed");
+    Ok(())
 }

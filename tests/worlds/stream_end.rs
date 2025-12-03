@@ -18,9 +18,7 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger};
 
-use super::{Terminator, build_small_queues};
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+use super::{Terminator, TestResult, build_small_queues};
 
 #[derive(Debug, Default, World)]
 pub struct StreamEndWorld {

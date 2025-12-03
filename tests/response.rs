@@ -19,7 +19,7 @@ use wireframe::{
 use wireframe_testing::{decode_frames, decode_frames_with_max, encode_frame, run_app};
 
 mod common;
-use common::TestApp;
+use common::{TestApp, TestResult};
 
 // Larger cap used for oversized frame tests.
 const LARGE_FRAME: usize = 16 * 1024 * 1024;
@@ -53,7 +53,7 @@ struct Large(Vec<u8>);
 /// Tests that sending a response serializes and frames the data correctly,
 /// and that the response can be decoded and deserialized back to its original value asynchronously.
 #[tokio::test]
-async fn send_response_encodes_and_frames() {
+async fn send_response_encodes_and_frames() -> TestResult {
     let app = TestApp::new().expect("failed to create app");
 
     let mut out = Vec::new();
@@ -62,10 +62,16 @@ async fn send_response_encodes_and_frames() {
         .expect("send_response failed");
 
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
-    let frame = frames.first().expect("expected frame missing");
-    let (decoded, _) = TestResp::from_bytes(frame).expect("deserialize failed");
-    assert_eq!(decoded, TestResp(7));
+    if frames.len() != 1 {
+        return Err(format!("expected a single response frame, got {}", frames.len()).into());
+    }
+    let frame = frames.first().ok_or("expected frame missing")?;
+    let (decoded, _) =
+        TestResp::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
+    if decoded != TestResp(7) {
+        return Err(format!("decoded payload mismatch: {decoded:?}").into());
+    }
+    Ok(())
 }
 
 /// Tests that decoding with an incomplete length prefix header returns `None` and does not consume

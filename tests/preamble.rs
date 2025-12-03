@@ -10,7 +10,7 @@ use std::{
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
 mod common;
-use common::{factory, unused_listener};
+use common::{TestResult, factory, unused_listener};
 use rstest::rstest;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, duplex},
@@ -19,8 +19,6 @@ use tokio::{
     time::{Duration, timeout},
 };
 use wireframe::{app::WireframeApp, preamble::read_preamble, server::WireframeServer};
-
-type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 struct HotlinePreamble {
