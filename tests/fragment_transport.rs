@@ -47,6 +47,8 @@ enum TestError {
     App(#[from] wireframe::app::WireframeError),
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("assertion failed: {0}")]
+    Assertion(String),
     #[error("io failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("timeout: {0}")]
@@ -186,11 +188,19 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
         .recv()
         .await
         .ok_or(TestError::FragmentConfig("handler payload missing"))?;
-    assert_eq!(observed, payload);
+    if observed != payload {
+        return Err(TestError::Assertion(format!(
+            "observed payload mismatch: expected {payload:?}, got {observed:?}"
+        )));
+    }
 
     client.get_mut().shutdown().await?;
     let response = read_reassembled_response(&mut client, &config).await?;
-    assert_eq!(response, payload);
+    if response != payload {
+        return Err(TestError::Assertion(format!(
+            "response payload mismatch: expected {payload:?}, got {response:?}"
+        )));
+    }
 
     server.await?;
 
