@@ -19,13 +19,15 @@ use wireframe::{
 };
 use wireframe_testing::push_expect;
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 #[fixture]
-fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
+fn queues() -> TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)> {
     PushQueues::<u8>::builder()
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .expect("failed to build PushQueues")
+        .map_err(Into::into)
 }
 
 #[expect(
@@ -39,10 +41,10 @@ fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 #[tokio::test]
 #[serial]
 async fn strict_priority_order(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     push_expect!(handle.push_low_priority(2), "push low-priority");
     push_expect!(handle.push_high_priority(1), "push high-priority");
 
@@ -50,18 +52,24 @@ async fn strict_priority_order(
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
-    assert_eq!(out, vec![1, 2, 3]);
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
+    if out != vec![1, 2, 3] {
+        return Err("unexpected frame ordering".into());
+    }
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn fairness_yields_low_after_burst(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     let fairness = FairnessConfig {
         max_high_before_low: 2,
         time_slice: None,
@@ -76,8 +84,14 @@ async fn fairness_yields_low_after_burst(
         ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
-    assert_eq!(out, vec![1, 2, 99, 3, 4, 5]);
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
+    if out != vec![1, 2, 99, 3, 4, 5] {
+        return Err("unexpected frame order under fairness".into());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,9 +106,9 @@ async fn queue_frames(
     order: &[Priority],
     handle: &wireframe::push::PushHandle<u8>,
     high_count: usize,
-) -> Vec<u8> {
+) -> TestResult<Vec<u8>> {
     let mut next_high = 1u8;
-    let mut next_low = u8::try_from(high_count).expect("too many high frames") + 1;
+    let mut next_low = u8::try_from(high_count).map_err(|_| "high_count exceeds u8 range")? + 1;
 
     let mut highs = Vec::new();
     let mut lows = Vec::new();
@@ -120,18 +134,23 @@ async fn queue_frames(
         }
     }
 
-    highs.into_iter().chain(lows.into_iter()).collect()
+    Ok(highs.into_iter().chain(lows.into_iter()).collect())
 }
 
 // Ensure the helper correctly handles edge cases without queued frames.
 #[rstest]
 #[tokio::test]
 #[serial]
-async fn queue_frames_empty_input(queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>)) {
-    let (_, handle) = queues;
+async fn queue_frames_empty_input(
+    queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
+) -> TestResult {
+    let (_, handle) = queues?;
     let priorities: &[Priority] = &[];
-    let result = queue_frames(priorities, &handle, 0).await;
-    assert!(result.is_empty(), "Expected empty output for empty input");
+    let result = queue_frames(priorities, &handle, 0).await?;
+    if !result.is_empty() {
+        return Err("expected empty output for empty input".into());
+    }
+    Ok(())
 }
 
 #[rstest]
@@ -154,36 +173,42 @@ async fn queue_frames_empty_input(queues: (PushQueues<u8>, wireframe::push::Push
 #[serial]
 async fn processes_all_priorities_in_order(
     #[case] order: Vec<Priority>,
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     let fairness = FairnessConfig {
         max_high_before_low: 0,
         time_slice: None,
     };
 
     let high_count = order.iter().filter(|p| matches!(p, Priority::High)).count();
-    let expected = queue_frames(&order, &handle, high_count).await;
+    let expected = queue_frames(&order, &handle, high_count).await?;
 
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
-    assert_eq!(out, expected);
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
+    if out != expected {
+        return Err("unexpected frame ordering with fairness disabled".into());
+    }
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn fairness_yields_low_with_time_slice(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
-) {
+) -> TestResult {
     // Use Tokio's virtual clock so timing-dependent fairness is deterministic.
     time::pause();
-    let (queues, handle) = queues;
+    let (queues, handle) = queues?;
     let fairness = FairnessConfig {
         max_high_before_low: 0,
         time_slice: Some(Duration::from_millis(10)),
@@ -210,14 +235,16 @@ async fn fairness_yields_low_with_time_slice(
     }
     drop(handle);
 
-    let out = rx.await.expect("actor output missing");
-    assert!(out.contains(&42), "Low-priority item was not yielded");
+    let out = rx.await.map_err(|_| "actor output missing")?;
+    if !out.contains(&42) {
+        return Err("low-priority item was not yielded".into());
+    }
     let pos = out
         .iter()
         .position(|x| *x == 42)
-        .expect("value 42 should be present");
-    assert!(
-        pos > 0 && pos < out.len() - 1,
-        "Low-priority item should be yielded in the middle",
-    );
+        .ok_or("value 42 should be present")?;
+    if !(pos > 0 && pos < out.len() - 1) {
+        return Err("low-priority item should be yielded in the middle".into());
+    }
+    Ok(())
 }
