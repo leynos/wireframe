@@ -7,6 +7,7 @@ use bincode::{BorrowDecode, Encode};
 use rstest::rstest;
 
 use super::*;
+use crate::fragment::fragmenter::FragmentCursor;
 
 fn setup_reassembler_with_first_fragment(
     message_id: u64,
@@ -207,8 +208,7 @@ fn fragmenter_returns_error_for_out_of_bounds_slice() {
         .build_fragments_from_for_tests(
             MessageId::new(1),
             &payload,
-            payload.len() + 1,
-            FragmentIndex::zero(),
+            FragmentCursor::new(payload.len() + 1, FragmentIndex::zero()),
         )
         .expect_err("invalid slice should produce an error");
     assert!(matches!(err, FragmentationError::IndexOverflow { .. }));

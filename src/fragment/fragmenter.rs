@@ -20,6 +20,16 @@ pub struct Fragmenter {
     next_message_id: AtomicU64,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct FragmentCursor {
+    offset: usize,
+    index: FragmentIndex,
+}
+
+impl FragmentCursor {
+    pub(crate) const fn new(offset: usize, index: FragmentIndex) -> Self { Self { offset, index } }
+}
+
 impl Fragmenter {
     /// Create a new fragmenter that caps fragment payloads at `max_fragment_size` bytes.
     #[must_use]
@@ -107,15 +117,18 @@ impl Fragmenter {
         message_id: MessageId,
         payload: &[u8],
     ) -> Result<Vec<FragmentFrame>, FragmentationError> {
-        self.build_fragments_from(message_id, payload, 0, FragmentIndex::zero())
+        self.build_fragments_from(
+            message_id,
+            payload,
+            FragmentCursor::new(0, FragmentIndex::zero()),
+        )
     }
 
     fn build_fragments_from(
         &self,
         message_id: MessageId,
         payload: &[u8],
-        mut offset: usize,
-        mut index: FragmentIndex,
+        mut cursor: FragmentCursor,
     ) -> Result<Vec<FragmentFrame>, FragmentationError> {
         let max = self.max_fragment_size.get();
         if payload.is_empty() {
@@ -124,26 +137,27 @@ impl Fragmenter {
         }
 
         let total = payload.len();
-        if offset > total {
-            return Err(FragmentationError::IndexOverflow { last: index });
+        if cursor.offset > total {
+            return Err(FragmentationError::IndexOverflow { last: cursor.index });
         }
         let mut fragments = Vec::with_capacity(div_ceil(total, max));
 
-        while offset < total {
-            let end = (offset + max).min(total);
+        while cursor.offset < total {
+            let end = (cursor.offset + max).min(total);
             let is_last = end == total;
-            let chunk = if let Some(slice) = payload.get(offset..end) {
+            let chunk = if let Some(slice) = payload.get(cursor.offset..end) {
                 slice.to_vec()
             } else {
                 debug_assert!(
                     false,
-                    "fragment slice calculation exceeded payload bounds: offset={offset}, \
-                     end={end}, total={total}"
+                    "fragment slice calculation exceeded payload bounds: offset={}, end={}, \
+                     total={}",
+                    cursor.offset, end, total
                 );
-                return Err(FragmentationError::IndexOverflow { last: index });
+                return Err(FragmentationError::IndexOverflow { last: cursor.index });
             };
             fragments.push(FragmentFrame::new(
-                FragmentHeader::new(message_id, index, is_last),
+                FragmentHeader::new(message_id, cursor.index, is_last),
                 chunk,
             ));
 
@@ -151,10 +165,11 @@ impl Fragmenter {
                 break;
             }
 
-            offset = end;
-            index = index
+            cursor.offset = end;
+            cursor.index = cursor
+                .index
                 .checked_increment()
-                .ok_or(FragmentationError::IndexOverflow { last: index })?;
+                .ok_or(FragmentationError::IndexOverflow { last: cursor.index })?;
         }
 
         Ok(fragments)
@@ -167,10 +182,9 @@ impl Fragmenter {
         &self,
         message_id: MessageId,
         payload: &[u8],
-        offset: usize,
-        index: FragmentIndex,
+        cursor: FragmentCursor,
     ) -> Result<Vec<FragmentFrame>, FragmentationError> {
-        self.build_fragments_from(message_id, payload, offset, index)
+        self.build_fragments_from(message_id, payload, cursor)
     }
 }
 
