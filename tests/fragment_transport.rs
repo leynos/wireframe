@@ -227,15 +227,24 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
         .recv()
         .await
         .ok_or(TestError::FragmentConfig("handler payload missing"))?;
-    assert_eq!(observed, payload);
+    if observed != payload {
+        return Err(TestError::Assertion(format!(
+            "observed payload mismatch: expected {payload:?}, got {observed:?}"
+        )));
+    }
 
     client.get_mut().shutdown().await?;
     let response = read_reassembled_response(&mut client, &config).await?;
-    assert_eq!(response, payload);
-    assert!(
-        matches!(decode_fragment_payload(&response)?, None),
-        "small payload should pass through unfragmented"
-    );
+    if response != payload {
+        return Err(TestError::Assertion(format!(
+            "response payload mismatch: expected {payload:?}, got {response:?}"
+        )));
+    }
+    if decode_fragment_payload(&response)?.is_some() {
+        return Err(TestError::Assertion(
+            "small payload should pass through unfragmented".into(),
+        ));
+    }
 
     server.await?;
 
@@ -290,7 +299,7 @@ where
     client.get_mut().shutdown().await?;
 
     if let Ok(Some(_)) = timeout(Duration::from_millis(200), rx.recv()).await {
-        panic!("{rejection_message}");
+        return Err(TestError::Assertion(rejection_message.to_string()));
     }
 
     drop(client);
@@ -327,10 +336,11 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
         ))?
         .into_parts();
     let mut payload = parts.clone().payload();
-    assert!(
-        payload.starts_with(FRAGMENT_MAGIC),
-        "expected fragment to start with marker"
-    );
+    if !payload.starts_with(FRAGMENT_MAGIC) {
+        return Err(TestError::Assertion(
+            "expected fragment to start with marker".into(),
+        ));
+    }
     let truncate_len = FRAGMENT_MAGIC.len() + 2;
     if payload.len() > truncate_len {
         payload.truncate(truncate_len);
@@ -411,10 +421,11 @@ async fn expired_fragments_are_evicted() -> TestResult {
     client.get_mut().shutdown().await?;
 
     let recv_result = timeout(Duration::from_millis(200), rx.recv()).await;
-    assert!(
-        recv_result.is_err(),
-        "handler should not receive after timeout eviction"
-    );
+    if recv_result.is_ok() {
+        return Err(TestError::Assertion(
+            "handler should not receive after timeout eviction".into(),
+        ));
+    }
 
     drop(client);
     server.await?;
@@ -451,7 +462,11 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
         .recv()
         .await
         .ok_or(TestError::FragmentConfig("handler payload missing"))?;
-    assert_eq!(observed, payload);
+    if observed != payload {
+        return Err(TestError::Assertion(format!(
+            "observed payload mismatch: expected {payload:?}, got {observed:?}"
+        )));
+    }
 
     server.await?;
 
