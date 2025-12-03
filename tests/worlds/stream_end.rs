@@ -102,14 +102,14 @@ impl StreamEndWorld {
 
     /// Run the connection actor and record emitted frames.
     ///
-    /// # Panics
-    /// Panics if the actor fails to run successfully.
+    /// # Errors
+    /// Returns an error if the actor fails to run successfully.
     pub async fn process(&mut self) -> TestResult { self.run_actor_test(ActorMode::Stream).await }
 
     /// Run the connection actor with a multi-packet channel and record emitted frames.
     ///
-    /// # Panics
-    /// Panics if sending to the channel or running the actor fails.
+    /// # Errors
+    /// Returns an error if sending to the channel or running the actor fails.
     pub async fn process_multi(&mut self) -> TestResult {
         self.run_actor_test(ActorMode::MultiPacket).await
     }
@@ -167,16 +167,16 @@ impl StreamEndWorld {
 
     /// Simulate a disconnected multi-packet channel by dropping the sender before draining.
     ///
-    /// # Panics
-    /// Panics if creating the harness or sending frames fails.
+    /// # Errors
+    /// Returns an error if creating the harness or sending frames fails.
     pub fn process_multi_disconnect(&mut self) -> TestResult {
         self.run_multi_packet_harness(&MultiPacketMode::Disconnect { send_frames: true }, 42)
     }
 
     /// Trigger shutdown handling on a multi-packet channel without emitting a terminator.
     ///
-    /// # Panics
-    /// Panics if creating the harness fails.
+    /// # Errors
+    /// Returns an error if creating the harness fails.
     pub fn process_multi_shutdown(&mut self) -> TestResult {
         self.run_multi_packet_harness(&MultiPacketMode::Shutdown, 77)
     }
@@ -210,8 +210,9 @@ impl StreamEndWorld {
 
     /// Verify the logged multi-packet termination reason.
     ///
-    /// # Panics
-    /// Panics if the closure log is missing or contains unexpected details.
+    /// # Errors
+    /// Returns an error if the closure log is missing or contains unexpected
+    /// details.
     pub fn verify_reason(&self, expected: &str) -> TestResult {
         let (level, message) = self
             .closure_log()
@@ -220,14 +221,12 @@ impl StreamEndWorld {
             "disconnected" => Level::Warn,
             _ => Level::Info,
         };
-        assert_eq!(
-            *level, expected_level,
-            "unexpected log level: message={message}",
-        );
-        assert!(
-            message.contains(&format!("reason={expected}")),
-            "closure log missing reason: message={message}",
-        );
+        if *level != expected_level {
+            return Err("unexpected log level for closure".into());
+        }
+        if !message.contains(&format!("reason={expected}")) {
+            return Err("closure log missing reason detail".into());
+        }
         Ok(())
     }
 }
