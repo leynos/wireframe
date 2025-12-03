@@ -89,6 +89,13 @@ pub(super) struct AcceptLoopOptions<T> {
     pub backoff: BackoffConfig,
 }
 
+struct AcceptHandles<'a, T> {
+    preamble: &'a PreambleHooks<T>,
+    shutdown: &'a CancellationToken,
+    tracker: &'a TaskTracker,
+    backoff: &'a BackoffConfig,
+}
+
 #[derive(Default)]
 pub(super) struct PreambleHooks<T> {
     pub on_success: Option<PreambleHandler<T>>,
@@ -340,11 +347,13 @@ pub(super) async fn accept_loop<F, T, L>(
         "BackoffConfig invariant violated: initial_delay < 1ms"
     );
     let mut delay = backoff.initial_delay;
-    while let Some(next_delay) = accept_iteration(
-        &listener, &factory, &preamble, &shutdown, &tracker, &backoff, delay,
-    )
-    .await
-    {
+    let handles = AcceptHandles {
+        preamble: &preamble,
+        shutdown: &shutdown,
+        tracker: &tracker,
+        backoff: &backoff,
+    };
+    while let Some(next_delay) = accept_iteration(&listener, &factory, &handles, delay).await {
         delay = next_delay;
     }
 }
@@ -356,10 +365,7 @@ pub(super) async fn accept_loop<F, T, L>(
 async fn accept_iteration<F, T, L>(
     listener: &Arc<L>,
     factory: &F,
-    preamble: &PreambleHooks<T>,
-    shutdown: &CancellationToken,
-    tracker: &TaskTracker,
-    backoff: &BackoffConfig,
+    handles: &AcceptHandles<'_, T>,
     delay: Duration,
 ) -> Option<Duration>
 where
@@ -370,22 +376,22 @@ where
     select! {
         biased;
 
-        () = shutdown.cancelled() => None,
+        () = handles.shutdown.cancelled() => None,
         res = listener.accept() => Some(match res {
             Ok((stream, _)) => {
                 spawn_connection_task(
                     stream,
                     (*factory).clone(),
-                    preamble.clone(),
-                    tracker,
+                    handles.preamble.clone(),
+                    handles.tracker,
                 );
-                backoff.initial_delay
+                handles.backoff.initial_delay
             }
             Err(e) => {
                 let local_addr = listener.local_addr().ok();
                 warn!("accept error: error={e:?}, local_addr={local_addr:?}");
                 sleep(delay).await;
-                (delay * 2).min(backoff.max_delay)
+                (delay * 2).min(handles.backoff.max_delay)
             }
         }),
     }
