@@ -38,9 +38,9 @@ impl MultiPacketWorld {
     /// Helper method to process messages through a multi-packet response built
     /// via [`Response::with_channel`].
     ///
-    /// # Panics
-    /// Panics if [`Response::with_channel`] fails to produce a `MultiPacket`
-    /// response or if spawning or joining the producer task fails.
+    /// # Errors
+    /// Returns an error if the response cannot be converted to a multi-packet
+    /// stream or if producer tasks fail.
     async fn process_messages(&mut self, messages: &[u8]) -> TestResult {
         let (sender, response): (mpsc::Sender<u8>, Response<u8, ()>) = Response::with_channel(4);
         let Response::MultiPacket(rx) = response else {
@@ -67,22 +67,23 @@ impl MultiPacketWorld {
 
     /// Send messages through a multi-packet response and record them.
     ///
-    /// # Panics
-    /// Panics if [`Response::with_channel`] fails to produce a `MultiPacket`
-    /// response or if spawning or joining the producer task fails.
+    /// # Errors
+    /// Returns an error if the response cannot be converted to a multi-packet
+    /// stream or if producer tasks fail.
     pub async fn process(&mut self) -> TestResult { self.process_messages(&[1, 2, 3]).await }
 
     /// Record zero messages from a closed channel.
     ///
-    /// # Panics
-    /// Panics if [`Response::with_channel`] fails to produce a `MultiPacket`
-    /// response or if spawning or joining the producer task fails.
+    /// # Errors
+    /// Returns an error if the response cannot be converted to a multi-packet
+    /// stream or if producer tasks fail.
     pub async fn process_empty(&mut self) -> TestResult { self.process_messages(&[]).await }
 
     /// Attempt to send more messages than the channel can buffer at once.
     ///
-    /// # Panics
-    /// Panics if sending to the channel fails unexpectedly or the producer task panics.
+    /// # Errors
+    /// Returns an error if sending to the channel fails unexpectedly or the
+    /// producer task returns an error.
     pub async fn process_overflow(&mut self) -> TestResult {
         let (sender, response): (mpsc::Sender<u8>, Response<u8, ()>) = Response::with_channel(1);
         let Response::MultiPacket(rx) = response else {
@@ -91,14 +92,14 @@ impl MultiPacketWorld {
 
         sender
             .try_send(1)
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
+            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
         let overflow_error = matches!(sender.try_send(2), Err(TrySendError::Full(2)));
 
         let producer = tokio::spawn(async move {
             sender
                 .send(2)
                 .await
-                .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+                .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
             drop(sender);
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         });
