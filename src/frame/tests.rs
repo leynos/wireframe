@@ -58,6 +58,12 @@ fn bytes_to_u64_short(#[case] bytes: Vec<u8>, #[case] size: usize, #[case] endia
     assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
 }
 
+#[test]
+fn bytes_to_u64_rejects_empty_input() {
+    let err = bytes_to_u64(&[], 2, Endianness::Big).expect_err("empty slice must error");
+    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+}
+
 #[rstest]
 #[case(vec![0x01, 0x02, 0x03], 3, Endianness::Big)]
 #[case(vec![0x01, 0x02, 0x03], 3, Endianness::Little)]
@@ -83,6 +89,14 @@ fn u64_to_bytes_zero_length() {
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(0, 0, Endianness::Big, &mut buf)
         .expect_err("u64_to_bytes must fail if length is zero");
+    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+}
+
+#[test]
+fn u64_to_bytes_rejects_prefix_beyond_buffer() {
+    let mut buf = [0u8; 8];
+    let err = u64_to_bytes(1, 9, Endianness::Big, &mut buf)
+        .expect_err("prefix larger than buffer must fail");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
