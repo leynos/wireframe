@@ -59,7 +59,7 @@ fn multi_packet_response() -> Response<Frame> {
         for (index, line) in TRANSCRIPT.iter().enumerate() {
             let frame = Frame::chunk(index, line);
             if sender.send(frame).await.is_err() {
-                // The connection dropped; stop work early.
+                tracing::trace!("connection dropped, stopping chunk task early");
                 break;
             }
 
@@ -73,7 +73,7 @@ fn multi_packet_response() -> Response<Frame> {
         let _ = chunk_task.await;
         let summary = Frame::summary(TRANSCRIPT.len());
         if summary_sender.send(summary).await.is_err() {
-            // The connection dropped; stop work early.
+            tracing::trace!("connection dropped, summary not sent");
         }
     });
 
