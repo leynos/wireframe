@@ -44,21 +44,14 @@ impl<S: AsyncRead + Unpin> AsyncRead for RewindStream<S> {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if self.pos > self.leftover.len() {
-            return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "rewind buffer slice out of bounds",
-            )));
-        }
-        if self.pos < self.leftover.len() {
-            let remaining = self.leftover.len() - self.pos;
+        if self.pos != self.leftover.len() {
+            let remaining = self.leftover.len().saturating_sub(self.pos);
             let to_copy = remaining.min(buf.remaining());
             let start = self.pos;
             let end = start + to_copy;
             if let Some(slice) = self.leftover.get(start..end) {
                 buf.put_slice(slice);
             } else {
-                debug_assert!(false, "rewind slice bounds exceeded");
                 return Poll::Ready(Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "rewind buffer slice out of bounds",
