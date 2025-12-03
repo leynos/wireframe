@@ -20,12 +20,16 @@ async fn when_process_multi(world: &mut CorrelationWorld) -> TestResult {
 
 #[then(expr = "each emitted frame uses correlation id {int}")]
 fn then_verify(world: &mut CorrelationWorld, id: u64) -> TestResult {
-    assert_eq!(world.expected(), Some(id));
+    if world.expected() != Some(id) {
+        return Err("mismatched expected correlation id".into());
+    }
     world.verify()
 }
 
 #[then("each emitted frame has no correlation id")]
 fn then_verify_absent(world: &mut CorrelationWorld) -> TestResult {
-    assert_eq!(world.expected(), None);
+    if world.expected().is_some() {
+        return Err("expected correlation id should be cleared".into());
+    }
     world.verify()
 }
