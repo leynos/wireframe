@@ -660,28 +660,22 @@ where
     where
         F: Packet,
     {
-        if let Some(fragmenter) = self.fragmenter.clone() {
-            self.push_fragmented_frames(fragmenter.as_ref(), frame, out);
+        if let Some(fragmenter) = self.fragmenter.as_deref() {
+            let fragmented = fragment_packet(fragmenter, frame);
+            match fragmented {
+                Ok(frames) => frames
+                    .into_iter()
+                    .for_each(|frame| self.push_frame(frame, out)),
+                Err(err) => {
+                    warn!(
+                        "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
+                        self.connection_id, self.peer_addr,
+                    );
+                    crate::metrics::inc_handler_errors();
+                }
+            }
         } else {
             self.push_frame(frame, out);
-        }
-    }
-
-    fn push_fragmented_frames(&mut self, fragmenter: &Fragmenter, frame: F, out: &mut Vec<F>)
-    where
-        F: Packet,
-    {
-        match fragment_packet(fragmenter, frame) {
-            Ok(frames) => frames
-                .into_iter()
-                .for_each(|frame| self.push_frame(frame, out)),
-            Err(err) => {
-                warn!(
-                    "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
-                    self.connection_id, self.peer_addr,
-                );
-                crate::metrics::inc_handler_errors();
-            }
         }
     }
 
