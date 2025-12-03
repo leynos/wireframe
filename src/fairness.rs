@@ -81,7 +81,7 @@ impl<C: Clock> FairnessTracker<C> {
 
 #[cfg(all(test, not(loom)))]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, PoisonError};
 
     use rstest::rstest;
     use tokio::time::{Duration, Instant};
@@ -146,13 +146,13 @@ mod tests {
         }
 
         fn advance(&self, dur: Duration) {
-            let mut now = self.now.lock().expect("lock poisoned");
+            let mut now = self.now.lock().unwrap_or_else(PoisonError::into_inner);
             *now += dur;
         }
     }
 
     impl Clock for MockClock {
-        fn now(&self) -> Instant { *self.now.lock().expect("lock poisoned") }
+        fn now(&self) -> Instant { *self.now.lock().unwrap_or_else(PoisonError::into_inner) }
     }
 
     #[rstest]

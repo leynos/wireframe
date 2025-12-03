@@ -171,9 +171,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     if frames.len() != 1 {
         return Err("expected a single response frame".into());
     }
-    let first = frames
-        .first()
-        .ok_or_else(|| "response frames unexpectedly empty")?;
+    let first = frames.first().ok_or("response frames unexpectedly empty")?;
     let (resp, _) = BincodeSerializer.deserialize::<StateEnvelope>(first)?;
     if resp.correlation_id != Some(0) {
         return Err("correlation id not preserved".into());

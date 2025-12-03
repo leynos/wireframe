@@ -10,7 +10,7 @@ use std::time::Duration;
 use futures::TryStreamExt;
 use tokio::time::sleep;
 use tracing::info;
-use wireframe::Response;
+use wireframe::{Response, WireframeError};
 
 const TRANSCRIPT: &[&str] = &[
     "Client: HELLO",
@@ -81,17 +81,13 @@ fn multi_packet_response() -> Response<Frame> {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), WireframeError<()>> {
     tracing_subscriber::fmt::init();
 
     let response = multi_packet_response();
     let mut stream = response.into_stream();
 
-    while let Some(frame) = stream
-        .try_next()
-        .await
-        .expect("multi-packet stream should not fail")
-    {
+    while let Some(frame) = stream.try_next().await? {
         match frame {
             Frame {
                 kind: FrameKind::Chunk(index),
@@ -103,4 +99,6 @@ async fn main() {
             } => info!("Summary: {data}"),
         }
     }
+
+    Ok(())
 }
