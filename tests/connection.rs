@@ -296,11 +296,12 @@ fn handle_multi_packet_closed_behaviour(
     harness.handle_multi_packet_closed();
 
     let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
-    assert!(
-        !harness.has_multi_queue(),
-        "multi-packet channel should be cleared",
-    );
+    if !(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done) {
+        return Err("connection snapshot should remain active".into());
+    }
+    if harness.has_multi_queue() {
+        return Err("multi-packet channel should be cleared".into());
+    }
     assert_frame_processed(
         &harness.out,
         &expected_output,
@@ -323,8 +324,12 @@ fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) -> Te
 
     let drained = harness.try_drain_low();
 
-    assert!(drained, "queue should report a drained frame");
-    assert!(harness.has_low_queue(), "queue remains available");
+    if !drained {
+        return Err("queue should report a drained frame".into());
+    }
+    if !harness.has_low_queue() {
+        return Err("queue remains available".into());
+    }
     assert_frame_processed(
         &harness.out,
         &[10],
@@ -375,7 +380,9 @@ fn try_opportunistic_drain_multi_disconnect_logs_reason(
     drop(tx);
     logger.clear();
     let drained = harness.try_drain_multi();
-    assert!(!drained, "disconnect should not report a drained frame");
+    if drained {
+        return Err("disconnect should not report a drained frame".into());
+    }
     assert_reason_logged(&mut logger, Level::Warn, "disconnected", Some(12));
     Ok(())
 }
@@ -399,10 +406,9 @@ fn start_shutdown_logs_reason(
     logger.clear();
     harness.start_shutdown();
     assert_reason_logged(&mut logger, Level::Info, "shutdown", Some(13));
-    assert!(
-        !harness.has_multi_queue(),
-        "multi-packet queue should be cleared after shutdown",
-    );
+    if harness.has_multi_queue() {
+        return Err("multi-packet queue should be cleared after shutdown".into());
+    }
     Ok(())
 }
 
@@ -421,11 +427,12 @@ fn try_opportunistic_drain_multi_disconnect_emits_terminator(
 
     let drained = harness.try_drain_multi();
 
-    assert!(!drained, "disconnect should not report a drained frame",);
-    assert!(
-        !harness.has_multi_queue(),
-        "multi-packet queue should be cleared after disconnect",
-    );
+    if drained {
+        return Err("disconnect should not report a drained frame".into());
+    }
+    if harness.has_multi_queue() {
+        return Err("multi-packet queue should be cleared after disconnect".into());
+    }
     assert_frame_processed(
         &harness.out,
         &[6],
@@ -443,9 +450,15 @@ fn try_opportunistic_drain_returns_false_when_empty() -> TestResult {
 
     let drained = harness.try_drain_low();
 
-    assert!(!drained, "no frame should be drained");
-    assert!(harness.has_low_queue(), "queue should remain available");
-    assert!(harness.out.is_empty(), "no frames should be emitted");
+    if drained {
+        return Err("no frame should be drained".into());
+    }
+    if !harness.has_low_queue() {
+        return Err("queue should remain available".into());
+    }
+    if !harness.out.is_empty() {
+        return Err("no frames should be emitted".into());
+    }
     Ok(())
 }
 
@@ -458,13 +471,16 @@ fn try_opportunistic_drain_handles_disconnect() -> TestResult {
 
     let drained = harness.try_drain_low();
 
-    assert!(!drained, "disconnect should not produce a frame");
-    assert!(
-        !harness.has_low_queue(),
-        "queue should be cleared after disconnect",
-    );
+    if drained {
+        return Err("disconnect should not produce a frame".into());
+    }
+    if harness.has_low_queue() {
+        return Err("queue should be cleared after disconnect".into());
+    }
     let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
+    if !(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done) {
+        return Err("connection snapshot should remain active".into());
+    }
     Ok(())
 }
 
