@@ -36,7 +36,9 @@ async fn stream_frames_carry_request_correlation_id() -> TestResult {
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    assert!(out.iter().all(|e| e.correlation_id() == Some(cid)));
+    if out.iter().any(|e| e.correlation_id() != Some(cid)) {
+        return Err(io::Error::other("frames lost correlation id").into());
+    }
     Ok(())
 }
 
@@ -91,7 +93,12 @@ async fn multi_packet_frames_apply_expected_correlation(
         .iter()
         .map(CorrelatableFrame::correlation_id)
         .collect();
-    assert_eq!(correlations, expected);
+    if correlations != expected {
+        return Err(io::Error::other(format!(
+            "unexpected correlation ids: {correlations:?}, expected {expected:?}"
+        ))
+        .into());
+    }
     Ok(())
 }
 
@@ -111,10 +118,18 @@ async fn multi_packet_terminator_applies_correlation(
     };
 
     let frames = run_multi_packet_channel(request, &[], hooks).await?;
-    assert_eq!(frames.len(), 1, "terminator frame missing");
-    let terminator = frames.last().ok_or_else(|| {
-        Box::<dyn std::error::Error + Send + Sync>::from("terminator frame missing")
-    })?;
-    assert_eq!(terminator.correlation_id(), expected);
+    if frames.len() != 1 {
+        return Err(io::Error::other("terminator frame missing").into());
+    }
+    let terminator = frames
+        .last()
+        .ok_or_else(|| io::Error::other("terminator frame missing"))?;
+    if terminator.correlation_id() != expected {
+        return Err(io::Error::other(format!(
+            "unexpected terminator correlation: {:?}, expected {expected:?}",
+            terminator.correlation_id(),
+        ))
+        .into());
+    }
     Ok(())
 }
