@@ -20,17 +20,19 @@ use wireframe::{
 mod terminator;
 use terminator::Terminator;
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 #[fixture]
-fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
-    support::builder::<u8>()
-        .build()
-        .expect("failed to build PushQueues")
+fn queues() -> Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError> {
+    support::builder::<u8>().build()
 }
 
 #[rstest]
 #[tokio::test]
-async fn emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) {
-    let (queues, handle) = queues;
+async fn emits_end_frame(
+    queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
+) -> TestResult<()> {
+    let (queues, handle) = queues?;
     // fixture injected above
     let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 1;
@@ -46,18 +48,30 @@ async fn emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) {
     );
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    assert_eq!(out, vec![1, 2, 0]);
+    if out != vec![1, 2, 0] {
+        return Err("unexpected output frames".into());
+    }
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
-async fn multi_packet_emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) {
-    let (queues, handle) = queues;
+async fn multi_packet_emits_end_frame(
+    queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
+) -> TestResult<()> {
+    let (queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(4);
-    tx.send(1).await.expect("send frame");
-    tx.send(2).await.expect("send frame");
+    tx.send(1)
+        .await
+        .map_err(|e| std::io::Error::other(format!("send frame: {e}")))?;
+    tx.send(2)
+        .await
+        .map_err(|e| std::io::Error::other(format!("send frame: {e}")))?;
     drop(tx);
 
     let shutdown = CancellationToken::new();
@@ -71,14 +85,22 @@ async fn multi_packet_emits_end_frame(queues: (PushQueues<u8>, PushHandle<u8>)) 
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    assert_eq!(out, vec![1, 2, 0]);
+    if out != vec![1, 2, 0] {
+        return Err("unexpected output frames".into());
+    }
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
-async fn multi_packet_respects_no_terminator(queues: (PushQueues<u8>, PushHandle<u8>)) {
+async fn multi_packet_respects_no_terminator(
+    queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
+) -> TestResult<()> {
     struct NoTerminator;
 
     impl WireframeProtocol for NoTerminator {
@@ -88,9 +110,11 @@ async fn multi_packet_respects_no_terminator(queues: (PushQueues<u8>, PushHandle
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
-    let (queues, handle) = queues;
+    let (queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(2);
-    tx.send(9).await.expect("send frame");
+    tx.send(9)
+        .await
+        .map_err(|e| std::io::Error::other(format!("send frame: {e}")))?;
     drop(tx);
 
     let shutdown = CancellationToken::new();
@@ -104,15 +128,23 @@ async fn multi_packet_respects_no_terminator(queues: (PushQueues<u8>, PushHandle
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    assert_eq!(out, vec![9]);
+    if out != vec![9] {
+        return Err("unexpected output frames".into());
+    }
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
-async fn multi_packet_empty_channel_emits_end(queues: (PushQueues<u8>, PushHandle<u8>)) {
-    let (queues, handle) = queues;
+async fn multi_packet_empty_channel_emits_end(
+    queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
+) -> TestResult<()> {
+    let (queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(1);
     drop(tx);
 
@@ -127,16 +159,22 @@ async fn multi_packet_empty_channel_emits_end(queues: (PushQueues<u8>, PushHandl
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    assert_eq!(out, vec![0]);
+    if out != vec![0] {
+        return Err("unexpected output frames".into());
+    }
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 async fn multi_packet_empty_channel_no_terminator_emits_nothing(
-    queues: (PushQueues<u8>, PushHandle<u8>),
-) {
+    queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
+) -> TestResult<()> {
     struct NoTerminator;
 
     impl WireframeProtocol for NoTerminator {
@@ -146,7 +184,7 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
-    let (queues, handle) = queues;
+    let (queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(1);
     drop(tx);
 
@@ -161,14 +199,22 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    assert!(out.is_empty());
+    if !out.is_empty() {
+        return Err("expected no frames".into());
+    }
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
-async fn emits_no_end_frame_when_none(queues: (PushQueues<u8>, PushHandle<u8>)) {
+async fn emits_no_end_frame_when_none(
+    queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
+) -> TestResult<()> {
     struct NoTerminator;
 
     impl WireframeProtocol for NoTerminator {
@@ -178,7 +224,7 @@ async fn emits_no_end_frame_when_none(queues: (PushQueues<u8>, PushHandle<u8>)) 
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
-    let (queues, handle) = queues;
+    let (queues, handle) = queues?;
     // fixture injected above
     let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 7;
@@ -195,7 +241,13 @@ async fn emits_no_end_frame_when_none(queues: (PushQueues<u8>, PushHandle<u8>)) 
     );
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    assert_eq!(out, vec![7, 8]);
+    if out != vec![7, 8] {
+        return Err("unexpected frames".into());
+    }
+    Ok(())
 }
