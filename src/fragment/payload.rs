@@ -179,25 +179,41 @@ mod tests {
         assert!(encoded.len() < u16::MAX as usize, "header must fit in u16");
     }
 
-    #[test]
-    fn decode_fragment_payload_rejects_truncated_header() {
-        let header = FragmentHeader::new(MessageId::new(2), FragmentIndex::new(1), false);
+    /// Helper to test fragment decode errors with custom manipulation and assertions.
+    fn assert_fragment_decode_error<F, E>(header: FragmentHeader, manipulate: F, assert_error: E)
+    where
+        F: FnOnce(Vec<u8>) -> (u16, Vec<u8>), // (advertised_len, header_bytes)
+        E: FnOnce(DecodeError),
+    {
         let encoded = encode_to_vec(header, config::standard()).expect("encode header");
+        let (advertised_len, header_bytes) = manipulate(encoded);
 
-        // Advertise a longer header than provided to force `UnexpectedEnd`.
-        let advertised_len: u16 = (encoded.len() + 4)
-            .try_into()
-            .expect("encoded header length must stay within u16");
         let mut payload = Vec::new();
         payload.extend_from_slice(FRAGMENT_MAGIC);
         payload.extend_from_slice(&advertised_len.to_be_bytes());
-        payload.extend_from_slice(&encoded);
+        payload.extend_from_slice(&header_bytes);
 
         let err = decode_fragment_payload(&payload).expect_err("expected decode failure");
-        match err {
-            DecodeError::UnexpectedEnd { .. } => {}
-            other => panic!("expected UnexpectedEnd, got {other:?}"),
-        }
+        assert_error(err);
+    }
+
+    #[test]
+    fn decode_fragment_payload_rejects_truncated_header() {
+        let header = FragmentHeader::new(MessageId::new(2), FragmentIndex::new(1), false);
+        assert_fragment_decode_error(
+            header,
+            |encoded| {
+                // Advertise a longer header than provided to force `UnexpectedEnd`.
+                let advertised_len: u16 = (encoded.len() + 4)
+                    .try_into()
+                    .expect("encoded header length must stay within u16");
+                (advertised_len, encoded)
+            },
+            |err| match err {
+                DecodeError::UnexpectedEnd { .. } => {}
+                other => panic!("expected UnexpectedEnd, got {other:?}"),
+            },
+        );
     }
 
     #[test]
@@ -218,24 +234,23 @@ mod tests {
     #[test]
     fn decode_fragment_payload_rejects_length_mismatch() {
         let header = FragmentHeader::new(MessageId::new(3), FragmentIndex::new(5), true);
-        let mut encoded = encode_to_vec(header, config::standard()).expect("encode header");
-        encoded.extend_from_slice(&[0_u8, 1]); // pad so the advertised length exceeds consumed.
-        let advertised_len: u16 = encoded
-            .len()
-            .try_into()
-            .expect("padded header length must fit in u16");
-
-        let mut payload = Vec::new();
-        payload.extend_from_slice(FRAGMENT_MAGIC);
-        payload.extend_from_slice(&advertised_len.to_be_bytes());
-        payload.extend_from_slice(&encoded);
-
-        let err = decode_fragment_payload(&payload).expect_err("expected decode failure");
-        match err {
-            DecodeError::OtherString(msg) => {
-                assert_eq!(msg, "fragment header length mismatch");
-            }
-            other => panic!("expected length mismatch error, got {other:?}"),
-        }
+        assert_fragment_decode_error(
+            header,
+            |mut encoded| {
+                // Pad so the advertised length exceeds consumed.
+                encoded.extend_from_slice(&[0_u8, 1]);
+                let advertised_len: u16 = encoded
+                    .len()
+                    .try_into()
+                    .expect("padded header length must fit in u16");
+                (advertised_len, encoded)
+            },
+            |err| match err {
+                DecodeError::OtherString(msg) => {
+                    assert_eq!(msg, "fragment header length mismatch");
+                }
+                other => panic!("expected length mismatch error, got {other:?}"),
+            },
+        );
     }
 }
