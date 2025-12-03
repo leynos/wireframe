@@ -161,6 +161,16 @@ mod tests {
     }
 
     #[test]
+    fn decode_returns_none_when_shorter_than_prefix_and_length() {
+        let payload = [b'F', b'R', b'A', b'G', 0];
+        assert!(
+            decode_fragment_payload(&payload)
+                .expect("decode ok")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn fragment_overhead_matches_encoded_header() {
         let header = FragmentHeader::new(MessageId::new(1), FragmentIndex::zero(), true);
         let encoded = encode_to_vec(header, config::standard()).expect("encode header");
@@ -186,6 +196,21 @@ mod tests {
         let err = decode_fragment_payload(&payload).expect_err("expected decode failure");
         match err {
             DecodeError::UnexpectedEnd { .. } => {}
+            other => panic!("expected UnexpectedEnd, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_fragment_payload_rejects_missing_header_bytes() {
+        let advertised_len: u16 = 4;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(FRAGMENT_MAGIC);
+        payload.extend_from_slice(&advertised_len.to_be_bytes());
+        // No header bytes provided.
+
+        let err = decode_fragment_payload(&payload).expect_err("expected decode failure");
+        match err {
+            DecodeError::UnexpectedEnd { additional } => assert_eq!(additional, 4),
             other => panic!("expected UnexpectedEnd, got {other:?}"),
         }
     }
