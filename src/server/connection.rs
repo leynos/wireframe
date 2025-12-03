@@ -155,7 +155,7 @@ mod tests {
         let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
-                .unwrap()
+                .expect("failed to install panic setup callback")
         };
         let tracker = TaskTracker::new();
         let listener = TcpListener::bind("127.0.0.1:0")
