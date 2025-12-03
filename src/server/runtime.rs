@@ -1,6 +1,6 @@
 //! Runtime control for [`WireframeServer`].
 
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{fmt, io, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use futures::Future;
@@ -82,6 +82,7 @@ impl BackoffConfig {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct AcceptLoopOptions<T> {
     pub preamble: PreambleHooks<T>,
     pub shutdown: CancellationToken,
@@ -110,6 +111,22 @@ impl<T> Clone for PreambleHooks<T> {
             on_failure: self.on_failure.clone(),
             timeout: self.timeout,
         }
+    }
+}
+
+impl<T> fmt::Debug for PreambleHooks<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PreambleHooks")
+            .field(
+                "on_success",
+                &self.on_success.as_ref().map(|_| "Some(<handler>)"),
+            )
+            .field(
+                "on_failure",
+                &self.on_failure.as_ref().map(|_| "Some(<failure>)"),
+            )
+            .field("timeout", &self.timeout)
+            .finish()
     }
 }
 
@@ -534,12 +551,22 @@ mod tests {
     fn assert_backoff_intervals(calls: &[Instant], expected: &[Duration]) {
         let intervals: Vec<_> = calls
             .windows(2)
-            .filter_map(|w| {
-                w.get(1)
-                    .zip(w.first())
-                    .and_then(|(b, a)| b.checked_duration_since(*a))
+            .map(|w| {
+                let a = w.first().expect("window has first element");
+                let b = w.get(1).expect("window has second element");
+                b.checked_duration_since(*a)
+                    .expect("instants should be monotonically increasing")
             })
             .collect();
+
+        assert_eq!(
+            intervals.len(),
+            expected.len(),
+            "interval count mismatch: got {}, expected {}",
+            intervals.len(),
+            expected.len()
+        );
+
         for (interval, expected) in intervals.into_iter().zip(expected.iter()) {
             assert_eq!(interval, *expected);
         }
