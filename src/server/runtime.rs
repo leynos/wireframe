@@ -523,11 +523,11 @@ mod tests {
 
     /// Creates a mock listener that fails with exponential backoff tracking.
     fn setup_backoff_mock_listener(
-        calls: Arc<Mutex<Vec<Instant>>>,
+        calls: &Arc<Mutex<Vec<Instant>>>,
         num_calls: usize,
     ) -> MockAcceptListener {
         let mut listener = MockAcceptListener::new();
-        let call_log = calls.clone();
+        let call_log = Arc::clone(calls);
         listener
             .expect_accept()
             .returning(move || {
@@ -566,7 +566,7 @@ mod tests {
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let listener = Arc::new(setup_backoff_mock_listener(calls.clone(), 4));
+        let listener = Arc::new(setup_backoff_mock_listener(&calls, 4));
         let token = CancellationToken::new();
         let tracker = TaskTracker::new();
         let backoff = BackoffConfig {
