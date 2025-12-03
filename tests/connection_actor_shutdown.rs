@@ -9,6 +9,8 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use wireframe::{connection::ConnectionActor, push::PushQueues};
 use wireframe_testing::push_expect;
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 #[expect(
     clippy::allow_attributes,
     reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
@@ -28,7 +30,6 @@ fn queues()
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .map_err(Into::into)
 }
 
 #[expect(
@@ -141,7 +142,7 @@ async fn push_queue_exhaustion_backpressure() {
 #[rstest]
 #[tokio::test]
 #[serial]
-async fn graceful_shutdown_waits_for_tasks() {
+async fn graceful_shutdown_waits_for_tasks() -> TestResult {
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
 
@@ -150,9 +151,7 @@ async fn graceful_shutdown_waits_for_tasks() {
         let (queues, handle) = PushQueues::<u8>::builder()
             .high_capacity(1)
             .low_capacity(1)
-            .build()
-            .map_err(|e| std::io::Error::other(format!("failed to build PushQueues: {e}")))
-            .unwrap();
+            .build()?;
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle.clone(), None, token.clone());
         handles.push(handle);
@@ -170,6 +169,7 @@ async fn graceful_shutdown_waits_for_tasks() {
             .await
             .is_ok(),
     );
+    Ok(())
 }
 
 #[rstest]
