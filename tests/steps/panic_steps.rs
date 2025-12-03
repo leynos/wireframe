@@ -6,13 +6,23 @@
 use cucumber::{given, then, when};
 
 use crate::world::PanicWorld;
+type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[given("a running wireframe server with a panic in connection setup")]
-async fn start_server(world: &mut PanicWorld) { world.start_panic_server().await; }
+async fn start_server(world: &mut PanicWorld) -> TestResult {
+    world.start_panic_server().await?;
+    Ok(())
+}
 
 #[when("I connect to the server")]
 #[when("I connect to the server again")]
-async fn connect(world: &mut PanicWorld) { world.connect_once().await; }
+async fn connect(world: &mut PanicWorld) -> TestResult {
+    world.connect_once().await?;
+    Ok(())
+}
 
 #[then("both connections succeed")]
-async fn verify(world: &mut PanicWorld) { world.verify_and_shutdown().await; }
+async fn verify(world: &mut PanicWorld) -> TestResult {
+    world.verify_and_shutdown().await?;
+    Ok(())
+}
