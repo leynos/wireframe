@@ -7,7 +7,11 @@
 //! responses to ensure correlation identifiers allow clients to demultiplex
 //! concurrent activity.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    Arc,
+    OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 use log::Level as LogLevel;
 use logtest as flexi_logger;
@@ -46,11 +50,13 @@ impl ActorHarness {
             .unlimited()
             .build()?;
         let shared_handle: Arc<OnceLock<PushHandle<Envelope>>> = Arc::new(OnceLock::new());
+        let duplicate_handle = Arc::new(AtomicBool::new(false));
         let handle_slot = Arc::clone(&shared_handle);
+        let duplicate_flag = Arc::clone(&duplicate_handle);
         let hooks = ProtocolHooks {
             on_connection_setup: Some(Box::new(move |handle, _ctx| {
                 if handle_slot.set(handle).is_err() {
-                    panic!("push handle already captured");
+                    duplicate_flag.store(true, Ordering::Relaxed);
                 }
             })),
             stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
@@ -70,7 +76,11 @@ impl ActorHarness {
             Arc::try_unwrap(shared_handle).map_err(|_| "push handle still shared at teardown")?;
         let handle = shared_handle
             .into_inner()
-            .ok_or_else(|| "connection setup hook did not run")?;
+            .ok_or("connection setup hook did not run")?;
+
+        if duplicate_handle.load(Ordering::Relaxed) {
+            return Err("push handle already captured".into());
+        }
 
         Ok(Self {
             actor,
@@ -124,7 +134,7 @@ async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()>
         return Err("expected two frames plus terminator".into());
     }
     let payloads: Vec<Vec<u8>> = out.iter().map(|frame| parts(frame).payload()).collect();
-    if payloads.get(0) != Some(&vec![1]) {
+    if payloads.first() != Some(&vec![1]) {
         return Err("first payload mismatch".into());
     }
     if payloads.get(1) != Some(&vec![2, 3]) {
@@ -249,7 +259,7 @@ async fn push_sequence(
         match priority {
             PushPriority::High => handle.push_high_priority(envelope).await?,
             PushPriority::Low => handle.push_low_priority(envelope).await?,
-        };
+        }
     }
     Ok(())
 }
