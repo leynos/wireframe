@@ -66,6 +66,9 @@ impl FragmentWorld {
 
     /// Configure a fragmenter with the provided payload cap so outbound
     /// fragmentation scenarios can chunk messages during behavioural tests.
+    ///
+    /// # Errors
+    /// Returns an error if the payload cap is zero.
     pub fn configure_fragmenter(&mut self, max_payload: usize) -> TestResult {
         let cap = NonZeroUsize::new(max_payload).ok_or("fragment cap must be non-zero")?;
         self.fragmenter = Some(Fragmenter::new(cap));
@@ -75,6 +78,9 @@ impl FragmentWorld {
 
     /// Request fragmentation for a payload of `len` bytes, simulating outbound
     /// fragment production for the behavioural scenarios.
+    ///
+    /// # Errors
+    /// Returns an error if the fragmenter is missing or fragmentation fails.
     pub fn fragment_payload(&mut self, len: usize) -> TestResult {
         let fragmenter = self
             .fragmenter
@@ -87,6 +93,9 @@ impl FragmentWorld {
     }
 
     /// Force the next expected fragment index for overflow scenarios.
+    ///
+    /// # Errors
+    /// Returns an error if a fragment series has not been initialised.
     pub fn force_next_index(&mut self, index: u32) -> TestResult {
         self.series_mut()?
             .force_next_index_for_tests(FragmentIndex::new(index));
@@ -94,12 +103,18 @@ impl FragmentWorld {
     }
 
     /// Feed a fragment that references the currently tracked message.
+    ///
+    /// # Errors
+    /// Returns an error if no fragment series has been initialised.
     pub fn accept_fragment(&mut self, index: u32, is_last: bool) -> TestResult {
         let message = self.series()?.message_id().get();
         self.accept_fragment_from(message, index, is_last)
     }
 
     /// Feed a fragment for an explicit message identifier.
+    ///
+    /// # Errors
+    /// Returns an error if no fragment series has been initialised.
     pub fn accept_fragment_from(&mut self, message: u64, index: u32, is_last: bool) -> TestResult {
         let header =
             FragmentHeader::new(MessageId::new(message), FragmentIndex::new(index), is_last);
@@ -145,6 +160,10 @@ impl FragmentWorld {
     }
 
     /// Assert that the latest fragment completed the logical message.
+    ///
+    /// # Errors
+    /// Returns an error if the fragment did not complete the message or no
+    /// fragment was processed.
     pub fn assert_completion(&self) -> TestResult {
         match self.last_result()? {
             Ok(FragmentStatus::Complete) => {}
@@ -170,6 +189,10 @@ impl FragmentWorld {
     }
 
     /// Assert that the latest fragment failed due to an index mismatch.
+    ///
+    /// # Errors
+    /// Returns an error if the last fragment result does not indicate an index
+    /// mismatch or no fragment was processed.
     pub fn assert_index_mismatch(&self) -> TestResult {
         self.assert_error(
             |err| matches!(err, FragmentError::IndexMismatch { .. }),
@@ -179,6 +202,10 @@ impl FragmentWorld {
 
     /// Assert that the latest fragment failed because the message identifier
     /// did not match the tracked series.
+    ///
+    /// # Errors
+    /// Returns an error if the last fragment result is not a message mismatch
+    /// or no fragment was processed.
     pub fn assert_message_mismatch(&self) -> TestResult {
         self.assert_error(
             |err| matches!(err, FragmentError::MessageMismatch { .. }),
@@ -187,6 +214,10 @@ impl FragmentWorld {
     }
 
     /// Assert that the latest fragment failed because the index overflowed.
+    ///
+    /// # Errors
+    /// Returns an error if the last fragment result is not an overflow or no
+    /// fragment was processed.
     pub fn assert_index_overflow(&self) -> TestResult {
         self.assert_error(
             |err| matches!(err, FragmentError::IndexOverflow { .. }),
@@ -194,7 +225,12 @@ impl FragmentWorld {
         )
     }
 
-    /// Assert that the latest fragment failed because the series was already complete.
+    /// Assert that the latest fragment failed because the series was already
+    /// complete.
+    ///
+    /// # Errors
+    /// Returns an error if the last fragment result is not a completion error
+    /// or no fragment was processed.
     pub fn assert_series_complete_error(&self) -> TestResult {
         self.assert_error(
             |err| matches!(err, FragmentError::SeriesComplete),
@@ -204,6 +240,9 @@ impl FragmentWorld {
 
     /// Assert that the most recent fragmentation produced `expected` fragments
     /// for outbound fragmentation scenarios.
+    ///
+    /// # Errors
+    /// Returns an error if no batch exists or the fragment count mismatches.
     pub fn assert_fragment_count(&self, expected: usize) -> TestResult {
         if self.batch()?.len() != expected {
             return Err("unexpected fragment count".into());
@@ -213,6 +252,9 @@ impl FragmentWorld {
 
     /// Assert that the payload length of fragment `index` matches `expected`
     /// bytes for outbound fragments.
+    ///
+    /// # Errors
+    /// Returns an error if the batch is missing or the payload length differs.
     pub fn assert_fragment_payload_len(&self, index: usize, expected: usize) -> TestResult {
         let fragment = self.get_fragment_at(index)?;
         if fragment.payload().len() != expected {
@@ -222,6 +264,9 @@ impl FragmentWorld {
     }
 
     /// Assert that outbound fragment `index` carries the expected final flag.
+    ///
+    /// # Errors
+    /// Returns an error if the batch is missing or the final flag mismatches.
     pub fn assert_fragment_final_flag(&self, index: usize, expected_final: bool) -> TestResult {
         let fragment = self.get_fragment_at(index)?;
         if fragment.header().is_last_fragment() != expected_final {
@@ -232,6 +277,10 @@ impl FragmentWorld {
 
     /// Assert that the outbound fragment batch carries the expected message
     /// identifier.
+    ///
+    /// # Errors
+    /// Returns an error if the batch is missing or the message id differs from
+    /// the expectation.
     pub fn assert_message_id(&self, expected: u64) -> TestResult {
         if self.batch()?.message_id() != MessageId::new(expected) {
             return Err("unexpected message identifier".into());
