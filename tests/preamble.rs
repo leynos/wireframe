@@ -103,9 +103,15 @@ async fn parse_valid_preamble() -> TestResult {
     client.shutdown().await?;
     let (p, _) = read_preamble::<_, HotlinePreamble>(&mut server).await?;
     p.validate()?;
-    assert_eq!(p.magic, HotlinePreamble::MAGIC);
-    assert_eq!(p.min_version, 1);
-    assert_eq!(p.client_version, 2);
+    if p.magic != HotlinePreamble::MAGIC {
+        return Err("preamble magic mismatch".into());
+    }
+    if p.min_version != 1 {
+        return Err("preamble minimum version mismatch".into());
+    }
+    if p.client_version != 2 {
+        return Err("preamble client version mismatch".into());
+    }
     Ok(())
 }
 
@@ -116,7 +122,9 @@ async fn invalid_magic_is_error() -> TestResult {
     client.write_all(bytes).await?;
     client.shutdown().await?;
     let (preamble, _) = read_preamble::<_, HotlinePreamble>(&mut server).await?;
-    assert!(preamble.validate().is_err());
+    if preamble.validate().is_ok() {
+        return Err("invalid magic should fail validation".into());
+    }
     Ok(())
 }
 
