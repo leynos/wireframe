@@ -6,7 +6,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, signal};
 use tracing::{error, info};
 use wireframe::{
     app::{Envelope, Packet, Result as AppResult},
@@ -145,7 +145,6 @@ fn build_app() -> AppResult<App> {
 }
 
 #[tokio::main]
-#[allow(unreachable_code)]
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
 
@@ -158,11 +157,19 @@ async fn main() -> std::io::Result<()> {
     let addr: SocketAddr = addr_str.parse().map_err(std::io::Error::other)?;
     let listener = TcpListener::bind(addr).await?;
     loop {
-        let (stream, _) = listener.accept().await?;
-        let app = Arc::clone(&app);
-        tokio::spawn(async move {
-            app.handle_connection(stream).await;
-        });
+        tokio::select! {
+            res = listener.accept() => {
+                let (stream, _) = res?;
+                let app = Arc::clone(&app);
+                tokio::spawn(async move {
+                    app.handle_connection(stream).await;
+                });
+            }
+            _ = signal::ctrl_c() => {
+                info!("ping-pong server received shutdown signal");
+                break;
+            }
+        }
     }
     Ok(())
 }
