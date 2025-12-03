@@ -296,12 +296,15 @@ fn handle_multi_packet_closed_behaviour(
     harness.handle_multi_packet_closed();
 
     let snapshot = harness.snapshot();
-    assert!(snapshot.is_active, "connection should be active");
-    assert!(
-        !snapshot.is_shutting_down,
-        "connection should not be shutting down"
-    );
-    assert!(!snapshot.is_done, "connection should not be done");
+    if !snapshot.is_active {
+        return Err("connection should be active".into());
+    }
+    if snapshot.is_shutting_down {
+        return Err("connection should not be shutting down".into());
+    }
+    if snapshot.is_done {
+        return Err("connection should not be done".into());
+    }
     if harness.has_multi_queue() {
         return Err("multi-packet channel should be cleared".into());
     }
@@ -481,12 +484,15 @@ fn try_opportunistic_drain_handles_disconnect() -> TestResult {
         return Err("queue should be cleared after disconnect".into());
     }
     let snapshot = harness.snapshot();
-    assert!(snapshot.is_active, "connection should be active");
-    assert!(
-        !snapshot.is_shutting_down,
-        "connection should not be shutting down"
-    );
-    assert!(!snapshot.is_done, "connection should not be done");
+    if !snapshot.is_active {
+        return Err("connection should be active".into());
+    }
+    if snapshot.is_shutting_down {
+        return Err("connection should not be shutting down".into());
+    }
+    if snapshot.is_done {
+        return Err("connection should not be done".into());
+    }
     Ok(())
 }
 
