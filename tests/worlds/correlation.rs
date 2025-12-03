@@ -32,10 +32,9 @@ impl CorrelationWorld {
 
     /// Run the connection actor and collect frames for later verification.
     ///
-    /// # Panics
-    /// Panics if `self.expected` is `None` when the streaming scenario requires
-    /// a correlation id (via `expect("streaming scenario requires a correlation
-    /// id")`), or if running the actor fails.
+    /// # Errors
+    /// Returns an error if the expected correlation id is absent or if running
+    /// the actor fails.
     pub async fn process(&mut self) -> TestResult {
         let cid = self
             .expected
@@ -56,8 +55,8 @@ impl CorrelationWorld {
 
     /// Run the connection actor for a multi-packet channel and collect frames.
     ///
-    /// # Panics
-    /// Panics if sending to the channel or running the actor fails.
+    /// # Errors
+    /// Returns an error if sending frames or running the actor fails.
     pub async fn process_multi(&mut self) -> TestResult {
         let expected = self.expected;
         let (tx, rx) = mpsc::channel(4);
@@ -79,8 +78,9 @@ impl CorrelationWorld {
 
     /// Verify that all received frames respect the configured correlation expectation.
     ///
-    /// # Panics
-    /// Panics if any frame violates the stored correlation expectation.
+    /// # Errors
+    /// Returns an error if any frame violates the stored correlation
+    /// expectation.
     pub fn verify(&self) -> TestResult {
         match self.expected {
             Some(cid) if self.frames.iter().all(|f| f.correlation_id() == Some(cid)) => {}
