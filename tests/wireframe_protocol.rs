@@ -25,10 +25,11 @@ use wireframe::{
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+type QueueResult =
+    Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>;
 
 #[fixture]
-fn queues() -> Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>
-{
+fn queues() -> QueueResult {
     PushQueues::<Vec<u8>>::builder()
         .high_capacity(8)
         .low_capacity(8)
@@ -61,9 +62,7 @@ impl WireframeProtocol for TestProtocol {
 
 #[rstest]
 #[tokio::test]
-async fn builder_produces_protocol_hooks(
-    queues: Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>,
-) -> TestResult<()> {
+async fn builder_produces_protocol_hooks(queues: QueueResult) -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let protocol = TestProtocol {
         counter: counter.clone(),
@@ -88,9 +87,7 @@ async fn builder_produces_protocol_hooks(
 
 #[rstest]
 #[tokio::test]
-async fn connection_actor_uses_protocol_from_builder(
-    queues: Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>,
-) -> TestResult<()> {
+async fn connection_actor_uses_protocol_from_builder(queues: QueueResult) -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let protocol = TestProtocol {
         counter: counter.clone(),
