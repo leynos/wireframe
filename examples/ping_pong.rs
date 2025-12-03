@@ -6,13 +6,13 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
+use tokio::net::TcpListener;
 use tracing::{error, info};
 use wireframe::{
     app::{Envelope, Packet, Result as AppResult},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
-    server::{ServerError, WireframeServer},
 };
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -145,16 +145,24 @@ fn build_app() -> AppResult<App> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), ServerError> {
+#[allow(unreachable_code)]
+async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
-
-    let factory = || build_app().expect("app build failed");
 
     let default_addr = "127.0.0.1:7878";
     let addr_str = std::env::args()
         .nth(1)
         .unwrap_or_else(|| default_addr.into());
-    let addr: SocketAddr = addr_str.parse().expect("invalid address");
-    WireframeServer::new(factory).bind(addr)?.run().await?;
+
+    let app = Arc::new(build_app().map_err(std::io::Error::other)?);
+    let addr: SocketAddr = addr_str.parse().map_err(std::io::Error::other)?;
+    let listener = TcpListener::bind(addr).await?;
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let app = Arc::clone(&app);
+        tokio::spawn(async move {
+            app.handle_connection(stream).await;
+        });
+    }
     Ok(())
 }
