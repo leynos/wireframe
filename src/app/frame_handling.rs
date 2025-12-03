@@ -110,15 +110,14 @@ where
     let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
         .inherit_correlation(env.correlation_id);
     let correlation_id = parts.correlation_id();
-    let responses = match fragment_responses(ctx.fragmentation, parts, env.id, correlation_id) {
-        Ok(responses) => responses,
-        Err(_) => return Ok(()), // already logged
+    let Ok(responses) = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id) else {
+        return Ok(()); // already logged
     };
 
     for response in responses {
-        let bytes = match serialize_response(ctx.serializer, &response, env.id, correlation_id) {
-            Ok(bytes) => bytes,
-            Err(_) => break, // already logged
+        let Ok(bytes) = serialize_response(ctx.serializer, &response, env.id, correlation_id)
+        else {
+            break; // already logged
         };
 
         if send_response_bytes(ctx.framed, bytes, env.id, correlation_id)
@@ -148,7 +147,7 @@ fn fragment_responses(
                      error={err:?}"
                 );
                 crate::metrics::inc_handler_errors();
-                Err(io::Error::new(io::ErrorKind::Other, "fragmentation failed"))
+                Err(io::Error::other("fragmentation failed"))
             }
         },
         None => Ok(vec![envelope]),
@@ -169,7 +168,7 @@ fn serialize_response<S: Serializer>(
                  error={e:?}"
             );
             crate::metrics::inc_handler_errors();
-            Err(io::Error::new(io::ErrorKind::Other, "serialization failed"))
+            Err(io::Error::other("serialization failed"))
         }
     }
 }
@@ -186,7 +185,7 @@ where
     if let Err(e) = framed.send(bytes.into()).await {
         warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
         crate::metrics::inc_handler_errors();
-        return Err(io::Error::new(io::ErrorKind::Other, "send failed"));
+        return Err(io::Error::other("send failed"));
     }
     Ok(())
 }
