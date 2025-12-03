@@ -25,6 +25,8 @@ use wireframe_testing::{
     new_test_codec,
 };
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), TestEnvelope>;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug, Clone)]
@@ -62,7 +64,7 @@ struct Echo(u8);
 
 #[rstest]
 #[tokio::test]
-async fn handler_receives_message_and_echoes_response() {
+async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
     let app = TestApp::new()
@@ -90,18 +92,26 @@ async fn handler_receives_message_and_echoes_response() {
         .expect("drive_with_bincode failed");
 
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
-    let (resp_env, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frames[0])
-        .expect("deserialize failed");
-    assert_eq!(resp_env.correlation_id, Some(99));
-    let (echo, _) = Echo::from_bytes(&resp_env.payload).expect("decode echo failed");
-    assert_eq!(echo, Echo(42));
-    assert_eq!(called.load(Ordering::SeqCst), 1);
+    if frames.len() != 1 {
+        return Err("expected a single response frame".into());
+    }
+    let first = frames.first().ok_or("response frames missing")?;
+    let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
+    if resp_env.correlation_id != Some(99) {
+        return Err("correlation id mismatch".into());
+    }
+    let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
+    if echo != Echo(42) {
+        return Err("echo payload mismatch".into());
+    }
+    if called.load(Ordering::SeqCst) != 1 {
+        return Err("route not invoked exactly once".into());
+    }
+    Ok(())
 }
 
 #[tokio::test]
-async fn handler_echoes_with_none_correlation_id() {
+async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     let app = TestApp::new()
         .expect("failed to create app")
         .route(
@@ -119,18 +129,24 @@ async fn handler_echoes_with_none_correlation_id() {
 
     let out = drive_with_bincode(app, env).await.expect("drive failed");
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
-    let (resp_env, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frames[0])
-        .expect("deserialize failed");
+    if frames.len() != 1 {
+        return Err("expected a single response frame".into());
+    }
+    let first = frames.first().ok_or("response frames missing")?;
+    let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
 
-    assert_eq!(resp_env.correlation_id, None);
-    let (echo, _) = Echo::from_bytes(&resp_env.payload).expect("decode echo failed");
-    assert_eq!(echo, Echo(7));
+    if resp_env.correlation_id.is_some() {
+        return Err("unexpected correlation id".into());
+    }
+    let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
+    if echo != Echo(7) {
+        return Err("echo payload mismatch".into());
+    }
+    Ok(())
 }
 
 #[tokio::test]
-async fn multiple_frames_processed_in_sequence() {
+async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let app = TestApp::new()
         .expect("failed to create app")
         .route(
@@ -163,19 +179,22 @@ async fn multiple_frames_processed_in_sequence() {
         .expect("drive_with_frames failed");
 
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 2, "expected two response frames");
-    let (env1, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frames[0])
-        .expect("deserialize failed");
-    let (echo1, _) = Echo::from_bytes(&env1.payload).expect("decode echo failed");
-    let (env2, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frames[1])
-        .expect("deserialize failed");
-    let (echo2, _) = Echo::from_bytes(&env2.payload).expect("decode echo failed");
-    assert_eq!(env1.correlation_id, Some(1));
-    assert_eq!(env2.correlation_id, Some(2));
-    assert_eq!(echo1, Echo(1));
-    assert_eq!(echo2, Echo(2));
+    if frames.len() != 2 {
+        return Err("expected two response frames".into());
+    }
+    let first = frames.get(0).ok_or("first frame missing")?;
+    let (env1, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
+    let (echo1, _) = Echo::from_bytes(&env1.payload)?;
+    let second = frames.get(1).ok_or("second frame missing")?;
+    let (env2, _) = BincodeSerializer.deserialize::<TestEnvelope>(second)?;
+    let (echo2, _) = Echo::from_bytes(&env2.payload)?;
+    if env1.correlation_id != Some(1) || env2.correlation_id != Some(2) {
+        return Err("correlation ids out of order".into());
+    }
+    if echo1 != Echo(1) || echo2 != Echo(2) {
+        return Err("echo payloads out of order".into());
+    }
+    Ok(())
 }
 
 #[rstest]
@@ -183,7 +202,7 @@ async fn multiple_frames_processed_in_sequence() {
 #[case(Some(1))]
 #[case(Some(2))]
 #[tokio::test]
-async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
+async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> TestResult<()> {
     let app = TestApp::new()
         .expect("failed to create app")
         .route(
@@ -210,12 +229,16 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) {
         .await
         .expect("drive failed");
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
-    let (resp, _) = BincodeSerializer
-        .deserialize::<TestEnvelope>(&frames[0])
-        .expect("deserialize failed");
+    if frames.len() != 1 {
+        return Err("expected a single response frame".into());
+    }
+    let first = frames.first().ok_or("response frames missing")?;
+    let (resp, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
 
-    assert_eq!(resp.correlation_id, cid);
+    if resp.correlation_id != cid {
+        return Err("correlation id mismatch".into());
+    }
+    Ok(())
 }
 
 #[test]

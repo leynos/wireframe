@@ -66,8 +66,13 @@ async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
     let env = Envelope::new(1, Some(0), vec![42]);
 
     let out = drive_with_bincode(app, env).await?;
-    assert!(!out.is_empty());
-    assert_eq!(counter.load(Ordering::Relaxed), 1);
+    if out.is_empty() {
+        return Err("no frames emitted".into());
+    }
+    let parses = counter.load(Ordering::Relaxed);
+    if parses != 1 {
+        return Err(format!("expected 1 parse, saw {parses}").into());
+    }
     Ok(())
 }
 
@@ -111,8 +116,16 @@ async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let env = Envelope::new(1, Some(0), vec![7]);
 
     let out = drive_with_bincode(app, env).await?;
-    assert!(!out.is_empty());
-    assert_eq!(parse_calls.load(Ordering::Relaxed), 1);
-    assert_eq!(deser_calls.load(Ordering::Relaxed), 1);
+    if out.is_empty() {
+        return Err("no frames emitted".into());
+    }
+    let parsed = parse_calls.load(Ordering::Relaxed);
+    let desers = deser_calls.load(Ordering::Relaxed);
+    if parsed != 1 {
+        return Err(format!("expected 1 parse call, saw {parsed}").into());
+    }
+    if desers != 1 {
+        return Err(format!("expected 1 deserialize call, saw {desers}").into());
+    }
     Ok(())
 }
