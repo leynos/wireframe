@@ -101,10 +101,8 @@ fn push_policy_behaviour(
             if !found_warning {
                 return Err(io::Error::other("warning log not found").into());
             }
-        } else {
-            if found_warning {
-                return Err(io::Error::other("unexpected warning log found").into());
-            }
+        } else if found_warning {
+            return Err(io::Error::other("unexpected warning log found").into());
         }
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })?;
@@ -161,6 +159,9 @@ fn fill_dlq(tx: &mpsc::Sender<u8>, _rx: &mut Option<mpsc::Receiver<u8>>) -> Test
 
 /// Drops the receiver to simulate a closed DLQ channel.
 fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) -> TestResult<()> {
+    if rx.is_none() {
+        return Err("DLQ receiver missing".into());
+    }
     drop(rx.take());
     Ok(())
 }
