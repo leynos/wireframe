@@ -224,7 +224,11 @@ async fn shutdown_during_active_multi_packet_send(
 async fn vec_empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Vec(Vec::new());
     let received = drain_all(resp.into_stream()).await?;
-    assert!(received.is_empty());
+    if !received.is_empty() {
+        return Err(TestError::Stream(format!(
+            "expected empty stream, got {received:?}"
+        )));
+    }
     Ok(())
 }
 
@@ -233,6 +237,10 @@ async fn vec_empty_returns_empty_stream() -> TestResult {
 async fn empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Empty;
     let received = drain_all(resp.into_stream()).await?;
-    assert!(received.is_empty());
+    if !received.is_empty() {
+        return Err(TestError::Stream(format!(
+            "expected empty stream, got {received:?}"
+        )));
+    }
     Ok(())
 }
