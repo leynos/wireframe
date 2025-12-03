@@ -11,19 +11,17 @@ use wireframe::{
     message::Message as MessageTrait,
 };
 
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
 #[fixture]
-fn request() -> MessageRequest { MessageRequest::default() }
+fn request() -> MessageRequest {
+    // default request used across extractor tests
+    MessageRequest::default()
+}
 
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
 #[fixture]
-fn empty_payload() -> Payload<'static> { Payload::default() }
+fn empty_payload() -> Payload<'static> {
+    // simple empty payload ensures extractors handle zero-length bodies
+    Payload::default()
+}
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestMsg(u8);
