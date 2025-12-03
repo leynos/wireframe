@@ -16,6 +16,8 @@ use wireframe::{
 
 use super::build_small_queues;
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 #[derive(Debug, Default, World)]
 pub struct CorrelationWorld {
     expected: Option<u64>,
@@ -34,55 +36,60 @@ impl CorrelationWorld {
     /// Panics if `self.expected` is `None` when the streaming scenario requires
     /// a correlation id (via `expect("streaming scenario requires a correlation
     /// id")`), or if running the actor fails.
-    pub async fn process(&mut self) {
+    pub async fn process(&mut self) -> TestResult {
         let cid = self
             .expected
-            .expect("streaming scenario requires a correlation id");
+            .ok_or("streaming scenario requires a correlation id")?;
         let stream: FrameStream<Envelope> = Box::pin(try_stream! {
             yield Envelope::new(1, Some(cid), vec![1]);
             yield Envelope::new(1, Some(cid), vec![2]);
         });
-        let (queues, handle) = build_small_queues::<Envelope>();
+        let (queues, handle) = build_small_queues::<Envelope>()?;
         let shutdown = CancellationToken::new();
         let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
-        actor.run(&mut self.frames).await.expect("actor run failed");
+        actor
+            .run(&mut self.frames)
+            .await
+            .map_err(|e| format!("actor run failed: {e:?}"))?;
+        Ok(())
     }
 
     /// Run the connection actor for a multi-packet channel and collect frames.
     ///
     /// # Panics
     /// Panics if sending to the channel or running the actor fails.
-    pub async fn process_multi(&mut self) {
+    pub async fn process_multi(&mut self) -> TestResult {
         let expected = self.expected;
         let (tx, rx) = mpsc::channel(4);
-        tx.send(Envelope::new(1, None, vec![1]))
-            .await
-            .expect("send frame");
-        tx.send(Envelope::new(1, Some(99), vec![2]))
-            .await
-            .expect("send frame");
+        tx.send(Envelope::new(1, None, vec![1])).await?;
+        tx.send(Envelope::new(1, Some(99), vec![2])).await?;
         drop(tx);
 
-        let (queues, handle) = build_small_queues::<Envelope>();
+        let (queues, handle) = build_small_queues::<Envelope>()?;
         let shutdown = CancellationToken::new();
         let mut actor: ConnectionActor<Envelope, ()> =
             ConnectionActor::new(queues, handle, None, shutdown);
         actor.set_multi_packet_with_correlation(Some(rx), expected);
-        actor.run(&mut self.frames).await.expect("actor run failed");
+        actor
+            .run(&mut self.frames)
+            .await
+            .map_err(|e| format!("actor run failed: {e:?}"))?;
+        Ok(())
     }
 
     /// Verify that all received frames respect the configured correlation expectation.
     ///
     /// # Panics
     /// Panics if any frame violates the stored correlation expectation.
-    pub fn verify(&self) {
+    pub fn verify(&self) -> TestResult {
         match self.expected {
+            Some(cid) if self.frames.iter().all(|f| f.correlation_id() == Some(cid)) => {}
             Some(cid) => {
-                assert!(self.frames.iter().all(|f| f.correlation_id() == Some(cid)));
+                return Err(format!("frames missing expected correlation id {cid}").into());
             }
-            None => {
-                assert!(self.frames.iter().all(|f| f.correlation_id().is_none()));
-            }
+            None if self.frames.iter().all(|f| f.correlation_id().is_none()) => {}
+            None => return Err("frames unexpectedly carried correlation id".into()),
         }
+        Ok(())
     }
 }
