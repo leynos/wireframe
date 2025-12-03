@@ -182,7 +182,7 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     if frames.len() != 2 {
         return Err("expected two response frames".into());
     }
-    let first = frames.get(0).ok_or("first frame missing")?;
+    let first = frames.first().ok_or("first frame missing")?;
     let (env1, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
     let (echo1, _) = Echo::from_bytes(&env1.payload)?;
     let second = frames.get(1).ok_or("second frame missing")?;
