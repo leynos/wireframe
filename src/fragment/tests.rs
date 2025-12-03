@@ -126,7 +126,10 @@ fn fragmenter_handles_empty_payload() {
 
     assert_eq!(batch.len(), 1);
     assert!(!batch.is_fragmented());
-    let fragment = &batch.fragments()[0];
+    let fragment = batch
+        .fragments()
+        .first()
+        .expect("batch should contain at least one fragment");
     assert_eq!(fragment.payload(), &[]);
     assert!(fragment.header().is_last_fragment());
     assert_eq!(fragment.header().fragment_index(), FragmentIndex::zero());
@@ -136,7 +139,10 @@ fn fragmenter_handles_empty_payload() {
 struct DummyMessage(Vec<u8>);
 
 fn assert_fragment(batch: &FragmentBatch, index: usize, payload: &[u8], is_last: bool) {
-    let fragment = &batch.fragments()[index];
+    let fragment = batch
+        .fragments()
+        .get(index)
+        .expect("fragment missing at requested index");
     assert_eq!(fragment.payload(), payload);
     assert_eq!(fragment.header().is_last_fragment(), is_last);
 }
