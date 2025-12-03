@@ -11,28 +11,29 @@ use super::{
     ReassemblyError,
 };
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 impl FragmentWorld {
     /// Configure a reassembler with size and timeout guards.
-    ///
-    /// # Panics
-    /// Panics if `max_message_size` is zero.
-    pub fn configure_reassembler(&mut self, max_message_size: usize, timeout_secs: u64) {
-        let size = NonZeroUsize::new(max_message_size).expect("reassembly cap must be non-zero");
+    pub fn configure_reassembler(
+        &mut self,
+        max_message_size: usize,
+        timeout_secs: u64,
+    ) -> TestResult {
+        let size = NonZeroUsize::new(max_message_size).ok_or("reassembly cap must be non-zero")?;
         self.reassembler = Some(Reassembler::new(size, Duration::from_secs(timeout_secs)));
         self.last_reassembled = None;
         self.last_reassembly_error = None;
         self.last_evicted.clear();
+        Ok(())
     }
 
     /// Submit a fragment to the configured reassembler.
-    ///
-    /// # Panics
-    /// Panics if the reassembler has not been configured.
-    pub fn push_fragment(&mut self, header: FragmentHeader, payload_len: usize) {
+    pub fn push_fragment(&mut self, header: FragmentHeader, payload_len: usize) -> TestResult {
         let reassembler = self
             .reassembler
             .as_mut()
-            .expect("reassembler not configured");
+            .ok_or("reassembler not configured")?;
         let payload = vec![0_u8; payload_len];
         self.last_reassembly_error = None;
         self.last_reassembled = None;
@@ -40,94 +41,77 @@ impl FragmentWorld {
             Ok(output) => self.last_reassembled = output,
             Err(err) => self.last_reassembly_error = Some(err),
         }
+        Ok(())
     }
 
     /// Advance the simulated clock.
-    ///
-    /// # Panics
-    ///
-    /// Panics if advancing the clock would overflow [`Instant`].
-    pub fn advance_time(&mut self, delta: Duration) {
+    pub fn advance_time(&mut self, delta: Duration) -> TestResult {
         self.now = self
             .now
             .checked_add(delta)
-            .expect("time advance overflowed");
+            .ok_or("time advance overflowed")?;
+        Ok(())
     }
 
     /// Purge expired partial messages based on the current clock reading.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the reassembler has not been configured.
-    pub fn purge_reassembly(&mut self) {
+    pub fn purge_reassembly(&mut self) -> TestResult {
         let reassembler = self
             .reassembler
             .as_mut()
-            .expect("reassembler not configured");
+            .ok_or("reassembler not configured")?;
         self.last_evicted = reassembler.purge_expired_at(self.now);
+        Ok(())
     }
 
     /// Assert that a message has been reassembled with the expected payload length.
-    ///
-    /// # Panics
-    /// Panics if no message has been reassembled yet.
-    pub fn assert_reassembled_len(&self, expected_len: usize) {
+    pub fn assert_reassembled_len(&self, expected_len: usize) -> TestResult {
         let message = self
             .last_reassembled
             .as_ref()
-            .expect("no message reassembled");
-        assert_eq!(
-            message.payload().len(),
-            expected_len,
-            "payload length mismatch"
-        );
+            .ok_or("no message reassembled")?;
+        if message.payload().len() != expected_len {
+            return Err("payload length mismatch".into());
+        }
+        Ok(())
     }
 
     /// Assert that no message has been fully reassembled.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a message has already been reassembled.
-    pub fn assert_no_reassembly(&self) {
-        assert!(
-            self.last_reassembled.is_none(),
-            "unexpected reassembled message present"
-        );
+    pub fn assert_no_reassembly(&self) -> TestResult {
+        if self.last_reassembled.is_some() {
+            return Err("unexpected reassembled message present".into());
+        }
+        Ok(())
     }
 
     /// Helper for asserting on the latest captured reassembly error.
-    ///
-    /// # Panics
-    /// Panics if no reassembly error was captured or if the predicate returns false.
-    fn assert_reassembly_error_matches<F>(&self, predicate: F, expected_description: &str)
+    fn assert_reassembly_error_matches<F>(
+        &self,
+        predicate: F,
+        expected_description: &str,
+    ) -> TestResult
     where
         F: FnOnce(&ReassemblyError) -> bool,
     {
         let err = self
             .last_reassembly_error
             .as_ref()
-            .expect("no reassembly error captured");
-        assert!(predicate(err), "expected {expected_description}, got {err}");
+            .ok_or("no reassembly error captured")?;
+        if !predicate(err) {
+            return Err(format!("expected {expected_description}, got {err}").into());
+        }
+        Ok(())
     }
 
     /// Assert the latest reassembly error signalled an over-limit message.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no reassembly error was captured.
-    pub fn assert_reassembly_over_limit(&self) {
+    pub fn assert_reassembly_over_limit(&self) -> TestResult {
         self.assert_reassembly_error_matches(
             |err| matches!(err, ReassemblyError::MessageTooLarge { .. }),
             "message-too-large error",
-        );
+        )
     }
 
     /// Assert that the latest reassembly error was triggered by an out-of-order fragment.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no reassembly error was captured or if the error was not an index mismatch.
-    pub fn assert_reassembly_out_of_order(&self) {
+    pub fn assert_reassembly_out_of_order(&self) -> TestResult {
         self.assert_reassembly_error_matches(
             |err| {
                 matches!(
@@ -136,34 +120,26 @@ impl FragmentWorld {
                 )
             },
             "out-of-order error",
-        );
+        )
     }
 
     /// Assert the number of buffered partial messages.
-    ///
-    /// # Panics
-    /// Panics if the reassembler has not been configured.
-    pub fn assert_buffered_messages(&self, expected: usize) {
+    pub fn assert_buffered_messages(&self, expected: usize) -> TestResult {
         let reassembler = self
             .reassembler
             .as_ref()
-            .expect("reassembler not configured");
-        assert_eq!(
-            reassembler.buffered_len(),
-            expected,
-            "unexpected buffered message count"
-        );
+            .ok_or("reassembler not configured")?;
+        if reassembler.buffered_len() != expected {
+            return Err("unexpected buffered message count".into());
+        }
+        Ok(())
     }
 
     /// Assert that the most recent purge evicted a specific message identifier.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the purge record does not contain `message_id`.
-    pub fn assert_evicted_message(&self, message_id: u64) {
-        assert!(
-            self.last_evicted.contains(&MessageId::new(message_id)),
-            "message {message_id} was not evicted"
-        );
+    pub fn assert_evicted_message(&self, message_id: u64) -> TestResult {
+        if !self.last_evicted.contains(&MessageId::new(message_id)) {
+            return Err(format!("message {message_id} was not evicted").into());
+        }
+        Ok(())
     }
 }
