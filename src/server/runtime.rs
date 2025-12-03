@@ -521,12 +521,11 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[rstest]
-    #[tokio::test(start_paused = true)]
-    async fn test_accept_loop_exponential_backoff_async(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
-        let calls = Arc::new(Mutex::new(Vec::new()));
+    /// Creates a mock listener that fails with exponential backoff tracking.
+    fn setup_backoff_mock_listener(
+        calls: Arc<Mutex<Vec<Instant>>>,
+        num_calls: usize,
+    ) -> MockAcceptListener {
         let mut listener = MockAcceptListener::new();
         let call_log = calls.clone();
         listener
@@ -538,12 +537,36 @@ mod tests {
                     Err(io::Error::other("mock error"))
                 })
             })
-            .times(4);
+            .times(num_calls);
         listener
             .expect_local_addr()
             .returning(|| Ok("127.0.0.1:0".parse().expect("addr parse")))
-            .times(4);
-        let listener = Arc::new(listener);
+            .times(num_calls);
+        listener
+    }
+
+    /// Validates that recorded call intervals match expected backoff delays.
+    fn assert_backoff_intervals(calls: &[Instant], expected: &[Duration]) {
+        let intervals: Vec<_> = calls
+            .windows(2)
+            .filter_map(|w| {
+                w.get(1)
+                    .zip(w.first())
+                    .and_then(|(b, a)| b.checked_duration_since(*a))
+            })
+            .collect();
+        for (interval, expected) in intervals.into_iter().zip(expected.iter()) {
+            assert_eq!(interval, *expected);
+        }
+    }
+
+    #[rstest]
+    #[tokio::test(start_paused = true)]
+    async fn test_accept_loop_exponential_backoff_async(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let listener = Arc::new(setup_backoff_mock_listener(calls.clone(), 4));
         let token = CancellationToken::new();
         let tracker = TaskTracker::new();
         let backoff = BackoffConfig {
@@ -591,21 +614,11 @@ mod tests {
             .copied()
             .unwrap_or_else(|| panic!("at least one call logged"));
         assert_eq!(first, first_call);
-        let intervals: Vec<_> = calls
-            .windows(2)
-            .filter_map(|w| {
-                w.get(1)
-                    .zip(w.first())
-                    .and_then(|(b, a)| b.checked_duration_since(*a))
-            })
-            .collect();
         let expected = [
             Duration::from_millis(5),
             Duration::from_millis(10),
             Duration::from_millis(20),
         ];
-        for (interval, expected) in intervals.into_iter().zip(expected) {
-            assert_eq!(interval, expected);
-        }
+        assert_backoff_intervals(&calls, &expected);
     }
 }
