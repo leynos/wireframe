@@ -239,10 +239,18 @@ async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
 
     let (prio1, frame1) = recv_expect!(queues.recv());
     let (prio2, frame2) = recv_expect!(queues.recv());
-    assert_eq!(prio1, PushPriority::High);
-    assert_eq!(frame1, 1);
-    assert_eq!(prio2, PushPriority::Low);
-    assert_eq!(frame2, 2);
+    if prio1 != PushPriority::High {
+        return Err("expected high priority frame first".into());
+    }
+    if frame1 != 1 {
+        return Err("unexpected first frame value".into());
+    }
+    if prio2 != PushPriority::Low {
+        return Err("expected low priority frame second".into());
+    }
+    if frame2 != 2 {
+        return Err("unexpected second frame value".into());
+    }
     Ok(())
 }
 
