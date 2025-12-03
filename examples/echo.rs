@@ -13,7 +13,7 @@ type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 use std::{net::SocketAddr, pin::Pin};
 
-use tracing::info;
+use tracing::{error, info};
 
 fn echo_handler() -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
     Box::pin(async {
@@ -34,7 +34,7 @@ async fn main() -> Result<(), ServerError> {
         move || match App::default().route(1, handler.clone()) {
             Ok(app) => app,
             Err(err) => {
-                eprintln!("failed to build echo app: {err}");
+                error!("failed to build echo app: {err}");
                 std::process::exit(1);
             }
         }
