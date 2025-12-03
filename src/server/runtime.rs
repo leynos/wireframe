@@ -567,7 +567,10 @@ mod tests {
         let first_call = {
             let calls = calls.lock().expect("lock");
             assert_eq!(calls.len(), 1);
-            calls[0]
+            calls
+                .first()
+                .copied()
+                .unwrap_or_else(|| panic!("call record missing"))
         };
 
         for ms in [5, 10, 20] {
@@ -583,8 +586,19 @@ mod tests {
 
         let calls = calls.lock().expect("lock");
         assert_eq!(calls.len(), 4);
-        assert_eq!(calls[0], first_call);
-        let intervals: Vec<_> = calls.windows(2).map(|w| w[1] - w[0]).collect();
+        let first = calls
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("at least one call logged"));
+        assert_eq!(first, first_call);
+        let intervals: Vec<_> = calls
+            .windows(2)
+            .filter_map(|w| {
+                w.get(1)
+                    .zip(w.first())
+                    .and_then(|(b, a)| b.checked_duration_since(*a))
+            })
+            .collect();
         let expected = [
             Duration::from_millis(5),
             Duration::from_millis(10),
