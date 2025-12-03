@@ -72,10 +72,9 @@ async fn disables_throttling_allows_burst_pushes() -> TestResult<()> {
         push_expect!(handle.push_low_priority(i));
     }
     let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
-    assert!(
-        res.is_ok(),
-        "push should not block when throttling disabled"
-    );
+    if res.is_err() {
+        return Err("push should not block when throttling disabled".into());
+    }
     Ok(())
 }
 
@@ -114,10 +113,12 @@ async fn frames_routed_to_correct_priority_queues() -> TestResult<()> {
     let (prio1, frame1) = recv_expect!(queues.recv());
     let (prio2, frame2) = recv_expect!(queues.recv());
 
-    assert_eq!(prio1, PushPriority::High);
-    assert_eq!(frame1, 2);
-    assert_eq!(prio2, PushPriority::Low);
-    assert_eq!(frame2, 1);
+    if prio1 != PushPriority::High || frame1 != 2 {
+        return Err("unexpected first frame ordering".into());
+    }
+    if prio2 != PushPriority::Low || frame2 != 1 {
+        return Err("unexpected second frame ordering".into());
+    }
     Ok(())
 }
 
@@ -131,13 +132,17 @@ async fn try_push_respects_policy() -> TestResult<()> {
 
     push_expect!(handle.push_high_priority(1u8));
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
-    assert!(matches!(result, Err(PushError::QueueFull)));
+    if !matches!(result, Err(PushError::QueueFull)) {
+        return Err("expected queue full error".into());
+    }
 
     // drain queue to allow new push
     let _ = queues.recv().await;
     push_expect!(handle.push_high_priority(3u8));
     let (_, last) = recv_expect!(queues.recv());
-    assert_eq!(last, 3);
+    if last != 3 {
+        return Err("unexpected drained frame".into());
+    }
     Ok(())
 }
 
@@ -147,10 +152,14 @@ async fn push_queues_error_on_closed() -> TestResult<()> {
     let (mut queues, handle) = small_queues()?;
     queues.close();
     let res = handle.push_high_priority(42u8).await;
-    assert!(matches!(res, Err(PushError::Closed)));
+    if !matches!(res, Err(PushError::Closed)) {
+        return Err("expected closed error on high priority push".into());
+    }
 
     let res = handle.push_low_priority(24u8).await;
-    assert!(matches!(res, Err(PushError::Closed)));
+    if !matches!(res, Err(PushError::Closed)) {
+        return Err("expected closed error on low priority push".into());
+    }
     Ok(())
 }
 
@@ -175,10 +184,9 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
         PushPriority::Low => handle.push_low_priority(2u8).boxed(),
     };
     tokio::task::yield_now().await; // register w/ scheduler
-    assert!(
-        fut.as_mut().now_or_never().is_none(),
-        "second push should be pending under rate limit"
-    );
+    if fut.as_mut().now_or_never().is_some() {
+        return Err("second push should be pending under rate limit".into());
+    }
 
     time::advance(Duration::from_secs(1)).await;
     match priority {
@@ -188,7 +196,9 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
 
     let (_, first) = recv_expect!(queues.recv());
     let (_, second) = recv_expect!(queues.recv());
-    assert_eq!((first, second), (1, 3));
+    if (first, second) != (1, 3) {
+        return Err("unexpected drained frames under rate limit".into());
+    }
     Ok(())
 }
 
@@ -203,7 +213,9 @@ async fn rate_limiter_allows_after_wait() -> TestResult<()> {
 
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
-    assert_eq!((a, b), (1, 2));
+    if (a, b) != (1, 2) {
+        return Err("unexpected frame ordering after wait".into());
+    }
     Ok(())
 }
 
@@ -218,20 +230,18 @@ async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
 
     let mut fut = handle.push_low_priority(2u8).boxed();
     tokio::task::yield_now().await;
-    assert!(
-        fut.as_mut().now_or_never().is_none(),
-        "second push should be pending across queues"
-    );
+    if fut.as_mut().now_or_never().is_some() {
+        return Err("second push should be pending across queues".into());
+    }
 
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_low_priority(2u8));
 
     let (prio1, frame1) = recv_expect!(queues.recv());
     let (prio2, frame2) = recv_expect!(queues.recv());
-    assert_eq!(prio1, PushPriority::High);
-    assert_eq!(frame1, 1);
-    assert_eq!(prio2, PushPriority::Low);
-    assert_eq!(frame2, 2);
+    if prio1 != PushPriority::High || frame1 != 1 || prio2 != PushPriority::Low || frame2 != 2 {
+        return Err("unexpected frame ordering across priorities".into());
+    }
     Ok(())
 }
 
@@ -242,11 +252,15 @@ async fn unlimited_queues_do_not_block() -> TestResult<()> {
     let (mut queues, handle) = support::builder::<u8>().unlimited().build()?;
     push_expect!(handle.push_high_priority(1u8));
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
-    assert!(res.is_ok(), "pushes should not block when unlimited");
+    if res.is_err() {
+        return Err("pushes should not block when unlimited".into());
+    }
 
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
-    assert_eq!((a, b), (1, 2));
+    if (a, b) != (1, 2) {
+        return Err("unexpected ordering for unlimited queues".into());
+    }
     Ok(())
 }
 
@@ -267,17 +281,18 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestRe
 
     let mut fut = handle.push_high_priority(99).boxed();
     tokio::task::yield_now().await;
-    assert!(
-        fut.as_mut().now_or_never().is_none(),
-        "push exceeding burst capacity should be pending"
-    );
+    if fut.as_mut().now_or_never().is_some() {
+        return Err("push exceeding burst capacity should be pending".into());
+    }
 
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_high_priority(100));
 
     for expected in [0u8, 1u8, 2u8, 100u8] {
         let (_, frame) = recv_expect!(queues.recv());
-        assert_eq!(frame, expected);
+        if frame != expected {
+            return Err("frames drained in unexpected order".into());
+        }
     }
     Ok(())
 }
