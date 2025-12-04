@@ -199,7 +199,6 @@ impl<F: FrameLike> PushQueues<F> {
     /// Returns [`PushConfigError::InvalidCapacity`] if either queue capacity is
     /// zero or [`PushConfigError::InvalidRate`] if the default rate is invalid.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
-    #[must_use]
     pub fn bounded(
         high_capacity: usize,
         low_capacity: usize,
@@ -214,7 +213,6 @@ impl<F: FrameLike> PushQueues<F> {
     /// Returns [`PushConfigError::InvalidCapacity`] if either queue capacity is
     /// zero.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
-    #[must_use]
     pub fn bounded_no_rate_limit(
         high_capacity: usize,
         low_capacity: usize,

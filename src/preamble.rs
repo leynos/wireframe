@@ -33,9 +33,9 @@ where
     while read < additional {
         let range_start = start + read;
         let range_end = start + additional;
-        // SAFETY: `resize` above ensures this range stays in-bounds whilst
-        // `read < additional`.
-        let chunk = &mut buf[range_start..range_end];
+        let chunk = buf
+            .get_mut(range_start..range_end)
+            .ok_or_else(|| DecodeError::Other("preamble buffer range invalid"))?;
         match reader.read(chunk).await {
             Ok(0) => {
                 return Err(DecodeError::Io {
