@@ -3,18 +3,10 @@
 //! Provides fixtures for a basic [`WireframeApp`] factory and a helper to
 //! create a TCP listener bound to an unused local port. These helpers reduce
 //! duplication across test modules.
-#![allow(
-    unfulfilled_lint_expectations,
-    reason = "Test helper struct compiled conditionally for fixtures"
-)]
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 
 /// Create a TCP listener bound to a free local port.
-#[expect(
-    dead_code,
-    reason = "re-exported for integration tests that bind to random ports"
-)]
 #[expect(
     clippy::expect_used,
     reason = "binding to an ephemeral localhost port must abort the test immediately"
@@ -34,4 +26,10 @@ pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>
 pub fn factory() -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
     fn build() -> TestApp { TestApp::default() }
     build
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unused_listener_is_callable() { let _ = super::unused_listener(); }
 }
