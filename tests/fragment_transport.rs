@@ -185,47 +185,79 @@ fn spawn_app(
     (client, server)
 }
 
-#[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
-async fn fragmented_request_and_response_round_trip() -> TestResult {
-    let buffer_capacity = 512;
+fn build_envelopes(
+    request: Envelope,
+    config: &FragmentationConfig,
+    should_fragment: bool,
+) -> TestResult<Vec<Envelope>> {
+    if should_fragment {
+        let fragmenter = Fragmenter::new(config.fragment_payload_cap);
+        fragment_envelope(&request, &fragmenter)
+    } else {
+        Ok(vec![request])
+    }
+}
+
+async fn assert_handler_observed(
+    rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
+    expected: &[u8],
+) -> TestResult<()> {
+    let observed = timeout(Duration::from_secs(1), rx.recv())
+        .await?
+        .ok_or(TestError::Setup("handler payload missing"))?;
+    assert_eq!(
+        observed, expected,
+        "observed payload mismatch: expected {expected:?}, got {observed:?}"
+    );
+    Ok(())
+}
+
+async fn read_response_payload(
+    client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
+    config: &FragmentationConfig,
+) -> TestResult<Vec<u8>> {
+    let response = timeout(
+        Duration::from_secs(1),
+        read_reassembled_response(client, config),
+    )
+    .await??;
+    Ok(response)
+}
+
+/// Common helper for round-trip fragmentation tests.
+/// Returns the response payload for additional test-specific assertions.
+async fn run_round_trip_test(
+    buffer_capacity: usize,
+    payload: Vec<u8>,
+    should_fragment: bool,
+) -> TestResult<Vec<u8>> {
     let config = fragmentation_config(buffer_capacity)?;
     let (tx, mut rx) = mpsc::unbounded_channel();
     let app = make_app(buffer_capacity, config, &tx)?;
     let (mut client, server) = spawn_app(app);
 
-    let payload = vec![b'Z'; 1_200];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
-    let fragmenter = Fragmenter::new(config.fragment_payload_cap);
-    let fragments = fragment_envelope(&request, &fragmenter)?;
 
-    send_envelopes(&mut client, &fragments).await?;
+    let envelopes = build_envelopes(request, &config, should_fragment)?;
+
+    send_envelopes(&mut client, &envelopes).await?;
     client.flush().await?;
 
-    let observed = timeout(Duration::from_secs(1), rx.recv())
-        .await?
-        .ok_or(TestError::Setup("handler payload missing"))?;
-    assert_eq!(
-        observed, payload,
-        "observed payload mismatch: expected {payload:?}, got {observed:?}"
-    );
-
+    assert_handler_observed(&mut rx, &payload).await?;
     client.get_mut().shutdown().await?;
-    let response = timeout(
-        Duration::from_secs(1),
-        read_reassembled_response(&mut client, &config),
-    )
-    .await??;
-    assert_eq!(
-        response, payload,
-        "response payload mismatch: expected {payload:?}, got {response:?}"
-    );
+    let response = read_response_payload(&mut client, &config).await?;
+    assert_eq!(response, payload);
 
     server.await?;
 
+    Ok(response)
+}
+
+#[tokio::test]
+async fn fragmented_request_and_response_round_trip() -> TestResult {
+    let buffer_capacity = 512;
+    let payload = vec![b'Z'; 1_200];
+    run_round_trip_test(buffer_capacity, payload, true).await?;
     Ok(())
 }
 
@@ -237,42 +269,15 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
 async fn unfragmented_request_and_response_round_trip() -> TestResult {
     let buffer_capacity = 512;
     let config = fragmentation_config(buffer_capacity)?;
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = make_app(buffer_capacity, config, &tx)?;
-    let (mut client, server) = spawn_app(app);
-
     let cap = config.fragment_payload_cap.get();
     let payload_len = cap.saturating_sub(8).max(1);
     let payload = vec![b's'; payload_len];
-    let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
 
-    send_envelopes(&mut client, &[request]).await?;
-    client.flush().await?;
-
-    let observed = timeout(Duration::from_secs(1), rx.recv())
-        .await?
-        .ok_or(TestError::Setup("handler payload missing"))?;
-    assert_eq!(
-        observed, payload,
-        "observed payload mismatch: expected {payload:?}, got {observed:?}"
-    );
-
-    client.get_mut().shutdown().await?;
-    let response = timeout(
-        Duration::from_secs(1),
-        read_reassembled_response(&mut client, &config),
-    )
-    .await??;
-    assert_eq!(
-        response, payload,
-        "response payload mismatch: expected {payload:?}, got {response:?}"
-    );
+    let response = run_round_trip_test(buffer_capacity, payload, false).await?;
     assert!(
         decode_fragment_payload(&response)?.is_none(),
         "small payload should pass through unfragmented"
     );
-
-    server.await?;
 
     Ok(())
 }
