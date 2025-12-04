@@ -8,19 +8,17 @@ use wireframe::{
 };
 
 mod common;
+mod support;
 use common::TestResult;
 
 #[fixture]
 fn registry() -> SessionRegistry<u8> {
-    // Fixtures use the default registry to minimise setup noise.
+    // Fixtures use the default registry to minimize setup noise.
     SessionRegistry::default()
 }
 
 fn push_setup() -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {
-    PushQueues::<u8>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
+    support::builder().build()
 }
 
 /// Test that handles can be retrieved whilst the connection remains alive.

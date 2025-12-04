@@ -28,7 +28,10 @@ fn queues() -> TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)> {
 }
 
 #[fixture]
-fn shutdown_token() -> CancellationToken { return CancellationToken::new(); }
+fn shutdown_token() -> CancellationToken {
+    // Provide a fresh cancellation token for each rstest.
+    CancellationToken::new()
+}
 
 #[rstest]
 #[tokio::test]
@@ -187,9 +190,10 @@ async fn processes_all_priorities_in_order(
         .run(&mut out)
         .await
         .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
-    if out != expected {
-        return Err("unexpected frame ordering with fairness disabled".into());
-    }
+    assert_eq!(
+        out, expected,
+        "unexpected frame ordering with fairness disabled"
+    );
     Ok(())
 }
 
