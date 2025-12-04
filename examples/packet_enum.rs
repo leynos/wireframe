@@ -6,7 +6,7 @@
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, signal};
 use tracing::{info, warn};
 use wireframe::{
     app::Envelope,
@@ -85,6 +85,10 @@ fn build_app() -> wireframe::app::Result<App> {
 }
 
 #[tokio::main]
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "tokio::select! macro expansion performs modulo internally"
+)]
 async fn main() -> std::io::Result<()> {
     let app = Arc::new(build_app().map_err(std::io::Error::other)?);
 
@@ -95,10 +99,20 @@ async fn main() -> std::io::Result<()> {
 
     let listener = TcpListener::bind(addr).await?;
     loop {
-        let (stream, _) = listener.accept().await?;
-        let app = Arc::clone(&app);
-        tokio::spawn(async move {
-            app.handle_connection(stream).await;
-        });
+        tokio::select! {
+            res = listener.accept() => {
+                let (stream, _) = res?;
+                let app = Arc::clone(&app);
+                tokio::spawn(async move {
+                    app.handle_connection(stream).await;
+                });
+            }
+            _ = signal::ctrl_c() => {
+                info!("packet_enum server received shutdown signal");
+                break;
+            }
+        }
     }
+
+    Ok(())
 }
