@@ -226,8 +226,9 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> Tes
 
     let out = drive_with_frames(app, vec![framed.to_vec()]).await?;
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
-    let first = frames.first().ok_or("response frames missing")?;
+    let [first] = frames.as_slice() else {
+        return Err("expected a single response frame".into());
+    };
     let (resp, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
 
     assert_eq!(resp.correlation_id, cid, "correlation id mismatch");

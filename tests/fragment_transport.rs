@@ -66,8 +66,8 @@ const ROUTE_ID: u32 = 42;
 const CORRELATION: Option<u64> = Some(7);
 
 fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
-    let message_limit =
-        NonZeroUsize::new(capacity * 16).ok_or(TestError::Setup("non-zero message limit"))?;
+    let message_limit = NonZeroUsize::new(capacity.saturating_mul(16))
+        .ok_or(TestError::Setup("non-zero message limit"))?;
 
     let config =
         FragmentationConfig::for_frame_budget(capacity, message_limit, Duration::from_millis(30))
@@ -153,7 +153,10 @@ fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope> {
         let tx = tx.clone();
         let payload = env.clone().into_parts().payload();
         Box::pin(async move {
-            let _ = tx.send(payload);
+            assert!(
+                tx.send(payload).is_ok(),
+                "handler channel send must succeed in tests"
+            );
         })
     })
 }

@@ -77,9 +77,10 @@ async fn disables_throttling_allows_burst_pushes() -> TestResult<()> {
         push_expect!(handle.push_low_priority(i));
     }
     let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
+    let push_res = res.expect("push should not block when throttling disabled");
     assert!(
-        res.is_ok(),
-        "push should not block when throttling disabled"
+        push_res.is_ok(),
+        "push should not error when throttling disabled"
     );
     Ok(())
 }
