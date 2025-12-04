@@ -218,10 +218,7 @@ async fn rate_limiter_allows_after_wait() -> TestResult<()> {
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
     if (a, b) != (1, 2) {
-        return Err(format!(
-            "unexpected frame ordering after wait: expected (1, 2), got ({a}, {b})"
-        )
-        .into());
+        return Err(format!("unexpected frame ordering after wait: ({a}, {b})").into());
     }
     Ok(())
 }
@@ -305,7 +302,7 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestRe
         let (_, frame) = recv_expect!(queues.recv());
         if frame != expected {
             return Err(format!(
-                "frames drained in unexpected order: got {frame}, expected {expected}"
+                "frames drained in unexpected order: expected {expected}, got {frame}"
             )
             .into());
         }
