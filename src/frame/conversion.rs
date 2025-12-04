@@ -82,7 +82,14 @@ fn convert_len_to_value(len: usize, size: usize) -> io::Result<u64> {
         1 => u64::from(checked_prefix_cast::<u8>(len)?),
         2 => u64::from(checked_prefix_cast::<u16>(len)?),
         4 => u64::from(checked_prefix_cast::<u32>(len)?),
-        _ => checked_prefix_cast(len)?,
+        8 => checked_prefix_cast(len)?,
+        _ => {
+            debug_assert!(false, "size should be validated upstream");
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                ERR_UNSUPPORTED_PREFIX,
+            ));
+        }
     };
     Ok(value)
 }
@@ -129,9 +136,13 @@ pub fn u64_to_bytes(
 
     let value = convert_len_to_value(len, size)?;
 
-    let prefix = out
-        .get_mut(..size)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?;
+    let Some(prefix) = out.get_mut(..size) else {
+        debug_assert!(false, "validated size should fit into prefix buffer");
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            ERR_UNSUPPORTED_PREFIX,
+        ));
+    };
 
     write_bytes_with_endianness(value, endianness, prefix);
 
