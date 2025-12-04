@@ -115,12 +115,6 @@ pub fn decode_fragment_payload(
         });
     };
 
-    if payload.len() < header_end {
-        return Err(DecodeError::UnexpectedEnd {
-            additional: header_end - payload.len(),
-        });
-    }
-
     let (header, consumed) =
         borrow_decode_from_slice::<FragmentHeader, _>(header_bytes, config::standard())?;
     if consumed != header_len {
