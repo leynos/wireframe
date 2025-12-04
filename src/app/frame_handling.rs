@@ -52,9 +52,9 @@ where
     S: Serializer + Send + Sync,
     W: AsyncRead + AsyncWrite + Unpin,
 {
-    pub serializer: &'a S,
-    pub framed: &'a mut Framed<W, LengthDelimitedCodec>,
-    pub fragmentation: &'a mut Option<FragmentationState>,
+    pub(crate) serializer: &'a S,
+    pub(crate) framed: &'a mut Framed<W, LengthDelimitedCodec>,
+    pub(crate) fragmentation: &'a mut Option<FragmentationState>,
 }
 
 /// Attempt to reassemble a potentially fragmented envelope.
