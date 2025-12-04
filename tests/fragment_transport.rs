@@ -78,6 +78,15 @@ fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
     Ok(config)
 }
 
+fn fragmentation_config_with_timeout(
+    capacity: usize,
+    timeout_ms: u64,
+) -> TestResult<FragmentationConfig> {
+    let mut config = fragmentation_config(capacity)?;
+    config.reassembly_timeout = Duration::from_millis(timeout_ms);
+    Ok(config)
+}
+
 fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<Envelope>> {
     let parts = env.clone().into_parts();
     let id = parts.id();
@@ -391,16 +400,7 @@ async fn fragment_rejection_cases(
 async fn expired_fragments_are_evicted() -> TestResult {
     let buffer_capacity = 512;
     let timeout_ms = 10;
-    let message_limit = NonZeroUsize::new(buffer_capacity * 2)
-        .ok_or(TestError::FragmentConfig("non-zero message limit"))?;
-    let config = FragmentationConfig::for_frame_budget(
-        buffer_capacity,
-        message_limit,
-        Duration::from_millis(timeout_ms),
-    )
-    .ok_or(TestError::FragmentConfig(
-        "frame budget must exceed fragment overhead",
-    ))?;
+    let config = fragmentation_config_with_timeout(buffer_capacity, timeout_ms)?;
     let (tx, mut rx) = mpsc::unbounded_channel();
     let app = make_app(buffer_capacity, config, &tx)?;
     let codec = app.length_codec();

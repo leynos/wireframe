@@ -94,7 +94,9 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
 
     let frames = decode_frames(out);
     assert_eq!(frames.len(), 1, "expected a single response frame");
-    let first = frames.first().ok_or("response frames missing")?;
+    let [first] = frames.as_slice() else {
+        return Err("expected a single response frame".into());
+    };
     let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
     assert_eq!(resp_env.correlation_id, Some(99), "correlation id mismatch");
     let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
