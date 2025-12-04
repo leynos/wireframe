@@ -198,7 +198,11 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
     let (_, first) = recv_expect!(queues.recv());
     let (_, second) = recv_expect!(queues.recv());
     if (first, second) != (1, 3) {
-        return Err("unexpected drained frames under rate limit".into());
+        return Err(format!(
+            "unexpected drained frames under rate limit: {:?}",
+            (first, second)
+        )
+        .into());
     }
     Ok(())
 }
@@ -215,7 +219,7 @@ async fn rate_limiter_allows_after_wait() -> TestResult<()> {
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
     if (a, b) != (1, 2) {
-        return Err("unexpected frame ordering after wait".into());
+        return Err(format!("unexpected frame ordering after wait: {:?}", (a, b)).into());
     }
     Ok(())
 }
@@ -240,17 +244,14 @@ async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
 
     let (prio1, frame1) = recv_expect!(queues.recv());
     let (prio2, frame2) = recv_expect!(queues.recv());
-    if prio1 != PushPriority::High {
-        return Err("expected high priority frame first".into());
+    if prio1 != PushPriority::High || prio2 != PushPriority::Low {
+        return Err(format!(
+            "unexpected priorities: first={prio1:?}, second={prio2:?} (expected High then Low)"
+        )
+        .into());
     }
-    if frame1 != 1 {
-        return Err("unexpected first frame value".into());
-    }
-    if prio2 != PushPriority::Low {
-        return Err("expected low priority frame second".into());
-    }
-    if frame2 != 2 {
-        return Err("unexpected second frame value".into());
+    if (frame1, frame2) != (1, 2) {
+        return Err(format!("unexpected frame values: {frame1}, {frame2}").into());
     }
     Ok(())
 }
@@ -269,7 +270,7 @@ async fn unlimited_queues_do_not_block() -> TestResult<()> {
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
     if (a, b) != (1, 2) {
-        return Err("unexpected ordering for unlimited queues".into());
+        return Err(format!("unexpected ordering for unlimited queues: {:?}", (a, b)).into());
     }
     Ok(())
 }
@@ -301,7 +302,10 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestRe
     for expected in [0u8, 1u8, 2u8, 100u8] {
         let (_, frame) = recv_expect!(queues.recv());
         if frame != expected {
-            return Err("frames drained in unexpected order".into());
+            return Err(format!(
+                "frames drained in unexpected order: got {frame}, expected {expected}"
+            )
+            .into());
         }
     }
     Ok(())
