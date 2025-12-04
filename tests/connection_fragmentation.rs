@@ -105,7 +105,10 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() ->
         .map_err(|err| io::Error::other(format!("actor run failed: {err:?}")))?;
 
     assert_eq!(out.len(), 1, "expected unfragmented single frame");
-    let only = out.into_iter().next().ok_or("expected frame present")?;
+    let only = out
+        .into_iter()
+        .next()
+        .ok_or("expected single frame but none found")?;
     let payload_out = only.into_parts().payload();
     match decode_fragment_payload(&payload_out)? {
         None => {}
