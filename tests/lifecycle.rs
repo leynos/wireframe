@@ -26,9 +26,11 @@ use wireframe_testing::{
     run_with_duplex_server,
 };
 
+mod common;
+use common::TestResult;
+
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 fn call_counting_callback<R, A>(
     counter: &Arc<AtomicUsize>,
