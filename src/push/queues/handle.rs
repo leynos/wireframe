@@ -204,6 +204,12 @@ impl<F: FrameLike> PushHandle<F> {
         }
     }
 
+    /// Interval between attempts to acquire a rate-limit permit.
+    ///
+    /// Kept short so tests that use `tokio::time::pause/advance` progress
+    /// quickly while remaining negligible relative to the 1s refill window.
+    const PERMIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
     async fn wait_for_permit(&self, limiter: &RateLimiter) {
         loop {
             if limiter.try_acquire(1) {
@@ -212,7 +218,7 @@ impl<F: FrameLike> PushHandle<F> {
             // The limiter is configured with a 1s refill interval; a short
             // sleep yields to the scheduler and advances virtual time in
             // tests (tokio::time::pause/advance).
-            sleep(Duration::from_millis(10)).await;
+            sleep(Self::PERMIT_POLL_INTERVAL).await;
         }
     }
 

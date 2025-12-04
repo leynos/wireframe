@@ -99,15 +99,11 @@ pub fn u64_to_bytes(
         ));
     }
 
-    let value = if size == 1 {
-        u64::from(checked_prefix_cast::<u8>(len)?)
-    } else if size == 2 {
-        u64::from(checked_prefix_cast::<u16>(len)?)
-    } else if size == 4 {
-        u64::from(checked_prefix_cast::<u32>(len)?)
-    } else {
-        // Size validated above as one of 1|2|4|8, so this is 8.
-        checked_prefix_cast(len)?
+    let value = match size {
+        1 => u64::from(checked_prefix_cast::<u8>(len)?),
+        2 => u64::from(checked_prefix_cast::<u16>(len)?),
+        4 => u64::from(checked_prefix_cast::<u32>(len)?),
+        _ => checked_prefix_cast(len)?,
     };
 
     let prefix = out

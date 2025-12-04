@@ -130,12 +130,12 @@ impl<F: FrameLike> PushQueues<F> {
             dlq_log_every_n,
             dlq_log_interval,
         } = config;
-        if let Some(r) = rate
-            && Self::is_invalid_rate(Some(r))
-        {
+        if Self::is_invalid_rate(rate) {
             // Reject unsupported rates early to avoid building queues that cannot
             // be used. The bounds prevent runaway resource consumption.
-            return Err(PushConfigError::InvalidRate(r));
+            return Err(PushConfigError::InvalidRate(
+                rate.expect("validated Some by is_invalid_rate"),
+            ));
         }
         if high_capacity == 0 || low_capacity == 0 {
             return Err(PushConfigError::InvalidCapacity {
@@ -200,10 +200,8 @@ impl<F: FrameLike> PushQueues<F> {
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     #[must_use]
     pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
-        match Self::build_via_builder(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None) {
-            Ok(result) => result,
-            Err(err) => panic!("invalid capacities or rate in deprecated bounded(): {err:?}"),
-        }
+        Self::build_via_builder(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None)
+            .expect("invalid capacities or rate in deprecated bounded()")
     }
 
     /// Create queues with no rate limiting.
