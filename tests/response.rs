@@ -216,24 +216,25 @@ async fn send_response_returns_encode_error() {
 /// Ensures `send_response` permits frames up to the configured buffer capacity,
 /// exceeding the codec's default 8 MiB limit.
 #[tokio::test]
-async fn send_response_honours_buffer_capacity() {
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .buffer_capacity(LARGE_FRAME);
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn send_response_honours_buffer_capacity() -> TestResult {
+    let app = TestApp::new()?.buffer_capacity(LARGE_FRAME);
 
     let payload = vec![0_u8; 9 * 1024 * 1024];
     let large = Large(payload.clone());
     let mut out = Vec::new();
 
-    app.send_response(&mut out, &large)
-        .await
-        .expect("send_response failed");
+    app.send_response(&mut out, &large).await?;
 
     let frames = decode_frames_with_max(out, LARGE_FRAME);
     assert_eq!(frames.len(), 1, "expected a single response frame");
-    let frame = frames.first().expect("response frame missing");
-    let (decoded, _) = Large::from_bytes(frame).expect("deserialize failed");
+    let frame = frames.first().ok_or("response frame missing")?;
+    let (decoded, _) = Large::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
     assert_eq!(decoded.0.len(), payload.len());
+    Ok(())
 }
 
 /// Verifies inbound and outbound codecs respect the application's buffer

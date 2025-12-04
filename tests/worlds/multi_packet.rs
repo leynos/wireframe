@@ -93,14 +93,14 @@ impl MultiPacketWorld {
 
         sender
             .try_send(1)
-            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
         let overflow_error = matches!(sender.try_send(2), Err(TrySendError::Full(2)));
 
         let producer = tokio::spawn(async move {
             sender
                 .send(2)
                 .await
-                .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
             drop(sender);
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         });

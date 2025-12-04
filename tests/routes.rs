@@ -123,8 +123,9 @@ async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
 
     let out = drive_with_bincode(app, env).await?;
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
-    let first = frames.first().ok_or("response frames missing")?;
+    let [first] = frames.as_slice() else {
+        return Err("expected a single response frame".into());
+    };
     let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
 
     assert!(
