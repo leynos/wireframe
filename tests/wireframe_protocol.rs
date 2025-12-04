@@ -77,12 +77,12 @@ async fn builder_produces_protocol_hooks(queues: QueueResult) -> TestResult<()> 
     hooks.before_send(&mut frame, &mut ConnectionContext);
     hooks.on_command_end(&mut ConnectionContext);
 
-    if frame != vec![1, 1] {
-        return Err("before_send did not mutate frame as expected".into());
-    }
-    if counter.load(Ordering::SeqCst) != 2 {
-        return Err("expected two protocol callbacks".into());
-    }
+    assert_eq!(frame, vec![1, 1], "before_send did not mutate frame");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        2,
+        "expected two protocol callbacks"
+    );
     Ok(())
 }
 
@@ -114,11 +114,15 @@ async fn connection_actor_uses_protocol_from_builder(queues: QueueResult) -> Tes
         .await
         .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    if out != vec![vec![1, 1], vec![2, 1]] {
-        return Err("frames not mutated as expected".into());
-    }
-    if counter.load(Ordering::SeqCst) != 2 {
-        return Err("expected two protocol callbacks".into());
-    }
+    assert_eq!(
+        out,
+        vec![vec![1, 1], vec![2, 1]],
+        "frames not mutated as expected"
+    );
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        2,
+        "expected two protocol callbacks"
+    );
     Ok(())
 }
