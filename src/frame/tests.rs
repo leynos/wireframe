@@ -55,7 +55,7 @@ fn u64_to_bytes_ok(
 #[case(vec![0x02, 0x03], 4, Endianness::Little)]
 fn bytes_to_u64_short(#[case] bytes: Vec<u8>, #[case] size: usize, #[case] endianness: Endianness) {
     let err = bytes_to_u64(&bytes, size, endianness)
-        .expect_err("unsupported size must fail with InvalidInput");
+        .expect_err("short input must fail with UnexpectedEof");
     assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
 }
 
@@ -73,7 +73,8 @@ fn bytes_to_u64_unsupported(
     #[case] size: usize,
     #[case] endianness: Endianness,
 ) {
-    let err = bytes_to_u64(&bytes, size, endianness).expect_err("expected conversion to fail");
+    let err = bytes_to_u64(&bytes, size, endianness)
+        .expect_err("unsupported size must fail with InvalidInput");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
