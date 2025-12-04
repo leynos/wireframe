@@ -67,15 +67,13 @@ const CORRELATION: Option<u64> = Some(7);
 
 fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
     let message_limit = NonZeroUsize::new(capacity * 16)
-        .ok_or(TestError::FragmentConfig("non-zero message limit"))
-        .map_err(Into::into)?;
+        .ok_or(TestError::FragmentConfig("non-zero message limit"))?;
 
     let config =
         FragmentationConfig::for_frame_budget(capacity, message_limit, Duration::from_millis(30))
             .ok_or(TestError::FragmentConfig(
-                "frame budget must exceed fragment overhead",
-            ))
-            .map_err(Into::into)?;
+            "frame budget must exceed fragment overhead",
+        ))?;
 
     Ok(config)
 }
@@ -91,8 +89,7 @@ fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<
     }
 
     let envelopes = fragmenter
-        .fragment_bytes(payload)
-        .map_err(Into::into)?
+        .fragment_bytes(payload)?
         .into_iter()
         .map(|fragment| {
             let (header, payload) = fragment.into_parts();
@@ -100,8 +97,7 @@ fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<
                 .map(|encoded| Envelope::new(id, correlation, encoded))
                 .map_err(TestError::from)
         })
-        .collect::<Result<Vec<_>, TestError>>()
-        .map_err(Into::into)?;
+        .collect::<Result<Vec<_>, TestError>>()?;
 
     Ok(envelopes)
 }
@@ -475,7 +471,8 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     if observed != payload {
         return Err(TestError::Assertion(format!(
             "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        )));
+        ))
+        .into());
     }
 
     server.await?;
