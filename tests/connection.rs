@@ -17,7 +17,8 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger};
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HookCounts {
