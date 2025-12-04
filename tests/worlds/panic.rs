@@ -100,9 +100,7 @@ impl PanicWorld {
     /// attempt fails.
     pub async fn connect_once(&mut self) -> TestResult {
         let addr = self.server.as_ref().ok_or("Server not started")?.addr;
-        TcpStream::connect(addr)
-            .await
-            .map_err(|e| std::io::Error::other(format!("Failed to connect: {e}")))?;
+        TcpStream::connect(addr).await?;
         self.attempts += 1;
         Ok(())
     }

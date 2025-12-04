@@ -101,6 +101,7 @@ pub struct ConnectionChannels<F> {
 }
 
 impl<F> ConnectionChannels<F> {
+    /// Create a new bundle of push queues and their associated handle.
     #[must_use]
     pub fn new(queues: PushQueues<F>, handle: PushHandle<F>) -> Self { Self { queues, handle } }
 }

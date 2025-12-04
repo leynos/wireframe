@@ -244,8 +244,9 @@ impl FragmentWorld {
     /// # Errors
     /// Returns an error if no batch exists or the fragment count mismatches.
     pub fn assert_fragment_count(&self, expected: usize) -> TestResult {
-        if self.batch()?.len() != expected {
-            return Err("unexpected fragment count".into());
+        let actual = self.batch()?.len();
+        if actual != expected {
+            return Err(format!("expected {expected} fragments, got {actual}").into());
         }
         Ok(())
     }
@@ -257,8 +258,12 @@ impl FragmentWorld {
     /// Returns an error if the batch is missing or the payload length differs.
     pub fn assert_fragment_payload_len(&self, index: usize, expected: usize) -> TestResult {
         let fragment = self.get_fragment_at(index)?;
-        if fragment.payload().len() != expected {
-            return Err("payload length mismatch".into());
+        let actual = fragment.payload().len();
+        if actual != expected {
+            return Err(format!(
+                "fragment {index} payload length mismatch: expected {expected}, got {actual}"
+            )
+            .into());
         }
         Ok(())
     }
@@ -269,8 +274,12 @@ impl FragmentWorld {
     /// Returns an error if the batch is missing or the final flag mismatches.
     pub fn assert_fragment_final_flag(&self, index: usize, expected_final: bool) -> TestResult {
         let fragment = self.get_fragment_at(index)?;
-        if fragment.header().is_last_fragment() != expected_final {
-            return Err(format!("fragment {index} final flag mismatch").into());
+        let actual = fragment.header().is_last_fragment();
+        if actual != expected_final {
+            return Err(format!(
+                "fragment {index} final flag mismatch: expected {expected_final}, got {actual}"
+            )
+            .into());
         }
         Ok(())
     }
@@ -282,8 +291,13 @@ impl FragmentWorld {
     /// Returns an error if the batch is missing or the message id differs from
     /// the expectation.
     pub fn assert_message_id(&self, expected: u64) -> TestResult {
-        if self.batch()?.message_id() != MessageId::new(expected) {
-            return Err("unexpected message identifier".into());
+        let actual = self.batch()?.message_id();
+        let expected_id = MessageId::new(expected);
+        if actual != expected_id {
+            return Err(format!(
+                "unexpected message identifier: expected {expected_id:?}, got {actual:?}"
+            )
+            .into());
         }
         Ok(())
     }

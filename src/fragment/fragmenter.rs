@@ -20,7 +20,7 @@ pub struct Fragmenter {
     next_message_id: AtomicU64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct FragmentCursor {
     offset: usize,
     index: FragmentIndex,
@@ -157,14 +157,6 @@ impl Fragmenter {
             let chunk = if let Some(slice) = payload.get(cursor.offset..end) {
                 slice.to_vec()
             } else {
-                debug_assert!(
-                    payload.get(cursor.offset..end).is_some(),
-                    "fragment slice calculation exceeded payload bounds: offset={}, end={}, \
-                     total={}",
-                    cursor.offset,
-                    end,
-                    total
-                );
                 return Err(FragmentationError::SliceBounds {
                     offset: cursor.offset,
                     end,

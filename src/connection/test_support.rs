@@ -69,14 +69,6 @@ pub struct ActorHarness {
     pub out: Vec<u8>,
 }
 
-impl Default for ActorHarness {
-    #[expect(
-        clippy::expect_used,
-        reason = "harness construction failure should abort the test immediately"
-    )]
-    fn default() -> Self { Self::new().expect("failed to build ActorHarness") }
-}
-
 impl ActorHarness {
     /// Create a harness with custom hooks and state flags.
     ///

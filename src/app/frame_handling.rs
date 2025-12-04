@@ -33,7 +33,7 @@ impl<'a> DeserFailureTracker<'a> {
         correlation_id: Option<u64>,
         context: &str,
         err: impl std::fmt::Debug,
-    ) -> io::Result<Option<Envelope>> {
+    ) -> io::Result<()> {
         *self.count += 1;
         warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
         crate::metrics::inc_deser_errors();
@@ -43,7 +43,7 @@ impl<'a> DeserFailureTracker<'a> {
                 "too many deserialization failures",
             ));
         }
-        Ok(None)
+        Ok(())
     }
 }
 
@@ -72,10 +72,12 @@ pub(crate) fn reassemble_if_needed(
             Ok(Some(env)) => Ok(Some(env)),
             Ok(None) => Ok(None),
             Err(FragmentProcessError::Decode(err)) => {
-                failures.record(correlation_id, "failed to decode fragment header", err)
+                failures.record(correlation_id, "failed to decode fragment header", err)?;
+                Ok(None)
             }
             Err(FragmentProcessError::Reassembly(err)) => {
-                failures.record(correlation_id, "fragment reassembly failed", err)
+                failures.record(correlation_id, "fragment reassembly failed", err)?;
+                Ok(None)
             }
         }
     } else {

@@ -53,6 +53,10 @@ struct Large(Vec<u8>);
 /// Tests that sending a response serializes and frames the data correctly,
 /// and that the response can be decoded and deserialized back to its original value asynchronously.
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn send_response_encodes_and_frames() -> TestResult {
     let app = TestApp::new().expect("failed to create app");
 
@@ -62,15 +66,11 @@ async fn send_response_encodes_and_frames() -> TestResult {
         .expect("send_response failed");
 
     let frames = decode_frames(out);
-    if frames.len() != 1 {
-        return Err(format!("expected a single response frame, got {}", frames.len()).into());
-    }
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let frame = frames.first().ok_or("expected frame missing")?;
     let (decoded, _) =
         TestResp::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
-    if decoded != TestResp(7) {
-        return Err(format!("decoded payload mismatch: {decoded:?}").into());
-    }
+    assert_eq!(decoded, TestResp(7), "decoded payload mismatch");
     Ok(())
 }
 

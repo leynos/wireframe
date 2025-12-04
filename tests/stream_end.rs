@@ -53,9 +53,7 @@ async fn emits_end_frame(
         .await
         .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    if out != vec![1, 2, 0] {
-        return Err("unexpected output frames".into());
-    }
+    assert_eq!(out, vec![1, 2, 0], "unexpected output frames");
     Ok(())
 }
 
@@ -90,9 +88,7 @@ async fn multi_packet_emits_end_frame(
         .await
         .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    if out != vec![1, 2, 0] {
-        return Err("unexpected output frames".into());
-    }
+    assert_eq!(out, vec![1, 2, 0], "unexpected output frames");
     Ok(())
 }
 
@@ -133,9 +129,7 @@ async fn multi_packet_respects_no_terminator(
         .await
         .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    if out != vec![9] {
-        return Err("unexpected output frames".into());
-    }
+    assert_eq!(out, vec![9], "unexpected output frames");
     Ok(())
 }
 
@@ -164,9 +158,7 @@ async fn multi_packet_empty_channel_emits_end(
         .await
         .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    if out != vec![0] {
-        return Err("unexpected output frames".into());
-    }
+    assert_eq!(out, vec![0], "unexpected output frames");
     Ok(())
 }
 
@@ -204,9 +196,7 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
         .await
         .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    if !out.is_empty() {
-        return Err("expected no frames".into());
-    }
+    assert_eq!(out, Vec::<u8>::new(), "expected no frames");
     Ok(())
 }
 
@@ -246,8 +236,6 @@ async fn emits_no_end_frame_when_none(
         .await
         .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    if out != vec![7, 8] {
-        return Err("unexpected frames".into());
-    }
+    assert_eq!(out, vec![7, 8], "unexpected frames");
     Ok(())
 }

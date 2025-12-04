@@ -55,6 +55,9 @@ impl MultiPacketWorld {
         Ok(())
     }
 
+    /// Send each byte to the channel, stopping silently if the receiver closes
+    /// to simulate a producer completing without error when the consumer is
+    /// gone.
     async fn send_payload(sender: mpsc::Sender<u8>, payload: Vec<u8>) {
         for msg in payload {
             if sender.send(msg).await.is_err() {
@@ -103,6 +106,7 @@ impl MultiPacketWorld {
         });
 
         let frames = Self::collect_frames_from(rx).await?;
+        // Unwrap JoinError from await, then the task's Result
         producer.await??;
 
         self.messages = frames;

@@ -166,8 +166,9 @@ impl FragmentWorld {
             .reassembler
             .as_ref()
             .ok_or("reassembler not configured")?;
-        if reassembler.buffered_len() != expected {
-            return Err("unexpected buffered message count".into());
+        let actual = reassembler.buffered_len();
+        if actual != expected {
+            return Err(format!("expected {expected} buffered messages, got {actual}").into());
         }
         Ok(())
     }
