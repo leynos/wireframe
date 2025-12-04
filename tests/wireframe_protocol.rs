@@ -11,6 +11,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod common;
+use common::TestResult;
 use futures::stream;
 use rstest::{fixture, rstest};
 use tokio_util::sync::CancellationToken;
@@ -24,7 +26,6 @@ use wireframe::{
 };
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 type QueueResult =
     Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>;
 
