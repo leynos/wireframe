@@ -74,6 +74,9 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
 }
 
 /// Convert a length value into a u64 based on the prefix size.
+///
+/// Callers are expected to validate `size` against the supported set
+/// `{1, 2, 4, 8}` before invoking this helper.
 fn convert_len_to_value(len: usize, size: usize) -> io::Result<u64> {
     let value = match size {
         1 => u64::from(checked_prefix_cast::<u8>(len)?),

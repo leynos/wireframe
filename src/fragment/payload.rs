@@ -94,17 +94,17 @@ pub fn decode_fragment_payload(
     }
 
     let header_len_offset = FRAGMENT_MAGIC.len();
-    let len_bytes = match (
-        payload.get(header_len_offset),
-        payload.get(header_len_offset + 1),
-    ) {
-        (Some(a), Some(b)) => [*a, *b],
-        _ => {
-            return Err(DecodeError::UnexpectedEnd {
-                additional: minimum_len - payload.len(),
-            });
-        }
+    let Some(len_hi) = payload.get(header_len_offset) else {
+        return Err(DecodeError::UnexpectedEnd {
+            additional: minimum_len - payload.len(),
+        });
     };
+    let Some(len_lo) = payload.get(header_len_offset + 1) else {
+        return Err(DecodeError::UnexpectedEnd {
+            additional: minimum_len - payload.len(),
+        });
+    };
+    let len_bytes = [*len_hi, *len_lo];
     let header_len = u16::from_be_bytes(len_bytes) as usize;
     let header_start = header_len_offset + std::mem::size_of::<u16>();
     let header_end = header_start + header_len;

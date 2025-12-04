@@ -81,7 +81,7 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 fn build_app() -> wireframe::app::Result<App> {
     App::new()?
         .wrap(DecodeMiddleware)?
-        .route(1, std::sync::Arc::new(handle_packet))
+        .route(1, Arc::new(handle_packet))
 }
 
 #[tokio::main]

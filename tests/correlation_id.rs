@@ -19,6 +19,10 @@ mod common;
 use common::TestResult;
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn stream_frames_carry_request_correlation_id() -> TestResult {
     let cid = 42u64;
     let stream: FrameStream<Envelope> = Box::pin(try_stream! {
@@ -37,9 +41,10 @@ async fn stream_frames_carry_request_correlation_id() -> TestResult {
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    if out.iter().any(|e| e.correlation_id() != Some(cid)) {
-        return Err(io::Error::other("frames lost correlation id").into());
-    }
+    assert!(
+        out.iter().all(|e| e.correlation_id() == Some(cid)),
+        "frames lost correlation id"
+    );
     Ok(())
 }
 
