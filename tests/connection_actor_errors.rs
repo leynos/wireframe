@@ -22,7 +22,8 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger, push_expect};
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 #[expect(
     clippy::allow_attributes,
