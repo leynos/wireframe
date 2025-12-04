@@ -73,6 +73,35 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     Ok(val)
 }
 
+/// Convert a length value into a u64 based on the prefix size.
+fn convert_len_to_value(len: usize, size: usize) -> io::Result<u64> {
+    let value = match size {
+        1 => u64::from(checked_prefix_cast::<u8>(len)?),
+        2 => u64::from(checked_prefix_cast::<u16>(len)?),
+        4 => u64::from(checked_prefix_cast::<u32>(len)?),
+        _ => checked_prefix_cast(len)?,
+    };
+    Ok(value)
+}
+
+/// Write a u64 into `prefix` according to the specified endianness.
+fn write_bytes_with_endianness(value: u64, size: usize, endianness: Endianness, prefix: &mut [u8]) {
+    match endianness {
+        Endianness::Big => {
+            for (i, byte) in prefix.iter_mut().enumerate() {
+                let shift = 8 * (size - 1 - i);
+                *byte = ((value >> shift) & 0xff) as u8;
+            }
+        }
+        Endianness::Little => {
+            for (i, byte) in prefix.iter_mut().enumerate() {
+                let shift = 8 * i;
+                *byte = ((value >> shift) & 0xff) as u8;
+            }
+        }
+    }
+}
+
 /// Encodes an integer directly into `out` according to `size` and `endianness`.
 ///
 /// The function supports prefix sizes of `1`, `2`, `4`, or `8` bytes.
@@ -99,31 +128,13 @@ pub fn u64_to_bytes(
         ));
     }
 
-    let value = match size {
-        1 => u64::from(checked_prefix_cast::<u8>(len)?),
-        2 => u64::from(checked_prefix_cast::<u16>(len)?),
-        4 => u64::from(checked_prefix_cast::<u32>(len)?),
-        _ => checked_prefix_cast(len)?,
-    };
+    let value = convert_len_to_value(len, size)?;
 
     let prefix = out
         .get_mut(..size)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?;
 
-    match endianness {
-        Endianness::Big => {
-            for (i, byte) in prefix.iter_mut().enumerate() {
-                let shift = 8 * (size - 1 - i);
-                *byte = ((value >> shift) & 0xff) as u8;
-            }
-        }
-        Endianness::Little => {
-            for (i, byte) in prefix.iter_mut().enumerate() {
-                let shift = 8 * i;
-                *byte = ((value >> shift) & 0xff) as u8;
-            }
-        }
-    }
+    write_bytes_with_endianness(value, size, endianness, prefix);
 
     if let Some(tail) = out.get_mut(size..) {
         tail.fill(0);
