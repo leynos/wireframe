@@ -93,21 +93,17 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
         .expect("drive_with_bincode failed");
 
     let frames = decode_frames(out);
-    if frames.len() != 1 {
-        return Err("expected a single response frame".into());
-    }
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let first = frames.first().ok_or("response frames missing")?;
     let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
-    if resp_env.correlation_id != Some(99) {
-        return Err("correlation id mismatch".into());
-    }
+    assert_eq!(resp_env.correlation_id, Some(99), "correlation id mismatch");
     let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
-    if echo != Echo(42) {
-        return Err("echo payload mismatch".into());
-    }
-    if called.load(Ordering::SeqCst) != 1 {
-        return Err("route not invoked exactly once".into());
-    }
+    assert_eq!(echo, Echo(42), "echo payload mismatch");
+    assert_eq!(
+        called.load(Ordering::SeqCst),
+        1,
+        "route not invoked exactly once"
+    );
     Ok(())
 }
 

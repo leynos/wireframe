@@ -33,10 +33,6 @@ fn shutdown_token() -> CancellationToken { return CancellationToken::new(); }
 #[rstest]
 #[tokio::test]
 #[serial]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn strict_priority_order(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
@@ -60,10 +56,6 @@ async fn strict_priority_order(
 #[rstest]
 #[tokio::test]
 #[serial]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn fairness_yields_low_after_burst(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
@@ -142,10 +134,6 @@ async fn queue_frames(
 #[rstest]
 #[tokio::test]
 #[serial]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn queue_frames_empty_input(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
 ) -> TestResult {
@@ -208,10 +196,6 @@ async fn processes_all_priorities_in_order(
 #[rstest]
 #[tokio::test]
 #[serial]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn fairness_yields_low_with_time_slice(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,

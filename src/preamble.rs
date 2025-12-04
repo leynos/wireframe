@@ -35,7 +35,7 @@ where
         let range_end = start + additional;
         let chunk = buf
             .get_mut(range_start..range_end)
-            .ok_or_else(|| DecodeError::Other("preamble buffer range invalid"))?;
+            .ok_or(DecodeError::Other("preamble buffer range invalid"))?;
         match reader.read(chunk).await {
             Ok(0) => {
                 return Err(DecodeError::Io {
