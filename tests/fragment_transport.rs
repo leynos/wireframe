@@ -214,7 +214,11 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
     );
 
     client.get_mut().shutdown().await?;
-    let response = read_reassembled_response(&mut client, &config).await?;
+    let response = timeout(
+        Duration::from_secs(1),
+        read_reassembled_response(&mut client, &config),
+    )
+    .await??;
     assert_eq!(
         response, payload,
         "response payload mismatch: expected {payload:?}, got {response:?}"
@@ -254,7 +258,11 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     );
 
     client.get_mut().shutdown().await?;
-    let response = read_reassembled_response(&mut client, &config).await?;
+    let response = timeout(
+        Duration::from_secs(1),
+        read_reassembled_response(&mut client, &config),
+    )
+    .await??;
     assert_eq!(
         response, payload,
         "response payload mismatch: expected {payload:?}, got {response:?}"
@@ -450,6 +458,7 @@ async fn expired_fragments_are_evicted() -> TestResult {
 async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let capacity = 1024;
     let (tx, mut rx) = mpsc::unbounded_channel();
+    let config = fragmentation_config(capacity)?;
 
     let handler = make_handler(&tx);
 
@@ -468,8 +477,6 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&request)?;
     client.send(bytes.into()).await?;
-    client.get_mut().shutdown().await?;
-    drop(client);
 
     let observed = timeout(Duration::from_secs(1), rx.recv())
         .await?
@@ -477,6 +484,17 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     assert_eq!(
         observed, payload,
         "observed payload mismatch: expected {payload:?}, got {observed:?}"
+    );
+
+    client.get_mut().shutdown().await?;
+    let response = timeout(
+        Duration::from_secs(1),
+        read_reassembled_response(&mut client, &config),
+    )
+    .await??;
+    assert!(
+        decode_fragment_payload(&response)?.is_none(),
+        "expected no fragmentation when fragmentation is disabled"
     );
 
     server.await?;
