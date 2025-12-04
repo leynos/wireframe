@@ -199,8 +199,7 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
     let (_, second) = recv_expect!(queues.recv());
     if (first, second) != (1, 3) {
         return Err(format!(
-            "unexpected drained frames under rate limit: {:?}",
-            (first, second)
+            "unexpected drained frames under rate limit: expected (1, 3), got ({first}, {second})"
         )
         .into());
     }
@@ -219,7 +218,10 @@ async fn rate_limiter_allows_after_wait() -> TestResult<()> {
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
     if (a, b) != (1, 2) {
-        return Err(format!("unexpected frame ordering after wait: {:?}", (a, b)).into());
+        return Err(format!(
+            "unexpected frame ordering after wait: expected (1, 2), got ({a}, {b})"
+        )
+        .into());
     }
     Ok(())
 }
@@ -270,7 +272,7 @@ async fn unlimited_queues_do_not_block() -> TestResult<()> {
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
     if (a, b) != (1, 2) {
-        return Err(format!("unexpected ordering for unlimited queues: {:?}", (a, b)).into());
+        return Err(format!("unexpected ordering for unlimited queues: ({a}, {b})").into());
     }
     Ok(())
 }
