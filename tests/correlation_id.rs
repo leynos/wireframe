@@ -15,7 +15,8 @@ use wireframe::{
     response::FrameStream,
 };
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 #[tokio::test]
 async fn stream_frames_carry_request_correlation_id() -> TestResult {
