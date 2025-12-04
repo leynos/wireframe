@@ -60,6 +60,10 @@ impl FrameMetadata for CountingSerializer {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let serializer = CountingSerializer(counter.clone());
@@ -68,12 +72,8 @@ async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
     let env = Envelope::new(1, Some(0), vec![42]);
 
     let out = drive_with_bincode(app, env).await?;
-    if out.is_empty() {
-        return Err("no frames emitted".into());
-    }
-    if counter.load(Ordering::Relaxed) != 1 {
-        return Err("expected 1 parse call".into());
-    }
+    assert!(!out.is_empty(), "no frames emitted");
+    assert_eq!(counter.load(Ordering::Relaxed), 1, "expected 1 parse call");
     Ok(())
 }
 
@@ -108,6 +108,10 @@ impl FrameMetadata for FallbackSerializer {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let parse_calls = Arc::new(AtomicUsize::new(0));
     let deser_calls = Arc::new(AtomicUsize::new(0));
@@ -117,14 +121,16 @@ async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let env = Envelope::new(1, Some(0), vec![7]);
 
     let out = drive_with_bincode(app, env).await?;
-    if out.is_empty() {
-        return Err("no frames emitted".into());
-    }
-    if parse_calls.load(Ordering::Relaxed) != 1 {
-        return Err("expected 1 parse call".into());
-    }
-    if deser_calls.load(Ordering::Relaxed) != 1 {
-        return Err("expected 1 deserialize call".into());
-    }
+    assert!(!out.is_empty(), "no frames emitted");
+    assert_eq!(
+        parse_calls.load(Ordering::Relaxed),
+        1,
+        "expected 1 parse call"
+    );
+    assert_eq!(
+        deser_calls.load(Ordering::Relaxed),
+        1,
+        "expected 1 deserialize call"
+    );
     Ok(())
 }
