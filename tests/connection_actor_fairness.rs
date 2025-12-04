@@ -19,7 +19,8 @@ use wireframe::{
 };
 use wireframe_testing::push_expect;
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 #[fixture]
 fn queues() -> TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)> {
