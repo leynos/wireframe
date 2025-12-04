@@ -142,36 +142,27 @@ async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     reason = "asserts provide clearer diagnostics in tests"
 )]
 async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .route(
-            1,
-            std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
-        )
-        .expect("route registration failed");
+    let app = TestApp::new()?.route(
+        1,
+        std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+    )?;
 
     let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut encoded_frames = Vec::new();
     for id in 1u8..=2 {
-        let msg_bytes = Echo(id).to_bytes().expect("encode failed");
+        let msg_bytes = Echo(id).to_bytes()?;
         let env = TestEnvelope {
             id: 1,
             correlation_id: Some(u64::from(id)),
             payload: msg_bytes,
         };
-        let env_bytes = BincodeSerializer
-            .serialize(&env)
-            .expect("serialization failed");
+        let env_bytes = BincodeSerializer.serialize(&env)?;
         let mut framed = BytesMut::with_capacity(env_bytes.len() + 4);
-        codec
-            .encode(env_bytes.into(), &mut framed)
-            .expect("encode failed");
+        codec.encode(env_bytes.into(), &mut framed)?;
         encoded_frames.push(framed.to_vec());
     }
 
-    let out = drive_with_frames(app, encoded_frames)
-        .await
-        .expect("drive_with_frames failed");
+    let out = drive_with_frames(app, encoded_frames).await?;
 
     let frames = decode_frames(out);
     assert_eq!(frames.len(), 2, "expected two response frames");
@@ -202,27 +193,22 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
 #[case(Some(2))]
 #[tokio::test]
 async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> TestResult<()> {
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .route(
-            1,
-            std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
-        )
-        .expect("route registration failed");
+    let app = TestApp::new()?.route(
+        1,
+        std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+    )?;
 
-    let msg_bytes = Echo(5).to_bytes().expect("encode failed");
+    let msg_bytes = Echo(5).to_bytes()?;
     let env = TestEnvelope {
         id: 1,
         correlation_id: cid,
         payload: msg_bytes,
     };
-    let env_bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
+    let env_bytes = BincodeSerializer.serialize(&env)?;
 
     let mut framed = BytesMut::with_capacity(env_bytes.len() + 4);
     let mut codec = new_test_codec(TEST_MAX_FRAME);
-    codec
-        .encode(env_bytes.into(), &mut framed)
-        .expect("encode failed");
+    codec.encode(env_bytes.into(), &mut framed)?;
 
     let out = drive_with_frames(app, vec![framed.to_vec()]).await?;
     let frames = decode_frames(out);

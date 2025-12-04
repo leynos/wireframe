@@ -107,13 +107,8 @@ fn write_bytes_with_endianness(value: u64, size: usize, endianness: Endianness, 
 /// The function supports prefix sizes of `1`, `2`, `4`, or `8` bytes.
 ///
 /// # Errors
-/// Returns [`io::ErrorKind::InvalidInput`] if the size is unsupported or if
-/// `len` does not fit into the prefix.
-///
-/// # Panics
-/// Panics if the bit-shifting within the `write_bytes` closure leaves bits of
-/// `value` outside the `u8` range. This cannot occur for valid prefix sizes and
-/// checked values.
+/// Returns [`io::ErrorKind::InvalidInput`] when the prefix size is unsupported
+/// or when `len` does not fit into the requested prefix.
 #[must_use = "length prefix byte count must be used"]
 pub fn u64_to_bytes(
     len: usize,

@@ -191,13 +191,13 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(
 
     let out = harness.run().await?;
 
-    if out.len() != 2 {
-        return Err("expected push frame followed by terminator".into());
-    }
-    let last = out.last().ok_or("terminator missing")?;
-    if parts(last).correlation_id() != correlation {
-        return Err("terminator correlation mismatch".into());
-    }
+    assert_eq!(out.len(), 2, "expected push frame followed by terminator");
+    let last = out.last().expect("terminator missing");
+    assert_eq!(
+        parts(last).correlation_id(),
+        correlation,
+        "terminator correlation mismatch"
+    );
 
     let mut saw_disconnect = false;
     while let Some(record) = logger.pop() {
@@ -206,9 +206,7 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(
             break;
         }
     }
-    if !saw_disconnect {
-        return Err("missing disconnect log".into());
-    }
+    assert!(saw_disconnect, "missing disconnect log");
     Ok(())
 }
 
