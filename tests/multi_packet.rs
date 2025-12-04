@@ -213,7 +213,9 @@ async fn shutdown_during_active_multi_packet_send(
         .await
         .map_err(|e| -> Box<dyn Error + Send + Sync> { Box::new(e) })??;
     let out = join_result?;
-    assert!(out.is_empty() || out == vec![1, 2], "actor output: {out:?}");
+    if !(out.is_empty() || out == vec![1, 2]) {
+        return Err(format!("unexpected actor output: {out:?}").into());
+    }
     drop(tx);
     Ok(())
 }
