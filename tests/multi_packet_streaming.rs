@@ -111,6 +111,10 @@ impl ActorHarness {
 fn parts(frame: &Envelope) -> PacketParts { frame.clone().into_parts() }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()> {
     let mut harness = ActorHarness::new()?;
     let (tx, rx) = mpsc::channel(4);
@@ -131,24 +135,26 @@ async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()>
 
     let out = harness.run().await?;
 
-    if out.len() != 3 {
-        return Err("expected two frames plus terminator".into());
-    }
+    assert_eq!(out.len(), 3, "expected two frames plus terminator");
     let payloads: Vec<Vec<u8>> = out.iter().map(|frame| parts(frame).payload()).collect();
-    if payloads.first() != Some(&vec![1]) {
-        return Err("first payload mismatch".into());
-    }
-    if payloads.get(1) != Some(&vec![2, 3]) {
-        return Err("second payload mismatch".into());
-    }
-    if payloads.get(2) != Some(&Vec::<u8>::new()) {
-        return Err("terminator payload should be empty".into());
-    }
+    assert_eq!(payloads.first(), Some(&vec![1]), "first payload mismatch");
+    assert_eq!(
+        payloads.get(1),
+        Some(&vec![2, 3]),
+        "second payload mismatch"
+    );
+    assert_eq!(
+        payloads.get(2),
+        Some(&Vec::<u8>::new()),
+        "terminator payload should be empty"
+    );
 
     for frame in &out {
-        if parts(frame).correlation_id() != correlation {
-            return Err("correlation id mismatch".into());
-        }
+        assert_eq!(
+            parts(frame).correlation_id(),
+            correlation,
+            "correlation id mismatch"
+        );
     }
     Ok(())
 }

@@ -88,9 +88,10 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     handle.await?;
 
     let frames = decode_frames(out);
-    let [first] = frames.as_slice() else {
-        return Err("expected a single response frame".into());
-    };
+    assert_eq!(frames.len(), 1, "expected a single response frame");
+    let first = frames
+        .first()
+        .ok_or("response frames missing after length check")?;
     let (resp, _) = serializer.deserialize::<Envelope>(first)?;
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();

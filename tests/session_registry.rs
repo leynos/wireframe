@@ -29,14 +29,9 @@ async fn handle_retrieved_while_alive(registry: SessionRegistry<u8>) -> TestResu
     let id = ConnectionId::new(42);
     registry.insert(id, &handle);
 
-    let retrieved = registry.get(&id).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "handle should be present")
-    })?;
+    let retrieved = registry.get(&id).expect("handle should be present");
     retrieved.push_high_priority(7).await?;
-    let (_, val) = queues
-        .recv()
-        .await
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "recv failed"))?;
+    let (_, val) = queues.recv().await.expect("recv failed");
     assert_eq!(val, 7);
     Ok(())
 }
@@ -82,9 +77,7 @@ async fn active_handles_lists_live_connections(registry: SessionRegistry<u8>) ->
 
     let handles = registry.active_handles();
     assert_eq!(handles.len(), 1);
-    let first = handles
-        .first()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no active handles"))?;
+    let first = handles.first().expect("no active handles");
     assert_eq!(first.0, id2);
     Ok(())
 }
