@@ -1,6 +1,7 @@
 //! Tests for explicit end-of-stream signalling.
 #![cfg(not(loom))]
 
+mod common;
 mod support;
 
 use std::sync::Arc;
@@ -18,9 +19,8 @@ use wireframe::{
 
 #[path = "common/terminator.rs"]
 mod terminator;
+use common::TestResult;
 use terminator::Terminator;
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[fixture]
 fn queues() -> Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError> {
