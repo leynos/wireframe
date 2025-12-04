@@ -11,7 +11,8 @@ use wireframe::{
     session::{ConnectionId, SessionRegistry},
 };
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 #[expect(
     unused_braces,
