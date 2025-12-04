@@ -12,8 +12,10 @@ use wireframe::{
 };
 use wireframe_testing::{decode_frames, encode_frame};
 
+mod common;
+use common::TestResult;
+
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 struct TagMiddleware(u8);
 
