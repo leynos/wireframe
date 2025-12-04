@@ -15,8 +15,10 @@ use wireframe::{
 };
 use wireframe_testing::{TestSerializer, drive_with_bincode};
 
+mod common;
+use common::TestResult;
+
 type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelope>;
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 fn mock_wireframe_app_with_serializer<S>(
     serializer: S,
