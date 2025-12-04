@@ -162,18 +162,24 @@ async fn try_push_respects_policy() -> TestResult<()> {
 
 /// Push attempts return `Closed` when all queues have been shut down.
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn push_queues_error_on_closed() -> TestResult<()> {
     let (mut queues, handle) = small_queues()?;
     queues.close();
     let res = handle.push_high_priority(42u8).await;
-    if !matches!(res, Err(PushError::Closed)) {
-        return Err("expected closed error on high priority push".into());
-    }
+    assert!(
+        matches!(res, Err(PushError::Closed)),
+        "expected closed error on high priority push"
+    );
 
     let res = handle.push_low_priority(24u8).await;
-    if !matches!(res, Err(PushError::Closed)) {
-        return Err("expected closed error on low priority push".into());
-    }
+    assert!(
+        matches!(res, Err(PushError::Closed)),
+        "expected closed error on low priority push"
+    );
     Ok(())
 }
 
