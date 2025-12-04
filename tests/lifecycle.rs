@@ -70,10 +70,6 @@ where
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
@@ -83,16 +79,12 @@ async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    assert_eq!(
-        setup_count.load(Ordering::SeqCst),
-        1,
-        "setup callback did not run exactly once"
-    );
-    assert_eq!(
-        teardown_count.load(Ordering::SeqCst),
-        1,
-        "teardown callback did not run exactly once"
-    );
+    if setup_count.load(Ordering::SeqCst) != 1 {
+        return Err("setup callback did not run exactly once".into());
+    }
+    if teardown_count.load(Ordering::SeqCst) != 1 {
+        return Err("teardown callback did not run exactly once".into());
+    }
 
     Ok(())
 }
@@ -157,10 +149,6 @@ impl Packet for StateEnvelope {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let setup = Arc::new(AtomicUsize::new(0));
     let teardown = Arc::new(AtomicUsize::new(0));
@@ -179,7 +167,9 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     codec.encode(bytes.into(), &mut frame)?;
 
     let out = run_app(app, vec![frame.to_vec()], None).await?;
-    assert!(!out.is_empty(), "expected response frames");
+    if out.is_empty() {
+        return Err("expected response frames".into());
+    }
 
     let frames = decode_frames(out);
     if frames.len() != 1 {
@@ -187,7 +177,9 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     }
     let first = frames.first().ok_or("response frames unexpectedly empty")?;
     let (resp, _) = BincodeSerializer.deserialize::<StateEnvelope>(first)?;
-    assert_eq!(resp.correlation_id, Some(0), "correlation id not preserved");
+    if resp.correlation_id != Some(0) {
+        return Err("correlation id not preserved".into());
+    }
 
     if setup.load(Ordering::SeqCst) != 1 {
         return Err("setup callback did not run exactly once".into());
