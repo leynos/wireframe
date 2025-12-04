@@ -40,6 +40,10 @@ fn setup_fragmented_actor() -> TestResult<(
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn connection_actor_fragments_outbound_frames() -> TestResult {
     let (mut actor, handle, cfg) = setup_fragmented_actor()?;
 
@@ -55,13 +59,11 @@ async fn connection_actor_fragments_outbound_frames() -> TestResult {
         .await
         .map_err(|err| io::Error::other(format!("actor run failed: {err:?}")))?;
 
-    if out.len() <= 1 {
-        return Err(format!(
-            "fragmentation should yield multiple frames, got {}",
-            out.len()
-        )
-        .into());
-    }
+    assert!(
+        out.len() > 1,
+        "fragmentation should yield multiple frames, got {}",
+        out.len()
+    );
 
     let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
     let mut assembled: Option<Vec<u8>> = None;
@@ -78,13 +80,15 @@ async fn connection_actor_fragments_outbound_frames() -> TestResult {
     }
 
     let assembled = assembled.ok_or("missing reassembled payload")?;
-    if assembled != payload {
-        return Err("reassembled payload mismatch".into());
-    }
+    assert_eq!(assembled, payload, "reassembled payload mismatch");
     Ok(())
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn connection_actor_passes_through_small_outbound_frames_unfragmented() -> TestResult {
     let (mut actor, handle, cfg) = setup_fragmented_actor()?;
 
@@ -100,17 +104,13 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() ->
         .await
         .map_err(|err| io::Error::other(format!("actor run failed: {err:?}")))?;
 
-    if out.len() != 1 {
-        return Err("expected unfragmented single frame".into());
-    }
-    let only = out.into_iter().next().ok_or("frame present")?;
+    assert_eq!(out.len(), 1, "expected unfragmented single frame");
+    let only = out.into_iter().next().ok_or("expected frame present")?;
     let payload_out = only.into_parts().payload();
     match decode_fragment_payload(&payload_out)? {
         None => {}
         Some(_) => return Err("expected unfragmented payload".into()),
     }
-    if payload_out != payload {
-        return Err("payload mutated during round trip".into());
-    }
+    assert_eq!(payload_out, payload, "payload mutated during round trip");
     Ok(())
 }
