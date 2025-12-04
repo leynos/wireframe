@@ -88,11 +88,16 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
     let out = drive_with_bincode(app, env).await?;
 
     let frames = decode_frames(out);
+    if frames.len() != 1 {
+        return Err("expected a single response frame".into());
+    }
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };
     let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
-    assert_eq!(resp_env.correlation_id, Some(99), "correlation id mismatch");
+    if resp_env.correlation_id != Some(99) {
+        return Err("correlation id mismatch".into());
+    }
     let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
     assert_eq!(echo, Echo(42), "echo payload mismatch");
     assert_eq!(
