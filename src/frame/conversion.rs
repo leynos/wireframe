@@ -37,6 +37,7 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     }
 
     let mut buf = [0u8; 8];
+    // SAFETY: size is validated above; this is a defensive fallback.
     let prefix = bytes
         .get(..size)
         .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, ERR_INCOMPLETE_PREFIX))?;
@@ -104,6 +105,7 @@ pub fn u64_to_bytes(
         4 => u64::from(checked_prefix_cast::<u32>(len)?),
         8 => checked_prefix_cast(len)?,
         _ => {
+            debug_assert!(false, "size validated above");
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 ERR_UNSUPPORTED_PREFIX,
