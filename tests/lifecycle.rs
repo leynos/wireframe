@@ -70,6 +70,10 @@ where
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
@@ -79,12 +83,16 @@ async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    if setup_count.load(Ordering::SeqCst) != 1 {
-        return Err("setup callback did not run exactly once".into());
-    }
-    if teardown_count.load(Ordering::SeqCst) != 1 {
-        return Err("teardown callback did not run exactly once".into());
-    }
+    assert_eq!(
+        setup_count.load(Ordering::SeqCst),
+        1,
+        "setup callback did not run exactly once"
+    );
+    assert_eq!(
+        teardown_count.load(Ordering::SeqCst),
+        1,
+        "teardown callback did not run exactly once"
+    );
 
     Ok(())
 }

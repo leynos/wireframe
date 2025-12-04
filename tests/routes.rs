@@ -104,41 +104,43 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .route(
-            1,
-            std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
-        )
-        .expect("route registration failed");
+    let app = TestApp::new()?.route(
+        1,
+        std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+    )?;
 
-    let msg_bytes = Echo(7).to_bytes().expect("encode failed");
+    let msg_bytes = Echo(7).to_bytes()?;
     let env = TestEnvelope {
         id: 1,
         correlation_id: None,
         payload: msg_bytes,
     };
 
-    let out = drive_with_bincode(app, env).await.expect("drive failed");
+    let out = drive_with_bincode(app, env).await?;
     let frames = decode_frames(out);
-    if frames.len() != 1 {
-        return Err("expected a single response frame".into());
-    }
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let first = frames.first().ok_or("response frames missing")?;
     let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
 
-    if resp_env.correlation_id.is_some() {
-        return Err("unexpected correlation id".into());
-    }
+    assert!(
+        resp_env.correlation_id.is_none(),
+        "unexpected correlation id"
+    );
     let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
-    if echo != Echo(7) {
-        return Err("echo payload mismatch".into());
-    }
+    assert_eq!(echo, Echo(7), "echo payload mismatch");
     Ok(())
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let app = TestApp::new()
         .expect("failed to create app")
@@ -172,21 +174,25 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
         .expect("drive_with_frames failed");
 
     let frames = decode_frames(out);
-    if frames.len() != 2 {
-        return Err("expected two response frames".into());
-    }
+    assert_eq!(frames.len(), 2, "expected two response frames");
     let first = frames.first().ok_or("first frame missing")?;
     let (env1, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
     let (echo1, _) = Echo::from_bytes(&env1.payload)?;
     let second = frames.get(1).ok_or("second frame missing")?;
     let (env2, _) = BincodeSerializer.deserialize::<TestEnvelope>(second)?;
     let (echo2, _) = Echo::from_bytes(&env2.payload)?;
-    if env1.correlation_id != Some(1) || env2.correlation_id != Some(2) {
-        return Err("correlation ids out of order".into());
-    }
-    if echo1 != Echo(1) || echo2 != Echo(2) {
-        return Err("echo payloads out of order".into());
-    }
+    assert_eq!(
+        env1.correlation_id,
+        Some(1),
+        "first correlation id mismatch"
+    );
+    assert_eq!(
+        env2.correlation_id,
+        Some(2),
+        "second correlation id mismatch"
+    );
+    assert_eq!(echo1, Echo(1), "first echo payload mismatch");
+    assert_eq!(echo2, Echo(2), "second echo payload mismatch");
     Ok(())
 }
 
@@ -218,19 +224,13 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> Tes
         .encode(env_bytes.into(), &mut framed)
         .expect("encode failed");
 
-    let out = drive_with_frames(app, vec![framed.to_vec()])
-        .await
-        .expect("drive failed");
+    let out = drive_with_frames(app, vec![framed.to_vec()]).await?;
     let frames = decode_frames(out);
-    if frames.len() != 1 {
-        return Err("expected a single response frame".into());
-    }
+    assert_eq!(frames.len(), 1, "expected a single response frame");
     let first = frames.first().ok_or("response frames missing")?;
     let (resp, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
 
-    if resp.correlation_id != cid {
-        return Err("correlation id mismatch".into());
-    }
+    assert_eq!(resp.correlation_id, cid, "correlation id mismatch");
     Ok(())
 }
 

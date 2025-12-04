@@ -32,8 +32,8 @@ use common::TestResult;
 
 #[derive(Debug, Error)]
 enum TestError {
-    #[error("fragment configuration invalid: {0}")]
-    FragmentConfig(&'static str),
+    #[error("test setup failed: {0}")]
+    Setup(&'static str),
     #[error("fragmentation failed: {0}")]
     Fragmentation(#[from] wireframe::fragment::FragmentationError),
     #[error("encoding failed: {0}")]
@@ -66,12 +66,12 @@ const ROUTE_ID: u32 = 42;
 const CORRELATION: Option<u64> = Some(7);
 
 fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
-    let message_limit = NonZeroUsize::new(capacity * 16)
-        .ok_or(TestError::FragmentConfig("non-zero message limit"))?;
+    let message_limit =
+        NonZeroUsize::new(capacity * 16).ok_or(TestError::Setup("non-zero message limit"))?;
 
     let config =
         FragmentationConfig::for_frame_budget(capacity, message_limit, Duration::from_millis(30))
-            .ok_or(TestError::FragmentConfig(
+            .ok_or(TestError::Setup(
             "frame budget must exceed fragment overhead",
         ))?;
 
@@ -144,7 +144,7 @@ async fn read_reassembled_response(
         }
     }
 
-    Err(TestError::FragmentConfig("response stream ended before reassembly completed").into())
+    Err(TestError::Setup("response stream ended before reassembly completed").into())
 }
 
 fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope> {
@@ -205,7 +205,7 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
     let observed = rx
         .recv()
         .await
-        .ok_or(TestError::FragmentConfig("handler payload missing"))?;
+        .ok_or(TestError::Setup("handler payload missing"))?;
     assert_eq!(
         observed, payload,
         "observed payload mismatch: expected {payload:?}, got {observed:?}"
@@ -246,7 +246,7 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     let observed = rx
         .recv()
         .await
-        .ok_or(TestError::FragmentConfig("handler payload missing"))?;
+        .ok_or(TestError::Setup("handler payload missing"))?;
     assert_eq!(
         observed, payload,
         "observed payload mismatch: expected {payload:?}, got {observed:?}"
@@ -330,7 +330,7 @@ type FragmentMutator = fn(Vec<Envelope>) -> TestResult<Vec<Envelope>>;
 
 fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     if fragments.len() < 2 {
-        return Err(TestError::FragmentConfig("expected at least two fragments").into());
+        return Err(TestError::Setup("expected at least two fragments").into());
     }
 
     fragments.swap(0, 1);
@@ -338,9 +338,10 @@ fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>
 }
 
 fn mutate_duplicate(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
-    let duplicate = fragments.first().cloned().ok_or(TestError::FragmentConfig(
-        "fragmenter produced no fragments",
-    ))?;
+    let duplicate = fragments
+        .first()
+        .cloned()
+        .ok_or(TestError::Setup("fragmenter produced no fragments"))?;
     fragments.insert(1, duplicate);
     Ok(fragments)
 }
@@ -349,7 +350,7 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
     let parts = fragments
         .first()
         .cloned()
-        .ok_or(TestError::FragmentConfig(
+        .ok_or(TestError::Setup(
             "fragmenter must produce at least one fragment",
         ))?
         .into_parts();
@@ -372,7 +373,7 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
             payload,
         ));
     } else {
-        return Err(TestError::FragmentConfig("fragment list unexpectedly empty").into());
+        return Err(TestError::Setup("fragment list unexpectedly empty").into());
     }
     fragments.truncate(1);
     Ok(fragments)
@@ -419,9 +420,9 @@ async fn expired_fragments_are_evicted() -> TestResult {
     let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
 
     // Send the first fragment then pause long enough for eviction.
-    let first_fragment = fragments.get(..1).ok_or(TestError::FragmentConfig(
-        "fragmenter produced no fragments",
-    ))?;
+    let first_fragment = fragments
+        .get(..1)
+        .ok_or(TestError::Setup("fragmenter produced no fragments"))?;
     send_envelopes(&mut client, first_fragment).await?;
     sleep(Duration::from_millis(timeout_ms * 2)).await;
     if let Some(rest) = fragments.get(1..) {
@@ -461,7 +462,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
 
     let half_capacity = capacity
         .checked_div(2)
-        .ok_or(TestError::FragmentConfig("capacity must be at least two"))?;
+        .ok_or(TestError::Setup("capacity must be at least two"))?;
     let payload = vec![b'X'; half_capacity];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
     let serializer = BincodeSerializer;
@@ -473,7 +474,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let observed = rx
         .recv()
         .await
-        .ok_or(TestError::FragmentConfig("handler payload missing"))?;
+        .ok_or(TestError::Setup("handler payload missing"))?;
     assert_eq!(
         observed, payload,
         "observed payload mismatch: expected {payload:?}, got {observed:?}"

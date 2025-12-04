@@ -61,6 +61,10 @@ fn builder_accepts_max_rate() {
 
 /// Disabling throttling allows rapid bursts to succeed.
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn disables_throttling_allows_burst_pushes() -> TestResult<()> {
     time::pause();
     let (_queues, handle) = support::builder::<u8>()
@@ -73,9 +77,10 @@ async fn disables_throttling_allows_burst_pushes() -> TestResult<()> {
         push_expect!(handle.push_low_priority(i));
     }
     let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
-    if res.is_err() {
-        return Err("push should not block when throttling disabled".into());
-    }
+    assert!(
+        res.is_ok(),
+        "push should not block when throttling disabled"
+    );
     Ok(())
 }
 
