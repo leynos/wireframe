@@ -183,6 +183,10 @@ fn spawn_app(
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn fragmented_request_and_response_round_trip() -> TestResult {
     let buffer_capacity = 512;
     let config = fragmentation_config(buffer_capacity)?;
@@ -202,21 +206,17 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
         .recv()
         .await
         .ok_or(TestError::FragmentConfig("handler payload missing"))?;
-    if observed != payload {
-        return Err(TestError::Assertion(format!(
-            "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        ))
-        .into());
-    }
+    assert_eq!(
+        observed, payload,
+        "observed payload mismatch: expected {payload:?}, got {observed:?}"
+    );
 
     client.get_mut().shutdown().await?;
     let response = read_reassembled_response(&mut client, &config).await?;
-    if response != payload {
-        return Err(TestError::Assertion(format!(
-            "response payload mismatch: expected {payload:?}, got {response:?}"
-        ))
-        .into());
-    }
+    assert_eq!(
+        response, payload,
+        "response payload mismatch: expected {payload:?}, got {response:?}"
+    );
 
     server.await?;
 
@@ -224,6 +224,10 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn unfragmented_request_and_response_round_trip() -> TestResult {
     let buffer_capacity = 512;
     let config = fragmentation_config(buffer_capacity)?;
@@ -243,21 +247,17 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
         .recv()
         .await
         .ok_or(TestError::FragmentConfig("handler payload missing"))?;
-    if observed != payload {
-        return Err(TestError::Assertion(format!(
-            "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        ))
-        .into());
-    }
+    assert_eq!(
+        observed, payload,
+        "observed payload mismatch: expected {payload:?}, got {observed:?}"
+    );
 
     client.get_mut().shutdown().await?;
     let response = read_reassembled_response(&mut client, &config).await?;
-    if response != payload {
-        return Err(TestError::Assertion(format!(
-            "response payload mismatch: expected {payload:?}, got {response:?}"
-        ))
-        .into());
-    }
+    assert_eq!(
+        response, payload,
+        "response payload mismatch: expected {payload:?}, got {response:?}"
+    );
     if decode_fragment_payload(&response)?.is_some() {
         return Err(
             TestError::Assertion("small payload should pass through unfragmented".into()).into(),
@@ -397,6 +397,10 @@ async fn fragment_rejection_cases(
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn expired_fragments_are_evicted() -> TestResult {
     let buffer_capacity = 512;
     let timeout_ms = 10;
@@ -426,12 +430,10 @@ async fn expired_fragments_are_evicted() -> TestResult {
     client.get_mut().shutdown().await?;
 
     let recv_result = timeout(Duration::from_millis(200), rx.recv()).await;
-    if recv_result.is_ok() {
-        return Err(TestError::Assertion(
-            "handler should not receive after timeout eviction".into(),
-        )
-        .into());
-    }
+    assert!(
+        recv_result.is_err(),
+        "handler should not receive after timeout eviction"
+    );
 
     drop(client);
     server.await?;
@@ -440,6 +442,10 @@ async fn expired_fragments_are_evicted() -> TestResult {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let capacity = 1024;
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -468,12 +474,10 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
         .recv()
         .await
         .ok_or(TestError::FragmentConfig("handler payload missing"))?;
-    if observed != payload {
-        return Err(TestError::Assertion(format!(
-            "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        ))
-        .into());
-    }
+    assert_eq!(
+        observed, payload,
+        "observed payload mismatch: expected {payload:?}, got {observed:?}"
+    );
 
     server.await?;
 
