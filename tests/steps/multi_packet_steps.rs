@@ -1,8 +1,7 @@
 //! Steps for multi-packet response behavioural tests.
 use cucumber::{then, when};
 
-use crate::world::MultiPacketWorld;
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+use crate::world::{MultiPacketWorld, TestResult};
 
 #[when("a handler uses the with_channel helper to emit messages")]
 async fn when_multi(world: &mut MultiPacketWorld) -> TestResult { world.process().await }

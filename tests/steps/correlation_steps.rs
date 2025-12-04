@@ -1,8 +1,7 @@
 //! Steps for `correlation_id` behavioural tests.
 use cucumber::{given, then, when};
 
-use crate::world::CorrelationWorld;
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+use crate::world::{CorrelationWorld, TestResult};
 
 #[given(expr = "a correlation id {int}")]
 fn given_cid(world: &mut CorrelationWorld, id: u64) { world.set_expected(Some(id)); }

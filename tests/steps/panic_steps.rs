@@ -5,8 +5,7 @@
 
 use cucumber::{given, then, when};
 
-use crate::world::PanicWorld;
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+use crate::world::{PanicWorld, TestResult};
 
 #[given("a running wireframe server with a panic in connection setup")]
 async fn start_server(world: &mut PanicWorld) -> TestResult {

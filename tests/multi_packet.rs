@@ -15,6 +15,9 @@ use wireframe::{
     push::{PushHandle, PushQueues},
 };
 
+mod common;
+use common::TestResult;
+
 #[derive(Debug, Error)]
 enum TestError {
     #[error("push queue config failed: {0}")]
@@ -35,12 +38,14 @@ enum TestError {
     Convert(#[from] std::num::TryFromIntError),
 }
 
-type TestResult<T = ()> = Result<T, TestError>;
-
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {
     fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
         TestError::Send(err.to_string())
     }
+}
+
+impl From<TestError> for Box<dyn std::error::Error + Send + Sync> {
+    fn from(err: TestError) -> Self { Box::new(err) }
 }
 
 #[derive(PartialEq, Debug)]

@@ -16,7 +16,8 @@ use wireframe::{
 
 const ROUTE_ID: u32 = 7;
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 fn setup_fragmented_actor() -> TestResult<(
     ConnectionActor<Envelope, ()>,

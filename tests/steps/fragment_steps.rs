@@ -4,8 +4,7 @@ use std::time::Duration;
 use cucumber::{given, then, when};
 use wireframe::{FragmentHeader, FragmentIndex, MessageId};
 
-use crate::world::FragmentWorld;
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+use crate::world::{FragmentWorld, TestResult};
 
 #[given(expr = "a fragment series for message {int}")]
 fn given_series(world: &mut FragmentWorld, message: u64) { world.start_series(message); }

@@ -27,7 +27,8 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
-type TestResult<T = ()> = Result<T, TestError>;
+mod common;
+use common::TestResult;
 
 #[derive(Debug, Error)]
 enum TestError {
@@ -68,9 +69,13 @@ fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
     let message_limit = NonZeroUsize::new(capacity * 16)
         .ok_or(TestError::FragmentConfig("non-zero message limit"))?;
 
-    FragmentationConfig::for_frame_budget(capacity, message_limit, Duration::from_millis(30)).ok_or(
-        TestError::FragmentConfig("frame budget must exceed fragment overhead"),
-    )
+    let config =
+        FragmentationConfig::for_frame_budget(capacity, message_limit, Duration::from_millis(30))
+            .ok_or(TestError::FragmentConfig(
+            "frame budget must exceed fragment overhead",
+        ))?;
+
+    Ok(config)
 }
 
 fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<Envelope>> {
@@ -83,7 +88,7 @@ fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<
         return Ok(vec![Envelope::new(id, correlation, payload)]);
     }
 
-    fragmenter
+    let envelopes = fragmenter
         .fragment_bytes(payload)?
         .into_iter()
         .map(|fragment| {
@@ -92,7 +97,9 @@ fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<
                 .map(|encoded| Envelope::new(id, correlation, encoded))
                 .map_err(TestError::from)
         })
-        .collect::<Result<Vec<_>, TestError>>()
+        .collect::<Result<Vec<_>, TestError>>()?;
+
+    Ok(envelopes)
 }
 
 async fn send_envelopes(
@@ -128,9 +135,7 @@ async fn read_reassembled_response(
         }
     }
 
-    Err(TestError::FragmentConfig(
-        "response stream ended before reassembly completed",
-    ))
+    Err(TestError::FragmentConfig("response stream ended before reassembly completed").into())
 }
 
 fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope> {
@@ -191,7 +196,8 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
     if observed != payload {
         return Err(TestError::Assertion(format!(
             "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        )));
+        ))
+        .into());
     }
 
     client.get_mut().shutdown().await?;
@@ -199,7 +205,8 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
     if response != payload {
         return Err(TestError::Assertion(format!(
             "response payload mismatch: expected {payload:?}, got {response:?}"
-        )));
+        ))
+        .into());
     }
 
     server.await?;
@@ -230,7 +237,8 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     if observed != payload {
         return Err(TestError::Assertion(format!(
             "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        )));
+        ))
+        .into());
     }
 
     client.get_mut().shutdown().await?;
@@ -238,12 +246,13 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     if response != payload {
         return Err(TestError::Assertion(format!(
             "response payload mismatch: expected {payload:?}, got {response:?}"
-        )));
+        ))
+        .into());
     }
     if decode_fragment_payload(&response)?.is_some() {
-        return Err(TestError::Assertion(
-            "small payload should pass through unfragmented".into(),
-        ));
+        return Err(
+            TestError::Assertion("small payload should pass through unfragmented".into()).into(),
+        );
     }
 
     server.await?;
@@ -299,7 +308,7 @@ where
     client.get_mut().shutdown().await?;
 
     if let Ok(Some(_)) = timeout(Duration::from_millis(200), rx.recv()).await {
-        return Err(TestError::Assertion(rejection_message.to_string()));
+        return Err(TestError::Assertion(rejection_message.to_string()).into());
     }
 
     drop(client);
@@ -312,7 +321,7 @@ type FragmentMutator = fn(Vec<Envelope>) -> TestResult<Vec<Envelope>>;
 
 fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     if fragments.len() < 2 {
-        return Err(TestError::FragmentConfig("expected at least two fragments"));
+        return Err(TestError::FragmentConfig("expected at least two fragments").into());
     }
 
     fragments.swap(0, 1);
@@ -337,9 +346,7 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
         .into_parts();
     let mut payload = parts.clone().payload();
     if !payload.starts_with(FRAGMENT_MAGIC) {
-        return Err(TestError::Assertion(
-            "expected fragment to start with marker".into(),
-        ));
+        return Err(TestError::Assertion("expected fragment to start with marker".into()).into());
     }
     let truncate_len = FRAGMENT_MAGIC.len() + 2;
     if payload.len() > truncate_len {
@@ -356,9 +363,7 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
             payload,
         ));
     } else {
-        return Err(TestError::FragmentConfig(
-            "fragment list unexpectedly empty",
-        ));
+        return Err(TestError::FragmentConfig("fragment list unexpectedly empty").into());
     }
     fragments.truncate(1);
     Ok(fragments)
@@ -424,7 +429,8 @@ async fn expired_fragments_are_evicted() -> TestResult {
     if recv_result.is_ok() {
         return Err(TestError::Assertion(
             "handler should not receive after timeout eviction".into(),
-        ));
+        )
+        .into());
     }
 
     drop(client);

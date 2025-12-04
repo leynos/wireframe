@@ -7,8 +7,8 @@
 #![cfg(not(loom))]
 
 #[path = "../common/mod.rs"]
-mod common;
-pub(crate) use common::{TestResult, unused_listener};
+pub mod common;
+pub use common::{TestResult, unused_listener};
 
 #[path = "../common/terminator.rs"]
 mod terminator;

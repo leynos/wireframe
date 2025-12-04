@@ -1,8 +1,7 @@
 //! Steps for stream terminator behavioural tests.
 use cucumber::{then, when};
 
-use crate::world::StreamEndWorld;
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+use crate::world::{StreamEndWorld, TestResult};
 
 #[when("a streaming response completes")]
 async fn when_stream(world: &mut StreamEndWorld) -> TestResult { world.process().await }

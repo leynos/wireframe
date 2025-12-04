@@ -12,6 +12,9 @@ use tokio::sync::mpsc;
 use wireframe::push::{PushPolicy, PushPriority, PushQueuesBuilder};
 use wireframe_testing::{LoggerHandle, logger};
 
+mod common;
+use common::TestResult;
+
 #[expect(
     clippy::allow_attributes,
     reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
@@ -44,8 +47,6 @@ struct DlqCase {
     assertion: DlqAssertion,
     expected: &'static str,
 }
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Verifies how queue policies log and drop when the queue is full.
 #[rstest]

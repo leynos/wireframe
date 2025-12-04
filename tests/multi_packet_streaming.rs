@@ -26,7 +26,8 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger};
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 const STREAM_ID: u32 = 7;
 const TERMINATOR_ID: u32 = 255;
