@@ -166,11 +166,11 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let out = drive_with_frames(app, encoded_frames).await?;
 
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 2, "expected two response frames");
-    let first = frames.first().ok_or("first frame missing")?;
+    let [first, second] = frames.as_slice() else {
+        return Err("expected two response frames".into());
+    };
     let (env1, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
     let (echo1, _) = Echo::from_bytes(&env1.payload)?;
-    let second = frames.get(1).ok_or("second frame missing")?;
     let (env2, _) = BincodeSerializer.deserialize::<TestEnvelope>(second)?;
     let (echo2, _) = Echo::from_bytes(&env2.payload)?;
     assert_eq!(

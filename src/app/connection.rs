@@ -289,6 +289,7 @@ where
         warn!("{context}: correlation_id={:?}, error={err:?}", None::<u64>);
         crate::metrics::inc_deser_errors();
         if *deser_failures >= MAX_DESER_FAILURES {
+            warn!("closing connection after {deser_failures} deserialization failures: {context}");
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "too many deserialization failures",

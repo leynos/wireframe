@@ -88,7 +88,8 @@ fn convert_len_to_value(len: usize, size: usize) -> io::Result<u64> {
 }
 
 /// Write a u64 into `prefix` according to the specified endianness.
-fn write_bytes_with_endianness(value: u64, size: usize, endianness: Endianness, prefix: &mut [u8]) {
+fn write_bytes_with_endianness(value: u64, endianness: Endianness, prefix: &mut [u8]) {
+    let size = prefix.len();
     match endianness {
         Endianness::Big => {
             for (i, byte) in prefix.iter_mut().enumerate() {
@@ -132,7 +133,7 @@ pub fn u64_to_bytes(
         .get_mut(..size)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?;
 
-    write_bytes_with_endianness(value, size, endianness, prefix);
+    write_bytes_with_endianness(value, endianness, prefix);
 
     if let Some(tail) = out.get_mut(size..) {
         tail.fill(0);
