@@ -20,14 +20,15 @@ struct PanicServer {
 }
 
 impl PanicServer {
+    #[expect(
+        clippy::expect_used,
+        reason = "panic world should fail loudly if the panic app cannot be built"
+    )]
     async fn spawn() -> TestResult<Self> {
         let factory = || {
             TestApp::new()
                 .and_then(|app| app.on_connection_setup(|| async { panic!("boom") }))
-                .unwrap_or_else(|err| {
-                    tracing::error!("failed to build panic app: {err}");
-                    TestApp::default()
-                })
+                .expect("failed to build panic app")
         };
         let listener = unused_listener();
         let server = WireframeServer::new(factory)
