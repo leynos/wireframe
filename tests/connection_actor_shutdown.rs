@@ -9,7 +9,8 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use wireframe::{connection::ConnectionActor, push::PushQueues};
 use wireframe_testing::push_expect;
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+mod common;
+use common::TestResult;
 
 #[expect(
     clippy::allow_attributes,
