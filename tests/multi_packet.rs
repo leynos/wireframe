@@ -1,48 +1,20 @@
 //! Tests for multi-packet responses using channels.
 #![cfg(not(loom))]
 
-use std::time::Duration;
+use std::{error::Error, time::Duration};
 
 use futures::TryStreamExt;
 use rstest::{fixture, rstest};
-use thiserror::Error;
 use tokio::{sync::mpsc, task::yield_now, time::timeout};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     Response,
-    WireframeError,
     connection::{ConnectionActor, FairnessConfig},
     push::{PushHandle, PushQueues},
 };
 
 mod common;
 use common::TestResult;
-
-#[derive(Debug, Error)]
-enum TestError {
-    #[error("push queue config failed: {0}")]
-    PushConfig(#[from] wireframe::push::PushConfigError),
-    #[error("send failed: {0}")]
-    Send(String),
-    #[error("push failed: {0}")]
-    Push(#[from] wireframe::push::PushError),
-    #[error("actor run failed: {0:?}")]
-    Actor(WireframeError<()>),
-    #[error("stream collection failed: {0}")]
-    Stream(String),
-    #[error("task join failed: {0}")]
-    Join(#[from] tokio::task::JoinError),
-    #[error("timeout: {0}")]
-    Timeout(#[from] tokio::time::error::Elapsed),
-    #[error("integer conversion failed: {0}")]
-    Convert(#[from] std::num::TryFromIntError),
-}
-
-impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {
-    fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
-        TestError::Send(err.to_string())
-    }
-}
 
 #[derive(PartialEq, Debug)]
 struct TestMsg(u8);
@@ -67,7 +39,7 @@ async fn drain_all<F, E: std::fmt::Debug>(
     stream
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|err| TestError::Stream(format!("stream error: {err:?}")).into())
+        .map_err(|err| format!("stream error: {err:?}").into())
 }
 
 /// Multi-packet responses drain every frame regardless of channel state.
@@ -82,11 +54,13 @@ async fn multi_packet_drains_all_messages(count: usize) -> TestResult {
         for i in 0..count {
             tx.send(TestMsg(u8::try_from(i)?)).await?;
         }
-        Ok::<_, TestError>(())
+        Ok::<_, Box<dyn Error + Send + Sync>>(())
     });
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
     let received = drain_all(resp.into_stream()).await?;
-    send_task.await??;
+    send_task
+        .await
+        .map_err(|e| -> Box<dyn Error + Send + Sync> { Box::new(e) })??;
     let expected = (0..count)
         .map(u8::try_from)
         .collect::<Result<Vec<_>, _>>()?
@@ -121,7 +95,12 @@ async fn connection_actor_drains_multi_packet_channel(
     actor.set_multi_packet(Some(rx));
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.map_err(TestError::Actor)?;
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| -> Box<dyn Error + Send + Sync> {
+            format!("connection actor error: {e:?}").into()
+        })?;
 
     assert_eq!(out, frames);
     Ok(())
@@ -153,7 +132,12 @@ async fn connection_actor_interleaves_multi_packet_and_priority_frames(
     actor.set_multi_packet(Some(multi_rx));
 
     let mut out = Vec::new();
-    actor.run(&mut out).await.map_err(TestError::Actor)?;
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| -> Box<dyn Error + Send + Sync> {
+            format!("connection actor error: {e:?}").into()
+        })?;
 
     assert_eq!(out, vec![10, 100, 11, 101, 1, 2, 3]);
     Ok(())
@@ -173,14 +157,21 @@ async fn shutdown_completes_multi_packet_channel(
 
     let join = tokio::spawn(async move {
         let mut out = Vec::new();
-        actor.run(&mut out).await.map_err(TestError::Actor)?;
-        Ok::<_, TestError>(out)
+        actor
+            .run(&mut out)
+            .await
+            .map_err(|e| -> Box<dyn Error + Send + Sync> {
+                format!("connection actor error: {e:?}").into()
+            })?;
+        Ok::<_, Box<dyn Error + Send + Sync>>(out)
     });
 
     yield_now().await;
     cancel.cancel();
 
-    let join_result = timeout(Duration::from_millis(1000), join).await??;
+    let join_result = timeout(Duration::from_millis(1000), join)
+        .await
+        .map_err(|e| -> Box<dyn Error + Send + Sync> { Box::new(e) })??;
     let out = join_result?;
 
     assert!(out.is_empty());
@@ -202,8 +193,13 @@ async fn shutdown_during_active_multi_packet_send(
 
     let join = tokio::spawn(async move {
         let mut out = Vec::new();
-        actor.run(&mut out).await.map_err(TestError::Actor)?;
-        Ok::<_, TestError>(out)
+        actor
+            .run(&mut out)
+            .await
+            .map_err(|e| -> Box<dyn Error + Send + Sync> {
+                format!("connection actor error: {e:?}").into()
+            })?;
+        Ok::<_, Box<dyn Error + Send + Sync>>(out)
     });
 
     tx.send(1).await?;
@@ -213,7 +209,9 @@ async fn shutdown_during_active_multi_packet_send(
 
     let _ = tx.send(3).await;
 
-    let join_result = timeout(Duration::from_millis(1000), join).await??;
+    let join_result = timeout(Duration::from_millis(1000), join)
+        .await
+        .map_err(|e| -> Box<dyn Error + Send + Sync> { Box::new(e) })??;
     let out = join_result?;
     assert!(out.is_empty() || out == vec![1, 2], "actor output: {out:?}");
     drop(tx);
@@ -226,7 +224,7 @@ async fn vec_empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Vec(Vec::new());
     let received = drain_all(resp.into_stream()).await?;
     if !received.is_empty() {
-        return Err(TestError::Stream(format!("expected empty stream, got {received:?}")).into());
+        return Err(format!("expected empty stream, got {received:?}").into());
     }
     Ok(())
 }
@@ -237,7 +235,7 @@ async fn empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Empty;
     let received = drain_all(resp.into_stream()).await?;
     if !received.is_empty() {
-        return Err(TestError::Stream(format!("expected empty stream, got {received:?}")).into());
+        return Err(format!("expected empty stream, got {received:?}").into());
     }
     Ok(())
 }
