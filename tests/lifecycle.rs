@@ -62,9 +62,11 @@ where
     let setup_cb = call_counting_callback(setup, state);
     let teardown_cb = call_counting_callback(teardown, ());
 
-    App::<E>::new()?
+    let app = App::<E>::new()?
         .on_connection_setup(move || setup_cb(()))?
-        .on_connection_teardown(teardown_cb)
+        .on_connection_teardown(teardown_cb)?;
+
+    Ok(app)
 }
 
 #[tokio::test]
