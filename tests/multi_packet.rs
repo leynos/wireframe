@@ -44,10 +44,6 @@ impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {
     }
 }
 
-impl From<TestError> for Box<dyn std::error::Error + Send + Sync> {
-    fn from(err: TestError) -> Self { Box::new(err) }
-}
-
 #[derive(PartialEq, Debug)]
 struct TestMsg(u8);
 
@@ -71,7 +67,7 @@ async fn drain_all<F, E: std::fmt::Debug>(
     stream
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|err| TestError::Stream(format!("stream error: {err:?}")))
+        .map_err(|err| TestError::Stream(format!("stream error: {err:?}")).into())
 }
 
 /// Multi-packet responses drain every frame regardless of channel state.
@@ -230,9 +226,7 @@ async fn vec_empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Vec(Vec::new());
     let received = drain_all(resp.into_stream()).await?;
     if !received.is_empty() {
-        return Err(TestError::Stream(format!(
-            "expected empty stream, got {received:?}"
-        )));
+        return Err(TestError::Stream(format!("expected empty stream, got {received:?}")).into());
     }
     Ok(())
 }
@@ -243,9 +237,7 @@ async fn empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Empty;
     let received = drain_all(resp.into_stream()).await?;
     if !received.is_empty() {
-        return Err(TestError::Stream(format!(
-            "expected empty stream, got {received:?}"
-        )));
+        return Err(TestError::Stream(format!("expected empty stream, got {received:?}")).into());
     }
     Ok(())
 }
