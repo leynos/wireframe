@@ -227,7 +227,9 @@ async fn send_response_honours_buffer_capacity() -> TestResult {
     let large = Large(payload.clone());
     let mut out = Vec::new();
 
-    app.send_response(&mut out, &large).await?;
+    app.send_response(&mut out, &large)
+        .await
+        .map_err(|e| format!("send_response failed: {e}"))?;
 
     let frames = decode_frames_with_max(out, LARGE_FRAME);
     assert_eq!(frames.len(), 1, "expected a single response frame");
