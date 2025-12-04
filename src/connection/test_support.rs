@@ -71,10 +71,7 @@ pub struct ActorHarness {
 
 impl Default for ActorHarness {
     fn default() -> Self {
-        match Self::new() {
-            Ok(harness) => harness,
-            Err(err) => panic!("failed to build ActorHarness: {err:?}"),
-        }
+        Self::new().unwrap_or_else(|err| panic!("failed to build ActorHarness: {err:?}"))
     }
 }
 
