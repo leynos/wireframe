@@ -33,9 +33,11 @@ where
     while read < additional {
         let range_start = start + read;
         let range_end = start + additional;
-        let chunk = buf
-            .get_mut(range_start..range_end)
-            .ok_or(DecodeError::Other("preamble buffer range invalid"))?;
+        // SAFETY: buffer was resized above; this slice is always in-bounds.
+        let chunk = buf.get_mut(range_start..range_end).ok_or_else(|| {
+            debug_assert!(false, "preamble buffer range must be valid after resize");
+            DecodeError::Other("preamble buffer range invalid")
+        })?;
         match reader.read(chunk).await {
             Ok(0) => {
                 return Err(DecodeError::Io {
