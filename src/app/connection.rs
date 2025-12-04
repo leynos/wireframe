@@ -35,6 +35,7 @@ fn purge_expired(fragmentation: &mut Option<FragmentationState>) {
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
 
+/// Per-frame processing state bundled for `handle_frame`.
 struct FrameHandlingContext<'a, E, W>
 where
     E: Packet,

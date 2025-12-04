@@ -56,6 +56,10 @@ impl Transform<HandlerService<Envelope>> for TagMiddleware {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let handler: Handler<Envelope> = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
     let app = TestApp::new()
@@ -84,21 +88,18 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     handle.await?;
 
     let frames = decode_frames(out);
-    if frames.len() != 1 {
+    let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
-    }
-    let first = frames.first().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "no frames decoded")
-    })?;
+    };
     let (resp, _) = serializer.deserialize::<Envelope>(first)?;
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();
     let payload = parts.payload();
-    if payload != [b'X', b'A', b'B', b'B', b'A'] {
-        return Err(format!("unexpected payload: {payload:?}").into());
-    }
-    if correlation_id != Some(7) {
-        return Err(format!("unexpected correlation id: {correlation_id:?}").into());
-    }
+    assert_eq!(
+        payload,
+        [b'X', b'A', b'B', b'B', b'A'],
+        "unexpected payload"
+    );
+    assert_eq!(correlation_id, Some(7), "unexpected correlation id");
     Ok(())
 }

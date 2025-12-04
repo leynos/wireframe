@@ -202,9 +202,8 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
     send_envelopes(&mut client, &fragments).await?;
     client.flush().await?;
 
-    let observed = rx
-        .recv()
-        .await
+    let observed = timeout(Duration::from_secs(1), rx.recv())
+        .await?
         .ok_or(TestError::Setup("handler payload missing"))?;
     assert_eq!(
         observed, payload,
@@ -243,9 +242,8 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     send_envelopes(&mut client, &[request]).await?;
     client.flush().await?;
 
-    let observed = rx
-        .recv()
-        .await
+    let observed = timeout(Duration::from_secs(1), rx.recv())
+        .await?
         .ok_or(TestError::Setup("handler payload missing"))?;
     assert_eq!(
         observed, payload,
@@ -258,11 +256,10 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
         response, payload,
         "response payload mismatch: expected {payload:?}, got {response:?}"
     );
-    if decode_fragment_payload(&response)?.is_some() {
-        return Err(
-            TestError::Assertion("small payload should pass through unfragmented".into()).into(),
-        );
-    }
+    assert!(
+        decode_fragment_payload(&response)?.is_none(),
+        "small payload should pass through unfragmented"
+    );
 
     server.await?;
 
@@ -471,9 +468,8 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     client.get_mut().shutdown().await?;
     drop(client);
 
-    let observed = rx
-        .recv()
-        .await
+    let observed = timeout(Duration::from_secs(1), rx.recv())
+        .await?
         .ok_or(TestError::Setup("handler payload missing"))?;
     assert_eq!(
         observed, payload,
