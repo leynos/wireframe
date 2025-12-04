@@ -26,6 +26,12 @@ use crate::{
     serializer::Serializer,
 };
 
+fn purge_expired(fragmentation: &mut Option<FragmentationState>) {
+    if let Some(frag) = fragmentation.as_mut() {
+        frag.purge_expired();
+    }
+}
+
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
 
@@ -198,33 +204,26 @@ where
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
-            let Ok(maybe_frame) = timeout(timeout_dur, framed.next()).await else {
-                debug!("read timeout elapsed; continuing to wait for next frame");
-                fragmentation
-                    .as_mut()
-                    .map(FragmentationState::purge_expired);
-                continue;
-            };
-
-            let Some(frame_result) = maybe_frame else {
-                break;
-            };
-
-            let buf = match frame_result {
-                Ok(buf) => buf,
-                Err(e) => return Err(e),
-            };
-
-            self.handle_frame(
-                buf.as_ref(),
-                FrameHandlingContext {
-                    framed: &mut framed,
-                    deser_failures: &mut deser_failures,
-                    routes,
-                    fragmentation: &mut fragmentation,
-                },
-            )
-            .await?;
+            match timeout(timeout_dur, framed.next()).await {
+                Ok(Some(Ok(buf))) => {
+                    self.handle_frame(
+                        buf.as_ref(),
+                        FrameHandlingContext {
+                            framed: &mut framed,
+                            deser_failures: &mut deser_failures,
+                            routes,
+                            fragmentation: &mut fragmentation,
+                        },
+                    )
+                    .await?;
+                }
+                Ok(Some(Err(e))) => return Err(e),
+                Ok(None) => break,
+                Err(_) => {
+                    debug!("read timeout elapsed; continuing to wait for next frame");
+                    purge_expired(&mut fragmentation);
+                }
+            }
         }
 
         Ok(())
