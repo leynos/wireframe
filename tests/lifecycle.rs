@@ -89,6 +89,10 @@ async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
     Ok(())
 }
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn setup_without_teardown_runs() -> TestResult<()> {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&setup_count, ());
@@ -97,14 +101,20 @@ async fn setup_without_teardown_runs() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    if setup_count.load(Ordering::SeqCst) != 1 {
-        return Err("setup callback did not run".into());
-    }
+    assert_eq!(
+        setup_count.load(Ordering::SeqCst),
+        1,
+        "setup callback did not run"
+    );
 
     Ok(())
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn teardown_without_setup_does_not_run() -> TestResult<()> {
     let teardown_count = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&teardown_count, ());
@@ -113,9 +123,11 @@ async fn teardown_without_setup_does_not_run() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    if teardown_count.load(Ordering::SeqCst) != 0 {
-        return Err("teardown callback should not run".into());
-    }
+    assert_eq!(
+        teardown_count.load(Ordering::SeqCst),
+        0,
+        "teardown callback should not run"
+    );
 
     Ok(())
 }
