@@ -16,6 +16,13 @@ use wireframe::{
 mod common;
 use common::TestResult;
 
+fn boxed_err<E: std::fmt::Debug>(
+    context: &str,
+    err: E,
+) -> Box<dyn std::error::Error + Send + Sync> {
+    format!("{context}: {err:?}").into()
+}
+
 #[derive(PartialEq, Debug)]
 struct TestMsg(u8);
 
@@ -39,7 +46,7 @@ async fn drain_all<F, E: std::fmt::Debug>(
     stream
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|err| format!("stream error: {err:?}").into())
+        .map_err(|err| boxed_err("stream error", err))
 }
 
 /// Multi-packet responses drain every frame regardless of channel state.
@@ -60,7 +67,7 @@ async fn multi_packet_drains_all_messages(count: usize) -> TestResult {
     let received = drain_all(resp.into_stream()).await?;
     send_task
         .await
-        .map_err(|e| -> Box<dyn Error + Send + Sync> { Box::new(e) })??;
+        .map_err(|e| boxed_err("send task join", e))??;
     let expected = (0..count)
         .map(u8::try_from)
         .collect::<Result<Vec<_>, _>>()?
@@ -98,9 +105,7 @@ async fn connection_actor_drains_multi_packet_channel(
     actor
         .run(&mut out)
         .await
-        .map_err(|e| -> Box<dyn Error + Send + Sync> {
-            format!("connection actor error: {e:?}").into()
-        })?;
+        .map_err(|e| boxed_err("connection actor error", e))?;
 
     assert_eq!(out, frames);
     Ok(())
@@ -135,9 +140,7 @@ async fn connection_actor_interleaves_multi_packet_and_priority_frames(
     actor
         .run(&mut out)
         .await
-        .map_err(|e| -> Box<dyn Error + Send + Sync> {
-            format!("connection actor error: {e:?}").into()
-        })?;
+        .map_err(|e| boxed_err("connection actor error", e))?;
 
     assert_eq!(out, vec![10, 100, 11, 101, 1, 2, 3]);
     Ok(())
@@ -160,9 +163,7 @@ async fn shutdown_completes_multi_packet_channel(
         actor
             .run(&mut out)
             .await
-            .map_err(|e| -> Box<dyn Error + Send + Sync> {
-                format!("connection actor error: {e:?}").into()
-            })?;
+            .map_err(|e| boxed_err("connection actor error", e))?;
         Ok::<_, Box<dyn Error + Send + Sync>>(out)
     });
 
@@ -171,7 +172,7 @@ async fn shutdown_completes_multi_packet_channel(
 
     let join_result = timeout(Duration::from_millis(1000), join)
         .await
-        .map_err(|e| -> Box<dyn Error + Send + Sync> { Box::new(e) })??;
+        .map_err(|e| boxed_err("connection actor shutdown timeout", e))??;
     let out = join_result?;
 
     assert!(out.is_empty());
@@ -196,9 +197,7 @@ async fn shutdown_during_active_multi_packet_send(
         actor
             .run(&mut out)
             .await
-            .map_err(|e| -> Box<dyn Error + Send + Sync> {
-                format!("connection actor error: {e:?}").into()
-            })?;
+            .map_err(|e| boxed_err("connection actor error", e))?;
         Ok::<_, Box<dyn Error + Send + Sync>>(out)
     });
 
@@ -211,7 +210,7 @@ async fn shutdown_during_active_multi_packet_send(
 
     let join_result = timeout(Duration::from_millis(1000), join)
         .await
-        .map_err(|e| -> Box<dyn Error + Send + Sync> { Box::new(e) })??;
+        .map_err(|e| boxed_err("connection actor shutdown timeout", e))??;
     let out = join_result?;
     assert!(out.is_empty() || out == vec![1, 2], "actor output: {out:?}");
     drop(tx);
