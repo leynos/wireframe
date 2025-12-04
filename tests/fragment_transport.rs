@@ -67,13 +67,15 @@ const CORRELATION: Option<u64> = Some(7);
 
 fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
     let message_limit = NonZeroUsize::new(capacity * 16)
-        .ok_or(TestError::FragmentConfig("non-zero message limit"))?;
+        .ok_or(TestError::FragmentConfig("non-zero message limit"))
+        .map_err(Into::into)?;
 
     let config =
         FragmentationConfig::for_frame_budget(capacity, message_limit, Duration::from_millis(30))
             .ok_or(TestError::FragmentConfig(
-            "frame budget must exceed fragment overhead",
-        ))?;
+                "frame budget must exceed fragment overhead",
+            ))
+            .map_err(Into::into)?;
 
     Ok(config)
 }
@@ -89,7 +91,8 @@ fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<
     }
 
     let envelopes = fragmenter
-        .fragment_bytes(payload)?
+        .fragment_bytes(payload)
+        .map_err(Into::into)?
         .into_iter()
         .map(|fragment| {
             let (header, payload) = fragment.into_parts();
@@ -97,7 +100,8 @@ fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<
                 .map(|encoded| Envelope::new(id, correlation, encoded))
                 .map_err(TestError::from)
         })
-        .collect::<Result<Vec<_>, TestError>>()?;
+        .collect::<Result<Vec<_>, TestError>>()
+        .map_err(Into::into)?;
 
     Ok(envelopes)
 }
