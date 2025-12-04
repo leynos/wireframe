@@ -68,32 +68,26 @@ struct Echo(u8);
 async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .route(
-            1,
-            std::sync::Arc::new(move |_: &TestEnvelope| {
-                let called_inner = called_clone.clone();
-                Box::pin(async move {
-                    called_inner.fetch_add(1, Ordering::SeqCst);
-                    // `WireframeApp` sends the envelope back automatically
-                })
-            }),
-        )
-        .expect("route registration failed");
-    let msg_bytes = Echo(42).to_bytes().expect("encode failed");
+    let app = TestApp::new()?.route(
+        1,
+        std::sync::Arc::new(move |_: &TestEnvelope| {
+            let called_inner = called_clone.clone();
+            Box::pin(async move {
+                called_inner.fetch_add(1, Ordering::SeqCst);
+                // `WireframeApp` sends the envelope back automatically
+            })
+        }),
+    )?;
+    let msg_bytes = Echo(42).to_bytes()?;
     let env = TestEnvelope {
         id: 1,
         correlation_id: Some(99),
         payload: msg_bytes,
     };
 
-    let out = drive_with_bincode(app, env)
-        .await
-        .expect("drive_with_bincode failed");
+    let out = drive_with_bincode(app, env).await?;
 
     let frames = decode_frames(out);
-    assert_eq!(frames.len(), 1, "expected a single response frame");
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };
