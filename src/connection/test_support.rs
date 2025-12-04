@@ -70,9 +70,11 @@ pub struct ActorHarness {
 }
 
 impl Default for ActorHarness {
-    fn default() -> Self {
-        Self::new().unwrap_or_else(|err| panic!("failed to build ActorHarness: {err:?}"))
-    }
+    #[expect(
+        clippy::expect_used,
+        reason = "harness construction failure should abort the test immediately"
+    )]
+    fn default() -> Self { Self::new().expect("failed to build ActorHarness") }
 }
 
 impl ActorHarness {
