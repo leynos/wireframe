@@ -1,9 +1,5 @@
 //! Tests for the `SessionRegistry`.
 #![cfg(not(loom))]
-#![allow(
-    unfulfilled_lint_expectations,
-    reason = "Needed for rustc suppressing false positives"
-)]
 
 use rstest::{fixture, rstest};
 use wireframe::{
@@ -14,12 +10,11 @@ use wireframe::{
 mod common;
 use common::TestResult;
 
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single-line rstest fixtures"
-)]
 #[fixture]
-fn registry() -> SessionRegistry<u8> { SessionRegistry::default() }
+fn registry() -> SessionRegistry<u8> {
+    // Fixtures use the default registry to minimise setup noise.
+    SessionRegistry::default()
+}
 
 fn push_setup() -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {
     PushQueues::<u8>::builder()
