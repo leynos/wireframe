@@ -89,7 +89,8 @@ where
 
     block(addr).await?;
     let _ = shutdown_tx.send(());
-    let _ = handle.await?;
+    let run_result = handle.await?;
+    run_result?;
     Ok(())
 }
 
@@ -120,10 +121,11 @@ async fn invalid_magic_is_error() -> TestResult {
     client.write_all(bytes).await?;
     client.shutdown().await?;
     let (preamble, _) = read_preamble::<_, HotlinePreamble>(&mut server).await?;
-    if preamble.validate().is_ok() {
-        return Err("invalid magic should fail validation".into());
+    if preamble.validate().is_err() {
+        return Ok(());
     }
-    Ok(())
+
+    Err("invalid magic should fail validation".into())
 }
 
 #[derive(Clone, Copy)]
