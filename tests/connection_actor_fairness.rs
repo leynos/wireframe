@@ -1,9 +1,5 @@
 //! Fairness and priority tests for `ConnectionActor`.
 #![cfg(not(loom))]
-#![allow(
-    unfulfilled_lint_expectations,
-    reason = "Needed for rustc suppressing false positives"
-)]
 
 use futures::stream;
 use rstest::{fixture, rstest};
@@ -31,16 +27,16 @@ fn queues() -> TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)> {
         .map_err(Into::into)
 }
 
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
 #[fixture]
-fn shutdown_token() -> CancellationToken { CancellationToken::new() }
+fn shutdown_token() -> CancellationToken { return CancellationToken::new(); }
 
 #[rstest]
 #[tokio::test]
 #[serial]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn strict_priority_order(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
@@ -57,15 +53,17 @@ async fn strict_priority_order(
         .run(&mut out)
         .await
         .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
-    if out != vec![1, 2, 3] {
-        return Err("unexpected frame ordering".into());
-    }
+    assert_eq!(out, vec![1, 2, 3], "unexpected frame ordering");
     Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 #[serial]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn fairness_yields_low_after_burst(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
@@ -89,9 +87,11 @@ async fn fairness_yields_low_after_burst(
         .run(&mut out)
         .await
         .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
-    if out != vec![1, 2, 99, 3, 4, 5] {
-        return Err("unexpected frame order under fairness".into());
-    }
+    assert_eq!(
+        out,
+        vec![1, 2, 99, 3, 4, 5],
+        "unexpected frame order under fairness"
+    );
     Ok(())
 }
 
@@ -142,15 +142,20 @@ async fn queue_frames(
 #[rstest]
 #[tokio::test]
 #[serial]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn queue_frames_empty_input(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
 ) -> TestResult {
     let (_, handle) = queues?;
     let priorities: &[Priority] = &[];
     let result = queue_frames(priorities, &handle, 0).await?;
-    if !result.is_empty() {
-        return Err("expected empty output for empty input".into());
-    }
+    assert!(
+        result.is_empty(),
+        "expected empty output for empty input but got {result:?}"
+    );
     Ok(())
 }
 
@@ -203,6 +208,10 @@ async fn processes_all_priorities_in_order(
 #[rstest]
 #[tokio::test]
 #[serial]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn fairness_yields_low_with_time_slice(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
@@ -237,15 +246,14 @@ async fn fairness_yields_low_with_time_slice(
     drop(handle);
 
     let out = rx.await.map_err(|_| "actor output missing")?;
-    if !out.contains(&42) {
-        return Err("low-priority item was not yielded".into());
-    }
+    assert!(out.contains(&42), "low-priority item was not yielded");
     let pos = out
         .iter()
         .position(|x| *x == 42)
         .ok_or("value 42 should be present")?;
-    if !(pos > 0 && pos < out.len() - 1) {
-        return Err("low-priority item should be yielded in the middle".into());
-    }
+    assert!(
+        pos > 0 && pos < out.len() - 1,
+        "low-priority item should be yielded in the middle: pos={pos}, out={out:?}"
+    );
     Ok(())
 }
