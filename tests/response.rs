@@ -63,7 +63,7 @@ async fn send_response_encodes_and_frames() -> TestResult {
     let mut out = Vec::new();
     app.send_response(&mut out, &TestResp(7))
         .await
-        .expect("send_response failed");
+        .map_err(|e| format!("send_response failed: {e}"))?;
 
     let frames = decode_frames(out);
     assert_eq!(frames.len(), 1, "expected a single response frame");
@@ -240,29 +240,32 @@ async fn send_response_honours_buffer_capacity() -> TestResult {
 /// Verifies inbound and outbound codecs respect the application's buffer
 /// capacity by round-tripping a 9 MiB payload.
 #[tokio::test]
-async fn process_stream_honours_buffer_capacity() {
-    let app = TestApp::new()
-        .expect("failed to create app")
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn process_stream_honours_buffer_capacity() -> TestResult {
+    let app = TestApp::new()?
         .buffer_capacity(LARGE_FRAME)
-        .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))
-        .expect("route registration failed");
+        .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))?;
 
     let payload = vec![0_u8; 9 * 1024 * 1024];
     let env = Envelope::new(1, None, payload.clone());
-    let bytes = BincodeSerializer.serialize(&env).expect("serialize failed");
+    let bytes = BincodeSerializer
+        .serialize(&env)
+        .map_err(|e| format!("serialize failed: {e}"))?;
 
     let mut codec = app.length_codec();
     let frame = encode_frame(&mut codec, bytes);
-    let out = run_app(app, vec![frame], Some(10 * 1024 * 1024))
-        .await
-        .expect("run_app failed");
+    let out = run_app(app, vec![frame], Some(10 * 1024 * 1024)).await?;
 
     let frames = decode_frames_with_max(out, LARGE_FRAME);
     assert_eq!(frames.len(), 1, "expected a single response frame");
-    let frame = frames.first().expect("response frame missing");
+    let frame = frames.first().ok_or("response frame missing")?;
     let (resp_env, _) = BincodeSerializer
         .deserialize::<Envelope>(frame)
-        .expect("deserialize failed");
+        .map_err(|e| format!("deserialize failed: {e}"))?;
     let resp_len = resp_env.into_parts().payload().len();
     assert_eq!(resp_len, payload.len());
+    Ok(())
 }
