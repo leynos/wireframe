@@ -99,10 +99,10 @@ fn u64_to_bytes_zero_length() {
 }
 
 #[test]
-fn u64_to_bytes_rejects_prefix_beyond_buffer() {
+fn u64_to_bytes_rejects_oversized_prefix() {
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(1, 9, Endianness::Big, &mut buf)
-        .expect_err("prefix larger than buffer must fail");
+        .expect_err("unsupported prefix size must fail");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
