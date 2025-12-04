@@ -280,6 +280,23 @@ where
         Ok(())
     }
 
+    fn handle_decode_failure(
+        deser_failures: &mut u32,
+        context: &str,
+        err: impl std::fmt::Debug,
+    ) -> Result<Option<Envelope>, io::Error> {
+        *deser_failures += 1;
+        warn!("{context}: correlation_id={:?}, error={err:?}", None::<u64>);
+        crate::metrics::inc_deser_errors();
+        if *deser_failures >= MAX_DESER_FAILURES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "too many deserialization failures",
+            ));
+        }
+        Ok(None)
+    }
+
     fn decode_envelope(
         &self,
         frame: &[u8],
@@ -291,34 +308,10 @@ where
                 Ok(Some(env))
             }
             Err(EnvelopeDecodeError::Parse(e)) => {
-                *deser_failures += 1;
-                warn!(
-                    "failed to parse message: correlation_id={:?}, error={e:?}",
-                    None::<u64>
-                );
-                crate::metrics::inc_deser_errors();
-                if *deser_failures >= MAX_DESER_FAILURES {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "too many deserialization failures",
-                    ));
-                }
-                Ok(None)
+                Self::handle_decode_failure(deser_failures, "failed to parse message", e)
             }
             Err(EnvelopeDecodeError::Deserialize(e)) => {
-                *deser_failures += 1;
-                warn!(
-                    "failed to deserialize message: correlation_id={:?}, error={e:?}",
-                    None::<u64>
-                );
-                crate::metrics::inc_deser_errors();
-                if *deser_failures >= MAX_DESER_FAILURES {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "too many deserialization failures",
-                    ));
-                }
-                Ok(None)
+                Self::handle_decode_failure(deser_failures, "failed to deserialize message", e)
             }
         }
     }
