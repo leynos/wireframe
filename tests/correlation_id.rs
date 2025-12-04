@@ -122,7 +122,9 @@ async fn multi_packet_terminator_applies_correlation(
     };
 
     let frames = run_multi_packet_channel(request, &[], hooks).await?;
-    let terminator = frames.first().expect("terminator frame missing");
+    let [terminator] = frames.as_slice() else {
+        return Err(io::Error::other("expected exactly one terminator frame").into());
+    };
     assert_eq!(
         terminator.correlation_id(),
         expected,
