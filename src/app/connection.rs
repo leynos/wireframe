@@ -47,12 +47,6 @@ where
     fragmentation: &'a mut Option<FragmentationState>,
 }
 
-#[derive(Debug)]
-enum EnvelopeDecodeError<E> {
-    Parse(E),
-    Deserialize(Box<dyn std::error::Error + Send + Sync>),
-}
-
 impl<S, C, E> WireframeApp<S, C, E>
 where
     S: Serializer + Send + Sync,
@@ -133,15 +127,11 @@ where
     fn parse_envelope(
         &self,
         frame: &[u8],
-    ) -> std::result::Result<(Envelope, usize), EnvelopeDecodeError<S::Error>> {
+    ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
         self.serializer
             .parse(frame)
-            .map_err(EnvelopeDecodeError::Parse)
-            .or_else(|_| {
-                self.serializer
-                    .deserialize::<Envelope>(frame)
-                    .map_err(EnvelopeDecodeError::Deserialize)
-            })
+            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
+            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
     }
 
     /// Handle an accepted connection end-to-end.
@@ -280,7 +270,7 @@ where
         Ok(())
     }
 
-    /// Increment deserialisation failures and close the connection if the threshold is exceeded.
+    /// Increment deserialization failures and close the connection if the threshold is exceeded.
     fn handle_decode_failure(
         deser_failures: &mut u32,
         context: &str,
@@ -309,11 +299,8 @@ where
                 *deser_failures = 0;
                 Ok(Some(env))
             }
-            Err(EnvelopeDecodeError::Parse(e)) => {
-                Self::handle_decode_failure(deser_failures, "failed to parse message", e)
-            }
-            Err(EnvelopeDecodeError::Deserialize(e)) => {
-                Self::handle_decode_failure(deser_failures, "failed to deserialize message", e)
+            Err(err) => {
+                Self::handle_decode_failure(deser_failures, "failed to decode message", err)
             }
         }
     }
