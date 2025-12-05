@@ -17,6 +17,8 @@ use wireframe::{
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
+const DEFAULT_ADDR: &str = "127.0.0.1:7879";
+
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 enum ExamplePacket {
     Ping,
@@ -94,10 +96,13 @@ async fn main() -> std::io::Result<()> {
 
     let app = Arc::new(build_app().map_err(std::io::Error::other)?);
 
-    let addr: SocketAddr = std::env::var("SERVER_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:7879".to_string())
-        .parse()
-        .map_err(std::io::Error::other)?;
+    let addr_str = std::env::var("SERVER_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
+    let addr: SocketAddr = addr_str.parse().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("SERVER_ADDR must be a valid socket address: {e}"),
+        )
+    })?;
 
     let listener = TcpListener::bind(addr).await?;
     loop {
