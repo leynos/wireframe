@@ -7,7 +7,7 @@ use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync:
 
 use async_trait::async_trait;
 use tokio::{net::TcpListener, signal};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use wireframe::{
     app::Envelope,
     message::Message,
@@ -114,8 +114,11 @@ async fn main() -> std::io::Result<()> {
                     app.handle_connection(stream).await;
                 });
             }
-            _ = signal::ctrl_c() => {
-                info!("packet_enum server received shutdown signal");
+            ctrl_c = signal::ctrl_c() => {
+                match ctrl_c {
+                    Ok(()) => info!("packet_enum server received shutdown signal"),
+                    Err(e) => error!("failed waiting for shutdown signal: {e}"),
+                }
                 break;
             }
         }
