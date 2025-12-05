@@ -136,13 +136,11 @@ pub fn u64_to_bytes(
 
     let value = convert_len_to_value(len, size)?;
 
-    let Some(prefix) = out.get_mut(..size) else {
-        debug_assert!(false, "validated size should fit into prefix buffer");
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            ERR_UNSUPPORTED_PREFIX,
-        ));
-    };
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "size validated to be within the 8-byte prefix buffer"
+    )]
+    let prefix = &mut out[..size];
 
     write_bytes_with_endianness(value, endianness, prefix);
 

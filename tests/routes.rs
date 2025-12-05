@@ -12,7 +12,6 @@ use std::sync::{
 
 use bytes::BytesMut;
 use common::TestResult;
-use rstest::rstest;
 use tokio_util::codec::Encoder;
 use wireframe::{
     Serializer,
@@ -63,8 +62,11 @@ impl Packet for TestEnvelope {
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Echo(u8);
 
-#[rstest]
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
@@ -188,37 +190,39 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     Ok(())
 }
 
-#[rstest]
-#[case(None)]
-#[case(Some(1))]
-#[case(Some(2))]
 #[tokio::test]
-async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> TestResult<()> {
-    let app = TestApp::new()?.route(
-        1,
-        std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
-    )?;
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn single_frame_propagates_correlation_id() -> TestResult<()> {
+    for cid in [None, Some(1), Some(2)] {
+        let app = TestApp::new()?.route(
+            1,
+            std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+        )?;
 
-    let msg_bytes = Echo(5).to_bytes()?;
-    let env = TestEnvelope {
-        id: 1,
-        correlation_id: cid,
-        payload: msg_bytes,
-    };
-    let env_bytes = BincodeSerializer.serialize(&env)?;
+        let msg_bytes = Echo(5).to_bytes()?;
+        let env = TestEnvelope {
+            id: 1,
+            correlation_id: cid,
+            payload: msg_bytes,
+        };
+        let env_bytes = BincodeSerializer.serialize(&env)?;
 
-    let mut framed = BytesMut::with_capacity(env_bytes.len() + 4);
-    let mut codec = new_test_codec(TEST_MAX_FRAME);
-    codec.encode(env_bytes.into(), &mut framed)?;
+        let mut frame_buf = BytesMut::with_capacity(env_bytes.len() + 4);
+        let mut codec = new_test_codec(TEST_MAX_FRAME);
+        codec.encode(env_bytes.into(), &mut frame_buf)?;
 
-    let out = drive_with_frames(app, vec![framed.to_vec()]).await?;
-    let frames = decode_frames(out);
-    let [first] = frames.as_slice() else {
-        return Err("expected a single response frame".into());
-    };
-    let (resp, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
+        let out = drive_with_frames(app, vec![frame_buf.to_vec()]).await?;
+        let frames = decode_frames(out);
+        let [first] = frames.as_slice() else {
+            return Err("expected a single response frame".into());
+        };
+        let (resp, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
 
-    assert_eq!(resp.correlation_id, cid, "correlation id mismatch");
+        assert_eq!(resp.correlation_id, cid, "correlation id mismatch");
+    }
     Ok(())
 }
 
