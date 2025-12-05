@@ -1,7 +1,7 @@
 #![cfg(not(loom))]
 //! Integration tests for transport-level fragmentation and reassembly.
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::{io, num::NonZeroUsize, time::Duration};
 
 use futures::{SinkExt, StreamExt};
 use rstest::rstest;
@@ -176,12 +176,12 @@ fn spawn_app(
     app: WireframeApp,
 ) -> (
     Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
-    tokio::task::JoinHandle<()>,
+    tokio::task::JoinHandle<io::Result<()>>,
 ) {
     let codec = app.length_codec();
     let (client_stream, server_stream) = tokio::io::duplex(256);
     let client = Framed::new(client_stream, codec.clone());
-    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+    let server = tokio::spawn(async move { app.handle_connection_result(server_stream).await });
     (client, server)
 }
 
@@ -248,7 +248,7 @@ async fn run_round_trip_test(
     let response = read_response_payload(&mut client, &config).await?;
     assert_eq!(response, payload);
 
-    server.await?;
+    server.await??;
 
     Ok(response)
 }
@@ -284,7 +284,7 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
 
 struct FragmentRejectionSetup {
     client: Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
-    server: tokio::task::JoinHandle<()>,
+    server: tokio::task::JoinHandle<io::Result<()>>,
     fragments: Vec<Envelope>,
     rx: mpsc::UnboundedReceiver<Vec<u8>>,
 }
@@ -334,7 +334,7 @@ where
     }
 
     drop(client);
-    server.await?;
+    server.await??;
 
     Ok(())
 }
@@ -435,7 +435,7 @@ async fn expired_fragments_are_evicted() -> TestResult {
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload);
     let fragments = fragment_envelope(&request, &fragmenter)?;
 
-    let server = tokio::spawn(async move { app.handle_connection(server_stream).await });
+    let server = tokio::spawn(async move { app.handle_connection_result(server_stream).await });
 
     // Send the first fragment then pause long enough for eviction.
     let first_fragment = fragments
@@ -455,7 +455,7 @@ async fn expired_fragments_are_evicted() -> TestResult {
     );
 
     drop(client);
-    server.await?;
+    server.await??;
 
     Ok(())
 }
@@ -507,7 +507,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
         "expected no fragmentation when fragmentation is disabled"
     );
 
-    server.await?;
+    server.await??;
 
     Ok(())
 }

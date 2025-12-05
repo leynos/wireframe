@@ -139,7 +139,12 @@ where
     /// Runs optional connection setup to produce per-connection state,
     /// initializes (and caches) route chains, processes the framed stream
     /// with per-frame timeouts, and finally runs optional teardown.
-    pub async fn handle_connection<W>(&self, stream: W)
+    /// Handle an accepted connection end-to-end, returning any processing error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if stream processing or handler execution fails.
+    pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
@@ -160,10 +165,26 @@ where
                 "connection terminated with error: correlation_id={:?}, error={e:?}",
                 None::<u64>
             );
+            return Err(e);
         }
 
         if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
             teardown(state).await;
+        }
+
+        Ok(())
+    }
+
+    /// Handle an accepted connection end-to-end, logging errors and swallowing the result.
+    pub async fn handle_connection<W>(&self, stream: W)
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        if let Err(e) = self.handle_connection_result(stream).await {
+            warn!(
+                "connection handling completed with error: correlation_id={:?}, error={e:?}",
+                None::<u64>
+            );
         }
     }
 

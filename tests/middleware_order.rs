@@ -81,11 +81,11 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     client.write_all(&frame).await?;
     client.shutdown().await?;
 
-    let handle = tokio::spawn(async move { app.handle_connection(server).await });
+    let handle = tokio::spawn(async move { app.handle_connection_result(server).await });
 
     let mut out = Vec::new();
     client.read_to_end(&mut out).await?;
-    handle.await?;
+    handle.await??;
 
     let frames = decode_frames(out);
     let [first] = frames.as_slice() else {

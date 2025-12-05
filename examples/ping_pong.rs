@@ -166,7 +166,9 @@ async fn main() -> std::io::Result<()> {
                 let (stream, _) = res?;
                 let app = Arc::clone(&app);
                 tokio::spawn(async move {
-                    app.handle_connection(stream).await;
+                        if let Err(err) = app.handle_connection_result(stream).await {
+                            tracing::error!("connection handling failed: {err}");
+                        }
                 });
             }
             _ = signal::ctrl_c() => {

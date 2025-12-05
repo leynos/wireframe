@@ -64,7 +64,9 @@ async fn process_stream<F, T>(
         Ok((preamble, leftover)) => {
             run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr).await;
             let stream = RewindStream::new(leftover, stream);
-            (factory)().handle_connection(stream).await;
+            if let Err(e) = (factory)().handle_connection_result(stream).await {
+                warn!("connection task error: {e:?}");
+            }
         }
         Err(err) => {
             run_preamble_failure(on_failure.as_ref(), err, &mut stream, peer_addr).await;

@@ -92,9 +92,7 @@ async fn main() -> io::Result<()> {
 
     let mut codec = app.length_codec();
     let (mut client, server) = duplex(1024);
-    let server_task = tokio::spawn(async move {
-        app.handle_connection(server).await;
-    });
+    let server_task = tokio::spawn(async move { app.handle_connection_result(server).await });
 
     let payload = Ping.to_bytes().map_err(io::Error::other)?;
     let mut frame = Vec::new();
@@ -107,6 +105,6 @@ async fn main() -> io::Result<()> {
     client.write_all(&bytes).await?;
     client.shutdown().await?;
 
-    server_task.await.map_err(io::Error::other)?;
+    server_task.await.map_err(io::Error::other)??;
     Ok(())
 }
