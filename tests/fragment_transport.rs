@@ -359,6 +359,10 @@ fn mutate_duplicate(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     Ok(fragments)
 }
 
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     let parts = fragments
         .first()
@@ -368,9 +372,10 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
         ))?
         .into_parts();
     let mut payload = parts.clone().payload();
-    if !payload.starts_with(FRAGMENT_MAGIC) {
-        return Err(TestError::Assertion("expected fragment to start with marker".into()).into());
-    }
+    assert!(
+        payload.starts_with(FRAGMENT_MAGIC),
+        "expected fragment to start with marker"
+    );
     let truncate_len = FRAGMENT_MAGIC.len() + 2;
     if payload.len() > truncate_len {
         payload.truncate(truncate_len);

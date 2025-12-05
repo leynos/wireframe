@@ -4,12 +4,23 @@
 //! Provides [`MultiPacketWorld`] to verify message ordering, back-pressure
 //! handling, and channel lifecycle in cucumber-based behaviour tests.
 
+use std::{error::Error, fmt};
+
 use cucumber::World;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
 use wireframe::{Response, connection::ConnectionActor};
 
 use super::{TestResult, build_small_queues};
+
+#[derive(Debug)]
+struct WireframeRunError(wireframe::WireframeError);
+
+impl fmt::Display for WireframeRunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{:?}", self.0) }
+}
+
+impl Error for WireframeRunError {}
 
 #[derive(Debug, Default, World)]
 pub struct MultiPacketWorld {
@@ -29,8 +40,16 @@ impl MultiPacketWorld {
         actor
             .run(&mut frames)
             .await
-            .map_err(|e| format!("actor run failed: {e:?}"))?;
+            .map_err(WireframeRunError)
+            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
         Ok(frames)
+    }
+
+    /// Send a single byte with back-pressure then close the channel.
+    async fn send_with_backpressure(sender: mpsc::Sender<u8>, value: u8) -> TestResult<()> {
+        sender.send(value).await?;
+        drop(sender);
+        Ok(())
     }
 
     /// Helper method to process messages through a multi-packet response built
@@ -91,23 +110,10 @@ impl MultiPacketWorld {
             return Err("helper did not return a MultiPacket response".into());
         };
 
-        sender
-            .try_send(1)
-            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+        sender.try_send(1)?;
         let overflow_error = matches!(sender.try_send(2), Err(TrySendError::Full(2)));
 
-        let producer = tokio::spawn(async move {
-            let res: TestResult<()> = async {
-                sender
-                    .send(2)
-                    .await
-                    .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
-                drop(sender);
-                Ok(())
-            }
-            .await;
-            res
-        });
+        let producer = tokio::spawn(Self::send_with_backpressure(sender, 2));
 
         let frames = Self::collect_frames_from(rx).await?;
         // Unwrap JoinError from await, then the task's Result
