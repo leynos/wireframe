@@ -134,11 +134,6 @@ where
             .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
     }
 
-    /// Handle an accepted connection end-to-end.
-    ///
-    /// Runs optional connection setup to produce per-connection state,
-    /// initializes (and caches) route chains, processes the framed stream
-    /// with per-frame timeouts, and finally runs optional teardown.
     /// Handle an accepted connection end-to-end, returning any processing error.
     ///
     /// # Errors

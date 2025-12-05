@@ -167,12 +167,15 @@ async fn main() -> std::io::Result<()> {
                 let app = Arc::clone(&app);
                 tokio::spawn(async move {
                         if let Err(err) = app.handle_connection_result(stream).await {
-                            tracing::error!("connection handling failed: {err}");
+                            error!("connection handling failed: {err}");
                         }
                 });
             }
-            _ = signal::ctrl_c() => {
-                info!("ping-pong server received shutdown signal");
+            ctrl_c = signal::ctrl_c() => {
+                match ctrl_c {
+                    Ok(()) => info!("ping-pong server received shutdown signal"),
+                    Err(e) => error!("failed waiting for shutdown signal: {e}"),
+                }
                 break;
             }
         }
