@@ -280,6 +280,7 @@ where
         Ok(())
     }
 
+    /// Increment deserialisation failures and close the connection if the threshold is exceeded.
     fn handle_decode_failure(
         deser_failures: &mut u32,
         context: &str,

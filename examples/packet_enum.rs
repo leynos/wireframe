@@ -90,6 +90,8 @@ fn build_app() -> wireframe::app::Result<App> {
     reason = "tokio::select! macro expansion performs modulo internally"
 )]
 async fn main() -> std::io::Result<()> {
+    tracing_subscriber::fmt::init();
+
     let app = Arc::new(build_app().map_err(std::io::Error::other)?);
 
     let addr: SocketAddr = std::env::var("SERVER_ADDR")
