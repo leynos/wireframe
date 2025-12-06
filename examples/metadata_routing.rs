@@ -8,7 +8,13 @@ use std::{io, sync::Arc};
 use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, duplex};
 use tokio_util::codec::Encoder;
-use wireframe::{app::Envelope, frame::FrameMetadata, message::Message, serializer::Serializer};
+use wireframe::{
+    app::Envelope,
+    byte_order::{read_network_u16, write_network_u16},
+    frame::FrameMetadata,
+    message::Message,
+    serializer::Serializer,
+};
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
 
@@ -58,11 +64,7 @@ impl FrameMetadata for HeaderSerializer {
         // Only extract metadata here; defer payload handling to the serializer.
         // Header ID is defined as big-endian on the wire; from_be_bytes keeps
         // parsing deterministic across host architectures.
-        #[expect(
-            clippy::big_endian_bytes,
-            reason = "Header ID uses network-order u16; from_be_bytes honours the protocol."
-        )]
-        let msg_id = u16::from_be_bytes(id_bytes);
+        let msg_id = read_network_u16(id_bytes);
 
         Ok((Envelope::new(u32::from(msg_id), None, Vec::new()), 3))
     }
@@ -103,11 +105,7 @@ async fn main() -> io::Result<()> {
     let mut frame = Vec::new();
     // Frame header mandates big-endian message ID; to_be_bytes ensures the
     // generated example frame matches the on-wire format.
-    #[expect(
-        clippy::big_endian_bytes,
-        reason = "Example frame writes network-order u16 message ID to match protocol."
-    )]
-    let msg_id_bytes = 1u16.to_be_bytes();
+    let msg_id_bytes = write_network_u16(1);
     frame.extend_from_slice(&msg_id_bytes);
     frame.push(0);
     frame.extend_from_slice(&payload);

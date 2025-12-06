@@ -7,6 +7,24 @@ pub(crate) const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size"
 pub(crate) const ERR_FRAME_TOO_LARGE: &str = "frame too large";
 pub(crate) const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
 
+#[inline]
+fn u64_from_be_bytes(bytes: [u8; 8]) -> u64 {
+    #[expect(
+        clippy::big_endian_bytes,
+        reason = "Wire endianness is explicit; from_be_bytes keeps decoding host-independent."
+    )]
+    u64::from_be_bytes(bytes)
+}
+
+#[inline]
+fn u64_from_le_bytes(bytes: [u8; 8]) -> u64 {
+    #[expect(
+        clippy::little_endian_bytes,
+        reason = "Wire endianness is explicit; from_le_bytes keeps decoding host-independent."
+    )]
+    u64::from_le_bytes(bytes)
+}
+
 /// Checked conversion from `usize` to a specific prefix integer type.
 ///
 /// Returns `ERR_FRAME_TOO_LARGE` if the value does not fit in `T`.
@@ -67,15 +85,11 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     }
 
     // Wire prefix declares its endianness; normalising into an 8-byte buffer and
-    // using from_*_bytes keeps decoding deterministic on any host CPU.
-    #[expect(
-        clippy::big_endian_bytes,
-        clippy::little_endian_bytes,
-        reason = "Wire endianness is explicit; from_*_bytes yields host-independent decoding."
-    )]
+    // using explicit conversion helpers keeps decoding deterministic on any host
+    // CPU.
     let val = match endianness {
-        Endianness::Big => u64::from_be_bytes(buf),
-        Endianness::Little => u64::from_le_bytes(buf),
+        Endianness::Big => u64_from_be_bytes(buf),
+        Endianness::Little => u64_from_le_bytes(buf),
     };
     Ok(val)
 }

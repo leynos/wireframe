@@ -5,6 +5,7 @@
 //! servers, including routing, middleware, and connection utilities.
 
 pub mod app;
+pub mod byte_order;
 /// Result type alias re-exported for convenience when working with the
 /// application builder.
 pub use app::error::Result;

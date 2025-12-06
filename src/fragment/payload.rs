@@ -16,6 +16,7 @@ use bincode::{
 };
 
 use super::{FragmentHeader, FragmentIndex, MessageId};
+use crate::byte_order::{read_network_u16, write_network_u16};
 
 /// Magic prefix that marks an embedded fragment payload.
 pub const FRAGMENT_MAGIC: &[u8; 4] = b"FRAG";
@@ -62,13 +63,9 @@ pub fn encode_fragment_payload(
         FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + header_bytes.len() + payload.len(),
     );
     buf.extend_from_slice(FRAGMENT_MAGIC);
-    // Fragment length prefix is always network-order; to_be_bytes keeps the wire
-    // contract explicit and host-independent.
-    #[expect(
-        clippy::big_endian_bytes,
-        reason = "Network-order u16 length prefix; to_be_bytes preserves wire endianness."
-    )]
-    let header_len_bytes = header_len.to_be_bytes();
+    // Fragment length prefix is always network-order; write_network_u16 keeps
+    // the wire contract explicit and host-independent.
+    let header_len_bytes = write_network_u16(header_len);
     buf.extend_from_slice(&header_len_bytes);
     buf.extend_from_slice(&header_bytes);
     buf.extend_from_slice(payload);
@@ -110,13 +107,9 @@ pub fn decode_fragment_payload(
         .copied()
         .ok_or(DecodeError::UnexpectedEnd { additional: 0 })?;
     let len_bytes = [len_hi, len_lo];
-    // Header prefix is defined as big-endian in the protocol; from_be_bytes keeps
-    // decoding deterministic regardless of host CPU endianness.
-    #[expect(
-        clippy::big_endian_bytes,
-        reason = "Network-order u16 prefix; from_be_bytes enforces fixed wire endianness."
-    )]
-    let header_len = u16::from_be_bytes(len_bytes) as usize;
+    // Header prefix is defined as big-endian in the protocol; read_network_u16
+    // keeps decoding deterministic regardless of host CPU endianness.
+    let header_len = usize::from(read_network_u16(len_bytes));
     let header_start = header_len_offset + std::mem::size_of::<u16>();
     let header_end = header_start + header_len;
 
@@ -196,11 +189,7 @@ mod tests {
         let mut payload = Vec::new();
         payload.extend_from_slice(FRAGMENT_MAGIC);
         // Tests exercise the same network-order length prefix as production code.
-        #[expect(
-            clippy::big_endian_bytes,
-            reason = "Network-order u16 length prefix exercised in test payload."
-        )]
-        let advertised_len_bytes = advertised_len.to_be_bytes();
+        let advertised_len_bytes = write_network_u16(advertised_len);
         payload.extend_from_slice(&advertised_len_bytes);
         payload.extend_from_slice(&header_bytes);
 
@@ -232,11 +221,7 @@ mod tests {
         let advertised_len: u16 = 4;
         let mut payload = Vec::new();
         payload.extend_from_slice(FRAGMENT_MAGIC);
-        #[expect(
-            clippy::big_endian_bytes,
-            reason = "Network-order u16 length prefix exercised in test payload."
-        )]
-        let advertised_len_bytes = advertised_len.to_be_bytes();
+        let advertised_len_bytes = write_network_u16(advertised_len);
         payload.extend_from_slice(&advertised_len_bytes);
         // No header bytes provided.
 
