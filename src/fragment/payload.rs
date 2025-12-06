@@ -62,7 +62,14 @@ pub fn encode_fragment_payload(
         FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + header_bytes.len() + payload.len(),
     );
     buf.extend_from_slice(FRAGMENT_MAGIC);
-    buf.extend_from_slice(&header_len.to_be_bytes());
+    // Fragment length prefix is always network-order; to_be_bytes keeps the wire
+    // contract explicit and host-independent.
+    #[expect(
+        clippy::big_endian_bytes,
+        reason = "Network-order u16 length prefix; to_be_bytes preserves wire endianness."
+    )]
+    let header_len_bytes = header_len.to_be_bytes();
+    buf.extend_from_slice(&header_len_bytes);
     buf.extend_from_slice(&header_bytes);
     buf.extend_from_slice(payload);
     Ok(buf)
@@ -103,6 +110,12 @@ pub fn decode_fragment_payload(
         .copied()
         .ok_or(DecodeError::UnexpectedEnd { additional: 0 })?;
     let len_bytes = [len_hi, len_lo];
+    // Header prefix is defined as big-endian in the protocol; from_be_bytes keeps
+    // decoding deterministic regardless of host CPU endianness.
+    #[expect(
+        clippy::big_endian_bytes,
+        reason = "Network-order u16 prefix; from_be_bytes enforces fixed wire endianness."
+    )]
     let header_len = u16::from_be_bytes(len_bytes) as usize;
     let header_start = header_len_offset + std::mem::size_of::<u16>();
     let header_end = header_start + header_len;
@@ -182,7 +195,13 @@ mod tests {
 
         let mut payload = Vec::new();
         payload.extend_from_slice(FRAGMENT_MAGIC);
-        payload.extend_from_slice(&advertised_len.to_be_bytes());
+        // Tests exercise the same network-order length prefix as production code.
+        #[expect(
+            clippy::big_endian_bytes,
+            reason = "Network-order u16 length prefix exercised in test payload."
+        )]
+        let advertised_len_bytes = advertised_len.to_be_bytes();
+        payload.extend_from_slice(&advertised_len_bytes);
         payload.extend_from_slice(&header_bytes);
 
         let err = decode_fragment_payload(&payload).expect_err("expected decode failure");
@@ -213,7 +232,12 @@ mod tests {
         let advertised_len: u16 = 4;
         let mut payload = Vec::new();
         payload.extend_from_slice(FRAGMENT_MAGIC);
-        payload.extend_from_slice(&advertised_len.to_be_bytes());
+        #[expect(
+            clippy::big_endian_bytes,
+            reason = "Network-order u16 length prefix exercised in test payload."
+        )]
+        let advertised_len_bytes = advertised_len.to_be_bytes();
+        payload.extend_from_slice(&advertised_len_bytes);
         // No header bytes provided.
 
         let err = decode_fragment_payload(&payload).expect_err("expected decode failure");

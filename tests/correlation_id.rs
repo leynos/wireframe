@@ -57,6 +57,11 @@ async fn run_multi_packet_channel(
     let (tx, rx) = mpsc::channel(capacity);
     for (idx, correlation) in frame_correlations.iter().enumerate() {
         let marker = (idx + 1) as u64;
+        // Test payload is defined to use little-endian marker bytes to mirror wire format.
+        #[expect(
+            clippy::little_endian_bytes,
+            reason = "Test payload mirrors little-endian marker encoding required by the protocol."
+        )]
         let payload = marker.to_le_bytes().to_vec();
         tx.send(Envelope::new(1, *correlation, payload)).await?;
     }

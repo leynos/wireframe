@@ -56,10 +56,15 @@ impl FrameMetadata for HeaderSerializer {
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "header flags"))?;
 
         // Only extract metadata here; defer payload handling to the serializer.
-        Ok((
-            Envelope::new(u32::from(u16::from_be_bytes(id_bytes)), None, Vec::new()),
-            3,
-        ))
+        // Header ID is defined as big-endian on the wire; from_be_bytes keeps
+        // parsing deterministic across host architectures.
+        #[expect(
+            clippy::big_endian_bytes,
+            reason = "Header ID uses network-order u16; from_be_bytes honours the protocol."
+        )]
+        let msg_id = u16::from_be_bytes(id_bytes);
+
+        Ok((Envelope::new(u32::from(msg_id), None, Vec::new()), 3))
     }
 }
 
@@ -96,7 +101,14 @@ async fn main() -> io::Result<()> {
 
     let payload = Ping.to_bytes().map_err(io::Error::other)?;
     let mut frame = Vec::new();
-    frame.extend_from_slice(&1u16.to_be_bytes());
+    // Frame header mandates big-endian message ID; to_be_bytes ensures the
+    // generated example frame matches the on-wire format.
+    #[expect(
+        clippy::big_endian_bytes,
+        reason = "Example frame writes network-order u16 message ID to match protocol."
+    )]
+    let msg_id_bytes = 1u16.to_be_bytes();
+    frame.extend_from_slice(&msg_id_bytes);
     frame.push(0);
     frame.extend_from_slice(&payload);
     let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix

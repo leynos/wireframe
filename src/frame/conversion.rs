@@ -66,6 +66,13 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
         }
     }
 
+    // Wire prefix declares its endianness; normalising into an 8-byte buffer and
+    // using from_*_bytes keeps decoding deterministic on any host CPU.
+    #[expect(
+        clippy::big_endian_bytes,
+        clippy::little_endian_bytes,
+        reason = "Wire endianness is explicit; from_*_bytes yields host-independent decoding."
+    )]
     let val = match endianness {
         Endianness::Big => u64::from_be_bytes(buf),
         Endianness::Little => u64::from_le_bytes(buf),
