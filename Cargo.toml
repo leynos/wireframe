@@ -110,6 +110,11 @@ integer_division_remainder_used = "deny"
 panic_in_result_fn = "deny"
 unreachable = "deny"
 
+# 4. portability
+host_endian_bytes = "deny"
+little_endian_bytes = "deny"
+big_endian_bytes = "deny"
+
 [lints.rust]
 unknown_lints = "deny"
 renamed_and_removed_lints = "deny"
