@@ -20,6 +20,43 @@ use crate::{
     serializer::Serializer,
 };
 
+struct DeserFailureTracker<'a> {
+    count: &'a mut u32,
+    limit: u32,
+}
+
+impl<'a> DeserFailureTracker<'a> {
+    fn new(count: &'a mut u32, limit: u32) -> Self { Self { count, limit } }
+
+    fn record(
+        &mut self,
+        correlation_id: Option<u64>,
+        context: &str,
+        err: impl std::fmt::Debug,
+    ) -> io::Result<()> {
+        *self.count += 1;
+        warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
+        crate::metrics::inc_deser_errors();
+        if *self.count >= self.limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "too many deserialization failures",
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(crate) struct ResponseContext<'a, S, W>
+where
+    S: Serializer + Send + Sync,
+    W: AsyncRead + AsyncWrite + Unpin,
+{
+    pub(crate) serializer: &'a S,
+    pub(crate) framed: &'a mut Framed<W, LengthDelimitedCodec>,
+    pub(crate) fragmentation: &'a mut Option<FragmentationState>,
+}
+
 /// Attempt to reassemble a potentially fragmented envelope.
 pub(crate) fn reassemble_if_needed(
     fragmentation: &mut Option<FragmentationState>,
@@ -27,44 +64,21 @@ pub(crate) fn reassemble_if_needed(
     env: Envelope,
     max_deser_failures: u32,
 ) -> io::Result<Option<Envelope>> {
-    fn handle_fragment_error(
-        deser_failures: &mut u32,
-        max_deser_failures: u32,
-        correlation_id: Option<u64>,
-        context: &str,
-        err: impl std::fmt::Debug,
-    ) -> io::Result<Option<Envelope>> {
-        *deser_failures += 1;
-        warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
-        crate::metrics::inc_deser_errors();
-        if *deser_failures >= max_deser_failures {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "too many deserialization failures",
-            ));
-        }
-        Ok(None)
-    }
+    let mut failures = DeserFailureTracker::new(deser_failures, max_deser_failures);
 
     if let Some(state) = fragmentation.as_mut() {
         let correlation_id = env.correlation_id;
         match state.reassemble(env) {
             Ok(Some(env)) => Ok(Some(env)),
             Ok(None) => Ok(None),
-            Err(FragmentProcessError::Decode(err)) => handle_fragment_error(
-                deser_failures,
-                max_deser_failures,
-                correlation_id,
-                "failed to decode fragment header",
-                err,
-            ),
-            Err(FragmentProcessError::Reassembly(err)) => handle_fragment_error(
-                deser_failures,
-                max_deser_failures,
-                correlation_id,
-                "fragment reassembly failed",
-                err,
-            ),
+            Err(FragmentProcessError::Decode(err)) => {
+                failures.record(correlation_id, "failed to decode fragment header", err)?;
+                Ok(None)
+            }
+            Err(FragmentProcessError::Reassembly(err)) => {
+                failures.record(correlation_id, "fragment reassembly failed", err)?;
+                Ok(None)
+            }
         }
     } else {
         Ok(Some(env))
@@ -73,11 +87,9 @@ pub(crate) fn reassemble_if_needed(
 
 /// Forward a handler response, fragmenting if required, and write to the framed stream.
 pub(crate) async fn forward_response<S, E, W>(
-    serializer: &S,
     env: Envelope,
     service: &HandlerService<E>,
-    framed: &mut Framed<W, LengthDelimitedCodec>,
-    fragmentation: &mut Option<FragmentationState>,
+    ctx: ResponseContext<'_, S, W>,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
@@ -85,59 +97,97 @@ where
     W: AsyncRead + AsyncWrite + Unpin,
 {
     let request = ServiceRequest::new(env.payload, env.correlation_id);
-    match service.call(request).await {
-        Ok(resp) => {
-            let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
-                .inherit_correlation(env.correlation_id);
-            let correlation_id = parts.correlation_id();
-            let responses = if let Some(state) = fragmentation.as_mut() {
-                match state.fragment(Envelope::from_parts(parts)) {
-                    Ok(fragmented) => fragmented,
-                    Err(err) => {
-                        warn!(
-                            "failed to fragment response: id={}, correlation_id={:?}, \
-                             error={err:?}",
-                            env.id, correlation_id
-                        );
-                        crate::metrics::inc_handler_errors();
-                        return Ok(());
-                    }
-                }
-            } else {
-                vec![Envelope::from_parts(parts)]
-            };
-
-            for response in responses {
-                match serializer.serialize(&response) {
-                    Ok(bytes) => {
-                        if let Err(e) = framed.send(bytes.into()).await {
-                            warn!(
-                                "failed to send response: id={}, correlation_id={:?}, error={e:?}",
-                                env.id, correlation_id
-                            );
-                            crate::metrics::inc_handler_errors();
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        warn!(
-                            "failed to serialize response: id={}, correlation_id={:?}, error={e:?}",
-                            env.id, correlation_id
-                        );
-                        crate::metrics::inc_handler_errors();
-                        break;
-                    }
-                }
-            }
-        }
+    let resp = match service.call(request).await {
+        Ok(resp) => resp,
         Err(e) => {
             warn!(
                 "handler error: id={}, correlation_id={:?}, error={e:?}",
                 env.id, env.correlation_id
             );
             crate::metrics::inc_handler_errors();
+            return Ok(());
+        }
+    };
+
+    let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
+        .inherit_correlation(env.correlation_id);
+    let correlation_id = parts.correlation_id();
+    let Ok(responses) = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id) else {
+        return Ok(()); // already logged
+    };
+
+    for response in responses {
+        let Ok(bytes) = serialize_response(ctx.serializer, &response, env.id, correlation_id)
+        else {
+            break; // already logged
+        };
+
+        if send_response_bytes(ctx.framed, bytes, env.id, correlation_id)
+            .await
+            .is_err()
+        {
+            break;
         }
     }
 
+    Ok(())
+}
+
+fn fragment_responses(
+    fragmentation: &mut Option<FragmentationState>,
+    parts: PacketParts,
+    id: u32,
+    correlation_id: Option<u64>,
+) -> io::Result<Vec<Envelope>> {
+    let envelope = Envelope::from_parts(parts);
+    match fragmentation.as_mut() {
+        Some(state) => match state.fragment(envelope) {
+            Ok(fragmented) => Ok(fragmented),
+            Err(err) => {
+                warn!(
+                    "failed to fragment response: id={id}, correlation_id={correlation_id:?}, \
+                     error={err:?}"
+                );
+                crate::metrics::inc_handler_errors();
+                Err(io::Error::other("fragmentation failed"))
+            }
+        },
+        None => Ok(vec![envelope]),
+    }
+}
+
+fn serialize_response<S: Serializer>(
+    serializer: &S,
+    response: &Envelope,
+    id: u32,
+    correlation_id: Option<u64>,
+) -> io::Result<Vec<u8>> {
+    match serializer.serialize(response) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => {
+            warn!(
+                "failed to serialize response: id={id}, correlation_id={correlation_id:?}, \
+                 error={e:?}"
+            );
+            crate::metrics::inc_handler_errors();
+            Err(io::Error::other("serialization failed"))
+        }
+    }
+}
+
+async fn send_response_bytes<W>(
+    framed: &mut Framed<W, LengthDelimitedCodec>,
+    bytes: Vec<u8>,
+    id: u32,
+    correlation_id: Option<u64>,
+) -> io::Result<()>
+where
+    W: AsyncRead + AsyncWrite + Unpin,
+{
+    if let Err(e) = framed.send(bytes.into()).await {
+        warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
+        crate::metrics::inc_handler_errors();
+        return Err(io::Error::other("send failed"));
+    }
     Ok(())
 }

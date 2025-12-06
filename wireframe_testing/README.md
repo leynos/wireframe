@@ -1,10 +1,11 @@
 # wireframe_testing
 
-Helper utilities for exercising [`wireframe`](https://crates.io/crates/wireframe)
-applications in tests without opening real sockets. The crate runs a
-`WireframeApp` against in-memory duplex streams, captures every frame the app
-emits, and provides small helpers for encoding or decoding frames so assertions
-stay focused on behaviour rather than plumbing.
+Helper utilities for exercising
+[`wireframe`](https://crates.io/crates/wireframe) applications in tests without
+opening real sockets. The crate runs a `WireframeApp` against in-memory duplex
+streams, captures every frame the app emits, and provides small helpers for
+encoding or decoding frames so assertions stay focused on behaviour rather than
+plumbing.
 
 - Drive an app with length-delimited frames or bincode-serialised payloads.
 - Collect multi-frame responses into a single buffer for snapshot-style

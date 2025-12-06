@@ -7,8 +7,8 @@
 #![cfg(not(loom))]
 
 #[path = "../common/mod.rs"]
-mod common;
-pub(crate) use common::unused_listener;
+pub mod common;
+pub use common::{TestResult, unused_listener};
 
 #[path = "../common/terminator.rs"]
 mod terminator;
@@ -22,11 +22,8 @@ use wireframe::{app::Envelope, push::PushQueues, serializer::BincodeSerializer};
 pub(crate) type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 pub(crate) fn build_small_queues<T: Send + 'static>()
--> (PushQueues<T>, wireframe::push::PushHandle<T>) {
-    support::builder::<T>()
-        .unlimited()
-        .build()
-        .expect("failed to build PushQueues")
+-> Result<(PushQueues<T>, wireframe::push::PushHandle<T>), wireframe::push::PushConfigError> {
+    support::builder::<T>().unlimited().build()
 }
 
 pub mod correlation;

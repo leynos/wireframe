@@ -94,6 +94,18 @@ pub struct FairnessConfig {
     pub time_slice: Option<Duration>,
 }
 
+/// Bundles push queues with their shared handle for actor construction.
+pub struct ConnectionChannels<F> {
+    pub queues: PushQueues<F>,
+    pub handle: PushHandle<F>,
+}
+
+impl<F> ConnectionChannels<F> {
+    /// Create a new bundle of push queues and their associated handle.
+    #[must_use]
+    pub fn new(queues: PushQueues<F>, handle: PushHandle<F>) -> Self { Self { queues, handle } }
+}
+
 impl Default for FairnessConfig {
     fn default() -> Self {
         Self {
@@ -267,8 +279,7 @@ where
         shutdown: CancellationToken,
     ) -> Self {
         Self::with_hooks(
-            queues,
-            handle,
+            ConnectionChannels::new(queues, handle),
             response,
             shutdown,
             ProtocolHooks::<F, E>::default(),
@@ -278,12 +289,12 @@ where
     /// Create a new `ConnectionActor` with custom protocol hooks.
     #[must_use]
     pub fn with_hooks(
-        queues: PushQueues<F>,
-        handle: PushHandle<F>,
+        channels: ConnectionChannels<F>,
         response: Option<FrameStream<F, E>>,
         shutdown: CancellationToken,
         hooks: ProtocolHooks<F, E>,
     ) -> Self {
+        let ConnectionChannels { queues, handle } = channels;
         let ctx = ConnectionContext;
         let counter = ActiveConnection::new();
         let mut actor = Self {
@@ -415,7 +426,7 @@ where
                 );
             }
             MultiPacketStamp::Disabled => {
-                unreachable!("multi-packet correlation invoked without configuration");
+                // No channel is active, so there is nothing to stamp.
             }
         }
     }
@@ -477,6 +488,10 @@ where
     ///
     /// The `strict_priority_order` and `shutdown_signal_precedence` tests
     /// assert that this ordering is preserved across refactors.
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus operations internally"
+    )]
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
         let high_available = self.high_rx.is_some();
         let low_available = self.low_rx.is_some();
@@ -646,13 +661,12 @@ where
     where
         F: Packet,
     {
-        if let Some(fragmenter) = &self.fragmenter {
-            match fragment_packet(fragmenter, frame) {
-                Ok(frames) => {
-                    for frame in frames {
-                        self.push_frame(frame, out);
-                    }
-                }
+        if let Some(fragmenter) = self.fragmenter.as_deref() {
+            let fragmented = fragment_packet(fragmenter, frame);
+            match fragmented {
+                Ok(frames) => frames
+                    .into_iter()
+                    .for_each(|frame| self.push_frame(frame, out)),
                 Err(err) => {
                     warn!(
                         "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
@@ -754,10 +768,14 @@ where
     fn try_opportunistic_drain(&mut self, kind: QueueKind, ctx: DrainContext<'_, F>) -> bool {
         let DrainContext { out, state } = ctx;
         match kind {
-            QueueKind::High => unreachable!(concat!(
-                "try_opportunistic_drain(High) is unsupported; ",
-                "High is handled by biased polling",
-            )),
+            QueueKind::High => {
+                debug_assert!(
+                    false,
+                    "try_opportunistic_drain(High) is unsupported; High is handled by biased \
+                     polling"
+                );
+                false
+            }
             QueueKind::Low => {
                 let res = match self.low_rx.as_mut() {
                     Some(receiver) => receiver.try_recv(),

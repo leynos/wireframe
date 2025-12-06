@@ -8,11 +8,6 @@ use rstest::fixture;
 use super::{Bound, WireframeServer};
 use crate::app::WireframeApp;
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Used in builder tests via fixtures")
-)]
-#[cfg_attr(test, allow(dead_code, reason = "Used in builder tests via fixtures"))]
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct TestPreamble {
     pub id: u32,

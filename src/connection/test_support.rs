@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ActorState,
     ConnectionActor,
+    ConnectionChannels,
     DrainContext,
     MultiPacketTerminationReason,
     ProtocolHooks,
@@ -54,8 +55,7 @@ pub fn create_test_actor_with_hooks(
         .low_capacity(4)
         .build()?;
     Ok(ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         None,
         CancellationToken::new(),
         hooks,
@@ -67,10 +67,6 @@ pub struct ActorHarness {
     actor: ConnectionActor<u8, ()>,
     state: ActorState,
     pub out: Vec<u8>,
-}
-
-impl Default for ActorHarness {
-    fn default() -> Self { Self::new().expect("failed to build ActorHarness") }
 }
 
 impl ActorHarness {

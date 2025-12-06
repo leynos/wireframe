@@ -47,14 +47,25 @@ fn u64_to_bytes_ok(
     let mut buf = [0u8; 8];
     let written = u64_to_bytes(value, size, endianness, &mut buf).expect("failed to encode u64");
     assert_eq!(written, size);
-    assert_eq!(&buf[..written], expected.as_slice());
+    assert_eq!(
+        buf.get(..written)
+            .expect("written value must be within buffer bounds"),
+        expected.as_slice()
+    );
 }
 
 #[rstest]
 #[case(vec![0x01], 2, Endianness::Big)]
 #[case(vec![0x02, 0x03], 4, Endianness::Little)]
 fn bytes_to_u64_short(#[case] bytes: Vec<u8>, #[case] size: usize, #[case] endianness: Endianness) {
-    let err = bytes_to_u64(&bytes, size, endianness).unwrap_err();
+    let err = bytes_to_u64(&bytes, size, endianness)
+        .expect_err("short input must fail with UnexpectedEof");
+    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn bytes_to_u64_rejects_empty_input() {
+    let err = bytes_to_u64(&[], 2, Endianness::Big).expect_err("empty slice must error");
     assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
 }
 
@@ -66,14 +77,16 @@ fn bytes_to_u64_unsupported(
     #[case] size: usize,
     #[case] endianness: Endianness,
 ) {
-    let err = bytes_to_u64(&bytes, size, endianness).unwrap_err();
+    let err = bytes_to_u64(&bytes, size, endianness)
+        .expect_err("unsupported size must fail with InvalidInput");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
 #[rstest]
 fn u64_to_bytes_large() {
     let mut buf = [0u8; 8];
-    let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf).unwrap_err();
+    let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf)
+        .expect_err("value 300 must fail for 1-byte width (max 255)");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
@@ -82,6 +95,14 @@ fn u64_to_bytes_zero_length() {
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(0, 0, Endianness::Big, &mut buf)
         .expect_err("u64_to_bytes must fail if length is zero");
+    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+}
+
+#[test]
+fn u64_to_bytes_rejects_oversized_prefix() {
+    let mut buf = [0u8; 8];
+    let err = u64_to_bytes(1, 9, Endianness::Big, &mut buf)
+        .expect_err("unsupported prefix size must fail");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
@@ -94,7 +115,8 @@ fn u64_to_bytes_unsupported(
     #[case] endianness: Endianness,
 ) {
     let mut buf = [0u8; 8];
-    let err = u64_to_bytes(value, size, endianness, &mut buf).unwrap_err();
+    let err = u64_to_bytes(value, size, endianness, &mut buf)
+        .expect_err("unsupported size must fail with InvalidInput");
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
 
@@ -107,6 +129,12 @@ fn u64_to_bytes_zeroes_remainder(
     #[case] endianness: Endianness,
 ) {
     let mut buf = [0xaau8; 8];
-    u64_to_bytes(value, size, endianness, &mut buf).unwrap();
-    assert!(buf[size..].iter().all(|&b| b == 0));
+    u64_to_bytes(value, size, endianness, &mut buf)
+        .expect("conversion should succeed for valid size");
+    assert!(
+        buf.get(size..)
+            .expect("size must be within buffer bounds")
+            .iter()
+            .all(|&b| b == 0)
+    );
 }

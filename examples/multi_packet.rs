@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use futures::TryStreamExt;
 use tokio::time::sleep;
-use wireframe::Response;
+use tracing::info;
+use wireframe::{Response, WireframeError};
 
 const TRANSCRIPT: &[&str] = &[
     "Client: HELLO",
@@ -58,7 +59,7 @@ fn multi_packet_response() -> Response<Frame> {
         for (index, line) in TRANSCRIPT.iter().enumerate() {
             let frame = Frame::chunk(index, line);
             if sender.send(frame).await.is_err() {
-                // The connection dropped; stop work early.
+                tracing::trace!("connection dropped, stopping chunk task early");
                 break;
             }
 
@@ -72,7 +73,7 @@ fn multi_packet_response() -> Response<Frame> {
         let _ = chunk_task.await;
         let summary = Frame::summary(TRANSCRIPT.len());
         if summary_sender.send(summary).await.is_err() {
-            // The connection dropped; stop work early.
+            tracing::trace!("connection dropped, summary not sent");
         }
     });
 
@@ -80,24 +81,24 @@ fn multi_packet_response() -> Response<Frame> {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), WireframeError<()>> {
+    tracing_subscriber::fmt::init();
+
     let response = multi_packet_response();
     let mut stream = response.into_stream();
 
-    while let Some(frame) = stream
-        .try_next()
-        .await
-        .expect("multi-packet stream should not fail")
-    {
+    while let Some(frame) = stream.try_next().await? {
         match frame {
             Frame {
                 kind: FrameKind::Chunk(index),
                 data,
-            } => println!("Chunk {index}: {data}"),
+            } => info!("Chunk {index}: {data}"),
             Frame {
                 kind: FrameKind::Summary,
                 data,
-            } => println!("Summary: {data}"),
+            } => info!("Summary: {data}"),
         }
     }
+
+    Ok(())
 }

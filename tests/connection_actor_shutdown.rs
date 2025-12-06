@@ -9,40 +9,58 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use wireframe::{connection::ConnectionActor, push::PushQueues};
 use wireframe_testing::push_expect;
 
-#[fixture]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
-fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
-    PushQueues::<u8>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .build()
-        .expect("failed to build PushQueues")
+mod common;
+use common::TestResult;
+
+// Apply expected lint suppressions for single-line rstest fixtures.
+// Context: https://github.com/la10736/rstest/issues/222
+macro_rules! single_line_fixture {
+    ($item:item) => {
+        #[expect(
+            clippy::allow_attributes,
+            reason = "rstest single-line fixtures need allow to avoid unfulfilled lint \
+                      expectations"
+        )]
+        #[allow(
+            unfulfilled_lint_expectations,
+            reason = "rstest occasionally misses the expected lint for single-line fixtures on \
+                      stable"
+        )]
+        #[expect(
+            unused_braces,
+            reason = "rustc false positive for single line rstest fixtures"
+        )]
+        $item
+    };
 }
 
-#[fixture]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
-fn shutdown_token() -> CancellationToken { CancellationToken::new() }
+single_line_fixture! {
+    #[fixture]
+    fn queues()
+    -> Result<(PushQueues<u8>, wireframe::push::PushHandle<u8>), wireframe::push::PushConfigError> {
+        PushQueues::<u8>::builder()
+            .high_capacity(8)
+            .low_capacity(8)
+            .build()
+    }
+}
+
+single_line_fixture! {
+    #[fixture]
+    fn shutdown_token() -> CancellationToken { CancellationToken::new() }
+}
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn shutdown_signal_precedence(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
 ) {
-    let (queues, handle) = queues;
+    let (queues, handle) = queues.expect("fixture should build queues");
     shutdown_token.cancel();
     let mut actor: ConnectionActor<_, ()> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
@@ -56,10 +74,13 @@ async fn shutdown_signal_precedence(
 #[tokio::test]
 #[serial]
 async fn complete_draining_of_sources(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
 ) {
-    let (queues, handle) = queues;
+    let (queues, handle) = queues.expect("fixture should build queues");
     push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(2u8), Ok(3u8)]);
@@ -75,10 +96,13 @@ async fn complete_draining_of_sources(
 #[tokio::test]
 #[serial]
 async fn interleaved_shutdown_during_stream(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
 ) {
-    let (queues, handle) = queues;
+    let (queues, handle) = queues.expect("fixture should build queues");
     let token = shutdown_token.clone();
     tokio::spawn(async move {
         sleep(Duration::from_millis(50)).await;
@@ -121,7 +145,7 @@ async fn push_queue_exhaustion_backpressure() {
 #[rstest]
 #[tokio::test]
 #[serial]
-async fn graceful_shutdown_waits_for_tasks() {
+async fn graceful_shutdown_waits_for_tasks() -> TestResult {
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
 
@@ -130,8 +154,7 @@ async fn graceful_shutdown_waits_for_tasks() {
         let (queues, handle) = PushQueues::<u8>::builder()
             .high_capacity(1)
             .low_capacity(1)
-            .build()
-            .expect("failed to build PushQueues");
+            .build()?;
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle.clone(), None, token.clone());
         handles.push(handle);
@@ -149,15 +172,19 @@ async fn graceful_shutdown_waits_for_tasks() {
             .await
             .is_ok(),
     );
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn connection_count_decrements_on_abort(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
 ) {
-    let (queues, handle) = queues;
+    let (queues, handle) = queues.expect("fixture should build queues");
     let token = CancellationToken::new();
     token.cancel();
 
@@ -176,10 +203,13 @@ async fn connection_count_decrements_on_abort(
 #[tokio::test]
 #[serial]
 async fn connection_count_decrements_on_close(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
 ) {
-    let (queues, handle) = queues;
+    let (queues, handle) = queues.expect("fixture should build queues");
     let before = wireframe::connection::active_connection_count();
     let stream = stream::iter(vec![Ok(1u8)]);
     let mut actor: ConnectionActor<_, ()> =

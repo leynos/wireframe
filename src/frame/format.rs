@@ -96,7 +96,14 @@ impl LengthFormat {
     pub fn write_len(&self, len: usize, dst: &mut BytesMut) -> io::Result<()> {
         let mut buf = [0u8; 8];
         let written = u64_to_bytes(len, self.bytes, self.endianness, &mut buf)?;
-        dst.extend_from_slice(&buf[..written]);
+        let prefix = buf.get(..written).ok_or_else(|| {
+            debug_assert!(false, "written prefix length must never exceed buffer");
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "internal: prefix slice exceeds buffer",
+            )
+        })?;
+        dst.extend_from_slice(prefix);
         Ok(())
     }
 }

@@ -20,6 +20,16 @@ pub struct Fragmenter {
     next_message_id: AtomicU64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FragmentCursor {
+    offset: usize,
+    index: FragmentIndex,
+}
+
+impl FragmentCursor {
+    pub(crate) const fn new(offset: usize, index: FragmentIndex) -> Self { Self { offset, index } }
+}
+
 impl Fragmenter {
     /// Create a new fragmenter that caps fragment payloads at `max_fragment_size` bytes.
     #[must_use]
@@ -64,7 +74,8 @@ impl Fragmenter {
     ///
     /// Returns [`FragmentationError::Encode`] if serialization fails, or
     /// [`FragmentationError::IndexOverflow`] if the fragment index would
-    /// overflow `u32`.
+    /// overflow `u32`. Slice calculations that exceed payload bounds return
+    /// [`FragmentationError::SliceBounds`].
     pub fn fragment_message<M: Message>(
         &self,
         message: &M,
@@ -78,7 +89,9 @@ impl Fragmenter {
     /// # Errors
     ///
     /// Returns [`FragmentationError::IndexOverflow`] if more than
-    /// `u32::MAX + 1` fragments are required.
+    /// `u32::MAX + 1` fragments are required, or
+    /// [`FragmentationError::SliceBounds`] if slice calculation exceeds payload
+    /// bounds.
     pub fn fragment_bytes(
         &self,
         payload: impl AsRef<[u8]>,
@@ -92,7 +105,9 @@ impl Fragmenter {
     /// # Errors
     ///
     /// Returns [`FragmentationError::IndexOverflow`] if more than
-    /// `u32::MAX + 1` fragments are required.
+    /// `u32::MAX + 1` fragments are required, or
+    /// [`FragmentationError::SliceBounds`] if slice calculation exceeds payload
+    /// bounds.
     pub fn fragment_with_id(
         &self,
         message_id: MessageId,
@@ -107,6 +122,19 @@ impl Fragmenter {
         message_id: MessageId,
         payload: &[u8],
     ) -> Result<Vec<FragmentFrame>, FragmentationError> {
+        self.build_fragments_from(
+            message_id,
+            payload,
+            FragmentCursor::new(0, FragmentIndex::zero()),
+        )
+    }
+
+    fn build_fragments_from(
+        &self,
+        message_id: MessageId,
+        payload: &[u8],
+        mut cursor: FragmentCursor,
+    ) -> Result<Vec<FragmentFrame>, FragmentationError> {
         let max = self.max_fragment_size.get();
         if payload.is_empty() {
             let header = FragmentHeader::new(message_id, FragmentIndex::zero(), true);
@@ -114,29 +142,56 @@ impl Fragmenter {
         }
 
         let total = payload.len();
+        if cursor.offset > total {
+            return Err(FragmentationError::SliceBounds {
+                offset: cursor.offset,
+                end: cursor.offset,
+                total,
+            });
+        }
         let mut fragments = Vec::with_capacity(div_ceil(total, max));
-        let mut index = FragmentIndex::zero();
-        let mut offset = 0usize;
 
-        while offset < total {
-            let end = (offset + max).min(total);
+        while cursor.offset < total {
+            let end = (cursor.offset + max).min(total);
             let is_last = end == total;
+            let chunk = if let Some(slice) = payload.get(cursor.offset..end) {
+                slice.to_vec()
+            } else {
+                return Err(FragmentationError::SliceBounds {
+                    offset: cursor.offset,
+                    end,
+                    total,
+                });
+            };
             fragments.push(FragmentFrame::new(
-                FragmentHeader::new(message_id, index, is_last),
-                payload[offset..end].to_vec(),
+                FragmentHeader::new(message_id, cursor.index, is_last),
+                chunk,
             ));
 
             if is_last {
                 break;
             }
 
-            offset = end;
-            index = index
+            cursor.offset = end;
+            cursor.index = cursor
+                .index
                 .checked_increment()
-                .ok_or(FragmentationError::IndexOverflow { last: index })?;
+                .ok_or(FragmentationError::IndexOverflow { last: cursor.index })?;
         }
 
         Ok(fragments)
+    }
+}
+
+#[cfg(test)]
+impl Fragmenter {
+    pub(crate) fn build_fragments_from_for_tests(
+        &self,
+        message_id: MessageId,
+        payload: &[u8],
+        cursor: FragmentCursor,
+    ) -> Result<Vec<FragmentFrame>, FragmentationError> {
+        self.build_fragments_from(message_id, payload, cursor)
     }
 }
 

@@ -105,19 +105,7 @@ impl<F: FrameLike> PushHandle<F> {
         // the next refill window, tokens remain available to actively polled
         // tasks.
         if let Some(ref limiter) = self.0.limiter {
-            loop {
-                // Prefer a non-blocking acquisition. If not available, back
-                // off briefly before trying again. We intentionally do not
-                // poll the limiter's async acquire future to avoid enqueuing
-                // this task as a waiter and reserving a token prematurely.
-                if limiter.try_acquire(1) {
-                    break;
-                }
-                // The limiter is configured with a 1s refill interval; a
-                // short sleep yields to the scheduler and advances virtual
-                // time in tests (tokio::time::pause/advance).
-                sleep(Duration::from_millis(10)).await;
-            }
+            self.wait_for_permit(limiter).await;
         }
 
         // Then send the frame, awaiting capacity if the queue is currently
@@ -200,28 +188,56 @@ impl<F: FrameLike> PushHandle<F> {
     where
         F: std::fmt::Debug,
     {
+        if let Some(dlq) = &self.0.dlq_tx
+            && let Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) =
+                dlq.try_send(frame)
+        {
+            let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
+            let mut last = match self.0.dlq_last_log.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    warn!("DLQ last-log mutex poisoned; continuing with stale state");
+                    poisoned.into_inner()
+                }
+            };
+            self.log_dlq_drop(&f, dropped, &mut last);
+        }
+    }
+
+    /// Interval between attempts to acquire a rate-limit permit.
+    ///
+    /// Kept short so tests that use `tokio::time::pause/advance` progress
+    /// quickly while remaining negligible relative to the 1s refill window.
+    const PERMIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+    async fn wait_for_permit(&self, limiter: &RateLimiter) {
+        loop {
+            if limiter.try_acquire(1) {
+                break;
+            }
+            // The limiter is configured with a 1s refill interval; a short
+            // sleep yields to the scheduler and advances virtual time in
+            // tests (tokio::time::pause/advance).
+            sleep(Self::PERMIT_POLL_INTERVAL).await;
+        }
+    }
+
+    fn log_dlq_drop(&self, frame: &F, dropped: usize, last_log: &mut Instant)
+    where
+        F: std::fmt::Debug,
+    {
         let log_every_n = self.0.dlq_log_every_n;
         let log_interval = self.0.dlq_log_interval;
+        let should_log = (log_every_n != 0 && dropped.is_multiple_of(log_every_n))
+            || last_log.elapsed() > log_interval;
 
-        if let Some(dlq) = &self.0.dlq_tx {
-            match dlq.try_send(frame) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) => {
-                    let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
-                    let mut last = self.0.dlq_last_log.lock().expect("lock poisoned");
-                    let now = Instant::now();
-                    if (log_every_n != 0 && dropped.is_multiple_of(log_every_n))
-                        || now.duration_since(*last) > log_interval
-                    {
-                        warn!(
-                            "DLQ dropped frames (full or closed): frame={f:?}, dropped={dropped}, \
-                             log_every_n={log_every_n}, log_interval={log_interval:?}"
-                        );
-                        *last = now;
-                        self.0.dlq_drops.store(0, Ordering::Relaxed);
-                    }
-                }
-            }
+        if should_log {
+            warn!(
+                "DLQ dropped frames (full or closed): frame={frame:?}, dropped={dropped}, \
+                 log_every_n={log_every_n}, log_interval={log_interval:?}"
+            );
+            *last_log = Instant::now();
+            self.0.dlq_drops.store(0, Ordering::Relaxed);
         }
     }
 

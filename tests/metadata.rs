@@ -1,7 +1,7 @@
-#![cfg(not(loom))]
 //! Tests for frame metadata parsing using custom serializers.
 //!
 //! They ensure parse callbacks run before deserialization and errors fall back correctly.
+#![cfg(not(loom))]
 
 use std::sync::{
     Arc,
@@ -15,16 +15,19 @@ use wireframe::{
 };
 use wireframe_testing::{TestSerializer, drive_with_bincode};
 
+mod common;
+use common::TestResult;
+
 type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelope>;
 
-fn mock_wireframe_app_with_serializer<S>(serializer: S) -> TestApp<S>
+fn mock_wireframe_app_with_serializer<S>(
+    serializer: S,
+) -> Result<TestApp<S>, wireframe::app::WireframeError>
 where
     S: TestSerializer + Default,
 {
-    wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)
-        .expect("failed to create app")
+    wireframe::app::WireframeApp::<S, (), Envelope>::with_serializer(serializer)?
         .route(1, Arc::new(|_| Box::pin(async {})))
-        .expect("route registration failed")
 }
 
 #[derive(Default)]
@@ -42,7 +45,7 @@ impl Serializer for CountingSerializer {
         &self,
         _bytes: &[u8],
     ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>> {
-        panic!("unexpected deserialize call")
+        Err("unexpected deserialize call".into())
     }
 }
 
@@ -57,18 +60,21 @@ impl FrameMetadata for CountingSerializer {
 }
 
 #[tokio::test]
-async fn metadata_parser_invoked_before_deserialize() {
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let serializer = CountingSerializer(counter.clone());
-    let app = mock_wireframe_app_with_serializer(serializer);
+    let app = mock_wireframe_app_with_serializer(serializer)?;
 
     let env = Envelope::new(1, Some(0), vec![42]);
 
-    let out = drive_with_bincode(app, env)
-        .await
-        .expect("drive_with_bincode failed");
-    assert!(!out.is_empty());
-    assert_eq!(counter.load(Ordering::Relaxed), 1);
+    let out = drive_with_bincode(app, env).await?;
+    assert!(!out.is_empty(), "no frames emitted");
+    assert_eq!(counter.load(Ordering::Relaxed), 1, "expected 1 parse call");
+    Ok(())
 }
 
 #[derive(Default)]
@@ -102,18 +108,29 @@ impl FrameMetadata for FallbackSerializer {
 }
 
 #[tokio::test]
-async fn falls_back_to_deserialize_after_parse_error() {
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let parse_calls = Arc::new(AtomicUsize::new(0));
     let deser_calls = Arc::new(AtomicUsize::new(0));
     let serializer = FallbackSerializer(parse_calls.clone(), deser_calls.clone());
-    let app = mock_wireframe_app_with_serializer(serializer);
+    let app = mock_wireframe_app_with_serializer(serializer)?;
 
     let env = Envelope::new(1, Some(0), vec![7]);
 
-    let out = drive_with_bincode(app, env)
-        .await
-        .expect("drive_with_bincode failed");
-    assert!(!out.is_empty());
-    assert_eq!(parse_calls.load(Ordering::Relaxed), 1);
-    assert_eq!(deser_calls.load(Ordering::Relaxed), 1);
+    let out = drive_with_bincode(app, env).await?;
+    assert!(!out.is_empty(), "no frames emitted");
+    assert_eq!(
+        parse_calls.load(Ordering::Relaxed),
+        1,
+        "expected 1 parse call"
+    );
+    assert_eq!(
+        deser_calls.load(Ordering::Relaxed),
+        1,
+        "expected 1 deserialize call"
+    );
+    Ok(())
 }

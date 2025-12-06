@@ -52,6 +52,16 @@ pub enum FragmentationError {
     /// The fragment index cannot advance because it would overflow `u32`.
     #[error("fragment index overflow after {last}")]
     IndexOverflow { last: FragmentIndex },
+    /// Calculated fragment slice exceeded payload bounds.
+    #[error("fragment slice out of bounds: offset={offset}, end={end}, total={total}")]
+    SliceBounds {
+        /// Start offset attempted.
+        offset: usize,
+        /// Exclusive end offset attempted.
+        end: usize,
+        /// Total payload length.
+        total: usize,
+    },
 }
 
 /// Errors produced while re-assembling inbound fragments.

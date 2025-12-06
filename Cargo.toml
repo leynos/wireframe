@@ -39,10 +39,10 @@ log = "0.4.28"
 dashmap = "6.1.0"
 leaky-bucket = "1.1.2"
 tracing = { version = "0.1.41", features = ["log", "log-always"] }
-tracing-subscriber = "0.3"
+tracing-subscriber = "0.3.18"
 metrics = { version = "0.24.2", optional = true }
 thiserror = "2.0.16"
-static_assertions = "1"
+static_assertions = "1.1.0"
 derive_more = { version = "2.0.1", features = ["display", "from"] }
 
 [dev-dependencies]
@@ -85,10 +85,44 @@ cucumber-tests = []
 test-support = []
 
 [lints.clippy]
-pedantic = "warn"
+pedantic = { level = "warn", priority = -1 }
+
+# 1. hygiene
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+blanket_clippy_restriction_lints = "deny"
+cognitive_complexity = "deny"
+needless_pass_by_value = "deny"
+implicit_hasher = "deny"
+
+# 2. debugging leftovers
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
+# 3. panic-prone operations
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+integer_division = "deny"
+integer_division_remainder_used = "deny"
+panic_in_result_fn = "deny"
+unreachable = "deny"
 
 [lints.rust]
+unknown_lints = "deny"
+renamed_and_removed_lints = "deny"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
+[lints.rustdoc]
+missing_crate_level_docs = "deny"
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+bare_urls = "deny"
+invalid_html_tags = "deny"
+invalid_codeblock_attributes = "deny"
+unescaped_backticks = "deny"
 
 [[example]]
 name = "echo"

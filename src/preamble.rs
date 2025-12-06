@@ -11,9 +11,10 @@ const MAX_PREAMBLE_LEN: usize = 1024;
 /// Trait bound for types accepted as connection preambles.
 ///
 /// The bound allows decoding borrowed data for any lifetime without
-/// requiring an external decoding context.
-pub trait Preamble: for<'de> BorrowDecode<'de, ()> + Send + 'static {}
-impl<T> Preamble for T where for<'de> T: BorrowDecode<'de, ()> + Send + 'static {}
+/// requiring an external decoding context. `Sync` is required because
+/// preamble values are shared by reference with asynchronous handlers.
+pub trait Preamble: for<'de> BorrowDecode<'de, ()> + Send + Sync + 'static {}
+impl<T> Preamble for T where for<'de> T: BorrowDecode<'de, ()> + Send + Sync + 'static {}
 
 async fn read_more<R>(
     reader: &mut R,
@@ -30,10 +31,12 @@ where
     buf.resize(start + additional, 0);
     let mut read = 0;
     while read < additional {
-        match reader
-            .read(&mut buf[start + read..start + additional])
-            .await
-        {
+        let range_start = start + read;
+        let range_end = start + additional;
+        let chunk = buf
+            .get_mut(range_start..range_end)
+            .ok_or(DecodeError::Other("preamble buffer range invalid"))?;
+        match reader.read(chunk).await {
             Ok(0) => {
                 return Err(DecodeError::Io {
                     inner: io::Error::from(io::ErrorKind::UnexpectedEof),

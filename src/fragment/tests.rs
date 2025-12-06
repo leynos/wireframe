@@ -7,6 +7,7 @@ use bincode::{BorrowDecode, Encode};
 use rstest::rstest;
 
 use super::*;
+use crate::fragment::fragmenter::FragmentCursor;
 
 fn setup_reassembler_with_first_fragment(
     message_id: u64,
@@ -114,13 +115,9 @@ fn fragmenter_splits_payload_into_multiple_frames() {
     assert!(batch.is_fragmented());
     assert_eq!(batch.message_id(), MessageId::new(0));
 
-    let fragments = batch.fragments();
-    assert_eq!(fragments[0].payload(), &[0, 1, 2]);
-    assert!(!fragments[0].header().is_last_fragment());
-    assert_eq!(fragments[1].payload(), &[3, 4, 5]);
-    assert!(!fragments[1].header().is_last_fragment());
-    assert_eq!(fragments[2].payload(), &[6, 7]);
-    assert!(fragments[2].header().is_last_fragment());
+    assert_fragment(&batch, 0, &[0, 1, 2], false);
+    assert_fragment(&batch, 1, &[3, 4, 5], false);
+    assert_fragment(&batch, 2, &[6, 7], true);
 }
 
 #[test]
@@ -130,7 +127,10 @@ fn fragmenter_handles_empty_payload() {
 
     assert_eq!(batch.len(), 1);
     assert!(!batch.is_fragmented());
-    let fragment = &batch.fragments()[0];
+    let fragment = batch
+        .fragments()
+        .first()
+        .expect("batch should contain at least one fragment");
     assert_eq!(fragment.payload(), &[]);
     assert!(fragment.header().is_last_fragment());
     assert_eq!(fragment.header().fragment_index(), FragmentIndex::zero());
@@ -138,6 +138,15 @@ fn fragmenter_handles_empty_payload() {
 
 #[derive(Debug, Encode, BorrowDecode)]
 struct DummyMessage(Vec<u8>);
+
+fn assert_fragment(batch: &FragmentBatch, index: usize, payload: &[u8], is_last: bool) {
+    let fragment = batch
+        .fragments()
+        .get(index)
+        .expect("fragment missing at requested index");
+    assert_eq!(fragment.payload(), payload);
+    assert_eq!(fragment.header().is_last_fragment(), is_last);
+}
 
 #[test]
 fn fragmenter_fragments_messages_and_increments_ids() {
@@ -188,6 +197,28 @@ fn fragmenter_respects_explicit_message_ids() {
 
     let next = fragmenter.fragment_bytes([1_u8]).expect("next fragment");
     assert_eq!(next.message_id(), MessageId::new(10));
+}
+
+#[test]
+fn fragmenter_returns_error_for_out_of_bounds_slice() {
+    let fragmenter = Fragmenter::new(NonZeroUsize::new(4).expect("non-zero"));
+    let payload = [1_u8, 2, 3, 4];
+
+    let err = fragmenter
+        .build_fragments_from_for_tests(
+            MessageId::new(1),
+            &payload,
+            FragmentCursor::new(payload.len() + 1, FragmentIndex::zero()),
+        )
+        .expect_err("invalid slice should produce an error");
+    match err {
+        FragmentationError::SliceBounds { offset, end, total } => {
+            assert_eq!(offset, payload.len() + 1);
+            assert_eq!(end, payload.len() + 1);
+            assert_eq!(total, payload.len());
+        }
+        other => panic!("expected SliceBounds, got {other:?}"),
+    }
 }
 
 #[test]

@@ -19,21 +19,21 @@ use wireframe::push::{
 };
 use wireframe_testing::{push_expect, recv_expect};
 
+mod common;
+use common::TestResult;
+
 #[fixture]
-fn queues() -> (PushQueues<u8>, PushHandle<u8>) {
+fn queues() -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {
     support::builder::<u8>()
         .high_capacity(2)
         .low_capacity(2)
         .rate(Some(1))
         .build()
-        .expect("failed to build PushQueues")
 }
 
 #[fixture]
-fn small_queues() -> (PushQueues<u8>, PushHandle<u8>) {
-    support::builder::<u8>()
-        .build()
-        .expect("failed to build PushQueues")
+fn small_queues() -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {
+    support::builder::<u8>().build()
 }
 
 /// Builder rejects rates outside the supported range.
@@ -61,23 +61,28 @@ fn builder_accepts_max_rate() {
 
 /// Disabling throttling allows rapid bursts to succeed.
 #[tokio::test]
-async fn disables_throttling_allows_burst_pushes() {
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn disables_throttling_allows_burst_pushes() -> TestResult<()> {
     time::pause();
     let (_queues, handle) = support::builder::<u8>()
         .high_capacity(20)
         .low_capacity(20)
         .unlimited()
-        .build()
-        .expect("failed to build PushQueues");
+        .build()?;
     for i in 0u8..10 {
         push_expect!(handle.push_high_priority(i));
         push_expect!(handle.push_low_priority(i));
     }
     let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
+    let push_res = res.expect("push should not block when throttling disabled");
     assert!(
-        res.is_ok(),
-        "push should not block when throttling disabled"
+        push_res.is_ok(),
+        "push should not error when throttling disabled"
     );
+    Ok(())
 }
 
 #[test]
@@ -106,8 +111,12 @@ fn builder_rejects_zero_capacity() {
 
 /// Frames are delivered to queues matching their push priority.
 #[tokio::test]
-async fn frames_routed_to_correct_priority_queues() {
-    let (mut queues, handle) = small_queues();
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn frames_routed_to_correct_priority_queues() -> TestResult<()> {
+    let (mut queues, handle) = small_queues()?;
 
     push_expect!(handle.push_low_priority(1u8));
     push_expect!(handle.push_high_priority(2u8));
@@ -115,10 +124,19 @@ async fn frames_routed_to_correct_priority_queues() {
     let (prio1, frame1) = recv_expect!(queues.recv());
     let (prio2, frame2) = recv_expect!(queues.recv());
 
-    assert_eq!(prio1, PushPriority::High);
-    assert_eq!(frame1, 2);
-    assert_eq!(prio2, PushPriority::Low);
-    assert_eq!(frame2, 1);
+    assert_eq!(
+        prio1,
+        PushPriority::High,
+        "first frame should be high priority"
+    );
+    assert_eq!(frame1, 2, "unexpected first frame value");
+    assert_eq!(
+        prio2,
+        PushPriority::Low,
+        "second frame should be low priority"
+    );
+    assert_eq!(frame2, 1, "unexpected second frame value");
+    Ok(())
 }
 
 /// `try_push` honours the selected queue policy when full.
@@ -126,30 +144,49 @@ async fn frames_routed_to_correct_priority_queues() {
 /// Using [`PushPolicy::ReturnErrorIfFull`] causes `try_push` to
 /// return [`PushError::QueueFull`] once the queue is at capacity.
 #[tokio::test]
-async fn try_push_respects_policy() {
-    let (mut queues, handle) = small_queues();
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn try_push_respects_policy() -> TestResult<()> {
+    let (mut queues, handle) = small_queues()?;
 
     push_expect!(handle.push_high_priority(1u8));
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
-    assert!(matches!(result, Err(PushError::QueueFull)));
+    assert!(
+        matches!(result, Err(PushError::QueueFull)),
+        "expected queue full error"
+    );
 
     // drain queue to allow new push
     let _ = queues.recv().await;
     push_expect!(handle.push_high_priority(3u8));
     let (_, last) = recv_expect!(queues.recv());
-    assert_eq!(last, 3);
+    assert_eq!(last, 3, "unexpected drained frame");
+    Ok(())
 }
 
 /// Push attempts return `Closed` when all queues have been shut down.
 #[tokio::test]
-async fn push_queues_error_on_closed() {
-    let (mut queues, handle) = small_queues();
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn push_queues_error_on_closed() -> TestResult<()> {
+    let (mut queues, handle) = small_queues()?;
     queues.close();
     let res = handle.push_high_priority(42u8).await;
-    assert!(matches!(res, Err(PushError::Closed)));
+    assert!(
+        matches!(res, Err(PushError::Closed)),
+        "expected closed error on high priority push"
+    );
 
     let res = handle.push_low_priority(24u8).await;
-    assert!(matches!(res, Err(PushError::Closed)));
+    assert!(
+        matches!(res, Err(PushError::Closed)),
+        "expected closed error on low priority push"
+    );
+    Ok(())
 }
 
 /// A push beyond the configured rate is blocked.
@@ -159,9 +196,9 @@ async fn push_queues_error_on_closed() {
 #[case::high(PushPriority::High)]
 #[case::low(PushPriority::Low)]
 #[tokio::test]
-async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
+async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> TestResult<()> {
     time::pause();
-    let (mut queues, handle) = queues();
+    let (mut queues, handle) = queues()?;
 
     match priority {
         PushPriority::High => push_expect!(handle.push_high_priority(1u8)),
@@ -186,30 +223,44 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) {
 
     let (_, first) = recv_expect!(queues.recv());
     let (_, second) = recv_expect!(queues.recv());
-    assert_eq!((first, second), (1, 3));
+    assert_eq!(
+        (first, second),
+        (1, 3),
+        "unexpected drained frames under rate limit"
+    );
+    Ok(())
 }
 
 /// Exceeding the rate limit succeeds after the window has passed.
 #[tokio::test]
-async fn rate_limiter_allows_after_wait() {
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn rate_limiter_allows_after_wait() -> TestResult<()> {
     time::pause();
-    let (mut queues, handle) = queues();
+    let (mut queues, handle) = queues()?;
     push_expect!(handle.push_high_priority(1u8));
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_high_priority(2u8));
 
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
-    assert_eq!((a, b), (1, 2));
+    assert_eq!((a, b), (1, 2), "unexpected frame ordering after wait");
+    Ok(())
 }
 
 /// The limiter counts pushes from all priority queues.
 /// The token bucket is shared, so pushes from one priority reduce
 /// the allowance for the other.
 #[tokio::test]
-async fn rate_limiter_shared_across_priorities() {
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
     time::pause();
-    let (mut queues, handle) = queues();
+    let (mut queues, handle) = queues()?;
     push_expect!(handle.push_high_priority(1u8));
 
     let mut fut = handle.push_low_priority(2u8).boxed();
@@ -224,40 +275,46 @@ async fn rate_limiter_shared_across_priorities() {
 
     let (prio1, frame1) = recv_expect!(queues.recv());
     let (prio2, frame2) = recv_expect!(queues.recv());
-    assert_eq!(prio1, PushPriority::High);
-    assert_eq!(frame1, 1);
-    assert_eq!(prio2, PushPriority::Low);
-    assert_eq!(frame2, 2);
+    assert_eq!(prio1, PushPriority::High, "first priority should be high");
+    assert_eq!(frame1, 1, "unexpected first frame value");
+    assert_eq!(prio2, PushPriority::Low, "second priority should be low");
+    assert_eq!(frame2, 2, "unexpected second frame value");
+    Ok(())
 }
 
 /// Unlimited queues never block pushes.
 #[tokio::test]
-async fn unlimited_queues_do_not_block() {
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn unlimited_queues_do_not_block() -> TestResult<()> {
     time::pause();
-    let (mut queues, handle) = support::builder::<u8>()
-        .unlimited()
-        .build()
-        .expect("failed to build PushQueues");
+    let (mut queues, handle) = support::builder::<u8>().unlimited().build()?;
     push_expect!(handle.push_high_priority(1u8));
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");
 
     let (_, a) = recv_expect!(queues.recv());
     let (_, b) = recv_expect!(queues.recv());
-    assert_eq!((a, b), (1, 2));
+    assert_eq!((a, b), (1, 2), "unexpected ordering for unlimited queues");
+    Ok(())
 }
 
 /// A burst up to capacity succeeds and further pushes are blocked.
 /// The maximum burst size equals the configured `capacity` parameter.
 #[tokio::test]
-async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
+async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestResult<()> {
     time::pause();
     let (mut queues, handle) = support::builder::<u8>()
         .high_capacity(4)
         .low_capacity(4)
         .rate(Some(3))
-        .build()
-        .expect("failed to build PushQueues");
+        .build()?;
 
     for i in 0u8..3 {
         push_expect!(handle.push_high_priority(i));
@@ -275,6 +332,10 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() {
 
     for expected in [0u8, 1u8, 2u8, 100u8] {
         let (_, frame) = recv_expect!(queues.recv());
-        assert_eq!(frame, expected);
+        assert_eq!(
+            frame, expected,
+            "frames drained in unexpected order: expected {expected}, got {frame}"
+        );
     }
+    Ok(())
 }

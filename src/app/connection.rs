@@ -26,13 +26,25 @@ use crate::{
     serializer::Serializer,
 };
 
+fn purge_expired(fragmentation: &mut Option<FragmentationState>) {
+    if let Some(frag) = fragmentation.as_mut() {
+        frag.purge_expired();
+    }
+}
+
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
 
-#[derive(Debug)]
-enum EnvelopeDecodeError<E> {
-    Parse(E),
-    Deserialize(Box<dyn std::error::Error + Send + Sync>),
+/// Per-frame processing state bundled for `handle_frame`.
+struct FrameHandlingContext<'a, E, W>
+where
+    E: Packet,
+    W: AsyncRead + AsyncWrite + Unpin,
+{
+    framed: &'a mut Framed<W, LengthDelimitedCodec>,
+    deser_failures: &'a mut u32,
+    routes: &'a HashMap<u32, HandlerService<E>>,
+    fragmentation: &'a mut Option<FragmentationState>,
 }
 
 impl<S, C, E> WireframeApp<S, C, E>
@@ -115,23 +127,19 @@ where
     fn parse_envelope(
         &self,
         frame: &[u8],
-    ) -> std::result::Result<(Envelope, usize), EnvelopeDecodeError<S::Error>> {
+    ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
         self.serializer
             .parse(frame)
-            .map_err(EnvelopeDecodeError::Parse)
-            .or_else(|_| {
-                self.serializer
-                    .deserialize::<Envelope>(frame)
-                    .map_err(EnvelopeDecodeError::Deserialize)
-            })
+            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
+            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
     }
 
-    /// Handle an accepted connection end-to-end.
+    /// Handle an accepted connection end-to-end, returning any processing error.
     ///
-    /// Runs optional connection setup to produce per-connection state,
-    /// initializes (and caches) route chains, processes the framed stream
-    /// with per-frame timeouts, and finally runs optional teardown.
-    pub async fn handle_connection<W>(&self, stream: W)
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if stream processing or handler execution fails.
+    pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
@@ -152,10 +160,26 @@ where
                 "connection terminated with error: correlation_id={:?}, error={e:?}",
                 None::<u64>
             );
+            return Err(e);
         }
 
         if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
             teardown(state).await;
+        }
+
+        Ok(())
+    }
+
+    /// Handle an accepted connection end-to-end, logging errors and swallowing the result.
+    pub async fn handle_connection<W>(&self, stream: W)
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        if let Err(e) = self.handle_connection_result(stream).await {
+            warn!(
+                "connection handling completed with error: correlation_id={:?}, error={e:?}",
+                None::<u64>
+            );
         }
     }
 
@@ -190,11 +214,13 @@ where
             match timeout(timeout_dur, framed.next()).await {
                 Ok(Some(Ok(buf))) => {
                     self.handle_frame(
-                        &mut framed,
                         buf.as_ref(),
-                        &mut deser_failures,
-                        routes,
-                        &mut fragmentation,
+                        FrameHandlingContext {
+                            framed: &mut framed,
+                            deser_failures: &mut deser_failures,
+                            routes,
+                            fragmentation: &mut fragmentation,
+                        },
                     )
                     .await?;
                 }
@@ -202,9 +228,7 @@ where
                 Ok(None) => break,
                 Err(_) => {
                     debug!("read timeout elapsed; continuing to wait for next frame");
-                    if let Some(state) = fragmentation.as_mut() {
-                        state.purge_expired();
-                    }
+                    purge_expired(&mut fragmentation);
                 }
             }
         }
@@ -214,15 +238,19 @@ where
 
     async fn handle_frame<W>(
         &self,
-        framed: &mut Framed<W, LengthDelimitedCodec>,
         frame: &[u8],
-        deser_failures: &mut u32,
-        routes: &HashMap<u32, HandlerService<E>>,
-        fragmentation: &mut Option<FragmentationState>,
+        ctx: FrameHandlingContext<'_, E, W>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
+        let FrameHandlingContext {
+            framed,
+            deser_failures,
+            routes,
+            fragmentation,
+        } = ctx;
+
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
         let Some(env) = self.decode_envelope(frame, deser_failures)? else {
             return Ok(());
@@ -238,8 +266,16 @@ where
         };
 
         if let Some(service) = routes.get(&env.id) {
-            frame_handling::forward_response(&self.serializer, env, service, framed, fragmentation)
-                .await?;
+            frame_handling::forward_response(
+                env,
+                service,
+                frame_handling::ResponseContext {
+                    serializer: &self.serializer,
+                    framed,
+                    fragmentation,
+                },
+            )
+            .await?;
         } else {
             warn!(
                 "no handler for message id: id={}, correlation_id={:?}",
@@ -248,6 +284,25 @@ where
         }
 
         Ok(())
+    }
+
+    /// Increment deserialization failures and close the connection if the threshold is exceeded.
+    fn handle_decode_failure(
+        deser_failures: &mut u32,
+        context: &str,
+        err: impl std::fmt::Debug,
+    ) -> Result<Option<Envelope>, io::Error> {
+        *deser_failures += 1;
+        warn!("{context}: correlation_id={:?}, error={err:?}", None::<u64>);
+        crate::metrics::inc_deser_errors();
+        if *deser_failures >= MAX_DESER_FAILURES {
+            warn!("closing connection after {deser_failures} deserialization failures: {context}");
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "too many deserialization failures",
+            ));
+        }
+        Ok(None)
     }
 
     fn decode_envelope(
@@ -260,35 +315,8 @@ where
                 *deser_failures = 0;
                 Ok(Some(env))
             }
-            Err(EnvelopeDecodeError::Parse(e)) => {
-                *deser_failures += 1;
-                warn!(
-                    "failed to parse message: correlation_id={:?}, error={e:?}",
-                    None::<u64>
-                );
-                crate::metrics::inc_deser_errors();
-                if *deser_failures >= MAX_DESER_FAILURES {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "too many deserialization failures",
-                    ));
-                }
-                Ok(None)
-            }
-            Err(EnvelopeDecodeError::Deserialize(e)) => {
-                *deser_failures += 1;
-                warn!(
-                    "failed to deserialize message: correlation_id={:?}, error={e:?}",
-                    None::<u64>
-                );
-                crate::metrics::inc_deser_errors();
-                if *deser_failures >= MAX_DESER_FAILURES {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "too many deserialization failures",
-                    ));
-                }
-                Ok(None)
+            Err(err) => {
+                Self::handle_decode_failure(deser_failures, "failed to decode message", err)
             }
         }
     }

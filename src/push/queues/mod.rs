@@ -114,9 +114,12 @@ impl<F: FrameLike> PushQueues<F> {
     #[must_use]
     pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::default() }
 
-    /// Validates whether the provided rate is invalid (zero or exceeds the maximum).
-    fn is_invalid_rate(rate: Option<usize>) -> bool {
-        matches!(rate, Some(r) if r == 0 || r > MAX_PUSH_RATE)
+    /// Returns the invalid rate if it is zero or exceeds the maximum.
+    fn invalid_rate(rate: Option<usize>) -> Option<usize> {
+        match rate {
+            Some(r) if r == 0 || r > MAX_PUSH_RATE => Some(r),
+            _ => None,
+        }
     }
 
     pub(super) fn build_with_config(
@@ -130,11 +133,10 @@ impl<F: FrameLike> PushQueues<F> {
             dlq_log_every_n,
             dlq_log_interval,
         } = config;
-        if Self::is_invalid_rate(rate) {
+        if let Some(invalid) = Self::invalid_rate(rate) {
             // Reject unsupported rates early to avoid building queues that cannot
             // be used. The bounds prevent runaway resource consumption.
-            let r = rate.unwrap();
-            return Err(PushConfigError::InvalidRate(r));
+            return Err(PushConfigError::InvalidRate(invalid));
         }
         if high_capacity == 0 || low_capacity == 0 {
             return Err(PushConfigError::InvalidCapacity {
@@ -192,31 +194,30 @@ impl<F: FrameLike> PushQueues<F> {
     /// Create a new set of queues with the specified bounds for each priority
     /// and return them along with a [`PushHandle`] for producers.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if either queue capacity is zero. Prefer `PushQueues::builder()`
-    /// to receive a [`Result`] instead.
+    /// Returns [`PushConfigError::InvalidCapacity`] if either queue capacity is
+    /// zero or [`PushConfigError::InvalidRate`] if the default rate is invalid.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
-    #[must_use]
-    pub fn bounded(high_capacity: usize, low_capacity: usize) -> (Self, PushHandle<F>) {
+    pub fn bounded(
+        high_capacity: usize,
+        low_capacity: usize,
+    ) -> Result<(Self, PushHandle<F>), PushConfigError> {
         Self::build_via_builder(high_capacity, low_capacity, Some(DEFAULT_PUSH_RATE), None)
-            .expect("invalid capacities or rate in deprecated bounded()")
     }
 
     /// Create queues with no rate limiting.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if either queue capacity is zero. Prefer `PushQueues::builder()`
-    /// to receive a [`Result`] instead.
+    /// Returns [`PushConfigError::InvalidCapacity`] if either queue capacity is
+    /// zero.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
-    #[must_use]
     pub fn bounded_no_rate_limit(
         high_capacity: usize,
         low_capacity: usize,
-    ) -> (Self, PushHandle<F>) {
+    ) -> Result<(Self, PushHandle<F>), PushConfigError> {
         Self::build_via_builder(high_capacity, low_capacity, None, None)
-            .expect("invalid capacities in deprecated bounded_no_rate_limit()")
     }
 
     /// Create queues with a custom rate limit in pushes per second.
@@ -276,6 +277,10 @@ impl<F: FrameLike> PushQueues<F> {
     ///     assert_eq!(frame, 2);
     /// }
     /// ```
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus internally"
+    )]
     pub async fn recv(&mut self) -> Option<(PushPriority, F)> {
         let mut high_closed = false;
         let mut low_closed = false;

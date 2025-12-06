@@ -17,6 +17,9 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger};
 
+mod common;
+use common::TestResult;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HookCounts {
     before: usize,
@@ -140,7 +143,10 @@ struct HarnessFactory {
 
 impl HarnessFactory {
     /// Build a connection actor harness with shared hook counters.
-    fn create(&self, config: HarnessConfig) -> ActorHarness {
+    fn create(
+        &self,
+        config: HarnessConfig,
+    ) -> Result<ActorHarness, wireframe::push::PushConfigError> {
         let HarnessConfig {
             has_response,
             has_multi_packet,
@@ -153,7 +159,6 @@ impl HarnessFactory {
             .counters
             .build_hooks_with_increment(increment, stream_end_fn);
         ActorHarness::new_with_state(hooks, has_response, has_multi_packet)
-            .expect("failed to create harness")
     }
 
     /// Read the accumulated hook counters for the most recent harness.
@@ -233,8 +238,8 @@ fn assert_reason_logged(
 }
 
 #[rstest]
-fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) {
-    let mut harness = harness_factory.create(HarnessConfig::new());
+fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) -> TestResult {
+    let mut harness = harness_factory.create(HarnessConfig::new())?;
     harness.process_multi_packet(Some(5));
 
     assert_multi_packet_processing_result(
@@ -243,16 +248,17 @@ fn process_multi_packet_forwards_frame(harness_factory: HarnessFactory) {
         &[6],
         HookCounts { before: 1, end: 0 },
     );
+    Ok(())
 }
 
 #[rstest]
-fn process_multi_packet_none_emits_end_frame(harness_factory: HarnessFactory) {
+fn process_multi_packet_none_emits_end_frame(harness_factory: HarnessFactory) -> TestResult {
     let mut harness = harness_factory.create(
         HarnessConfig::new()
             .with_multi_packet()
             .with_increment(2)
             .with_stream_end(|_| Some(9)),
-    );
+    )?;
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
@@ -264,6 +270,7 @@ fn process_multi_packet_none_emits_end_frame(harness_factory: HarnessFactory) {
         &[11],
         HookCounts { before: 1, end: 1 },
     );
+    Ok(())
 }
 
 #[rstest(
@@ -278,23 +285,30 @@ fn handle_multi_packet_closed_behaviour(
     terminator: Option<u8>,
     expected_output: Vec<u8>,
     expected_before: usize,
-) {
+) -> TestResult {
     let mut harness = harness_factory.create(
         HarnessConfig::new()
             .with_multi_packet()
             .with_stream_end(move |_| terminator),
-    );
+    )?;
     let (_tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
 
     harness.handle_multi_packet_closed();
 
     let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
-    assert!(
-        !harness.has_multi_queue(),
-        "multi-packet channel should be cleared",
-    );
+    if !snapshot.is_active {
+        return Err("connection should be active".into());
+    }
+    if snapshot.is_shutting_down {
+        return Err("connection should not be shutting down".into());
+    }
+    if snapshot.is_done {
+        return Err("connection should not be done".into());
+    }
+    if harness.has_multi_queue() {
+        return Err("multi-packet channel should be cleared".into());
+    }
     assert_frame_processed(
         &harness.out,
         &expected_output,
@@ -304,26 +318,32 @@ fn handle_multi_packet_closed_behaviour(
         },
         harness_factory.counts(),
     );
+    Ok(())
 }
 
 #[rstest]
-fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) {
-    let mut harness = harness_factory.create(HarnessConfig::new());
+fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) -> TestResult {
+    let mut harness = harness_factory.create(HarnessConfig::new())?;
     let (tx, rx) = mpsc::channel(1);
-    tx.try_send(9).expect("send frame");
+    tx.try_send(9)?;
     drop(tx);
     harness.set_low_queue(Some(rx));
 
     let drained = harness.try_drain_low();
 
-    assert!(drained, "queue should report a drained frame");
-    assert!(harness.has_low_queue(), "queue remains available");
+    if !drained {
+        return Err("queue should report a drained frame".into());
+    }
+    if !harness.has_low_queue() {
+        return Err("queue remains available".into());
+    }
     assert_frame_processed(
         &harness.out,
         &[10],
         HookCounts { before: 1, end: 0 },
         harness_factory.counts(),
     );
+    Ok(())
 }
 
 #[rstest]
@@ -331,13 +351,13 @@ fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) {
 fn handle_multi_packet_closed_logs_reason(
     harness_factory: HarnessFactory,
     mut logger: LoggerHandle,
-) {
+) -> TestResult {
     logger.clear();
     let mut harness = harness_factory.create(
         HarnessConfig::new()
             .with_multi_packet()
             .with_stream_end(|_| Some(5)),
-    );
+    )?;
     let (_tx, rx) = mpsc::channel(1);
     harness
         .actor_mut()
@@ -345,6 +365,7 @@ fn handle_multi_packet_closed_logs_reason(
     logger.clear();
     harness.handle_multi_packet_closed();
     assert_reason_logged(&mut logger, Level::Info, "drained", Some(11));
+    Ok(())
 }
 
 #[rstest]
@@ -352,13 +373,13 @@ fn handle_multi_packet_closed_logs_reason(
 fn try_opportunistic_drain_multi_disconnect_logs_reason(
     harness_factory: HarnessFactory,
     mut logger: LoggerHandle,
-) {
+) -> TestResult {
     logger.clear();
     let mut harness = harness_factory.create(
         HarnessConfig::new()
             .with_multi_packet()
             .with_stream_end(|_| Some(5)),
-    );
+    )?;
     let (tx, rx) = mpsc::channel(1);
     harness
         .actor_mut()
@@ -366,19 +387,25 @@ fn try_opportunistic_drain_multi_disconnect_logs_reason(
     drop(tx);
     logger.clear();
     let drained = harness.try_drain_multi();
-    assert!(!drained, "disconnect should not report a drained frame");
+    if drained {
+        return Err("disconnect should not report a drained frame".into());
+    }
     assert_reason_logged(&mut logger, Level::Warn, "disconnected", Some(12));
+    Ok(())
 }
 
 #[rstest]
 #[serial(connection_logs)]
-fn start_shutdown_logs_reason(harness_factory: HarnessFactory, mut logger: LoggerHandle) {
+fn start_shutdown_logs_reason(
+    harness_factory: HarnessFactory,
+    mut logger: LoggerHandle,
+) -> TestResult {
     logger.clear();
     let mut harness = harness_factory.create(
         HarnessConfig::new()
             .with_multi_packet()
             .with_stream_end(|_| Some(5)),
-    );
+    )?;
     let (_tx, rx) = mpsc::channel(1);
     harness
         .actor_mut()
@@ -386,67 +413,88 @@ fn start_shutdown_logs_reason(harness_factory: HarnessFactory, mut logger: Logge
     logger.clear();
     harness.start_shutdown();
     assert_reason_logged(&mut logger, Level::Info, "shutdown", Some(13));
-    assert!(
-        !harness.has_multi_queue(),
-        "multi-packet queue should be cleared after shutdown",
-    );
+    if harness.has_multi_queue() {
+        return Err("multi-packet queue should be cleared after shutdown".into());
+    }
+    Ok(())
 }
 
 #[rstest]
-fn try_opportunistic_drain_multi_disconnect_emits_terminator(harness_factory: HarnessFactory) {
+fn try_opportunistic_drain_multi_disconnect_emits_terminator(
+    harness_factory: HarnessFactory,
+) -> TestResult {
     let mut harness = harness_factory.create(
         HarnessConfig::new()
             .with_multi_packet()
             .with_stream_end(|_| Some(5)),
-    );
+    )?;
     let (tx, rx) = mpsc::channel(1);
     harness.set_multi_queue(Some(rx));
     drop(tx);
 
     let drained = harness.try_drain_multi();
 
-    assert!(!drained, "disconnect should not report a drained frame",);
-    assert!(
-        !harness.has_multi_queue(),
-        "multi-packet queue should be cleared after disconnect",
-    );
+    if drained {
+        return Err("disconnect should not report a drained frame".into());
+    }
+    if harness.has_multi_queue() {
+        return Err("multi-packet queue should be cleared after disconnect".into());
+    }
     assert_frame_processed(
         &harness.out,
         &[6],
         HookCounts { before: 1, end: 1 },
         harness_factory.counts(),
     );
+    Ok(())
 }
 
 #[test]
-fn try_opportunistic_drain_returns_false_when_empty() {
-    let mut harness = ActorHarness::new().expect("failed to create harness");
+fn try_opportunistic_drain_returns_false_when_empty() -> TestResult {
+    let mut harness = ActorHarness::new()?;
     let (_tx, rx) = mpsc::channel(1);
     harness.set_low_queue(Some(rx));
 
     let drained = harness.try_drain_low();
 
-    assert!(!drained, "no frame should be drained");
-    assert!(harness.has_low_queue(), "queue should remain available");
-    assert!(harness.out.is_empty(), "no frames should be emitted");
+    if drained {
+        return Err("no frame should be drained".into());
+    }
+    if !harness.has_low_queue() {
+        return Err("queue should remain available".into());
+    }
+    if !harness.out.is_empty() {
+        return Err("no frames should be emitted".into());
+    }
+    Ok(())
 }
 
 #[test]
-fn try_opportunistic_drain_handles_disconnect() {
-    let mut harness = ActorHarness::new().expect("failed to create harness");
+fn try_opportunistic_drain_handles_disconnect() -> TestResult {
+    let mut harness = ActorHarness::new()?;
     let (tx, rx) = mpsc::channel(1);
     harness.set_low_queue(Some(rx));
     drop(tx);
 
     let drained = harness.try_drain_low();
 
-    assert!(!drained, "disconnect should not produce a frame");
-    assert!(
-        !harness.has_low_queue(),
-        "queue should be cleared after disconnect",
-    );
+    if drained {
+        return Err("disconnect should not produce a frame".into());
+    }
+    if harness.has_low_queue() {
+        return Err("queue should be cleared after disconnect".into());
+    }
     let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
+    if !snapshot.is_active {
+        return Err("connection should be active".into());
+    }
+    if snapshot.is_shutting_down {
+        return Err("connection should not be shutting down".into());
+    }
+    if snapshot.is_done {
+        return Err("connection should not be done".into());
+    }
+    Ok(())
 }
 
 #[tokio::test]

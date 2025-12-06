@@ -3,19 +3,21 @@
 //! The application defines an enum representing different packet variants and
 //! shows how to dispatch handlers based on the variant received.
 
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
-use tracing::{info, warn};
+use tokio::{net::TcpListener, signal};
+use tracing::{error, info, warn};
 use wireframe::{
     app::Envelope,
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
-    server::{ServerError, WireframeServer},
 };
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+
+const DEFAULT_ADDR: &str = "127.0.0.1:7879";
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
 enum ExamplePacket {
@@ -78,22 +80,51 @@ fn handle_packet(_env: &Envelope) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     })
 }
 
+fn build_app() -> wireframe::app::Result<App> {
+    App::new()?
+        .wrap(DecodeMiddleware)?
+        .route(1, Arc::new(handle_packet))
+}
+
 #[tokio::main]
-async fn main() -> Result<(), ServerError> {
-    let factory = || {
-        App::new()
-            .expect("Failed to create WireframeApp")
-            .wrap(DecodeMiddleware)
-            .expect("Failed to wrap middleware")
-            .route(1, std::sync::Arc::new(handle_packet))
-            .expect("Failed to add route")
-    };
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "tokio::select! macro expansion performs modulo internally"
+)]
+async fn main() -> std::io::Result<()> {
+    tracing_subscriber::fmt::init();
 
-    let addr = std::env::var("SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:7879".to_string());
+    let app = Arc::new(build_app().map_err(std::io::Error::other)?);
 
-    WireframeServer::new(factory)
-        .bind(addr.parse().expect("Invalid server address"))?
-        .run()
-        .await?;
+    let addr_str = std::env::var("SERVER_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
+    let addr: SocketAddr = addr_str.parse().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("SERVER_ADDR must be a valid socket address: {e}"),
+        )
+    })?;
+
+    let listener = TcpListener::bind(addr).await?;
+    loop {
+        tokio::select! {
+            res = listener.accept() => {
+                let (stream, _) = res?;
+                let app = Arc::clone(&app);
+                tokio::spawn(async move {
+                    if let Err(e) = app.handle_connection_result(stream).await {
+                        error!("connection handling failed: {e}");
+                    }
+                });
+            }
+            ctrl_c = signal::ctrl_c() => {
+                match ctrl_c {
+                    Ok(()) => info!("packet_enum server received shutdown signal"),
+                    Err(e) => error!("failed waiting for shutdown signal: {e}"),
+                }
+                break;
+            }
+        }
+    }
+
     Ok(())
 }

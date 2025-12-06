@@ -1,9 +1,12 @@
 #![cfg(not(loom))]
 //! Error propagation and protocol hook tests for `ConnectionActor`.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use futures::stream;
@@ -13,46 +16,62 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     ConnectionContext,
     ProtocolHooks,
-    connection::ConnectionActor,
+    connection::{ConnectionActor, ConnectionChannels},
     push::PushQueues,
     response::WireframeError,
 };
 use wireframe_testing::{LoggerHandle, logger, push_expect};
 
-#[fixture]
+mod common;
+use common::TestResult;
+
+#[expect(
+    clippy::allow_attributes,
+    reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
+)]
+#[allow(
+    unfulfilled_lint_expectations,
+    reason = "rstest occasionally misses the expected lint for single-line fixtures on stable"
+)]
 #[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
-fn queues() -> (PushQueues<u8>, wireframe::push::PushHandle<u8>) {
+#[fixture]
+fn queues()
+-> Result<(PushQueues<u8>, wireframe::push::PushHandle<u8>), wireframe::push::PushConfigError> {
     PushQueues::<u8>::builder()
         .high_capacity(8)
         .low_capacity(8)
         .build()
-        .expect("failed to build PushQueues")
 }
 
-#[fixture]
+#[expect(
+    clippy::allow_attributes,
+    reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
+)]
+#[allow(
+    unfulfilled_lint_expectations,
+    reason = "rstest occasionally misses the expected lint for single-line fixtures on stable"
+)]
 #[expect(
     unused_braces,
     reason = "rustc false positive for single line rstest fixtures"
 )]
-// allow(unfulfilled_lint_expectations): rustc occasionally fails to emit the expected
-// lint for single-line rstest fixtures on stable.
-#[allow(unfulfilled_lint_expectations)]
+#[fixture]
 fn shutdown_token() -> CancellationToken { CancellationToken::new() }
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn before_send_hook_modifies_frames(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     push_expect!(handle.push_high_priority(1), "push high-priority");
 
     let stream = stream::iter(vec![Ok(2u8)]);
@@ -62,25 +81,31 @@ async fn before_send_hook_modifies_frames(
     };
 
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
     assert_eq!(out, vec![2, 3]);
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn on_command_end_hook_runs(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     let stream = stream::iter(vec![Ok(1u8)]);
 
     let counter = Arc::new(AtomicUsize::new(0));
@@ -93,15 +118,18 @@ async fn on_command_end_hook_runs(
     };
 
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
     assert_eq!(counter.load(Ordering::SeqCst), 1);
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -113,10 +141,13 @@ enum TestError {
 #[tokio::test]
 #[serial]
 async fn error_propagation_from_stream(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     let stream = stream::iter(vec![
         Ok(1u8),
         Ok(2u8),
@@ -133,32 +164,41 @@ async fn error_propagation_from_stream(
         ..ProtocolHooks::<u8, TestError>::default()
     };
     let mut actor: ConnectionActor<_, TestError> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
     assert_eq!(called.load(Ordering::SeqCst), 1);
     assert_eq!(out, vec![1, 2]);
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn protocol_error_logs_warning(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
     mut logger: LoggerHandle,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     let stream = stream::iter(vec![Err(WireframeError::Protocol(TestError::Kaboom))]);
     let mut actor: ConnectionActor<_, TestError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
     assert!(out.is_empty());
     let mut found = false;
     while let Some(record) = logger.pop() {
@@ -168,16 +208,20 @@ async fn protocol_error_logs_warning(
         }
     }
     assert!(found, "warning log not found");
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 #[serial]
 async fn io_error_terminates_connection(
-    queues: (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+    queues: Result<
+        (PushQueues<u8>, wireframe::push::PushHandle<u8>),
+        wireframe::push::PushConfigError,
+    >,
     shutdown_token: CancellationToken,
-) {
-    let (queues, handle) = queues;
+) -> TestResult {
+    let (queues, handle) = queues?;
     let stream = stream::iter(vec![
         Ok(1u8),
         Err(WireframeError::Io(std::io::Error::other("fail"))),
@@ -188,4 +232,5 @@ async fn io_error_terminates_connection(
     let result = actor.run(&mut out).await;
     assert!(matches!(result, Err(WireframeError::Io(_))));
     assert_eq!(out, vec![1]);
+    Ok(())
 }

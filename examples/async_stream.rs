@@ -6,6 +6,7 @@
 
 use async_stream::try_stream;
 use futures::StreamExt;
+use tracing::info;
 use wireframe::response::Response;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
@@ -22,10 +23,12 @@ fn stream_response() -> Response<Frame> {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     let Response::Stream(mut stream) = stream_response() else {
         return;
     };
     while let Some(Ok(frame)) = stream.next().await {
-        println!("received frame: {frame:?}");
+        info!(?frame, "received frame");
     }
 }

@@ -11,6 +11,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod common;
+use common::TestResult;
 use futures::stream;
 use rstest::{fixture, rstest};
 use tokio_util::sync::CancellationToken;
@@ -18,21 +20,22 @@ use wireframe::{
     ConnectionContext,
     WireframeProtocol,
     app::Envelope,
-    connection::ConnectionActor,
-    push::PushQueues,
+    connection::{ConnectionActor, ConnectionChannels},
+    push::{PushConfigError, PushQueues},
     serializer::BincodeSerializer,
 };
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+type QueueResult =
+    Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>;
 
 #[fixture]
-fn queues() -> (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>) {
+fn queues() -> QueueResult {
     PushQueues::<Vec<u8>>::builder()
         .high_capacity(8)
         .low_capacity(8)
         .unlimited()
         .build()
-        .expect("failed to build PushQueues")
 }
 
 struct TestProtocol {
@@ -60,58 +63,66 @@ impl WireframeProtocol for TestProtocol {
 
 #[rstest]
 #[tokio::test]
-async fn builder_produces_protocol_hooks(
-    queues: (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>),
-) {
+async fn builder_produces_protocol_hooks(queues: QueueResult) -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .with_protocol(protocol);
+    let app = TestApp::new()?.with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
-    let (_queues, handle) = queues;
+    let (_queues, handle) = queues?;
     hooks.on_connection_setup(handle, &mut ConnectionContext);
 
     let mut frame = vec![1u8];
     hooks.before_send(&mut frame, &mut ConnectionContext);
     hooks.on_command_end(&mut ConnectionContext);
 
-    assert_eq!(frame, vec![1, 1]);
-    assert_eq!(counter.load(Ordering::SeqCst), 2);
+    assert_eq!(frame, vec![1, 1], "before_send did not mutate frame");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        2,
+        "expected two protocol callbacks"
+    );
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
-async fn connection_actor_uses_protocol_from_builder(
-    queues: (PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>),
-) {
+async fn connection_actor_uses_protocol_from_builder(queues: QueueResult) -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let protocol = TestProtocol {
         counter: counter.clone(),
     };
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .with_protocol(protocol);
+    let app = TestApp::new()?.with_protocol(protocol);
 
     let hooks = app.protocol_hooks();
-    let (queues, handle) = queues;
+    let (queues, handle) = queues?;
     handle
         .push_high_priority(vec![1])
         .await
-        .expect("push failed");
+        .map_err(|e| std::io::Error::other(format!("push failed: {e}")))?;
     let stream = stream::iter(vec![Ok(vec![2u8])]);
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
-        queues,
-        handle,
+        ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         CancellationToken::new(),
         hooks,
     );
     let mut out = Vec::new();
-    actor.run(&mut out).await.expect("actor run failed");
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("connection actor failed: {e:?}")))?;
 
-    assert_eq!(out, vec![vec![1, 1], vec![2, 1]]);
-    assert_eq!(counter.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        out,
+        vec![vec![1, 1], vec![2, 1]],
+        "frames not mutated as expected"
+    );
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        2,
+        "expected two protocol callbacks"
+    );
+    Ok(())
 }

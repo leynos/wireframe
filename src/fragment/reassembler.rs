@@ -1,8 +1,8 @@
 //! Inbound helper that stitches fragments back into complete messages.
 //!
 //! [`Reassembler`] mirrors the outbound [`Fragmenter`](crate::fragment::Fragmenter) by
-//! collecting fragment payloads keyed by [`MessageId`](crate::fragment::MessageId).
-//! It enforces ordering via [`FragmentSeries`](crate::fragment::FragmentSeries), guards
+//! collecting fragment payloads keyed by [`MessageId`].
+//! It enforces ordering via [`FragmentSeries`], guards
 //! against unbounded allocation with a configurable cap, and purges stale partial
 //! assemblies after a fixed timeout. The helper is transport-agnostic so codecs and
 //! behavioural tests can reuse it without depending on socket types.
@@ -154,14 +154,12 @@ impl Reassembler {
                     Ok(FragmentStatus::Incomplete) => Self::append_and_maybe_complete(
                         self.max_message_size,
                         occupied,
-                        header.message_id(),
                         payload,
                         false,
                     ),
                     Ok(FragmentStatus::Complete) => Self::append_and_maybe_complete(
                         self.max_message_size,
                         occupied,
-                        header.message_id(),
                         payload,
                         true,
                     ),
@@ -237,10 +235,10 @@ impl Reassembler {
     fn append_and_maybe_complete(
         limit: NonZeroUsize,
         mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
-        message_id: MessageId,
         payload: &[u8],
         completes: bool,
     ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
+        let message_id = *occupied.key();
         let Some(attempted) = occupied.get().len().checked_add(payload.len()) else {
             occupied.remove();
             return Err(ReassemblyError::MessageTooLarge {

@@ -7,8 +7,10 @@
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 
 /// Create a TCP listener bound to a free local port.
-#[expect(dead_code, reason = "Used by tests that bind to random ports")]
-#[allow(unfulfilled_lint_expectations)]
+#[expect(
+    clippy::expect_used,
+    reason = "binding to an ephemeral localhost port must abort the test immediately"
+)]
 pub fn unused_listener() -> StdTcpListener {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
     StdTcpListener::bind(addr).expect("failed to bind port")
@@ -18,13 +20,16 @@ use rstest::fixture;
 use wireframe::{app::Envelope, serializer::BincodeSerializer};
 
 pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[fixture]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
-#[allow(unfulfilled_lint_expectations)]
 pub fn factory() -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
-    || TestApp::new().expect("TestApp::new failed")
+    fn build() -> TestApp { TestApp::default() }
+    build
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unused_listener_is_callable() { let _ = super::unused_listener(); }
 }

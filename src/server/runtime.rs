@@ -1,6 +1,6 @@
 //! Runtime control for [`WireframeServer`].
 
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{fmt, io, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use futures::Future;
@@ -82,6 +82,21 @@ impl BackoffConfig {
     }
 }
 
+#[derive(Debug)]
+pub(super) struct AcceptLoopOptions<T> {
+    pub preamble: PreambleHooks<T>,
+    pub shutdown: CancellationToken,
+    pub tracker: TaskTracker,
+    pub backoff: BackoffConfig,
+}
+
+struct AcceptHandles<'a, T> {
+    preamble: &'a PreambleHooks<T>,
+    shutdown: &'a CancellationToken,
+    tracker: &'a TaskTracker,
+    backoff: &'a BackoffConfig,
+}
+
 #[derive(Default)]
 pub(super) struct PreambleHooks<T> {
     pub on_success: Option<PreambleHandler<T>>,
@@ -96,6 +111,22 @@ impl<T> Clone for PreambleHooks<T> {
             on_failure: self.on_failure.clone(),
             timeout: self.timeout,
         }
+    }
+}
+
+impl<T> fmt::Debug for PreambleHooks<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PreambleHooks")
+            .field(
+                "on_success",
+                &self.on_success.as_ref().map(|_| "Some(<handler>)"),
+            )
+            .field(
+                "on_failure",
+                &self.on_failure.as_ref().map(|_| "Some(<failure>)"),
+            )
+            .field("timeout", &self.timeout)
+            .finish()
     }
 }
 
@@ -200,6 +231,10 @@ where
     /// Returns an [`io::Error`] if the server was not bound to a listener.
     /// Accept failures are retried with exponential back-off and do not
     /// surface as errors.
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus internally"
+    )]
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
     where
         S: Future<Output = ()> + Send,
@@ -232,10 +267,12 @@ where
             tracker.spawn(accept_loop(
                 listener,
                 factory,
-                preamble_hooks,
-                token,
-                t,
-                backoff_config,
+                AcceptLoopOptions {
+                    preamble: preamble_hooks,
+                    shutdown: token,
+                    tracker: t,
+                    backoff: backoff_config,
+                },
             ));
         }
 
@@ -293,10 +330,12 @@ where
 ///     accept_loop::<_, (), _>(
 ///         listener,
 ///         || WireframeApp::default(),
-///         PreambleHooks::default(),
-///         token,
-///         tracker,
-///         BackoffConfig::default(),
+///         AcceptLoopOptions {
+///             preamble: PreambleHooks::default(),
+///             shutdown: token,
+///             tracker,
+///             backoff: BackoffConfig::default(),
+///         },
 ///     )
 ///     .await;
 /// }
@@ -304,49 +343,74 @@ where
 pub(super) async fn accept_loop<F, T, L>(
     listener: Arc<L>,
     factory: F,
-    preamble: PreambleHooks<T>,
-    shutdown: CancellationToken,
-    tracker: TaskTracker,
-    backoff_config: BackoffConfig,
+    options: AcceptLoopOptions<T>,
 ) where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
 {
+    let AcceptLoopOptions {
+        preamble,
+        shutdown,
+        tracker,
+        backoff,
+    } = options;
     debug_assert!(
-        backoff_config.initial_delay <= backoff_config.max_delay,
+        backoff.initial_delay <= backoff.max_delay,
         "BackoffConfig invariant violated: initial_delay > max_delay"
     );
     debug_assert!(
-        backoff_config.initial_delay >= Duration::from_millis(1),
+        backoff.initial_delay >= Duration::from_millis(1),
         "BackoffConfig invariant violated: initial_delay < 1ms"
     );
-    let mut delay = backoff_config.initial_delay;
-    loop {
-        select! {
-            biased;
+    let mut delay = backoff.initial_delay;
+    let handles = AcceptHandles {
+        preamble: &preamble,
+        shutdown: &shutdown,
+        tracker: &tracker,
+        backoff: &backoff,
+    };
+    while let Some(next_delay) = accept_iteration(&listener, &factory, &handles, delay).await {
+        delay = next_delay;
+    }
+}
 
-            () = shutdown.cancelled() => break,
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "tokio::select! expands to modulus internally"
+)]
+async fn accept_iteration<F, T, L>(
+    listener: &Arc<L>,
+    factory: &F,
+    handles: &AcceptHandles<'_, T>,
+    delay: Duration,
+) -> Option<Duration>
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    T: Preamble,
+    L: AcceptListener + Send + Sync + 'static,
+{
+    select! {
+        biased;
 
-            res = listener.accept() => match res {
-                Ok((stream, _)) => {
-                    let hooks = preamble.clone();
-                    spawn_connection_task(
-                        stream,
-                        factory.clone(),
-                        hooks,
-                        &tracker,
-                    );
-                    delay = backoff_config.initial_delay;
-                }
-                Err(e) => {
-                    let local_addr = listener.local_addr().ok();
-                    warn!("accept error: error={e:?}, local_addr={local_addr:?}");
-                    sleep(delay).await;
-                    delay = (delay * 2).min(backoff_config.max_delay);
-                }
-            },
-        }
+        () = handles.shutdown.cancelled() => None,
+        res = listener.accept() => Some(match res {
+            Ok((stream, _)) => {
+                spawn_connection_task(
+                    stream,
+                    (*factory).clone(),
+                    handles.preamble.clone(),
+                    handles.tracker,
+                );
+                handles.backoff.initial_delay
+            }
+            Err(e) => {
+                let local_addr = listener.local_addr().ok();
+                warn!("accept error: error={e:?}, local_addr={local_addr:?}");
+                sleep(delay).await;
+                (delay * 2).min(handles.backoff.max_delay)
+            }
+        }),
     }
 }
 
@@ -444,10 +508,12 @@ mod tests {
         tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
-            PreambleHooks::default(),
-            token.clone(),
-            tracker.clone(),
-            BackoffConfig::default(),
+            AcceptLoopOptions {
+                preamble: PreambleHooks::default(),
+                shutdown: token.clone(),
+                tracker: tracker.clone(),
+                backoff: BackoffConfig::default(),
+            },
         ));
 
         token.cancel();
@@ -457,14 +523,13 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[rstest]
-    #[tokio::test(start_paused = true)]
-    async fn test_accept_loop_exponential_backoff_async(
-        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    ) {
-        let calls = Arc::new(Mutex::new(Vec::new()));
+    /// Creates a mock listener that fails with exponential backoff tracking.
+    fn setup_backoff_mock_listener(
+        calls: &Arc<Mutex<Vec<Instant>>>,
+        num_calls: usize,
+    ) -> MockAcceptListener {
         let mut listener = MockAcceptListener::new();
-        let call_log = calls.clone();
+        let call_log = Arc::clone(calls);
         listener
             .expect_accept()
             .returning(move || {
@@ -474,12 +539,46 @@ mod tests {
                     Err(io::Error::other("mock error"))
                 })
             })
-            .times(4);
+            .times(num_calls);
         listener
             .expect_local_addr()
             .returning(|| Ok("127.0.0.1:0".parse().expect("addr parse")))
-            .times(4);
-        let listener = Arc::new(listener);
+            .times(num_calls);
+        listener
+    }
+
+    /// Validates that recorded call intervals match expected backoff delays.
+    fn assert_backoff_intervals(calls: &[Instant], expected: &[Duration]) {
+        let intervals: Vec<_> = calls
+            .windows(2)
+            .map(|w| {
+                let a = w.first().expect("window has first element");
+                let b = w.get(1).expect("window has second element");
+                b.checked_duration_since(*a)
+                    .expect("instants should be monotonically increasing")
+            })
+            .collect();
+
+        assert_eq!(
+            intervals.len(),
+            expected.len(),
+            "interval count mismatch: got {}, expected {}",
+            intervals.len(),
+            expected.len()
+        );
+
+        for (interval, expected) in intervals.into_iter().zip(expected.iter()) {
+            assert_eq!(interval, *expected);
+        }
+    }
+
+    #[rstest]
+    #[tokio::test(start_paused = true)]
+    async fn test_accept_loop_exponential_backoff_async(
+        factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    ) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let listener = Arc::new(setup_backoff_mock_listener(&calls, 4));
         let token = CancellationToken::new();
         let tracker = TaskTracker::new();
         let backoff = BackoffConfig {
@@ -490,10 +589,12 @@ mod tests {
         tracker.spawn(accept_loop::<_, (), _>(
             listener,
             factory,
-            PreambleHooks::default(),
-            token.clone(),
-            tracker.clone(),
-            backoff,
+            AcceptLoopOptions {
+                preamble: PreambleHooks::default(),
+                shutdown: token.clone(),
+                tracker: tracker.clone(),
+                backoff,
+            },
         ));
 
         yield_now().await;
@@ -501,7 +602,7 @@ mod tests {
         let first_call = {
             let calls = calls.lock().expect("lock");
             assert_eq!(calls.len(), 1);
-            calls[0]
+            calls.first().copied().expect("call record missing")
         };
 
         for ms in [5, 10, 20] {
@@ -517,15 +618,13 @@ mod tests {
 
         let calls = calls.lock().expect("lock");
         assert_eq!(calls.len(), 4);
-        assert_eq!(calls[0], first_call);
-        let intervals: Vec<_> = calls.windows(2).map(|w| w[1] - w[0]).collect();
+        let first = calls.first().copied().expect("at least one call logged");
+        assert_eq!(first, first_call);
         let expected = [
             Duration::from_millis(5),
             Duration::from_millis(10),
             Duration::from_millis(20),
         ];
-        for (interval, expected) in intervals.into_iter().zip(expected) {
-            assert_eq!(interval, expected);
-        }
+        assert_backoff_intervals(&calls, &expected);
     }
 }
