@@ -25,5 +25,10 @@ pub enum PushConfigError {
     InvalidRate(usize),
     /// The provided capacities were zero.
     #[error("invalid capacities; high={high}, low={low}; each must be >= 1")]
-    InvalidCapacity { high: usize, low: usize },
+    InvalidCapacity {
+        /// Capacity configured for the high-priority queue.
+        high: usize,
+        /// Capacity configured for the low-priority queue.
+        low: usize,
+    },
 }

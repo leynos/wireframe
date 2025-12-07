@@ -76,6 +76,7 @@ impl Drop for PanicServer {
 }
 
 #[derive(Debug, Default, World)]
+/// Test world that drives a server which intentionally panics during setup.
 pub struct PanicWorld {
     server: Option<PanicServer>,
     attempts: usize,

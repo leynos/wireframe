@@ -50,7 +50,9 @@ const_assert!(DEFAULT_PUSH_RATE <= MAX_PUSH_RATE);
 /// Priority level for outbound messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PushPriority {
+    /// Time-sensitive frames processed ahead of low-priority traffic.
     High,
+    /// Best-effort frames that yield to high-priority work when present.
     Low,
 }
 

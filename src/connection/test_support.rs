@@ -66,6 +66,7 @@ pub fn create_test_actor_with_hooks(
 pub struct ActorHarness {
     actor: ConnectionActor<u8, ()>,
     state: ActorState,
+    /// Frames emitted by the actor during tests, preserved for assertions.
     pub out: Vec<u8>,
 }
 
@@ -173,10 +174,15 @@ impl ActorHarness {
 /// Snapshot of the actor lifecycle flags and counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ActorStateSnapshot {
+    /// `true` while the actor is still polling its sources.
     pub is_active: bool,
+    /// `true` after shutdown has begun but before sources finish.
     pub is_shutting_down: bool,
+    /// `true` once all sources have closed and the actor can exit.
     pub is_done: bool,
+    /// Total number of sources being tracked for completion.
     pub total_sources: usize,
+    /// Number of sources observed as closed so far.
     pub closed_sources: usize,
 }
 

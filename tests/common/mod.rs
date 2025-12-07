@@ -19,7 +19,9 @@ pub fn unused_listener() -> StdTcpListener {
 use rstest::fixture;
 use wireframe::{app::Envelope, serializer::BincodeSerializer};
 
+/// Default app type used by cucumber worlds during integration tests.
 pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+/// Shared result type for cucumber step implementations.
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[fixture]

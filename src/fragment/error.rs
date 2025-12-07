@@ -26,13 +26,17 @@ pub enum FragmentError {
     /// The fragment belongs to a different message.
     #[error("fragment message mismatch: expected {expected}, found {found}")]
     MessageMismatch {
+        /// Message identifier currently being assembled.
         expected: MessageId,
+        /// Identifier carried by the incoming fragment.
         found: MessageId,
     },
     /// A fragment arrived out of order.
     #[error("fragment index mismatch: expected {expected}, found {found}")]
     IndexMismatch {
+        /// Index the series expected next.
         expected: FragmentIndex,
+        /// Index carried by the fragment that was received.
         found: FragmentIndex,
     },
     /// The series already consumed a last fragment.
@@ -40,7 +44,10 @@ pub enum FragmentError {
     SeriesComplete,
     /// The fragment index overflowed `u32::MAX`.
     #[error("fragment index overflow after {last}")]
-    IndexOverflow { last: FragmentIndex },
+    IndexOverflow {
+        /// Last valid index observed before overflow occurred.
+        last: FragmentIndex,
+    },
 }
 
 /// Errors produced while fragmenting outbound messages.
@@ -51,7 +58,10 @@ pub enum FragmentationError {
     Encode(#[from] EncodeError),
     /// The fragment index cannot advance because it would overflow `u32`.
     #[error("fragment index overflow after {last}")]
-    IndexOverflow { last: FragmentIndex },
+    IndexOverflow {
+        /// Final index emitted before the counter would overflow.
+        last: FragmentIndex,
+    },
     /// Calculated fragment slice exceeded payload bounds.
     #[error("fragment slice out of bounds: offset={offset}, end={end}, total={total}")]
     SliceBounds {

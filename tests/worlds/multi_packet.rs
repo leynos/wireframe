@@ -23,6 +23,7 @@ impl fmt::Display for WireframeRunError {
 impl Error for WireframeRunError {}
 
 #[derive(Debug, Default, World)]
+/// Test world exercising multi-packet channel behaviours and back-pressure.
 pub struct MultiPacketWorld {
     messages: Vec<u8>,
     is_overflow_error: bool,

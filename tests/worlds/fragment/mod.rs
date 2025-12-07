@@ -29,6 +29,7 @@ use wireframe::fragment::{
 use super::TestResult;
 
 #[derive(Debug, World)]
+/// Test world tracking fragmentation state across behavioural scenarios.
 pub struct FragmentWorld {
     series: Option<FragmentSeries>,
     last_result: Option<Result<FragmentStatus, FragmentError>>,
