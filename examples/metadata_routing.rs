@@ -8,7 +8,13 @@ use std::{io, sync::Arc};
 use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, duplex};
 use tokio_util::codec::Encoder;
-use wireframe::{app::Envelope, frame::FrameMetadata, message::Message, serializer::Serializer};
+use wireframe::{
+    app::Envelope,
+    byte_order::{read_network_u16, write_network_u16},
+    frame::FrameMetadata,
+    message::Message,
+    serializer::Serializer,
+};
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
 
@@ -56,10 +62,11 @@ impl FrameMetadata for HeaderSerializer {
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "header flags"))?;
 
         // Only extract metadata here; defer payload handling to the serializer.
-        Ok((
-            Envelope::new(u32::from(u16::from_be_bytes(id_bytes)), None, Vec::new()),
-            3,
-        ))
+        // Header ID is defined as big-endian on the wire; read_network_u16 keeps
+        // parsing deterministic across host architectures.
+        let msg_id = read_network_u16(id_bytes);
+
+        Ok((Envelope::new(u32::from(msg_id), None, Vec::new()), 3))
     }
 }
 
@@ -96,7 +103,10 @@ async fn main() -> io::Result<()> {
 
     let payload = Ping.to_bytes().map_err(io::Error::other)?;
     let mut frame = Vec::new();
-    frame.extend_from_slice(&1u16.to_be_bytes());
+    // Frame header mandates big-endian message ID; write_network_u16 ensures
+    // the generated example frame matches the on-wire format.
+    let msg_id_bytes = write_network_u16(1);
+    frame.extend_from_slice(&msg_id_bytes);
     frame.push(0);
     frame.extend_from_slice(&payload);
     let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix
