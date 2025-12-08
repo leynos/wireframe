@@ -378,6 +378,7 @@ pub(super) async fn accept_loop<F, T, L>(
         tracker,
         backoff,
     } = options;
+    let backoff = backoff.normalised();
     debug_assert!(
         backoff.initial_delay <= backoff.max_delay,
         "BackoffConfig invariant violated: initial_delay > max_delay"

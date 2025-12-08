@@ -33,7 +33,6 @@ impl CorrelationWorld {
     /// ```
     pub fn set_expected(&mut self, expected: Option<u64>) { self.expected = expected; }
 
-    #[must_use]
     /// Return the correlation identifier configured for this scenario.
     ///
     /// # Examples
@@ -42,6 +41,7 @@ impl CorrelationWorld {
     /// world.set_expected(None);
     /// assert_eq!(world.expected(), None);
     /// ```
+    #[must_use]
     pub fn expected(&self) -> Option<u64> { self.expected }
 
     /// Run the connection actor and collect frames for later verification.
