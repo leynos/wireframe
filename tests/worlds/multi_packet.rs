@@ -1,8 +1,8 @@
 //! Test world for multi-packet channel scenarios.
-#![cfg(not(loom))]
 //!
 //! Provides [`MultiPacketWorld`] to verify message ordering, back-pressure
 //! handling, and channel lifecycle in cucumber-based behaviour tests.
+#![cfg(not(loom))]
 
 use std::{error::Error, fmt};
 
