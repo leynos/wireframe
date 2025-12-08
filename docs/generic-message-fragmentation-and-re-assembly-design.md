@@ -378,7 +378,9 @@ This feature is designed as a foundational layer that other features build upon.
   talking to codec internals.
 - Added `FragmentSeries` to enforce ordering invariants per logical message,
   surfacing precise diagnostics (`MessageMismatch`, `IndexMismatch`,
-  `SeriesComplete`, `IndexOverflow`). This helper keeps the reassembly logic
+  `SeriesComplete`, `IndexOverflow { last }`). The `IndexOverflow` variant
+  carries a `last: FragmentIndex` field recording the final valid index before
+  the counter would overflow `u32::MAX`. This helper keeps the reassembly logic
   deterministic and enables behavioural tests to assert transport-level
   guarantees without standing up a full codec pipeline.
 - Introduced `Fragmenter`, `FragmentBatch`, and `FragmentFrame` as reusable

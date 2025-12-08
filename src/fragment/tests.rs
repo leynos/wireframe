@@ -91,7 +91,12 @@ fn series_detects_index_overflow() {
     let err = series
         .accept(header)
         .expect_err("overflow must raise an error");
-    assert!(matches!(err, FragmentError::IndexOverflow { .. }));
+    assert_eq!(
+        err,
+        FragmentError::IndexOverflow {
+            last: FragmentIndex::new(u32::MAX)
+        }
+    );
 }
 
 #[test]
