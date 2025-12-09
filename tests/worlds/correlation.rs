@@ -17,14 +17,30 @@ use wireframe::{
 use super::{TestResult, build_small_queues};
 
 #[derive(Debug, Default, World)]
+/// Test world capturing correlation expectations for frame emission.
 pub struct CorrelationWorld {
     expected: Option<u64>,
     frames: Vec<Envelope>,
 }
 
 impl CorrelationWorld {
+    /// Record the correlation identifier expected on emitted frames.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// let mut world = CorrelationWorld::default();
+    /// world.set_expected(Some(99));
+    /// ```
     pub fn set_expected(&mut self, expected: Option<u64>) { self.expected = expected; }
 
+    /// Return the correlation identifier configured for this scenario.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// let mut world = CorrelationWorld::default();
+    /// world.set_expected(None);
+    /// assert_eq!(world.expected(), None);
+    /// ```
     #[must_use]
     pub fn expected(&self) -> Option<u64> { self.expected }
 

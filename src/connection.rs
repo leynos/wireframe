@@ -96,7 +96,9 @@ pub struct FairnessConfig {
 
 /// Bundles push queues with their shared handle for actor construction.
 pub struct ConnectionChannels<F> {
+    /// Receivers for high- and low-priority frames consumed by the actor.
     pub queues: PushQueues<F>,
+    /// Handle cloned by producers to enqueue frames into the shared queues.
     pub handle: PushHandle<F>,
 }
 

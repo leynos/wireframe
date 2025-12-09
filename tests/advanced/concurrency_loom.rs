@@ -1,9 +1,9 @@
-#![cfg(all(feature = "advanced-tests", loom))]
 //! Concurrency tests for push queues using loom.
 //!
 //! These tests exercise the `PushHandle` shared state without Tokio. `loom`
-//! explores interleavings to ensure DLQ accounting and queue-full errors remain
-//! deterministic under concurrent producers.
+//! explores interleavings to ensure DLQ accounting and queue-full errors
+//! remain deterministic under concurrent producers.
+#![cfg(all(feature = "advanced-tests", loom))]
 
 use loom::{model, thread};
 use rstest::rstest;

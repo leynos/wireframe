@@ -21,6 +21,7 @@ use wireframe_testing::{LoggerHandle, logger};
 use super::{Terminator, TestResult, build_small_queues};
 
 #[derive(Debug, Default, World)]
+/// Test world capturing frames and logs for stream termination scenarios.
 pub struct StreamEndWorld {
     frames: Vec<u8>,
     logs: Vec<(Level, String)>,

@@ -57,7 +57,9 @@ impl AcceptListener for TcpListener {
 /// - `initial_delay` must be at least 1 millisecond
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BackoffConfig {
+    /// Delay used for the first retry after an `accept()` failure.
     pub initial_delay: Duration,
+    /// Maximum back-off delay once retries have increased exponentially.
     pub max_delay: Duration,
 }
 
@@ -71,6 +73,27 @@ impl Default for BackoffConfig {
 }
 
 impl BackoffConfig {
+    /// Clamp delays to sane bounds and ensure `initial_delay <= max_delay`.
+    ///
+    /// This prevents accidental misconfiguration (for example, inverted or
+    /// zero durations) before the values are used in the accept loop.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use wireframe::server::runtime::BackoffConfig;
+    ///
+    /// let cfg = BackoffConfig {
+    ///     initial_delay: Duration::from_millis(5),
+    ///     max_delay: Duration::from_millis(1),
+    /// };
+    ///
+    /// let normalised = cfg.normalised();
+    /// assert_eq!(normalised.initial_delay, Duration::from_millis(1));
+    /// assert_eq!(normalised.max_delay, Duration::from_millis(5));
+    /// ```
     #[must_use]
     pub fn normalised(mut self) -> Self {
         self.initial_delay = self.initial_delay.max(Duration::from_millis(1));
@@ -355,6 +378,7 @@ pub(super) async fn accept_loop<F, T, L>(
         tracker,
         backoff,
     } = options;
+    let backoff = backoff.normalised();
     debug_assert!(
         backoff.initial_delay <= backoff.max_delay,
         "BackoffConfig invariant violated: initial_delay > max_delay"

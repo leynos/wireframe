@@ -122,12 +122,42 @@ impl PacketParts {
         }
     }
 
+    /// Return the message identifier used to route this frame.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::PacketParts;
+    ///
+    /// let parts = PacketParts::new(9, None, vec![1, 2, 3]);
+    /// assert_eq!(parts.id(), 9);
+    /// ```
     #[must_use]
     pub const fn id(&self) -> u32 { self.id }
 
+    /// Retrieve the correlation identifier, if present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::PacketParts;
+    ///
+    /// let parts = PacketParts::new(1, Some(42), vec![]);
+    /// assert_eq!(parts.correlation_id(), Some(42));
+    /// ```
     #[must_use]
     pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
+    /// Consume the parts and return the raw payload bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::PacketParts;
+    ///
+    /// let parts = PacketParts::new(1, None, vec![7, 8]);
+    /// assert_eq!(parts.payload(), vec![7, 8]);
+    /// ```
     #[must_use]
     pub fn payload(self) -> Vec<u8> { self.payload }
 
