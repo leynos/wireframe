@@ -45,9 +45,10 @@ consumption.
 
 - Handlers MAY receive `RequestParts` (header / metadata) plus a `Body`-like
   stream, rather than a fully reassembled `Vec<u8>`.
-- The payload stream will be representable as either `impl Stream<Item =
-  bytes::Bytes>` or an `AsyncRead
-  ` wrapper (or both), so protocol crates can integrate with existing parsers.
+- The payload stream will be representable as `impl Stream<Item =
+  Result<Bytes, std::io::Error>>`, where `Bytes` is `bytes::Bytes`.
+- The payload MAY also be representable as an `AsyncRead` wrapper (or both), so
+  protocol crates can integrate with existing parsers.
 - The default remains “buffered request” to preserve Wireframe’s existing
   transparent assembly ergonomics for small messages and simple protocols.
 
@@ -61,6 +62,33 @@ Wireframe will provide a generic message assembly hook (conceptually a
 `MessageAssembler`) so protocol crates can supply protocol-specific parsing and
 continuity rules, while Wireframe supplies the shared buffering machinery and
 limit enforcement.
+
+#### Composition with transport-level fragmentation and reassembly
+
+`MessageAssembler` is not a replacement for transport-level fragmentation and
+reassembly. The features operate at different layers:
+
+- Transport fragmentation/reassembly reconstructs a *single* logical packet
+  whose payload was split across transport fragments, and is intended to be
+  transparent to routing and handlers.[^fragmentation]
+- `MessageAssembler` reconstructs (or streams) a *protocol message* whose body
+  is split across *multiple protocol packets* (for example, an initial header
+  packet plus N continuation packets).
+
+When both are enabled, Wireframe applies them in the following order:
+
+1. Decode one packet from the transport framing (for example a
+   length-delimited codec).
+2. Apply transport reassembly if the packet is a fragment; yield a complete
+   packet payload once the fragment series is complete.
+3. Apply `MessageAssembler` to complete packets to produce either:
+   - one buffered request body, or
+   - a streaming request body that the handler consumes incrementally.
+4. Route and invoke handlers.
+
+This ordering ensures protocol crates migrating to `MessageAssembler` do not
+need to special-case transport fragments: the assembler only sees complete
+packet payloads and focuses on protocol continuity rules.
 
 At a minimum, the hook must allow a protocol to provide:
 
@@ -81,14 +109,66 @@ Wireframe will provide, centrally:
 This generalises the intent of the existing fragmentation adapter design
 without introducing protocol-specific assumptions.[^fragmentation]
 
+#### Failure modes and cleanup semantics
+
+Wireframe will make budget failures explicit and deterministic so protocol
+implementers can rely on the behaviour across crates:
+
+- **Soft budget pressure (back-pressure):** when inbound buffering approaches
+  the per-connection in-flight cap, Wireframe MUST stop reading further packets
+  from the socket until buffered bytes fall below the cap. For streaming bodies
+  backed by bounded queues, this naturally suspends the reader when the queue
+  is full.
+- **Hard cap exceeded during assembly (pre-handler):** if accepting a fragment
+  or continuation packet would exceed the configured per-message or per-
+  connection cap, Wireframe MUST:
+  - abort that in-flight assembly immediately;
+  - drop and free the partial buffers for the affected message key; and
+  - fail the connection read loop with `std::io::ErrorKind::InvalidData`.
+
+  No handler is invoked for the aborted message. Wireframe does not attempt to
+  synthesise a protocol error response at this stage; clients observe a closed
+  connection unless the protocol itself provides an earlier, explicit error
+  path.
+- **Hard cap exceeded during handler body streaming:** the body stream MUST
+  yield a `std::io::Error` (with `std::io::ErrorKind::InvalidData`) and then
+  terminate. The handler can translate this into a protocol error response if
+  desired. If the handler ignores the error, the request is treated as failed.
+
+These rules ensure partial assemblies never linger after a limit is exceeded,
+and that “bytes buffered” accounting returns to a consistent state promptly.
+
 ### 3) Configurable per-connection memory budgets and back-pressure
 
 Wireframe will standardise memory budgeting for inbound assembly and buffering
 at the connection layer, so protocols do not need to implement their own
 resource accounting to remain safe.
 
-- Budgets MUST be configurable per connection (and MAY be configurable
-  globally).
+#### Configuration surface and precedence
+
+Budgets will be configured on the connection’s `WireframeApp` instance. Because
+`WireframeServer` constructs a fresh `WireframeApp` from the factory closure
+per accepted connection, these settings are naturally per-connection.
+
+- Wireframe will add a `WireframeApp` builder method (for example
+  `memory_budgets(...)`) to explicitly set budgets.
+- If budgets are not set explicitly, defaults MUST be derived from
+  `buffer_capacity` in the same way fragmentation defaults are derived today
+  (for example, scaling a maximum message size from the per-connection frame
+  budget).[^hardening]
+- If both transport fragmentation and `MessageAssembler` are enabled, the
+  effective message cap is whichever guard triggers first. Operators SHOULD set
+  the fragmentation `max_message_size` and the message assembly per-message cap
+  to compatible values to avoid surprising early termination.
+
+Precedence is:
+
+1. Per-connection budgets set on the `WireframeApp` instance.
+2. Derived defaults based on `buffer_capacity` (and, where appropriate, the
+   configured fragmentation settings).
+
+#### Budget enforcement
+
 - Budgets MUST cover: bytes buffered per message, bytes buffered per
   connection, and bytes buffered across in-flight assemblies.
 - When budgets are approached, Wireframe SHOULD apply back-pressure by pausing
