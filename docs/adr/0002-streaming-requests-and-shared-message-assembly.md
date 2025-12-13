@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed
+Proposed (2025-12-12)
+
+## Deciders
+
+- Wireframe maintainers
 
 ## Context
 
@@ -43,12 +47,33 @@ Wireframe will expose a handler-facing request shape that can separate metadata
 from the payload, so handlers can choose between buffered and streaming
 consumption.
 
-- Handlers MAY receive `RequestParts` (header / metadata) plus a `Body`-like
-  stream, rather than a fully reassembled `Vec<u8>`.
-- The payload stream will be representable as `impl Stream<Item =
-  Result<Bytes, std::io::Error>>`, where `Bytes` is `bytes::Bytes`.
-- The payload MAY also be representable as an `AsyncRead` wrapper (or both), so
-  protocol crates can integrate with existing parsers.
+The handler-facing shapes are:
+
+```rust,no_run
+use bytes::Bytes;
+use futures_core::stream::Stream;
+use std::{pin::Pin, result::Result};
+
+/// Request metadata extracted outwith the request body.
+pub struct RequestParts {
+    /// Protocol-specific packet or message identifier used for routing.
+    pub id: u32,
+    /// Correlation identifier, if present.
+    pub correlation_id: Option<u64>,
+    /// Protocol-defined metadata bytes (for example headers) required to
+    /// interpret the body.
+    pub metadata: Vec<u8>,
+}
+
+/// Streaming request body.
+pub type RequestBodyStream =
+    Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static>>;
+```
+
+- Handlers MAY receive `RequestParts` plus `RequestBodyStream` rather than a
+  fully reassembled `Vec<u8>`.
+- Wireframe MAY expose an `AsyncRead` adaptor for `RequestBodyStream` so
+  protocol crates can reuse existing parsers.
 - The default remains “buffered request” to preserve Wireframe’s existing
   transparent assembly ergonomics for small messages and simple protocols.
 
@@ -90,6 +115,26 @@ This ordering ensures protocol crates migrating to `MessageAssembler` do not
 need to special-case transport fragments: the assembler only sees complete
 packet payloads and focuses on protocol continuity rules.
 
+For screen readers: the following sequence diagram shows the decode → fragment
+reassembly → message assembly → handler pipeline.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Transport as Transport framing
+  participant Frag as Fragment reassembly
+  participant Asm as MessageAssembler
+  participant Handler as Router/Handlers
+
+  Transport->>Frag: decode packet bytes
+  alt transport fragment series incomplete
+    Frag-->>Transport: buffer and await more fragments
+  else transport fragment series complete
+    Frag->>Asm: complete packet payload
+    Asm-->>Handler: RequestParts + buffered/streaming body
+  end
+```
+
 At a minimum, the hook must allow a protocol to provide:
 
 - a per-frame header parser (including “first frame” versus “continuation
@@ -124,16 +169,27 @@ implementers can rely on the behaviour across crates:
   connection cap, Wireframe MUST:
   - abort that in-flight assembly immediately;
   - drop and free the partial buffers for the affected message key; and
-  - fail the connection read loop with `std::io::ErrorKind::InvalidData`.
+  - surface `std::io::ErrorKind::InvalidData` from the inbound processing
+    path, applying the same decode-failure policy as other invalid inbound
+    frames.
 
   No handler is invoked for the aborted message. Wireframe does not attempt to
   synthesise a protocol error response at this stage; clients observe a closed
   connection unless the protocol itself provides an earlier, explicit error
   path.
-- **Hard cap exceeded during handler body streaming:** the body stream MUST
+- **Hard cap exceeded during handler body streaming:** `RequestBodyStream` MUST
   yield a `std::io::Error` (with `std::io::ErrorKind::InvalidData`) and then
-  terminate. The handler can translate this into a protocol error response if
-  desired. If the handler ignores the error, the request is treated as failed.
+  terminate.
+
+  Wireframe MUST record the request as failed for observability and MUST
+  release any remaining buffered bytes for the message key. Wireframe MUST
+  continue processing subsequent requests on the connection unless the protocol
+  crate chooses to close the connection as part of its error handling.
+
+  If the handler ignores the error, it does so with incomplete data:
+  `RequestBodyStream` has terminated, so the handler cannot recover the
+  remaining bytes. The handler MAY still translate the error into a protocol
+  response.
 
 These rules ensure partial assemblies never linger after a limit is exceeded,
 and that “bytes buffered” accounting returns to a consistent state promptly.
@@ -152,6 +208,8 @@ per accepted connection, these settings are naturally per-connection.
 
 - Wireframe will add a `WireframeApp` builder method (for example
   `memory_budgets(...)`) to explicitly set budgets.
+- Wireframe MAY also expose optional global budget caps on `WireframeServer` so
+  operators can bound total buffered bytes across all connections.
 - If budgets are not set explicitly, defaults MUST be derived from
   `buffer_capacity` in the same way fragmentation defaults are derived today
   (for example, scaling a maximum message size from the per-connection frame
@@ -164,7 +222,8 @@ per accepted connection, these settings are naturally per-connection.
 Precedence is:
 
 1. Per-connection budgets set on the `WireframeApp` instance.
-2. Derived defaults based on `buffer_capacity` (and, where appropriate, the
+2. Optional global budget caps (if enabled).
+3. Derived defaults based on `buffer_capacity` (and, where appropriate, the
    configured fragmentation settings).
 
 #### Budget enforcement
@@ -192,6 +251,21 @@ Wireframe will provide a transport-level helper (conceptually
 
 This reduces duplicate “read N bytes, stamp header, write frame” loops across
 protocol implementations while keeping header semantics protocol-defined.
+
+Timeouts MUST fail the current send operation and MUST not emit a partial frame.
+
+If a timeout occurs, `send_streaming` MUST return
+`std::io::ErrorKind::TimedOut` to the caller and MUST stop emitting further
+frames for that operation. The connection actor SHOULD treat this as a
+transport-level write failure and terminate the connection, because the peer
+may have observed a truncated frame on the wire.
+
+Retries MUST be treated as non-idempotent unless the protocol header semantics
+make duplication safe.
+
+`send_streaming` MUST not perform automatic retries. Callers MUST assume the
+operation may have been partially successful: any frames sent before the error
+remain sent.
 
 ### 5) Testkit utilities for fragmentation and streaming
 
