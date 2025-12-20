@@ -58,6 +58,7 @@ cucumber = "0.21.1"
 metrics-util = "0.20.0"
 tracing-test = "0.2.5"
 mockall = "0.13.1"
+socket2 = "0.6.0"
 
 tokio = { version = "1.47.1", default-features = false, features = [
     "macros",

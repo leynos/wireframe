@@ -19,7 +19,17 @@ async fn when_send_payload(world: &mut ClientRuntimeWorld, size: usize) -> TestR
     world.send_payload(size).await
 }
 
+#[when(expr = "the client sends an oversized payload of {int} bytes")]
+async fn when_send_oversized_payload(world: &mut ClientRuntimeWorld, size: usize) -> TestResult {
+    world.send_payload_expect_error(size).await
+}
+
 #[then("the client receives the echoed payload")]
 async fn then_receives_echo(world: &mut ClientRuntimeWorld) -> TestResult {
     world.verify_echo().await
+}
+
+#[then("the client reports a framing error")]
+async fn then_reports_error(world: &mut ClientRuntimeWorld) -> TestResult {
+    world.verify_error().await
 }

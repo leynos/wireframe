@@ -7,7 +7,7 @@ use cucumber::World;
 use futures::{SinkExt, StreamExt};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use wireframe::client::{ClientCodecConfig, WireframeClient};
+use wireframe::client::{ClientCodecConfig, ClientError, WireframeClient};
 
 use super::TestResult;
 
@@ -19,6 +19,7 @@ pub struct ClientRuntimeWorld {
     client: Option<WireframeClient>,
     payload: Option<ClientPayload>,
     response: Option<ClientPayload>,
+    last_error: Option<ClientError>,
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
@@ -83,6 +84,24 @@ impl ClientRuntimeWorld {
         let response: ClientPayload = client.call(&payload).await?;
         self.payload = Some(payload);
         self.response = Some(response);
+        self.last_error = None;
+        Ok(())
+    }
+
+    /// Send a payload that should exceed the peer's frame limit.
+    ///
+    /// # Errors
+    /// Returns an error if the client is missing or if no failure is observed.
+    pub async fn send_payload_expect_error(&mut self, size: usize) -> TestResult {
+        let payload = ClientPayload {
+            data: vec![7_u8; size],
+        };
+        let client = self.client.as_mut().ok_or("client not connected")?;
+        let result: Result<ClientPayload, ClientError> = client.call(&payload).await;
+        match result {
+            Ok(_) => return Err("expected client error for oversized payload".into()),
+            Err(err) => self.last_error = Some(err),
+        }
         Ok(())
     }
 
@@ -95,6 +114,26 @@ impl ClientRuntimeWorld {
         let response = self.response.as_ref().ok_or("response missing")?;
         if payload != response {
             return Err("response did not match payload".into());
+        }
+        if let Some(handle) = self.server.take() {
+            handle
+                .await
+                .map_err(|err| format!("server task failed: {err}"))?;
+        }
+        Ok(())
+    }
+
+    /// Verify that a client error was captured.
+    ///
+    /// # Errors
+    /// Returns an error if no failure was observed.
+    pub async fn verify_error(&mut self) -> TestResult {
+        let err = self
+            .last_error
+            .as_ref()
+            .ok_or("expected client error was not captured")?;
+        if !matches!(err, ClientError::Disconnected | ClientError::Io(_)) {
+            return Err("unexpected client error variant".into());
         }
         if let Some(handle) = self.server.take() {
             handle

@@ -24,7 +24,7 @@ use crate::{
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), wireframe::ClientError> {
-/// let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+/// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
 /// let _client = WireframeClient::builder().connect(addr).await?;
 /// # Ok(())
 /// # }
@@ -55,7 +55,7 @@ impl WireframeClient<BincodeSerializer> {
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), wireframe::ClientError> {
-    /// let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
     /// let _client = WireframeClient::builder().connect(addr).await?;
     /// # Ok(())
     /// # }
@@ -85,7 +85,7 @@ where
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
-    /// let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
     /// let mut client = WireframeClient::builder().connect(addr).await?;
     /// client.send(&Ping(1)).await?;
     /// # Ok(())
@@ -118,7 +118,7 @@ where
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
-    /// let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
     /// let mut client = WireframeClient::builder().connect(addr).await?;
     /// let _pong: Pong = client.receive().await?;
     /// # Ok(())
@@ -161,7 +161,7 @@ where
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
-    /// let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
     /// let mut client = WireframeClient::builder().connect(addr).await?;
     /// let login = Login {
     ///     username: "guest".to_string(),
@@ -189,7 +189,7 @@ where
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
-    /// let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
     /// let client = WireframeClient::builder().connect(addr).await?;
     /// let codec = client.codec_config();
     /// assert_eq!(codec.max_frame_length_value(), 1024);
@@ -198,4 +198,24 @@ where
     /// ```
     #[must_use]
     pub const fn codec_config(&self) -> &ClientCodecConfig { &self.codec_config }
+
+    /// Access the underlying [`TcpStream`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::net::SocketAddr;
+    ///
+    /// use wireframe::{ClientError, WireframeClient};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), ClientError> {
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
+    /// let client = WireframeClient::builder().connect(addr).await?;
+    /// let _stream = client.tcp_stream();
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn tcp_stream(&self) -> &TcpStream { self.framed.get_ref() }
 }

@@ -165,14 +165,17 @@ where
     /// # Examples
     ///
     /// ```
+    /// use std::time::Duration;
+    ///
     /// use wireframe::client::WireframeClientBuilder;
     ///
-    /// let builder = WireframeClientBuilder::new().keepalive(true);
+    /// let builder = WireframeClientBuilder::new()
+    ///     .keepalive(Some(Duration::from_secs(30)));
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn keepalive(mut self, enabled: bool) -> Self {
-        self.socket_options = self.socket_options.keepalive(enabled);
+    pub fn keepalive(mut self, duration: Option<Duration>) -> Self {
+        self.socket_options = self.socket_options.keepalive(duration);
         self
     }
 
@@ -278,7 +281,7 @@ where
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
-    /// let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
     /// let _client = WireframeClient::builder().connect(addr).await?;
     /// # Ok(())
     /// # }
@@ -294,9 +297,11 @@ where
         let codec_config = self.codec_config;
         let codec = codec_config.build_codec();
         let mut framed = Framed::new(stream, codec);
+        let initial_read_buffer_capacity =
+            core::cmp::min(64 * 1024, codec_config.max_frame_length_value());
         framed
             .read_buffer_mut()
-            .reserve(codec_config.max_frame_length_value());
+            .reserve(initial_read_buffer_capacity);
         Ok(WireframeClient {
             framed,
             serializer: self.serializer,

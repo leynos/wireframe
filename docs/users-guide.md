@@ -384,11 +384,11 @@ typed errors so callers can react appropriately.[^21]
 server's framing and serialization layers, with a builder that configures the
 serializer, codec settings, and socket options before connecting.[^44] Use
 `ClientCodecConfig` to align `max_frame_length` with the server's
-`buffer_capacity`, and apply `SocketOptions` when you need TCP tuning such as
-`TCP_NODELAY` or buffer size adjustments.
+`buffer_capacity`, and apply `SocketOptions` when TCP tuning is required, such
+as `TCP_NODELAY` or buffer size adjustments.
 
 ```rust
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use wireframe::{
     client::{ClientCodecConfig, SocketOptions},
@@ -407,7 +407,9 @@ struct LoginAck {
 
 let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
 let codec = ClientCodecConfig::default().max_frame_length(2048);
-let socket = SocketOptions::default().nodelay(true).keepalive(true);
+let socket = SocketOptions::default()
+    .nodelay(true)
+    .keepalive(Some(Duration::from_secs(30)));
 
 let mut client = WireframeClient::builder()
     .codec_config(codec)

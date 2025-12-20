@@ -125,14 +125,20 @@ impl ClientCodecConfig {
 /// ```
 /// use wireframe::client::SocketOptions;
 ///
-/// let options = SocketOptions::default().nodelay(true).keepalive(true);
-/// let expected = SocketOptions::default().nodelay(true).keepalive(true);
+/// use std::time::Duration;
+///
+/// let options = SocketOptions::default()
+///     .nodelay(true)
+///     .keepalive(Some(Duration::from_secs(30)));
+/// let expected = SocketOptions::default()
+///     .nodelay(true)
+///     .keepalive(Some(Duration::from_secs(30)));
 /// assert_eq!(options, expected);
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SocketOptions {
     nodelay: Option<bool>,
-    keepalive: Option<bool>,
+    keepalive: Option<KeepAliveSetting>,
     linger: Option<LingerSetting>,
     send_buffer_size: Option<u32>,
     recv_buffer_size: Option<u32>,
@@ -153,6 +159,21 @@ enum LingerSetting {
 }
 
 impl LingerSetting {
+    const fn to_option(self) -> Option<Duration> {
+        match self {
+            Self::Disabled => None,
+            Self::Duration(value) => Some(value),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KeepAliveSetting {
+    Disabled,
+    Duration(Duration),
+}
+
+impl KeepAliveSetting {
     const fn to_option(self) -> Option<Duration> {
         match self {
             Self::Disabled => None,
@@ -184,15 +205,20 @@ impl SocketOptions {
     /// # Examples
     ///
     /// ```
+    /// use std::time::Duration;
+    ///
     /// use wireframe::client::SocketOptions;
     ///
-    /// let options = SocketOptions::default().keepalive(true);
-    /// let expected = SocketOptions::default().keepalive(true);
+    /// let options = SocketOptions::default().keepalive(Some(Duration::from_secs(30)));
+    /// let expected = SocketOptions::default().keepalive(Some(Duration::from_secs(30)));
     /// assert_eq!(options, expected);
     /// ```
     #[must_use]
-    pub fn keepalive(mut self, enabled: bool) -> Self {
-        self.keepalive = Some(enabled);
+    pub fn keepalive(mut self, duration: Option<Duration>) -> Self {
+        self.keepalive = Some(match duration {
+            Some(value) => KeepAliveSetting::Duration(value),
+            None => KeepAliveSetting::Disabled,
+        });
         self
     }
 
@@ -296,8 +322,8 @@ impl SocketOptions {
         if let Some(enabled) = self.nodelay {
             socket.set_nodelay(enabled)?;
         }
-        if let Some(enabled) = self.keepalive {
-            socket.set_keepalive(enabled)?;
+        if let Some(keepalive) = self.keepalive {
+            socket.set_keepalive(keepalive.to_option())?;
         }
         if let Some(linger) = self.linger {
             socket.set_linger(linger.to_option())?;

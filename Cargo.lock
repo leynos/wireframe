@@ -2999,6 +2999,7 @@ dependencies = [
  "rstest 0.26.1",
  "serde",
  "serial_test",
+ "socket2 0.6.0",
  "static_assertions",
  "thiserror 2.0.16",
  "tokio",
