@@ -292,7 +292,7 @@ behavioural guarantees.
 
 - [ ] **Connection runtime:**
 
-  - [ ] Implement `WireframeClient` and its builder so callers can configure
+  - [x] Implement `WireframeClient` and its builder so callers can configure
     serializers, codec settings (including `max_frame_length` parity), and
     socket options before connecting.
 

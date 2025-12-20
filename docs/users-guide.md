@@ -378,6 +378,50 @@ the failure callback path.[^20]
 worker tasks.[^20][^37][^38] `ServerError` surfaces bind and accept failures as
 typed errors so callers can react appropriately.[^21]
 
+## Client runtime
+
+`WireframeClient` provides a first-class client runtime that mirrors the
+server's framing and serialization layers, with a builder that configures the
+serializer, codec settings, and socket options before connecting.[^44] Use
+`ClientCodecConfig` to align `max_frame_length` with the server's
+`buffer_capacity`, and apply `SocketOptions` when you need TCP tuning such as
+`TCP_NODELAY` or buffer size adjustments.
+
+```rust
+use std::net::SocketAddr;
+
+use wireframe::{
+    client::{ClientCodecConfig, SocketOptions},
+    WireframeClient,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Login {
+    username: String,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
+struct LoginAck {
+    ok: bool,
+}
+
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+let codec = ClientCodecConfig::default().max_frame_length(2048);
+let socket = SocketOptions::default().nodelay(true).keepalive(true);
+
+let mut client = WireframeClient::builder()
+    .codec_config(codec)
+    .socket_options(socket)
+    .connect(addr)
+    .await?;
+
+let login = Login {
+    username: "guest".to_string(),
+};
+let ack: LoginAck = client.call(&login).await?;
+assert!(ack.ok);
+```
+
 ## Push queues and connection actors
 
 Background work interacts with connections through `PushQueues`. The fluent
@@ -623,3 +667,5 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^41]: Implemented in `src/fragment/mod.rs` and supporting submodules.
 [^42]: Exercised in `tests/features/fragment.feature`.
 [^43]: Step definitions in `tests/steps/fragment_steps.rs`.
+[^44]: Implemented in `src/client/runtime.rs`, `src/client/builder.rs`,
+    `src/client/config.rs`, and `src/client/error.rs`.
