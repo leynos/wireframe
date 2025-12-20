@@ -98,22 +98,10 @@ incremental processing of large inbound payloads. The default remains buffered
 request handling to preserve existing ergonomics for small messages and simple
 protocols.
 
-```rust,no_run
-use bytes::Bytes;
-use futures_core::stream::Stream;
-use std::{pin::Pin, result::Result};
-
-/// Request metadata extracted outwith the request body.
-pub struct RequestParts {
-    pub id: u32,
-    pub correlation_id: Option<u64>,
-    pub metadata: Vec<u8>,
-}
-
-/// Streaming request body.
-pub type RequestBodyStream =
-    Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static>>;
-```
+At a high level, `RequestParts` separates routing metadata from the body, and
+`RequestBodyStream` yields body chunks as a pinned, boxed stream. See
+[ADR 0002][adr-0002] for the canonical type definitions; the exact field names
+and types shown there are illustrative and may evolve before stabilisation.
 
 Completion of a streaming response is signalled by a protocol-defined
 terminator frame. The new `stream_end_frame` hook allows implementations to

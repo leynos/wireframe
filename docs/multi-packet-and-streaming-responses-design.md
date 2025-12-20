@@ -542,31 +542,14 @@ providing symmetry with the outbound streaming capabilities documented above.
 
 Handlers that opt into streaming request bodies receive two components:
 
-```rust,no_run
-use bytes::Bytes;
-use futures_core::stream::Stream;
-use std::{pin::Pin, result::Result};
-
-/// Request metadata extracted outwith the request body.
-pub struct RequestParts {
-    /// Protocol-specific packet or message identifier used for routing.
-    pub id: u32,
-    /// Correlation identifier, if present.
-    pub correlation_id: Option<u64>,
-    /// Protocol-defined metadata bytes (for example headers) required to
-    /// interpret the body.
-    pub metadata: Vec<u8>,
-}
-
-/// Streaming request body.
-pub type RequestBodyStream =
-    Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static>>;
-```
-
 - `RequestParts` carries the routing and correlation metadata needed to
   dispatch the request before the body is fully received.
 - `RequestBodyStream` yields body chunks incrementally, allowing handlers to
   process large payloads without buffering the entire message in memory.
+
+See [ADR 0002][adr-0002] for the canonical type definitions. The exact field
+names and types may evolve; protocol authors should consult the published API
+documentation for current signatures.
 
 ### 11.2 Opt-in semantics
 
