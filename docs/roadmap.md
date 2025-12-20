@@ -284,6 +284,100 @@ logic.
   - [x] Test edge cases: out-of-order fragments, duplicate fragments, and
     reassembly timeouts.
 
+## Phase 7.5: Streaming requests & shared message assembly
+
+This phase implements the decisions from [ADR 0002][adr-0002], adding
+first-class streaming request bodies, a generic message assembly abstraction,
+and standardised per-connection memory budgets.
+
+- [ ] **Streaming request bodies:**
+
+  - [ ] Implement `RequestParts` struct with `id`, `correlation_id`, and
+    `metadata` fields.
+
+  - [ ] Implement `RequestBodyStream` type alias as a pinned, boxed stream of
+    `Result<Bytes, std::io::Error>`.
+
+  - [ ] Add `AsyncRead` adaptor for `RequestBodyStream` so protocol crates can
+    reuse existing parsers.
+
+  - [ ] Integrate streaming request extraction with the handler dispatch path.
+
+  - [ ] Write tests for buffered-to-streaming fallback and back-pressure
+    propagation.
+
+- [ ] **MessageAssembler abstraction:**
+
+  - [ ] Define `MessageAssembler` hook trait for protocol-specific multi-frame
+    parsing.
+
+  - [ ] Implement per-frame header parsing with "first frame" versus
+    "continuation frame" handling.
+
+  - [ ] Add message key support for multiplexing interleaved assemblies.
+
+  - [ ] Implement continuity validation (ordering, missing frames, duplicate
+    frames).
+
+  - [ ] Integrate with connection actor's inbound path, applying after transport
+    fragmentation.
+
+  - [ ] Write tests for interleaved assembly, ordering violations, and timeout
+    behaviour.
+
+- [ ] **Per-connection memory budgets:**
+
+  - [ ] Add `WireframeApp::memory_budgets(...)` builder method.
+
+  - [ ] Implement budget enforcement covering bytes per message, bytes per
+    connection, and bytes across in-flight assemblies.
+
+  - [ ] Implement soft limit (back-pressure by pausing reads) behaviour.
+
+  - [ ] Implement hard cap (abort early, release partial state, surface
+    `InvalidData`) behaviour.
+
+  - [ ] Define derived defaults based on `buffer_capacity` when budgets are not
+    set explicitly.
+
+  - [ ] Write tests for budget enforcement, back-pressure, and cleanup
+    semantics.
+
+- [ ] **Transport helper:**
+
+  - [ ] Implement `send_streaming(frame_header, body_reader)` helper.
+
+  - [ ] Add chunk size configuration with protocol-provided headers.
+
+  - [ ] Implement timeout handling (return `TimedOut`, stop emitting frames).
+
+  - [ ] Integrate with connection actor instrumentation and hooks.
+
+  - [ ] Write tests for partial send failures and timeout behaviour.
+
+- [ ] **Testkit utilities:**
+
+  - [ ] Add utilities for feeding partial frames/fragments into an in-process
+    app.
+
+  - [ ] Add slow reader/writer simulation for back-pressure testing.
+
+  - [ ] Add deterministic assertion helpers for reassembly outcomes.
+
+  - [ ] Export utilities as `wireframe::testkit` behind a dedicated feature.
+
+- [ ] **Documentation:**
+
+  - [ ] Update `generic-message-fragmentation-and-re-assembly-design.md` with
+    composition guidance.
+
+  - [ ] Update `multi-packet-and-streaming-responses-design.md` with streaming
+    request body section.
+
+  - [ ] Update
+        `the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`
+    with MessageAssembler and budget details.
+
 ## Phase 8: Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
@@ -422,3 +516,5 @@ and usability.
 
 [^adr-0001]:
     Refer to [ADR 0001](./adr/0001-multi-packet-streaming-response-api.md).
+
+[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md

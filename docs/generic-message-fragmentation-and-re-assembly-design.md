@@ -58,6 +58,14 @@ interleaved fragments from different logical messages on the same connection.
 To support this, the `FragmentAdapter` will not maintain a single reassembly
 state, but a map of concurrent reassembly processes.
 
+Per-connection memory budgets are now standardised across all assembly paths.
+While `max_message_size` remains as a per-message cap, it works alongside
+per-connection limits covering bytes buffered per message, bytes buffered per
+connection, and bytes buffered across in-flight assemblies. See
+[Section 9](#9-composition-with-streaming-requests-and-messageassembler) and
+[ADR 0002][adr-0002] for the complete budget configuration and enforcement
+model.
+
 ```rust
 use dashmap::DashMap;
 use std::sync::atomic::AtomicU64;
@@ -393,3 +401,84 @@ This feature is designed as a foundational layer that other features build upon.
   drops the partial buffer when ordering breaks, enforces a configurable
   `max_message_size`, and exposes caller-driven timeout purging. This prevents
   abandoned assemblies from exhausting memory.
+
+## 9. Composition with streaming requests and MessageAssembler
+
+Transport-level fragmentation and reassembly is one layer in a broader
+processing pipeline. [ADR 0002][adr-0002] introduces a protocol-level
+`MessageAssembler` abstraction that operates above the transport layer.
+Understanding how these layers compose is essential for protocol implementers.
+
+### 9.1 Layer distinction
+
+The two layers serve different purposes:
+
+- **Transport fragmentation/reassembly** (`FragmentAdapter`): Reconstructs a
+  *single* logical packet whose payload was split across transport fragments.
+  This layer is transparent to routing and handlers; they never observe
+  individual fragments.
+
+- **Protocol-level message assembly** (`MessageAssembler`): Reconstructs (or
+  streams) a *protocol message* whose body is split across *multiple protocol
+  packets*—for example, an initial header packet plus N continuation packets.
+  This layer is protocol-specific and integrates with the handler dispatch path.
+
+### 9.2 Processing pipeline
+
+When both layers are enabled, Wireframe applies them in the following order:
+
+1. Decode one packet from the transport framing (for example, a length-delimited
+   codec).
+2. Apply transport reassembly if the packet is a fragment; yield a complete
+   packet payload once the fragment series is complete.
+3. Apply `MessageAssembler` to complete packets to produce either:
+   - one buffered request body, or
+   - a streaming request body that the handler consumes incrementally.
+4. Route and invoke handlers.
+
+For screen readers: the following sequence diagram shows the decode → fragment
+reassembly → message assembly → handler pipeline.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Transport as Transport framing
+  participant Frag as Fragment reassembly
+  participant Asm as MessageAssembler
+  participant Handler as Router/Handlers
+
+  Transport->>Frag: decode packet bytes
+  alt transport fragment series incomplete
+    Frag-->>Transport: buffer and await more fragments
+  else transport fragment series complete
+    Frag->>Asm: complete packet payload
+    Asm-->>Handler: RequestParts + buffered/streaming body
+  end
+```
+
+This ordering ensures protocol crates migrating to `MessageAssembler` do not
+need to special-case transport fragments: the assembler only sees complete
+packet payloads and focuses on protocol continuity rules.
+
+### 9.3 Memory budget integration
+
+Per-connection memory budgets apply across both layers. Budgets cover:
+
+- bytes buffered per message (existing `max_message_size`);
+- bytes buffered per connection; and
+- bytes buffered across in-flight assemblies.
+
+When budgets are approached, Wireframe applies back-pressure by pausing further
+reads and assembly work. When a hard cap is exceeded, Wireframe aborts early,
+releases partial state, and surfaces `std::io::ErrorKind::InvalidData` from the
+inbound processing path.
+
+If both transport fragmentation and `MessageAssembler` are enabled, the
+effective message cap is whichever guard triggers first. Operators should set
+the fragmentation `max_message_size` and the message assembly per-message cap
+to compatible values to avoid surprising early termination.
+
+See [ADR 0002][adr-0002] for the complete budget configuration surface and
+failure mode semantics.
+
+[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
