@@ -1,4 +1,4 @@
-# ADR 001: Replace Cucumber with rstest-bdd for behavioural tests
+# ADR 001: replace Cucumber with rstest-bdd for behavioural tests
 
 ## Status
 
@@ -14,16 +14,18 @@ Wireframe's behavioural tests currently use the `cucumber` crate, with a
 bespoke test runner (`tests/cucumber.rs`), `World` types, and step modules.
 This approach provides Gherkin coverage but sits outside the default Rust test
 harness, depends on an async runner, and duplicates fixture concepts already in
-use elsewhere. The suite also has to keep a separate execution path in CI,
-which increases maintenance overhead when evolving test infrastructure.
+use elsewhere. The suite also has to keep a separate execution path in
+Continuous Integration (CI), which increases maintenance overhead when evolving
+test infrastructure.
 
-The `rstest-bdd` framework (v0.2.0) offers a BDD layer that integrates directly
-with `rstest` fixtures and `cargo test`, keeping behavioural tests in the same
-execution environment as unit and integration tests. It reuses familiar
-fixtures, supports compile-time validation of step coverage, and keeps Gherkin
-feature files as the source of truth for behaviour specifications. The
-`rstest-bdd` user's guide documents the current feature set and its
-limitations, which we must account for in a migration plan.[^rstest-bdd-guide]
+The `rstest-bdd` framework (v0.2.0) offers a Behaviour-Driven Development (BDD)
+layer that integrates directly with `rstest` fixtures and `cargo test`, keeping
+behavioural tests in the same execution environment as unit and integration
+tests. It reuses familiar fixtures, supports compile-time validation of step
+coverage, and keeps Gherkin feature files as the source of truth for behaviour
+specifications. The `rstest-bdd` user's guide documents the current feature set
+and its limitations, which we must account for in a migration plan.
+[^rstest-bdd-guide]
 
 ## Decision
 
@@ -76,7 +78,7 @@ step bindings with `rstest-bdd` scenarios and fixtures.
 
 ## Roadmap
 
-### Phase 1: Establish the rstest-bdd foundation
+### Phase 1: establish the rstest-bdd foundation
 
 - Step: Add the new toolchain and skeleton tests.
   - Task: Add `rstest-bdd` and `rstest-bdd-macros` v0.2.0 as dev-dependencies
@@ -85,7 +87,7 @@ step bindings with `rstest-bdd` scenarios and fixtures.
     runs under `cargo test`.
   - Task: Document the new test layout and invocation in the testing guides.
 
-### Phase 2: Migrate existing scenarios
+### Phase 2: migrate existing scenarios
 
 - Step: Port core behavioural coverage from Cucumber to `rstest-bdd`.
   - Task: Convert each Cucumber world into a `rstest` fixture or
@@ -96,7 +98,7 @@ step bindings with `rstest-bdd` scenarios and fixtures.
   - Task: Ensure each migrated scenario passes under `cargo test` and that
     feature coverage matches the existing suite.
 
-### Phase 3: Retire Cucumber
+### Phase 3: retire Cucumber
 
 - Step: Remove the legacy runner and dependencies once parity is confirmed.
   - Task: Delete `tests/cucumber.rs`, Cucumber-specific world modules, and the
@@ -106,4 +108,4 @@ step bindings with `rstest-bdd` scenarios and fixtures.
   - Task: Replace or retire documentation that refers to Cucumber, including
     guides and examples in `docs/`.
 
-[^rstest-bdd-guide]: See `docs/rstest-bdd-users-guide.md`.
+[^rstest-bdd-guide]: See [rstest-bdd user's guide](rstest-bdd-users-guide.md).
