@@ -2,6 +2,7 @@
 
 use std::{io, time::Duration};
 
+use socket2::{SockRef, TcpKeepalive};
 use tokio::net::TcpSocket;
 use tokio_util::codec::LengthDelimitedCodec;
 
@@ -173,15 +174,6 @@ enum KeepAliveSetting {
     Duration(Duration),
 }
 
-impl KeepAliveSetting {
-    const fn to_option(self) -> Option<Duration> {
-        match self {
-            Self::Disabled => None,
-            Self::Duration(value) => Some(value),
-        }
-    }
-}
-
 impl SocketOptions {
     /// Configure `TCP_NODELAY` behaviour on the socket.
     ///
@@ -323,7 +315,17 @@ impl SocketOptions {
             socket.set_nodelay(enabled)?;
         }
         if let Some(keepalive) = self.keepalive {
-            socket.set_keepalive(keepalive.to_option())?;
+            match keepalive {
+                KeepAliveSetting::Disabled => {
+                    socket.set_keepalive(false)?;
+                }
+                KeepAliveSetting::Duration(duration) => {
+                    socket.set_keepalive(true)?;
+                    let sock_ref = SockRef::from(socket);
+                    let config = TcpKeepalive::new().with_time(duration);
+                    sock_ref.set_tcp_keepalive(&config)?;
+                }
+            }
         }
         if let Some(linger) = self.linger {
             socket.set_linger(linger.to_option())?;
