@@ -123,9 +123,9 @@ impl ClientCodecConfig {
 /// # Examples
 ///
 /// ```
-/// use wireframe::client::SocketOptions;
-///
 /// use std::time::Duration;
+///
+/// use wireframe::client::SocketOptions;
 ///
 /// let options = SocketOptions::default()
 ///     .nodelay(true)

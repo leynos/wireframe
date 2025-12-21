@@ -169,8 +169,7 @@ where
     ///
     /// use wireframe::client::WireframeClientBuilder;
     ///
-    /// let builder = WireframeClientBuilder::new()
-    ///     .keepalive(Some(Duration::from_secs(30)));
+    /// let builder = WireframeClientBuilder::new().keepalive(Some(Duration::from_secs(30)));
     /// let _ = builder;
     /// ```
     #[must_use]
