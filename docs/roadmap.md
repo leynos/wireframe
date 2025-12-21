@@ -288,7 +288,7 @@ logic.
 
 This phase implements the decisions from [ADR 0002][adr-0002], adding
 first-class streaming request bodies, a generic message assembly abstraction,
-and standardised per-connection memory budgets.
+and standardized per-connection memory budgets.
 
 - [ ] **Streaming request bodies:**
 

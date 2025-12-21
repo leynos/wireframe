@@ -280,7 +280,7 @@ Rust's ownership model and `Drop` trait are the foundation of resource safety.
   - **Memory Caps:** The fragmentation layer enforces a strict
     `max_message_size`
     to prevent a single client from consuming excessive memory.
-    [ADR 0002][adr-0002] extends this to standardised per-connection memory
+    [ADR 0002][adr-0002] extends this to standardized per-connection memory
     budgets covering:
 
     - bytes buffered per message;

@@ -58,7 +58,7 @@ interleaved fragments from different logical messages on the same connection.
 To support this, the `FragmentAdapter` will not maintain a single reassembly
 state, but a map of concurrent reassembly processes.
 
-Per-connection memory budgets are now standardised across all assembly paths.
+Per-connection memory budgets are now standardized across all assembly paths.
 While `max_message_size` remains as a per-message cap, it works alongside
 per-connection limits covering bytes buffered per message, bytes buffered per
 connection, and bytes buffered across in-flight assemblies. See
