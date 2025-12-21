@@ -24,10 +24,7 @@ async fn client_surfaces_error_when_frame_exceeds_server_max_length() {
         .expect("read local address for test listener");
 
     let server = tokio::spawn(async move {
-        let (stream, _) = listener
-            .accept()
-            .await
-            .expect("server accepts connection");
+        let (stream, _) = listener.accept().await.expect("server accepts connection");
         let codec = LengthDelimitedCodec::builder()
             .max_frame_length(server_max_frame_length)
             .new_codec();
@@ -40,9 +37,7 @@ async fn client_surfaces_error_when_frame_exceeds_server_max_length() {
     });
 
     let mut client = WireframeClient::builder()
-        .codec_config(
-            ClientCodecConfig::default().max_frame_length(client_max_frame_length),
-        )
+        .codec_config(ClientCodecConfig::default().max_frame_length(client_max_frame_length))
         .connect(addr)
         .await
         .expect("connect client");
