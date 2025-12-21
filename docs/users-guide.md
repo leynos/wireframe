@@ -99,12 +99,12 @@ async fn main() -> Result<(), ServerError> {
 ```
 
 Route identifiers must be unique; the builder returns
-`WireframeError::DuplicateRoute` when you try to register a handler twice,
+`WireframeError::DuplicateRoute` when a handler is registered twice,
 keeping the dispatch table unambiguous.[^2][^5] New applications default to the
 bundled bincode serializer, a 1024-byte frame buffer, and a 100 ms read
 timeout. Clamp these limits with `buffer_capacity` and `read_timeout_ms`, or
-swap the serializer with `with_serializer` when you need a different encoding
-strategy.[^3][^4]
+swap the serializer with `with_serializer` when a different encoding strategy
+is required.[^3][^4]
 
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware

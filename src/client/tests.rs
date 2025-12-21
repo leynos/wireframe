@@ -27,6 +27,24 @@ async fn spawn_listener() -> (SocketAddr, tokio::task::JoinHandle<TcpStream>) {
     (addr, accept)
 }
 
+/// Helper function to test that a builder option is correctly applied to the TCP socket.
+async fn assert_builder_option<F, A>(configure_builder: F, assert_option: A)
+where
+    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder,
+    A: FnOnce(&WireframeClient),
+{
+    let (addr, accept) = spawn_listener().await;
+
+    let client = configure_builder(WireframeClient::builder())
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    assert_option(&client);
+
+    let _server_stream = accept.await.expect("join accept task");
+}
+
 #[rstest]
 #[case(1, MIN_FRAME_LENGTH)]
 #[case(MIN_FRAME_LENGTH, MIN_FRAME_LENGTH)]
@@ -88,118 +106,94 @@ fn build_codec_configures_length_delimited_codec() {
 
 #[tokio::test]
 async fn builder_applies_nodelay_option() {
-    let (addr, accept) = spawn_listener().await;
-
-    let client = WireframeClient::builder()
-        .nodelay(true)
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let stream = client.tcp_stream().nodelay().expect("read nodelay");
-    assert!(stream, "expected TCP_NODELAY to be enabled");
-
-    let _server_stream = accept.await.expect("join accept task");
+    assert_builder_option(
+        |builder| builder.nodelay(true),
+        |client| {
+            let stream = client.tcp_stream().nodelay().expect("read nodelay");
+            assert!(stream, "expected TCP_NODELAY to be enabled");
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn builder_applies_keepalive_option() {
-    let (addr, accept) = spawn_listener().await;
-
     let keepalive = Duration::from_secs(30);
-    let client = WireframeClient::builder()
-        .keepalive(Some(keepalive))
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let sock_ref = SockRef::from(client.tcp_stream());
-    assert!(
-        sock_ref.keepalive().expect("query SO_KEEPALIVE"),
-        "SO_KEEPALIVE should be enabled when configured via builder"
-    );
-
-    let _server_stream = accept.await.expect("join accept task");
+    assert_builder_option(
+        |builder| builder.keepalive(Some(keepalive)),
+        |client| {
+            let sock_ref = SockRef::from(client.tcp_stream());
+            assert!(
+                sock_ref.keepalive().expect("query SO_KEEPALIVE"),
+                "SO_KEEPALIVE should be enabled when configured via builder"
+            );
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn builder_applies_linger_option() {
-    let (addr, accept) = spawn_listener().await;
     let linger = Duration::from_secs(1);
-
-    let client = WireframeClient::builder()
-        .linger(Some(linger))
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let sock_ref = SockRef::from(client.tcp_stream());
-    assert_eq!(
-        sock_ref.linger().expect("query SO_LINGER"),
-        Some(linger),
-        "SO_LINGER should match builder configuration"
-    );
-
-    let _server_stream = accept.await.expect("join accept task");
+    assert_builder_option(
+        |builder| builder.linger(Some(linger)),
+        |client| {
+            let sock_ref = SockRef::from(client.tcp_stream());
+            assert_eq!(
+                sock_ref.linger().expect("query SO_LINGER"),
+                Some(linger),
+                "SO_LINGER should match builder configuration"
+            );
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn builder_applies_send_buffer_size_option() {
-    let (addr, accept) = spawn_listener().await;
     let send_buf_size = 256 * 1024;
-
-    let client = WireframeClient::builder()
-        .send_buffer_size(send_buf_size)
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let sock_ref = SockRef::from(client.tcp_stream());
-    assert!(
-        sock_ref.send_buffer_size().expect("query SO_SNDBUF") >= send_buf_size as usize,
-        "SO_SNDBUF should be at least the requested builder value"
-    );
-
-    let _server_stream = accept.await.expect("join accept task");
+    assert_builder_option(
+        |builder| builder.send_buffer_size(send_buf_size),
+        |client| {
+            let sock_ref = SockRef::from(client.tcp_stream());
+            assert!(
+                sock_ref.send_buffer_size().expect("query SO_SNDBUF") >= send_buf_size as usize,
+                "SO_SNDBUF should be at least the requested builder value"
+            );
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn builder_applies_recv_buffer_size_option() {
-    let (addr, accept) = spawn_listener().await;
     let recv_buf_size = 256 * 1024;
-
-    let client = WireframeClient::builder()
-        .recv_buffer_size(recv_buf_size)
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let sock_ref = SockRef::from(client.tcp_stream());
-    assert!(
-        sock_ref.recv_buffer_size().expect("query SO_RCVBUF") >= recv_buf_size as usize,
-        "SO_RCVBUF should be at least the requested builder value"
-    );
-
-    let _server_stream = accept.await.expect("join accept task");
+    assert_builder_option(
+        |builder| builder.recv_buffer_size(recv_buf_size),
+        |client| {
+            let sock_ref = SockRef::from(client.tcp_stream());
+            assert!(
+                sock_ref.recv_buffer_size().expect("query SO_RCVBUF") >= recv_buf_size as usize,
+                "SO_RCVBUF should be at least the requested builder value"
+            );
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn builder_applies_reuseaddr_option() {
-    let (addr, accept) = spawn_listener().await;
-
-    let client = WireframeClient::builder()
-        .reuseaddr(true)
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let sock_ref = SockRef::from(client.tcp_stream());
-    assert!(
-        sock_ref.reuse_address().expect("query SO_REUSEADDR"),
-        "SO_REUSEADDR should be enabled when configured via builder"
-    );
-
-    let _server_stream = accept.await.expect("join accept task");
+    assert_builder_option(
+        |builder| builder.reuseaddr(true),
+        |client| {
+            let sock_ref = SockRef::from(client.tcp_stream());
+            assert!(
+                sock_ref.reuse_address().expect("query SO_REUSEADDR"),
+                "SO_REUSEADDR should be enabled when configured via builder"
+            );
+        },
+    )
+    .await;
 }
 
 #[cfg(all(
@@ -210,19 +204,15 @@ async fn builder_applies_reuseaddr_option() {
 ))]
 #[tokio::test]
 async fn builder_applies_reuseport_option() {
-    let (addr, accept) = spawn_listener().await;
-
-    let client = WireframeClient::builder()
-        .reuseport(true)
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let sock_ref = SockRef::from(client.tcp_stream());
-    assert!(
-        sock_ref.reuse_port().expect("query SO_REUSEPORT"),
-        "SO_REUSEPORT should be enabled when configured via builder"
-    );
-
-    let _server_stream = accept.await.expect("join accept task");
+    assert_builder_option(
+        |builder| builder.reuseport(true),
+        |client| {
+            let sock_ref = SockRef::from(client.tcp_stream());
+            assert!(
+                sock_ref.reuse_port().expect("query SO_REUSEPORT"),
+                "SO_REUSEPORT should be enabled when configured via builder"
+            );
+        },
+    )
+    .await;
 }

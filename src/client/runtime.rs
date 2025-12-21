@@ -95,7 +95,7 @@ where
         let bytes = self
             .serializer
             .serialize(message)
-            .map_err(ClientError::Serialize)?;
+            .map_err(|e| ClientError::Serialize(Box::new(e)))?;
         self.framed.send(Bytes::from(bytes)).await?;
         Ok(())
     }
@@ -132,7 +132,7 @@ where
         let (message, _consumed) = self
             .serializer
             .deserialize(&bytes)
-            .map_err(ClientError::Deserialize)?;
+            .map_err(|e| ClientError::Deserialize(Box::new(e)))?;
         Ok(message)
     }
 
