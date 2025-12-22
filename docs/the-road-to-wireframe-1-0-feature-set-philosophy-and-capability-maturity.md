@@ -101,7 +101,7 @@ protocols.
 At a high level, `RequestParts` separates routing metadata from the body, and
 `RequestBodyStream` yields body chunks as a pinned, boxed stream. See
 [ADR 0002][adr-0002] for the canonical type definitions; the exact field names
-and types shown there are illustrative and may evolve before stabilisation.
+and types shown there are illustrative and may evolve before stabilization.
 
 Completion of a streaming response is signalled by a protocol-defined
 terminator frame. The new `stream_end_frame` hook allows implementations to
