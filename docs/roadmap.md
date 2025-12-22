@@ -287,7 +287,7 @@ logic.
 ## Phase 8: Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
-framing, serialisation, and lifecycle layers so both sides share the same
+framing, serialisation, and lifecycle layers, so both sides share the same
 behavioural guarantees.
 
 - [ ] **Connection runtime:**

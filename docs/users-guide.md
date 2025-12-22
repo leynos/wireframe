@@ -12,7 +12,7 @@ as an `Arc` pointing to an async function that receives a packet reference and
 returns `()`. The builder caches these registrations until `handle_connection`
 constructs the middleware chain for an accepted stream.[^2]
 
-```rust
+```no_run
 use std::sync::Arc;
 use wireframe::app::{Envelope, Handler, WireframeApp};
 

@@ -11,8 +11,8 @@ use wireframe::client::{ClientCodecConfig, ClientError, WireframeClient};
 
 use super::TestResult;
 
-#[derive(Debug, Default, World)]
 /// Test world exercising the wireframe client runtime.
+#[derive(Debug, Default, World)]
 pub struct ClientRuntimeWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,

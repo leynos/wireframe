@@ -151,13 +151,14 @@ async fn builder_applies_linger_option() {
 
 #[tokio::test]
 async fn builder_applies_send_buffer_size_option() {
-    let send_buf_size = 256 * 1024;
+    let send_buf_size: usize = 256 * 1024;
+    let send_buf_size_u32 = u32::try_from(send_buf_size).expect("send buffer size fits u32");
     assert_builder_option(
-        |builder| builder.send_buffer_size(send_buf_size),
+        |builder| builder.send_buffer_size(send_buf_size_u32),
         |client| {
             let sock_ref = SockRef::from(client.tcp_stream());
             assert!(
-                sock_ref.send_buffer_size().expect("query SO_SNDBUF") >= send_buf_size as usize,
+                sock_ref.send_buffer_size().expect("query SO_SNDBUF") >= send_buf_size,
                 "SO_SNDBUF should be at least the requested builder value"
             );
         },
@@ -167,13 +168,14 @@ async fn builder_applies_send_buffer_size_option() {
 
 #[tokio::test]
 async fn builder_applies_recv_buffer_size_option() {
-    let recv_buf_size = 256 * 1024;
+    let recv_buf_size: usize = 256 * 1024;
+    let recv_buf_size_u32 = u32::try_from(recv_buf_size).expect("recv buffer size fits u32");
     assert_builder_option(
-        |builder| builder.recv_buffer_size(recv_buf_size),
+        |builder| builder.recv_buffer_size(recv_buf_size_u32),
         |client| {
             let sock_ref = SockRef::from(client.tcp_stream());
             assert!(
-                sock_ref.recv_buffer_size().expect("query SO_RCVBUF") >= recv_buf_size as usize,
+                sock_ref.recv_buffer_size().expect("query SO_RCVBUF") >= recv_buf_size,
                 "SO_RCVBUF should be at least the requested builder value"
             );
         },

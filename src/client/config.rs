@@ -311,9 +311,30 @@ impl SocketOptions {
     }
 
     pub(crate) fn apply(&self, socket: &TcpSocket) -> io::Result<()> {
+        self.apply_nodelay(socket)?;
+        self.apply_keepalive(socket)?;
+        self.apply_linger(socket)?;
+        self.apply_send_buffer_size(socket)?;
+        self.apply_recv_buffer_size(socket)?;
+        self.apply_reuseaddr(socket)?;
+        #[cfg(all(
+            unix,
+            not(target_os = "solaris"),
+            not(target_os = "illumos"),
+            not(target_os = "cygwin"),
+        ))]
+        self.apply_reuseport(socket)?;
+        Ok(())
+    }
+
+    fn apply_nodelay(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(enabled) = self.nodelay {
             socket.set_nodelay(enabled)?;
         }
+        Ok(())
+    }
+
+    fn apply_keepalive(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(keepalive) = self.keepalive {
             match keepalive {
                 KeepAliveSetting::Disabled => {
@@ -327,24 +348,44 @@ impl SocketOptions {
                 }
             }
         }
+        Ok(())
+    }
+
+    fn apply_linger(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(linger) = self.linger {
             socket.set_linger(linger.to_option())?;
         }
+        Ok(())
+    }
+
+    fn apply_send_buffer_size(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(size) = self.send_buffer_size {
             socket.set_send_buffer_size(size)?;
         }
+        Ok(())
+    }
+
+    fn apply_recv_buffer_size(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(size) = self.recv_buffer_size {
             socket.set_recv_buffer_size(size)?;
         }
+        Ok(())
+    }
+
+    fn apply_reuseaddr(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(enabled) = self.reuseaddr {
             socket.set_reuseaddr(enabled)?;
         }
-        #[cfg(all(
-            unix,
-            not(target_os = "solaris"),
-            not(target_os = "illumos"),
-            not(target_os = "cygwin"),
-        ))]
+        Ok(())
+    }
+
+    #[cfg(all(
+        unix,
+        not(target_os = "solaris"),
+        not(target_os = "illumos"),
+        not(target_os = "cygwin"),
+    ))]
+    fn apply_reuseport(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(enabled) = self.reuseport {
             socket.set_reuseport(enabled)?;
         }
