@@ -72,6 +72,10 @@ step bindings with `rstest-bdd` scenarios and fixtures.
   work.
 - The migration will temporarily run two frameworks in parallel, increasing the
   short-term maintenance load until decommissioning is complete.
+- `rstest-bdd` async step support is on the roadmap but not yet available, so
+  async behaviour must be refactored or deferred.
+- Migration timing should align with the landing of async support to avoid
+  unnecessary rewrites of async-heavy steps.
 - `rstest-bdd` currently lacks support for wildcard `*` steps and other
   advanced features; any existing scenarios using unsupported constructs must
   be rewritten or deferred until upstream support is available.
