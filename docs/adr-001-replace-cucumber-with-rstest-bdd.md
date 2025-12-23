@@ -24,7 +24,7 @@ behavioural tests in the same execution environment as unit and integration
 tests. It reuses familiar fixtures, supports compile-time validation of step
 coverage, and keeps Gherkin feature files as the source of truth for behaviour
 specifications. The `rstest-bdd` user's guide documents the current feature set
-and its limitations, which we must account for in a migration plan.
+and its limitations, which must be accounted for in a migration plan.
 [^rstest-bdd-guide]
 
 ## Decision
@@ -60,7 +60,10 @@ step bindings with `rstest-bdd` scenarios and fixtures.
 - Enable `rstest-bdd-macros` compile-time validation and tighten to
   strict validation once all step definitions are local to the Wireframe
   workspace.
-- Remove the Cucumber runner and dependencies only after parity is established
+- Use explicit async boundaries for current async steps, such as helper layers
+  that `block_on` async operations inside a shared test runtime fixture, while
+  keeping async-heavy scenarios on Cucumber until support lands.
+- Remove the Cucumber runner and dependencies only after parity is established,
   and behavioural coverage is fully represented in the new suite.
 
 ## Consequences
@@ -82,7 +85,7 @@ step bindings with `rstest-bdd` scenarios and fixtures.
 
 ## Roadmap
 
-### Phase 1: establish the rstest-bdd foundation
+### Phase 1: Establish the rstest-bdd foundation
 
 - Step: Add the new toolchain and skeleton tests.
   - Task: Add `rstest-bdd` and `rstest-bdd-macros` v0.2.0 as dev-dependencies
@@ -91,18 +94,18 @@ step bindings with `rstest-bdd` scenarios and fixtures.
     runs under `cargo test`.
   - Task: Document the new test layout and invocation in the testing guides.
 
-### Phase 2: migrate existing scenarios
+### Phase 2: Migrate existing scenarios
 
 - Step: Port core behavioural coverage from Cucumber to `rstest-bdd`.
   - Task: Convert each Cucumber world into a `rstest` fixture or
-    `ScenarioState` struct and move shared helpers into `wireframe_testing` as
+    `ScenarioState` struct, and move shared helpers into `wireframe_testing` as
     needed.
   - Task: Translate step definitions to `#[given]`, `#[when]`, and `#[then]`
     functions, keeping the same feature file wording wherever possible.
   - Task: Ensure each migrated scenario passes under `cargo test` and that
     feature coverage matches the existing suite.
 
-### Phase 3: retire Cucumber
+### Phase 3: Retire Cucumber
 
 - Step: Remove the legacy runner and dependencies once parity is confirmed.
   - Task: Delete `tests/cucumber.rs`, Cucumber-specific world modules, and the
@@ -111,5 +114,12 @@ step bindings with `rstest-bdd` scenarios and fixtures.
     `cargo test` for behavioural coverage.
   - Task: Replace or retire documentation that refers to Cucumber, including
     guides and examples in `docs/`.
+
+## Mitigation and rollback
+
+- If `rstest-bdd` limitations block parity, keep the affected scenarios on the
+  Cucumber runner and document the gap in the migration tracker.
+- Continue running both suites until the missing capabilities land or a
+  suitable alternative is agreed, then resume the migration work.
 
 [^rstest-bdd-guide]: See [rstest-bdd user's guide](rstest-bdd-users-guide.md).
