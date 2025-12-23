@@ -21,13 +21,13 @@ implementation of a lightweight client without duplicating protocol code.
 A new `WireframeClient` type manages a single connection to a server. It
 mirrors `WireframeServer` but operates in the opposite direction:
 
-- Connect to a `TcpStream`.
+- Connect to a `TcpStream`, applying `SocketOptions` before the handshake.
 - Optionally, send a preamble using the existing `Preamble` helpers.
 - Encode outgoing messages using the selected `Serializer` and
   `tokio_util::codec::LengthDelimitedCodec` (4‑byte big‑endian prefix by
   default; configurable). Configure the codec’s `max_frame_length` on both the
   inbound (decode) and outbound (encode) paths to match the server’s frame
-  capacity; otherwise, frames larger than the default 8 MiB will fail.
+  capacity; otherwise, frames larger than the configured limit will fail.
 - Decode incoming frames into typed responses.
 - Expose async `send` and `receive` operations.
 
@@ -36,9 +36,15 @@ mirrors `WireframeServer` but operates in the opposite direction:
 A `WireframeClient::builder()` method configures the client:
 
 ```rust
+use std::net::SocketAddr;
+
+use wireframe::{BincodeSerializer, WireframeClient};
+
+let addr: SocketAddr = "127.0.0.1:7878".parse()?;
 let client = WireframeClient::builder()
     .serializer(BincodeSerializer)
-    .connect("127.0.0.1:7878")
+    .max_frame_length(1024)
+    .connect(addr)
     .await?;
 ```
 
@@ -53,12 +59,21 @@ message implementing `Message` and waits for the next response frame:
 
 ```rust
 let request = Login { username: "guest".into() };
-let response: LoginAck = client.call(request).await?;
+let response: LoginAck = client.call(&request).await?;
 ```
 
 Internally, this uses the `Serializer` to encode the request, sends it through
 the length‑delimited codec, then waits for a frame, decodes it, and
 deserializes the response type.
+
+### Implementation decisions
+
+- `connect` accepts a `SocketAddr` so the client can create a `TcpSocket` and
+  apply socket options before connecting.
+- `ClientCodecConfig` captures the length prefix format and maximum frame
+  length, clamping the frame length to match server bounds (64 bytes to 16 MiB).
+- The default `max_frame_length` is 1024 bytes to mirror the server builder’s
+  default buffer capacity.
 
 ### Connection lifecycle
 
@@ -71,13 +86,16 @@ share initialization logic.
 ```rust
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    use std::net::SocketAddr;
+
     let mut client = WireframeClient::builder()
         .serializer(BincodeSerializer)
-        .connect("127.0.0.1:7878")
+        .max_frame_length(1024)
+        .connect("127.0.0.1:7878".parse::<SocketAddr>()?)
         .await?;
 
     let login = Login { username: "guest".into() };
-    let ack: LoginAck = client.call(login).await?;
+    let ack: LoginAck = client.call(&login).await?;
     println!("logged in: {:?}", ack);
     Ok(())
 }

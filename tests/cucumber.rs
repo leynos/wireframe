@@ -1,12 +1,13 @@
 #![cfg(not(loom))]
 //! Cucumber test runner for integration tests.
 //!
-//! Orchestrates five distinct test suites:
+//! Orchestrates six distinct test suites:
 //! - `PanicWorld`: Tests server resilience during connection panics
 //! - `CorrelationWorld`: Tests correlation ID propagation in multi-frame responses
 //! - `StreamEndWorld`: Verifies end-of-stream signalling
 //! - `MultiPacketWorld`: Tests channel-backed multi-packet response delivery
 //! - `FragmentWorld`: Tests fragment metadata enforcement and reassembly primitives
+//! - `ClientRuntimeWorld`: Tests client runtime configuration and framing behaviour
 //!
 //! # Example
 //!
@@ -17,6 +18,7 @@
 //! tests/features/stream_end.feature          -> StreamEndWorld context
 //! tests/features/multi_packet.feature        -> MultiPacketWorld context
 //! tests/features/fragment.feature            -> FragmentWorld context
+//! tests/features/client_runtime.feature      -> ClientRuntimeWorld context
 //! ```
 //!
 //! Each context provides specialised step definitions and state management
@@ -26,7 +28,14 @@ mod steps;
 mod world;
 
 use cucumber::World;
-use world::{CorrelationWorld, FragmentWorld, MultiPacketWorld, PanicWorld, StreamEndWorld};
+use world::{
+    ClientRuntimeWorld,
+    CorrelationWorld,
+    FragmentWorld,
+    MultiPacketWorld,
+    PanicWorld,
+    StreamEndWorld,
+};
 
 #[tokio::main]
 async fn main() {
@@ -35,4 +44,5 @@ async fn main() {
     StreamEndWorld::run("tests/features/stream_end.feature").await;
     MultiPacketWorld::run("tests/features/multi_packet.feature").await;
     FragmentWorld::run("tests/features/fragment.feature").await;
+    ClientRuntimeWorld::run("tests/features/client_runtime.feature").await;
 }

@@ -381,12 +381,12 @@ and standardized per-connection memory budgets.
 ## Phase 8: Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
-framing, serialisation, and lifecycle layers so both sides share the same
+framing, serialisation, and lifecycle layers, so both sides share the same
 behavioural guarantees.
 
 - [ ] **Connection runtime:**
 
-  - [ ] Implement `WireframeClient` and its builder so callers can configure
+  - [x] Implement `WireframeClient` and its builder so callers can configure
     serializers, codec settings (including `max_frame_length` parity), and
     socket options before connecting.
 

@@ -9,6 +9,7 @@ pub mod byte_order;
 /// Result type alias re-exported for convenience when working with the
 /// application builder.
 pub use app::error::Result;
+pub mod client;
 pub mod serializer;
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;
@@ -30,6 +31,7 @@ pub mod rewind_stream;
 pub mod server;
 pub mod session;
 
+pub use client::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient};
 pub use connection::ConnectionActor;
 pub use correlation::CorrelatableFrame;
 pub use fragment::{

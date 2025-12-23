@@ -212,10 +212,14 @@ fn assert_reason_logged(
     expected_reason: &str,
     expected_correlation: Option<u64>,
 ) {
+    let expected_correlation = format!("correlation_id={expected_correlation:?}");
     let mut found = false;
     while let Some(record) = logger.pop() {
         let message = record.args().to_string();
         if !message.contains("multi-packet stream closed") {
+            continue;
+        }
+        if !message.contains(&expected_correlation) {
             continue;
         }
         assert_eq!(
@@ -226,10 +230,6 @@ fn assert_reason_logged(
         assert!(
             message.contains(&format!("reason={expected_reason}")),
             "closure log missing reason: message={message}",
-        );
-        assert!(
-            message.contains(&format!("correlation_id={expected_correlation:?}")),
-            "closure log missing correlation: message={message}",
         );
         found = true;
         break;

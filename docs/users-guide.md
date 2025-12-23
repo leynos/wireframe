@@ -12,7 +12,7 @@ as an `Arc` pointing to an async function that receives a packet reference and
 returns `()`. The builder caches these registrations until `handle_connection`
 constructs the middleware chain for an accepted stream.[^2]
 
-```rust
+```no_run
 use std::sync::Arc;
 use wireframe::app::{Envelope, Handler, WireframeApp};
 
@@ -99,12 +99,12 @@ async fn main() -> Result<(), ServerError> {
 ```
 
 Route identifiers must be unique; the builder returns
-`WireframeError::DuplicateRoute` when you try to register a handler twice,
+`WireframeError::DuplicateRoute` when a handler is registered twice,
 keeping the dispatch table unambiguous.[^2][^5] New applications default to the
 bundled bincode serializer, a 1024-byte frame buffer, and a 100 ms read
 timeout. Clamp these limits with `buffer_capacity` and `read_timeout_ms`, or
-swap the serializer with `with_serializer` when you need a different encoding
-strategy.[^3][^4]
+swap the serializer with `with_serializer` when a different encoding strategy
+is required.[^3][^4]
 
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
@@ -157,7 +157,7 @@ layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
 failures or index overflows—so production code should bubble the error up or
 log it rather than unwrapping.
 
-```rust
+```no_run
 use std::num::NonZeroUsize;
 use wireframe::fragment::Fragmenter;
 
@@ -377,6 +377,52 @@ the failure callback path.[^20]
 `RewindStream`, records connection panics, and logs failures without crashing
 worker tasks.[^20][^37][^38] `ServerError` surfaces bind and accept failures as
 typed errors so callers can react appropriately.[^21]
+
+## Client runtime
+
+`WireframeClient` provides a first-class client runtime that mirrors the
+server's framing and serialization layers, with a builder that configures the
+serializer, codec settings, and socket options before connecting.[^44] Use
+`ClientCodecConfig` to align `max_frame_length` with the server's
+`buffer_capacity`, and apply `SocketOptions` when TCP tuning is required, such
+as `TCP_NODELAY` or buffer size adjustments.
+
+```rust
+use std::{net::SocketAddr, time::Duration};
+
+use wireframe::{
+    client::{ClientCodecConfig, SocketOptions},
+    WireframeClient,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Login {
+    username: String,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
+struct LoginAck {
+    ok: bool,
+}
+
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+let codec = ClientCodecConfig::default().max_frame_length(2048);
+let socket = SocketOptions::default()
+    .nodelay(true)
+    .keepalive(Some(Duration::from_secs(30)));
+
+let mut client = WireframeClient::builder()
+    .codec_config(codec)
+    .socket_options(socket)
+    .connect(addr)
+    .await?;
+
+let login = Login {
+    username: "guest".to_string(),
+};
+let ack: LoginAck = client.call(&login).await?;
+assert!(ack.ok);
+```
 
 ## Push queues and connection actors
 
@@ -623,3 +669,5 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^41]: Implemented in `src/fragment/mod.rs` and supporting submodules.
 [^42]: Exercised in `tests/features/fragment.feature`.
 [^43]: Step definitions in `tests/steps/fragment_steps.rs`.
+[^44]: Implemented in `src/client/runtime.rs`, `src/client/builder.rs`,
+    `src/client/config.rs`, and `src/client/error.rs`.
