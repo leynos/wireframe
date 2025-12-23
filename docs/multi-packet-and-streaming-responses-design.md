@@ -44,6 +44,7 @@ duplex and capable framework.
 - [8. Measurable Objectives & Success Criteria][sec-8]
 - [9. Alternatives considered](#9-alternatives-considered)
 - [10. Design decisions](#10-design-decisions)
+- [11. Streaming request bodies](#11-streaming-request-bodies)
 
 [sec-3]: #3-core-architecture-declarative-streaming
 
@@ -427,6 +428,22 @@ not hang.
   large frames yielded by the stream before they are written to the socket. The
   handler and streaming logic remain completely unaware of fragmentation.
 
+- **Streaming Request Bodies:** [ADR 0002][adr-0002] introduces first-class
+  streaming request bodies as the inbound counterpart to streaming responses.
+  Handlers MAY receive `RequestParts` plus `RequestBodyStream` rather than a
+  fully reassembled `Vec<u8>`, enabling incremental processing of large inbound
+  payloads. This symmetry allows protocols to apply the same back-pressure and
+  memory budget semantics in both directions.
+
+- **MessageAssembler:** Protocol-level multi-frame message assembly integrates
+  with streaming request bodies. The `MessageAssembler` abstraction allows
+  protocol crates to supply protocol-specific parsing and continuity rules
+  while Wireframe provides shared buffering machinery and limit enforcement.
+  See the [fragmentation design][frag-design] for how transport-level
+  fragmentation and protocol-level assembly compose.
+
+[frag-design]: generic-message-fragmentation-and-re-assembly-design.md
+
 ## 8. Measurable Objectives & Success Criteria
 
 <!-- markdownlint-disable MD013 -->
@@ -515,3 +532,56 @@ cannot regress or be removed.
   `correlation_id`, verify a dropped producer logs a `reason=disconnected`
   warning, and ensure push-queue traffic interleaves with streamed frames
   without corrupting correlation identifiers.
+
+## 11. Streaming request bodies
+
+[ADR 0002][adr-0002] extends Wireframe's streaming model to inbound requests,
+providing symmetry with the outbound streaming capabilities documented above.
+
+### 11.1 Handler-facing shapes
+
+Handlers that opt into streaming request bodies receive two components:
+
+- `RequestParts` carries the routing and correlation metadata needed to
+  dispatch the request before the body is fully received.
+- `RequestBodyStream` yields body chunks incrementally, allowing handlers to
+  process large payloads without buffering the entire message in memory.
+
+See [ADR 0002][adr-0002] for the canonical type definitions. The exact field
+names and types may evolve; protocol authors should consult the published API
+documentation for current signatures.
+
+### 11.2 Opt-in semantics
+
+The default remains "buffered request" to preserve Wireframe's existing
+transparent assembly ergonomics for small messages and simple protocols.
+Handlers MAY opt into streaming by declaring a compatible extractor signature.
+
+Wireframe MAY expose an `AsyncRead` adaptor for `RequestBodyStream` so protocol
+crates can reuse existing parsers that expect `AsyncRead` rather than `Stream`.
+
+### 11.3 Symmetry with response streaming
+
+Streaming request bodies mirror `Response::Stream`:
+
+| Direction           | Type                | Back-pressure mechanism                               |
+| ------------------- | ------------------- | ----------------------------------------------------- |
+| Outbound (response) | `Response::Stream`  | Socket write suspension propagates to stream producer |
+| Inbound (request)   | `RequestBodyStream` | Socket read suspension propagates to body consumer    |
+
+Both directions apply the same per-connection memory budgets and back-pressure
+semantics, ensuring consistent resource accounting across the duplex channel.
+
+### 11.4 Composition with MessageAssembler
+
+When a protocol uses the `MessageAssembler` abstraction for multi-frame message
+assembly, the assembler produces either:
+
+- a buffered request body (the default), or
+- a `RequestBodyStream` that the handler consumes incrementally.
+
+The assembler handles protocol-specific continuity rules (ordering, missing
+frames, duplicate frames) while Wireframe provides shared buffering machinery
+and limit enforcement. See [ADR 0002][adr-0002] for the complete specification.
+
+[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md

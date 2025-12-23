@@ -89,6 +89,20 @@ async fn handle_large_query(req: Request) -> io::Result<Response<MyFrame>> {
 
 See `examples/async_stream.rs` for a runnable demonstration of this pattern.
 
+#### Streaming request bodies
+
+[ADR 0002][adr-0002] extends the streaming model to inbound requests, providing
+symmetry with response streaming. Handlers MAY receive `RequestParts` plus
+`RequestBodyStream` rather than a fully reassembled `Vec<u8>`, enabling
+incremental processing of large inbound payloads. The default remains buffered
+request handling to preserve existing ergonomics for small messages and simple
+protocols.
+
+At a high level, `RequestParts` separates routing metadata from the body, and
+`RequestBodyStream` yields body chunks as a pinned, boxed stream. See
+[ADR 0002][adr-0002] for the canonical type definitions; the exact field names
+and types shown there are illustrative and may evolve before stabilization.
+
 Completion of a streaming response is signalled by a protocol-defined
 terminator frame. The new `stream_end_frame` hook allows implementations to
 emit a frame with an explicit end-of-stream flag and no payload, ensuring
@@ -183,6 +197,36 @@ or gRPC.
 > keeping transport logic consistent while letting each protocol choose how the
 > data is encoded on the wire.
 
+#### Protocol-level message assembly
+
+[ADR 0002][adr-0002] introduces a generic `MessageAssembler` abstraction that
+operates above the transport layer. While `FragmentAdapter` reconstructs a
+single logical packet whose payload was split across transport fragments,
+`MessageAssembler` reconstructs (or streams) a protocol message whose body is
+split across multiple protocol packets—for example, an initial header packet
+plus N continuation packets.
+
+The `MessageAssembler` hook allows a protocol to provide:
+
+- a per-frame header parser (including "first frame" versus "continuation
+  frame" handling);
+- a message key for multiplexing interleaved assemblies;
+- declared or inferred expected total size (when available);
+- per-fragment length expectations; and
+- continuity validation (ordering, missing fragments, duplicate fragments).
+
+Wireframe provides, centrally:
+
+- buffering and assembly state management;
+- enforcement of maximum total message size, maximum fragment size, timeouts,
+  and "max in-flight bytes"; and
+- a clear failure mode (back-pressure where safe, early abort where required).
+
+When both transport fragmentation and `MessageAssembler` are enabled, Wireframe
+applies them in order: transport reassembly first, then message assembly. This
+ensures protocol crates migrating to `MessageAssembler` do not need to
+special-case transport fragments.
+
 ## III. Capability Maturity: From Functional to Production-Grade
 
 A feature-complete library is not necessarily a mature one. The road to
@@ -233,9 +277,25 @@ Rust's ownership model and `Drop` trait are the foundation of resource safety.
     available on a per-connection basis to throttle high-frequency message
     pushes.
 
-  - **Memory Caps:** The fragmentation layer will enforce a strict
-    `max_message_size` to prevent a single client from consuming excessive
-    memory.
+  - **Memory Caps:** The fragmentation layer enforces a strict
+    `max_message_size`
+    to prevent a single client from consuming excessive memory.
+    [ADR 0002][adr-0002] extends this to standardized per-connection memory
+    budgets covering:
+
+    - bytes buffered per message;
+    - bytes buffered per connection; and
+    - bytes buffered across in-flight assemblies.
+
+    Budgets are configured on the `WireframeApp` instance via a builder method
+    (for example `memory_budgets(...)`). If budgets are not set explicitly,
+    defaults are derived from `buffer_capacity`.
+
+  - **Back-pressure and Hard Caps:** When budgets are approached, Wireframe
+    applies back-pressure by pausing further reads and assembly work (soft
+    limit). When a hard cap is exceeded, Wireframe aborts early, releases
+    partial state, and surfaces `std::io::ErrorKind::InvalidData` from the
+    inbound processing path.
 
   - **Timeouts:** The reassembly logic will include a non-optional,
     configurable timeout to automatically purge partial messages that are
@@ -402,3 +462,5 @@ a powerful new feature-set—duplex messaging, streaming, and fragmentation—wi
 a deep commitment to the principles of resilience, observability, and developer
 ergonomics, `wireframe` will provide the Rust community with a best-in-class
 tool for tackling the challenges of modern network programming.
+
+[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
