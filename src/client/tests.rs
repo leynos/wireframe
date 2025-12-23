@@ -14,6 +14,10 @@ use crate::frame::{Endianness, LengthFormat};
 const MIN_FRAME_LENGTH: usize = 64;
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_FRAME_LENGTH: usize = 1024;
+const KEEPALIVE_DURATION: Duration = Duration::from_secs(30);
+const LINGER_DURATION: Duration = Duration::from_secs(1);
+const BUFFER_SIZE_U32: u32 = 256 * 1024;
+const BUFFER_SIZE_USIZE: usize = 256 * 1024;
 
 async fn spawn_listener() -> (SocketAddr, tokio::task::JoinHandle<TcpStream>) {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -43,6 +47,13 @@ where
     assert_option(&client);
 
     let _server_stream = accept.await.expect("join accept task");
+}
+
+macro_rules! socket_option_test {
+    ($name:ident, $configure:expr, $assert:expr $(,)?) => {
+        #[tokio::test]
+        async fn $name() { assert_builder_option($configure, $assert).await; }
+    };
 }
 
 #[rstest]
@@ -104,99 +115,75 @@ fn build_codec_configures_length_delimited_codec() {
     assert_eq!(decoded, payload, "decoded payload should match original");
 }
 
-#[tokio::test]
-async fn builder_applies_nodelay_option() {
-    assert_builder_option(
-        |builder| builder.nodelay(true),
-        |client| {
-            let stream = client.tcp_stream().nodelay().expect("read nodelay");
-            assert!(stream, "expected TCP_NODELAY to be enabled");
-        },
-    )
-    .await;
-}
+socket_option_test!(
+    builder_applies_nodelay_option,
+    |builder| builder.nodelay(true),
+    |client| {
+        let stream = client.tcp_stream().nodelay().expect("read nodelay");
+        assert!(stream, "expected TCP_NODELAY to be enabled");
+    },
+);
 
-#[tokio::test]
-async fn builder_applies_keepalive_option() {
-    let keepalive = Duration::from_secs(30);
-    assert_builder_option(
-        |builder| builder.keepalive(Some(keepalive)),
-        |client| {
-            let sock_ref = SockRef::from(client.tcp_stream());
-            assert!(
-                sock_ref.keepalive().expect("query SO_KEEPALIVE"),
-                "SO_KEEPALIVE should be enabled when configured via builder"
-            );
-        },
-    )
-    .await;
-}
+socket_option_test!(
+    builder_applies_keepalive_option,
+    |builder| builder.keepalive(Some(KEEPALIVE_DURATION)),
+    |client| {
+        let sock_ref = SockRef::from(client.tcp_stream());
+        assert!(
+            sock_ref.keepalive().expect("query SO_KEEPALIVE"),
+            "SO_KEEPALIVE should be enabled when configured via builder"
+        );
+    },
+);
 
-#[tokio::test]
-async fn builder_applies_linger_option() {
-    let linger = Duration::from_secs(1);
-    assert_builder_option(
-        |builder| builder.linger(Some(linger)),
-        |client| {
-            let sock_ref = SockRef::from(client.tcp_stream());
-            assert_eq!(
-                sock_ref.linger().expect("query SO_LINGER"),
-                Some(linger),
-                "SO_LINGER should match builder configuration"
-            );
-        },
-    )
-    .await;
-}
+socket_option_test!(
+    builder_applies_linger_option,
+    |builder| builder.linger(Some(LINGER_DURATION)),
+    |client| {
+        let sock_ref = SockRef::from(client.tcp_stream());
+        assert_eq!(
+            sock_ref.linger().expect("query SO_LINGER"),
+            Some(LINGER_DURATION),
+            "SO_LINGER should match builder configuration"
+        );
+    },
+);
 
-#[tokio::test]
-async fn builder_applies_send_buffer_size_option() {
-    let send_buf_size: usize = 256 * 1024;
-    let send_buf_size_u32 = u32::try_from(send_buf_size).expect("send buffer size fits u32");
-    assert_builder_option(
-        |builder| builder.send_buffer_size(send_buf_size_u32),
-        |client| {
-            let sock_ref = SockRef::from(client.tcp_stream());
-            assert!(
-                sock_ref.send_buffer_size().expect("query SO_SNDBUF") >= send_buf_size,
-                "SO_SNDBUF should be at least the requested builder value"
-            );
-        },
-    )
-    .await;
-}
+socket_option_test!(
+    builder_applies_send_buffer_size_option,
+    |builder| builder.send_buffer_size(BUFFER_SIZE_U32),
+    |client| {
+        let sock_ref = SockRef::from(client.tcp_stream());
+        assert!(
+            sock_ref.send_buffer_size().expect("query SO_SNDBUF") >= BUFFER_SIZE_USIZE,
+            "SO_SNDBUF should be at least the requested builder value"
+        );
+    },
+);
 
-#[tokio::test]
-async fn builder_applies_recv_buffer_size_option() {
-    let recv_buf_size: usize = 256 * 1024;
-    let recv_buf_size_u32 = u32::try_from(recv_buf_size).expect("recv buffer size fits u32");
-    assert_builder_option(
-        |builder| builder.recv_buffer_size(recv_buf_size_u32),
-        |client| {
-            let sock_ref = SockRef::from(client.tcp_stream());
-            assert!(
-                sock_ref.recv_buffer_size().expect("query SO_RCVBUF") >= recv_buf_size,
-                "SO_RCVBUF should be at least the requested builder value"
-            );
-        },
-    )
-    .await;
-}
+socket_option_test!(
+    builder_applies_recv_buffer_size_option,
+    |builder| builder.recv_buffer_size(BUFFER_SIZE_U32),
+    |client| {
+        let sock_ref = SockRef::from(client.tcp_stream());
+        assert!(
+            sock_ref.recv_buffer_size().expect("query SO_RCVBUF") >= BUFFER_SIZE_USIZE,
+            "SO_RCVBUF should be at least the requested builder value"
+        );
+    },
+);
 
-#[tokio::test]
-async fn builder_applies_reuseaddr_option() {
-    assert_builder_option(
-        |builder| builder.reuseaddr(true),
-        |client| {
-            let sock_ref = SockRef::from(client.tcp_stream());
-            assert!(
-                sock_ref.reuse_address().expect("query SO_REUSEADDR"),
-                "SO_REUSEADDR should be enabled when configured via builder"
-            );
-        },
-    )
-    .await;
-}
+socket_option_test!(
+    builder_applies_reuseaddr_option,
+    |builder| builder.reuseaddr(true),
+    |client| {
+        let sock_ref = SockRef::from(client.tcp_stream());
+        assert!(
+            sock_ref.reuse_address().expect("query SO_REUSEADDR"),
+            "SO_REUSEADDR should be enabled when configured via builder"
+        );
+    },
+);
 
 #[cfg(all(
     unix,
@@ -204,17 +191,14 @@ async fn builder_applies_reuseaddr_option() {
     not(target_os = "illumos"),
     not(target_os = "cygwin"),
 ))]
-#[tokio::test]
-async fn builder_applies_reuseport_option() {
-    assert_builder_option(
-        |builder| builder.reuseport(true),
-        |client| {
-            let sock_ref = SockRef::from(client.tcp_stream());
-            assert!(
-                sock_ref.reuse_port().expect("query SO_REUSEPORT"),
-                "SO_REUSEPORT should be enabled when configured via builder"
-            );
-        },
-    )
-    .await;
-}
+socket_option_test!(
+    builder_applies_reuseport_option,
+    |builder| builder.reuseport(true),
+    |client| {
+        let sock_ref = SockRef::from(client.tcp_stream());
+        assert!(
+            sock_ref.reuse_port().expect("query SO_REUSEPORT"),
+            "SO_REUSEPORT should be enabled when configured via builder"
+        );
+    },
+);

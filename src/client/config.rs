@@ -1,123 +1,9 @@
-//! Codec and socket configuration for wireframe clients.
+//! Socket options for wireframe clients.
 
 use std::{io, time::Duration};
 
 use socket2::{SockRef, TcpKeepalive};
 use tokio::net::TcpSocket;
-use tokio_util::codec::LengthDelimitedCodec;
-
-use crate::frame::{Endianness, LengthFormat};
-
-const MIN_FRAME_LENGTH: usize = 64;
-const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
-const DEFAULT_MAX_FRAME_LENGTH: usize = 1024;
-
-/// Codec configuration for the wireframe client.
-///
-/// # Examples
-///
-/// ```
-/// use wireframe::client::ClientCodecConfig;
-///
-/// let codec = ClientCodecConfig::default().max_frame_length(2048);
-/// assert_eq!(codec.max_frame_length_value(), 2048);
-/// ```
-#[derive(Clone, Copy, Debug)]
-pub struct ClientCodecConfig {
-    length_format: LengthFormat,
-    max_frame_length: usize,
-}
-
-impl Default for ClientCodecConfig {
-    fn default() -> Self {
-        Self {
-            length_format: LengthFormat::default(),
-            max_frame_length: DEFAULT_MAX_FRAME_LENGTH,
-        }
-    }
-}
-
-impl ClientCodecConfig {
-    /// Set the maximum frame length for encoding and decoding.
-    ///
-    /// The value is clamped between 64 bytes and 16 MiB.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::ClientCodecConfig;
-    ///
-    /// let codec = ClientCodecConfig::default().max_frame_length(2048);
-    /// assert_eq!(codec.max_frame_length_value(), 2048);
-    /// ```
-    #[must_use]
-    pub fn max_frame_length(mut self, max_frame_length: usize) -> Self {
-        self.max_frame_length = max_frame_length.clamp(MIN_FRAME_LENGTH, MAX_FRAME_LENGTH);
-        self
-    }
-
-    /// Set the length prefix format used by the codec.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::{
-    ///     client::ClientCodecConfig,
-    ///     frame::{Endianness, LengthFormat},
-    /// };
-    ///
-    /// let codec = ClientCodecConfig::default().length_format(LengthFormat::u16_le());
-    /// assert_eq!(codec.length_format_value().bytes(), 2);
-    /// assert_eq!(codec.length_format_value().endianness(), Endianness::Little);
-    /// ```
-    #[must_use]
-    pub fn length_format(mut self, length_format: LengthFormat) -> Self {
-        self.length_format = length_format;
-        self
-    }
-
-    /// Return the configured maximum frame length.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::ClientCodecConfig;
-    ///
-    /// let codec = ClientCodecConfig::default();
-    /// assert_eq!(codec.max_frame_length_value(), 1024);
-    /// ```
-    #[must_use]
-    pub const fn max_frame_length_value(&self) -> usize { self.max_frame_length }
-
-    /// Return the configured length prefix format.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::{client::ClientCodecConfig, frame::Endianness};
-    ///
-    /// let codec = ClientCodecConfig::default();
-    /// assert_eq!(codec.length_format_value().bytes(), 4);
-    /// assert_eq!(codec.length_format_value().endianness(), Endianness::Big);
-    /// ```
-    #[must_use]
-    pub const fn length_format_value(&self) -> LengthFormat { self.length_format }
-
-    pub(crate) fn build_codec(&self) -> LengthDelimitedCodec {
-        let mut builder = LengthDelimitedCodec::builder();
-        builder.length_field_length(self.length_format.bytes());
-        match self.length_format.endianness() {
-            Endianness::Big => {
-                builder.big_endian();
-            }
-            Endianness::Little => {
-                builder.little_endian();
-            }
-        }
-        builder.max_frame_length(self.max_frame_length);
-        builder.new_codec()
-    }
-}
 
 /// Socket options applied before connecting a client.
 ///
@@ -172,6 +58,15 @@ impl LingerSetting {
 enum KeepAliveSetting {
     Disabled,
     Duration(Duration),
+}
+
+impl KeepAliveSetting {
+    const fn to_option(self) -> Option<Duration> {
+        match self {
+            Self::Disabled => None,
+            Self::Duration(value) => Some(value),
+        }
+    }
 }
 
 impl SocketOptions {
@@ -317,12 +212,6 @@ impl SocketOptions {
         self.apply_send_buffer_size(socket)?;
         self.apply_recv_buffer_size(socket)?;
         self.apply_reuseaddr(socket)?;
-        #[cfg(all(
-            unix,
-            not(target_os = "solaris"),
-            not(target_os = "illumos"),
-            not(target_os = "cygwin"),
-        ))]
         self.apply_reuseport(socket)?;
         Ok(())
     }
@@ -336,15 +225,15 @@ impl SocketOptions {
 
     fn apply_keepalive(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(keepalive) = self.keepalive {
-            match keepalive {
-                KeepAliveSetting::Disabled => {
-                    socket.set_keepalive(false)?;
-                }
-                KeepAliveSetting::Duration(duration) => {
+            match keepalive.to_option() {
+                Some(duration) => {
                     socket.set_keepalive(true)?;
                     let sock_ref = SockRef::from(socket);
                     let config = TcpKeepalive::new().with_time(duration);
                     sock_ref.set_tcp_keepalive(&config)?;
+                }
+                None => {
+                    socket.set_keepalive(false)?;
                 }
             }
         }
@@ -391,4 +280,12 @@ impl SocketOptions {
         }
         Ok(())
     }
+
+    #[cfg(not(all(
+        unix,
+        not(target_os = "solaris"),
+        not(target_os = "illumos"),
+        not(target_os = "cygwin"),
+    )))]
+    fn apply_reuseport(&self, _socket: &TcpSocket) -> io::Result<()> { Ok(()) }
 }

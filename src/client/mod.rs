@@ -4,12 +4,14 @@
 //! server's framing and serialization layers.
 
 mod builder;
+mod codec_config;
 mod config;
 mod error;
 mod runtime;
 
 pub use builder::WireframeClientBuilder;
-pub use config::{ClientCodecConfig, SocketOptions};
+pub use codec_config::ClientCodecConfig;
+pub use config::SocketOptions;
 pub use error::ClientError;
 pub use runtime::WireframeClient;
 

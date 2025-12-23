@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 
 use cucumber::World;
 use futures::{SinkExt, StreamExt};
+use log::warn;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::client::{ClientCodecConfig, ClientError, WireframeClient};
@@ -37,6 +38,7 @@ impl ClientRuntimeWorld {
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
             let Ok((stream, _)) = listener.accept().await else {
+                warn!("client runtime server failed to accept connection");
                 return;
             };
             let codec = LengthDelimitedCodec::builder()
@@ -44,12 +46,16 @@ impl ClientRuntimeWorld {
                 .new_codec();
             let mut framed = Framed::new(stream, codec);
             let Some(result) = framed.next().await else {
+                warn!("client runtime server closed before receiving a frame");
                 return;
             };
             let Ok(frame) = result else {
+                warn!("client runtime server failed to decode frame");
                 return;
             };
-            let _ = framed.send(frame.freeze()).await;
+            if let Err(err) = framed.send(frame.freeze()).await {
+                warn!("client runtime server failed to send response: {err:?}");
+            }
         });
 
         self.addr = Some(addr);
@@ -115,11 +121,7 @@ impl ClientRuntimeWorld {
         if payload != response {
             return Err("response did not match payload".into());
         }
-        if let Some(handle) = self.server.take() {
-            handle
-                .await
-                .map_err(|err| format!("server task failed: {err}"))?;
-        }
+        self.await_server().await?;
         Ok(())
     }
 
@@ -135,6 +137,11 @@ impl ClientRuntimeWorld {
         if !matches!(err, ClientError::Disconnected | ClientError::Io(_)) {
             return Err("unexpected client error variant".into());
         }
+        self.await_server().await?;
+        Ok(())
+    }
+
+    async fn await_server(&mut self) -> TestResult {
         if let Some(handle) = self.server.take() {
             handle
                 .await

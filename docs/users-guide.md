@@ -157,7 +157,7 @@ layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
 failures or index overflows—so production code should bubble the error up or
 log it rather than unwrapping.
 
-```rust
+```no_run
 use std::num::NonZeroUsize;
 use wireframe::fragment::Fragmenter;
 
