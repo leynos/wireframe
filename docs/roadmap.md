@@ -292,7 +292,7 @@ and standardized per-connection memory budgets.
 
 - [ ] **Streaming request bodies:**
 
-  - [ ] Implement `RequestParts` struct with `id`, `correlation_id`, and
+  - [x] Implement `RequestParts` struct with `id`, `correlation_id`, and
     `metadata` fields.
 
   - [ ] Implement `RequestBodyStream` type alias as a pinned, boxed stream of

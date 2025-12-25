@@ -99,12 +99,12 @@ async fn main() -> Result<(), ServerError> {
 ```
 
 Route identifiers must be unique; the builder returns
-`WireframeError::DuplicateRoute` when a handler is registered twice,
-keeping the dispatch table unambiguous.[^2][^5] New applications default to the
-bundled bincode serializer, a 1024-byte frame buffer, and a 100 ms read
-timeout. Clamp these limits with `buffer_capacity` and `read_timeout_ms`, or
-swap the serializer with `with_serializer` when a different encoding strategy
-is required.[^3][^4]
+`WireframeError::DuplicateRoute` when a handler is registered twice, keeping
+the dispatch table unambiguous.[^2][^5] New applications default to the bundled
+bincode serializer, a 1024-byte frame buffer, and a 100 ms read timeout. Clamp
+these limits with `buffer_capacity` and `read_timeout_ms`, or swap the
+serializer with `with_serializer` when a different encoding strategy is
+required.[^3][^4]
 
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
@@ -203,6 +203,33 @@ let complete = reassembler
 // Decode when ready:
 // let message: MyType = complete.decode().expect("decode");
 ```
+
+### Request parts and streaming bodies
+
+`wireframe::request` exposes `RequestParts` to separate routing metadata from
+streaming request payloads.[^45]
+
+- `RequestParts::id()` returns the message identifier for routing.
+- `RequestParts::correlation_id()` returns the optional correlation identifier.
+- `RequestParts::metadata()` returns protocol-defined header bytes.
+
+This type pairs with `RequestBodyStream` (future) for incremental consumption
+of large request payloads. Handlers can choose between buffered (existing) and
+streaming consumption; the streaming path is opt-in.
+
+```rust
+use wireframe::request::RequestParts;
+
+let parts = RequestParts::new(42, Some(123), vec![0x01, 0x02]);
+assert_eq!(parts.id(), 42);
+assert_eq!(parts.correlation_id(), Some(123));
+assert_eq!(parts.metadata(), &[0x01, 0x02]);
+```
+
+Unlike `PacketParts` (which carries the raw payload for envelope
+reconstruction), `RequestParts` carries only protocol-defined metadata required
+to interpret the streaming body. The body itself is consumed through a separate
+stream, enabling back-pressure and incremental processing.[^46]
 
 ## Working with requests and middleware
 
@@ -671,3 +698,6 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^43]: Step definitions in `tests/steps/fragment_steps.rs`.
 [^44]: Implemented in `src/client/runtime.rs`, `src/client/builder.rs`,
     `src/client/config.rs`, and `src/client/error.rs`.
+[^45]: Implemented in `src/request.rs`.
+[^46]: See ADR 0002 for design rationale:
+    `docs/adr/0002-streaming-requests-and-shared-message-assembly.md`.

@@ -1,13 +1,14 @@
 #![cfg(not(loom))]
 //! Cucumber test runner for integration tests.
 //!
-//! Orchestrates six distinct test suites:
+//! Orchestrates seven distinct test suites:
 //! - `PanicWorld`: Tests server resilience during connection panics
 //! - `CorrelationWorld`: Tests correlation ID propagation in multi-frame responses
 //! - `StreamEndWorld`: Verifies end-of-stream signalling
 //! - `MultiPacketWorld`: Tests channel-backed multi-packet response delivery
 //! - `FragmentWorld`: Tests fragment metadata enforcement and reassembly primitives
 //! - `ClientRuntimeWorld`: Tests client runtime configuration and framing behaviour
+//! - `RequestPartsWorld`: Tests request parts metadata handling
 //!
 //! # Example
 //!
@@ -19,6 +20,7 @@
 //! tests/features/multi_packet.feature        -> MultiPacketWorld context
 //! tests/features/fragment.feature            -> FragmentWorld context
 //! tests/features/client_runtime.feature      -> ClientRuntimeWorld context
+//! tests/features/request_parts.feature       -> RequestPartsWorld context
 //! ```
 //!
 //! Each context provides specialised step definitions and state management
@@ -34,6 +36,7 @@ use world::{
     FragmentWorld,
     MultiPacketWorld,
     PanicWorld,
+    RequestPartsWorld,
     StreamEndWorld,
 };
 
@@ -45,4 +48,5 @@ async fn main() {
     MultiPacketWorld::run("tests/features/multi_packet.feature").await;
     FragmentWorld::run("tests/features/fragment.feature").await;
     ClientRuntimeWorld::run("tests/features/client_runtime.feature").await;
+    RequestPartsWorld::run("tests/features/request_parts.feature").await;
 }
