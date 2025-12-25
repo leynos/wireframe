@@ -17,4 +17,16 @@ pub enum ClientError {
     /// The peer closed the connection before a response arrived.
     #[error("connection closed by peer")]
     Disconnected,
+    /// Failed to encode the connection preamble.
+    #[error("failed to encode preamble")]
+    PreambleEncode(#[source] bincode::error::EncodeError),
+    /// I/O error writing the connection preamble.
+    #[error("failed to write preamble: {0}")]
+    PreambleWrite(#[source] io::Error),
+    /// Failed to read or decode the server's preamble response.
+    #[error("failed to read preamble response")]
+    PreambleRead(#[source] bincode::error::DecodeError),
+    /// Preamble exchange timed out.
+    #[error("preamble exchange timed out")]
+    PreambleTimeout,
 }

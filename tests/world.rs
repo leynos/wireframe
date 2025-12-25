@@ -5,6 +5,7 @@
 mod worlds;
 
 pub use worlds::{
+    client_preamble::ClientPreambleWorld,
     client_runtime::ClientRuntimeWorld,
     common::TestResult,
     correlation::CorrelationWorld,

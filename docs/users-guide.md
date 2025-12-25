@@ -424,6 +424,70 @@ let ack: LoginAck = client.call(&login).await?;
 assert!(ack.ok);
 ```
 
+### Client preamble exchange
+
+The client builder supports an optional preamble exchange before framing
+begins. Use `with_preamble` to send a preamble immediately after TCP connect,
+and register callbacks for success or failure scenarios.[^45]
+
+```rust
+use std::{net::SocketAddr, time::Duration};
+
+use futures::FutureExt;
+use wireframe::{
+    preamble::read_preamble,
+    WireframeClient,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct ClientHello {
+    version: u16,
+}
+
+#[derive(bincode::BorrowDecode)]
+struct ServerAck {
+    accepted: bool,
+}
+
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+
+let client = WireframeClient::builder()
+    .with_preamble(ClientHello { version: 1 })
+    .preamble_timeout(Duration::from_secs(5))
+    .on_preamble_success(|_preamble, stream| {
+        async move {
+            // Read server acknowledgement
+            let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
+                .await
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+            if !ack.accepted {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "server rejected preamble",
+                ));
+            }
+            Ok(leftover) // Return any leftover bytes for framing layer
+        }
+        .boxed()
+    })
+    .on_preamble_failure(|err, _stream| {
+        async move {
+            eprintln!("Preamble exchange failed: {err}");
+            Ok(())
+        }
+        .boxed()
+    })
+    .connect(addr)
+    .await?;
+```
+
+The success callback receives the sent preamble and a mutable reference to the
+TCP stream, enabling bidirectional preamble negotiation. Any bytes read beyond
+the server's response must be returned as "leftover" bytes so they can be
+replayed before the framing layer begins. The failure callback runs when the
+preamble exchange fails (timeout, I/O error, or encode error) and can log
+diagnostics or send an error response before the connection closes.
+
 ## Push queues and connection actors
 
 Background work interacts with connections through `PushQueues`. The fluent
@@ -671,3 +735,5 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^43]: Step definitions in `tests/steps/fragment_steps.rs`.
 [^44]: Implemented in `src/client/runtime.rs`, `src/client/builder.rs`,
     `src/client/config.rs`, and `src/client/error.rs`.
+[^45]: Client preamble support implemented in `src/client/builder.rs`
+    (lines 288-566) and `src/client/mod.rs` (callback types).

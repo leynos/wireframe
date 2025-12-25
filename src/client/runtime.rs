@@ -4,14 +4,22 @@ use std::fmt;
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
-use tokio::net::TcpStream;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use super::{ClientCodecConfig, ClientError, WireframeClientBuilder};
 use crate::{
     message::Message,
+    rewind_stream::RewindStream,
     serializer::{BincodeSerializer, Serializer},
 };
+
+/// Trait alias for stream types that can be used with the client runtime.
+pub trait ClientStream: AsyncRead + AsyncWrite + Unpin {}
+impl<T> ClientStream for T where T: AsyncRead + AsyncWrite + Unpin {}
 
 /// Client runtime for wireframe connections.
 ///
@@ -29,13 +37,19 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-pub struct WireframeClient<S = BincodeSerializer> {
-    pub(crate) framed: Framed<TcpStream, LengthDelimitedCodec>,
+pub struct WireframeClient<S = BincodeSerializer, T = TcpStream>
+where
+    T: ClientStream,
+{
+    pub(crate) framed: Framed<T, LengthDelimitedCodec>,
     pub(crate) serializer: S,
     pub(crate) codec_config: ClientCodecConfig,
 }
 
-impl<S> fmt::Debug for WireframeClient<S> {
+impl<S, T> fmt::Debug for WireframeClient<S, T>
+where
+    T: ClientStream,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WireframeClient")
             .field("codec_config", &self.codec_config)
@@ -43,7 +57,7 @@ impl<S> fmt::Debug for WireframeClient<S> {
     }
 }
 
-impl WireframeClient<BincodeSerializer> {
+impl WireframeClient<BincodeSerializer, TcpStream> {
     /// Start building a new client with the default serializer and codec.
     ///
     /// # Examples
@@ -61,12 +75,15 @@ impl WireframeClient<BincodeSerializer> {
     /// # }
     /// ```
     #[must_use]
-    pub fn builder() -> WireframeClientBuilder<BincodeSerializer> { WireframeClientBuilder::new() }
+    pub fn builder() -> WireframeClientBuilder<BincodeSerializer, ()> {
+        WireframeClientBuilder::new()
+    }
 }
 
-impl<S> WireframeClient<S>
+impl<S, T> WireframeClient<S, T>
 where
     S: Serializer + Send + Sync,
+    T: ClientStream,
 {
     /// Send a message to the peer using the configured serializer.
     ///
@@ -199,6 +216,31 @@ where
     #[must_use]
     pub const fn codec_config(&self) -> &ClientCodecConfig { &self.codec_config }
 
+    /// Access the underlying stream.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::net::SocketAddr;
+    ///
+    /// use wireframe::{ClientError, WireframeClient};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), ClientError> {
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
+    /// let client = WireframeClient::builder().connect(addr).await?;
+    /// let _stream = client.stream();
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn stream(&self) -> &T { self.framed.get_ref() }
+}
+
+impl<S> WireframeClient<S, RewindStream<TcpStream>>
+where
+    S: Serializer + Send + Sync,
+{
     /// Access the underlying [`TcpStream`].
     ///
     /// # Examples
@@ -217,5 +259,12 @@ where
     /// # }
     /// ```
     #[must_use]
-    pub fn tcp_stream(&self) -> &TcpStream { self.framed.get_ref() }
+    pub fn tcp_stream(&self) -> &TcpStream { self.framed.get_ref().inner() }
+
+    /// Access the rewind stream wrapper.
+    ///
+    /// This provides access to the [`RewindStream`] that wraps the TCP stream,
+    /// which may contain leftover bytes from preamble exchange.
+    #[must_use]
+    pub fn rewind_stream(&self) -> &RewindStream<TcpStream> { self.framed.get_ref() }
 }

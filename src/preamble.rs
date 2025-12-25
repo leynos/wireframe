@@ -1,10 +1,17 @@
-//! Connection preamble decoding utilities.
+//! Connection preamble encoding and decoding utilities.
 //!
-//! The optional preamble is read before processing a connection, and this
-//! module provides helpers to decode it using `bincode`.
+//! The optional preamble is exchanged before processing a connection. This
+//! module provides helpers to encode and decode preambles using `bincode`.
 
-use bincode::{BorrowDecode, borrow_decode_from_slice, config, error::DecodeError};
-use tokio::io::{self, AsyncRead, AsyncReadExt};
+use bincode::{
+    BorrowDecode,
+    Encode,
+    borrow_decode_from_slice,
+    config,
+    encode_to_vec,
+    error::{DecodeError, EncodeError},
+};
+use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const MAX_PREAMBLE_LEN: usize = 1024;
 
@@ -108,10 +115,10 @@ where
     // Decode borrowed data for any lifetime without external context.
     for<'de> T: BorrowDecode<'de, ()>,
 {
-    // Read a small chunk upfront to avoid a guaranteed decode failure on the
-    // first iteration.
+    // Start with a single byte to ensure we don't block on preambles smaller
+    // than an arbitrary initial chunk size.
     let mut buf = Vec::new();
-    read_more(reader, &mut buf, 8.min(MAX_PREAMBLE_LEN)).await?;
+    read_more(reader, &mut buf, 1).await?;
     // Build the decoder configuration once to avoid repeated allocations.
     let config = config::standard()
         .with_big_endian()
@@ -128,4 +135,62 @@ where
             Err(e) => return Err(e),
         }
     }
+}
+
+/// Asynchronously encode and write a connection preamble using bincode.
+///
+/// This helper encodes the preamble using the same configuration as
+/// [`read_preamble`] (big-endian, fixed int encoding) and writes the
+/// resulting bytes to the provided writer.
+///
+/// # Errors
+///
+/// Returns an [`EncodeError`] if encoding fails, or wraps an I/O error
+/// if writing to `writer` fails.
+///
+/// # Examples
+///
+/// ```
+/// use tokio::io::{AsyncReadExt, duplex};
+/// use wireframe::preamble::{read_preamble, write_preamble};
+///
+/// #[derive(Debug, PartialEq, bincode::Encode, bincode::BorrowDecode)]
+/// struct MyPreamble(u64);
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let (mut client, mut server) = duplex(64);
+///     write_preamble(&mut client, &MyPreamble(42))
+///         .await
+///         .expect("Failed to write preamble");
+///     drop(client);
+///
+///     let (decoded, leftover) = read_preamble::<_, MyPreamble>(&mut server)
+///         .await
+///         .expect("Failed to read preamble");
+///     assert_eq!(decoded.0, 42);
+///     assert!(leftover.is_empty());
+/// }
+/// ```
+pub async fn write_preamble<W, T>(writer: &mut W, preamble: &T) -> Result<(), EncodeError>
+where
+    W: AsyncWrite + Unpin,
+    T: Encode,
+{
+    let config = config::standard()
+        .with_big_endian()
+        .with_fixed_int_encoding();
+    let bytes = encode_to_vec(preamble, config)?;
+    writer
+        .write_all(&bytes)
+        .await
+        .map_err(|inner| EncodeError::Io {
+            inner,
+            index: bytes.len(),
+        })?;
+    writer.flush().await.map_err(|inner| EncodeError::Io {
+        inner,
+        index: bytes.len(),
+    })?;
+    Ok(())
 }
