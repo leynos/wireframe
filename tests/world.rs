@@ -13,4 +13,5 @@ pub use worlds::{
     panic::PanicWorld,
     request_parts::RequestPartsWorld,
     stream_end::StreamEndWorld,
+    types,
 };
