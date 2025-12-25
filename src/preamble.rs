@@ -184,10 +184,7 @@ where
     writer
         .write_all(&bytes)
         .await
-        .map_err(|inner| EncodeError::Io {
-            inner,
-            index: bytes.len(),
-        })?;
+        .map_err(|inner| EncodeError::Io { inner, index: 0 })?;
     writer.flush().await.map_err(|inner| EncodeError::Io {
         inner,
         index: bytes.len(),

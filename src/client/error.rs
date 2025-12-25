@@ -23,9 +23,9 @@ pub enum ClientError {
     /// I/O error writing the connection preamble.
     #[error("failed to write preamble: {0}")]
     PreambleWrite(#[source] io::Error),
-    /// Failed to read or decode the server's preamble response.
-    #[error("failed to read preamble response")]
-    PreambleRead(#[source] bincode::error::DecodeError),
+    /// I/O error reading the server's preamble response.
+    #[error("failed to read preamble response: {0}")]
+    PreambleRead(#[source] io::Error),
     /// Preamble exchange timed out.
     #[error("preamble exchange timed out")]
     PreambleTimeout,

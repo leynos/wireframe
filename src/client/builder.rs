@@ -1,35 +1,23 @@
 //! Builder for configuring and connecting a wireframe client.
 
-use std::{io, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, time::Duration};
 
 use bincode::Encode;
-use futures::future::BoxFuture;
-use log::error;
-use tokio::{net::TcpSocket, time::timeout};
+use tokio::net::TcpSocket;
 use tokio_util::codec::Framed;
 
 use super::{
     ClientCodecConfig,
     ClientError,
-    ClientPreambleFailureHandler,
-    ClientPreambleSuccessHandler,
     SocketOptions,
     WireframeClient,
+    preamble_exchange::{PreambleConfig, perform_preamble_exchange},
 };
 use crate::{
     frame::LengthFormat,
-    preamble::write_preamble,
     rewind_stream::RewindStream,
     serializer::{BincodeSerializer, Serializer},
 };
-
-/// Holds optional preamble configuration for the client builder.
-struct PreambleConfig<P> {
-    preamble: P,
-    on_success: Option<ClientPreambleSuccessHandler<P>>,
-    on_failure: Option<ClientPreambleFailureHandler>,
-    timeout: Option<Duration>,
-}
 
 /// Builder for [`WireframeClient`].
 ///
@@ -42,10 +30,10 @@ struct PreambleConfig<P> {
 /// let _ = builder;
 /// ```
 pub struct WireframeClientBuilder<S = BincodeSerializer, P = ()> {
-    serializer: S,
-    codec_config: ClientCodecConfig,
-    socket_options: SocketOptions,
-    preamble_config: Option<PreambleConfig<P>>,
+    pub(crate) serializer: S,
+    pub(crate) codec_config: ClientCodecConfig,
+    pub(crate) socket_options: SocketOptions,
+    pub(crate) preamble_config: Option<PreambleConfig<P>>,
 }
 
 impl WireframeClientBuilder<BincodeSerializer, ()> {
@@ -319,12 +307,7 @@ where
             serializer: self.serializer,
             codec_config: self.codec_config,
             socket_options: self.socket_options,
-            preamble_config: Some(PreambleConfig {
-                preamble,
-                on_success: None,
-                on_failure: None,
-                timeout: None,
-            }),
+            preamble_config: Some(PreambleConfig::new(preamble)),
         }
     }
 }
@@ -334,121 +317,6 @@ where
     S: Serializer + Send + Sync,
     P: Encode + Send + Sync + 'static,
 {
-    /// Configure a timeout for the preamble exchange.
-    ///
-    /// The timeout is applied to the entire preamble phase: writing the
-    /// preamble and running the success callback (which may read the server's
-    /// response). Values below 1 ms are clamped to 1 ms to avoid immediate
-    /// expiry.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// #[derive(bincode::Encode)]
-    /// struct MyPreamble(u8);
-    ///
-    /// let builder = WireframeClientBuilder::new()
-    ///     .with_preamble(MyPreamble(1))
-    ///     .preamble_timeout(Duration::from_secs(1));
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn preamble_timeout(mut self, timeout: Duration) -> Self {
-        let normalised = timeout.max(Duration::from_millis(1));
-        if let Some(ref mut config) = self.preamble_config {
-            config.timeout = Some(normalised);
-        }
-        self
-    }
-
-    /// Register a handler invoked after the preamble is successfully written.
-    ///
-    /// The handler receives the sent preamble and a mutable reference to the
-    /// TCP stream. It may read the server's response preamble from the stream.
-    /// Any leftover bytes (read beyond the server's response) must be returned
-    /// so they can be replayed before framed communication begins.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use futures::FutureExt;
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// #[derive(bincode::Encode)]
-    /// struct MyPreamble(u8);
-    ///
-    /// let builder = WireframeClientBuilder::new()
-    ///     .with_preamble(MyPreamble(1))
-    ///     .on_preamble_success(|_preamble, _stream| {
-    ///         async move {
-    ///             // Read server response if needed...
-    ///             Ok(Vec::new()) // No leftover bytes
-    ///         }
-    ///         .boxed()
-    ///     });
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn on_preamble_success<H>(mut self, handler: H) -> Self
-    where
-        H: for<'a> Fn(&'a P, &'a mut tokio::net::TcpStream) -> BoxFuture<'a, io::Result<Vec<u8>>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        if let Some(ref mut config) = self.preamble_config {
-            config.on_success = Some(Arc::new(handler));
-        }
-        self
-    }
-
-    /// Register a handler invoked when the preamble exchange fails.
-    ///
-    /// The handler receives the error and a mutable reference to the TCP
-    /// stream, allowing it to log or send an error response before the
-    /// connection closes.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use futures::FutureExt;
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// #[derive(bincode::Encode)]
-    /// struct MyPreamble(u8);
-    ///
-    /// let builder = WireframeClientBuilder::new()
-    ///     .with_preamble(MyPreamble(1))
-    ///     .on_preamble_failure(|err, _stream| {
-    ///         async move {
-    ///             eprintln!("Preamble failed: {err}");
-    ///             Ok(())
-    ///         }
-    ///         .boxed()
-    ///     });
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn on_preamble_failure<H>(mut self, handler: H) -> Self
-    where
-        H: for<'a> Fn(
-                &'a ClientError,
-                &'a mut tokio::net::TcpStream,
-            ) -> BoxFuture<'a, io::Result<()>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        if let Some(ref mut config) = self.preamble_config {
-            config.on_failure = Some(Arc::new(handler));
-        }
-        self
-    }
-
     /// Establish a connection and return a configured client.
     ///
     /// If a preamble is configured, it is written to the server before the
@@ -508,77 +376,5 @@ where
             serializer: self.serializer,
             codec_config,
         })
-    }
-}
-
-/// Perform the preamble exchange: write preamble, invoke success callback.
-async fn perform_preamble_exchange<P>(
-    stream: &mut tokio::net::TcpStream,
-    config: PreambleConfig<P>,
-) -> Result<Vec<u8>, ClientError>
-where
-    P: Encode + Send + Sync + 'static,
-{
-    let PreambleConfig {
-        preamble,
-        on_success,
-        on_failure,
-        timeout: preamble_timeout,
-    } = config;
-
-    let result = run_preamble_exchange(stream, &preamble, on_success, preamble_timeout).await;
-
-    // On failure, invoke the failure callback if registered.
-    if let Err(ref err) = result {
-        invoke_failure_handler(stream, err, on_failure.as_ref()).await;
-    }
-
-    result
-}
-
-/// Execute the preamble write and success callback, with optional timeout.
-async fn run_preamble_exchange<P>(
-    stream: &mut tokio::net::TcpStream,
-    preamble: &P,
-    on_success: Option<ClientPreambleSuccessHandler<P>>,
-    preamble_timeout: Option<std::time::Duration>,
-) -> Result<Vec<u8>, ClientError>
-where
-    P: Encode + Send + Sync + 'static,
-{
-    let exchange = async {
-        // Write the preamble.
-        write_preamble(stream, preamble)
-            .await
-            .map_err(ClientError::PreambleEncode)?;
-
-        // Invoke success callback if registered, collecting leftover bytes.
-        match on_success.as_ref() {
-            Some(handler) => handler(preamble, stream)
-                .await
-                .map_err(ClientError::PreambleWrite),
-            None => Ok(Vec::new()),
-        }
-    };
-
-    // Apply timeout if configured.
-    match preamble_timeout {
-        Some(limit) => timeout(limit, exchange)
-            .await
-            .unwrap_or(Err(ClientError::PreambleTimeout)),
-        None => exchange.await,
-    }
-}
-
-/// Invoke the failure handler if one is registered.
-async fn invoke_failure_handler(
-    stream: &mut tokio::net::TcpStream,
-    err: &ClientError,
-    on_failure: Option<&ClientPreambleFailureHandler>,
-) {
-    if let Some(handler) = on_failure
-        && let Err(e) = handler(err, stream).await
-    {
-        error!("preamble failure handler error: {e}");
     }
 }

@@ -12,6 +12,8 @@ mod builder;
 mod codec_config;
 mod config;
 mod error;
+mod preamble_builder;
+mod preamble_exchange;
 mod runtime;
 
 pub use builder::WireframeClientBuilder;

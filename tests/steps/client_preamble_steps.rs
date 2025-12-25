@@ -62,7 +62,7 @@ fn then_success_callback_invoked(world: &mut ClientPreambleWorld) -> TestResult 
     if !world.success_invoked() {
         return Err("expected success callback to be invoked".into());
     }
-    world.await_server();
+    world.abort_server();
     Ok(())
 }
 
@@ -71,7 +71,7 @@ fn then_receives_ack(world: &mut ClientPreambleWorld) -> TestResult {
     if !world.ack_accepted() {
         return Err("expected client to receive accepted acknowledgement".into());
     }
-    world.await_server();
+    world.abort_server();
     Ok(())
 }
 
@@ -80,6 +80,7 @@ fn then_timeout_error(world: &mut ClientPreambleWorld) -> TestResult {
     if !world.was_timeout_error() {
         return Err("expected timeout error".into());
     }
+    world.abort_server();
     Ok(())
 }
 
@@ -88,7 +89,7 @@ fn then_failure_callback_invoked(world: &mut ClientPreambleWorld) -> TestResult 
     if !world.failure_invoked() {
         return Err("expected failure callback to be invoked".into());
     }
-    world.await_server();
+    world.abort_server();
     Ok(())
 }
 
@@ -97,6 +98,6 @@ fn then_connects_successfully(world: &mut ClientPreambleWorld) -> TestResult {
     if !world.is_connected() {
         return Err("expected client to connect successfully".into());
     }
-    world.await_server();
+    world.abort_server();
     Ok(())
 }

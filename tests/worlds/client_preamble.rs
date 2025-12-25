@@ -370,7 +370,7 @@ impl ClientPreambleWorld {
     pub fn is_connected(&self) -> bool { self.client.is_some() }
 
     /// Abort the server task.
-    pub fn await_server(&mut self) {
+    pub fn abort_server(&mut self) {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
