@@ -19,6 +19,29 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
+/// Reconstructs `WireframeClientBuilder` with one field updated to a new value.
+///
+/// This macro reduces duplication in type-changing builder methods that need to
+/// create a new builder instance with different generic parameters.
+macro_rules! builder_field_update {
+    ($self:expr, serializer = $value:expr) => {
+        WireframeClientBuilder {
+            serializer: $value,
+            codec_config: $self.codec_config,
+            socket_options: $self.socket_options,
+            preamble_config: $self.preamble_config,
+        }
+    };
+    ($self:expr, preamble_config = $value:expr) => {
+        WireframeClientBuilder {
+            serializer: $self.serializer,
+            codec_config: $self.codec_config,
+            socket_options: $self.socket_options,
+            preamble_config: $value,
+        }
+    };
+}
+
 /// Builder for [`WireframeClient`].
 ///
 /// # Examples
@@ -81,12 +104,7 @@ where
     where
         Ser: Serializer + Send + Sync,
     {
-        WireframeClientBuilder {
-            serializer,
-            codec_config: self.codec_config,
-            socket_options: self.socket_options,
-            preamble_config: self.preamble_config,
-        }
+        builder_field_update!(self, serializer = serializer)
     }
 
     /// Configure codec settings for the connection.
@@ -303,12 +321,7 @@ where
     where
         Q: Encode + Send + Sync + 'static,
     {
-        WireframeClientBuilder {
-            serializer: self.serializer,
-            codec_config: self.codec_config,
-            socket_options: self.socket_options,
-            preamble_config: Some(PreambleConfig::new(preamble)),
-        }
+        builder_field_update!(self, preamble_config = Some(PreambleConfig::new(preamble)))
     }
 }
 
