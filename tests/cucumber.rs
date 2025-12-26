@@ -1,7 +1,7 @@
 #![cfg(not(loom))]
 //! Cucumber test runner for integration tests.
 //!
-//! Orchestrates seven distinct test suites:
+//! Orchestrates eight distinct test suites:
 //! - `PanicWorld`: Tests server resilience during connection panics
 //! - `CorrelationWorld`: Tests correlation ID propagation in multi-frame responses
 //! - `StreamEndWorld`: Verifies end-of-stream signalling
@@ -9,6 +9,7 @@
 //! - `FragmentWorld`: Tests fragment metadata enforcement and reassembly primitives
 //! - `ClientRuntimeWorld`: Tests client runtime configuration and framing behaviour
 //! - `ClientPreambleWorld`: Tests client preamble exchange and callbacks
+//! - `ClientLifecycleWorld`: Tests client connection lifecycle hooks
 //!
 //! # Example
 //!
@@ -21,6 +22,7 @@
 //! tests/features/fragment.feature            -> FragmentWorld context
 //! tests/features/client_runtime.feature      -> ClientRuntimeWorld context
 //! tests/features/client_preamble.feature     -> ClientPreambleWorld context
+//! tests/features/client_lifecycle.feature    -> ClientLifecycleWorld context
 //! ```
 //!
 //! Each context provides specialised step definitions and state management
@@ -31,6 +33,7 @@ mod world;
 
 use cucumber::World;
 use world::{
+    ClientLifecycleWorld,
     ClientPreambleWorld,
     ClientRuntimeWorld,
     CorrelationWorld,
@@ -49,4 +52,5 @@ async fn main() {
     FragmentWorld::run("tests/features/fragment.feature").await;
     ClientRuntimeWorld::run("tests/features/client_runtime.feature").await;
     ClientPreambleWorld::run("tests/features/client_preamble.feature").await;
+    ClientLifecycleWorld::run("tests/features/client_lifecycle.feature").await;
 }

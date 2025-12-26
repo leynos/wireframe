@@ -394,7 +394,7 @@ behavioural guarantees.
     preambles before exchanging frames, with integration tests covering success
     and failure callbacks.
 
-  - [ ] Expose connection lifecycle hooks (setup, teardown, error) that mirror
+  - [x] Expose connection lifecycle hooks (setup, teardown, error) that mirror
     the server hooks so middleware and instrumentation receive matching events.
 
 - [ ] **Request/response pipeline:**

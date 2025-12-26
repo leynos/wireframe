@@ -488,6 +488,59 @@ replayed before the framing layer begins. The failure callback runs when the
 preamble exchange fails (timeout, I/O error, or encode error) and can log
 diagnostics or send an error response before the connection closes.
 
+### Client lifecycle hooks
+
+The client builder supports lifecycle hooks that mirror the server's hook
+system, enabling consistent instrumentation across both client and server.[^46]
+
+- **Setup hook** (`on_connection_setup`): Invoked once after the TCP connection
+  is established and preamble exchange (if configured) succeeds. Returns
+  connection-specific state stored for the connection's lifetime.
+- **Teardown hook** (`on_connection_teardown`): Invoked when `close()` is
+  called. Receives the state produced by the setup hook for cleanup.
+- **Error hook** (`on_error`): Invoked when errors occur during send, receive,
+  or call operations. Receives a reference to the error for logging or metrics.
+
+```rust
+use std::{net::SocketAddr, sync::Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use wireframe::WireframeClient;
+
+struct SessionState {
+    request_count: AtomicUsize,
+}
+
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+
+let client = WireframeClient::builder()
+    .on_connection_setup(|| async {
+        SessionState {
+            request_count: AtomicUsize::new(0),
+        }
+    })
+    .on_connection_teardown(|state: SessionState| async move {
+        println!(
+            "Session ended after {} requests",
+            state.request_count.load(Ordering::SeqCst)
+        );
+    })
+    .on_error(|err| async move {
+        eprintln!("Client error: {err}");
+    })
+    .connect(addr)
+    .await?;
+
+// Use the client...
+
+client.close().await; // Teardown hook invoked here
+```
+
+The setup hook runs after connection establishment (and preamble exchange if
+configured). The teardown hook only runs if a setup hook was configured and
+successfully produced state. The error hook is independent and can be
+configured without a setup hook.
+
 ## Push queues and connection actors
 
 Background work interacts with connections through `PushQueues`. The fluent
@@ -737,3 +790,6 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
     `src/client/config.rs`, and `src/client/error.rs`.
 [^45]: Client preamble support implemented in `src/client/builder.rs`
     (lines 288-566) and `src/client/mod.rs` (callback types).
+[^46]: Client lifecycle hooks implemented in `src/client/hooks.rs`,
+    `src/client/builder.rs` (lifecycle methods), and `src/client/runtime.rs`
+    (hook invocation). BDD tests in `tests/features/client_lifecycle.feature`.

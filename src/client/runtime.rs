@@ -10,7 +10,12 @@ use tokio::{
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use super::{ClientCodecConfig, ClientError, WireframeClientBuilder};
+use super::{
+    ClientCodecConfig,
+    ClientError,
+    WireframeClientBuilder,
+    hooks::{ClientConnectionTeardownHandler, ClientErrorHandler},
+};
 use crate::{
     message::Message,
     rewind_stream::RewindStream,
@@ -22,6 +27,10 @@ pub trait ClientStream: AsyncRead + AsyncWrite + Unpin {}
 impl<T> ClientStream for T where T: AsyncRead + AsyncWrite + Unpin {}
 
 /// Client runtime for wireframe connections.
+///
+/// The client supports connection lifecycle hooks that mirror the server's
+/// hooks, enabling consistent instrumentation across both ends of a wireframe
+/// connection.
 ///
 /// # Examples
 ///
@@ -37,16 +46,19 @@ impl<T> ClientStream for T where T: AsyncRead + AsyncWrite + Unpin {}
 /// # Ok(())
 /// # }
 /// ```
-pub struct WireframeClient<S = BincodeSerializer, T = TcpStream>
+pub struct WireframeClient<S = BincodeSerializer, T = TcpStream, C = ()>
 where
     T: ClientStream,
 {
     pub(crate) framed: Framed<T, LengthDelimitedCodec>,
     pub(crate) serializer: S,
     pub(crate) codec_config: ClientCodecConfig,
+    pub(crate) connection_state: Option<C>,
+    pub(crate) on_disconnect: Option<ClientConnectionTeardownHandler<C>>,
+    pub(crate) on_error: Option<ClientErrorHandler>,
 }
 
-impl<S, T> fmt::Debug for WireframeClient<S, T>
+impl<S, T, C> fmt::Debug for WireframeClient<S, T, C>
 where
     T: ClientStream,
 {
@@ -57,7 +69,7 @@ where
     }
 }
 
-impl WireframeClient<BincodeSerializer, TcpStream> {
+impl WireframeClient<BincodeSerializer, TcpStream, ()> {
     /// Start building a new client with the default serializer and codec.
     ///
     /// # Examples
@@ -75,17 +87,20 @@ impl WireframeClient<BincodeSerializer, TcpStream> {
     /// # }
     /// ```
     #[must_use]
-    pub fn builder() -> WireframeClientBuilder<BincodeSerializer, ()> {
+    pub fn builder() -> WireframeClientBuilder<BincodeSerializer, (), ()> {
         WireframeClientBuilder::new()
     }
 }
 
-impl<S, T> WireframeClient<S, T>
+impl<S, T, C> WireframeClient<S, T, C>
 where
     S: Serializer + Send + Sync,
     T: ClientStream,
 {
     /// Send a message to the peer using the configured serializer.
+    ///
+    /// If an error hook is registered, it is invoked before the error is
+    /// returned.
     ///
     /// # Errors
     /// Returns [`ClientError`] if serialization or I/O fails.
@@ -109,15 +124,22 @@ where
     /// # }
     /// ```
     pub async fn send<M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
-        let bytes = self
-            .serializer
-            .serialize(message)
-            .map_err(ClientError::Serialize)?;
-        self.framed.send(Bytes::from(bytes)).await?;
-        Ok(())
+        let bytes = self.serializer.serialize(message).map_err(|e| {
+            let err = ClientError::Serialize(e);
+            self.invoke_error_hook(&err);
+            err
+        })?;
+        self.framed.send(Bytes::from(bytes)).await.map_err(|e| {
+            let err = ClientError::from(e);
+            self.invoke_error_hook(&err);
+            err
+        })
     }
 
     /// Receive the next message from the peer.
+    ///
+    /// If an error hook is registered, it is invoked before the error is
+    /// returned.
     ///
     /// # Errors
     /// Returns [`ClientError`] if the connection closes, decoding fails, or I/O
@@ -143,17 +165,27 @@ where
     /// ```
     pub async fn receive<M: Message>(&mut self) -> Result<M, ClientError> {
         let Some(frame) = self.framed.next().await else {
-            return Err(ClientError::Disconnected);
+            let err = ClientError::Disconnected;
+            self.invoke_error_hook(&err);
+            return Err(err);
         };
-        let bytes = frame?;
-        let (message, _consumed) = self
-            .serializer
-            .deserialize(&bytes)
-            .map_err(ClientError::Deserialize)?;
+        let bytes = frame.map_err(|e| {
+            let err = ClientError::from(e);
+            self.invoke_error_hook(&err);
+            err
+        })?;
+        let (message, _consumed) = self.serializer.deserialize(&bytes).map_err(|e| {
+            let err = ClientError::Deserialize(e);
+            self.invoke_error_hook(&err);
+            err
+        })?;
         Ok(message)
     }
 
     /// Send a message and await the next response.
+    ///
+    /// If an error hook is registered, it is invoked before any error is
+    /// returned.
     ///
     /// # Errors
     /// Returns [`ClientError`] if the request cannot be sent or the response
@@ -235,11 +267,22 @@ where
     /// ```
     #[must_use]
     pub fn stream(&self) -> &T { self.framed.get_ref() }
+
+    /// Invoke the error hook if one is registered.
+    fn invoke_error_hook(&self, error: &ClientError) {
+        if let Some(ref handler) = self.on_error {
+            // Execute the error hook synchronously in a blocking context.
+            // We use futures::executor::block_on because the error hook is
+            // designed for logging/metrics, not for async recovery.
+            futures::executor::block_on(handler(error));
+        }
+    }
 }
 
-impl<S> WireframeClient<S, RewindStream<TcpStream>>
+impl<S, C> WireframeClient<S, RewindStream<TcpStream>, C>
 where
     S: Serializer + Send + Sync,
+    C: Send + 'static,
 {
     /// Access the underlying [`TcpStream`].
     ///
@@ -267,4 +310,41 @@ where
     /// which may contain leftover bytes from preamble exchange.
     #[must_use]
     pub fn rewind_stream(&self) -> &RewindStream<TcpStream> { self.framed.get_ref() }
+
+    /// Gracefully close the connection, invoking teardown hooks.
+    ///
+    /// If a teardown hook was registered via
+    /// [`on_connection_teardown`](super::WireframeClientBuilder::on_connection_teardown),
+    /// it is invoked with the connection state produced by the setup hook.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::net::SocketAddr;
+    ///
+    /// use wireframe::{ClientError, WireframeClient};
+    ///
+    /// struct Session {
+    ///     id: u64,
+    /// }
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), ClientError> {
+    /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
+    /// let client = WireframeClient::builder()
+    ///     .on_connection_setup(|| async { Session { id: 42 } })
+    ///     .on_connection_teardown(|session| async move {
+    ///         println!("Session {} closed", session.id);
+    ///     })
+    ///     .connect(addr)
+    ///     .await?;
+    /// client.close().await;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn close(mut self) {
+        if let (Some(state), Some(handler)) = (self.connection_state.take(), &self.on_disconnect) {
+            handler(state).await;
+        }
+    }
 }
