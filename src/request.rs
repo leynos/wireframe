@@ -155,25 +155,44 @@ impl RequestParts {
     /// ```
     #[must_use]
     pub fn inherit_correlation(mut self, source: Option<u64>) -> Self {
-        let (next, mismatched) = Self::select_correlation(self.correlation_id, source);
-        if mismatched && let (Some(found), Some(expected)) = (self.correlation_id, next) {
+        let result = Self::select_correlation(self.correlation_id, source);
+        if let CorrelationResult::Mismatch { found, expected } = result {
             log::warn!(
-                "mismatched correlation id in request: id={}, expected={}, found={}",
+                "mismatched correlation id in request: id={}, expected={expected}, found={found}",
                 self.id,
-                expected,
-                found
             );
         }
-        self.correlation_id = next;
+        self.correlation_id = result.value();
         self
     }
 
     #[inline]
-    fn select_correlation(current: Option<u64>, source: Option<u64>) -> (Option<u64>, bool) {
+    fn select_correlation(current: Option<u64>, source: Option<u64>) -> CorrelationResult {
         match (current, source) {
-            (None, cid) => (cid, false),
-            (Some(cid), Some(src)) if cid != src => (Some(src), true),
-            (curr, _) => (curr, false),
+            (None, cid) => CorrelationResult::Inherited(cid),
+            (Some(found), Some(expected)) if found != expected => {
+                CorrelationResult::Mismatch { found, expected }
+            }
+            (curr, _) => CorrelationResult::Inherited(curr),
+        }
+    }
+}
+
+/// Result of correlation ID selection when inheriting from a source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CorrelationResult {
+    /// The correlation ID was inherited (or remained unchanged).
+    Inherited(Option<u64>),
+    /// A mismatch was detected; the source value takes precedence.
+    Mismatch { found: u64, expected: u64 },
+}
+
+impl CorrelationResult {
+    /// Extract the final correlation ID value.
+    const fn value(self) -> Option<u64> {
+        match self {
+            Self::Inherited(cid) => cid,
+            Self::Mismatch { expected, .. } => Some(expected),
         }
     }
 }

@@ -29,17 +29,9 @@ fn request_parts_metadata_mut_modification() {
     assert_eq!(parts.metadata(), &[0x01, 0x02, 0x03]);
 }
 
-#[rstest::rstest(
-    start, source, expected,
-    case(RequestParts::new(1, None, vec![]), Some(42), Some(42)),
-    case(RequestParts::new(1, Some(7), vec![]), None, Some(7)),
-    case(RequestParts::new(1, None, vec![]), None, None),
-    case(RequestParts::new(1, Some(7), vec![]), Some(8), Some(8)),
-)]
-fn inherit_variants(start: RequestParts, source: Option<u64>, expected: Option<u64>) {
-    let got = start.inherit_correlation(source);
-    assert_eq!(got.correlation_id(), expected);
-}
+// NOTE: Correlation inheritance is tested via:
+// - Unit tests in `src/request.rs::inherit_correlation_variants`
+// - Behavioural tests in `tests/features/request_parts.feature`
 
 #[test]
 fn request_parts_clone_equality() {
