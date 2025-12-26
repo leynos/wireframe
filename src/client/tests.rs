@@ -1,6 +1,13 @@
 //! Unit tests for the wireframe client runtime.
 
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use bytes::{Bytes, BytesMut};
 use rstest::rstest;
@@ -205,3 +212,171 @@ socket_option_test!(
         );
     },
 );
+
+// ============================================================================
+// Lifecycle hook tests
+// ============================================================================
+
+#[tokio::test]
+async fn setup_callback_invoked_on_connect() {
+    let setup_count = Arc::new(AtomicUsize::new(0));
+    let count = setup_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let _client = WireframeClient::builder()
+        .on_connection_setup(move || {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                42u32
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    let _server = accept.await.expect("join accept task");
+
+    assert_eq!(
+        setup_count.load(Ordering::SeqCst),
+        1,
+        "setup callback should be invoked exactly once on connect"
+    );
+}
+
+#[tokio::test]
+async fn teardown_callback_receives_setup_state() {
+    let teardown_value = Arc::new(AtomicUsize::new(0));
+    let value = teardown_value.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let client = WireframeClient::builder()
+        .on_connection_setup(|| async { 42usize })
+        .on_connection_teardown(move |state| {
+            let value = value.clone();
+            async move {
+                value.store(state, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    let _server = accept.await.expect("join accept task");
+
+    client.close().await;
+
+    assert_eq!(
+        teardown_value.load(Ordering::SeqCst),
+        42,
+        "teardown callback should receive state from setup"
+    );
+}
+
+#[tokio::test]
+async fn teardown_without_setup_does_not_run() {
+    let teardown_count = Arc::new(AtomicUsize::new(0));
+    let count = teardown_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let client = WireframeClient::builder()
+        .on_connection_teardown(move |(): ()| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    let _server = accept.await.expect("join accept task");
+
+    client.close().await;
+
+    assert_eq!(
+        teardown_count.load(Ordering::SeqCst),
+        0,
+        "teardown should not run when no setup hook was configured"
+    );
+}
+
+#[tokio::test]
+async fn error_callback_invoked_on_receive_error() {
+    let error_count = Arc::new(AtomicUsize::new(0));
+    let count = error_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let mut client = WireframeClient::builder()
+        .on_error(move |_err| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    // Drop the server side to cause a disconnection
+    let server = accept.await.expect("join accept task");
+    drop(server);
+
+    // Try to receive - should fail and invoke error hook
+    let result: Result<Vec<u8>, ClientError> = client.receive().await;
+    assert!(result.is_err(), "receive should fail after disconnect");
+
+    assert_eq!(
+        error_count.load(Ordering::SeqCst),
+        1,
+        "error callback should be invoked on receive error"
+    );
+}
+
+#[tokio::test]
+async fn setup_and_teardown_callbacks_run() {
+    let setup_count = Arc::new(AtomicUsize::new(0));
+    let teardown_count = Arc::new(AtomicUsize::new(0));
+    let setup = setup_count.clone();
+    let teardown = teardown_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let client = WireframeClient::builder()
+        .on_connection_setup(move || {
+            let setup = setup.clone();
+            async move {
+                setup.fetch_add(1, Ordering::SeqCst);
+                "state"
+            }
+        })
+        .on_connection_teardown(move |_: &str| {
+            let teardown = teardown.clone();
+            async move {
+                teardown.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    let _server = accept.await.expect("join accept task");
+
+    assert_eq!(
+        setup_count.load(Ordering::SeqCst),
+        1,
+        "setup callback should run exactly once"
+    );
+
+    client.close().await;
+
+    assert_eq!(
+        teardown_count.load(Ordering::SeqCst),
+        1,
+        "teardown callback should run exactly once"
+    );
+}

@@ -1,6 +1,6 @@
 //! Builder for configuring and connecting a wireframe client.
 
-use std::{net::SocketAddr, time::Duration};
+use std::{future::Future, net::SocketAddr, sync::Arc, time::Duration};
 
 use bincode::Encode;
 use tokio::net::TcpSocket;
@@ -11,6 +11,7 @@ use super::{
     ClientError,
     SocketOptions,
     WireframeClient,
+    hooks::LifecycleHooks,
     preamble_exchange::{PreambleConfig, perform_preamble_exchange},
 };
 use crate::{
@@ -24,25 +25,52 @@ use crate::{
 /// This macro reduces duplication in type-changing builder methods that need to
 /// create a new builder instance with different generic parameters.
 macro_rules! builder_field_update {
+    // Serializer change: preserves P and C, creates new LifecycleHooks<C> with default
     ($self:expr,serializer = $value:expr) => {
         WireframeClientBuilder {
             serializer: $value,
             codec_config: $self.codec_config,
             socket_options: $self.socket_options,
             preamble_config: $self.preamble_config,
+            lifecycle_hooks: LifecycleHooks {
+                on_connect: $self.lifecycle_hooks.on_connect,
+                on_disconnect: $self.lifecycle_hooks.on_disconnect,
+                on_error: $self.lifecycle_hooks.on_error,
+            },
         }
     };
+    // Preamble change: preserves S and C
     ($self:expr,preamble_config = $value:expr) => {
         WireframeClientBuilder {
             serializer: $self.serializer,
             codec_config: $self.codec_config,
             socket_options: $self.socket_options,
             preamble_config: $value,
+            lifecycle_hooks: LifecycleHooks {
+                on_connect: $self.lifecycle_hooks.on_connect,
+                on_disconnect: $self.lifecycle_hooks.on_disconnect,
+                on_error: $self.lifecycle_hooks.on_error,
+            },
+        }
+    };
+    // Lifecycle hooks change: preserves S and P, changes C
+    ($self:expr,lifecycle_hooks = $value:expr) => {
+        WireframeClientBuilder {
+            serializer: $self.serializer,
+            codec_config: $self.codec_config,
+            socket_options: $self.socket_options,
+            preamble_config: $self.preamble_config,
+            lifecycle_hooks: $value,
         }
     };
 }
 
 /// Builder for [`WireframeClient`].
+///
+/// The builder supports three generic type parameters:
+/// - `S`: The serializer type (default: `BincodeSerializer`)
+/// - `P`: The preamble type (default: `()`)
+/// - `C`: The connection state type returned by the setup hook (default: `()`)
 ///
 /// # Examples
 ///
@@ -52,14 +80,15 @@ macro_rules! builder_field_update {
 /// let builder = WireframeClientBuilder::new();
 /// let _ = builder;
 /// ```
-pub struct WireframeClientBuilder<S = BincodeSerializer, P = ()> {
+pub struct WireframeClientBuilder<S = BincodeSerializer, P = (), C = ()> {
     pub(crate) serializer: S,
     pub(crate) codec_config: ClientCodecConfig,
     pub(crate) socket_options: SocketOptions,
     pub(crate) preamble_config: Option<PreambleConfig<P>>,
+    pub(crate) lifecycle_hooks: LifecycleHooks<C>,
 }
 
-impl WireframeClientBuilder<BincodeSerializer, ()> {
+impl WireframeClientBuilder<BincodeSerializer, (), ()> {
     /// Create a new builder with default settings.
     ///
     /// # Examples
@@ -77,15 +106,16 @@ impl WireframeClientBuilder<BincodeSerializer, ()> {
             codec_config: ClientCodecConfig::default(),
             socket_options: SocketOptions::default(),
             preamble_config: None,
+            lifecycle_hooks: LifecycleHooks::default(),
         }
     }
 }
 
-impl Default for WireframeClientBuilder<BincodeSerializer, ()> {
+impl Default for WireframeClientBuilder<BincodeSerializer, (), ()> {
     fn default() -> Self { Self::new() }
 }
 
-impl<S, P> WireframeClientBuilder<S, P>
+impl<S, P, C> WireframeClientBuilder<S, P, C>
 where
     S: Serializer + Send + Sync,
 {
@@ -100,7 +130,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeClientBuilder<Ser, P>
+    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeClientBuilder<Ser, P, C>
     where
         Ser: Serializer + Send + Sync,
     {
@@ -317,24 +347,134 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn with_preamble<Q>(self, preamble: Q) -> WireframeClientBuilder<S, Q>
+    pub fn with_preamble<Q>(self, preamble: Q) -> WireframeClientBuilder<S, Q, C>
     where
         Q: Encode + Send + Sync + 'static,
     {
         builder_field_update!(self, preamble_config = Some(PreambleConfig::new(preamble)))
     }
+
+    /// Register a callback invoked when the connection is established.
+    ///
+    /// The callback can perform authentication or other setup tasks and returns
+    /// connection-specific state stored for the connection's lifetime. This
+    /// hook is invoked after the preamble exchange (if configured) succeeds.
+    ///
+    /// # Type Parameters
+    ///
+    /// This method changes the connection state type parameter from `C` to
+    /// `C2`. Subsequent builder methods will operate on the new connection
+    /// state type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::client::WireframeClientBuilder;
+    ///
+    /// struct Session {
+    ///     id: u64,
+    /// }
+    ///
+    /// let builder =
+    ///     WireframeClientBuilder::new().on_connection_setup(|| async { Session { id: 42 } });
+    /// let _ = builder;
+    /// ```
+    #[must_use]
+    pub fn on_connection_setup<F, Fut, C2>(self, f: F) -> WireframeClientBuilder<S, P, C2>
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = C2> + Send + 'static,
+        C2: Send + 'static,
+    {
+        builder_field_update!(
+            self,
+            lifecycle_hooks = LifecycleHooks {
+                on_connect: Some(Arc::new(move || Box::pin(f()))),
+                on_disconnect: None,
+                on_error: None,
+            }
+        )
+    }
 }
 
-impl<S, P> WireframeClientBuilder<S, P>
+impl<S, P, C> WireframeClientBuilder<S, P, C>
+where
+    S: Serializer + Send + Sync,
+    C: Send + 'static,
+{
+    /// Register a callback invoked when the connection is closed.
+    ///
+    /// The callback receives the connection state produced by
+    /// [`on_connection_setup`](Self::on_connection_setup). The teardown hook
+    /// is invoked when [`WireframeClient::close`](super::WireframeClient::close)
+    /// is called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::client::WireframeClientBuilder;
+    ///
+    /// struct Session {
+    ///     id: u64,
+    /// }
+    ///
+    /// let builder = WireframeClientBuilder::new()
+    ///     .on_connection_setup(|| async { Session { id: 42 } })
+    ///     .on_connection_teardown(|session| async move {
+    ///         println!("Session {} closed", session.id);
+    ///     });
+    /// let _ = builder;
+    /// ```
+    #[must_use]
+    pub fn on_connection_teardown<F, Fut>(mut self, f: F) -> Self
+    where
+        F: Fn(C) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.lifecycle_hooks.on_disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
+        self
+    }
+
+    /// Register a callback invoked when an error occurs.
+    ///
+    /// The callback receives a reference to the error and can perform logging
+    /// or recovery actions. The handler is invoked before the error is returned
+    /// to the caller.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::client::WireframeClientBuilder;
+    ///
+    /// let builder = WireframeClientBuilder::new().on_error(|err| async move {
+    ///     eprintln!("Client error: {err}");
+    /// });
+    /// let _ = builder;
+    /// ```
+    #[must_use]
+    pub fn on_error<F, Fut>(mut self, f: F) -> Self
+    where
+        F: for<'a> Fn(&'a ClientError) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.lifecycle_hooks.on_error = Some(Arc::new(move |e| Box::pin(f(e))));
+        self
+    }
+}
+
+impl<S, P, C> WireframeClientBuilder<S, P, C>
 where
     S: Serializer + Send + Sync,
     P: Encode + Send + Sync + 'static,
+    C: Send + 'static,
 {
     /// Establish a connection and return a configured client.
     ///
     /// If a preamble is configured, it is written to the server before the
     /// framing layer is established. The success callback (if registered) is
     /// invoked after writing the preamble and may read the server's response.
+    /// If a connection setup hook is registered, it is invoked after the
+    /// preamble exchange succeeds.
     ///
     /// # Errors
     ///
@@ -358,7 +498,7 @@ where
     pub async fn connect(
         self,
         addr: SocketAddr,
-    ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>>, ClientError> {
+    ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()?
         } else {
@@ -384,10 +524,21 @@ where
         framed
             .read_buffer_mut()
             .reserve(initial_read_buffer_capacity);
+
+        // Invoke connection setup hook if configured.
+        let connection_state = if let Some(ref setup) = self.lifecycle_hooks.on_connect {
+            Some(setup().await)
+        } else {
+            None
+        };
+
         Ok(WireframeClient {
             framed,
             serializer: self.serializer,
             codec_config,
+            connection_state,
+            on_disconnect: self.lifecycle_hooks.on_disconnect,
+            on_error: self.lifecycle_hooks.on_error,
         })
     }
 }
