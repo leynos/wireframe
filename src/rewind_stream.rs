@@ -29,6 +29,17 @@ impl<S> RewindStream<S> {
             inner,
         }
     }
+
+    /// Return a reference to the underlying stream.
+    pub fn inner(&self) -> &S { &self.inner }
+
+    /// Return a mutable reference to the underlying stream.
+    pub fn inner_mut(&mut self) -> &mut S { &mut self.inner }
+
+    /// Consume the wrapper and return the underlying stream.
+    ///
+    /// Note: any unread leftover bytes will be discarded.
+    pub fn into_inner(self) -> S { self.inner }
 }
 
 #[cfg(test)]

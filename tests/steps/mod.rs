@@ -3,6 +3,7 @@
 //! This module exposes all Given-When-Then steps used by the
 //! behaviour-driven tests under `tests/features`.
 
+mod client_preamble_steps;
 mod client_steps;
 mod correlation_steps;
 mod fragment_steps;
