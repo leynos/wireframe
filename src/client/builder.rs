@@ -24,7 +24,7 @@ use crate::{
 /// This macro reduces duplication in type-changing builder methods that need to
 /// create a new builder instance with different generic parameters.
 macro_rules! builder_field_update {
-    ($self:expr, serializer = $value:expr) => {
+    ($self:expr,serializer = $value:expr) => {
         WireframeClientBuilder {
             serializer: $value,
             codec_config: $self.codec_config,
@@ -32,7 +32,7 @@ macro_rules! builder_field_update {
             preamble_config: $self.preamble_config,
         }
     };
-    ($self:expr, preamble_config = $value:expr) => {
+    ($self:expr,preamble_config = $value:expr) => {
         WireframeClientBuilder {
             serializer: $self.serializer,
             codec_config: $self.codec_config,
