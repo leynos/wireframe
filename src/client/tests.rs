@@ -9,7 +9,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::*;
-use crate::frame::{Endianness, LengthFormat};
+use crate::{
+    BincodeSerializer,
+    frame::{Endianness, LengthFormat},
+};
 
 const MIN_FRAME_LENGTH: usize = 64;
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
@@ -35,7 +38,7 @@ async fn spawn_listener() -> (SocketAddr, tokio::task::JoinHandle<TcpStream>) {
 async fn assert_builder_option<F, A>(configure_builder: F, assert_option: A)
 where
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder,
-    A: FnOnce(&WireframeClient),
+    A: FnOnce(&WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>>),
 {
     let (addr, accept) = spawn_listener().await;
 

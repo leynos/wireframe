@@ -390,7 +390,7 @@ behavioural guarantees.
     serializers, codec settings (including `max_frame_length` parity), and
     socket options before connecting.
 
-  - [ ] Integrate the existing preamble helpers so clients can emit and verify
+  - [x] Integrate the existing preamble helpers so clients can emit and verify
     preambles before exchanging frames, with integration tests covering success
     and failure callbacks.
 

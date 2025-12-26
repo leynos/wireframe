@@ -78,8 +78,47 @@ deserializes the response type.
 ### Connection lifecycle
 
 Like the server, the client should expose hooks for connection setup and
-teardown. These mirror the server’s lifecycle callbacks, so both sides can
+teardown. These mirror the server's lifecycle callbacks, so both sides can
 share initialization logic.
+
+### Preamble support
+
+The client builder now supports an optional preamble exchange. Use
+`with_preamble` to send a typed preamble after TCP connect completes:
+
+```rust
+use std::time::Duration;
+use futures::FutureExt;
+
+#[derive(bincode::Encode)]
+struct ClientHello { version: u16 }
+
+let client = WireframeClient::builder()
+    .with_preamble(ClientHello { version: 1 })
+    .preamble_timeout(Duration::from_secs(5))
+    .on_preamble_success(|_preamble, stream| {
+        async move {
+            // Read server response, return leftover bytes
+            Ok(Vec::new())
+        }
+        .boxed()
+    })
+    .on_preamble_failure(|err, _stream| {
+        async move {
+            eprintln!("Preamble failed: {err}");
+            Ok(())
+        }
+        .boxed()
+    })
+    .connect(addr)
+    .await?;
+```
+
+The success callback runs after the preamble is written successfully and can
+read the server's response (using `read_preamble` from the preamble module).
+Any bytes read beyond the server's response must be returned as "leftover"
+bytes for the framing layer to replay. The failure callback runs when the
+preamble exchange fails due to timeout, I/O error, or encoding error.
 
 ## Example usage
 

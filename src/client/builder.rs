@@ -2,14 +2,45 @@
 
 use std::{net::SocketAddr, time::Duration};
 
+use bincode::Encode;
 use tokio::net::TcpSocket;
 use tokio_util::codec::Framed;
 
-use super::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient};
+use super::{
+    ClientCodecConfig,
+    ClientError,
+    SocketOptions,
+    WireframeClient,
+    preamble_exchange::{PreambleConfig, perform_preamble_exchange},
+};
 use crate::{
     frame::LengthFormat,
+    rewind_stream::RewindStream,
     serializer::{BincodeSerializer, Serializer},
 };
+
+/// Reconstructs `WireframeClientBuilder` with one field updated to a new value.
+///
+/// This macro reduces duplication in type-changing builder methods that need to
+/// create a new builder instance with different generic parameters.
+macro_rules! builder_field_update {
+    ($self:expr,serializer = $value:expr) => {
+        WireframeClientBuilder {
+            serializer: $value,
+            codec_config: $self.codec_config,
+            socket_options: $self.socket_options,
+            preamble_config: $self.preamble_config,
+        }
+    };
+    ($self:expr,preamble_config = $value:expr) => {
+        WireframeClientBuilder {
+            serializer: $self.serializer,
+            codec_config: $self.codec_config,
+            socket_options: $self.socket_options,
+            preamble_config: $value,
+        }
+    };
+}
 
 /// Builder for [`WireframeClient`].
 ///
@@ -21,13 +52,14 @@ use crate::{
 /// let builder = WireframeClientBuilder::new();
 /// let _ = builder;
 /// ```
-pub struct WireframeClientBuilder<S = BincodeSerializer> {
-    serializer: S,
-    codec_config: ClientCodecConfig,
-    socket_options: SocketOptions,
+pub struct WireframeClientBuilder<S = BincodeSerializer, P = ()> {
+    pub(crate) serializer: S,
+    pub(crate) codec_config: ClientCodecConfig,
+    pub(crate) socket_options: SocketOptions,
+    pub(crate) preamble_config: Option<PreambleConfig<P>>,
 }
 
-impl WireframeClientBuilder<BincodeSerializer> {
+impl WireframeClientBuilder<BincodeSerializer, ()> {
     /// Create a new builder with default settings.
     ///
     /// # Examples
@@ -44,15 +76,16 @@ impl WireframeClientBuilder<BincodeSerializer> {
             serializer: BincodeSerializer,
             codec_config: ClientCodecConfig::default(),
             socket_options: SocketOptions::default(),
+            preamble_config: None,
         }
     }
 }
 
-impl Default for WireframeClientBuilder<BincodeSerializer> {
+impl Default for WireframeClientBuilder<BincodeSerializer, ()> {
     fn default() -> Self { Self::new() }
 }
 
-impl<S> WireframeClientBuilder<S>
+impl<S, P> WireframeClientBuilder<S, P>
 where
     S: Serializer + Send + Sync,
 {
@@ -67,15 +100,11 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeClientBuilder<Ser>
+    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeClientBuilder<Ser, P>
     where
         Ser: Serializer + Send + Sync,
     {
-        WireframeClientBuilder {
-            serializer,
-            codec_config: self.codec_config,
-            socket_options: self.socket_options,
-        }
+        builder_field_update!(self, serializer = serializer)
     }
 
     /// Configure codec settings for the connection.
@@ -266,10 +295,51 @@ where
         self
     }
 
+    /// Configure a preamble to send before exchanging frames.
+    ///
+    /// The preamble is written to the server immediately after establishing
+    /// the TCP connection, before the framing layer begins. Use
+    /// [`on_preamble_success`](Self::on_preamble_success) to read the server's
+    /// response and [`preamble_timeout`](Self::preamble_timeout) to bound the
+    /// exchange.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::client::WireframeClientBuilder;
+    ///
+    /// #[derive(bincode::Encode)]
+    /// struct MyPreamble {
+    ///     version: u16,
+    /// }
+    ///
+    /// let builder = WireframeClientBuilder::new().with_preamble(MyPreamble { version: 1 });
+    /// let _ = builder;
+    /// ```
+    #[must_use]
+    pub fn with_preamble<Q>(self, preamble: Q) -> WireframeClientBuilder<S, Q>
+    where
+        Q: Encode + Send + Sync + 'static,
+    {
+        builder_field_update!(self, preamble_config = Some(PreambleConfig::new(preamble)))
+    }
+}
+
+impl<S, P> WireframeClientBuilder<S, P>
+where
+    S: Serializer + Send + Sync,
+    P: Encode + Send + Sync + 'static,
+{
     /// Establish a connection and return a configured client.
     ///
+    /// If a preamble is configured, it is written to the server before the
+    /// framing layer is established. The success callback (if registered) is
+    /// invoked after writing the preamble and may read the server's response.
+    ///
     /// # Errors
-    /// Returns [`ClientError`] if socket configuration or connection fails.
+    ///
+    /// Returns [`ClientError`] if socket configuration, connection, or
+    /// preamble exchange fails.
     ///
     /// # Examples
     ///
@@ -285,17 +355,30 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn connect(self, addr: SocketAddr) -> Result<WireframeClient<S>, ClientError> {
+    pub async fn connect(
+        self,
+        addr: SocketAddr,
+    ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>>, ClientError> {
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()?
         } else {
             TcpSocket::new_v6()?
         };
         self.socket_options.apply(&socket)?;
-        let stream = socket.connect(addr).await?;
+        let mut stream = socket.connect(addr).await?;
+
+        // Perform preamble exchange if configured.
+        let leftover = if let Some(config) = self.preamble_config {
+            perform_preamble_exchange(&mut stream, config).await?
+        } else {
+            Vec::new()
+        };
+
+        // Build framed codec, always wrapping in RewindStream for type consistency.
+        // When leftover is empty, RewindStream has negligible overhead.
         let codec_config = self.codec_config;
         let codec = codec_config.build_codec();
-        let mut framed = Framed::new(stream, codec);
+        let mut framed = Framed::new(RewindStream::new(leftover, stream), codec);
         let initial_read_buffer_capacity =
             core::cmp::min(64 * 1024, codec_config.max_frame_length_value());
         framed

@@ -8,7 +8,11 @@ use futures::{SinkExt, StreamExt};
 use log::warn;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use wireframe::client::{ClientCodecConfig, ClientError, WireframeClient};
+use wireframe::{
+    BincodeSerializer,
+    client::{ClientCodecConfig, ClientError, WireframeClient},
+    rewind_stream::RewindStream,
+};
 
 use super::TestResult;
 
@@ -17,7 +21,7 @@ use super::TestResult;
 pub struct ClientRuntimeWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
-    client: Option<WireframeClient>,
+    client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>,
     payload: Option<ClientPayload>,
     response: Option<ClientPayload>,
     last_error: Option<ClientError>,

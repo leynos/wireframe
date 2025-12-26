@@ -9,6 +9,7 @@
 //! - `FragmentWorld`: Tests fragment metadata enforcement and reassembly primitives
 //! - `ClientRuntimeWorld`: Tests client runtime configuration and framing behaviour
 //! - `RequestPartsWorld`: Tests request parts metadata handling
+//! - `ClientPreambleWorld`: Tests client preamble exchange and callbacks
 //!
 //! # Example
 //!
@@ -21,6 +22,7 @@
 //! tests/features/fragment.feature            -> FragmentWorld context
 //! tests/features/client_runtime.feature      -> ClientRuntimeWorld context
 //! tests/features/request_parts.feature       -> RequestPartsWorld context
+//! tests/features/client_preamble.feature     -> ClientPreambleWorld context
 //! ```
 //!
 //! Each context provides specialised step definitions and state management
@@ -31,6 +33,7 @@ mod world;
 
 use cucumber::World;
 use world::{
+    ClientPreambleWorld,
     ClientRuntimeWorld,
     CorrelationWorld,
     FragmentWorld,
@@ -49,4 +52,5 @@ async fn main() {
     FragmentWorld::run("tests/features/fragment.feature").await;
     ClientRuntimeWorld::run("tests/features/client_runtime.feature").await;
     RequestPartsWorld::run("tests/features/request_parts.feature").await;
+    ClientPreambleWorld::run("tests/features/client_preamble.feature").await;
 }
