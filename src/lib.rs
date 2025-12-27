@@ -25,6 +25,7 @@ pub mod middleware;
 pub mod panic;
 pub mod preamble;
 pub mod push;
+pub mod request;
 pub mod response;
 pub mod rewind_stream;
 #[cfg(not(loom))]
@@ -56,5 +57,6 @@ pub use fragment::{
 };
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
 pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
+pub use request::RequestParts;
 pub use response::{FrameStream, Response, WireframeError};
 pub use session::{ConnectionId, SessionRegistry};
