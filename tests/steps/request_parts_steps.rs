@@ -65,6 +65,11 @@ fn then_correlation_id_is(world: &mut RequestPartsWorld, expected: CorrelationId
     world.assert_correlation_id(Some(expected.0))
 }
 
+#[then("the correlation id is absent")]
+fn then_correlation_id_is_absent(world: &mut RequestPartsWorld) -> TestResult {
+    world.assert_correlation_id(None)
+}
+
 #[then(expr = "the metadata length is {word}")]
 fn then_metadata_length_is(world: &mut RequestPartsWorld, expected: MetadataLength) -> TestResult {
     world.assert_metadata_length(expected.0)
