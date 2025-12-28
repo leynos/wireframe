@@ -18,6 +18,9 @@ fn given_parts_no_correlation(world: &mut RequestPartsWorld, id: RequestId) {
     world.create_parts(id.0, None, vec![]);
 }
 
+// Deliberately duplicates `given_parts_no_correlation` to provide distinct
+// Gherkin phrasing: scenarios that later add metadata use the shorter form,
+// while this form explicitly states the empty-metadata precondition.
 #[given(expr = "request parts with id {word}, no correlation id, and empty metadata")]
 fn given_parts_empty_metadata(world: &mut RequestPartsWorld, id: RequestId) {
     world.create_parts(id.0, None, vec![]);
