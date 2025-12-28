@@ -259,7 +259,7 @@ async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
 }
 ```
 
-The `RequestBodyReader` adaptor implements `AsyncRead`, allowing protocol
+The `RequestBodyReader` adapter implements `AsyncRead`, allowing protocol
 crates to reuse existing parsers. For raw stream access, use the
 `RequestBodyStream` directly with `StreamExt` methods:
 
