@@ -12,5 +12,7 @@ pub use worlds::{
     fragment::FragmentWorld,
     multi_packet::MultiPacketWorld,
     panic::PanicWorld,
+    request_parts::RequestPartsWorld,
     stream_end::StreamEndWorld,
+    types,
 };
