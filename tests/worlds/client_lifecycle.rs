@@ -62,6 +62,49 @@ pub struct ClientLifecycleWorld {
 }
 
 impl ClientLifecycleWorld {
+    /// Spawn a server that executes the provided behaviour closure after accepting a connection.
+    ///
+    /// This helper binds a `TcpListener`, stores the address in `self.addr`, spawns a task
+    /// that accepts a connection and runs the closure, and stores the task handle in
+    /// `self.server`.
+    async fn spawn_server<F, Fut>(&mut self, behaviour: F) -> TestResult
+    where
+        F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            behaviour(stream).await;
+        });
+
+        self.addr = Some(addr);
+        self.server = Some(handle);
+        Ok(())
+    }
+
+    /// Handle the result of a client connection attempt.
+    ///
+    /// Stores the client in `self.client` on success, or the error in `self.last_error`
+    /// on failure.
+    fn handle_connection_result(
+        &mut self,
+        result: Result<
+            WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, u32>,
+            ClientError,
+        >,
+    ) {
+        match result {
+            Ok(client) => {
+                self.client = Some(client);
+            }
+            Err(e) => {
+                self.last_error = Some(e);
+            }
+        }
+    }
+
     /// Start a standard echo server.
     ///
     /// # Errors
@@ -70,17 +113,11 @@ impl ClientLifecycleWorld {
     /// # Panics
     /// The spawned task panics if accept fails.
     pub async fn start_standard_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (_stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|_stream| async {
             // Hold connection briefly
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a server that disconnects immediately after accepting.
@@ -91,17 +128,11 @@ impl ClientLifecycleWorld {
     /// # Panics
     /// The spawned task panics if accept fails.
     pub async fn start_disconnecting_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|stream| async {
             // Disconnect immediately
             drop(stream);
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a preamble-aware server that sends acknowledgement.
@@ -149,14 +180,7 @@ impl ClientLifecycleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
+        self.handle_connection_result(result);
         Ok(())
     }
 
@@ -189,14 +213,7 @@ impl ClientLifecycleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
+        self.handle_connection_result(result);
         Ok(())
     }
 
@@ -219,14 +236,7 @@ impl ClientLifecycleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
+        self.handle_connection_result(result);
         Ok(())
     }
 
@@ -267,14 +277,7 @@ impl ClientLifecycleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
+        self.handle_connection_result(result);
         Ok(())
     }
 

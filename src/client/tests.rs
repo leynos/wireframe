@@ -1,4 +1,8 @@
 //! Unit tests for the wireframe client runtime.
+#![expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 
 use std::{
     net::SocketAddr,
@@ -57,6 +61,23 @@ where
     assert_option(&client);
 
     let _server_stream = accept.await.expect("join accept task");
+}
+
+/// Helper function to test lifecycle hooks with a connected client.
+async fn test_with_client<F, C>(
+    configure_builder: F,
+) -> WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>, C>
+where
+    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<BincodeSerializer, (), C>,
+    C: Send + 'static,
+{
+    let (addr, accept) = spawn_listener().await;
+    let client = configure_builder(WireframeClient::builder())
+        .connect(addr)
+        .await
+        .expect("connect client");
+    let _server = accept.await.expect("join accept task");
+    client
 }
 
 macro_rules! socket_option_test {
@@ -222,21 +243,16 @@ async fn setup_callback_invoked_on_connect() {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let count = setup_count.clone();
 
-    let (addr, accept) = spawn_listener().await;
-
-    let _client = WireframeClient::builder()
-        .on_connection_setup(move || {
+    let _client = test_with_client(|builder| {
+        builder.on_connection_setup(move || {
             let count = count.clone();
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
                 42u32
             }
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let _server = accept.await.expect("join accept task");
+    })
+    .await;
 
     assert_eq!(
         setup_count.load(Ordering::SeqCst),
@@ -250,21 +266,17 @@ async fn teardown_callback_receives_setup_state() {
     let teardown_value = Arc::new(AtomicUsize::new(0));
     let value = teardown_value.clone();
 
-    let (addr, accept) = spawn_listener().await;
-
-    let client = WireframeClient::builder()
-        .on_connection_setup(|| async { 42usize })
-        .on_connection_teardown(move |state| {
-            let value = value.clone();
-            async move {
-                value.store(state, Ordering::SeqCst);
-            }
-        })
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let _server = accept.await.expect("join accept task");
+    let client = test_with_client(|builder| {
+        builder
+            .on_connection_setup(|| async { 42usize })
+            .on_connection_teardown(move |state| {
+                let value = value.clone();
+                async move {
+                    value.store(state, Ordering::SeqCst);
+                }
+            })
+    })
+    .await;
 
     client.close().await;
 
@@ -280,20 +292,15 @@ async fn teardown_without_setup_does_not_run() {
     let teardown_count = Arc::new(AtomicUsize::new(0));
     let count = teardown_count.clone();
 
-    let (addr, accept) = spawn_listener().await;
-
-    let client = WireframeClient::builder()
-        .on_connection_teardown(move |(): ()| {
+    let client = test_with_client(|builder| {
+        builder.on_connection_teardown(move |(): ()| {
             let count = count.clone();
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
             }
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let _server = accept.await.expect("join accept task");
+    })
+    .await;
 
     client.close().await;
 
