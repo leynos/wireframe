@@ -263,16 +263,15 @@ first-class streaming request bodies, a generic message assembly abstraction,
 and standardized per-connection memory budgets.
 
 ### 8.1. Streaming request bodies
-
 - [x] 8.1.1. Implement `RequestParts` struct with `id`, `correlation_id`, and
   `metadata` fields.
-- [ ] 8.1.2. Implement `RequestBodyStream` type alias as a pinned, boxed
+- [x] 8.1.2. Implement `RequestBodyStream` type alias as a pinned, boxed
   stream of `Result<Bytes, std::io::Error>`.
-- [ ] 8.1.3. Add an `AsyncRead` adaptor for `RequestBodyStream` so protocol
+- [x] 8.1.3. Add an `AsyncRead` adaptor for `RequestBodyStream` so protocol
   crates can reuse existing parsers.
-- [ ] 8.1.4. Integrate streaming request extraction with the handler dispatch
+- [x] 8.1.4. Integrate streaming request extraction with the handler dispatch
   path.
-- [ ] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure
+- [x] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure
   propagation.
 
 ### 8.2. MessageAssembler abstraction

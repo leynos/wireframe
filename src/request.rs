@@ -3,6 +3,164 @@
 //! These types allow handlers to consume request payloads incrementally
 //! rather than waiting for full reassembly. See ADR 0002 for the design
 //! rationale and composition with transport-level fragmentation.
+//!
+//! # Streaming request bodies
+//!
+//! Handlers can opt into streaming by accepting a [`RequestBodyStream`]
+//! alongside [`RequestParts`]. The framework provides chunks via a bounded
+//! channel, propagating back-pressure when the handler consumes slowly.
+//!
+//! ```
+//! use bytes::Bytes;
+//! use wireframe::request::{RequestBodyStream, RequestParts};
+//!
+//! async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
+//!     // Process metadata immediately
+//!     let id = parts.id();
+//!     // Consume body chunks incrementally via StreamExt or AsyncRead adaptor
+//! }
+//! ```
+
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use bytes::Bytes;
+use futures::Stream;
+use tokio::{io::AsyncRead, sync::mpsc};
+use tokio_util::io::StreamReader;
+
+/// Streaming request body.
+///
+/// Handlers can consume this stream incrementally rather than waiting for
+/// full body reassembly. Each item yields either a chunk of bytes or an
+/// I/O error.
+///
+/// This type is symmetric with [`crate::FrameStream`] for streaming responses.
+/// See ADR 0002 for design rationale.
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use futures::StreamExt;
+/// use wireframe::request::RequestBodyStream;
+///
+/// async fn consume_stream(mut body: RequestBodyStream) {
+///     while let Some(result) = body.next().await {
+///         match result {
+///             Ok(chunk) => { /* process chunk */ }
+///             Err(e) => { /* handle I/O error */ }
+///         }
+///     }
+/// }
+/// ```
+pub type RequestBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>> + Send + 'static>>;
+
+/// Default capacity for streaming request body channels.
+///
+/// This value balances memory usage against throughput; handlers consuming
+/// slowly will cause back-pressure after this many chunks buffer.
+pub const DEFAULT_BODY_CHANNEL_CAPACITY: usize = 16;
+
+/// Create a bounded channel for streaming request bodies.
+///
+/// Returns a sender (for the connection to push chunks) and a
+/// [`RequestBodyStream`] (for the handler to consume). Back-pressure
+/// propagates when the channel fills: senders await capacity before
+/// buffering additional chunks.
+///
+/// # Arguments
+///
+/// * `capacity` - Maximum number of chunks to buffer before applying back-pressure. Must be greater
+///   than zero.
+///
+/// # Panics
+///
+/// Panics if `capacity` is zero, mirroring [`tokio::sync::mpsc::channel`].
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use wireframe::request::body_channel;
+///
+/// let (tx, rx) = body_channel(8);
+/// // tx: send chunks from connection
+/// // rx: consume in handler
+/// ```
+#[must_use]
+pub fn body_channel(
+    capacity: usize,
+) -> (mpsc::Sender<Result<Bytes, io::Error>>, RequestBodyStream) {
+    let (tx, rx) = mpsc::channel(capacity);
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+    (tx, Box::pin(stream))
+}
+
+/// Adaptor wrapping a [`RequestBodyStream`] as [`AsyncRead`].
+///
+/// Protocol crates can use this to feed streaming bytes into parsers
+/// that operate on readers rather than streams. The adaptor consumes
+/// chunks from the underlying stream and presents them as a contiguous
+/// byte sequence.
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use tokio::io::AsyncReadExt;
+/// use wireframe::request::{RequestBodyReader, RequestBodyStream};
+///
+/// async fn read_all(body: RequestBodyStream) -> std::io::Result<Vec<u8>> {
+///     let mut reader = RequestBodyReader::new(body);
+///     let mut buf = Vec::new();
+///     reader.read_to_end(&mut buf).await?;
+///     Ok(buf)
+/// }
+/// ```
+pub struct RequestBodyReader {
+    inner: StreamReader<RequestBodyStream, Bytes>,
+}
+
+impl RequestBodyReader {
+    /// Create a new reader from a streaming body.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bytes::Bytes;
+    /// use wireframe::request::{RequestBodyReader, RequestBodyStream};
+    ///
+    /// fn wrap_stream(stream: RequestBodyStream) -> RequestBodyReader {
+    ///     RequestBodyReader::new(stream)
+    /// }
+    /// ```
+    #[must_use]
+    pub fn new(stream: RequestBodyStream) -> Self {
+        Self {
+            inner: StreamReader::new(stream),
+        }
+    }
+
+    /// Consume the reader and return the underlying stream.
+    ///
+    /// Any buffered bytes from partial reads are discarded.
+    #[must_use]
+    pub fn into_inner(self) -> RequestBodyStream { self.inner.into_inner() }
+}
+
+impl AsyncRead for RequestBodyReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
 
 /// Request metadata extracted outwith the request body.
 ///
@@ -258,5 +416,140 @@ mod tests {
     fn empty_metadata_is_valid() {
         let parts = RequestParts::new(1, None, vec![]);
         assert!(parts.metadata().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use futures::StreamExt;
+    use rstest::rstest;
+    use tokio::io::AsyncReadExt;
+
+    use super::*;
+
+    #[rstest]
+    #[tokio::test]
+    async fn request_body_stream_yields_chunks() {
+        let chunks = vec![
+            Ok(Bytes::from_static(b"hello")),
+            Ok(Bytes::from_static(b" world")),
+        ];
+        let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
+
+        let collected: Vec<_> = stream.collect().await;
+        assert_eq!(collected.len(), 2);
+        assert!(collected.iter().all(Result::is_ok));
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn async_read_adaptor_reads_stream() {
+        let chunks = vec![Ok(Bytes::from_static(b"test"))];
+        let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
+        let mut reader = RequestBodyReader::new(stream);
+
+        let mut buf = [0u8; 4];
+        let n = reader.read(&mut buf).await.expect("read should succeed");
+        assert_eq!(n, 4);
+        assert_eq!(&buf, b"test");
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn reader_consumes_multiple_chunks() {
+        let chunks = vec![
+            Ok(Bytes::from_static(b"hello ")),
+            Ok(Bytes::from_static(b"world")),
+        ];
+        let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
+        let mut reader = RequestBodyReader::new(stream);
+
+        let mut buf = Vec::new();
+        reader
+            .read_to_end(&mut buf)
+            .await
+            .expect("read_to_end should succeed");
+        assert_eq!(buf, b"hello world");
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn stream_propagates_io_error() {
+        let chunks = vec![
+            Ok(Bytes::from_static(b"ok")),
+            Err(io::Error::new(io::ErrorKind::InvalidData, "corrupt")),
+        ];
+        let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
+
+        let results: Vec<_> = stream.collect().await;
+        assert!(results.first().expect("first result").is_ok());
+        assert!(results.get(1).expect("second result").is_err());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn reader_surfaces_stream_error() {
+        let chunks = vec![Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "disconnected",
+        ))];
+        let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
+        let mut reader = RequestBodyReader::new(stream);
+
+        let mut buf = [0u8; 16];
+        let result = reader.read(&mut buf).await;
+        let err = result.expect_err("read should fail");
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn body_channel_delivers_chunks() {
+        let (tx, stream) = body_channel(4);
+
+        tx.send(Ok(Bytes::from_static(b"chunk1")))
+            .await
+            .expect("send should succeed");
+        tx.send(Ok(Bytes::from_static(b"chunk2")))
+            .await
+            .expect("send should succeed");
+        drop(tx);
+
+        let chunks: Vec<_> = stream.collect().await;
+        assert_eq!(chunks.len(), 2);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn body_channel_back_pressure() {
+        let (tx, _rx) = body_channel(1);
+
+        tx.send(Ok(Bytes::from_static(b"first")))
+            .await
+            .expect("first send should succeed");
+
+        // Channel is full; try_send should fail
+        let result = tx.try_send(Ok(Bytes::from_static(b"second")));
+        assert!(result.is_err(), "try_send should fail when channel is full");
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn body_channel_sender_detects_dropped_receiver() {
+        let (tx, rx) = body_channel(1);
+        drop(rx);
+
+        let result = tx.send(Ok(Bytes::from_static(b"orphan"))).await;
+        assert!(result.is_err(), "send should fail when receiver is dropped");
+    }
+
+    #[rstest]
+    fn reader_into_inner_returns_stream() {
+        let chunks = vec![Ok(Bytes::from_static(b"test"))];
+        let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
+        let reader = RequestBodyReader::new(stream);
+
+        let _recovered: RequestBodyStream = reader.into_inner();
+        // Compiles and type-checks; stream is returned
     }
 }

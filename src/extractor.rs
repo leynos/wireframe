@@ -314,6 +314,71 @@ where
     }
 }
 
+/// Extractor providing streaming access to the request body.
+///
+/// Unlike [`Payload`] which borrows buffered bytes, this extractor
+/// takes ownership of a streaming body channel. Handlers opting into
+/// streaming receive chunks incrementally via a [`RequestBodyStream`].
+///
+/// This type is the inbound counterpart to [`crate::Response::Stream`].
+///
+/// # Examples
+///
+/// ```ignore
+/// use wireframe::{
+///     extractor::StreamingBody,
+///     request::RequestParts,
+///     Response,
+/// };
+///
+/// async fn handle_upload(
+///     parts: RequestParts,
+///     body: StreamingBody,
+/// ) -> Response<Frame> {
+///     let mut reader = body.into_reader();
+///     // Process incrementally with AsyncRead...
+///     Response::Empty
+/// }
+/// ```
+///
+/// [`RequestBodyStream`]: crate::request::RequestBodyStream
+pub struct StreamingBody {
+    stream: crate::request::RequestBodyStream,
+}
+
+impl StreamingBody {
+    /// Create a streaming body from the given stream.
+    ///
+    /// Typically constructed by the framework when a handler opts into
+    /// streaming request consumption.
+    #[must_use]
+    pub fn new(stream: crate::request::RequestBodyStream) -> Self { Self { stream } }
+
+    /// Consume the extractor and return the underlying stream.
+    ///
+    /// Use this when you need direct access to the stream for custom
+    /// processing with [`futures::StreamExt`] methods.
+    #[must_use]
+    pub fn into_stream(self) -> crate::request::RequestBodyStream { self.stream }
+
+    /// Convert to an [`AsyncRead`] adaptor.
+    ///
+    /// Protocol crates can use this to feed streaming bytes into parsers
+    /// that operate on readers rather than streams.
+    ///
+    /// [`AsyncRead`]: tokio::io::AsyncRead
+    #[must_use]
+    pub fn into_reader(self) -> crate::request::RequestBodyReader {
+        crate::request::RequestBodyReader::new(self.stream)
+    }
+}
+
+impl std::fmt::Debug for StreamingBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamingBody").finish_non_exhaustive()
+    }
+}
+
 /// Extractor providing peer connection metadata.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectionInfo {
