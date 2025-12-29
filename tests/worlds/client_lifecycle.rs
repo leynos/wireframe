@@ -109,11 +109,12 @@ impl ClientLifecycleWorld {
     ///
     /// This helper retrieves the server address, applies the provided configuration
     /// to a new builder, connects, and handles the result.
-    async fn connect_with_builder<F>(&mut self, configure: F) -> TestResult
+    async fn connect_with_builder<F, P>(&mut self, configure: F) -> TestResult
     where
         F: FnOnce(
             wireframe::client::WireframeClientBuilder,
-        ) -> wireframe::client::WireframeClientBuilder<BincodeSerializer, (), u32>,
+        ) -> wireframe::client::WireframeClientBuilder<BincodeSerializer, P, u32>,
+        P: bincode::Encode + Send + Sync + 'static,
     {
         let addr = self.addr.ok_or("server address missing")?;
         let result = configure(WireframeClient::builder()).connect(addr).await;
@@ -201,32 +202,29 @@ impl ClientLifecycleWorld {
     /// # Errors
     /// Returns an error if server address is missing.
     pub async fn connect_with_setup_and_teardown(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let setup_count = Arc::clone(&self.setup_count);
         let teardown_count = Arc::clone(&self.teardown_count);
         let teardown_received_state = Arc::clone(&self.teardown_received_state);
 
-        let result = WireframeClient::builder()
-            .on_connection_setup(move || {
-                let count = setup_count.clone();
-                async move {
-                    count.fetch_add(1, Ordering::SeqCst);
-                    42u32
-                }
-            })
-            .on_connection_teardown(move |state: u32| {
-                let count = teardown_count.clone();
-                let received = teardown_received_state.clone();
-                async move {
-                    count.fetch_add(1, Ordering::SeqCst);
-                    received.store(state as usize, Ordering::SeqCst);
-                }
-            })
-            .connect(addr)
-            .await;
-
-        self.handle_connection_result(result);
-        Ok(())
+        self.connect_with_builder(|builder| {
+            builder
+                .on_connection_setup(move || {
+                    let count = setup_count.clone();
+                    async move {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        42u32
+                    }
+                })
+                .on_connection_teardown(move |state: u32| {
+                    let count = teardown_count.clone();
+                    let received = teardown_received_state.clone();
+                    async move {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        received.store(state as usize, Ordering::SeqCst);
+                    }
+                })
+        })
+        .await
     }
 
     /// Connect with an error callback.
@@ -257,37 +255,34 @@ impl ClientLifecycleWorld {
     /// # Panics
     /// Asserts if server does not accept preamble.
     pub async fn connect_with_preamble_and_lifecycle(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let setup_count = Arc::clone(&self.setup_count);
         let preamble_invoked = Arc::clone(&self.preamble_success_invoked);
 
-        let result = WireframeClient::builder()
-            .with_preamble(TestPreamble::new(1))
-            .on_preamble_success(move |_preamble, stream| {
-                let invoked = preamble_invoked.clone();
-                async move {
-                    invoked.store(true, Ordering::SeqCst);
-                    let (ack, leftover) =
-                        read_preamble::<_, ServerAck>(stream).await.map_err(|e| {
-                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                        })?;
-                    assert!(ack.accepted, "server should accept preamble");
-                    Ok(leftover)
-                }
-                .boxed()
-            })
-            .on_connection_setup(move || {
-                let count = setup_count.clone();
-                async move {
-                    count.fetch_add(1, Ordering::SeqCst);
-                    42u32
-                }
-            })
-            .connect(addr)
-            .await;
-
-        self.handle_connection_result(result);
-        Ok(())
+        self.connect_with_builder(|builder| {
+            builder
+                .with_preamble(TestPreamble::new(1))
+                .on_preamble_success(move |_preamble, stream| {
+                    let invoked = preamble_invoked.clone();
+                    async move {
+                        invoked.store(true, Ordering::SeqCst);
+                        let (ack, leftover) =
+                            read_preamble::<_, ServerAck>(stream).await.map_err(|e| {
+                                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                            })?;
+                        assert!(ack.accepted, "server should accept preamble");
+                        Ok(leftover)
+                    }
+                    .boxed()
+                })
+                .on_connection_setup(move || {
+                    let count = setup_count.clone();
+                    async move {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        42u32
+                    }
+                })
+        })
+        .await
     }
 
     /// Close the client connection.
