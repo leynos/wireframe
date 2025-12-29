@@ -112,6 +112,37 @@ where
     (counter, increment)
 }
 
+/// Helper function to test error hook invocation on disconnect.
+///
+/// Spawns a listener, connects a client configured via the provided closure,
+/// disconnects the server, attempts to receive, and returns the error count.
+async fn test_error_hook_on_disconnect<F, C>(configure_builder: F) -> Arc<AtomicUsize>
+where
+    F: FnOnce(
+        WireframeClientBuilder,
+        Arc<AtomicUsize>,
+    ) -> WireframeClientBuilder<BincodeSerializer, (), C>,
+    C: Send + 'static,
+{
+    let error_count = Arc::new(AtomicUsize::new(0));
+    let (addr, accept) = spawn_listener().await;
+
+    let mut client = configure_builder(WireframeClient::builder(), error_count.clone())
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    // Drop the server side to cause a disconnection
+    let server = accept.await.expect("join accept task");
+    drop(server);
+
+    // Try to receive - should fail and invoke error hook
+    let result: Result<Vec<u8>, ClientError> = client.receive().await;
+    assert!(result.is_err(), "receive should fail after disconnect");
+
+    error_count
+}
+
 macro_rules! socket_option_test {
     ($name:ident, $configure:expr, $assert:expr $(,)?) => {
         #[tokio::test]
@@ -330,29 +361,15 @@ async fn teardown_without_setup_does_not_run() {
 
 #[tokio::test]
 async fn error_callback_invoked_on_receive_error() {
-    let error_count = Arc::new(AtomicUsize::new(0));
-    let count = error_count.clone();
-
-    let (addr, accept) = spawn_listener().await;
-
-    let mut client = WireframeClient::builder()
-        .on_error(move |_err| {
+    let error_count = test_error_hook_on_disconnect(|builder, count| {
+        builder.on_error(move |_err| {
             let count = count.clone();
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
             }
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    // Drop the server side to cause a disconnection
-    let server = accept.await.expect("join accept task");
-    drop(server);
-
-    // Try to receive - should fail and invoke error hook
-    let result: Result<Vec<u8>, ClientError> = client.receive().await;
-    assert!(result.is_err(), "receive should fail after disconnect");
+    })
+    .await;
 
     assert_eq!(
         error_count.load(Ordering::SeqCst),
@@ -407,32 +424,19 @@ async fn setup_and_teardown_callbacks_run() {
 
 #[tokio::test]
 async fn on_connection_setup_preserves_error_hook() {
-    let error_count = Arc::new(AtomicUsize::new(0));
-    let count = error_count.clone();
-
-    let (addr, accept) = spawn_listener().await;
-
     // Configure on_error first, then on_connection_setup.
     // The error hook should be preserved.
-    let mut client = WireframeClient::builder()
-        .on_error(move |_err| {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
-        })
-        .on_connection_setup(|| async { 42u32 })
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    // Drop server to cause disconnect
-    let server = accept.await.expect("join accept task");
-    drop(server);
-
-    // Receive should fail and invoke error hook
-    let result: Result<Vec<u8>, ClientError> = client.receive().await;
-    assert!(result.is_err(), "receive should fail after disconnect");
+    let error_count = test_error_hook_on_disconnect(|builder, count| {
+        builder
+            .on_error(move |_err| {
+                let count = count.clone();
+                async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+            .on_connection_setup(|| async { 42u32 })
+    })
+    .await;
 
     assert_eq!(
         error_count.load(Ordering::SeqCst),
