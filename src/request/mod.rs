@@ -166,7 +166,19 @@ impl RequestBodyReader {
 
     /// Consume the reader and return the underlying stream.
     ///
-    /// Any buffered bytes from partial reads are discarded.
+    /// # Data loss warning
+    ///
+    /// Any bytes that have been read from the stream but not yet consumed
+    /// from the reader's internal buffer are **permanently discarded** when
+    /// this method is called. This can occur when:
+    ///
+    /// - A partial read left buffered bytes (for example, `read(&mut [u8; 4])` when the chunk
+    ///   contained more than 4 bytes)
+    /// - The reader was used with `BufRead` methods that prefetch data
+    ///
+    /// **Safe to call when:** the reader has been fully drained (all reads
+    /// returned zero bytes or an error), or when deliberately abandoning
+    /// any remaining buffered content.
     #[must_use]
     pub fn into_inner(self) -> RequestBodyStream { self.inner.into_inner() }
 }

@@ -136,6 +136,16 @@ impl MessageRequest {
     /// Returns `None` if no body stream was set or if it was already taken
     /// by a previous extractor. This ensures only one consumer receives the
     /// stream.
+    ///
+    /// # Mutex poisoning
+    ///
+    /// If the internal mutex is poisoned (for example, due to a panic in another
+    /// thread while holding the lock), this method returns `None` rather than
+    /// propagating the panic. This behaviour prioritizes availability over
+    /// strict correctness: a poisoned mutex typically indicates a serious bug
+    /// elsewhere, but crashing additional handlers would only compound the
+    /// problem. The missing stream will surface as an [`ExtractError::MissingBodyStream`]
+    /// in the handler, which can be logged and investigated.
     #[must_use]
     pub fn take_body_stream(&self) -> Option<RequestBodyStream> {
         self.body_stream
