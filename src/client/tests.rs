@@ -88,7 +88,8 @@ use std::{future::Future, pin::Pin};
 /// when invoked and returns the provided value.
 #[expect(
     clippy::type_complexity,
-    reason = "the complex return type is local to tests and extracting a type alias adds indirection"
+    reason = "the complex return type is local to tests and extracting a type alias adds \
+              indirection"
 )]
 fn counting_hook<T>() -> (
     Arc<AtomicUsize>,
