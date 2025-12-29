@@ -494,3 +494,91 @@ async fn no_error_hook_does_not_panic() {
         "receive should fail after disconnect without panicking"
     );
 }
+
+#[tokio::test]
+async fn error_callback_invoked_on_deserialize_error() {
+    use futures::SinkExt;
+    use tokio_util::codec::{Framed, LengthDelimitedCodec};
+
+    let error_count = Arc::new(AtomicUsize::new(0));
+    let count = error_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let mut client = WireframeClient::builder()
+        .on_error(move |_err| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    // Get server stream and send invalid bincode data
+    let server_stream = accept.await.expect("join accept task");
+    let mut framed = Framed::new(server_stream, LengthDelimitedCodec::new());
+
+    // Send bytes that are not valid bincode for Vec<u8>
+    // (bincode expects a length prefix for variable-length types)
+    framed
+        .send(Bytes::from_static(&[0xff, 0xff, 0xff, 0xff]))
+        .await
+        .expect("send invalid frame");
+
+    // Try to receive - should fail with deserialization error and invoke error hook
+    let result: Result<Vec<u8>, ClientError> = client.receive().await;
+    assert!(
+        matches!(result, Err(ClientError::Deserialize(_))),
+        "receive should fail with deserialization error"
+    );
+
+    assert_eq!(
+        error_count.load(Ordering::SeqCst),
+        1,
+        "error callback should be invoked on deserialize error"
+    );
+}
+
+#[tokio::test]
+async fn error_callback_invoked_on_send_io_error() {
+    #[derive(bincode::Encode, bincode::BorrowDecode)]
+    struct TestMessage(Vec<u8>);
+
+    let error_count = Arc::new(AtomicUsize::new(0));
+    let count = error_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let mut client = WireframeClient::builder()
+        .on_error(move |_err| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    // Drop the server side to cause a broken pipe on send
+    let server = accept.await.expect("join accept task");
+    drop(server);
+
+    // Give the OS time to register the closed connection
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Try to send - should fail with I/O error and invoke error hook
+    let result = client.send(&TestMessage(vec![0u8; 1024])).await;
+    assert!(
+        matches!(result, Err(ClientError::Io(_))),
+        "send should fail with I/O error after disconnect"
+    );
+
+    assert_eq!(
+        error_count.load(Ordering::SeqCst),
+        1,
+        "error callback should be invoked on send I/O error"
+    );
+}
