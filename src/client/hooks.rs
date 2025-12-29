@@ -8,6 +8,11 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use super::ClientError;
 
+/// A boxed future that is `Send` with a specified lifetime.
+///
+/// This type alias reduces verbosity in handler type signatures.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
 /// Handler invoked when a client connection is established.
 ///
 /// Called after the TCP connection is established and preamble exchange (if
@@ -29,8 +34,7 @@ use super::ClientError;
 /// let setup: ClientConnectionSetupHandler<SessionState> =
 ///     Arc::new(|| Box::pin(async { SessionState { session_id: 42 } }));
 /// ```
-pub type ClientConnectionSetupHandler<C> =
-    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync>;
+pub type ClientConnectionSetupHandler<C> = Arc<dyn Fn() -> BoxFuture<'static, C> + Send + Sync>;
 
 /// Handler invoked when a client connection is closed.
 ///
@@ -56,7 +60,7 @@ pub type ClientConnectionSetupHandler<C> =
 /// });
 /// ```
 pub type ClientConnectionTeardownHandler<C> =
-    Arc<dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+    Arc<dyn Fn(C) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Handler invoked when the client encounters an error.
 ///
@@ -77,9 +81,8 @@ pub type ClientConnectionTeardownHandler<C> =
 ///     })
 /// });
 /// ```
-pub type ClientErrorHandler = Arc<
-    dyn for<'a> Fn(&'a ClientError) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> + Send + Sync,
->;
+pub type ClientErrorHandler =
+    Arc<dyn for<'a> Fn(&'a ClientError) -> BoxFuture<'a, ()> + Send + Sync>;
 
 /// Configuration for client lifecycle hooks.
 ///

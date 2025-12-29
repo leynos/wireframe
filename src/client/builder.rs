@@ -364,7 +364,10 @@ where
     ///
     /// This method changes the connection state type parameter from `C` to
     /// `C2`. Subsequent builder methods will operate on the new connection
-    /// state type.
+    /// state type. Note that any previously configured `on_connection_teardown`
+    /// hook is cleared because its type signature depends on the old state
+    /// type. The `on_error` hook is preserved since it does not depend on
+    /// the connection state type.
     ///
     /// # Examples
     ///
@@ -386,12 +389,15 @@ where
         Fut: Future<Output = C2> + Send + 'static,
         C2: Send + 'static,
     {
+        // Preserve on_error since it is not parameterized by C.
+        // on_disconnect must be cleared because its signature depends on C.
+        let on_error = self.lifecycle_hooks.on_error;
         builder_field_update!(
             self,
             lifecycle_hooks = LifecycleHooks {
                 on_connect: Some(Arc::new(move || Box::pin(f()))),
                 on_disconnect: None,
-                on_error: None,
+                on_error,
             }
         )
     }

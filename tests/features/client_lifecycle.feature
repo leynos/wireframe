@@ -19,6 +19,7 @@ Feature: Client connection lifecycle hooks
     When a client connects with an error callback
     And the client attempts to receive a message
     Then the error callback is invoked
+    And the client error is Disconnected
 
   Scenario: Lifecycle hooks work with preamble callbacks
     Given a preamble-aware echo server that sends acknowledgement

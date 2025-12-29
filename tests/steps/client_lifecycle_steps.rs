@@ -103,3 +103,15 @@ fn then_setup_after_preamble(world: &mut ClientLifecycleWorld) -> TestResult {
     world.abort_server();
     Ok(())
 }
+
+#[then("the client error is Disconnected")]
+fn then_client_error_is_disconnected(world: &mut ClientLifecycleWorld) -> TestResult {
+    let last_error = world
+        .last_error()
+        .ok_or("expected a captured client error in world.last_error")?;
+
+    match last_error {
+        wireframe::ClientError::Disconnected => Ok(()),
+        other => Err(format!("expected ClientError::Disconnected, got {other:?}").into()),
+    }
+}

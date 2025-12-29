@@ -1004,6 +1004,7 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
     (lines 288-566) and `src/client/mod.rs` (callback types).
 [^48]: Client lifecycle hooks implemented in `src/client/hooks.rs`,
     `src/client/builder.rs` (lifecycle methods), and `src/client/runtime.rs`
-    (hook invocation). BDD tests in `tests/features/client_lifecycle.feature`.
+    (hook invocation). Behaviour-driven development (BDD) tests in
+    `tests/features/client_lifecycle.feature`.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md

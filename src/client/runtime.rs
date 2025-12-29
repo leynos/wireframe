@@ -124,16 +124,20 @@ where
     /// # }
     /// ```
     pub async fn send<M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
-        let bytes = self.serializer.serialize(message).map_err(|e| {
-            let err = ClientError::Serialize(e);
-            self.invoke_error_hook(&err);
-            err
-        })?;
-        self.framed.send(Bytes::from(bytes)).await.map_err(|e| {
+        let bytes = match self.serializer.serialize(message) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let err = ClientError::Serialize(e);
+                self.invoke_error_hook(&err).await;
+                return Err(err);
+            }
+        };
+        if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
             let err = ClientError::from(e);
-            self.invoke_error_hook(&err);
-            err
-        })
+            self.invoke_error_hook(&err).await;
+            return Err(err);
+        }
+        Ok(())
     }
 
     /// Receive the next message from the peer.
@@ -166,19 +170,25 @@ where
     pub async fn receive<M: Message>(&mut self) -> Result<M, ClientError> {
         let Some(frame) = self.framed.next().await else {
             let err = ClientError::Disconnected;
-            self.invoke_error_hook(&err);
+            self.invoke_error_hook(&err).await;
             return Err(err);
         };
-        let bytes = frame.map_err(|e| {
-            let err = ClientError::from(e);
-            self.invoke_error_hook(&err);
-            err
-        })?;
-        let (message, _consumed) = self.serializer.deserialize(&bytes).map_err(|e| {
-            let err = ClientError::Deserialize(e);
-            self.invoke_error_hook(&err);
-            err
-        })?;
+        let bytes = match frame {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let err = ClientError::from(e);
+                self.invoke_error_hook(&err).await;
+                return Err(err);
+            }
+        };
+        let (message, _consumed) = match self.serializer.deserialize(&bytes) {
+            Ok(result) => result,
+            Err(e) => {
+                let err = ClientError::Deserialize(e);
+                self.invoke_error_hook(&err).await;
+                return Err(err);
+            }
+        };
         Ok(message)
     }
 
@@ -269,12 +279,9 @@ where
     pub fn stream(&self) -> &T { self.framed.get_ref() }
 
     /// Invoke the error hook if one is registered.
-    fn invoke_error_hook(&self, error: &ClientError) {
+    async fn invoke_error_hook(&self, error: &ClientError) {
         if let Some(ref handler) = self.on_error {
-            // Execute the error hook synchronously in a blocking context.
-            // We use futures::executor::block_on because the error hook is
-            // designed for logging/metrics, not for async recovery.
-            futures::executor::block_on(handler(error));
+            handler(error).await;
         }
     }
 }
@@ -313,7 +320,8 @@ where
 
     /// Gracefully close the connection, invoking teardown hooks.
     ///
-    /// If a teardown hook was registered via
+    /// This method flushes any pending frames and sends EOF to the peer before
+    /// invoking the teardown hook. If a teardown hook was registered via
     /// [`on_connection_teardown`](super::WireframeClientBuilder::on_connection_teardown),
     /// it is invoked with the connection state produced by the setup hook.
     ///
@@ -343,6 +351,10 @@ where
     /// # }
     /// ```
     pub async fn close(mut self) {
+        // Flush pending frames and send EOF before teardown.
+        // Ignore errors since we're closing anyway.
+        let _ = self.framed.close().await;
+
         if let (Some(state), Some(handler)) = (self.connection_state.take(), &self.on_disconnect) {
             handler(state).await;
         }

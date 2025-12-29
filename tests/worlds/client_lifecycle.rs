@@ -332,6 +332,10 @@ impl ClientLifecycleWorld {
         self.preamble_success_invoked.load(Ordering::SeqCst)
     }
 
+    /// Get a reference to the last captured error, if any.
+    #[must_use]
+    pub fn last_error(&self) -> Option<&ClientError> { self.last_error.as_ref() }
+
     /// Abort the server task.
     pub fn abort_server(&mut self) {
         if let Some(handle) = self.server.take() {

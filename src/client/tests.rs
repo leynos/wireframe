@@ -404,3 +404,89 @@ async fn setup_and_teardown_callbacks_run() {
         "teardown callback should run exactly once"
     );
 }
+
+#[tokio::test]
+async fn on_connection_setup_preserves_error_hook() {
+    let error_count = Arc::new(AtomicUsize::new(0));
+    let count = error_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    // Configure on_error first, then on_connection_setup.
+    // The error hook should be preserved.
+    let mut client = WireframeClient::builder()
+        .on_error(move |_err| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .on_connection_setup(|| async { 42u32 })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    // Drop server to cause disconnect
+    let server = accept.await.expect("join accept task");
+    drop(server);
+
+    // Receive should fail and invoke error hook
+    let result: Result<Vec<u8>, ClientError> = client.receive().await;
+    assert!(result.is_err(), "receive should fail after disconnect");
+
+    assert_eq!(
+        error_count.load(Ordering::SeqCst),
+        1,
+        "error hook configured before on_connection_setup should be preserved"
+    );
+}
+
+#[tokio::test]
+async fn close_without_setup_does_not_invoke_teardown() {
+    let teardown_count = Arc::new(AtomicUsize::new(0));
+    let count = teardown_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    // Configure only teardown without setup - teardown should not run
+    let client = WireframeClient::builder()
+        .on_connection_teardown(move |(): ()| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    let _server = accept.await.expect("join accept task");
+    client.close().await;
+
+    assert_eq!(
+        teardown_count.load(Ordering::SeqCst),
+        0,
+        "teardown should not run when no setup hook produced state"
+    );
+}
+
+#[tokio::test]
+async fn no_error_hook_does_not_panic() {
+    let (addr, accept) = spawn_listener().await;
+
+    let mut client = WireframeClient::builder()
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    // Drop server to cause disconnect
+    let server = accept.await.expect("join accept task");
+    drop(server);
+
+    // Receive should fail but not panic since there's no error hook
+    let result: Result<Vec<u8>, ClientError> = client.receive().await;
+    assert!(
+        result.is_err(),
+        "receive should fail after disconnect without panicking"
+    );
+}
