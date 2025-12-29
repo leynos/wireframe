@@ -105,6 +105,22 @@ impl ClientLifecycleWorld {
         }
     }
 
+    /// Connect using a builder configuration closure.
+    ///
+    /// This helper retrieves the server address, applies the provided configuration
+    /// to a new builder, connects, and handles the result.
+    async fn connect_with_builder<F>(&mut self, configure: F) -> TestResult
+    where
+        F: FnOnce(
+            wireframe::client::WireframeClientBuilder,
+        ) -> wireframe::client::WireframeClientBuilder<BincodeSerializer, (), u32>,
+    {
+        let addr = self.addr.ok_or("server address missing")?;
+        let result = configure(WireframeClient::builder()).connect(addr).await;
+        self.handle_connection_result(result);
+        Ok(())
+    }
+
     /// Start a standard echo server.
     ///
     /// # Errors
@@ -166,22 +182,18 @@ impl ClientLifecycleWorld {
     /// # Errors
     /// Returns an error if server address is missing.
     pub async fn connect_with_setup(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let setup_count = Arc::clone(&self.setup_count);
 
-        let result = WireframeClient::builder()
-            .on_connection_setup(move || {
+        self.connect_with_builder(|builder| {
+            builder.on_connection_setup(move || {
                 let count = setup_count.clone();
                 async move {
                     count.fetch_add(1, Ordering::SeqCst);
                     42u32
                 }
             })
-            .connect(addr)
-            .await;
-
-        self.handle_connection_result(result);
-        Ok(())
+        })
+        .await
     }
 
     /// Connect with setup and teardown callbacks.
@@ -222,22 +234,19 @@ impl ClientLifecycleWorld {
     /// # Errors
     /// Returns an error if server address is missing.
     pub async fn connect_with_error_callback(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let error_count = Arc::clone(&self.error_count);
 
-        let result = WireframeClient::builder()
-            .on_connection_setup(|| async { 0u32 })
-            .on_error(move |_err| {
-                let count = error_count.clone();
-                async move {
-                    count.fetch_add(1, Ordering::SeqCst);
-                }
-            })
-            .connect(addr)
-            .await;
-
-        self.handle_connection_result(result);
-        Ok(())
+        self.connect_with_builder(|builder| {
+            builder
+                .on_connection_setup(|| async { 0u32 })
+                .on_error(move |_err| {
+                    let count = error_count.clone();
+                    async move {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    }
+                })
+        })
+        .await
     }
 
     /// Connect with preamble and lifecycle callbacks.

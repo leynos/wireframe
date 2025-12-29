@@ -80,6 +80,37 @@ where
     client
 }
 
+use std::{future::Future, pin::Pin};
+
+/// Creates a counter and an incrementing hook for use in lifecycle tests.
+///
+/// Returns a tuple of the counter and a closure that increments the counter
+/// when invoked and returns the provided value.
+#[expect(
+    clippy::type_complexity,
+    reason = "the complex return type is local to tests and extracting a type alias adds indirection"
+)]
+fn counting_hook<T>() -> (
+    Arc<AtomicUsize>,
+    impl Fn(T) -> Pin<Box<dyn Future<Output = T> + Send>> + Clone,
+)
+where
+    T: Send + 'static,
+{
+    let counter = Arc::new(AtomicUsize::new(0));
+    let count = counter.clone();
+
+    let increment = move |value: T| {
+        let count = count.clone();
+        Box::pin(async move {
+            count.fetch_add(1, Ordering::SeqCst);
+            value
+        }) as Pin<Box<dyn Future<Output = T> + Send>>
+    };
+
+    (counter, increment)
+}
+
 macro_rules! socket_option_test {
     ($name:ident, $configure:expr, $assert:expr $(,)?) => {
         #[tokio::test]
@@ -240,19 +271,10 @@ socket_option_test!(
 
 #[tokio::test]
 async fn setup_callback_invoked_on_connect() {
-    let setup_count = Arc::new(AtomicUsize::new(0));
-    let count = setup_count.clone();
+    let (setup_count, increment) = counting_hook();
 
-    let _client = test_with_client(|builder| {
-        builder.on_connection_setup(move || {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-                42u32
-            }
-        })
-    })
-    .await;
+    let _client =
+        test_with_client(|builder| builder.on_connection_setup(move || increment(42u32))).await;
 
     assert_eq!(
         setup_count.load(Ordering::SeqCst),
@@ -289,16 +311,10 @@ async fn teardown_callback_receives_setup_state() {
 
 #[tokio::test]
 async fn teardown_without_setup_does_not_run() {
-    let teardown_count = Arc::new(AtomicUsize::new(0));
-    let count = teardown_count.clone();
+    let (teardown_count, increment) = counting_hook();
 
     let client = test_with_client(|builder| {
-        builder.on_connection_teardown(move |(): ()| {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        builder.on_connection_teardown(move |value: ()| increment(value))
     })
     .await;
 
