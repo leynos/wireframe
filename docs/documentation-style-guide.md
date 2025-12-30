@@ -155,6 +155,158 @@ navigability:
 - Tasks (execution units) – Small, measurable pieces of work with clear
   acceptance criteria. How it gets done.
 
+### Roadmap formatting conventions
+
+- **Dotted numbering:** Number phases, steps, and headline tasks using dotted
+  notation:
+  - Phases: 1, 2, 3, ...
+  - Steps: 1.1, 1.2, 1.3, ...
+  - Headline tasks: 1.1.1, 1.1.2, 1.1.3, ...
+- **Checkboxes:** Precede task and sub-task items with a GitHub-Flavoured
+  Markdown (GFM) checkbox (`[ ]`) to track completion status.
+- **Dependencies:** Note non-linear dependencies explicitly. Where a task
+  depends on another task outside its immediate sequence, cite the dependency
+  using dotted notation (e.g. "Requires 2.3.1").
+- **Success criteria:** Include explicit success criteria only where not
+  immediately obvious from the task description.
+- **Design document citations:** Where applicable, cite the relevant design
+  document section for each task (e.g. "See design-doc.md §3.2").
+
+### Roadmap example
+
+```markdown
+## 1. Core infrastructure
+
+### 1.1. Logging subsystem
+
+- [ ] 1.1.1. Introduce central logging service
+  - [ ] Define log message schema. See design-doc.md §2.1.
+  - [ ] Implement log collector daemon.
+  - [ ] Add structured logging to API layer.
+- [ ] 1.1.2. Add error dashboards. Requires 1.1.1.
+  - [ ] Deploy Grafana instance.
+  - [ ] Create error rate dashboard (target: <1% error rate visible within 5 min).
+
+### 1.2. Authentication
+
+- [ ] 1.2.1. Implement role-based access control. Requires 1.1.1.
+  - [ ] Define role hierarchy. See design-doc.md §4.3.
+  - [ ] Add RBAC middleware to API endpoints.
+  - [ ] Write integration tests for permission boundaries.
+```
+
+## Architectural Decision Records (ADRs)
+
+Use ADRs to document significant architectural and design decisions. ADRs
+capture the context, options considered, and rationale behind decisions,
+providing a historical record for future maintainers.
+
+### Naming convention
+
+Name ADR files using the pattern `adr-NNN-short-description.md`, where `NNN` is
+a zero-padded sequence number (e.g. `adr-001-async-fixtures-and-tests.md`).
+Place ADRs in the `docs/` directory.
+
+### Required sections
+
+Every ADR must include the following sections in order:
+
+- **Status:** One of `Proposed`, `Accepted`, `Superseded`, or `Deprecated`. For
+  `Accepted` status, include the date and a brief summary of what was decided.
+- **Date:** The date the ADR was created or last updated (format: YYYY-MM-DD).
+- **Context and Problem Statement:** Describe the situation, constraints, and
+  the problem or question that prompted the decision. Include enough background
+  for readers unfamiliar with the history.
+
+### Conditional sections
+
+Include these sections as appropriate to the decision's complexity:
+
+- **Decision Drivers:** Key factors, requirements, or constraints that
+  influenced the decision. Use bullet points.
+- **Requirements:** For complex decisions, separate functional and technical
+  requirements into subsections.
+- **Options Considered:** Describe the alternatives evaluated. Use a comparison
+  table when contrasting multiple options across several dimensions.
+- **Decision Outcome / Proposed Direction:** State the chosen approach and
+  summarise the rationale. For `Proposed` ADRs, describe the recommended
+  direction.
+- **Goals and Non-Goals:** Clarify what the decision aims to achieve and what
+  is explicitly out of scope.
+- **Migration Plan:** For decisions requiring phased implementation, break the
+  work into numbered phases with clear goals and deliverables.
+- **Known Risks and Limitations:** Document trade-offs, potential issues, and
+  constraints of the chosen approach.
+- **Outstanding Decisions:** For `Proposed` ADRs, list open questions that must
+  be resolved before acceptance.
+- **Architectural Rationale:** Explain how the decision aligns with broader
+  architectural principles and project goals.
+
+### Formatting guidance
+
+- Use second-level headings (`##`) for major sections.
+- Use third-level headings (`###`) for subsections (e.g. phases, option names).
+- Use tables to compare options when multiple dimensions are relevant. Include
+  a caption below the table (e.g. "_Table 1: Trade-offs between X and Y._").
+- Include code snippets with language identifiers when illustrating technical
+  approaches. Use `no_run` for illustrative Rust code that should not be
+  executed.
+- Add screen reader descriptions before complex diagrams or code blocks.
+- Reference external sources using inline links or footnotes.
+
+### ADR template
+
+```markdown
+# Architectural decision record (ADR) NNN: <title>
+
+## Status
+
+Proposed.
+
+## Date
+
+YYYY-MM-DD.
+
+## Context and Problem Statement
+
+<Describe the situation, constraints, and the question being addressed.>
+
+## Decision Drivers
+
+- <Driver 1>
+- <Driver 2>
+
+## Options Considered
+
+### Option A: <Name>
+
+<Description, consequences, and trade-offs.>
+
+### Option B: <Name>
+
+<Description, consequences, and trade-offs.>
+
+| Topic     | Option A | Option B |
+| --------- | -------- | -------- |
+| <Factor>  | <Value>  | <Value>  |
+
+_Table 1: Comparison of options._
+
+## Decision Outcome / Proposed Direction
+
+<State the chosen or recommended approach and summarise the rationale.>
+
+## Known Risks and Limitations
+
+- <Risk or limitation 1>
+- <Risk or limitation 2>
+
+## Outstanding Decisions
+
+- <Open question 1>
+- <Open question 2>
+```
+
 ______________________________________________________________________
 
 [^markdownlint]: A linter that enforces consistent Markdown formatting.
