@@ -382,6 +382,9 @@ and standardized per-connection memory budgets.
 
 This phase addresses follow-up work discovered during the pluggable codec
 implementation, focusing on stateful framing, error taxonomy, and reliability.
+The work here will feed into a subsequent round of design document updates that
+clarify codec recovery policies, fragmentation behaviour, and serializer
+integration boundaries.
 
 ### 7.6.1. Codec enhancements
 
@@ -398,28 +401,50 @@ implementation, focusing on stateful framing, error taxonomy, and reliability.
   - [ ] Add a `CodecError` enum separating framing, protocol, and IO failures.
   - [ ] Extend `WireframeError` to surface `CodecError` and add structured
     logging fields for codec failures.
-  - [ ] Add tests that validate error propagation and the recovery policy.
+  - [ ] Define recovery policy hooks for malformed frames (drop, quarantine, or
+    disconnect) and document the default behaviour.
+  - [ ] Define how EOF mid-frame is surfaced to handlers or protocol hooks and
+    add tests for partial-frame closure handling.
+  - [ ] Add tests that validate error propagation, recovery policy, and
+    structured logging fields.
+- [ ] 7.6.1.3. Enable zero-copy payload extraction for codecs.
+  - [ ] Update `FrameCodec::frame_payload` to return a `Bytes`-backed view (or
+    equivalent) without forcing a `Vec<u8>` allocation.
+  - [ ] Update the default codec adapter to avoid `Bytes` to `Vec<u8>` copying
+    on decode.
+  - [ ] Add a regression test or benchmark to confirm payloads reuse the
+    receive buffer where possible.
 
 ### 7.6.2. Fragment adapter alignment
 
-- [ ] 7.6.2.1. Introduce a `FragmentAdapter` trait as described in
-  `generic-message-fragmentation-and-re-assembly-design.md`.
+- [ ] 7.6.2.1. Introduce a `FragmentAdapter` trait as described in the
+  fragmentation design.[^fragmentation-design] Fragmentation behaviour must
+  explicitly define duplicate handling, out-of-order policies, and ownership of
+  purge scheduling.
   - [ ] Make fragmentation opt-in by requiring explicit configuration on the
     `WireframeApp` builder.
+  - [ ] Expose a public purge API so callers can drive timeout eviction.
   - [ ] Document the composition order for codec, fragmentation, and
     serialisation layers.
-  - [ ] Add unit tests for opt-in behaviour and reassembly outcomes.
+  - [ ] Define and implement duplicate suppression and out-of-order handling
+    for fragment series.
+  - [ ] Define and test zero-length fragment behaviour and fragment index
+    overflow handling.
+  - [ ] Add unit and integration tests for opt-in behaviour, interleaved
+    reassembly, and duplicate/out-of-order fragments.
 
 ### 7.6.3. Unified codec handling
 
 - [ ] 7.6.3.1. Unify codec handling between the app router and the
-  `Connection` actor.
+  `Connection` actor.[^outbound-design]
   - [ ] Route app-level request/response handling through the actor codec
     path so protocol hooks apply consistently.
   - [ ] Remove duplicate codec construction in `src/app/connection.rs` once
     the actor path owns framing.
   - [ ] Add integration tests covering streaming responses and push traffic
     through the unified path.
+  - [ ] Add back-pressure tests for `Response::Stream` routed through the
+    codec layer.[^streaming-design]
 
 ### 7.6.4. Property-based codec tests
 
@@ -427,6 +452,25 @@ implementation, focusing on stateful framing, error taxonomy, and reliability.
   `LengthDelimitedFrameCodec` and a mock protocol codec.
   - [ ] Cover boundary sizes and malformed frames using generated inputs.
   - [ ] Verify encoder/decoder stateful behaviour with generated sequences.
+
+### 7.6.5. Serializer boundaries and protocol metadata
+
+- [ ] 7.6.5.1. Decouple message encoding from `bincode`-specific traits to
+  support alternative serialisers.[^router-design][^adr-005]
+  - [ ] Introduce a serializer-agnostic message trait or adapter layer for
+    `Message` types.
+  - [ ] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
+  - [ ] Define how frame metadata is exposed to the deserialisation context to
+    enable version negotiation.[^message-versioning]
+  - [ ] Add migration guidance covering existing `bincode` users.
+
+### 7.6.6. Codec performance benchmarks
+
+- [ ] 7.6.6.1. Add targeted benchmarks for codec throughput and latency.
+  - [ ] Benchmark encode/decode for small and large frames across the default
+    codec and one custom codec.
+  - [ ] Measure fragmentation overhead versus unfragmented paths.
+  - [ ] Record memory allocation baselines for payload wrapping and decoding.
 
 ## Phase 8: Wireframe client library foundation
 
@@ -532,6 +576,9 @@ ecosystem.
   - [ ] Implement a formal message versioning system to allow for protocol
     evolution.
 
+  - [ ] Ensure version negotiation can consume codec metadata without leaking
+    framing details into handlers.[^message-versioning]
+
 - [ ] **Security:**
 
   - [ ] Provide built-in middleware or guides for implementing TLS.
@@ -568,3 +615,16 @@ and usability.
     Refer to [ADR 0001](./adr/0001-multi-packet-streaming-response-api.md).
 
 [adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+
+[^fragmentation-design]:
+    `docs/generic-message-fragmentation-and-re-assembly-design.md`.
+
+[^outbound-design]: `docs/asynchronous-outbound-messaging-design.md`.
+
+[^streaming-design]: `docs/multi-packet-and-streaming-responses-design.md`.
+
+[^router-design]: `docs/rust-binary-router-library-design.md`.
+
+[^message-versioning]: `docs/message-versioning.md`.
+
+[^adr-005]: `docs/adr-005-serializer-abstraction.md`.
