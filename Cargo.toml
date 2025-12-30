@@ -171,6 +171,11 @@ name = "mysql_codec"
 path = "examples/mysql_codec.rs"
 required-features = ["examples"]
 
+[[example]]
+name = "resp_codec"
+path = "examples/resp_codec.rs"
+required-features = ["examples"]
+
 # The Cucumber test runner defines its own async main function,
 # so the standard test harness must be disabled.
 [[test]]
