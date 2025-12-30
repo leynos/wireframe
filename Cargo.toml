@@ -146,6 +146,16 @@ name = "ping_pong"
 path = "examples/ping_pong.rs"
 required-features = ["examples"]
 
+[[example]]
+name = "hotline_codec"
+path = "examples/hotline_codec.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "mysql_codec"
+path = "examples/mysql_codec.rs"
+required-features = ["examples"]
+
 # The Cucumber test runner defines its own async main function,
 # so the standard test harness must be disabled.
 [[test]]
