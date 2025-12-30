@@ -499,6 +499,22 @@ staying true to the architecture already in production use.
   channel and stamps it onto every serialised frame. This preserves protocol
   invariants without requiring handlers to mutate frames post-creation and
   mirrors the message attribution strategy outlined in the capability roadmap.
+- **Correlation provenance today.** The current implementation expects
+  correlation to live inside the serialised `Envelope` payload. See the decode
+  path in `src/app/connection.rs` and the payload-carried correlation fields in
+  `src/app/envelope.rs`.
+- **Header correlation (if that is not the intent).** The boundary for
+  injecting header correlation is the frame-to-`Envelope` step in
+  `WireframeApp::decode_envelope` (`src/app/connection.rs`). That is where the
+  decoded frame and the deserialised `Envelope` are both available, so the
+  runtime can merge header correlation into `Envelope::correlation_id` (for
+  example, “if payload correlation is `None`, inherit from the header; if both
+  exist and differ, log and pick a precedence rule”). On the outbound path,
+  `FrameCodec::wrap_payload` only receives raw bytes, so it cannot see
+  correlation unless it is embedded in the payload. Supporting header
+  correlation therefore requires a codec API that can wrap `Envelope` or
+  `PacketParts` directly (for example, a `wrap_parts` or `wrap_envelope` helper
+  alongside `wrap_payload`).
 - Implementation stores the expected identifier alongside a closure built from
   the new `CorrelatableFrame` trait, ensuring frames can be stamped in a
   generic actor without constraining other protocols. Debug builds assert the
