@@ -21,7 +21,13 @@ use super::{
     WireframeServer,
     connection::spawn_connection_task,
 };
-use crate::{app::WireframeApp, preamble::Preamble};
+use crate::{
+    app::{Envelope, Packet, WireframeApp},
+    codec::FrameCodec,
+    frame::FrameMetadata,
+    preamble::Preamble,
+    serializer::Serializer,
+};
 
 /// Abstraction for sources of incoming connections consumed by the accept loop.
 ///
@@ -153,10 +159,14 @@ impl<T> fmt::Debug for PreambleHooks<T> {
     }
 }
 
-impl<F, T> WireframeServer<F, T, Bound>
+impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
     T: Preamble,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     /// Run the server until a shutdown signal is received.
     ///
@@ -345,15 +355,18 @@ where
 /// use std::sync::Arc;
 ///
 /// use tokio_util::{sync::CancellationToken, task::TaskTracker};
-/// use wireframe::{app::WireframeApp /*, server::runtime::{AcceptListener, BackoffConfig, PreambleHooks, accept_loop} */};
+/// use wireframe::{
+///     app::WireframeApp,
+///     // server::runtime::{AcceptListener, BackoffConfig, PreambleHooks, accept_loop},
+/// };
 ///
 /// async fn run<L: AcceptListener + Send + Sync + 'static>(listener: Arc<L>) {
 ///     let tracker = TaskTracker::new();
 ///     let token = CancellationToken::new();
-///     accept_loop::<_, (), _>(
+///     accept_loop(
 ///         listener,
 ///         || WireframeApp::default(),
-///         AcceptLoopOptions {
+///         AcceptLoopOptions::<()> {
 ///             preamble: PreambleHooks::default(),
 ///             shutdown: token,
 ///             tracker,
@@ -363,14 +376,18 @@ where
 ///     .await;
 /// }
 /// ```
-pub(super) async fn accept_loop<F, T, L>(
+pub(super) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     listener: Arc<L>,
     factory: F,
     options: AcceptLoopOptions<T>,
 ) where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     let AcceptLoopOptions {
         preamble,
@@ -403,16 +420,20 @@ pub(super) async fn accept_loop<F, T, L>(
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
-async fn accept_iteration<F, T, L>(
+async fn accept_iteration<F, T, L, Ser, Ctx, E, Codec>(
     listener: &Arc<L>,
     factory: &F,
     handles: &AcceptHandles<'_, T>,
     delay: Duration,
 ) -> Option<Duration>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     select! {
         biased;
@@ -498,7 +519,7 @@ mod tests {
     async fn test_multiple_worker_creation(free_listener: std::net::TcpListener) {
         let call_count = Arc::new(AtomicUsize::new(0));
         let clone = call_count.clone();
-        let factory = move || {
+        let factory = move || -> WireframeApp {
             clone.fetch_add(1, Ordering::SeqCst);
             WireframeApp::default()
         };
@@ -529,10 +550,10 @@ mod tests {
                 .expect("failed to bind test listener"),
         );
 
-        tracker.spawn(accept_loop::<_, (), _>(
+        tracker.spawn(accept_loop(
             listener,
             factory,
-            AcceptLoopOptions {
+            AcceptLoopOptions::<()> {
                 preamble: PreambleHooks::default(),
                 shutdown: token.clone(),
                 tracker: tracker.clone(),
@@ -610,10 +631,10 @@ mod tests {
             max_delay: Duration::from_millis(20),
         };
 
-        tracker.spawn(accept_loop::<_, (), _>(
+        tracker.spawn(accept_loop(
             listener,
             factory,
-            AcceptLoopOptions {
+            AcceptLoopOptions::<()> {
                 preamble: PreambleHooks::default(),
                 shutdown: token.clone(),
                 tracker: tracker.clone(),

@@ -6,11 +6,13 @@
 
 pub mod app;
 pub mod byte_order;
+pub mod codec;
 /// Result type alias re-exported for convenience when working with the
 /// application builder.
 pub use app::error::Result;
 pub mod client;
 pub mod serializer;
+pub use codec::{FrameCodec, LengthDelimitedFrameCodec};
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;
 pub mod correlation;

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
 ## Date
 
@@ -56,6 +56,7 @@ We need a pluggable framing layer that can:
 Keep the current hardcoded 4-byte big-endian length-delimited framing.
 
 ### Option B: introduce a `FrameCodec` trait with a default length-delimited
+
 implementation (preferred)
 
 Define a new trait that supplies a decoder, encoder, payload extraction, frame
@@ -63,18 +64,19 @@ wrapping, correlation lookup, and maximum frame length. Provide a default
 `LengthDelimitedFrameCodec` for backward compatibility.
 
 ### Option C: make `WireframeApp` generic over raw `Decoder`/`Encoder` types or
+
 use trait objects
 
-Expose `tokio_util::codec::Decoder` and `Encoder` directly as type parameters or
-boxed trait objects and have `WireframeApp` manage them.
+Expose `tokio_util::codec::Decoder` and `Encoder` directly as type parameters
+or boxed trait objects and have `WireframeApp` manage them.
 
 | Topic                  | Option A: fixed codec | Option B: FrameCodec trait | Option C: raw decoder/encoder |
 | ---------------------- | --------------------- | -------------------------- | ----------------------------- |
-| Protocol support       | None                  | Broad                      | Broad                          |
+| Protocol support       | None                  | Broad                      | Broad                         |
 | Type safety            | Strong                | Strong                     | Varies (trait objects)        |
-| Ergonomics             | Simple                | Simple defaults            | Complex API surface            |
-| Backward compatibility | Full                  | Full with defaults         | Medium (API changes)           |
-| Performance            | Stable                | Stable (RPITIT)            | Depends on implementation      |
+| Ergonomics             | Simple                | Simple defaults            | Complex API surface           |
+| Backward compatibility | Full                  | Full with defaults         | Medium (API changes)          |
+| Performance            | Stable                | Stable (RPITIT)            | Depends on implementation     |
 
 _Table 1: Comparison of framing options._
 
@@ -88,6 +90,8 @@ Key elements:
 - `FrameCodec` owns the decoder/encoder configuration, payload extraction, and
   maximum frame length.
 - Frame types are protocol-specific to preserve metadata.
+- The default `LengthDelimitedFrameCodec` uses `Vec<u8>` frames to preserve
+  `WireframeProtocol` compatibility and existing framed send helpers.
 - A default `LengthDelimitedFrameCodec` provides compatibility for existing
   users without code changes.
 - `WireframeApp` becomes generic over `F: FrameCodec` with a default type
@@ -102,7 +106,7 @@ use tokio_util::codec::{Decoder, Encoder};
 /// Trait for pluggable frame codecs supporting different wire protocols.
 pub trait FrameCodec: Send + Sync + 'static {
     /// Frame type produced by decoding.
-    type Frame: Send + 'static;
+    type Frame: Send + Sync + 'static;
 
     /// Create a Tokio Decoder for this codec.
     fn decoder(&self) -> impl Decoder<Item = Self::Frame, Error = io::Error> + Send;
@@ -176,21 +180,13 @@ pub trait FrameCodec: Send + Sync + 'static {
   project's minimum supported Rust version before adoption.
 - The new codec type parameter propagates through public APIs, increasing type
   signatures and potentially affecting downstream type inference.
-- The default `Frame` type for length-delimited framing (e.g. `BytesMut` vs
-  `Vec<u8>`) affects allocation patterns and will need benchmarking.
-- `WireframeProtocol` currently assumes `Frame = Vec<u8>`; integrating protocol
-  hooks with new frame types may require additional API changes.
+- `LengthDelimitedFrameCodec` converts decoded `Bytes` into `Vec<u8>` to retain
+  `WireframeProtocol` compatibility, which adds an extra copy for each frame.
 
 ## Outstanding Decisions
 
-- Choose the default frame representation for length-delimited framing
-  (`BytesMut` vs `Vec<u8>`).
-- Decide how `WireframeProtocol` hooks should interact with non-`Vec<u8>`
-  frames.
-- Decide whether `buffer_capacity()` should be deprecated or delegated to codec
-  configuration in the public API.
-- Decide how correlation identifiers should be surfaced for FIFO protocols
-  (e.g. RESP) when logging or metrics depend on them.
+- None at this time. Future protocol adoption may require revisiting how
+  correlation identifiers are surfaced for FIFO protocols (for example, RESP).
 
 ## Architectural Rationale
 

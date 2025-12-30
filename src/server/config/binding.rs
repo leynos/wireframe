@@ -9,34 +9,58 @@ use tokio::net::TcpListener;
 
 use super::{ServerState, Unbound, WireframeServer};
 use crate::{
-    app::WireframeApp,
+    app::{Packet, WireframeApp},
+    codec::FrameCodec,
     preamble::Preamble,
+    serializer::Serializer,
     server::{Bound, ServerError},
 };
 
 /// Helper trait alias for wireframe factory functions
-trait WireframeFactory: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
-impl<F> WireframeFactory for F where F: Fn() -> WireframeApp + Send + Sync + Clone + 'static {}
+trait WireframeFactory<Ser, Ctx, E, Codec>:
+    Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+}
+impl<F, Ser, Ctx, E, Codec> WireframeFactory<Ser, Ctx, E, Codec> for F
+where
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+}
 
 /// Helper trait alias for wireframe preambles
 trait WireframePreamble: Preamble {}
 impl<T> WireframePreamble for T where T: Preamble {}
+
+type BoundServer<F, T, Ser, Ctx, E, Codec> = WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>;
 
 /// Blanket impl uses private trait aliases; suppress visibility lint
 #[expect(
     private_bounds,
     reason = "helper trait aliases are module-private by design"
 )]
-impl<F, T, S> WireframeServer<F, T, S>
+impl<F, T, S, Ser, Ctx, E, Codec> WireframeServer<F, T, S, Ser, Ctx, E, Codec>
 where
-    F: WireframeFactory,
+    F: WireframeFactory<Ser, Ctx, E, Codec>,
     T: WireframePreamble,
     S: ServerState,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     fn bind_to_listener(
         self,
         std_listener: StdTcpListener,
-    ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
+    ) -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>, ServerError> {
         let WireframeServer {
             factory,
             workers,
@@ -45,7 +69,8 @@ where
             ready_tx,
             backoff_config,
             preamble_timeout,
-            _preamble: preamble,
+            _app: app_marker,
+            _preamble: preamble_marker,
             ..
         } = self;
 
@@ -65,7 +90,8 @@ where
             state: Bound {
                 listener: Arc::new(tokio_listener),
             },
-            _preamble: preamble,
+            _app: app_marker,
+            _preamble: preamble_marker,
         })
     }
 }
@@ -75,10 +101,14 @@ where
     private_bounds,
     reason = "helper trait aliases are module-private by design"
 )]
-impl<F, T> WireframeServer<F, T, Unbound>
+impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Unbound, Ser, Ctx, E, Codec>
 where
-    F: WireframeFactory,
+    F: WireframeFactory<Ser, Ctx, E, Codec>,
     T: WireframePreamble,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     /// Return `None` as the server is not bound.
     ///
@@ -114,7 +144,10 @@ where
     ///
     /// # Errors
     /// Returns a [`ServerError`] if binding or configuring the listener fails.
-    pub fn bind(self, addr: SocketAddr) -> Result<WireframeServer<F, T, Bound>, ServerError> {
+    pub fn bind(
+        self,
+        addr: SocketAddr,
+    ) -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>, ServerError> {
         let std_listener = StdTcpListener::bind(addr).map_err(ServerError::Bind)?;
         self.bind_existing_listener(std_listener)
     }
@@ -140,7 +173,7 @@ where
     pub fn bind_existing_listener(
         self,
         std_listener: StdTcpListener,
-    ) -> Result<WireframeServer<F, T, Bound>, ServerError> {
+    ) -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>, ServerError> {
         self.bind_to_listener(std_listener)
     }
 }
@@ -150,10 +183,14 @@ where
     private_bounds,
     reason = "helper trait aliases are module-private by design"
 )]
-impl<F, T> WireframeServer<F, T, Bound>
+impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>
 where
-    F: WireframeFactory,
+    F: WireframeFactory<Ser, Ctx, E, Codec>,
     T: WireframePreamble,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     /// Returns the bound address, or `None` if retrieving it fails.
     ///

@@ -10,7 +10,12 @@ use bincode::error::DecodeError;
 use futures::future::BoxFuture;
 use tokio::{net::TcpListener, sync::oneshot};
 
-use crate::{app::WireframeApp, preamble::Preamble};
+use crate::{
+    app::{Envelope, Packet, WireframeApp},
+    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    preamble::Preamble,
+    serializer::{BincodeSerializer, Serializer},
+};
 
 /// Handler invoked when a connection preamble decodes successfully.
 ///
@@ -99,15 +104,26 @@ pub type PreambleFailure = Arc<
 /// srv.run().await
 /// # }
 /// ```
-pub struct WireframeServer<F, T = (), S = Unbound>
-where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+pub struct WireframeServer<
+    F,
+    T = (),
+    S = Unbound,
+    Ser = BincodeSerializer,
+    Ctx = (),
+    E = Envelope,
+    Codec = LengthDelimitedFrameCodec,
+> where
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
     // `Preamble` covers types implementing `BorrowDecode` for any lifetime,
     // enabling decoding of borrowed data without external context.
     // `()` satisfies this bound via bincode's `BorrowDecode` support for unit,
     // so servers default to having no preamble.
     T: Preamble,
     S: ServerState,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     pub(crate) factory: F,
     pub(crate) workers: usize,
@@ -135,6 +151,7 @@ where
     /// Typestate tracking whether the server has been bound to a listener.
     /// [`Unbound`] servers require binding before they can run.
     pub(crate) state: S,
+    pub(crate) _app: PhantomData<(Ser, Ctx, E, Codec)>,
     pub(crate) _preamble: PhantomData<T>,
 }
 

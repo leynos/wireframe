@@ -8,21 +8,28 @@ use tokio::{net::TcpStream, time::timeout};
 use tokio_util::task::TaskTracker;
 
 use crate::{
-    app::WireframeApp,
+    app::{Envelope, Packet, WireframeApp},
+    codec::FrameCodec,
+    frame::FrameMetadata,
     preamble::{Preamble, read_preamble},
     rewind_stream::RewindStream,
+    serializer::Serializer,
     server::{PreambleFailure, PreambleHandler, runtime::PreambleHooks},
 };
 
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
-pub(super) fn spawn_connection_task<F, T>(
+pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
     stream: TcpStream,
     factory: F,
     hooks: PreambleHooks<T>,
     tracker: &TaskTracker,
 ) where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
     T: Preamble,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     let peer_addr = match stream.peer_addr() {
         Ok(addr) => Some(addr),
@@ -45,14 +52,18 @@ pub(super) fn spawn_connection_task<F, T>(
     });
 }
 
-async fn process_stream<F, T>(
+async fn process_stream<F, T, Ser, Ctx, E, Codec>(
     mut stream: TcpStream,
     peer_addr: Option<SocketAddr>,
     factory: F,
     hooks: PreambleHooks<T>,
 ) where
-    F: Fn() -> WireframeApp + Send + Sync + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + 'static,
     T: Preamble,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     let PreambleHooks {
         on_success,
@@ -169,10 +180,10 @@ mod tests {
             let tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task::<_, ()>(
+                spawn_connection_task(
                     stream,
                     app_factory,
-                    PreambleHooks::default(),
+                    PreambleHooks::<()>::default(),
                     &tracker,
                 );
                 tracker.close();
@@ -224,10 +235,10 @@ mod tests {
             let tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task::<_, ()>(
+                spawn_connection_task(
                     stream,
                     app_factory,
-                    PreambleHooks::default(),
+                    PreambleHooks::<()>::default(),
                     &tracker,
                 );
                 tracker.close();

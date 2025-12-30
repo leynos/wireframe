@@ -2,12 +2,12 @@
 //!
 //! Extracted from `connection.rs` to keep modules small and focused.
 
-use std::io;
+use std::{io, marker::PhantomData};
 
 use futures::SinkExt;
 use log::warn;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio_util::codec::{Encoder, Framed};
 
 use super::{
     Envelope,
@@ -16,6 +16,7 @@ use super::{
     fragmentation_state::{FragmentProcessError, FragmentationState},
 };
 use crate::{
+    codec::FrameCodec,
     middleware::{HandlerService, Service, ServiceRequest},
     serializer::Serializer,
 };
@@ -47,14 +48,17 @@ impl<'a> DeserFailureTracker<'a> {
     }
 }
 
-pub(crate) struct ResponseContext<'a, S, W>
+pub(crate) struct ResponseContext<'a, S, W, F, C>
 where
     S: Serializer + Send + Sync,
     W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+    C: Encoder<F::Frame, Error = io::Error>,
 {
     pub(crate) serializer: &'a S,
-    pub(crate) framed: &'a mut Framed<W, LengthDelimitedCodec>,
+    pub(crate) framed: &'a mut Framed<W, C>,
     pub(crate) fragmentation: &'a mut Option<FragmentationState>,
+    pub(crate) codec_marker: PhantomData<F>,
 }
 
 /// Attempt to reassemble a potentially fragmented envelope.
@@ -86,15 +90,17 @@ pub(crate) fn reassemble_if_needed(
 }
 
 /// Forward a handler response, fragmenting if required, and write to the framed stream.
-pub(crate) async fn forward_response<S, E, W>(
+pub(crate) async fn forward_response<S, E, W, F, C>(
     env: Envelope,
     service: &HandlerService<E>,
-    ctx: ResponseContext<'_, S, W>,
+    ctx: ResponseContext<'_, S, W, F, C>,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+    C: Encoder<F::Frame, Error = io::Error>,
 {
     let request = ServiceRequest::new(env.payload, env.correlation_id);
     let resp = match service.call(request).await {
@@ -122,7 +128,7 @@ where
             break; // already logged
         };
 
-        if send_response_bytes(ctx.framed, bytes, env.id, correlation_id)
+        if send_response_payload::<F, W, C>(ctx.framed, bytes, env.id, correlation_id)
             .await
             .is_err()
         {
@@ -175,16 +181,19 @@ fn serialize_response<S: Serializer>(
     }
 }
 
-async fn send_response_bytes<W>(
-    framed: &mut Framed<W, LengthDelimitedCodec>,
-    bytes: Vec<u8>,
+async fn send_response_payload<F, W, C>(
+    framed: &mut Framed<W, C>,
+    payload: Vec<u8>,
     id: u32,
     correlation_id: Option<u64>,
 ) -> io::Result<()>
 where
     W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+    C: Encoder<F::Frame, Error = io::Error>,
 {
-    if let Err(e) = framed.send(bytes.into()).await {
+    let frame = F::wrap_payload(payload);
+    if let Err(e) = framed.send(frame).await {
         warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
         crate::metrics::inc_handler_errors();
         return Err(io::Error::other("send failed"));
