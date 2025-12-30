@@ -2,7 +2,18 @@
 
 use cucumber::{given, then, when};
 
-use crate::world::{ClientLifecycleWorld, TestResult};
+use crate::world::{ClientLifecycleWorld, EXPECTED_SETUP_STATE, TestResult};
+
+/// Assert that a count matches the expected value, returning an appropriate error message.
+fn assert_count_equals(actual: usize, expected: usize, callback_name: &str) -> TestResult {
+    if actual != expected {
+        return Err(format!(
+            "expected {callback_name} callback to be invoked {expected} time(s), got {actual}"
+        )
+        .into());
+    }
+    Ok(())
+}
 
 #[given("a standard echo server")]
 async fn given_standard_server(world: &mut ClientLifecycleWorld) -> TestResult {
@@ -49,30 +60,21 @@ async fn when_connect_with_preamble_and_lifecycle(world: &mut ClientLifecycleWor
 
 #[then("the setup callback is invoked exactly once")]
 fn then_setup_invoked_once(world: &mut ClientLifecycleWorld) -> TestResult {
-    let count = world.setup_count();
-    if count != 1 {
-        return Err(format!("expected setup callback to be invoked once, got {count}").into());
-    }
-    world.abort_server();
-    Ok(())
+    assert_count_equals(world.setup_count(), 1, "setup")
 }
 
 #[then("the teardown callback is invoked exactly once")]
 fn then_teardown_invoked_once(world: &mut ClientLifecycleWorld) -> TestResult {
-    let count = world.teardown_count();
-    if count != 1 {
-        return Err(format!("expected teardown callback to be invoked once, got {count}").into());
-    }
-    Ok(())
+    assert_count_equals(world.teardown_count(), 1, "teardown")
 }
 
 #[then("the teardown callback receives the state from setup")]
 fn then_teardown_receives_state(world: &mut ClientLifecycleWorld) -> TestResult {
     let state = world.teardown_received_state();
-    if state != 42 {
-        return Err(format!("expected teardown to receive state 42, got {state}").into());
+    let expected = EXPECTED_SETUP_STATE as usize;
+    if state != expected {
+        return Err(format!("expected teardown to receive state {expected}, got {state}").into());
     }
-    world.abort_server();
     Ok(())
 }
 
@@ -82,7 +84,6 @@ fn then_error_callback_invoked(world: &mut ClientLifecycleWorld) -> TestResult {
     if count == 0 {
         return Err("expected error callback to be invoked at least once".into());
     }
-    world.abort_server();
     Ok(())
 }
 
@@ -96,12 +97,7 @@ fn then_preamble_success_invoked(world: &mut ClientLifecycleWorld) -> TestResult
 
 #[then("the setup callback is invoked after preamble exchange")]
 fn then_setup_after_preamble(world: &mut ClientLifecycleWorld) -> TestResult {
-    let count = world.setup_count();
-    if count != 1 {
-        return Err(format!("expected setup callback to be invoked once, got {count}").into());
-    }
-    world.abort_server();
-    Ok(())
+    assert_count_equals(world.setup_count(), 1, "setup")
 }
 
 #[then("the client error is Disconnected")]

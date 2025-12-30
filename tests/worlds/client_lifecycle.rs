@@ -47,6 +47,12 @@ pub struct ServerAck {
     accepted: bool,
 }
 
+/// State value returned by the setup callback and expected by teardown tests.
+///
+/// This constant defines the sentinel value used to verify that teardown hooks
+/// receive the correct state from setup hooks.
+pub const EXPECTED_SETUP_STATE: u32 = 42;
+
 /// Test world exercising client lifecycle hooks.
 #[derive(Debug, Default, cucumber::World)]
 pub struct ClientLifecycleWorld {
@@ -59,6 +65,15 @@ pub struct ClientLifecycleWorld {
     error_count: Arc<AtomicUsize>,
     preamble_success_invoked: Arc<AtomicBool>,
     last_error: Option<ClientError>,
+}
+
+impl Drop for ClientLifecycleWorld {
+    fn drop(&mut self) {
+        // Ensure server tasks are cleaned up even if test assertions fail.
+        if let Some(handle) = self.server.take() {
+            handle.abort();
+        }
+    }
 }
 
 impl ClientLifecycleWorld {
@@ -158,12 +173,9 @@ impl ClientLifecycleWorld {
     /// Returns an error if binding fails.
     ///
     /// # Panics
-    /// The spawned task panics if accept, preamble read, or ack write fails.
+    /// The spawned task panics if preamble read or ack write fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|mut stream| async move {
             let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
                 .await
                 .expect("read preamble");
@@ -171,11 +183,8 @@ impl ClientLifecycleWorld {
                 .await
                 .expect("write ack");
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Connect with a setup callback.
@@ -190,7 +199,7 @@ impl ClientLifecycleWorld {
                 let count = setup_count.clone();
                 async move {
                     count.fetch_add(1, Ordering::SeqCst);
-                    42u32
+                    EXPECTED_SETUP_STATE
                 }
             })
         })
@@ -212,7 +221,7 @@ impl ClientLifecycleWorld {
                     let count = setup_count.clone();
                     async move {
                         count.fetch_add(1, Ordering::SeqCst);
-                        42u32
+                        EXPECTED_SETUP_STATE
                     }
                 })
                 .on_connection_teardown(move |state: u32| {
@@ -278,7 +287,7 @@ impl ClientLifecycleWorld {
                     let count = setup_count.clone();
                     async move {
                         count.fetch_add(1, Ordering::SeqCst);
-                        42u32
+                        EXPECTED_SETUP_STATE
                     }
                 })
         })
@@ -335,11 +344,4 @@ impl ClientLifecycleWorld {
     /// Get a reference to the last captured error, if any.
     #[must_use]
     pub fn last_error(&self) -> Option<&ClientError> { self.last_error.as_ref() }
-
-    /// Abort the server task.
-    pub fn abort_server(&mut self) {
-        if let Some(handle) = self.server.take() {
-            handle.abort();
-        }
-    }
 }
