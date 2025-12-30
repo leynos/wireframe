@@ -137,6 +137,21 @@ path = "examples/echo.rs"
 required-features = ["examples"]
 
 [[example]]
+name = "async_stream"
+path = "examples/async_stream.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "metadata_routing"
+path = "examples/metadata_routing.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "multi_packet"
+path = "examples/multi_packet.rs"
+required-features = ["examples"]
+
+[[example]]
 name = "packet_enum"
 path = "examples/packet_enum.rs"
 required-features = ["examples"]
