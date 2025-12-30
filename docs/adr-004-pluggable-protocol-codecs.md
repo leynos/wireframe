@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Accepted - 2025-12-30: introduce a `FrameCodec` trait with a default
+length-delimited implementation.
 
 ## Date
 
@@ -174,6 +175,46 @@ pub trait FrameCodec: Send + Sync + 'static {
 - Add an example codec for Hotline.
 - Add an example codec for MySQL if time permits.
 
+## Implementation Findings
+
+### Codec ergonomics and stateful metadata
+
+- `FrameCodec::wrap_payload` is a static constructor that takes `Vec<u8>`. The
+  Hotline and MySQL example codecs therefore stamp default metadata values
+  (transaction ID and sequence number set to `0`) unless the caller manually
+  constructs a frame and bypasses the default send path.
+- Payload extraction and wrapping require contiguous buffers, leading to extra
+  copying when adapters must convert from `BytesMut` into `Vec<u8>`.
+
+### Error handling and recovery
+
+- The codec surface uses `io::Error`, so protocol-specific framing errors are
+  collapsed into generic IO failures. Decode errors currently close the
+  connection, leaving no path to recover from malformed frames or to emit a
+  protocol-specific error response.
+
+### Connection pipeline alignment
+
+- Codec integration lives in the app connection path, while the `Connection`
+  actor retains its own framing logic. This makes protocol hooks and streaming
+  behaviour inconsistent across read/write paths.
+
+### Fragmentation alignment
+
+- Fragmentation defaults are tied to `max_frame_length`, but fragmentation is
+  still integrated directly into the connection pipeline rather than being a
+  pluggable `FragmentAdapter` as described in the fragmentation design.
+
+### Mock protocol handler experience (Hotline, MySQL)
+
+- Both example codecs required manual header parsing and validation, including
+  explicit checks for payload length, total frame size, and header layout.
+- Implementing MySQL’s 3-byte little-endian length header required custom
+  helpers; there is no shared utility for non-standard integer widths.
+- Clippy’s indexing and truncation lints forced the examples to use `bytes::Buf`
+  and explicit `try_from` conversions, suggesting a need for shared parsing
+  helpers to reduce boilerplate.
+
 ## Known Risks and Limitations
 
 - RPITIT (impl Trait in return position) requires Rust 1.75+; confirm the
@@ -185,8 +226,17 @@ pub trait FrameCodec: Send + Sync + 'static {
 
 ## Outstanding Decisions
 
-- None at this time. Future protocol adoption may require revisiting how
-  correlation identifiers are surfaced for FIFO protocols (for example, RESP).
+- Decide whether `FrameCodec::wrap_payload` should accept `&self` (or other
+  state) to support codecs that maintain sequence counters or compression
+  dictionaries.
+- Decide whether to introduce a `CodecError` taxonomy and recovery policy
+  (drop frame versus close connection) for protocol-specific failures.
+- Decide how to realign fragmentation with the `FragmentAdapter` design so
+  opt-in behaviour and composition order are explicit.
+- Decide whether to unify codec handling between the app router path and the
+  `Connection` actor to ensure protocol hooks run consistently.
+- Future protocol adoption may still require revisiting how correlation
+  identifiers are surfaced for FIFO protocols (for example, RESP).
 
 ## Architectural Rationale
 

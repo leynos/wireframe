@@ -5,7 +5,7 @@ CARGO ?= cargo
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
-MDLINT ?= markdownlint
+MDLINT ?= markdownlint-cli2
 NIXIE ?= nixie
 
 build: target/debug/lib$(CRATE) ## Build debug binary
@@ -41,10 +41,10 @@ check-fmt: ## Verify formatting
 	$(CARGO) fmt --all -- --check
 
 markdownlint: ## Lint Markdown files
-	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)
+	$(MDLINT) "**/*.md"
 
 nixie: ## Validate Mermaid diagrams
-	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -n1 -- $(NIXIE)
+	$(NIXIE) --no-sandbox
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

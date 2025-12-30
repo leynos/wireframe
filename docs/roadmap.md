@@ -378,6 +378,56 @@ and standardized per-connection memory budgets.
         `the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`
     with MessageAssembler and budget details.
 
+## Phase 7.6: Pluggable protocol codec hardening
+
+This phase addresses follow-up work discovered during the pluggable codec
+implementation, focusing on stateful framing, error taxonomy, and reliability.
+
+### 7.6.1. Codec enhancements
+
+- [ ] 7.6.1.1. Make `FrameCodec::wrap_payload` instance-aware for stateful
+  codecs.
+  - [ ] Update the trait to accept `&self` and a `Bytes` payload to reduce
+    copies, then document the change in
+    `docs/adr-004-pluggable-protocol-codecs.md`.
+  - [ ] Update `LengthDelimitedFrameCodec` and any adapters to use the new
+    payload type.
+  - [ ] Reuse a per-connection encoder so sequence counters can advance
+    deterministically.
+- [ ] 7.6.1.2. Introduce a `CodecError` taxonomy.
+  - [ ] Add a `CodecError` enum separating framing, protocol, and IO failures.
+  - [ ] Extend `WireframeError` to surface `CodecError` and add structured
+    logging fields for codec failures.
+  - [ ] Add tests that validate error propagation and the recovery policy.
+
+### 7.6.2. Fragment adapter alignment
+
+- [ ] 7.6.2.1. Introduce a `FragmentAdapter` trait as described in
+  `generic-message-fragmentation-and-re-assembly-design.md`.
+  - [ ] Make fragmentation opt-in by requiring explicit configuration on the
+    `WireframeApp` builder.
+  - [ ] Document the composition order for codec, fragmentation, and
+    serialisation layers.
+  - [ ] Add unit tests for opt-in behaviour and reassembly outcomes.
+
+### 7.6.3. Unified codec handling
+
+- [ ] 7.6.3.1. Unify codec handling between the app router and the
+  `Connection` actor.
+  - [ ] Route app-level request/response handling through the actor codec
+    path so protocol hooks apply consistently.
+  - [ ] Remove duplicate codec construction in `src/app/connection.rs` once
+    the actor path owns framing.
+  - [ ] Add integration tests covering streaming responses and push traffic
+    through the unified path.
+
+### 7.6.4. Property-based codec tests
+
+- [ ] 7.6.4.1. Add property-based round-trip tests for the default
+  `LengthDelimitedFrameCodec` and a mock protocol codec.
+  - [ ] Cover boundary sizes and malformed frames using generated inputs.
+  - [ ] Verify encoder/decoder stateful behaviour with generated sequences.
+
 ## Phase 8: Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
