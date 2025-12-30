@@ -3,6 +3,8 @@
 use bytes::BytesMut;
 use tokio_util::codec::{Decoder, Encoder};
 
+use crate::codec::FrameCodec;
+
 pub(super) struct CombinedCodec<D, E> {
     decoder: D,
     encoder: E,
@@ -11,6 +13,9 @@ pub(super) struct CombinedCodec<D, E> {
 impl<D, E> CombinedCodec<D, E> {
     pub(super) fn new(decoder: D, encoder: E) -> Self { Self { decoder, encoder } }
 }
+
+pub(super) type ConnectionCodec<F> =
+    CombinedCodec<<F as FrameCodec>::Decoder, <F as FrameCodec>::Encoder>;
 
 impl<D, E> Decoder for CombinedCodec<D, E>
 where

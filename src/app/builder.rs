@@ -7,14 +7,13 @@
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
-    num::NonZeroUsize,
     sync::Arc,
-    time::Duration,
 };
 
 use tokio::sync::{OnceCell, mpsc};
 
 use super::{
+    builder_defaults::{MAX_READ_TIMEOUT_MS, MIN_READ_TIMEOUT_MS, default_fragmentation},
     envelope::{Envelope, Packet},
     error::{Result, WireframeError},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -28,20 +27,6 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
-const MIN_READ_TIMEOUT_MS: u64 = 1;
-const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
-const DEFAULT_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(30);
-const DEFAULT_MESSAGE_SIZE_MULTIPLIER: usize = 16;
-
-pub(super) fn default_fragmentation(frame_budget: usize) -> Option<FragmentationConfig> {
-    let frame_budget = clamp_frame_length(frame_budget);
-    let max_message =
-        NonZeroUsize::new(frame_budget.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
-            .or_else(|| NonZeroUsize::new(frame_budget));
-    max_message.and_then(|limit| {
-        FragmentationConfig::for_frame_budget(frame_budget, limit, DEFAULT_FRAGMENT_TIMEOUT)
-    })
-}
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes and middleware without enforcing an
@@ -74,7 +59,7 @@ where
     E: Packet,
     F: FrameCodec + Default,
 {
-    /// Initialises empty routes, middleware, and application data with the
+    /// Initializes empty routes, middleware, and application data with the
     /// default serializer and no lifecycle hooks.
     fn default() -> Self {
         let codec = F::default();
@@ -114,7 +99,7 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialise app");
+    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialize app");
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 
@@ -139,41 +124,6 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    /// Helper to rebuild the app when changing type parameters.
-    ///
-    /// This centralises the field-by-field reconstruction required when
-    /// transforming between different serializer or codec types.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Rebuild helper maps fields explicitly when swapping serializer/codec types."
-    )]
-    fn rebuild_with_params<S2, F2>(
-        self,
-        serializer: S2,
-        codec: F2,
-        protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
-        fragmentation: Option<FragmentationConfig>,
-    ) -> WireframeApp<S2, C, E, F2>
-    where
-        S2: Serializer + Send + Sync,
-        F2: FrameCodec,
-    {
-        WireframeApp {
-            handlers: self.handlers,
-            routes: OnceCell::new(),
-            middleware: self.middleware,
-            serializer,
-            app_data: self.app_data,
-            on_connect: self.on_connect,
-            on_disconnect: self.on_disconnect,
-            protocol,
-            push_dlq: self.push_dlq,
-            codec,
-            read_timeout_ms: self.read_timeout_ms,
-            fragmentation,
-        }
-    }
-
     /// Replace the frame codec used for framing I/O.
     ///
     /// This resets any installed protocol hooks because the frame type may
@@ -186,7 +136,30 @@ where
     {
         let fragmentation = default_fragmentation(codec.max_frame_length());
         let serializer = std::mem::take(&mut self.serializer);
-        self.rebuild_with_params(serializer, codec, None, fragmentation)
+        let WireframeApp {
+            handlers,
+            middleware,
+            app_data,
+            on_connect,
+            on_disconnect,
+            push_dlq,
+            read_timeout_ms,
+            ..
+        } = self;
+        WireframeApp {
+            handlers,
+            routes: OnceCell::new(),
+            middleware,
+            serializer,
+            app_data,
+            on_connect,
+            on_disconnect,
+            protocol: None,
+            push_dlq,
+            codec,
+            read_timeout_ms,
+            fragmentation,
+        }
     }
 
     /// Register a route that maps `id` to `handler`.
@@ -363,7 +336,30 @@ where
         let codec = std::mem::take(&mut self.codec);
         let protocol = self.protocol.take();
         let fragmentation = self.fragmentation.take();
-        self.rebuild_with_params(serializer, codec, protocol, fragmentation)
+        let WireframeApp {
+            handlers,
+            middleware,
+            app_data,
+            on_connect,
+            on_disconnect,
+            push_dlq,
+            read_timeout_ms,
+            ..
+        } = self;
+        WireframeApp {
+            handlers,
+            routes: OnceCell::new(),
+            middleware,
+            serializer,
+            app_data,
+            on_connect,
+            on_disconnect,
+            protocol,
+            push_dlq,
+            codec,
+            read_timeout_ms,
+            fragmentation,
+        }
     }
 
     /// Configure the read timeout in milliseconds.

@@ -229,7 +229,7 @@ Include these sections as appropriate to the decision's complexity:
 - **Options Considered:** Describe the alternatives evaluated. Use a comparison
   table when contrasting multiple options across several dimensions.
 - **Decision Outcome / Proposed Direction:** State the chosen approach and
-  summarise the rationale. For `Proposed` ADRs, describe the recommended
+  summarize the rationale. For `Proposed` ADRs, describe the recommended
   direction.
 - **Goals and Non-Goals:** Clarify what the decision aims to achieve and what
   is explicitly out of scope.
@@ -294,7 +294,7 @@ _Table 1: Comparison of options._
 
 ## Decision Outcome / Proposed Direction
 
-<State the chosen or recommended approach and summarise the rationale.>
+<State the chosen or recommended approach and summarize the rationale.>
 
 ## Known Risks and Limitations
 

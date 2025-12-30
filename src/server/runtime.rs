@@ -24,7 +24,7 @@ use super::{
     PreambleHandler,
     ServerError,
     WireframeServer,
-    connection::spawn_connection_task,
+    connection::{ConnectionApp, spawn_connection_task},
 };
 use crate::{
     app::{Envelope, Packet, WireframeApp},
@@ -319,18 +319,15 @@ where
 ///     .await;
 /// }
 /// ```
-pub(super) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
+pub(super) async fn accept_loop<F, T, L, App>(
     listener: Arc<L>,
     factory: F,
     options: AcceptLoopOptions<T>,
 ) where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: Fn() -> App + Send + Sync + Clone + 'static,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
-    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    Ctx: Send + 'static,
-    E: Packet,
-    Codec: FrameCodec,
+    App: ConnectionApp,
 {
     let AcceptLoopOptions {
         preamble,
@@ -363,20 +360,17 @@ pub(super) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
-async fn accept_iteration<F, T, L, Ser, Ctx, E, Codec>(
+async fn accept_iteration<F, T, L, App>(
     listener: &Arc<L>,
     factory: &F,
     handles: &AcceptHandles<'_, T>,
     delay: Duration,
 ) -> Option<Duration>
 where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: Fn() -> App + Send + Sync + Clone + 'static,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
-    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    Ctx: Send + 'static,
-    E: Packet,
-    Codec: FrameCodec,
+    App: ConnectionApp,
 {
     select! {
         biased;

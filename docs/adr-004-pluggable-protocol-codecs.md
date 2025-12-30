@@ -15,10 +15,10 @@ Wireframe currently hardcodes `tokio_util::codec::LengthDelimitedCodec` with a
 4-byte big-endian length prefix in the connection pipeline (notably in
 `src/app/connection.rs` and `src/app/frame_handling.rs`). This makes framing
 inflexible and prevents protocols with alternative framing rules (such as
-Hotline, MySQL, and Redis RESP) from reusing Wireframe's routing, middleware,
-and serialisation infrastructure.
+Hotline, MySQL, and Redis Serialization Protocol (RESP) from reusing
+Wireframe's routing, middleware, and serialization infrastructure.
 
-We need a pluggable framing layer that can:
+A pluggable framing layer is required that can:
 
 - Decode frames with protocol-specific headers.
 - Preserve protocol metadata (transaction IDs, sequence numbers, etc.).
@@ -27,7 +27,8 @@ We need a pluggable framing layer that can:
 
 ## Decision Drivers
 
-- Support non-length-delimited protocols (Hotline, MySQL, Redis RESP).
+- Support non-length-delimited protocols (Hotline, MySQL, Redis Serialization
+  Protocol (RESP)).
 - Preserve protocol-specific metadata by using protocol-native frame types.
 - Maintain backward compatibility for current Wireframe users.
 - Keep framing logic encapsulated and testable.
@@ -77,7 +78,7 @@ or boxed trait objects and have `WireframeApp` manage them.
 | Type safety            | Strong                | Strong                     | Varies (trait objects)        |
 | Ergonomics             | Simple                | Simple defaults            | Complex API surface           |
 | Backward compatibility | Full                  | Full with defaults         | Medium (API changes)          |
-| Performance            | Stable                | Stable (RPITIT)            | Depends on implementation     |
+| Performance            | Stable                | Stable (associated types)  | Depends on implementation     |
 
 _Table 1: Comparison of framing options._
 
@@ -91,8 +92,8 @@ Key elements:
 - `FrameCodec` owns the decoder/encoder configuration, payload extraction, and
   maximum frame length.
 - Frame types are protocol-specific to preserve metadata.
-- The default `LengthDelimitedFrameCodec` uses `Vec<u8>` frames to preserve
-  `WireframeProtocol` compatibility and existing framed send helpers.
+- The default `LengthDelimitedFrameCodec` uses `Bytes` frames to align with
+  `tokio_util::codec::LengthDelimitedCodec` and avoid extra copies.
 - A default `LengthDelimitedFrameCodec` provides compatibility for existing
   users without code changes.
 - `WireframeApp` becomes generic over `F: FrameCodec` with a default type
@@ -108,12 +109,16 @@ use tokio_util::codec::{Decoder, Encoder};
 pub trait FrameCodec: Send + Sync + 'static {
     /// Frame type produced by decoding.
     type Frame: Send + Sync + 'static;
+    /// Decoder type for this codec.
+    type Decoder: Decoder<Item = Self::Frame, Error = io::Error> + Send;
+    /// Encoder type for this codec.
+    type Encoder: Encoder<Self::Frame, Error = io::Error> + Send;
 
     /// Create a Tokio Decoder for this codec.
-    fn decoder(&self) -> impl Decoder<Item = Self::Frame, Error = io::Error> + Send;
+    fn decoder(&self) -> Self::Decoder;
 
     /// Create a Tokio Encoder for this codec.
-    fn encoder(&self) -> impl Encoder<Self::Frame, Error = io::Error> + Send;
+    fn encoder(&self) -> Self::Encoder;
 
     /// Extract payload bytes from a frame.
     fn frame_payload(frame: &Self::Frame) -> &[u8];
@@ -133,7 +138,8 @@ pub trait FrameCodec: Send + Sync + 'static {
 
 ### Goals
 
-- Allow Wireframe to support Hotline, MySQL, and Redis RESP framing.
+- Allow Wireframe to support Hotline, MySQL, and Redis Serialization Protocol
+  (RESP) framing.
 - Preserve protocol metadata in frame types.
 - Maintain the existing API surface for users who rely on length-delimited
   framing.
@@ -142,8 +148,8 @@ pub trait FrameCodec: Send + Sync + 'static {
 ### Non-Goals
 
 - Protocol negotiation or runtime codec selection.
-- Replacing the existing message serialisation format.
-- Introducing asynchronous codec initialisation.
+- Replacing the existing message serialization format.
+- Introducing asynchronous codec initialization.
 
 ## Migration Plan
 
@@ -153,7 +159,7 @@ pub trait FrameCodec: Send + Sync + 'static {
   `LengthDelimitedFrameCodec` default.
 - Add unit tests covering the default codec behaviour.
 
-### Phase 2: Parameterise `WireframeApp` (breaking change)
+### Phase 2: Parameterize `WireframeApp` (breaking change)
 
 - Add `F: FrameCodec = LengthDelimitedFrameCodec` to `WireframeApp`.
 - Add a `codec: F` field and update the default implementation.
@@ -161,7 +167,7 @@ pub trait FrameCodec: Send + Sync + 'static {
 
 ### Phase 3: Update connection handling
 
-- Parameterise `FrameHandlingContext` and `ResponseContext` over the codec.
+- Parameterize `FrameHandlingContext` and `ResponseContext` over the codec.
 - Replace `LengthDelimitedCodec` usage with `FrameCodec` decoder/encoder calls.
 - Use `max_frame_length()` for buffer sizing and fragmentation defaults.
 
@@ -183,8 +189,9 @@ pub trait FrameCodec: Send + Sync + 'static {
   Hotline and MySQL example codecs therefore stamp default metadata values
   (transaction ID and sequence number set to `0`) unless the caller manually
   constructs a frame and bypasses the default send path.
-- Payload extraction and wrapping require contiguous buffers, leading to extra
-  copying when adapters must convert from `BytesMut` into `Vec<u8>`.
+- Payload extraction now uses `Bytes` frames to avoid copying on decode, but
+  `wrap_payload` still takes `Vec<u8>`, so outbound framing remains
+  allocation-bound.
 
 ### Error handling and recovery
 
@@ -217,12 +224,13 @@ pub trait FrameCodec: Send + Sync + 'static {
 
 ## Known Risks and Limitations
 
-- RPITIT (impl Trait in return position) requires Rust 1.75+; confirm the
-  project's minimum supported Rust version before adoption.
+- Associated types avoid RPITIT for `FrameCodec`, but the overall design still
+  depends on Rust 1.75+ for return-position `impl Trait` elsewhere in the
+  connection stack.
 - The new codec type parameter propagates through public APIs, increasing type
   signatures and potentially affecting downstream type inference.
-- `LengthDelimitedFrameCodec` converts decoded `Bytes` into `Vec<u8>` to retain
-  `WireframeProtocol` compatibility, which adds an extra copy for each frame.
+- `LengthDelimitedFrameCodec` now returns `Bytes`, so any code requiring owned
+  `Vec<u8>` payloads must convert explicitly, reintroducing copies.
 
 ## Outstanding Decisions
 

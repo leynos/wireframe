@@ -11,11 +11,11 @@ No `PLANS.md` exists in this repository as of 2025-12-30.
 ## Purpose / Big Picture
 
 Wireframe must support multiple wire protocol framing schemes (Hotline, MySQL,
-and Redis RESP) without rewriting routing, middleware, or serialisation. A new
-pluggable codec layer allows protocol-specific framing while preserving default
-length-delimited behaviour for existing users. Success is visible when a custom
-codec can be plugged into `WireframeApp` and the default behaviour remains
-unchanged.
+and Redis Serialization Protocol (RESP)) without rewriting routing, middleware,
+or serialization. A new pluggable codec layer allows protocol-specific framing
+while preserving default length-delimited behaviour for existing users. Success
+is visible when a custom codec can be plugged into `WireframeApp` and the
+default behaviour remains unchanged.
 
 ## Validation and Acceptance
 
@@ -77,8 +77,8 @@ Key files:
   `Framed<_, LengthDelimitedCodec>`.
 - `src/server/mod.rs` and `src/server/runtime.rs` propagate `WireframeApp` type
   parameters through the server factory types.
-- `src/hooks.rs` defines `WireframeProtocol`, which is currently constrained to
-  `Frame = Vec<u8>`.
+- `src/hooks.rs` defines `WireframeProtocol`, which remains generic over the
+  connection frame type and is typically used with payload-only frames.
 
 This work introduces `src/codec.rs` to define a `FrameCodec` trait and a
 `LengthDelimitedFrameCodec` default. The new codec type parameter will flow
@@ -104,10 +104,10 @@ needed. Update documentation where new decisions are captured.
 
 2. Add `src/codec.rs` with:
    - A module-level `//!` comment describing the purpose.
-   - `FrameCodec` trait with `Frame`, `decoder`, `encoder`, `frame_payload`,
+   - `FrameCodec` trait with `Frame`, `Decoder`, `Encoder`, `frame_payload`,
      `wrap_payload`, optional `correlation_id`, and `max_frame_length`.
    - `LengthDelimitedFrameCodec` default implementation using
-     `tokio_util::codec::LengthDelimitedCodec`.
+     `tokio_util::codec::LengthDelimitedCodec` with `Bytes` frames.
    - Unit tests for default behaviour (decode/encode round-trip and max length
      enforcement).
 
@@ -115,16 +115,16 @@ needed. Update documentation where new decisions are captured.
 
 4. Update `WireframeApp` in `src/app/builder.rs`:
    - Add generic parameter `F: FrameCodec = LengthDelimitedFrameCodec`.
-   - Add `codec: F` to the struct and initialise it in `Default`.
+   - Add `codec: F` to the struct and initialize it in `Default`.
    - Add builder method `.with_codec()` and wire it through type transitions.
    - Decide how to handle `buffer_capacity()` (deprecate or re-map to codec).
 
 5. Update connection handling in `src/app/connection.rs` and
    `src/app/frame_handling.rs`:
    - Replace `LengthDelimitedCodec` with `FrameCodec` decoder/encoder.
-   - Parameterise `FrameHandlingContext` and `ResponseContext` over the codec
+   - Parameterize `FrameHandlingContext` and `ResponseContext` over the codec
      and frame type.
-   - Use `FrameCodec::frame_payload()` to access bytes for deserialisation.
+   - Use `FrameCodec::frame_payload()` to access bytes for deserialization.
    - Use `FrameCodec::wrap_payload()` to send responses.
    - Base buffer reservation and fragmentation defaults on
      `FrameCodec::max_frame_length()`.
@@ -149,11 +149,17 @@ At the end of this work, the following interfaces must exist and be public:
 
     pub trait FrameCodec: Send + Sync + 'static {
         type Frame: Send + Sync + 'static;
+        type Decoder: tokio_util::codec::Decoder<
+            Item = Self::Frame,
+            Error = std::io::Error,
+        > + Send;
+        type Encoder: tokio_util::codec::Encoder<
+            Self::Frame,
+            Error = std::io::Error,
+        > + Send;
 
-        fn decoder(&self) -> impl tokio_util::codec::Decoder<Item = Self::Frame,
-            Error = std::io::Error> + Send;
-        fn encoder(&self) -> impl tokio_util::codec::Encoder<Self::Frame,
-            Error = std::io::Error> + Send;
+        fn decoder(&self) -> Self::Decoder;
+        fn encoder(&self) -> Self::Encoder;
         fn frame_payload(frame: &Self::Frame) -> &[u8];
         fn wrap_payload(payload: Vec<u8>) -> Self::Frame;
         fn correlation_id(frame: &Self::Frame) -> Option<u64> { None }
@@ -161,7 +167,7 @@ At the end of this work, the following interfaces must exist and be public:
     }
 
 - `crate::codec::LengthDelimitedFrameCodec` struct with `Default` and
-  `new(max_frame_length: usize)`, using `Vec<u8>` as the default frame type.
+  `new(max_frame_length: usize)`, using `Bytes` as the default frame type.
 
 - `WireframeApp` signature updated to include the codec type parameter with a
   default:
@@ -214,10 +220,12 @@ section to locate the failure before retrying.
   with a default length-delimited implementation. Rationale: Meets protocol
   framing needs while preserving backward compatibility. Date/Author:
   2025-12-30 (Codex).
-- Decision: Keep `LengthDelimitedFrameCodec` frames as `Vec<u8>` to preserve
-  `WireframeProtocol` compatibility and existing framed helpers. Rationale:
-  Prevents breaking protocol hooks and existing `send_response_framed` usage.
-  Date/Author: 2025-12-30 (Codex).
+- Decision: Use associated types for `FrameCodec` encoder/decoder instances.
+  Rationale: Simplifies type plumbing and removes unnecessary generic
+  parameters in connection handling. Date/Author: 2025-12-30 (Codex).
+- Decision: Use `Bytes` frames for `LengthDelimitedFrameCodec` to align with
+  `LengthDelimitedCodec` and avoid extra copies. Rationale: Avoids an adapter
+  layer and enables zero-copy payload handling. Date/Author: 2025-12-30 (Codex).
 - Decision: Add `send_response_framed_with_codec` for custom codecs and keep
   `send_response_framed` for the length-delimited default. Rationale: Maintains
   backward compatibility while enabling custom framing. Date/Author: 2025-12-30
@@ -233,8 +241,8 @@ section to locate the failure before retrying.
 ## Outcomes & Retrospective
 
 - Completed framing abstraction and server propagation with full lint/test
-  coverage. Added Hotline/MySQL codec examples and a custom codec integration
-  test.
+  coverage. Added Hotline/MySQL codec examples, unit coverage, and a framed
+  integration test using the Hotline codec.
 
 ## Artifacts and Notes
 

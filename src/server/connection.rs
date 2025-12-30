@@ -1,10 +1,14 @@
 //! Connection handling for [`WireframeServer`].
 
-use std::{io, net::SocketAddr, time::Duration};
+use std::{future::Future, io, net::SocketAddr, time::Duration};
 
 use futures::FutureExt;
 use log::{error, warn};
-use tokio::{net::TcpStream, time::timeout};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+    time::timeout,
+};
 use tokio_util::task::TaskTracker;
 
 use crate::{
@@ -17,19 +21,37 @@ use crate::{
     server::{PreambleFailure, PreambleHandler, runtime::PreambleHooks},
 };
 
+pub(super) trait ConnectionApp: Send + Sync + 'static {
+    fn handle_connection_result<W>(&self, stream: W) -> impl Future<Output = io::Result<()>> + Send
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static;
+}
+
+impl<S, C, E, Codec> ConnectionApp for WireframeApp<S, C, E, Codec>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    C: Send + 'static,
+    E: Packet + 'static,
+    Codec: FrameCodec,
+{
+    fn handle_connection_result<W>(&self, stream: W) -> impl Future<Output = io::Result<()>> + Send
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        WireframeApp::handle_connection_result(self, stream)
+    }
+}
+
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
-pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
+pub(super) fn spawn_connection_task<F, T, App>(
     stream: TcpStream,
     factory: F,
     hooks: PreambleHooks<T>,
     tracker: &TaskTracker,
 ) where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: Fn() -> App + Send + Sync + Clone + 'static,
     T: Preamble,
-    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Ctx: Send + 'static,
-    E: Packet,
-    Codec: FrameCodec,
+    App: ConnectionApp,
 {
     let peer_addr = match stream.peer_addr() {
         Ok(addr) => Some(addr),
@@ -52,18 +74,15 @@ pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
     });
 }
 
-async fn process_stream<F, T, Ser, Ctx, E, Codec>(
+async fn process_stream<F, T, App>(
     mut stream: TcpStream,
     peer_addr: Option<SocketAddr>,
     factory: F,
     hooks: PreambleHooks<T>,
 ) where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + 'static,
+    F: Fn() -> App + Send + Sync + 'static,
     T: Preamble,
-    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Ctx: Send + 'static,
-    E: Packet,
-    Codec: FrameCodec,
+    App: ConnectionApp,
 {
     let PreambleHooks {
         on_success,

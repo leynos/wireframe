@@ -16,6 +16,9 @@ pub(crate) fn clamp_frame_length(value: usize) -> usize {
     value.clamp(MIN_FRAME_LENGTH, MAX_FRAME_LENGTH)
 }
 
+#[doc(hidden)]
+pub mod examples;
+
 /// Trait for pluggable frame codecs supporting different wire protocols.
 ///
 /// Implementors define their own `Frame` type (for example, a struct carrying
@@ -23,12 +26,16 @@ pub(crate) fn clamp_frame_length(value: usize) -> usize {
 pub trait FrameCodec: Send + Sync + 'static {
     /// Frame type produced by decoding.
     type Frame: Send + Sync + 'static;
+    /// Decoder type for this codec.
+    type Decoder: Decoder<Item = Self::Frame, Error = io::Error> + Send;
+    /// Encoder type for this codec.
+    type Encoder: Encoder<Self::Frame, Error = io::Error> + Send;
 
     /// Create a Tokio decoder for this codec.
-    fn decoder(&self) -> impl Decoder<Item = Self::Frame, Error = io::Error> + Send;
+    fn decoder(&self) -> Self::Decoder;
 
     /// Create a Tokio encoder for this codec.
-    fn encoder(&self) -> impl Encoder<Self::Frame, Error = io::Error> + Send;
+    fn encoder(&self) -> Self::Encoder;
 
     /// Extract the message payload bytes from a frame.
     fn frame_payload(frame: &Self::Frame) -> &[u8];
@@ -66,6 +73,12 @@ impl LengthDelimitedFrameCodec {
     /// Return the maximum frame length accepted by this codec.
     #[must_use]
     pub fn max_frame_length(&self) -> usize { self.max_frame_length }
+
+    fn new_inner_codec(&self) -> LengthDelimitedCodec {
+        LengthDelimitedCodec::builder()
+            .max_frame_length(self.max_frame_length)
+            .new_codec()
+    }
 }
 
 impl Default for LengthDelimitedFrameCodec {
@@ -76,59 +89,67 @@ impl Default for LengthDelimitedFrameCodec {
     }
 }
 
-struct LengthDelimitedAdapter {
+#[doc(hidden)]
+pub struct LengthDelimitedDecoder {
     inner: LengthDelimitedCodec,
 }
 
-impl LengthDelimitedAdapter {
-    fn new(max_frame_length: usize) -> Self {
-        Self {
-            inner: LengthDelimitedCodec::builder()
-                .max_frame_length(max_frame_length)
-                .new_codec(),
-        }
-    }
-}
-
-impl Decoder for LengthDelimitedAdapter {
-    type Item = Vec<u8>;
+impl Decoder for LengthDelimitedDecoder {
+    type Item = Bytes;
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        self.inner
-            .decode(src)
-            .map(|opt| opt.map(|bytes| bytes.as_ref().to_vec()))
+        self.inner.decode(src).map(|opt| opt.map(BytesMut::freeze))
     }
 
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         self.inner
             .decode_eof(src)
-            .map(|opt| opt.map(|bytes| bytes.as_ref().to_vec()))
+            .map(|opt| opt.map(BytesMut::freeze))
     }
 }
 
-impl Encoder<Vec<u8>> for LengthDelimitedAdapter {
+#[doc(hidden)]
+pub struct LengthDelimitedEncoder {
+    inner: LengthDelimitedCodec,
+    max_frame_length: usize,
+}
+
+impl Encoder<Bytes> for LengthDelimitedEncoder {
     type Error = io::Error;
 
-    fn encode(&mut self, item: Vec<u8>, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.inner.encode(Bytes::from(item), dst)
+    fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        if item.len() > self.max_frame_length {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "frame exceeds max_frame_length",
+            ));
+        }
+        self.inner.encode(item, dst)
     }
 }
 
 impl FrameCodec for LengthDelimitedFrameCodec {
-    type Frame = Vec<u8>;
+    type Frame = Bytes;
+    type Decoder = LengthDelimitedDecoder;
+    type Encoder = LengthDelimitedEncoder;
 
-    fn decoder(&self) -> impl Decoder<Item = Self::Frame, Error = io::Error> + Send {
-        LengthDelimitedAdapter::new(self.max_frame_length)
+    fn decoder(&self) -> Self::Decoder {
+        LengthDelimitedDecoder {
+            inner: self.new_inner_codec(),
+        }
     }
 
-    fn encoder(&self) -> impl Encoder<Self::Frame, Error = io::Error> + Send {
-        LengthDelimitedAdapter::new(self.max_frame_length)
+    fn encoder(&self) -> Self::Encoder {
+        LengthDelimitedEncoder {
+            inner: self.new_inner_codec(),
+            max_frame_length: self.max_frame_length,
+        }
     }
 
-    fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.as_slice() }
+    fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.as_ref() }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame { payload }
+    fn wrap_payload(payload: Vec<u8>) -> Self::Frame { Bytes::from(payload) }
 
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }

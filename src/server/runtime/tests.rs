@@ -147,35 +147,49 @@ fn setup_backoff_mock_listener(
 }
 
 /// Validates that recorded call intervals match expected backoff delays.
-fn assert_backoff_intervals(calls: &[Instant], expected: &[Duration]) {
+fn assert_backoff_intervals(
+    calls: &[Instant],
+    expected: &[Duration],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let intervals: Vec<_> = calls
         .windows(2)
-        .map(|w| {
-            let a = w.first().expect("window has first element");
-            let b = w.get(1).expect("window has second element");
+        .map(|window| {
+            let a = window
+                .first()
+                .ok_or_else(|| "window has first element".to_string())?;
+            let b = window
+                .get(1)
+                .ok_or_else(|| "window has second element".to_string())?;
             b.checked_duration_since(*a)
-                .expect("instants should be monotonically increasing")
+                .ok_or_else(|| "instants should be monotonically increasing".to_string())
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
 
-    assert_eq!(
-        intervals.len(),
-        expected.len(),
-        "interval count mismatch: got {}, expected {}",
-        intervals.len(),
-        expected.len()
-    );
+    if intervals.len() != expected.len() {
+        return Err(format!(
+            "interval count mismatch: got {}, expected {}",
+            intervals.len(),
+            expected.len()
+        )
+        .into());
+    }
 
     for (interval, expected) in intervals.into_iter().zip(expected.iter()) {
-        assert_eq!(interval, *expected);
+        if interval != *expected {
+            return Err(
+                format!("interval mismatch: got {interval:?}, expected {expected:?}").into(),
+            );
+        }
     }
+
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn test_accept_loop_exponential_backoff_async(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-) {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let listener = Arc::new(setup_backoff_mock_listener(&calls, 4));
     let token = CancellationToken::new();
@@ -224,5 +238,6 @@ async fn test_accept_loop_exponential_backoff_async(
         Duration::from_millis(10),
         Duration::from_millis(20),
     ];
-    assert_backoff_intervals(&calls, &expected);
+    assert_backoff_intervals(&calls, &expected)?;
+    Ok(())
 }

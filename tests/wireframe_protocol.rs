@@ -6,26 +6,34 @@
 //! with the expected connection context and that frame mutations occur as
 //! intended.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 mod common;
+use bytes::{Bytes, BytesMut};
 use common::TestResult;
 use futures::stream;
 use rstest::{fixture, rstest};
-use tokio_util::sync::CancellationToken;
+use tokio_util::{
+    codec::{Decoder, Encoder, LengthDelimitedCodec},
+    sync::CancellationToken,
+};
 use wireframe::{
     ConnectionContext,
     WireframeProtocol,
     app::Envelope,
+    codec::FrameCodec,
     connection::{ConnectionActor, ConnectionChannels},
     push::{PushConfigError, PushQueues},
     serializer::BincodeSerializer,
 };
 
-type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope, VecFrameCodec>;
 type QueueResult =
     Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>;
 
@@ -36,6 +44,94 @@ fn queues() -> QueueResult {
         .low_capacity(8)
         .unlimited()
         .build()
+}
+
+#[derive(Clone, Debug)]
+struct VecFrameCodec {
+    max_frame_length: usize,
+}
+
+impl VecFrameCodec {
+    fn new_codec(&self) -> LengthDelimitedCodec {
+        LengthDelimitedCodec::builder()
+            .max_frame_length(self.max_frame_length)
+            .new_codec()
+    }
+}
+
+impl Default for VecFrameCodec {
+    fn default() -> Self {
+        Self {
+            max_frame_length: 1024,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct VecDecoder {
+    inner: LengthDelimitedCodec,
+}
+
+#[derive(Clone, Debug)]
+struct VecEncoder {
+    inner: LengthDelimitedCodec,
+    max_frame_length: usize,
+}
+
+impl Decoder for VecDecoder {
+    type Item = Vec<u8>;
+    type Error = io::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        self.inner
+            .decode(src)
+            .map(|opt| opt.map(|bytes| bytes.to_vec()))
+    }
+
+    fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        self.inner
+            .decode_eof(src)
+            .map(|opt| opt.map(|bytes| bytes.to_vec()))
+    }
+}
+
+impl Encoder<Vec<u8>> for VecEncoder {
+    type Error = io::Error;
+
+    fn encode(&mut self, item: Vec<u8>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        if item.len() > self.max_frame_length {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "payload too large",
+            ));
+        }
+        self.inner.encode(Bytes::from(item), dst)
+    }
+}
+
+impl FrameCodec for VecFrameCodec {
+    type Frame = Vec<u8>;
+    type Decoder = VecDecoder;
+    type Encoder = VecEncoder;
+
+    fn decoder(&self) -> Self::Decoder {
+        VecDecoder {
+            inner: self.new_codec(),
+        }
+    }
+
+    fn encoder(&self) -> Self::Encoder {
+        VecEncoder {
+            inner: self.new_codec(),
+            max_frame_length: self.max_frame_length,
+        }
+    }
+
+    fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.as_slice() }
+
+    fn wrap_payload(payload: Vec<u8>) -> Self::Frame { payload }
+
+    fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
 
 struct TestProtocol {

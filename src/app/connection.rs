@@ -1,6 +1,6 @@
 //! Connection handling and response utilities for `WireframeApp`.
 
-use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
@@ -13,7 +13,7 @@ use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
     builder::WireframeApp,
-    combined_codec::CombinedCodec,
+    combined_codec::{CombinedCodec, ConnectionCodec},
     envelope::{Envelope, Packet},
     error::SendError,
     fragmentation_state::FragmentationState,
@@ -38,18 +38,16 @@ fn purge_expired(fragmentation: &mut Option<FragmentationState>) {
 const MAX_DESER_FAILURES: u32 = 10;
 
 /// Per-frame processing state bundled for `handle_frame`.
-struct FrameHandlingContext<'a, E, W, F, C>
+struct FrameHandlingContext<'a, E, W, F>
 where
     E: Packet,
     W: AsyncRead + AsyncWrite + Unpin,
     F: FrameCodec,
-    C: Encoder<F::Frame, Error = io::Error>,
 {
-    framed: &'a mut Framed<W, C>,
+    framed: &'a mut Framed<W, ConnectionCodec<F>>,
     deser_failures: &'a mut u32,
     routes: &'a HashMap<u32, HandlerService<E>>,
     fragmentation: &'a mut Option<FragmentationState>,
-    codec_marker: PhantomData<F>,
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -267,7 +265,6 @@ where
                             deser_failures: &mut deser_failures,
                             routes,
                             fragmentation: &mut fragmentation,
-                            codec_marker: PhantomData::<F>,
                         },
                     )
                     .await?;
@@ -284,21 +281,19 @@ where
         Ok(())
     }
 
-    async fn handle_frame<W, Cc>(
+    async fn handle_frame<W>(
         &self,
         frame: &F::Frame,
-        ctx: FrameHandlingContext<'_, E, W, F, Cc>,
+        ctx: FrameHandlingContext<'_, E, W, F>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
-        Cc: Encoder<F::Frame, Error = io::Error>,
     {
         let FrameHandlingContext {
             framed,
             deser_failures,
             routes,
             fragmentation,
-            codec_marker: _,
         } = ctx;
 
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
@@ -319,11 +314,10 @@ where
             frame_handling::forward_response(
                 env,
                 service,
-                frame_handling::ResponseContext {
+                frame_handling::ResponseContext::<S, W, F> {
                     serializer: &self.serializer,
                     framed,
                     fragmentation,
-                    codec_marker: PhantomData::<F>,
                 },
             )
             .await?;
@@ -382,3 +376,6 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,4 +1,4 @@
-# Architectural decision record (ADR) 005: serialiser abstraction beyond bincode
+# Architectural decision record (ADR) 005: serializer abstraction beyond bincode
 
 ## Status
 
@@ -14,20 +14,20 @@ Wireframe currently couples `Message` to `bincode` by requiring `Encode` and
 `BorrowDecode` implementations. The `Serializer` trait does not remove this
 dependency, so users who want wire-rs, Protocol Buffers, or Cap'n Proto must
 either wrap their data in bincode-compatible types or fork the library. This
-leaks a concrete serialisation choice into otherwise protocol-agnostic routing
+leaks a concrete serialization choice into otherwise protocol-agnostic routing
 and framing, and it blocks metadata-aware decoding (for example, deriving a
 schema version from frame headers). The router design document explicitly
 targets derivable encoders/decoders, and message versioning is expected to be
 an evolution path.[^router-design][^message-versioning]
 
-We need to decouple message encoding/decoding from bincode while preserving
+Message encoding/decoding must be decoupled from bincode while preserving
 backward compatibility and performance.
 
 ## Decision Drivers
 
-- Support alternative serialisation formats without forking.
+- Support alternative serialization formats without forking.
 - Preserve existing bincode-based integrations where possible.
-- Allow deserialisation to access protocol metadata for version negotiation.
+- Allow deserialization to access protocol metadata for version negotiation.
 - Keep the encoding/decoding surface ergonomic for handler authors.
 - Maintain low allocation overhead and avoid unnecessary copies.
 
@@ -35,7 +35,7 @@ backward compatibility and performance.
 
 ### Functional requirements
 
-- Allow callers to select a serialiser without changing the message model.
+- Allow callers to select a serializer without changing the message model.
 - Provide a migration path for existing `Message` types.
 - Support metadata-aware decoding for schema/version negotiation.
 
@@ -50,43 +50,43 @@ backward compatibility and performance.
 ### Option A: keep the bincode-only `Message` trait (status quo)
 
 Continue to require `bincode` traits and document adapter strategies for other
-serialisers.
+serializers.
 
-### Option B: introduce a serialiser-agnostic message boundary (preferred)
+### Option B: introduce a serializer-agnostic message boundary (preferred)
 
 Introduce a new `MessageBody` (or similar) trait that is independent of
 `bincode`, along with a `SerializerAdapter` that bridges to concrete
-serialisers. Provide bincode and optional wire-rs/Serde adapters, with a
+serializers. Provide bincode and optional wire-rs/Serde adapters, with a
 migration path for existing `Message` types.
 
-### Option C: adopt wire-rs as the primary serialiser
+### Option C: adopt wire-rs as the primary serializer
 
 Move `Message` to wire-rs `Encode`/`Decode`, ship bincode as a compatibility
 layer, and update examples and docs accordingly.
 
 | Topic                        | Option A: status quo | Option B: adapter | Option C: wire-rs |
 | ---------------------------- | -------------------- | ----------------- | ----------------- |
-| Alternative serialisers      | Poor                 | Strong            | Strong            |
+| Alternative serializers      | Poor                 | Strong            | Strong            |
 | Backward compatibility       | Full                 | High              | Medium            |
-| Metadata-aware deserialising | Poor                 | Strong            | Strong            |
+| Metadata-aware deserializing | Poor                 | Strong            | Strong            |
 | Performance risk             | Low                  | Medium            | Medium            |
 | API churn                    | Low                  | Medium            | High              |
 
-_Table 1: Trade-offs between serialisation abstraction options._
+_Table 1: Trade-offs between serialization abstraction options._
 
 ## Decision Outcome / Proposed Direction
 
-Adopt Option B: introduce a serialiser-agnostic message boundary with adapter
+Adopt Option B: introduce a serializer-agnostic message boundary with adapter
 traits. Provide a bincode adapter to preserve existing behaviour, and supply
 optional wire-rs or Serde adapters to reduce boilerplate. This allows frame
-metadata to participate in deserialisation, supports version negotiation, and
-avoids committing Wireframe to a single serialiser.
+metadata to participate in deserialization, supports version negotiation, and
+avoids committing Wireframe to a single serializer.
 
 ## Goals and Non-Goals
 
 ### Goals
 
-- Allow multiple serialisers without forking Wireframe.
+- Allow multiple serializers without forking Wireframe.
 - Keep the handler API stable where feasible.
 - Enable metadata-aware decoding for version negotiation.
 
@@ -101,7 +101,7 @@ avoids committing Wireframe to a single serialiser.
 
 - Introduce `MessageBody` (or equivalent) and `SerializerAdapter` traits.
 - Implement a bincode adapter that preserves current behaviour.
-- Add optional adapters for wire-rs and Serde-based serialisers.
+- Add optional adapters for wire-rs and Serde-based serializers.
 
 ### Phase 2: integration and compatibility
 
@@ -112,26 +112,26 @@ avoids committing Wireframe to a single serialiser.
 ### Phase 3: documentation and validation
 
 - Update the user guide with migration examples.
-- Add tests covering mixed serialisers and metadata-aware decoding.
+- Add tests covering mixed serializers and metadata-aware decoding.
 
 ## Known Risks and Limitations
 
 - Adapter layering may increase type complexity for downstream users.
-- Supporting multiple serialisers can increase maintenance overhead.
+- Supporting multiple serializers can increase maintenance overhead.
 - Metadata-aware decoding requires a clear definition of what metadata is
   exposed and when it is safe to consume it.
 
 ## Outstanding Decisions
 
 - Define the precise `MessageBody` surface (borrowed vs owned payloads).
-- Decide how codec metadata is passed into the deserialiser context.
+- Decide how codec metadata is passed into the deserializer context.
 - Choose which optional adapters ship by default and which are feature-gated.
 
 ## Architectural Rationale
 
-Decoupling the serialisation boundary aligns with Wireframe’s goal of being a
+Decoupling the serialization boundary aligns with Wireframe’s goal of being a
 protocol-agnostic router and enables future version negotiation without forcing
-a single serialiser choice. Adapter-based boundaries preserve backward
+a single serializer choice. Adapter-based boundaries preserve backward
 compatibility while providing a clear path for modern, derivable encoders and
 decoders.
 

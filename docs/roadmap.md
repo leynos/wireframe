@@ -298,7 +298,7 @@ and standardized per-connection memory budgets.
   - [ ] Implement `RequestBodyStream` type alias as a pinned, boxed stream of
     `Result<Bytes, std::io::Error>`.
 
-  - [ ] Add `AsyncRead` adaptor for `RequestBodyStream` so protocol crates can
+  - [ ] Add `AsyncRead` adapter for `RequestBodyStream` so protocol crates can
     reuse existing parsers.
 
   - [ ] Integrate streaming request extraction with the handler dispatch path.
@@ -425,7 +425,7 @@ integration boundaries.
     `WireframeApp` builder.
   - [ ] Expose a public purge API so callers can drive timeout eviction.
   - [ ] Document the composition order for codec, fragmentation, and
-    serialisation layers.
+    serialization layers.
   - [ ] Define and implement duplicate suppression and out-of-order handling
     for fragment series.
   - [ ] Define and test zero-length fragment behaviour and fragment index
@@ -456,11 +456,11 @@ integration boundaries.
 ### 7.6.5. Serializer boundaries and protocol metadata
 
 - [ ] 7.6.5.1. Decouple message encoding from `bincode`-specific traits to
-  support alternative serialisers.[^router-design][^adr-005]
+  support alternative serializers.[^router-design][^adr-005]
   - [ ] Introduce a serializer-agnostic message trait or adapter layer for
     `Message` types.
   - [ ] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
-  - [ ] Define how frame metadata is exposed to the deserialisation context to
+  - [ ] Define how frame metadata is exposed to the deserialization context to
     enable version negotiation.[^message-versioning]
   - [ ] Add migration guidance covering existing `bincode` users.
 
@@ -475,7 +475,7 @@ integration boundaries.
 ## Phase 8: Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
-framing, serialisation, and lifecycle layers, so both sides share the same
+framing, serialization, and lifecycle layers, so both sides share the same
 behavioural guarantees.
 
 - [ ] **Connection runtime:**

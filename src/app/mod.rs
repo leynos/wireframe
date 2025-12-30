@@ -9,6 +9,7 @@
 //! See the `examples/` directory for end-to-end usage.
 
 mod builder;
+mod builder_defaults;
 mod combined_codec;
 mod connection;
 mod envelope;

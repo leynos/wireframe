@@ -77,12 +77,6 @@ impl Encoder<TaggedFrame> for TaggedAdapter {
                 "payload too large",
             ));
         }
-        if item.payload.len() > u8::MAX as usize {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "payload too long",
-            ));
-        }
 
         let payload_len = u8::try_from(item.payload.len())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too long"))?;
@@ -96,14 +90,12 @@ impl Encoder<TaggedFrame> for TaggedAdapter {
 
 impl FrameCodec for TaggedFrameCodec {
     type Frame = TaggedFrame;
+    type Decoder = TaggedAdapter;
+    type Encoder = TaggedAdapter;
 
-    fn decoder(&self) -> impl Decoder<Item = Self::Frame, Error = io::Error> + Send {
-        TaggedAdapter::new(self.max_frame_length)
-    }
+    fn decoder(&self) -> Self::Decoder { TaggedAdapter::new(self.max_frame_length) }
 
-    fn encoder(&self) -> impl Encoder<Self::Frame, Error = io::Error> + Send {
-        TaggedAdapter::new(self.max_frame_length)
-    }
+    fn encoder(&self) -> Self::Encoder { TaggedAdapter::new(self.max_frame_length) }
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
 
@@ -132,7 +124,7 @@ async fn custom_codec_round_trips_frames() {
     let request = Envelope::new(1, None, b"ping".to_vec());
     let payload = BincodeSerializer
         .serialize(&request)
-        .expect("serialise request");
+        .expect("serialize request");
 
     let mut encoder = TaggedAdapter::new(64);
     let mut buf = BytesMut::new();
@@ -161,7 +153,7 @@ async fn custom_codec_round_trips_frames() {
 
     let (response_env, _) = BincodeSerializer
         .deserialize::<Envelope>(&response_frame.payload)
-        .expect("deserialise response");
+        .expect("deserialize response");
     assert_eq!(response_env.correlation_id(), Some(7));
     let response_payload = response_env.into_parts().payload();
     assert_eq!(response_payload, b"ping".to_vec());
