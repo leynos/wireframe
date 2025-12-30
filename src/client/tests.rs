@@ -582,3 +582,65 @@ async fn error_callback_invoked_on_send_io_error() {
         "error callback should be invoked on send I/O error"
     );
 }
+
+/// A serializer that always fails to serialize, used for testing error hooks.
+struct FailingSerializer;
+
+impl crate::Serializer for FailingSerializer {
+    fn serialize<M: crate::message::Message>(
+        &self,
+        _value: &M,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        Err(Box::new(std::io::Error::other(
+            "forced serialization failure",
+        )))
+    }
+
+    fn deserialize<M: crate::message::Message>(
+        &self,
+        _bytes: &[u8],
+    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>> {
+        Err(Box::new(std::io::Error::other(
+            "forced deserialization failure",
+        )))
+    }
+}
+
+#[tokio::test]
+async fn error_callback_invoked_on_serialize_error() {
+    #[derive(bincode::Encode, bincode::BorrowDecode)]
+    struct TestMessage(u32);
+
+    let error_count = Arc::new(AtomicUsize::new(0));
+    let count = error_count.clone();
+
+    let (addr, accept) = spawn_listener().await;
+
+    let mut client = WireframeClient::builder()
+        .serializer(FailingSerializer)
+        .on_error(move |_err| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    // Keep the server alive so the connection doesn't fail for other reasons
+    let _server = accept.await.expect("join accept task");
+
+    // Try to send - should fail with serialization error and invoke error hook
+    let result = client.send(&TestMessage(42)).await;
+    assert!(
+        matches!(result, Err(ClientError::Serialize(_))),
+        "send should fail with serialization error"
+    );
+
+    assert_eq!(
+        error_count.load(Ordering::SeqCst),
+        1,
+        "error callback should be invoked on serialization error"
+    );
+}
