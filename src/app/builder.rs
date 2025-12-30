@@ -22,21 +22,20 @@ use super::{
     error::{Result, WireframeError},
 };
 use crate::{
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     fragment::FragmentationConfig,
     hooks::{ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
 
-const MIN_BUFFER_CAP: usize = 64;
-const MAX_BUFFER_CAP: usize = 16 * 1024 * 1024;
 const MIN_READ_TIMEOUT_MS: u64 = 1;
 const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
 const DEFAULT_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_MESSAGE_SIZE_MULTIPLIER: usize = 16;
 
 pub(super) fn default_fragmentation(frame_budget: usize) -> Option<FragmentationConfig> {
+    let frame_budget = clamp_frame_length(frame_budget);
     let max_message =
         NonZeroUsize::new(frame_budget.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
             .or_else(|| NonZeroUsize::new(frame_budget));
@@ -424,7 +423,7 @@ where
     /// Clamped between 64 bytes and 16 MiB.
     #[must_use]
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
-        let capacity = capacity.clamp(MIN_BUFFER_CAP, MAX_BUFFER_CAP);
+        let capacity = clamp_frame_length(capacity);
         self.codec = LengthDelimitedFrameCodec::new(capacity);
         self.fragmentation = default_fragmentation(capacity);
         self

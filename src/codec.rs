@@ -9,6 +9,13 @@ use std::io;
 use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
+pub(crate) const MIN_FRAME_LENGTH: usize = 64;
+pub(crate) const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
+
+pub(crate) fn clamp_frame_length(value: usize) -> usize {
+    value.clamp(MIN_FRAME_LENGTH, MAX_FRAME_LENGTH)
+}
+
 /// Trait for pluggable frame codecs supporting different wire protocols.
 ///
 /// Implementors define their own `Frame` type (for example, a struct carrying
@@ -50,7 +57,11 @@ pub struct LengthDelimitedFrameCodec {
 impl LengthDelimitedFrameCodec {
     /// Construct a new codec with a maximum frame length.
     #[must_use]
-    pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    pub fn new(max_frame_length: usize) -> Self {
+        Self {
+            max_frame_length: clamp_frame_length(max_frame_length),
+        }
+    }
 
     /// Return the maximum frame length accepted by this codec.
     #[must_use]
@@ -127,6 +138,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn length_delimited_codec_clamps_max_frame_length() {
+        let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH.saturating_add(1));
+        assert_eq!(codec.max_frame_length(), MAX_FRAME_LENGTH);
+    }
+
+    #[test]
     fn length_delimited_codec_round_trips_payload() {
         let codec = LengthDelimitedFrameCodec::new(128);
         let mut encoder = codec.encoder();
@@ -153,10 +170,10 @@ mod tests {
 
     #[test]
     fn length_delimited_codec_rejects_oversized_payloads() {
-        let codec = LengthDelimitedFrameCodec::new(4);
+        let codec = LengthDelimitedFrameCodec::new(MIN_FRAME_LENGTH);
         let mut encoder = codec.encoder();
 
-        let payload = vec![0_u8; 8];
+        let payload = vec![0_u8; MIN_FRAME_LENGTH.saturating_add(1)];
         let frame = LengthDelimitedFrameCodec::wrap_payload(payload);
         let mut buf = BytesMut::new();
 

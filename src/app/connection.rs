@@ -19,7 +19,7 @@ use super::{
     frame_handling,
 };
 use crate::{
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    codec::{FrameCodec, LengthDelimitedFrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
     fragment::FragmentationConfig,
     frame::FrameMetadata,
     message::Message,
@@ -279,9 +279,15 @@ where
     {
         let codec = CombinedCodec::new(self.codec.decoder(), self.codec.encoder());
         let mut framed = Framed::new(stream, codec);
-        framed
-            .read_buffer_mut()
-            .reserve(self.codec.max_frame_length());
+        let requested_frame_length = self.codec.max_frame_length();
+        let max_frame_length = clamp_frame_length(requested_frame_length);
+        if requested_frame_length > MAX_FRAME_LENGTH {
+            warn!(
+                "codec max frame length exceeds guardrail; clamping to {MAX_FRAME_LENGTH} bytes \
+                 (requested={requested_frame_length})"
+            );
+        }
+        framed.read_buffer_mut().reserve(max_frame_length);
         let mut deser_failures = 0u32;
         let mut fragmentation = self.fragmentation_config().map(FragmentationState::new);
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
@@ -392,7 +398,10 @@ where
         deser_failures: &mut u32,
     ) -> Result<Option<Envelope>, io::Error> {
         match self.parse_envelope(F::frame_payload(frame)) {
-            Ok((env, _)) => {
+            Ok((mut env, _)) => {
+                if env.correlation_id.is_none() {
+                    env.correlation_id = F::correlation_id(frame);
+                }
                 *deser_failures = 0;
                 Ok(Some(env))
             }

@@ -109,6 +109,8 @@ impl FrameCodec for TaggedFrameCodec {
 
     fn wrap_payload(payload: Vec<u8>) -> Self::Frame { TaggedFrame { tag: 0x1, payload } }
 
+    fn correlation_id(frame: &Self::Frame) -> Option<u64> { Some(u64::from(frame.tag)) }
+
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
 
@@ -160,6 +162,7 @@ async fn custom_codec_round_trips_frames() {
     let (response_env, _) = BincodeSerializer
         .deserialize::<Envelope>(&response_frame.payload)
         .expect("deserialise response");
+    assert_eq!(response_env.correlation_id(), Some(7));
     let response_payload = response_env.into_parts().payload();
     assert_eq!(response_payload, b"ping".to_vec());
 }
