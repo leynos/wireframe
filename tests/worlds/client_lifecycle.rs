@@ -53,12 +53,17 @@ pub struct ServerAck {
 /// receive the correct state from setup hooks.
 pub const EXPECTED_SETUP_STATE: u32 = 42;
 
+/// Client type alias for lifecycle tests.
+///
+/// Uses `BincodeSerializer` with a `RewindStream` over TCP and `u32` connection state.
+type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, u32>;
+
 /// Test world exercising client lifecycle hooks.
 #[derive(Debug, Default, cucumber::World)]
 pub struct ClientLifecycleWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
-    client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, u32>>,
+    client: Option<TestClient>,
     setup_count: Arc<AtomicUsize>,
     teardown_count: Arc<AtomicUsize>,
     teardown_received_state: Arc<AtomicUsize>,
@@ -103,13 +108,7 @@ impl ClientLifecycleWorld {
     ///
     /// Stores the client in `self.client` on success, or the error in `self.last_error`
     /// on failure.
-    fn handle_connection_result(
-        &mut self,
-        result: Result<
-            WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, u32>,
-            ClientError,
-        >,
-    ) {
+    fn handle_connection_result(&mut self, result: Result<TestClient, ClientError>) {
         match result {
             Ok(client) => {
                 self.client = Some(client);
