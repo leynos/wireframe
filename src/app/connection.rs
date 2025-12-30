@@ -9,10 +9,11 @@ use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
     time::{Duration, timeout},
 };
-use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
+use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
     builder::WireframeApp,
+    combined_codec::CombinedCodec,
     envelope::{Envelope, Packet},
     error::SendError,
     fragmentation_state::FragmentationState,
@@ -35,42 +36,6 @@ fn purge_expired(fragmentation: &mut Option<FragmentationState>) {
 
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
-
-struct CombinedCodec<D, E> {
-    decoder: D,
-    encoder: E,
-}
-
-impl<D, E> CombinedCodec<D, E> {
-    fn new(decoder: D, encoder: E) -> Self { Self { decoder, encoder } }
-}
-
-impl<D, E> Decoder for CombinedCodec<D, E>
-where
-    D: Decoder,
-{
-    type Item = D::Item;
-    type Error = D::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        self.decoder.decode(src)
-    }
-
-    fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        self.decoder.decode_eof(src)
-    }
-}
-
-impl<D, E, Item> Encoder<Item> for CombinedCodec<D, E>
-where
-    E: Encoder<Item>,
-{
-    type Error = E::Error;
-
-    fn encode(&mut self, item: Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.encoder.encode(item, dst)
-    }
-}
 
 /// Per-frame processing state bundled for `handle_frame`.
 struct FrameHandlingContext<'a, E, W, F, C>

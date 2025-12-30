@@ -9,13 +9,18 @@
 //! See the `examples/` directory for end-to-end usage.
 
 mod builder;
+mod combined_codec;
 mod connection;
 mod envelope;
 pub mod error;
 pub mod fragment_utils;
 mod fragmentation_state;
 mod frame_handling;
+mod lifecycle;
+mod middleware_types;
 
-pub use builder::{ConnectionSetup, ConnectionTeardown, Handler, Middleware, WireframeApp};
+pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};
 pub use error::{Result, SendError, WireframeError};
+pub use lifecycle::{ConnectionSetup, ConnectionTeardown};
+pub use middleware_types::{Handler, Middleware};

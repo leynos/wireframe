@@ -6,11 +6,8 @@
 
 use std::{
     any::{Any, TypeId},
-    boxed::Box,
     collections::HashMap,
-    future::Future,
     num::NonZeroUsize,
-    pin::Pin,
     sync::Arc,
     time::Duration,
 };
@@ -20,12 +17,14 @@ use tokio::sync::{OnceCell, mpsc};
 use super::{
     envelope::{Envelope, Packet},
     error::{Result, WireframeError},
+    lifecycle::{ConnectionSetup, ConnectionTeardown},
+    middleware_types::{Handler, Middleware},
 };
 use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     fragment::FragmentationConfig,
     hooks::{ProtocolHooks, WireframeProtocol},
-    middleware::{HandlerService, Transform},
+    middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
 };
 
@@ -43,35 +42,6 @@ pub(super) fn default_fragmentation(frame_budget: usize) -> Option<Fragmentation
         FragmentationConfig::for_frame_budget(frame_budget, limit, DEFAULT_FRAGMENT_TIMEOUT)
     })
 }
-/// Callback invoked when a connection is established.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use std::sync::Arc;
-///
-/// use wireframe::app::ConnectionSetup;
-/// let setup: Arc<ConnectionSetup<String>> =
-///     Arc::new(|| Box::pin(async { String::from("hello") }));
-/// ```
-pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync;
-
-/// Callback invoked when a connection is closed.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use std::sync::Arc;
-///
-/// use wireframe::app::ConnectionTeardown;
-/// let teardown: Arc<ConnectionTeardown<String>> = Arc::new(|state| {
-///     Box::pin(async move {
-///         println!("Dropping {state}");
-///     })
-/// });
-/// ```
-pub type ConnectionTeardown<C> =
-    dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes and middleware without enforcing an
@@ -95,22 +65,6 @@ pub struct WireframeApp<
     pub(super) codec: F,
     pub(super) read_timeout_ms: u64,
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
-}
-
-/// Alias for asynchronous route handlers.
-///
-/// A `Handler` wraps an `Arc` to a function returning a [`Future`].
-pub type Handler<E> = Arc<dyn Fn(&E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-
-/// Trait representing middleware components.
-pub trait Middleware<E: Packet>:
-    Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
-{
-}
-
-impl<E: Packet, T> Middleware<E> for T where
-    T: Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
-{
 }
 
 impl<S, C, E, F> Default for WireframeApp<S, C, E, F>
