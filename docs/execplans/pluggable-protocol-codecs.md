@@ -199,7 +199,7 @@ section to locate the failure before retrying.
 - [x] Thread codec through `WireframeApp` and connection handling.
 - [x] Propagate codec type through server APIs.
 - [x] Update documentation for codec defaults and fragmentation behaviour.
-- [ ] Add protocol codec examples (if still in scope).
+- [x] Add protocol codec examples (Hotline and MySQL).
 - [x] Run validation commands and record results.
 
 ## Surprises & Discoveries
@@ -233,7 +233,8 @@ section to locate the failure before retrying.
 ## Outcomes & Retrospective
 
 - Completed framing abstraction and server propagation with full lint/test
-  coverage. Protocol codec examples were not added in this pass.
+  coverage. Added Hotline/MySQL codec examples and a custom codec integration
+  test.
 
 ## Artifacts and Notes
 
