@@ -197,3 +197,178 @@ where
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use bytes::{Buf, BufMut, BytesMut};
+    use futures::StreamExt;
+    use tokio_util::codec::{Decoder, Encoder};
+
+    use super::*;
+    use crate::app::combined_codec::CombinedCodec;
+
+    /// Test codec that wraps payloads with a distinctive tag byte.
+    #[derive(Clone, Debug)]
+    struct TestFrame {
+        tag: u8,
+        payload: Vec<u8>,
+    }
+
+    #[derive(Clone, Debug)]
+    struct TestCodec {
+        max_frame_length: usize,
+    }
+
+    impl TestCodec {
+        fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    }
+
+    #[derive(Clone, Debug)]
+    struct TestAdapter {
+        max_frame_length: usize,
+    }
+
+    impl TestAdapter {
+        fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    }
+
+    impl Decoder for TestAdapter {
+        type Item = TestFrame;
+        type Error = io::Error;
+
+        fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+            const HEADER_LEN: usize = 2;
+            if src.len() < HEADER_LEN {
+                return Ok(None);
+            }
+
+            let mut header = src.as_ref();
+            let tag = header.get_u8();
+            let payload_len = header.get_u8() as usize;
+            if payload_len > self.max_frame_length {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "payload too large",
+                ));
+            }
+            if src.len() < HEADER_LEN + payload_len {
+                return Ok(None);
+            }
+
+            let mut frame_bytes = src.split_to(HEADER_LEN + payload_len);
+            frame_bytes.advance(HEADER_LEN);
+            let payload = frame_bytes.to_vec();
+
+            Ok(Some(TestFrame { tag, payload }))
+        }
+    }
+
+    impl Encoder<TestFrame> for TestAdapter {
+        type Error = io::Error;
+
+        fn encode(&mut self, item: TestFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+            if item.payload.len() > self.max_frame_length {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "payload too large",
+                ));
+            }
+
+            let payload_len = u8::try_from(item.payload.len())
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too long"))?;
+            dst.reserve(2 + item.payload.len());
+            dst.put_u8(item.tag);
+            dst.put_u8(payload_len);
+            dst.extend_from_slice(&item.payload);
+            Ok(())
+        }
+    }
+
+    impl FrameCodec for TestCodec {
+        type Frame = TestFrame;
+        type Decoder = TestAdapter;
+        type Encoder = TestAdapter;
+
+        fn decoder(&self) -> Self::Decoder { TestAdapter::new(self.max_frame_length) }
+
+        fn encoder(&self) -> Self::Encoder { TestAdapter::new(self.max_frame_length) }
+
+        fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
+
+        /// Wraps payload with tag byte 0x42 to verify codec-aware wrapping.
+        fn wrap_payload(payload: Vec<u8>) -> Self::Frame { TestFrame { tag: 0x42, payload } }
+
+        fn correlation_id(frame: &Self::Frame) -> Option<u64> { Some(u64::from(frame.tag)) }
+
+        fn max_frame_length(&self) -> usize { self.max_frame_length }
+    }
+
+    /// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
+    #[tokio::test]
+    async fn send_response_payload_wraps_with_codec() {
+        let codec = TestCodec::new(64);
+        let (client, server) = tokio::io::duplex(256);
+        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let mut framed = Framed::new(server, combined);
+
+        let payload = vec![1, 2, 3, 4];
+        send_response_payload::<TestCodec, _>(&mut framed, payload.clone(), 1, Some(99))
+            .await
+            .expect("send should succeed");
+
+        drop(framed);
+
+        let combined_client = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let mut client_framed = Framed::new(client, combined_client);
+        let frame = client_framed
+            .next()
+            .await
+            .expect("expected a frame")
+            .expect("decode should succeed");
+
+        assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
+        assert_eq!(frame.payload, payload, "payload should match");
+    }
+
+    /// Verify `ResponseContext` fields are accessible and usable.
+    #[tokio::test]
+    async fn response_context_holds_references() {
+        use crate::serializer::BincodeSerializer;
+
+        let codec = TestCodec::new(64);
+        let (_client, server) = tokio::io::duplex(256);
+        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let mut framed = Framed::new(server, combined);
+        let serializer = BincodeSerializer;
+        let mut fragmentation: Option<FragmentationState> = None;
+
+        let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
+            serializer: &serializer,
+            framed: &mut framed,
+            fragmentation: &mut fragmentation,
+        };
+
+        // Verify fields are accessible (compile-time check with runtime assertion)
+        assert!(ctx.fragmentation.is_none());
+    }
+
+    /// Verify `send_response_payload` returns error on send failure.
+    #[tokio::test]
+    async fn send_response_payload_returns_error_on_failure() {
+        let codec = TestCodec::new(4); // Small limit to trigger failure
+        let (_client, server) = tokio::io::duplex(256);
+        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let mut framed = Framed::new(server, combined);
+
+        // Payload exceeds max_frame_length, so encode will fail
+        let oversized_payload = vec![0u8; 100];
+        let result =
+            send_response_payload::<TestCodec, _>(&mut framed, oversized_payload, 1, Some(99))
+                .await;
+
+        assert!(
+            result.is_err(),
+            "expected send to fail for oversized payload"
+        );
+    }
+}
