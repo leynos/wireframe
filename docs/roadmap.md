@@ -403,7 +403,7 @@ integration boundaries.
     logging fields for codec failures.
   - [ ] Define recovery policy hooks for malformed frames (drop, quarantine, or
     disconnect) and document the default behaviour.
-  - [ ] Define how EOF mid-frame is surfaced to handlers or protocol hooks and
+  - [ ] Define how EOF mid-frame is surfaced to handlers or protocol hooks, and
     add tests for partial-frame closure handling.
   - [ ] Add tests that validate error propagation, recovery policy, and
     structured logging fields.
