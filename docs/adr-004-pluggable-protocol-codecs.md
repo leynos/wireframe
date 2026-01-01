@@ -85,7 +85,7 @@ _Table 1: Comparison of framing options._
 ## Decision Outcome / Proposed Direction
 
 Adopt Option B: introduce a `FrameCodec` trait with a default length-delimited
-implementation and make `WireframeApp` generic over a codec type parameter.
+implementation, and make `WireframeApp` generic over a codec type parameter.
 
 Key elements:
 

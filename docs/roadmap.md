@@ -298,7 +298,7 @@ and standardized per-connection memory budgets.
   - [ ] Implement `RequestBodyStream` type alias as a pinned, boxed stream of
     `Result<Bytes, std::io::Error>`.
 
-  - [ ] Add `AsyncRead` adapter for `RequestBodyStream` so protocol crates can
+  - [ ] Add `AsyncRead` adaptor for `RequestBodyStream` so protocol crates can
     reuse existing parsers.
 
   - [ ] Integrate streaming request extraction with the handler dispatch path.
@@ -393,7 +393,7 @@ integration boundaries.
   - [ ] Update the trait to accept `&self` and a `Bytes` payload to reduce
     copies, then document the change in
     `docs/adr-004-pluggable-protocol-codecs.md`.
-  - [ ] Update `LengthDelimitedFrameCodec` and any adapters to use the new
+  - [ ] Update `LengthDelimitedFrameCodec` and any adaptors to use the new
     payload type.
   - [ ] Reuse a per-connection encoder so sequence counters can advance
     deterministically.
@@ -410,12 +410,12 @@ integration boundaries.
 - [ ] 7.6.1.3. Enable zero-copy payload extraction for codecs.
   - [ ] Update `FrameCodec::frame_payload` to return a `Bytes`-backed view (or
     equivalent) without forcing a `Vec<u8>` allocation.
-  - [ ] Update the default codec adapter to avoid `Bytes` to `Vec<u8>` copying
+  - [ ] Update the default codec adaptor to avoid `Bytes` to `Vec<u8>` copying
     on decode.
   - [ ] Add a regression test or benchmark to confirm payloads reuse the
     receive buffer where possible.
 
-### 7.6.2. Fragment adapter alignment
+### 7.6.2. Fragment adaptor alignment
 
 - [ ] 7.6.2.1. Introduce a `FragmentAdapter` trait as described in the
   fragmentation design.[^fragmentation-design] Fragmentation behaviour must
@@ -457,7 +457,7 @@ integration boundaries.
 
 - [ ] 7.6.5.1. Decouple message encoding from `bincode`-specific traits to
   support alternative serializers.[^router-design][^adr-005]
-  - [ ] Introduce a serializer-agnostic message trait or adapter layer for
+  - [ ] Introduce a serializer-agnostic message trait or adaptor layer for
     `Message` types.
   - [ ] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
   - [ ] Define how frame metadata is exposed to the deserialization context to

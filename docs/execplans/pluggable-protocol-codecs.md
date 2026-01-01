@@ -181,7 +181,8 @@ At the end of this work, the following interfaces must exist and be public:
 
 - Builder method:
 
-    pub fn with_codec<F2: FrameCodec>(self, codec: F2) -> WireframeApp<S, C, E, F2>
+    pub fn with_codec<F2: FrameCodec>(self, codec: F2)
+        -> WireframeApp<S, C, E, F2>
 
 Document any new helper methods for framed responses, such as
 `send_response_framed_with_codec`, when added to support custom codecs.
@@ -224,9 +225,9 @@ section to locate the failure before retrying.
   Rationale: Simplifies type plumbing and removes unnecessary generic
   parameters in connection handling. Date/Author: 2025-12-30 (Codex).
 - Decision: Use `Bytes` frames for `LengthDelimitedFrameCodec` to align with
-  `LengthDelimitedCodec` and avoid extra copies. Rationale: Avoids an adapter
+  `LengthDelimitedCodec` and avoid extra copies. Rationale: Avoids an adaptor
   layer and enables zero-copy payload handling. Date/Author: 2025-12-30 (Codex).
-- Decision: Add `send_response_framed_with_codec` for custom codecs and keep
+- Decision: Add `send_response_framed_with_codec` for custom codecs, and keep
   `send_response_framed` for the length-delimited default. Rationale: Maintains
   backward compatibility while enabling custom framing. Date/Author: 2025-12-30
   (Codex).

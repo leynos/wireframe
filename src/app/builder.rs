@@ -27,6 +27,62 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
+/// Fields preserved across type-transitioning builder methods.
+///
+/// Used by [`WireframeApp::with_codec`] and [`WireframeApp::serializer`] to
+/// avoid duplicating the struct reconstruction logic.
+struct PreservedFields<C, E>
+where
+    C: Send + 'static,
+    E: Packet,
+{
+    handlers: HashMap<u32, Handler<E>>,
+    middleware: Vec<Box<dyn Middleware<E>>>,
+    app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    on_connect: Option<Arc<ConnectionSetup<C>>>,
+    on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
+    push_dlq: Option<mpsc::Sender<Vec<u8>>>,
+    read_timeout_ms: u64,
+}
+
+impl<C, E> PreservedFields<C, E>
+where
+    C: Send + 'static,
+    E: Packet,
+{
+    /// Reconstruct a [`WireframeApp`] from preserved fields plus new components.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "internal helper grouping fields for type-transitioning builders"
+    )]
+    fn into_app<S, F>(
+        self,
+        serializer: S,
+        codec: F,
+        protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+        fragmentation: Option<FragmentationConfig>,
+    ) -> WireframeApp<S, C, E, F>
+    where
+        S: Serializer + Send + Sync,
+        F: FrameCodec,
+    {
+        WireframeApp {
+            handlers: self.handlers,
+            routes: OnceCell::new(),
+            middleware: self.middleware,
+            serializer,
+            app_data: self.app_data,
+            on_connect: self.on_connect,
+            on_disconnect: self.on_disconnect,
+            protocol,
+            push_dlq: self.push_dlq,
+            codec,
+            read_timeout_ms: self.read_timeout_ms,
+            fragmentation,
+        }
+    }
+}
+
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes and middleware without enforcing an
@@ -124,6 +180,19 @@ where
     E: Packet,
     F: FrameCodec,
 {
+    /// Extract fields preserved across type-transitioning builder methods.
+    fn into_preserved(self) -> PreservedFields<C, E> {
+        PreservedFields {
+            handlers: self.handlers,
+            middleware: self.middleware,
+            app_data: self.app_data,
+            on_connect: self.on_connect,
+            on_disconnect: self.on_disconnect,
+            push_dlq: self.push_dlq,
+            read_timeout_ms: self.read_timeout_ms,
+        }
+    }
+
     /// Replace the frame codec used for framing I/O.
     ///
     /// This resets any installed protocol hooks because the frame type may
@@ -136,30 +205,8 @@ where
     {
         let fragmentation = default_fragmentation(codec.max_frame_length());
         let serializer = std::mem::take(&mut self.serializer);
-        let WireframeApp {
-            handlers,
-            middleware,
-            app_data,
-            on_connect,
-            on_disconnect,
-            push_dlq,
-            read_timeout_ms,
-            ..
-        } = self;
-        WireframeApp {
-            handlers,
-            routes: OnceCell::new(),
-            middleware,
-            serializer,
-            app_data,
-            on_connect,
-            on_disconnect,
-            protocol: None,
-            push_dlq,
-            codec,
-            read_timeout_ms,
-            fragmentation,
-        }
+        self.into_preserved()
+            .into_app(serializer, codec, None, fragmentation)
     }
 
     /// Register a route that maps `id` to `handler`.
@@ -336,30 +383,8 @@ where
         let codec = std::mem::take(&mut self.codec);
         let protocol = self.protocol.take();
         let fragmentation = self.fragmentation.take();
-        let WireframeApp {
-            handlers,
-            middleware,
-            app_data,
-            on_connect,
-            on_disconnect,
-            push_dlq,
-            read_timeout_ms,
-            ..
-        } = self;
-        WireframeApp {
-            handlers,
-            routes: OnceCell::new(),
-            middleware,
-            serializer,
-            app_data,
-            on_connect,
-            on_disconnect,
-            protocol,
-            push_dlq,
-            codec,
-            read_timeout_ms,
-            fragmentation,
-        }
+        self.into_preserved()
+            .into_app(serializer, codec, protocol, fragmentation)
     }
 
     /// Configure the read timeout in milliseconds.

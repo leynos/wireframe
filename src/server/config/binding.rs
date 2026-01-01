@@ -16,7 +16,7 @@ use crate::{
     server::{Bound, ServerError},
 };
 
-/// Helper trait alias for wireframe factory functions
+/// Trait alias for wireframe factory functions.
 trait WireframeFactory<Ser, Ctx, E, Codec>:
     Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static
 where
