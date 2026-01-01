@@ -209,16 +209,16 @@ impl Encoder<MysqlFrame> for MysqlAdapter {
             ));
         }
 
-        let payload_len = u32::try_from(payload_len)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too long"))?;
-        let len_lo = u8::try_from(payload_len & 0xff)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too long"))?;
-        let len_mid = u8::try_from((payload_len >> 8) & 0xff)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too long"))?;
-        let len_hi = u8::try_from((payload_len >> 16) & 0xff)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too long"))?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "bounded by 0xff_ff_ff check above"
+        )]
+        let payload_len_u32 = payload_len as u32;
+        let len_lo = (payload_len_u32 & 0xff) as u8;
+        let len_mid = ((payload_len_u32 >> 8) & 0xff) as u8;
+        let len_hi = ((payload_len_u32 >> 16) & 0xff) as u8;
 
-        dst.reserve(HEADER_LEN + payload_len as usize);
+        dst.reserve(HEADER_LEN + payload_len);
         dst.put_u8(len_lo);
         dst.put_u8(len_mid);
         dst.put_u8(len_hi);

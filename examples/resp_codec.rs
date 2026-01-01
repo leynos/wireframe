@@ -13,6 +13,13 @@
 use std::{io, str};
 
 use bytes::{Buf, BufMut, BytesMut};
+
+/// Maximum number of elements permitted in a RESP array.
+///
+/// This limit prevents allocation-based denial-of-service attacks where a
+/// malicious client sends a large array count to trigger excessive memory
+/// allocation before any payload bytes are validated.
+const MAX_ARRAY_ELEMENTS: usize = 1024;
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
     BincodeSerializer,
@@ -271,10 +278,13 @@ fn parse_array(
     }
     let count = usize::try_from(count)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "array too large"))?;
-    if count > max_frame_length {
+    // Limit element count to prevent allocation-based DoS. The cumulative
+    // byte validation at the end of this function enforces the actual
+    // byte-budget constraint.
+    if count > MAX_ARRAY_ELEMENTS {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "array too large",
+            "array element count exceeds limit",
         ));
     }
     let mut frames = Vec::with_capacity(count);
@@ -400,7 +410,8 @@ fn encode_frame(frame: &RespFrame, dst: &mut BytesMut) -> Result<(), io::Error> 
         }
         RespFrame::Integer(value) => {
             dst.put_u8(b':');
-            dst.extend_from_slice(value.to_string().as_bytes());
+            let mut buf = itoa::Buffer::new();
+            dst.extend_from_slice(buf.format(*value).as_bytes());
             dst.extend_from_slice(b"\r\n");
         }
         RespFrame::BulkString(None) => {
