@@ -419,14 +419,16 @@ fn encode_frame(frame: &RespFrame, dst: &mut BytesMut) -> Result<(), io::Error> 
         }
         RespFrame::BulkString(Some(data)) => {
             dst.put_u8(b'$');
-            dst.extend_from_slice(data.len().to_string().as_bytes());
+            let mut buf = itoa::Buffer::new();
+            dst.extend_from_slice(buf.format(data.len()).as_bytes());
             dst.extend_from_slice(b"\r\n");
             dst.extend_from_slice(data);
             dst.extend_from_slice(b"\r\n");
         }
         RespFrame::Array(items) => {
             dst.put_u8(b'*');
-            dst.extend_from_slice(items.len().to_string().as_bytes());
+            let mut buf = itoa::Buffer::new();
+            dst.extend_from_slice(buf.format(items.len()).as_bytes());
             dst.extend_from_slice(b"\r\n");
             for item in items {
                 encode_frame(item, dst)?;
