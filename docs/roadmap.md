@@ -395,7 +395,7 @@ integration boundaries.
     `docs/adr-004-pluggable-protocol-codecs.md`.
   - [ ] Update `LengthDelimitedFrameCodec` and any adaptors to use the new
     payload type.
-  - [ ] Reuse a per-connection encoder so sequence counters can advance
+  - [ ] Reuse a per-connection encoder, so sequence counters can advance
     deterministically.
 - [ ] 7.6.1.2. Introduce a `CodecError` taxonomy.
   - [ ] Add a `CodecError` enum separating framing, protocol, and IO failures.
@@ -423,7 +423,7 @@ integration boundaries.
   purge scheduling.
   - [ ] Make fragmentation opt-in by requiring explicit configuration on the
     `WireframeApp` builder.
-  - [ ] Expose a public purge API so callers can drive timeout eviction.
+  - [ ] Expose a public purge API, so callers can drive timeout eviction.
   - [ ] Document the composition order for codec, fragmentation, and
     serialization layers.
   - [ ] Define and implement duplicate suppression and out-of-order handling

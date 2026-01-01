@@ -161,9 +161,9 @@ pub trait FrameCodec: Send + Sync + 'static {
 
 ### Phase 2: Parameterize `WireframeApp` (breaking change)
 
-- Add `F: FrameCodec = LengthDelimitedFrameCodec` to `WireframeApp`.
+- Introduce `F: FrameCodec = LengthDelimitedFrameCodec` to `WireframeApp`.
 - Add a `codec: F` field and update the default implementation.
-- Add `.with_codec()` for builder ergonomics.
+- Provide `.with_codec()` for builder ergonomics.
 
 ### Phase 3: Update connection handling
 
