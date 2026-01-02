@@ -12,13 +12,15 @@ use tokio::{
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
-    builder::{WireframeApp, default_fragmentation},
+    builder::WireframeApp,
+    combined_codec::{CombinedCodec, ConnectionCodec},
     envelope::{Envelope, Packet},
     error::SendError,
     fragmentation_state::FragmentationState,
     frame_handling,
 };
 use crate::{
+    codec::{FrameCodec, LengthDelimitedFrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
     fragment::FragmentationConfig,
     frame::FrameMetadata,
     message::Message,
@@ -36,38 +38,28 @@ fn purge_expired(fragmentation: &mut Option<FragmentationState>) {
 const MAX_DESER_FAILURES: u32 = 10;
 
 /// Per-frame processing state bundled for `handle_frame`.
-struct FrameHandlingContext<'a, E, W>
+struct FrameHandlingContext<'a, E, W, F>
 where
     E: Packet,
     W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
 {
-    framed: &'a mut Framed<W, LengthDelimitedCodec>,
+    framed: &'a mut Framed<W, ConnectionCodec<F>>,
     deser_failures: &'a mut u32,
     routes: &'a HashMap<u32, HandlerService<E>>,
     fragmentation: &'a mut Option<FragmentationState>,
 }
 
-impl<S, C, E> WireframeApp<S, C, E>
+impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
     S: Serializer + Send + Sync,
     C: Send + 'static,
     E: Packet,
+    F: FrameCodec,
 {
-    /// Construct a length-delimited codec capped by the application's buffer
-    /// capacity.
-    #[must_use]
-    pub fn length_codec(&self) -> LengthDelimitedCodec {
-        LengthDelimitedCodec::builder()
-            .max_frame_length(self.buffer_capacity)
-            .new_codec()
-    }
+    fn fragmentation_config(&self) -> Option<FragmentationConfig> { self.fragmentation }
 
-    fn fragmentation_config(&self) -> Option<FragmentationConfig> {
-        self.fragmentation
-            .or_else(|| default_fragmentation(self.buffer_capacity))
-    }
-
-    /// Serialize `msg` and write it to `stream` using a length-delimited codec.
+    /// Serialize `msg` and write it to `stream` using the configured codec.
     ///
     /// # Errors
     ///
@@ -85,13 +77,57 @@ where
             .serializer
             .serialize(msg)
             .map_err(SendError::Serialize)?;
-        let mut codec = self.length_codec();
-        let mut framed = BytesMut::with_capacity(bytes.len() + 4);
-        codec
-            .encode(bytes.into(), &mut framed)
-            .map_err(|e| SendError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;
-        stream.write_all(&framed).await.map_err(SendError::Io)?;
+        let payload_len = bytes.len();
+        let frame = F::wrap_payload(bytes);
+        let mut encoder = self.codec.encoder();
+        let mut encoded_buf = BytesMut::with_capacity(payload_len);
+        encoder
+            .encode(frame, &mut encoded_buf)
+            .map_err(SendError::Io)?;
+        stream
+            .write_all(&encoded_buf)
+            .await
+            .map_err(SendError::Io)?;
         stream.flush().await.map_err(SendError::Io)
+    }
+
+    /// Serialize `msg` and send it through an existing framed stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SendError`] if serialization or sending fails.
+    pub async fn send_response_framed_with_codec<W, M, Cc>(
+        &self,
+        framed: &mut Framed<W, Cc>,
+        msg: &M,
+    ) -> std::result::Result<(), SendError>
+    where
+        W: AsyncRead + AsyncWrite + Unpin,
+        M: Message,
+        Cc: Encoder<F::Frame, Error = io::Error>,
+    {
+        let bytes = self
+            .serializer
+            .serialize(msg)
+            .map_err(SendError::Serialize)?;
+        let frame = F::wrap_payload(bytes);
+        framed.send(frame).await.map_err(SendError::Io)
+    }
+}
+
+impl<S, C, E> WireframeApp<S, C, E, LengthDelimitedFrameCodec>
+where
+    S: Serializer + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+{
+    /// Construct a length-delimited codec capped by the application's buffer
+    /// capacity.
+    #[must_use]
+    pub fn length_codec(&self) -> LengthDelimitedCodec {
+        LengthDelimitedCodec::builder()
+            .max_frame_length(self.codec.max_frame_length())
+            .new_codec()
     }
 
     /// Serialize `msg` and send it through an existing framed stream.
@@ -116,22 +152,23 @@ where
     }
 }
 
-impl<S, C, E> WireframeApp<S, C, E>
+impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     C: Send + 'static,
     E: Packet,
+    F: FrameCodec,
 {
     /// Try parsing the frame using [`FrameMetadata::parse`], falling back to
     /// full deserialization on failure.
     fn parse_envelope(
         &self,
-        frame: &[u8],
+        payload: &[u8],
     ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
         self.serializer
-            .parse(frame)
+            .parse(payload)
             .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
-            .or_else(|_| self.serializer.deserialize::<Envelope>(frame))
+            .or_else(|_| self.serializer.deserialize::<Envelope>(payload))
     }
 
     /// Handle an accepted connection end-to-end, returning any processing error.
@@ -203,18 +240,26 @@ where
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
-        let codec = self.length_codec();
+        let codec = CombinedCodec::new(self.codec.decoder(), self.codec.encoder());
         let mut framed = Framed::new(stream, codec);
-        framed.read_buffer_mut().reserve(self.buffer_capacity);
+        let requested_frame_length = self.codec.max_frame_length();
+        let max_frame_length = clamp_frame_length(requested_frame_length);
+        if requested_frame_length > MAX_FRAME_LENGTH {
+            warn!(
+                "codec max frame length exceeds guardrail; clamping to {MAX_FRAME_LENGTH} bytes \
+                 (requested={requested_frame_length})"
+            );
+        }
+        framed.read_buffer_mut().reserve(max_frame_length);
         let mut deser_failures = 0u32;
         let mut fragmentation = self.fragmentation_config().map(FragmentationState::new);
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
             match timeout(timeout_dur, framed.next()).await {
-                Ok(Some(Ok(buf))) => {
+                Ok(Some(Ok(frame))) => {
                     self.handle_frame(
-                        buf.as_ref(),
+                        &frame,
                         FrameHandlingContext {
                             framed: &mut framed,
                             deser_failures: &mut deser_failures,
@@ -238,8 +283,8 @@ where
 
     async fn handle_frame<W>(
         &self,
-        frame: &[u8],
-        ctx: FrameHandlingContext<'_, E, W>,
+        frame: &F::Frame,
+        ctx: FrameHandlingContext<'_, E, W, F>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
@@ -269,7 +314,7 @@ where
             frame_handling::forward_response(
                 env,
                 service,
-                frame_handling::ResponseContext {
+                frame_handling::ResponseContext::<S, W, F> {
                     serializer: &self.serializer,
                     framed,
                     fragmentation,
@@ -289,11 +334,12 @@ where
     /// Increment deserialization failures and close the connection if the threshold is exceeded.
     fn handle_decode_failure(
         deser_failures: &mut u32,
+        correlation_id: Option<u64>,
         context: &str,
         err: impl std::fmt::Debug,
     ) -> Result<Option<Envelope>, io::Error> {
         *deser_failures += 1;
-        warn!("{context}: correlation_id={:?}, error={err:?}", None::<u64>);
+        warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
         crate::metrics::inc_deser_errors();
         if *deser_failures >= MAX_DESER_FAILURES {
             warn!("closing connection after {deser_failures} deserialization failures: {context}");
@@ -307,17 +353,29 @@ where
 
     fn decode_envelope(
         &self,
-        frame: &[u8],
+        frame: &F::Frame,
         deser_failures: &mut u32,
     ) -> Result<Option<Envelope>, io::Error> {
-        match self.parse_envelope(frame) {
-            Ok((env, _)) => {
+        match self.parse_envelope(F::frame_payload(frame)) {
+            Ok((mut env, _)) => {
+                if env.correlation_id.is_none() {
+                    env.correlation_id = F::correlation_id(frame);
+                }
                 *deser_failures = 0;
                 Ok(Some(env))
             }
             Err(err) => {
-                Self::handle_decode_failure(deser_failures, "failed to decode message", err)
+                let correlation_id = F::correlation_id(frame);
+                Self::handle_decode_failure(
+                    deser_failures,
+                    correlation_id,
+                    "failed to decode message",
+                    err,
+                )
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

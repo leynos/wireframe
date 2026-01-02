@@ -101,18 +101,21 @@ async fn main() -> Result<(), ServerError> {
 Route identifiers must be unique; the builder returns
 `WireframeError::DuplicateRoute` when a handler is registered twice, keeping
 the dispatch table unambiguous.[^2][^5] New applications default to the bundled
-bincode serializer, a 1024-byte frame buffer, and a 100 ms read timeout. Clamp
-these limits with `buffer_capacity` and `read_timeout_ms`, or swap the
-serializer with `with_serializer` when a different encoding strategy is
-required.[^3][^4]
+bincode serializer, a length-delimited codec capped at 1024 bytes per frame,
+and a 100 ms read timeout. Clamp the length-delimited limit with
+`buffer_capacity` (length-delimited only), swap codecs with `with_codec`, and
+override the serializer with `with_serializer` when a different encoding
+strategy is required.[^3][^4] Custom protocols implement `FrameCodec` to
+describe their framing rules.
 
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
-chain, wraps the transport in a length-delimited codec, enforces per-frame read
-timeouts, and writes responses. Serialization helpers `send_response` and
-`send_response_framed` return typed `SendError` variants when encoding or I/O
-fails, and the connection closes after ten consecutive deserialization
-errors.[^6][^7]
+chain, wraps the transport in the configured frame codec (length-delimited by
+default), enforces per-frame read timeouts, and writes responses. Serialization
+helpers `send_response` and `send_response_framed` (or
+`send_response_framed_with_codec` for custom codecs) return typed `SendError`
+variants when encoding or I/O fails, and the connection closes after ten
+consecutive deserialization errors.[^6][^7]
 
 ## Packets, payloads, and serialization
 
@@ -336,11 +339,12 @@ async fn main() -> Result<(), SendError> {
 ## Message fragmentation
 
 `WireframeApp` now fragments oversized payloads automatically. The builder
-derives a `FragmentationConfig` from `buffer_capacity`: any payload that will
-not fit into a single frame is split into fragments carrying a `FragmentHeader`
-(`message_id`, `fragment_index`, `is_last_fragment`) wrapped with the `FRAG`
-marker. The connection reassembles fragments before invoking handlers, so
-handlers continue to work with complete `Envelope` values.[^6]
+derives a `FragmentationConfig` from the active frame codec's maximum frame
+length (the default length-delimited codec uses `buffer_capacity`): any payload
+that will not fit into a single frame is split into fragments carrying a
+`FragmentHeader` (`message_id`, `fragment_index`, `is_last_fragment`) wrapped
+with the `FRAG` marker. The connection reassembles fragments before invoking
+handlers, so handlers continue to work with complete `Envelope` values.[^6]
 
 Fragmented messages enforce two guards: `max_message_size` caps the total
 reassembled payload, and `reassembly_timeout` evicts stale partial messages.

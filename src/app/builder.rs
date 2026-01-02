@@ -6,71 +6,27 @@
 
 use std::{
     any::{Any, TypeId},
-    boxed::Box,
     collections::HashMap,
-    future::Future,
-    num::NonZeroUsize,
-    pin::Pin,
     sync::Arc,
-    time::Duration,
 };
 
 use tokio::sync::{OnceCell, mpsc};
 
 use super::{
+    builder_defaults::{MAX_READ_TIMEOUT_MS, MIN_READ_TIMEOUT_MS, default_fragmentation},
     envelope::{Envelope, Packet},
     error::{Result, WireframeError},
+    lifecycle::{ConnectionSetup, ConnectionTeardown},
+    middleware_types::{Handler, Middleware},
 };
 use crate::{
+    codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     fragment::FragmentationConfig,
     hooks::{ProtocolHooks, WireframeProtocol},
-    middleware::{HandlerService, Transform},
+    middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
 };
 
-const MIN_BUFFER_CAP: usize = 64;
-const MAX_BUFFER_CAP: usize = 16 * 1024 * 1024;
-const MIN_READ_TIMEOUT_MS: u64 = 1;
-const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
-const DEFAULT_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(30);
-const DEFAULT_MESSAGE_SIZE_MULTIPLIER: usize = 16;
-
-pub(super) fn default_fragmentation(capacity: usize) -> Option<FragmentationConfig> {
-    let max_message = NonZeroUsize::new(capacity.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
-        .or_else(|| NonZeroUsize::new(capacity));
-    max_message.and_then(|limit| {
-        FragmentationConfig::for_frame_budget(capacity, limit, DEFAULT_FRAGMENT_TIMEOUT)
-    })
-}
-/// Callback invoked when a connection is established.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use std::sync::Arc;
-///
-/// use wireframe::app::ConnectionSetup;
-/// let setup: Arc<ConnectionSetup<String>> =
-///     Arc::new(|| Box::pin(async { String::from("hello") }));
-/// ```
-pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync;
-
-/// Callback invoked when a connection is closed.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use std::sync::Arc;
-///
-/// use wireframe::app::ConnectionTeardown;
-/// let teardown: Arc<ConnectionTeardown<String>> = Arc::new(|state| {
-///     Box::pin(async move {
-///         println!("Dropping {state}");
-///     })
-/// });
-/// ```
-pub type ConnectionTeardown<C> =
-    dyn Fn(C) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 /// Configures routing and middleware for a `WireframeServer`.
 ///
 /// The builder stores registered routes and middleware without enforcing an
@@ -80,6 +36,7 @@ pub struct WireframeApp<
     S: Serializer + Send + Sync = BincodeSerializer,
     C: Send + 'static = (),
     E: Packet = Envelope,
+    F: FrameCodec = LengthDelimitedFrameCodec,
 > {
     pub(super) handlers: HashMap<u32, Handler<E>>,
     pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
@@ -88,38 +45,25 @@ pub struct WireframeApp<
     pub(super) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     pub(super) on_connect: Option<Arc<ConnectionSetup<C>>>,
     pub(super) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
-    pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()>>>,
+    pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     pub(super) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
-    pub(super) buffer_capacity: usize,
+    pub(super) codec: F,
     pub(super) read_timeout_ms: u64,
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
 }
 
-/// Alias for asynchronous route handlers.
-///
-/// A `Handler` wraps an `Arc` to a function returning a [`Future`].
-pub type Handler<E> = Arc<dyn Fn(&E) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-
-/// Trait representing middleware components.
-pub trait Middleware<E: Packet>:
-    Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
-{
-}
-
-impl<E: Packet, T> Middleware<E> for T where
-    T: Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
-{
-}
-
-impl<S, C, E> Default for WireframeApp<S, C, E>
+impl<S, C, E, F> Default for WireframeApp<S, C, E, F>
 where
     S: Serializer + Default + Send + Sync,
     C: Send + 'static,
     E: Packet,
+    F: FrameCodec + Default,
 {
-    /// Initialises empty routes, middleware, and application data with the
+    /// Initializes empty routes, middleware, and application data with the
     /// default serializer and no lifecycle hooks.
     fn default() -> Self {
+        let codec = F::default();
+        let max_frame_length = codec.max_frame_length();
         Self {
             handlers: HashMap::new(),
             routes: OnceCell::new(),
@@ -130,18 +74,19 @@ where
             on_disconnect: None,
             protocol: None,
             push_dlq: None,
-            buffer_capacity: 1024,
+            codec,
             read_timeout_ms: 100,
-            fragmentation: default_fragmentation(1024),
+            fragmentation: default_fragmentation(max_frame_length),
         }
     }
 }
 
-impl<S, C, E> WireframeApp<S, C, E>
+impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
     S: Serializer + Default + Send + Sync,
     C: Send + 'static,
     E: Packet,
+    F: FrameCodec + Default,
 {
     /// Construct a new empty application builder.
     ///
@@ -154,17 +99,10 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialise app");
+    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialize app");
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
-}
 
-impl<S, C, E> WireframeApp<S, C, E>
-where
-    S: Serializer + Default + Send + Sync,
-    C: Send + 'static,
-    E: Packet,
-{
     /// Construct a new application builder using the provided serializer.
     ///
     /// # Errors
@@ -176,6 +114,64 @@ where
             serializer,
             ..Self::default()
         })
+    }
+}
+
+impl<S, C, E, F> WireframeApp<S, C, E, F>
+where
+    S: Serializer + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+{
+    /// Helper to rebuild the app when changing type parameters.
+    ///
+    /// This centralises the field-by-field reconstruction required when
+    /// transforming between different serializer or codec types.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "internal helper grouping fields for type-transitioning builders"
+    )]
+    fn rebuild_with_params<S2, F2>(
+        self,
+        serializer: S2,
+        codec: F2,
+        protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
+        fragmentation: Option<FragmentationConfig>,
+    ) -> WireframeApp<S2, C, E, F2>
+    where
+        S2: Serializer + Send + Sync,
+        F2: FrameCodec,
+    {
+        WireframeApp {
+            handlers: self.handlers,
+            routes: OnceCell::new(),
+            middleware: self.middleware,
+            serializer,
+            app_data: self.app_data,
+            on_connect: self.on_connect,
+            on_disconnect: self.on_disconnect,
+            protocol,
+            push_dlq: self.push_dlq,
+            codec,
+            read_timeout_ms: self.read_timeout_ms,
+            fragmentation,
+        }
+    }
+
+    /// Replace the frame codec used for framing I/O.
+    ///
+    /// This resets any installed protocol hooks because the frame type may
+    /// change across codecs. Fragmentation configuration is reset to the
+    /// codec-derived default.
+    #[must_use]
+    pub fn with_codec<F2: FrameCodec>(mut self, codec: F2) -> WireframeApp<S, C, E, F2>
+    where
+        S: Default,
+    {
+        let fragmentation = default_fragmentation(codec.max_frame_length());
+        let serializer = std::mem::take(&mut self.serializer);
+        self.rebuild_with_params(serializer, codec, None, fragmentation)
     }
 
     /// Register a route that maps `id` to `handler`.
@@ -239,9 +235,12 @@ where
     ///
     /// This function always succeeds currently but uses [`Result`] for
     /// consistency with other builder methods.
-    pub fn on_connection_setup<F, Fut, C2>(self, f: F) -> Result<WireframeApp<S, C2, E>>
+    pub fn on_connection_setup<SetupFn, Fut, C2>(
+        self,
+        f: SetupFn,
+    ) -> Result<WireframeApp<S, C2, E, F>>
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
+        SetupFn: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = C2> + Send + 'static,
         C2: Send + 'static,
     {
@@ -255,7 +254,7 @@ where
             on_disconnect: None,
             protocol: self.protocol,
             push_dlq: self.push_dlq,
-            buffer_capacity: self.buffer_capacity,
+            codec: self.codec,
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: self.fragmentation,
         })
@@ -270,9 +269,9 @@ where
     ///
     /// This function always succeeds currently but uses [`Result`] for
     /// consistency with other builder methods.
-    pub fn on_connection_teardown<F, Fut>(mut self, f: F) -> Result<Self>
+    pub fn on_connection_teardown<TeardownFn, Fut>(mut self, f: TeardownFn) -> Result<Self>
     where
-        F: Fn(C) -> Fut + Send + Sync + 'static,
+        TeardownFn: Fn(C) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         self.on_disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
@@ -287,7 +286,7 @@ where
     #[must_use]
     pub fn with_protocol<P>(self, protocol: P) -> Self
     where
-        P: WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()> + 'static,
+        P: WireframeProtocol<Frame = F::Frame, ProtocolError = ()> + 'static,
     {
         WireframeApp {
             protocol: Some(Arc::new(protocol)),
@@ -324,7 +323,7 @@ where
     #[must_use]
     pub fn protocol(
         &self,
-    ) -> Option<Arc<dyn WireframeProtocol<Frame = Vec<u8>, ProtocolError = ()>>> {
+    ) -> Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>> {
         self.protocol.clone()
     }
 
@@ -332,7 +331,7 @@ where
     ///
     /// If no protocol is installed, returns default (no-op) hooks.
     #[must_use]
-    pub fn protocol_hooks(&self) -> ProtocolHooks<Vec<u8>, ()> {
+    pub fn protocol_hooks(&self) -> ProtocolHooks<F::Frame, ()> {
         self.protocol
             .as_ref()
             .map(ProtocolHooks::from_protocol)
@@ -341,33 +340,15 @@ where
 
     /// Replace the serializer used for messages.
     #[must_use]
-    pub fn serializer<Ser>(self, serializer: Ser) -> WireframeApp<Ser, C, E>
+    pub fn serializer<Ser>(mut self, serializer: Ser) -> WireframeApp<Ser, C, E, F>
     where
         Ser: Serializer + Send + Sync,
+        F: Default,
     {
-        WireframeApp {
-            handlers: self.handlers,
-            routes: OnceCell::new(),
-            middleware: self.middleware,
-            serializer,
-            app_data: self.app_data,
-            on_connect: self.on_connect,
-            on_disconnect: self.on_disconnect,
-            protocol: self.protocol,
-            push_dlq: self.push_dlq,
-            buffer_capacity: self.buffer_capacity,
-            read_timeout_ms: self.read_timeout_ms,
-            fragmentation: self.fragmentation,
-        }
-    }
-
-    /// Set the initial buffer capacity for framed reads.
-    /// Clamped between 64 bytes and 16 MiB.
-    #[must_use]
-    pub fn buffer_capacity(mut self, capacity: usize) -> Self {
-        self.buffer_capacity = capacity.clamp(MIN_BUFFER_CAP, MAX_BUFFER_CAP);
-        self.fragmentation = default_fragmentation(self.buffer_capacity);
-        self
+        let codec = std::mem::take(&mut self.codec);
+        let protocol = self.protocol.take();
+        let fragmentation = self.fragmentation.take();
+        self.rebuild_with_params(serializer, codec, protocol, fragmentation)
     }
 
     /// Configure the read timeout in milliseconds.
@@ -384,6 +365,23 @@ where
     #[must_use]
     pub fn fragmentation(mut self, config: Option<FragmentationConfig>) -> Self {
         self.fragmentation = config;
+        self
+    }
+}
+
+impl<S, C, E> WireframeApp<S, C, E, LengthDelimitedFrameCodec>
+where
+    S: Serializer + Default + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+{
+    /// Set the initial buffer capacity for framed reads.
+    /// Clamped between 64 bytes and 16 MiB.
+    #[must_use]
+    pub fn buffer_capacity(mut self, capacity: usize) -> Self {
+        let capacity = clamp_frame_length(capacity);
+        self.codec = LengthDelimitedFrameCodec::new(capacity);
+        self.fragmentation = default_fragmentation(capacity);
         self
     }
 }

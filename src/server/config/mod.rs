@@ -14,7 +14,12 @@ use core::marker::PhantomData;
 use tokio::sync::oneshot;
 
 use super::{BackoffConfig, ServerState, Unbound, WireframeServer};
-use crate::{app::WireframeApp, preamble::Preamble};
+use crate::{
+    app::{Packet, WireframeApp},
+    codec::FrameCodec,
+    preamble::Preamble,
+    serializer::Serializer,
+};
 
 macro_rules! builder_setter {
     ($(#[$meta:meta])* $fn:ident, $field:ident, $arg:ident: $ty:ty => $assign:expr) => {
@@ -44,9 +49,13 @@ macro_rules! builder_callback {
 pub mod binding;
 pub mod preamble;
 
-impl<F> WireframeServer<F, (), Unbound>
+impl<F, Ser, Ctx, E, Codec> WireframeServer<F, (), Unbound, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     /// Create a new `WireframeServer` from the given application factory.
     ///
@@ -76,16 +85,21 @@ where
             backoff_config: BackoffConfig::default(),
             preamble_timeout: None,
             state: Unbound,
+            _app: PhantomData,
             _preamble: PhantomData,
         }
     }
 }
 
-impl<F, T, S> WireframeServer<F, T, S>
+impl<F, T, S, Ser, Ctx, E, Codec> WireframeServer<F, T, S, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
     T: Preamble,
     S: ServerState,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     builder_setter!(
         /// Set the number of worker tasks to spawn for the server.

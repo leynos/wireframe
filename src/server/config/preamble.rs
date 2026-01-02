@@ -8,16 +8,22 @@ use futures::future::BoxFuture;
 
 use super::WireframeServer;
 use crate::{
-    app::WireframeApp,
+    app::{Packet, WireframeApp},
+    codec::FrameCodec,
     preamble::Preamble,
+    serializer::Serializer,
     server::{PreambleSuccessHandler, ServerState},
 };
 
-impl<F, T, S> WireframeServer<F, T, S>
+impl<F, T, S, Ser, Ctx, E, Codec> WireframeServer<F, T, S, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
     T: Preamble,
     S: ServerState,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
 {
     /// Converts the server to use a custom preamble type implementing
     /// [`crate::preamble::Preamble`] for incoming connections.
@@ -38,7 +44,7 @@ where
     /// let server = WireframeServer::new(|| WireframeApp::default()).with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
-    pub fn with_preamble<P>(self) -> WireframeServer<F, P, S>
+    pub fn with_preamble<P>(self) -> WireframeServer<F, P, S, Ser, Ctx, E, Codec>
     where
         P: Preamble,
     {
@@ -51,6 +57,7 @@ where
             backoff_config: self.backoff_config,
             preamble_timeout: self.preamble_timeout,
             state: self.state,
+            _app: self._app,
             _preamble: PhantomData,
         }
     }

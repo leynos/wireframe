@@ -2987,6 +2987,7 @@ dependencies = [
  "dashmap",
  "derive_more 2.0.1",
  "futures",
+ "itoa",
  "leaky-bucket",
  "log",
  "logtest",
