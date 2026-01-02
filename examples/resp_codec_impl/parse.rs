@@ -27,16 +27,31 @@ pub fn parse_frame(
     parse_frame_at(buf, 0, max_frame_length, 0)
 }
 
+/// Parse a line and convert to UTF-8.
+fn parse_text_line<'a>(
+    buf: &'a BytesMut,
+    start: usize,
+    max_frame_length: usize,
+    error_msg: &str,
+) -> Result<Option<(&'a str, usize)>, io::Error> {
+    let Some((line, next)) = parse_line(buf, start + 1, max_frame_length)? else {
+        return Ok(None);
+    };
+    let text =
+        str::from_utf8(line).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, error_msg))?;
+    Ok(Some((text, next)))
+}
+
 fn parse_simple_string(
     buf: &BytesMut,
     start: usize,
     max_frame_length: usize,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
-    let Some((line, next)) = parse_line(buf, start + 1, max_frame_length)? else {
+    let Some((text, next)) =
+        parse_text_line(buf, start, max_frame_length, "invalid simple string")?
+    else {
         return Ok(None);
     };
-    let text = str::from_utf8(line)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid simple string"))?;
     let frame = RespFrame::SimpleString(text.to_string());
     Ok(Some((frame, next - start)))
 }
@@ -46,11 +61,10 @@ fn parse_integer(
     start: usize,
     max_frame_length: usize,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
-    let Some((line, next)) = parse_line(buf, start + 1, max_frame_length)? else {
+    let Some((text, next)) = parse_text_line(buf, start, max_frame_length, "invalid integer")?
+    else {
         return Ok(None);
     };
-    let text = str::from_utf8(line)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid integer"))?;
     let value = text
         .parse::<i64>()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid integer"))?;

@@ -6,8 +6,22 @@ use bytes::{BufMut, BytesMut};
 
 use super::frame::RespFrame;
 
+/// Maximum recursion depth for nested RESP arrays.
+///
+/// This limit prevents stack overflow when encoding programmatically
+/// constructed deeply nested arrays.
+const MAX_RECURSION_DEPTH: usize = 64;
+
 /// Compute the encoded length of a RESP frame.
-pub fn encoded_len(frame: &RespFrame) -> Result<usize, io::Error> {
+pub fn encoded_len(frame: &RespFrame) -> Result<usize, io::Error> { encoded_len_at(frame, 0) }
+
+fn encoded_len_at(frame: &RespFrame, depth: usize) -> Result<usize, io::Error> {
+    if depth > MAX_RECURSION_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "maximum recursion depth exceeded",
+        ));
+    }
     match frame {
         RespFrame::SimpleString(text) => checked_add(1, checked_add(text.len(), 2)?),
         RespFrame::Integer(value) => {
@@ -25,7 +39,7 @@ pub fn encoded_len(frame: &RespFrame) -> Result<usize, io::Error> {
             let count_digits = digits_len_usize(items.len());
             let mut total = checked_add(1, checked_add(count_digits, 2)?)?;
             for item in items {
-                total = checked_add(total, encoded_len(item)?)?;
+                total = checked_add(total, encoded_len_at(item, depth + 1)?)?;
             }
             Ok(total)
         }
@@ -34,6 +48,16 @@ pub fn encoded_len(frame: &RespFrame) -> Result<usize, io::Error> {
 
 /// Encode a RESP frame into the destination buffer.
 pub fn encode_frame(frame: &RespFrame, dst: &mut BytesMut) -> Result<(), io::Error> {
+    encode_frame_at(frame, dst, 0)
+}
+
+fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Result<(), io::Error> {
+    if depth > MAX_RECURSION_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "maximum recursion depth exceeded",
+        ));
+    }
     match frame {
         RespFrame::SimpleString(text) => {
             dst.put_u8(b'+');
@@ -63,7 +87,7 @@ pub fn encode_frame(frame: &RespFrame, dst: &mut BytesMut) -> Result<(), io::Err
             dst.extend_from_slice(buf.format(items.len()).as_bytes());
             dst.extend_from_slice(b"\r\n");
             for item in items {
-                encode_frame(item, dst)?;
+                encode_frame_at(item, dst, depth + 1)?;
             }
         }
     }

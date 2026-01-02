@@ -179,6 +179,11 @@ fn serialize_response<S: Serializer>(
     }
 }
 
+/// Send a response payload over the framed stream using codec-aware wrapping.
+///
+/// Wraps the raw payload bytes in the codec's native frame format via
+/// [`FrameCodec::wrap_payload`] before writing to the underlying stream.
+/// This ensures responses are encoded correctly for the configured protocol.
 async fn send_response_payload<F, W>(
     framed: &mut Framed<W, ConnectionCodec<F>>,
     payload: Vec<u8>,
