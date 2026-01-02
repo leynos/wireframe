@@ -263,6 +263,7 @@ first-class streaming request bodies, a generic message assembly abstraction,
 and standardized per-connection memory budgets.
 
 ### 8.1. Streaming request bodies
+
 - [x] 8.1.1. Implement `RequestParts` struct with `id`, `correlation_id`, and
   `metadata` fields.
 - [x] 8.1.2. Implement `RequestBodyStream` type alias as a pinned, boxed
