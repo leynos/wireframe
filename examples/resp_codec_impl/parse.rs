@@ -48,6 +48,24 @@ const MAX_ARRAY_ELEMENTS: usize = 1024;
 /// deeply nested arrays (e.g., `*1\r\n*1\r\n*1\r\n...`) to exhaust the stack.
 const MAX_RECURSION_DEPTH: usize = 64;
 
+/// Encapsulates buffer context for RESP frame parsing.
+#[derive(Clone, Copy)]
+struct ParseContext<'a> {
+    buf: &'a BytesMut,
+    start: usize,
+    max_frame_length: usize,
+}
+
+impl<'a> ParseContext<'a> {
+    fn new(buf: &'a BytesMut, start: usize, max_frame_length: usize) -> Self {
+        Self {
+            buf,
+            start,
+            max_frame_length,
+        }
+    }
+}
+
 /// Parse a complete RESP frame from the buffer.
 pub fn parse_frame(
     buf: &BytesMut,
@@ -58,12 +76,10 @@ pub fn parse_frame(
 
 /// Parse a line and convert to UTF-8.
 fn parse_text_line<'a>(
-    buf: &'a BytesMut,
-    start: usize,
-    max_frame_length: usize,
+    ctx: ParseContext<'a>,
     error_msg: &str,
 ) -> Result<Option<(&'a str, usize)>, io::Error> {
-    let Some((line, next)) = parse_line(buf, start + 1, max_frame_length)? else {
+    let Some((line, next)) = parse_line(ctx.buf, ctx.start + 1, ctx.max_frame_length)? else {
         return Ok(None);
     };
     let text =
@@ -72,21 +88,16 @@ fn parse_text_line<'a>(
 }
 
 /// Parse a text-based RESP frame (simple string or error).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "helper consolidates 4 buffer params + constructor"
-)]
 fn parse_text_frame<F>(
-    buf: &BytesMut,
-    start: usize,
-    max_frame_length: usize,
+    ctx: ParseContext<'_>,
     error_msg: &str,
     constructor: F,
 ) -> Result<Option<(RespFrame, usize)>, io::Error>
 where
     F: FnOnce(String) -> RespFrame,
 {
-    let Some((text, next)) = parse_text_line(buf, start, max_frame_length, error_msg)? else {
+    let start = ctx.start;
+    let Some((text, next)) = parse_text_line(ctx, error_msg)? else {
         return Ok(None);
     };
     let frame = constructor(text.to_string());
@@ -99,9 +110,7 @@ fn parse_simple_string(
     max_frame_length: usize,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
     parse_text_frame(
-        buf,
-        start,
-        max_frame_length,
+        ParseContext::new(buf, start, max_frame_length),
         "invalid simple string",
         RespFrame::SimpleString,
     )
@@ -113,9 +122,7 @@ fn parse_error(
     max_frame_length: usize,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
     parse_text_frame(
-        buf,
-        start,
-        max_frame_length,
+        ParseContext::new(buf, start, max_frame_length),
         "invalid error",
         RespFrame::Error,
     )
@@ -126,8 +133,8 @@ fn parse_integer(
     start: usize,
     max_frame_length: usize,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
-    let Some((text, next)) = parse_text_line(buf, start, max_frame_length, "invalid integer")?
-    else {
+    let ctx = ParseContext::new(buf, start, max_frame_length);
+    let Some((text, next)) = parse_text_line(ctx, "invalid integer")? else {
         return Ok(None);
     };
     let value = text
