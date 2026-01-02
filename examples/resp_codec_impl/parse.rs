@@ -361,7 +361,7 @@ fn parse_line(
 ) -> Result<Option<(&[u8], usize)>, io::Error> {
     let mut index = start;
     while let Some(byte) = buf.get(index).copied() {
-        if index.saturating_sub(start) >= max_len {
+        if index.saturating_sub(start) > max_len {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
         }
         if byte == b'\r' {
