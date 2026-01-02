@@ -48,6 +48,16 @@ const MAX_ARRAY_ELEMENTS: usize = 1024;
 /// deeply nested arrays (e.g., `*1\r\n*1\r\n*1\r\n...`) to exhaust the stack.
 const MAX_RECURSION_DEPTH: usize = 64;
 
+/// Count the number of decimal digits required to represent a value.
+fn decimal_digits(mut value: usize) -> usize {
+    let mut digits = 1;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
+}
+
 /// Encapsulates buffer context for RESP frame parsing.
 #[derive(Clone, Copy)]
 struct ParseContext<'a> {
@@ -210,10 +220,14 @@ fn parse_bulk_payload(
     buf: &BytesMut,
     spec: BulkPayloadSpec,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
-    if spec.len > spec.max_frame_length {
+    // Calculate total frame size: '$' + digits + "\r\n" + payload + "\r\n"
+    let digits = decimal_digits(spec.len);
+    let header_len = 1 + digits + 2;
+    let total_frame_size = header_len + spec.len + 2;
+    if total_frame_size > spec.max_frame_length {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "bulk length exceeds max frame",
+            "bulk frame exceeds max frame length",
         ));
     }
     let end = spec
