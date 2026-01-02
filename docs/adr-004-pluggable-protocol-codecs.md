@@ -222,6 +222,18 @@ pub trait FrameCodec: Send + Sync + 'static {
   and explicit `try_from` conversions, suggesting a need for shared parsing
   helpers to reduce boilerplate.
 
+## Implementation guidance
+
+- Add codec-specific tests that exercise encoder/decoder round-trips, payload
+  extraction, correlation identifiers, and maximum frame length enforcement.
+- Use shared example codecs in `wireframe::codec::examples` to drive regression
+  and property-based tests without duplicating framing logic.
+- Prefer `wireframe_testing` helpers that work with custom codecs, so test
+  harnesses do not assume length-delimited framing.
+- Validate observability signals (logs, metrics, and protocol hooks) for codec
+  failures and recovery policies using the test observability harness once
+  available.[^adr-006]
+
 ## Known Risks and Limitations
 
 - Associated types avoid RPITIT for `FrameCodec`, but the overall design still
@@ -254,3 +266,5 @@ preserves existing behaviour through a default codec while enabling protocol
 specificity and reusability. By tying buffer sizing and maximum frame length to
 codec configuration, the design keeps transport-level constraints close to the
 framing rules that define them.
+
+[^adr-006]: See [adr-006-test-observability.md](adr-006-test-observability.md).

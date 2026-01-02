@@ -117,6 +117,51 @@ helpers `send_response` and `send_response_framed` (or
 variants when encoding or I/O fails, and the connection closes after ten
 consecutive deserialization errors.[^6][^7]
 
+### Custom frame codecs
+
+Custom protocols supply a `FrameCodec` implementation to describe their framing
+rules. The codec owns the Tokio `Decoder` and `Encoder` types, while Wireframe
+uses the trait surface to map frames to payload bytes and correlation data.
+
+A codec implementation must:
+
+- Define a `Frame` type and paired decoder/encoder implementations that return
+  `std::io::Error` on failure.
+- Return only the logical payload bytes from `frame_payload` so metadata parsing
+  and deserialization run against the right buffer.
+- Wrap outbound payloads with `wrap_payload`, adding any protocol headers or
+  metadata required by the wire format.
+- Provide `correlation_id` when the protocol stores it outside the payload;
+  Wireframe only uses this hook when the deserialized envelope is missing a
+  correlation identifier.
+- Report `max_frame_length`, which clamps inbound frames and seeds default
+  fragmentation limits.
+
+Install a custom codec with `with_codec`. The builder resets fragmentation to
+the codec-derived defaults, so override fragmentation afterwards if the
+protocol uses a different budget. When you already have a framed stream, use
+`send_response_framed_with_codec` so responses pass through
+`FrameCodec::wrap_payload`.
+
+Assume `MyCodec` implements `FrameCodec`:
+
+```rust,no_run
+use std::sync::Arc;
+
+use wireframe::app::{Envelope, Handler, WireframeApp};
+
+struct MyCodec;
+
+let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+
+let app = WireframeApp::new()?
+    .with_codec(MyCodec)
+    .route(1, handler)?;
+```
+
+See `examples/hotline_codec.rs` and `examples/mysql_codec.rs` for complete
+implementations.
+
 ## Packets, payloads, and serialization
 
 Packets drive routing. Implement the `Packet` trait (or use the bundled

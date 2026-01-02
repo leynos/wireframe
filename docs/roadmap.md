@@ -425,6 +425,18 @@ integration boundaries.
   - [ ] Measure fragmentation overhead versus unfragmented paths.
   - [ ] Record memory allocation baselines for payload wrapping and decoding.
 
+### 9.7. Codec test harness and observability
+
+- [ ] 9.7.1. Extend `wireframe_testing` with codec-aware drivers that can run
+  `WireframeApp` instances configured with custom `FrameCodec` values.
+- [ ] 9.7.2. Add codec fixtures in `wireframe_testing` for generating valid and
+  invalid frames, including oversized payloads and correlation metadata.
+- [ ] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
+  captures logs and metrics per test run for asserting codec failures and
+  recovery policies.[^adr-006]
+- [ ] 9.7.4. Add regression tests in `wireframe_testing` for the `CodecError`
+  taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
+
 ## 10. Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
@@ -569,3 +581,5 @@ and usability.
 [message-versioning.md](message-versioning.md).
 [^adr-005]: See
 [adr-005-serializer-abstraction.md](adr-005-serializer-abstraction.md).
+[^adr-006]: See
+[adr-006-test-observability.md](adr-006-test-observability.md).
