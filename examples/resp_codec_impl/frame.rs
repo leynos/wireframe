@@ -2,7 +2,8 @@
 
 /// A RESP protocol frame.
 ///
-/// Supports simple strings, integers, bulk strings (nullable), and arrays.
+/// Supports simple strings, integers, bulk strings (nullable), and arrays
+/// (nullable). Null values are represented as `None` variants.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RespFrame {
     /// Simple string prefixed with `+`.
@@ -11,6 +12,6 @@ pub enum RespFrame {
     Integer(i64),
     /// Bulk string prefixed with `$`, nullable via `$-1`.
     BulkString(Option<Vec<u8>>),
-    /// Array prefixed with `*`.
-    Array(Vec<RespFrame>),
+    /// Array prefixed with `*`, nullable via `*-1`.
+    Array(Option<Vec<RespFrame>>),
 }

@@ -28,14 +28,14 @@ fn encoded_len_at(frame: &RespFrame, depth: usize) -> Result<usize, io::Error> {
             let digits = digits_len_i64(*value);
             checked_add(1, checked_add(digits, 2)?)
         }
-        RespFrame::BulkString(None) => Ok(5),
+        RespFrame::BulkString(None) | RespFrame::Array(None) => Ok(5), // $-1 or *-1
         RespFrame::BulkString(Some(data)) => {
             let len_digits = digits_len_usize(data.len());
             let head = checked_add(1, checked_add(len_digits, 2)?)?;
             let body = checked_add(data.len(), 2)?;
             checked_add(head, body)
         }
-        RespFrame::Array(items) => {
+        RespFrame::Array(Some(items)) => {
             let count_digits = digits_len_usize(items.len());
             let mut total = checked_add(1, checked_add(count_digits, 2)?)?;
             for item in items {
@@ -81,7 +81,10 @@ fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Resul
             dst.extend_from_slice(data);
             dst.extend_from_slice(b"\r\n");
         }
-        RespFrame::Array(items) => {
+        RespFrame::Array(None) => {
+            dst.extend_from_slice(b"*-1\r\n");
+        }
+        RespFrame::Array(Some(items)) => {
             dst.put_u8(b'*');
             let mut buf = itoa::Buffer::new();
             dst.extend_from_slice(buf.format(items.len()).as_bytes());

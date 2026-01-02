@@ -1,4 +1,33 @@
-//! RESP parsing functions.
+//! RESP protocol parser.
+//!
+//! RESP is Redis's simple text/binary protocol for encoding commands and
+//! replies. It uses a prefix byte to indicate the data type, followed by
+//! type-specific content terminated by CRLF sequences.
+//!
+//! This module implements a decoder that reads bytes from a [`BytesMut`] buffer
+//! and decodes them into [`RespFrame`] enum values. The parser operates
+//! incrementally: if insufficient bytes are available it returns `Ok(None)`,
+//! allowing the caller to read more data before retrying.
+//!
+//! # Supported RESP Types
+//!
+//! | Prefix | Type          | Example              |
+//! |--------|---------------|----------------------|
+//! | `+`    | Simple string | `+OK\r\n`            |
+//! | `-`    | Error         | `-ERR unknown\r\n`   |
+//! | `:`    | Integer       | `:42\r\n`            |
+//! | `$`    | Bulk string   | `$3\r\nfoo\r\n`      |
+//! | `*`    | Array         | `*2\r\n:1\r\n:2\r\n` |
+//!
+//! Null bulk strings (`$-1\r\n`) and null arrays (`*-1\r\n`) are represented
+//! as `RespFrame::BulkString(None)` and `RespFrame::Array(None)` respectively.
+//!
+//! # Role in the Example Codec
+//!
+//! This parser turns raw stream data into framed messages for higher-level
+//! handling. It demonstrates how to integrate protocol parsing with Tokio's
+//! async I/O and the [`tokio_util::codec`] framework, serving as a reference
+//! for implementing custom codecs with Wireframe.
 
 use std::{io, str};
 
@@ -196,10 +225,14 @@ fn parse_array(
     let count = text
         .parse::<i64>()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid array length"))?;
-    if count < 0 {
+    // Handle null array (*-1\r\n) per RESP spec.
+    if count == -1 {
+        return Ok(Some((RespFrame::Array(None), cursor - start)));
+    }
+    if count < -1 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "negative array length",
+            "invalid negative array length",
         ));
     }
     let count = usize::try_from(count)
@@ -233,7 +266,7 @@ fn parse_array(
             "frame too large",
         ));
     }
-    Ok(Some((RespFrame::Array(frames), consumed)))
+    Ok(Some((RespFrame::Array(Some(frames)), consumed)))
 }
 
 fn parse_frame_at(
