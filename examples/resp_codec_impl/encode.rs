@@ -23,7 +23,9 @@ fn encoded_len_at(frame: &RespFrame, depth: usize) -> Result<usize, io::Error> {
         ));
     }
     match frame {
-        RespFrame::SimpleString(text) => checked_add(1, checked_add(text.len(), 2)?),
+        RespFrame::SimpleString(text) | RespFrame::Error(text) => {
+            checked_add(1, checked_add(text.len(), 2)?)
+        }
         RespFrame::Integer(value) => {
             let digits = digits_len_i64(*value);
             checked_add(1, checked_add(digits, 2)?)
@@ -61,6 +63,11 @@ fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Resul
     match frame {
         RespFrame::SimpleString(text) => {
             dst.put_u8(b'+');
+            dst.extend_from_slice(text.as_bytes());
+            dst.extend_from_slice(b"\r\n");
+        }
+        RespFrame::Error(text) => {
+            dst.put_u8(b'-');
             dst.extend_from_slice(text.as_bytes());
             dst.extend_from_slice(b"\r\n");
         }

@@ -85,6 +85,18 @@ fn parse_simple_string(
     Ok(Some((frame, next - start)))
 }
 
+fn parse_error(
+    buf: &BytesMut,
+    start: usize,
+    max_frame_length: usize,
+) -> Result<Option<(RespFrame, usize)>, io::Error> {
+    let Some((text, next)) = parse_text_line(buf, start, max_frame_length, "invalid error")? else {
+        return Ok(None);
+    };
+    let frame = RespFrame::Error(text.to_string());
+    Ok(Some((frame, next - start)))
+}
+
 fn parse_integer(
     buf: &BytesMut,
     start: usize,
@@ -286,6 +298,7 @@ fn parse_frame_at(
     };
     match prefix {
         b'+' => parse_simple_string(buf, start, max_frame_length),
+        b'-' => parse_error(buf, start, max_frame_length),
         b':' => parse_integer(buf, start, max_frame_length),
         b'$' => parse_bulk_string(buf, start, max_frame_length),
         b'*' => parse_array(buf, start, max_frame_length, depth),
