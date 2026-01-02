@@ -71,18 +71,40 @@ fn parse_text_line<'a>(
     Ok(Some((text, next)))
 }
 
+/// Parse a text-based RESP frame (simple string or error).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "helper consolidates 4 buffer params + constructor"
+)]
+fn parse_text_frame<F>(
+    buf: &BytesMut,
+    start: usize,
+    max_frame_length: usize,
+    error_msg: &str,
+    constructor: F,
+) -> Result<Option<(RespFrame, usize)>, io::Error>
+where
+    F: FnOnce(String) -> RespFrame,
+{
+    let Some((text, next)) = parse_text_line(buf, start, max_frame_length, error_msg)? else {
+        return Ok(None);
+    };
+    let frame = constructor(text.to_string());
+    Ok(Some((frame, next - start)))
+}
+
 fn parse_simple_string(
     buf: &BytesMut,
     start: usize,
     max_frame_length: usize,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
-    let Some((text, next)) =
-        parse_text_line(buf, start, max_frame_length, "invalid simple string")?
-    else {
-        return Ok(None);
-    };
-    let frame = RespFrame::SimpleString(text.to_string());
-    Ok(Some((frame, next - start)))
+    parse_text_frame(
+        buf,
+        start,
+        max_frame_length,
+        "invalid simple string",
+        RespFrame::SimpleString,
+    )
 }
 
 fn parse_error(
@@ -90,11 +112,13 @@ fn parse_error(
     start: usize,
     max_frame_length: usize,
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
-    let Some((text, next)) = parse_text_line(buf, start, max_frame_length, "invalid error")? else {
-        return Ok(None);
-    };
-    let frame = RespFrame::Error(text.to_string());
-    Ok(Some((frame, next - start)))
+    parse_text_frame(
+        buf,
+        start,
+        max_frame_length,
+        "invalid error",
+        RespFrame::Error,
+    )
 }
 
 fn parse_integer(
