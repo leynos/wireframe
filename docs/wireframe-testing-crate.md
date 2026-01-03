@@ -1,188 +1,289 @@
-# `wireframe_testing`: Testing Helpers for Wireframe
+# `wireframe_testing`: testing helpers for Wireframe
 
-`wireframe_testing` is a proposed companion crate providing utilities for unit
-and integration tests. It focuses on driving `WireframeApp` instances with raw
-frames, enabling fast tests without opening real network connections.
+`wireframe_testing` is the companion crate for exercising Wireframe
+applications and codecs in unit, integration, and behavioural tests. It
+provides in-memory drivers for `WireframeApp` instances, codec-aware framing
+helpers, and a scoped observability harness for log and metrics assertions.
 
 ## Motivation
 
-The existing tests in [`tests/`](../tests) use a helper function `run_app` to
-feed length-prefixed frames through an in-memory duplex stream. This helper
-simplifies testing handlers by allowing assertions on encoded responses without
-spinning up a full server. Encapsulating this logic in a dedicated crate keeps
-test code concise and reusable across projects.
+Wireframe now supports pluggable protocol codecs (ADR 004). The test harness
+must encode and decode frames using the selected `FrameCodec`, preserving
+protocol metadata and correlation identifiers. It must also allow malformed
+wire bytes for negative codec tests. ADR 006 proposes a unified test
+observability harness so tests can assert on logs and metrics deterministically
+without external exporters.
 
-## Crate Layout
+## Design goals
 
-- `wireframe_testing`
-  - `Cargo.toml` enabling the `tokio` and `rstest` dependencies used by the
-    helpers.
-  - `src/lib.rs` exposing asynchronous functions for driving apps with raw
+- Work with any `FrameCodec`, including codecs that carry metadata and
+  correlation identifiers.
+- Preserve frame metadata when driving handlers or asserting responses.
+- Allow raw byte injection for malformed frame and recovery tests.
+- Provide per-test log and metrics capture without leaking global state.
+- Keep helpers fast by using in-memory duplex streams instead of sockets.
 
-```frames.
+## Crate layout
+
+- `src/lib.rs` re-exports the public API.
+- `src/helpers.rs` provides in-memory drivers and codec-aware encode/decode
+  helpers.
+- `src/observability.rs` implements the observability harness from ADR 006.
+- `src/logging.rs` retains the standalone `LoggerHandle` fixture.
+- `src/fixtures/` (or `src/codec_fixtures.rs`) stores reusable frame fixtures
+  for the default codec and example codecs.
+- `src/multi_packet.rs` keeps the `collect_multi_packet` helper.
+
+## Dependencies
+
+```toml
 [dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
-
-[dev-dependencies]
-rstest = "0.18"
+tokio = { version = "1", features = ["macros", "rt", "io-util"] }
+wireframe = { version = "0.1.0", path = ".." }
+bincode = "2.0"
+bytes = "1.0"
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["codec"] }
+log = "0.4"
+logtest = "2"
+metrics = "0.24.2"
+metrics-util = "0.20.0"
+rstest = "0.18.2"
 ```
 
-```rust
-// src/lib.rs
-pub mod helpers;
+## Codec-aware drivers
 
-pub use helpers::{
-    drive_with_frame,
-    drive_with_frames,
-    drive_with_frame_with_capacity,
-    drive_with_frames_with_capacity,
-    drive_with_bincode,
-};
+The helpers remain centred on a single in-memory driver that runs
+`WireframeApp::handle_connection` against a `tokio::io::duplex` stream. The
+driver is responsible for framing inbound and outbound data using the selected
+`FrameCodec` and for surfacing server panics as `io::Error` values prefixed
+with `server task failed`.
+
+`wireframe_testing` retains the `TestSerializer` trait alias to keep bounds
+readable:
+
+```rust,no_run
+use wireframe::app::Envelope;
+use wireframe::frame::FrameMetadata;
+use wireframe::serializer::Serializer;
+
+pub trait TestSerializer:
+    Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
+{
+}
 ```
 
-The crate would live in a `wireframe_testing/` directory alongside the main
-`wireframe` crate.
+### Driver entry points
 
-## Proposed API
+The primary driver APIs accept both the app and the codec used to configure it.
+Tests should pass the same codec instance used in `WireframeApp::with_codec` to
+ensure framing configuration (such as maximum frame length) matches.
 
-```rust
-use tokio::io::Result as IoResult;
-use wireframe::app::WireframeApp;
-use serde::Serialize;
+```rust,no_run
+use std::io;
+use wireframe::app::{Packet, WireframeApp};
+use wireframe::codec::FrameCodec;
 
-/// Feed a single frame into `app` using an in-memory duplex stream.
-pub async fn drive_with_frame(app: WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>>;
-
-/// Drive `app` with multiple frames, returning all bytes written by the app.
-pub async fn drive_with_frames(app: WireframeApp, frames: Vec<Vec<u8>>) -> IoResult<Vec<u8>>;
-
-/// Encode `msg` with `bincode`, wrap it in a frame, and drive the app.
-pub async fn drive_with_bincode<M>(app: WireframeApp, msg: M) -> IoResult<Vec<u8>>
+pub async fn drive_with_frames<S, C, E, F>(
+    app: WireframeApp<S, C, E, F>,
+    codec: &F,
+    frames: Vec<F::Frame>,
+) -> io::Result<Vec<F::Frame>>
 where
-    M: Serialize;
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec;
+
+pub async fn drive_with_payloads<S, C, E, F>(
+    app: WireframeApp<S, C, E, F>,
+    codec: &F,
+    payloads: Vec<Vec<u8>>,
+) -> io::Result<Vec<F::Frame>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec;
+
+pub async fn drive_with_raw_bytes<S, C, E, F>(
+    app: WireframeApp<S, C, E, F>,
+    wire_bytes: Vec<Vec<u8>>,
+    capacity: Option<usize>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec;
 ```
 
-These functions mirror the behaviour of the `run_app` helper found in the
-repository’s test utilities. They create a `tokio::io::duplex` stream, run the
-application on the server half, and write the provided frame(s) to the client
-side. All helpers delegate to a single internal function that handles this I/O
-plumbing, ensuring consistent behaviour. Should the application panic, the
-panic message is returned as an `io::Error` beginning with
-`server task failed`, helping surface failures in tests. After the application
-finishes processing the input frames, the bytes written back are collected for
-inspection.
+Behavioural details:
 
-Any I/O errors surfaced by the duplex stream or failures while decoding a
-length prefix propagate through the returned `IoResult`. Malformed or truncated
-frames therefore cause the future to resolve with an error, allowing tests to
-assert on these failure conditions directly.
+- `drive_with_frames` encodes each `F::Frame` with `codec.encoder()`, writes the
+  resulting bytes to the duplex stream, reads the server response bytes, and
+  decodes them with `codec.decoder()`.
+- `drive_with_payloads` wraps payload bytes using `F::wrap_payload` before
+  delegating to `drive_with_frames`.
+- `drive_with_raw_bytes` writes the provided bytes verbatim without encoding or
+  decoding. This is the entry point for malformed frame tests and recovery
+  policy validation.
+- Mutable variants (`drive_with_frames_mut` and `drive_with_payloads_mut`)
+  accept `&mut WireframeApp` so tests can reuse a configured instance.
+- I/O failures, codec encode/decode failures, and server task panics are all
+  returned as `io::Error` values so tests can assert on error handling.
 
-### Custom Buffer Capacity
+### Buffer capacity and limits
 
-A variant accepting a buffer `capacity` allows fine-tuning the size of the
-in-memory duplex channel, matching the existing `run_app` helper. The value
-must be greater than zero and does not exceed 10 MB.
+The duplex stream buffer should default to the codec maximum frame length,
+clamped to a shared safety ceiling that matches Wireframe's guardrail. The
+driver should reject a `capacity` of zero or above this ceiling with
+`io::ErrorKind::InvalidInput`.
 
-```helpers.
-pub async fn drive_with_frame_with_capacity(
-    app: WireframeApp,
-    frame: Vec<u8>,
-    capacity: usize,
-) -> IoResult<Vec<u8>>;
+To keep the guardrail aligned, expose a public constant (or helper) from
+`wireframe::codec` so `wireframe_testing` does not duplicate the limit.
 
-pub async fn drive_with_frames_with_capacity(
-    app: WireframeApp,
-    frames: Vec<Vec<u8>>,
-    capacity: usize,
-) -> IoResult<Vec<u8>>;
+### Frame encoding and decoding helpers
 
-/// The above helpers consume the `WireframeApp`. For scenarios
-/// where a single app instance should be reused across calls,
-/// borrow it mutably instead.
-pub async fn drive_with_frame_mut(app: &mut WireframeApp, frame: Vec<u8>) -> IoResult<Vec<u8>>;
-pub async fn drive_with_frames_mut(app: &mut WireframeApp, frames: Vec<Vec<u8>>) -> IoResult<Vec<u8>>;
+Codec-aware helpers make it easy to build fixtures or inspect raw bytes:
+
+```rust,no_run
+use std::io;
+use wireframe::codec::FrameCodec;
+
+pub fn encode_frames<F>(codec: &F, frames: Vec<F::Frame>) -> io::Result<Vec<u8>>
+where
+    F: FrameCodec;
+
+pub fn decode_frames<F>(codec: &F, bytes: Vec<u8>) -> io::Result<Vec<F::Frame>>
+where
+    F: FrameCodec;
 ```
 
-### Bincode Convenience Wrapper
+`decode_frames` should return an error when trailing bytes remain in the buffer
+after the last frame, so tests can detect partial or malformed streams.
 
-For most tests the input frame is preassembled from raw bytes. A small wrapper
-can accept any `serde::Serialize` value and perform the encoding and framing
-before delegating to `drive_with_frame`. The approach mirrors patterns in
-`tests/routes.rs`, where structs convert to bytes with `BincodeSerializer`
-before being wrapped in a length-prefixed frame.
+### Bincode convenience wrapper
 
-```rust
-#[derive(serde::Serialize)]
+Most tests still send a single request encoded with bincode. Keep a small
+wrapper that performs `bincode::encode_to_vec` with
+`bincode::config::standard()`, wraps the payload via `F::wrap_payload`, and
+drives the app:
+
+```rust,no_run
+#[derive(bincode::Encode)]
 struct Ping(u8);
 
-let bytes = drive_with_bincode(app, Ping(1)).await.unwrap();
-assert_eq!(bytes, [0, 1]);
+let frames = drive_with_bincode(app, &codec, Ping(1)).await?;
+assert_eq!(F::frame_payload(&frames[0]), &[1]);
 ```
 
-### Helper macros
+## Codec fixtures
 
-Two small macros, `push_expect!` and `recv_expect!`, reduce boilerplate in test
-code. They await a future and panic with a message including the call site when
-the future resolves to an error.
+Add reusable fixtures to avoid duplicated framing logic in tests:
 
-```rust
-push_expect!(handle.push_high_priority(42));
-let (_, frame) = recv_expect!(queues.recv());
+- Default codec fixtures that yield `Bytes` frames, oversized payloads, and
+  truncated prefixes for negative tests.
+- Example codec fixtures that mirror `wireframe::codec::examples` (for example
+  Hotline and MySQL), including helpers for correlation identifiers.
+- Invalid frame builders (bad lengths, missing headers, truncated payloads) for
+  codec error and recovery assertions.
+
+Fixtures should return `F::Frame` where possible and provide explicit
+`wire_bytes()` helpers for malformed cases.
+
+## Test observability harness
+
+Introduce `wireframe_testing::observability`, providing an
+`ObservabilityHandle` that combines log capture with metrics recording.
+
+Key behaviours:
+
+- Acquisition installs log capture via `LoggerHandle` and a scoped metrics
+  recorder using `metrics_util::debugging::DebuggingRecorder`.
+- Access is serialized with a global lock so concurrent tests do not interfere.
+- Metrics snapshots should consume the captured values (matching
+  `DebuggingRecorder` semantics) so `clear()` can be implemented by draining a
+  snapshot.
+- The handle should restore the previous recorder on drop by swapping the
+  active recorder back into a global delegating recorder. This keeps the global
+  recorder stable while still providing per-test isolation.
+- When the `metrics` feature is disabled, the handle should still capture logs
+  and return empty metric snapshots.
+
+Proposed public API:
+
+```rust,no_run
+use metrics_util::debugging::Snapshot;
+use wireframe_testing::LoggerHandle;
+
+pub struct ObservabilityHandle { /* fields omitted */ }
+
+impl ObservabilityHandle {
+    pub fn new() -> Self;
+    pub fn logs(&mut self) -> &mut LoggerHandle;
+    pub fn snapshot(&self) -> Snapshot;
+    pub fn clear(&mut self);
+    pub fn counter(&self, name: &str, labels: &[(&str, &str)]) -> u64;
+}
+
+pub fn observability() -> ObservabilityHandle;
 ```
 
-## Example Usage
+Tests using `ObservabilityHandle` should not run concurrently; the global lock
+will serialize access, and the documentation must call this out explicitly.
 
-```rust
-use std::sync::Arc;
-use wireframe_testing::{drive_with_frame, drive_with_frames};
-use crate::tests::{build_test_frame, expected_bytes};
+## Helper macros
+
+Keep `push_expect!` and `recv_expect!` for concise async assertions, with error
+messages that include call-site information in debug builds.
+
+## Example usage
+
+```rust,no_run
+use wireframe::app::WireframeApp;
+use wireframe::codec::LengthDelimitedFrameCodec;
+use wireframe_testing::{drive_with_payloads, observability};
 
 #[tokio::test]
-async fn handler_echoes_message() {
-    let app = WireframeApp::new()
-        .unwrap()
-        .route(1, Arc::new(|_| Box::pin(async {})))
-        .unwrap();
+async fn round_trips_with_codec() -> std::io::Result<()> {
+    let codec = LengthDelimitedFrameCodec::new(1024);
+    let app = WireframeApp::new()?.with_codec(codec.clone());
+    let frames = drive_with_payloads(app, &codec, vec![b"ping".to_vec()]).await?;
+    assert_eq!(
+        LengthDelimitedFrameCodec::frame_payload(&frames[0]),
+        b"ping"
+    );
+    Ok(())
+}
 
-    let frame = build_test_frame();
-    let out = drive_with_frame(app, frame).await.unwrap();
-    assert_eq!(out, expected_bytes());
+#[tokio::test]
+async fn captures_codec_metrics() -> std::io::Result<()> {
+    let mut obs = observability();
+    obs.clear();
+
+    let codec = LengthDelimitedFrameCodec::new(16);
+    let app = WireframeApp::new()?.with_codec(codec.clone());
+    let _ = wireframe_testing::drive_with_raw_bytes(
+        app,
+        vec![vec![0, 0, 0, 8, 1]],
+        None,
+    )
+    .await?;
+
+    assert_eq!(obs.counter("wireframe.codec.errors", &[]), 1);
+    Ok(())
 }
 ```
 
-This pattern mirrors the style of `tests/routes.rs`, where handlers are invoked
-with prebuilt frames and their responses decoded for assertions.
+## Implementation notes
 
-## Benefits
-
-- **Isolation**: Handlers can be tested without spinning up a full server or
-  opening sockets.
-- **Reusability**: Projects consuming `wireframe` can depend on
-  `wireframe_testing` in their dev-dependencies to leverage the same helpers.
-- **Clarity**: Abstracting the duplex stream logic keeps test cases focused on
-  behaviour instead of transport details.
-
-### Capturing Logs in Tests
-
-The `wireframe_testing` crate exposes a \[`LoggerHandle`\] fixture for
-asserting log output. Acquire it in a test and call `clear()` to discard any
-records from fixture setup. Records can then be inspected using `pop()`:
-
-```rust
-use wireframe_testing::logger;
-
-#[tokio::test]
-async fn captures_logs() {
-    let mut logs = logger();
-    logs.clear();
-    log::error!(target = "demo", key = 1, "boom");
-    let record = logs.pop().unwrap();
-    assert_eq!(record.target(), "demo");
-}
-```
-
-## Next Steps
-
-Implement the crate in a new directory, export the helper functions, and
-migrate existing tests to use them. Additional fixtures (e.g., prebuilt frame
-processors) can be added over time as test coverage grows.
+- Update all driver helpers to accept `F: FrameCodec` and operate on `F::Frame`
+  rather than raw length-delimited bytes.
+- Add codec-aware `encode_frames` and `decode_frames` helpers that return
+  `io::Result` on failures instead of panicking.
+- Provide a raw byte driver for malformed input and recovery tests.
+- Add fixture helpers for default and example codecs, including invalid frames
+  used by codec error tests.
+- Implement the observability harness and expose it via an `rstest` fixture in
+  `wireframe_testing::observability`.
