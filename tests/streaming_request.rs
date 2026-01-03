@@ -101,10 +101,7 @@ async fn streaming_body_extractor_provides_stream() -> TestResult<()> {
     }
 
     assert_eq!(chunks.len(), 2);
-    assert_eq!(
-        chunks.first().map(AsRef::as_ref),
-        Some(b"chunk1".as_slice())
-    );
+    assert_eq!(chunks.first().map(AsRef::as_ref), Some(b"chunk1".as_slice()));
     assert_eq!(chunks.get(1).map(AsRef::as_ref), Some(b"chunk2".as_slice()));
     Ok(())
 }
