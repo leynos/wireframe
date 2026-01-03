@@ -117,6 +117,28 @@ where
     S: TestSerializer,
     C: Send + 'static,
     E: Packet;
+
+pub async fn drive_with_frames_mut<S, C, E, F>(
+    app: &mut WireframeApp<S, C, E, F>,
+    codec: &F,
+    frames: Vec<F::Frame>,
+) -> io::Result<Vec<F::Frame>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec;
+
+pub async fn drive_with_payloads_mut<S, C, E, F>(
+    app: &mut WireframeApp<S, C, E, F>,
+    codec: &F,
+    payloads: Vec<Vec<u8>>,
+) -> io::Result<Vec<F::Frame>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec;
 ```
 
 Behavioural details:
@@ -263,20 +285,17 @@ async fn round_trips_with_codec() -> std::io::Result<()> {
 }
 
 #[tokio::test]
-async fn captures_codec_metrics() -> std::io::Result<()> {
+async fn captures_metrics() -> std::io::Result<()> {
+    use wireframe::metrics::{Direction, FRAMES_PROCESSED, inc_frames};
+
     let mut obs = observability();
     obs.clear();
 
-    let codec = LengthDelimitedFrameCodec::new(16);
-    let app = WireframeApp::new()?.with_codec(codec.clone());
-    let _ = wireframe_testing::drive_with_raw_bytes(
-        app,
-        vec![vec![0, 0, 0, 8, 1]],
-        None,
-    )
-    .await?;
-
-    assert_eq!(obs.counter("wireframe.codec.errors", &[]), 1);
+    inc_frames(Direction::Inbound);
+    assert_eq!(
+        obs.counter(FRAMES_PROCESSED, &[("direction", "inbound")]),
+        1
+    );
     Ok(())
 }
 ```

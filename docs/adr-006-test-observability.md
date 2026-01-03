@@ -87,7 +87,8 @@ and behavioural tests.
 - Tests can assert on instrumentation for codec errors and recovery policies
   without bespoke setup.
 - Global recorder access requires serialization, which may reduce parallelism
-  for observability-heavy test suites.
+  for observability-heavy suites, such as forcing `--test-threads=1` for the
+  affected test binary. See the mitigation guidance in the approach.
 - The testing crate gains additional dependency surface for metrics capture.
 
 ## Roadmap
