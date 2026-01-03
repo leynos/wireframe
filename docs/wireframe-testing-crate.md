@@ -121,7 +121,7 @@ where
     E: Packet;
 ```
 
-Codec-aware helpers should be added as non-breaking extensions so tests can
+Codec-aware helpers should be added as non-breaking extensions, so tests can
 pass `FrameCodec` values and inspect protocol-specific frame metadata. Prefer
 distinct names (for example, `drive_with_codec_frames`) so existing tests that
 use raw byte frames continue to compile unchanged.
@@ -151,7 +151,8 @@ align buffer sizing with protocol framing rules.
 
 ### Frame encoding and decoding helpers
 
-Codec-aware helpers make it easy to build fixtures or inspect raw bytes:
+Proposed codec-aware helpers make it easy to build fixtures or inspect raw
+bytes:
 
 ```rust,no_run
 use std::io;
@@ -198,7 +199,7 @@ struct Ping(u8);
 
 let bytes = drive_with_bincode(app, Ping(1)).await?;
 let frames = decode_frames(bytes);
-assert_eq!(frames[0], vec![1]);
+assert!(!frames.is_empty(), "expected at least one response frame");
 ```
 
 ## Codec fixtures
@@ -228,7 +229,7 @@ Key behaviours:
   interfere, but the harness will reduce parallelism for the affected suite.
 - Observability-heavy suites should run in a single-threaded test runner (for
   example, pass `--test-threads=1` for the affected test binary), or share a
-  single `ObservabilityHandle` via a per-suite fixture to amortise setup costs.
+  single `ObservabilityHandle` via a per-suite fixture to amortize setup costs.
 - When partial parallelism is needed, group observability assertions into a
   dedicated test binary that runs serially, and keep the remaining test suite
   in the default parallel runner.
