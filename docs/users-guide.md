@@ -128,7 +128,7 @@ A codec implementation must:
 - Define a `Frame` type and paired decoder/encoder implementations that return
   `std::io::Error` on failure.
 - Return only the logical payload bytes from `frame_payload` so metadata parsing
-  and deserialization run against the right buffer.
+  and deserialisation run against the right buffer.
 - Wrap outbound payloads with `wrap_payload`, adding any protocol headers or
   metadata required by the wire format.
 - Provide `correlation_id` when the protocol stores it outside the payload;
