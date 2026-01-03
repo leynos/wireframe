@@ -172,7 +172,7 @@ async fn dropped_receiver_signals_sender() -> TestResult<()> {
 
 #[rstest]
 #[tokio::test]
-async fn concurrent_chunks_delivered_in_order() -> TestResult<()> {
+async fn sequential_chunks_delivered_in_order() -> TestResult<()> {
     let (tx, stream) = body_channel(8);
 
     tokio::spawn(async move {
