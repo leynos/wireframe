@@ -18,9 +18,9 @@ exporters, and there is no shared helper for asserting instrumentation. This
 makes telemetry assertions inconsistent, brittle, and hard to reuse across
 downstream crates.
 
-A dedicated test observability harness is needed so tests can assert on logging
-and metrics deterministically without depending on external exporters or global
-state leaks.
+A dedicated test observability harness is needed, so tests can assert on
+logging and metrics deterministically without depending on external exporters
+or global state leaks.
 
 ## Decision Drivers
 
@@ -76,14 +76,17 @@ and behavioural tests.
   exporters.
 - Provide helper methods to clear state between assertions and to filter by
   labels when verifying counters.
-- Serialise access with a global lock to avoid cross-test interference, and
+- Serialize access with a global lock to avoid cross-test interference, and
   document that tests using the handle should not run concurrently.
+- For parallel test runners, run observability-heavy test binaries with
+  `--test-threads=1` or gate observability tests behind a shared fixture to
+  prevent interleaving.
 
 ## Consequences
 
 - Tests can assert on instrumentation for codec errors and recovery policies
   without bespoke setup.
-- Global recorder access requires serialisation, which may reduce parallelism
+- Global recorder access requires serialization, which may reduce parallelism
   for observability-heavy test suites.
 - The testing crate gains additional dependency surface for metrics capture.
 

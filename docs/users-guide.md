@@ -139,8 +139,8 @@ A codec implementation must:
 
 Install a custom codec with `with_codec`. The builder resets fragmentation to
 the codec-derived defaults, so override fragmentation afterwards if the
-protocol uses a different budget. When you already have a framed stream, use
-`send_response_framed_with_codec` so responses pass through
+protocol uses a different budget. When a framed stream is already available,
+use `send_response_framed_with_codec`, so responses pass through
 `FrameCodec::wrap_payload`.
 
 Assume `MyCodec` implements `FrameCodec`:

@@ -11,8 +11,8 @@ Wireframe now supports pluggable protocol codecs (ADR 004). The test harness
 must encode and decode frames using the selected `FrameCodec`, preserving
 protocol metadata and correlation identifiers. It must also allow malformed
 wire bytes for negative codec tests. ADR 006 proposes a unified test
-observability harness so tests can assert on logs and metrics deterministically
-without external exporters.
+observability harness, so tests can assert on logs and metrics
+deterministically without external exporters.
 
 ## Design goals
 
@@ -75,9 +75,11 @@ pub trait TestSerializer:
 
 ### Driver entry points
 
-The primary driver APIs accept both the app and the codec used to configure it.
+Codec-aware driver APIs accept both the app and the codec used to configure it.
 Tests should pass the same codec instance used in `WireframeApp::with_codec` to
-ensure framing configuration (such as maximum frame length) matches.
+ensure framing configuration (such as maximum frame length) matches. The
+raw-byte driver only needs the app because it writes bytes verbatim and returns
+the raw output.
 
 ```rust,no_run
 use std::io;
@@ -114,8 +116,7 @@ pub async fn drive_with_raw_bytes<S, C, E, F>(
 where
     S: TestSerializer,
     C: Send + 'static,
-    E: Packet,
-    F: FrameCodec;
+    E: Packet;
 ```
 
 Behavioural details:
@@ -131,7 +132,7 @@ Behavioural details:
 - Mutable variants (`drive_with_frames_mut` and `drive_with_payloads_mut`)
   accept `&mut WireframeApp` so tests can reuse a configured instance.
 - I/O failures, codec encode/decode failures, and server task panics are all
-  returned as `io::Error` values so tests can assert on error handling.
+  returned as `io::Error` values, so tests can assert on error handling.
 
 ### Buffer capacity and limits
 
@@ -201,7 +202,11 @@ Key behaviours:
 
 - Acquisition installs log capture via `LoggerHandle` and a scoped metrics
   recorder using `metrics_util::debugging::DebuggingRecorder`.
-- Access is serialized with a global lock so concurrent tests do not interfere.
+- Access is serialized with a global lock, so concurrent tests do not
+  interfere.
+- Observability-heavy suites should run in a single-threaded test runner (for
+  example, pass `--test-threads=1` for the affected test binary or gate the
+  tests behind a shared fixture), so metrics and logs do not interleave.
 - Metrics snapshots should consume the captured values (matching
   `DebuggingRecorder` semantics) so `clear()` can be implemented by draining a
   snapshot.
@@ -231,7 +236,7 @@ pub fn observability() -> ObservabilityHandle;
 ```
 
 Tests using `ObservabilityHandle` should not run concurrently; the global lock
-will serialize access, and the documentation must call this out explicitly.
+serializes access, and the documentation must call this out explicitly.
 
 ## Helper macros
 
