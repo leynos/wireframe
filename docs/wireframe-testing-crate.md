@@ -151,24 +151,18 @@ align buffer sizing with protocol framing rules.
 
 ### Frame encoding and decoding helpers
 
-Proposed codec-aware helpers make it easy to build fixtures or inspect raw
-bytes:
+The current helpers focus on the default length-delimited framing used by
+Wireframe tests:
 
 ```rust,no_run
-use std::io;
-use wireframe::codec::FrameCodec;
+use tokio_util::codec::LengthDelimitedCodec;
 
-pub fn encode_frames<F>(codec: &F, frames: Vec<F::Frame>) -> io::Result<Vec<u8>>
-where
-    F: FrameCodec;
+pub fn decode_frames(bytes: Vec<u8>) -> Vec<Vec<u8>>;
 
-pub fn decode_frames<F>(codec: &F, bytes: Vec<u8>) -> io::Result<Vec<F::Frame>>
-where
-    F: FrameCodec;
+pub fn decode_frames_with_max(bytes: Vec<u8>, max_len: usize) -> Vec<Vec<u8>>;
+
+pub fn encode_frame(codec: &mut LengthDelimitedCodec, bytes: Vec<u8>) -> Vec<u8>;
 ```
-
-`decode_frames` should return an error when trailing bytes remain in the buffer
-after the last frame, so tests can detect partial or malformed streams.
 
 ### Bincode convenience wrapper
 
@@ -318,3 +312,26 @@ async fn captures_metrics() -> std::io::Result<()> {
   used by codec error tests.
 - Implement the observability harness and expose it via an `rstest` fixture in
   `wireframe_testing::observability`.
+
+## Proposed enhancements
+
+### Codec-aware frame encoding and decoding
+
+Proposed codec-aware helpers make it easy to build fixtures or inspect raw
+bytes:
+
+```rust,no_run
+use std::io;
+use wireframe::codec::FrameCodec;
+
+pub fn encode_frames<F>(codec: &F, frames: Vec<F::Frame>) -> io::Result<Vec<u8>>
+where
+    F: FrameCodec;
+
+pub fn decode_frames<F>(codec: &F, bytes: Vec<u8>) -> io::Result<Vec<F::Frame>>
+where
+    F: FrameCodec;
+```
+
+These helpers should return an error when trailing bytes remain in the buffer
+after the last frame, so tests can detect partial or malformed streams.
