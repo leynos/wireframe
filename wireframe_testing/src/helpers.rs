@@ -279,6 +279,107 @@ where
     .await
 }
 
+/// Encode payloads as length-delimited frames and drive `app`.
+///
+/// This helper wraps each payload using the default length-delimited framing
+/// format before sending it to the application.
+///
+/// ```rust
+/// # use wireframe_testing::drive_with_payloads;
+/// # use wireframe::app::WireframeApp;
+/// # async fn demo() -> std::io::Result<()> {
+/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let out = drive_with_payloads(app, vec![vec![1], vec![2]]).await?;
+/// # let _ = out;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn drive_with_payloads<S, C, E>(
+    app: WireframeApp<S, C, E>,
+    payloads: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    drive_with_payloads_with_capacity(app, payloads, DEFAULT_CAPACITY).await
+}
+
+/// Encode payloads as length-delimited frames and drive a mutable `app`.
+///
+/// ```rust
+/// # use wireframe_testing::drive_with_payloads_mut;
+/// # use wireframe::app::WireframeApp;
+/// # async fn demo() -> std::io::Result<()> {
+/// let mut app = WireframeApp::new().expect("failed to initialize app");
+/// let out = drive_with_payloads_mut(&mut app, vec![vec![1], vec![2]]).await?;
+/// # let _ = out;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn drive_with_payloads_mut<S, C, E>(
+    app: &mut WireframeApp<S, C, E>,
+    payloads: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    drive_with_payloads_with_capacity_mut(app, payloads, DEFAULT_CAPACITY).await
+}
+
+fn encode_payloads(
+    payloads: Vec<Vec<u8>>,
+    mut codec: LengthDelimitedCodec,
+) -> io::Result<Vec<Vec<u8>>> {
+    payloads
+        .into_iter()
+        .map(|payload| {
+            let header_len = LengthFormat::default().bytes();
+            let mut buf = BytesMut::with_capacity(payload.len() + header_len);
+            codec.encode(payload.into(), &mut buf).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("frame encode failed: {err}"),
+                )
+            })?;
+            Ok(buf.to_vec())
+        })
+        .collect()
+}
+
+async fn drive_with_payloads_with_capacity<S, C, E>(
+    app: WireframeApp<S, C, E>,
+    payloads: Vec<Vec<u8>>,
+    capacity: usize,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    let codec = new_test_codec(DEFAULT_CAPACITY);
+    let frames = encode_payloads(payloads, codec)?;
+    drive_with_frames_with_capacity(app, frames, capacity).await
+}
+
+async fn drive_with_payloads_with_capacity_mut<S, C, E>(
+    app: &mut WireframeApp<S, C, E>,
+    payloads: Vec<Vec<u8>>,
+    capacity: usize,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    let codec = new_test_codec(DEFAULT_CAPACITY);
+    let frames = encode_payloads(payloads, codec)?;
+    drive_with_frames_with_capacity_mut(app, frames, capacity).await
+}
+
 forward_default! {
     /// Feed a single frame into a mutable `app`, allowing the instance to be reused
     /// across calls.
@@ -472,7 +573,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use wireframe::app::WireframeApp;
+    use std::sync::Arc;
+
+    use wireframe::{
+        Serializer,
+        app::{Envelope, WireframeApp},
+        serializer::BincodeSerializer,
+    };
 
     use super::*;
 
@@ -492,6 +599,28 @@ mod tests {
             .await
             .expect_err("capacity beyond max should error");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
+        let app = WireframeApp::new()?.route(1, Arc::new(|_: &Envelope| Box::pin(async {})))?;
+        let serializer = BincodeSerializer::default();
+        let payload = vec![1_u8, 2, 3];
+        let env = Envelope::new(1, Some(7), payload.clone());
+        let encoded = serializer
+            .serialize(&env)
+            .expect("failed to serialize envelope");
+
+        let out = drive_with_payloads(app, vec![encoded]).await?;
+        let frames = decode_frames(out);
+        let [first] = frames.as_slice() else {
+            panic!("expected a single response frame");
+        };
+        let (decoded, _) = serializer
+            .deserialize::<Envelope>(first)
+            .expect("failed to deserialise envelope");
+        assert_eq!(decoded.payload, payload, "payload mismatch");
+        Ok(())
     }
 }
 

@@ -34,6 +34,8 @@ pub use helpers::{
     drive_with_frames,
     drive_with_frames_mut,
     drive_with_frames_with_capacity,
+    drive_with_payloads,
+    drive_with_payloads_mut,
     encode_frame,
     new_test_codec,
     run_app,
