@@ -72,7 +72,7 @@ pub type RequestBodyStream =
 
 - Handlers MAY receive `RequestParts` plus `RequestBodyStream` rather than a
   fully reassembled `Vec<u8>`.
-- Wireframe MAY expose an `AsyncRead` adaptor for `RequestBodyStream` so
+- Wireframe MAY expose an `AsyncRead` adapter for `RequestBodyStream` so
   protocol crates can reuse existing parsers.
 - The default remains “buffered request” to preserve Wireframe’s existing
   transparent assembly ergonomics for small messages and simple protocols.

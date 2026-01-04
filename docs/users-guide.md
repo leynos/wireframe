@@ -261,9 +261,9 @@ streaming request payloads.[^45]
 - `RequestParts::correlation_id()` returns the optional correlation identifier.
 - `RequestParts::metadata()` returns protocol-defined header bytes.
 
-This type pairs with `RequestBodyStream` (future) for incremental consumption
-of large request payloads. Handlers can choose between buffered (existing) and
-streaming consumption; the streaming path is opt-in.
+This type pairs with `RequestBodyStream` for incremental consumption of large
+request payloads. Handlers can choose between buffered (existing) and streaming
+consumption; the streaming path is opt-in.
 
 ```rust
 use wireframe::request::RequestParts;
@@ -278,6 +278,83 @@ Unlike `PacketParts` (which carries the raw payload for envelope
 reconstruction), `RequestParts` carries only protocol-defined metadata required
 to interpret the streaming body. The body itself is consumed through a separate
 stream, enabling back-pressure and incremental processing.[^46]
+
+### Streaming request body consumption
+
+Handlers can opt into streaming request bodies using the `StreamingBody`
+extractor or by accepting a `RequestBodyStream` directly. The framework creates
+a bounded channel and forwards body chunks as they arrive; back-pressure
+propagates automatically when the handler consumes slower than the network
+delivers.
+
+```rust,no_run
+use tokio::io::AsyncReadExt;
+use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
+
+async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
+    let mut reader = RequestBodyReader::new(body);
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf).await.expect("read body");
+
+    log::info!(
+        "received {} bytes for request {}",
+        buf.len(),
+        parts.id()
+    );
+}
+```
+
+The `RequestBodyReader` adapter implements `AsyncRead`, allowing protocol
+crates to reuse existing parsers. For raw stream access, use the
+`RequestBodyStream` directly with `StreamExt` methods:
+
+```rust,no_run
+use bytes::Bytes;
+use futures::StreamExt;
+use wireframe::request::{RequestBodyStream, RequestParts};
+
+async fn handle_stream(parts: RequestParts, mut body: RequestBodyStream) {
+    while let Some(result) = body.next().await {
+        match result {
+            Ok(chunk) => log::debug!("received {} bytes", chunk.len()),
+            Err(e) => log::error!("stream error: {e}"),
+        }
+    }
+}
+```
+
+The `StreamingBody` extractor wraps the stream with convenience methods:
+
+```rust,no_run
+use wireframe::{
+    extractor::StreamingBody,
+    request::RequestParts,
+};
+
+async fn with_extractor(parts: RequestParts, body: StreamingBody) {
+    // Convert to AsyncRead
+    let reader = body.into_reader();
+
+    // Or access the raw stream
+    // let stream = body.into_stream();
+}
+```
+
+Back-pressure is enforced via bounded channels: when the internal buffer fills,
+the framework pauses reading from the socket until the handler drains pending
+chunks. This prevents memory exhaustion under slow consumer conditions. The
+`body_channel` helper creates channels with configurable capacity:
+
+```rust
+use wireframe::request::body_channel;
+
+// Create a channel with capacity for 8 chunks
+let (tx, rx) = body_channel(8);
+// tx: connection sends chunks
+// rx: handler consumes via RequestBodyStream
+```
+
+See [ADR 0002][adr-0002-ref] for the complete design rationale.
 
 ## Working with requests and middleware
 
@@ -814,3 +891,5 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^45]: Implemented in `src/request.rs`.
 [^46]: See ADR 0002 for design rationale:
     `docs/adr/0002-streaming-requests-and-shared-message-assembly.md`.
+
+[adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md

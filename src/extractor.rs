@@ -8,10 +8,10 @@ use std::{
     any::{Any, TypeId},
     collections::HashMap,
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
-use crate::message::Message as WireMessage;
+use crate::{message::Message as WireMessage, request::RequestBodyStream};
 
 /// Request context passed to extractors.
 ///
@@ -26,9 +26,39 @@ pub struct MessageRequest {
     /// Values are keyed by their [`TypeId`]. Registering additional
     /// state of the same type will replace the previous entry.
     pub app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    /// Optional streaming body for handlers that opt into streaming consumption.
+    ///
+    /// When present, the [`StreamingBody`] extractor can take ownership of this
+    /// stream. Only one handler/extractor may consume the stream; subsequent
+    /// extractions will receive [`ExtractError::MissingBodyStream`].
+    body_stream: Option<Mutex<Option<RequestBodyStream>>>,
 }
 
 impl MessageRequest {
+    /// Create a new empty message request.
+    ///
+    /// Use [`Self::with_peer_addr`] to configure connection metadata.
+    #[must_use]
+    pub fn new() -> Self { Self::default() }
+
+    /// Set the peer address for this request.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::net::SocketAddr;
+    ///
+    /// use wireframe::extractor::MessageRequest;
+    ///
+    /// let req = MessageRequest::new().with_peer_addr(Some("127.0.0.1:8080".parse().unwrap()));
+    /// assert!(req.peer_addr.is_some());
+    /// ```
+    #[must_use]
+    pub fn with_peer_addr(mut self, addr: Option<SocketAddr>) -> Self {
+        self.peer_addr = addr;
+        self
+    }
+
     /// Retrieve shared state of type `T` if available.
     ///
     /// Returns `None` when no value of type `T` was registered.
@@ -81,6 +111,47 @@ impl MessageRequest {
             TypeId::of::<T>(),
             Arc::new(state) as Arc<dyn Any + Send + Sync>,
         );
+    }
+
+    /// Set the streaming body for this request.
+    ///
+    /// The framework calls this when a handler opts into streaming consumption.
+    /// The stream can later be taken by the [`StreamingBody`] extractor.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::{extractor::MessageRequest, request::body_channel};
+    ///
+    /// let mut req = MessageRequest::default();
+    /// let (_tx, stream) = body_channel(4);
+    /// req.set_body_stream(stream);
+    /// ```
+    pub fn set_body_stream(&mut self, stream: RequestBodyStream) {
+        self.body_stream = Some(Mutex::new(Some(stream)));
+    }
+
+    /// Take the streaming body from this request, if present.
+    ///
+    /// Returns `None` if no body stream was set or if it was already taken
+    /// by a previous extractor. This ensures only one consumer receives the
+    /// stream.
+    ///
+    /// # Mutex poisoning
+    ///
+    /// If the internal mutex is poisoned (for example, due to a panic in another
+    /// thread while holding the lock), this method returns `None` rather than
+    /// propagating the panic. This behaviour prioritizes availability over
+    /// strict correctness: a poisoned mutex typically indicates a serious bug
+    /// elsewhere, but crashing additional handlers would only compound the
+    /// problem. The missing stream will surface as an [`ExtractError::MissingBodyStream`]
+    /// in the handler, which can be logged and investigated.
+    #[must_use]
+    pub fn take_body_stream(&self) -> Option<RequestBodyStream> {
+        self.body_stream
+            .as_ref()
+            .and_then(|mutex| mutex.lock().ok())
+            .and_then(|mut guard| guard.take())
     }
 }
 
@@ -208,6 +279,12 @@ pub enum ExtractError {
     MissingState(&'static str),
     /// Failed to decode the message payload.
     InvalidPayload(bincode::error::DecodeError),
+    /// No streaming body was available for this request.
+    ///
+    /// This occurs when:
+    /// - The request was not configured for streaming consumption
+    /// - The stream was already consumed by another extractor
+    MissingBodyStream,
 }
 
 impl std::fmt::Display for ExtractError {
@@ -218,6 +295,9 @@ impl std::fmt::Display for ExtractError {
         match self {
             Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
             Self::InvalidPayload(e) => write!(f, "failed to decode payload: {e}"),
+            Self::MissingBodyStream => {
+                write!(f, "no streaming body available for this request")
+            }
         }
     }
 }
@@ -314,6 +394,95 @@ where
     }
 }
 
+/// Extractor providing streaming access to the request body.
+///
+/// Unlike [`Payload`] which borrows buffered bytes, this extractor
+/// takes ownership of a streaming body channel. Handlers opting into
+/// streaming receive chunks incrementally via a [`RequestBodyStream`].
+///
+/// This type is the inbound counterpart to [`crate::Response::Stream`].
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use tokio::io::AsyncReadExt;
+/// use wireframe::{extractor::StreamingBody, request::body_channel};
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let (tx, stream) = body_channel(4);
+///
+/// tokio::spawn(async move {
+///     let _ = tx.send(Ok(Bytes::from_static(b"payload"))).await;
+/// });
+///
+/// let body = StreamingBody::new(stream);
+/// let mut reader = body.into_reader();
+/// let mut buf = Vec::new();
+/// reader.read_to_end(&mut buf).await.expect("read body");
+/// assert_eq!(buf, b"payload");
+/// # }
+/// ```
+///
+/// [`RequestBodyStream`]: crate::request::RequestBodyStream
+pub struct StreamingBody {
+    stream: crate::request::RequestBodyStream,
+}
+
+impl StreamingBody {
+    /// Create a streaming body from the given stream.
+    ///
+    /// Typically constructed by the framework when a handler opts into
+    /// streaming request consumption.
+    #[must_use]
+    pub fn new(stream: crate::request::RequestBodyStream) -> Self { Self { stream } }
+
+    /// Consume the extractor and return the underlying stream.
+    ///
+    /// Use this when you need direct access to the stream for custom
+    /// processing with [`futures::StreamExt`] methods.
+    #[must_use]
+    pub fn into_stream(self) -> crate::request::RequestBodyStream { self.stream }
+
+    /// Convert to an [`AsyncRead`] adapter.
+    ///
+    /// Protocol crates can use this to feed streaming bytes into parsers
+    /// that operate on readers rather than streams.
+    ///
+    /// [`AsyncRead`]: tokio::io::AsyncRead
+    #[must_use]
+    pub fn into_reader(self) -> crate::request::RequestBodyReader {
+        crate::request::RequestBodyReader::new(self.stream)
+    }
+}
+
+impl std::fmt::Debug for StreamingBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamingBody").finish_non_exhaustive()
+    }
+}
+
+impl FromMessageRequest for StreamingBody {
+    type Error = ExtractError;
+
+    /// Extract the streaming body from the request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExtractError::MissingBodyStream`] if:
+    /// - The request was not configured for streaming consumption
+    /// - The stream was already consumed by another extractor
+    fn from_message_request(
+        req: &MessageRequest,
+        _payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        req.take_body_stream()
+            .map(Self::new)
+            .ok_or(ExtractError::MissingBodyStream)
+    }
+}
+
 /// Extractor providing peer connection metadata.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectionInfo {
@@ -325,17 +494,15 @@ impl ConnectionInfo {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use std::net::SocketAddr;
     ///
     /// use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
     ///
-    /// let req = MessageRequest {
-    ///     peer_addr: Some("127.0.0.1:8080".parse::<SocketAddr>().unwrap()),
-    ///     ..Default::default()
-    /// };
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let req = MessageRequest::new().with_peer_addr(Some(addr));
     /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default()).unwrap();
-    /// assert_eq!(info.peer_addr(), req.peer_addr);
+    /// assert_eq!(info.peer_addr(), Some(addr));
     /// ```
     #[must_use]
     pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }

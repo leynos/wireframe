@@ -59,6 +59,12 @@ pub use fragment::{
 };
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
 pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
-pub use request::RequestParts;
+pub use request::{
+    DEFAULT_BODY_CHANNEL_CAPACITY,
+    RequestBodyReader,
+    RequestBodyStream,
+    RequestParts,
+    body_channel,
+};
 pub use response::{FrameStream, Response, WireframeError};
 pub use session::{ConnectionId, SessionRegistry};

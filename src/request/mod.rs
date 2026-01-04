@@ -3,6 +3,195 @@
 //! These types allow handlers to consume request payloads incrementally
 //! rather than waiting for full reassembly. See ADR 0002 for the design
 //! rationale and composition with transport-level fragmentation.
+//!
+//! # Streaming request bodies
+//!
+//! Handlers can opt into streaming by accepting a [`RequestBodyStream`]
+//! alongside [`RequestParts`]. The framework provides chunks via a bounded
+//! channel, propagating back-pressure when the handler consumes slowly.
+//!
+//! ```
+//! use bytes::Bytes;
+//! use wireframe::request::{RequestBodyStream, RequestParts};
+//!
+//! async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
+//!     // Process metadata immediately
+//!     let id = parts.id();
+//!     // Consume body chunks incrementally via StreamExt or AsyncRead adapter
+//! }
+//! ```
+
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use bytes::Bytes;
+use futures::Stream;
+use tokio::{io::AsyncRead, sync::mpsc};
+use tokio_util::io::StreamReader;
+
+/// Streaming request body.
+///
+/// Handlers can consume this stream incrementally rather than waiting for
+/// full body reassembly. Each item yields either a chunk of bytes or an
+/// I/O error.
+///
+/// This type is symmetric with [`crate::FrameStream`] for streaming responses.
+/// See ADR 0002 for design rationale.
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use futures::StreamExt;
+/// use wireframe::request::RequestBodyStream;
+///
+/// async fn consume_stream(mut body: RequestBodyStream) {
+///     while let Some(result) = body.next().await {
+///         match result {
+///             Ok(chunk) => { /* process chunk */ }
+///             Err(e) => { /* handle I/O error */ }
+///         }
+///     }
+/// }
+/// ```
+pub type RequestBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>> + Send + 'static>>;
+
+/// Default capacity for streaming request body channels.
+///
+/// This value balances memory usage against throughput; handlers consuming
+/// slowly will cause back-pressure after this many chunks buffer.
+///
+/// # Rationale
+///
+/// The value 16 was chosen based on common workload characteristics:
+///
+/// - **Memory efficiency**: With typical chunk sizes of 4–16 KiB, 16 buffered chunks consume at
+///   most ~256 KiB per connection, which is acceptable for most server deployments.
+///
+/// - **Throughput smoothing**: A small buffer absorbs transient processing delays in handlers,
+///   preventing socket stalls on bursty workloads.
+///
+/// - **Back-pressure responsiveness**: The buffer is small enough that back-pressure engages
+///   promptly when handlers fall behind, protecting the server from memory exhaustion.
+///
+/// - **Power-of-two alignment**: Matches common allocator bucket sizes, avoiding internal
+///   fragmentation in the channel implementation.
+///
+/// Adjust via [`body_channel`] when your workload has different
+/// characteristics (for example, very large chunks or strict memory limits).
+pub const DEFAULT_BODY_CHANNEL_CAPACITY: usize = 16;
+
+/// Create a bounded channel for streaming request bodies.
+///
+/// Returns a sender (for the connection to push chunks) and a
+/// [`RequestBodyStream`] (for the handler to consume). Back-pressure
+/// propagates when the channel fills: senders await capacity before
+/// buffering additional chunks.
+///
+/// # Arguments
+///
+/// * `capacity` - Maximum number of chunks to buffer before applying back-pressure. Must be greater
+///   than zero.
+///
+/// # Panics
+///
+/// Panics if `capacity` is zero, mirroring [`tokio::sync::mpsc::channel`].
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use wireframe::request::body_channel;
+///
+/// let (tx, rx) = body_channel(8);
+/// // tx: send chunks from connection
+/// // rx: consume in handler
+/// ```
+#[must_use]
+pub fn body_channel(
+    capacity: usize,
+) -> (mpsc::Sender<Result<Bytes, io::Error>>, RequestBodyStream) {
+    let (tx, rx) = mpsc::channel(capacity);
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+    (tx, Box::pin(stream))
+}
+
+/// Adapter wrapping a [`RequestBodyStream`] as [`AsyncRead`].
+///
+/// Protocol crates can use this to feed streaming bytes into parsers
+/// that operate on readers rather than streams. The adapter consumes
+/// chunks from the underlying stream and presents them as a contiguous
+/// byte sequence.
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use tokio::io::AsyncReadExt;
+/// use wireframe::request::{RequestBodyReader, RequestBodyStream};
+///
+/// async fn read_all(body: RequestBodyStream) -> std::io::Result<Vec<u8>> {
+///     let mut reader = RequestBodyReader::new(body);
+///     let mut buf = Vec::new();
+///     reader.read_to_end(&mut buf).await?;
+///     Ok(buf)
+/// }
+/// ```
+pub struct RequestBodyReader {
+    inner: StreamReader<RequestBodyStream, Bytes>,
+}
+
+impl RequestBodyReader {
+    /// Create a new reader from a streaming body.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bytes::Bytes;
+    /// use wireframe::request::{RequestBodyReader, RequestBodyStream};
+    ///
+    /// fn wrap_stream(stream: RequestBodyStream) -> RequestBodyReader {
+    ///     RequestBodyReader::new(stream)
+    /// }
+    /// ```
+    #[must_use]
+    pub fn new(stream: RequestBodyStream) -> Self {
+        Self {
+            inner: StreamReader::new(stream),
+        }
+    }
+
+    /// Consume the reader and return the underlying stream.
+    ///
+    /// # Data loss warning
+    ///
+    /// Any bytes that have been read from the stream but not yet consumed
+    /// from the reader's internal buffer are **permanently discarded** when
+    /// this method is called. This can occur when:
+    ///
+    /// - A partial read left buffered bytes (for example, `read(&mut [u8; 4])` when the chunk
+    ///   contained more than 4 bytes)
+    /// - The reader was used with `BufRead` methods that prefetch data
+    ///
+    /// **Safe to call when:** the reader has been fully drained (all reads
+    /// returned zero bytes or an error), or when deliberately abandoning
+    /// any remaining buffered content.
+    #[must_use]
+    pub fn into_inner(self) -> RequestBodyStream { self.inner.into_inner() }
+}
+
+impl AsyncRead for RequestBodyReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
 
 /// Request metadata extracted outwith the request body.
 ///
@@ -198,65 +387,7 @@ impl CorrelationResult {
 }
 
 #[cfg(test)]
-mod tests {
-    use rstest::rstest;
+mod tests;
 
-    use super::*;
-
-    #[rstest]
-    fn new_stores_all_fields() {
-        let parts = RequestParts::new(42, Some(100), vec![0x01, 0x02]);
-        assert_eq!(parts.id(), 42);
-        assert_eq!(parts.correlation_id(), Some(100));
-        assert_eq!(parts.metadata(), &[0x01, 0x02]);
-    }
-
-    #[rstest]
-    fn metadata_returns_reference() {
-        let parts = RequestParts::new(1, None, vec![0xab, 0xcd, 0xef]);
-        let meta = parts.metadata();
-        assert_eq!(meta.len(), 3);
-        assert_eq!(meta.first(), Some(&0xab));
-    }
-
-    #[rstest]
-    fn metadata_mut_allows_modification() {
-        let mut parts = RequestParts::new(1, None, vec![0x01]);
-        parts.metadata_mut().push(0x02);
-        assert_eq!(parts.metadata(), &[0x01, 0x02]);
-    }
-
-    #[rstest]
-    fn into_metadata_transfers_ownership() {
-        let parts = RequestParts::new(1, None, vec![7, 8, 9]);
-        let owned = parts.into_metadata();
-        assert_eq!(owned, vec![7, 8, 9]);
-    }
-
-    #[rstest]
-    fn clone_produces_equal_instance() {
-        let parts = RequestParts::new(42, Some(100), vec![0x01, 0x02]);
-        let cloned = parts.clone();
-        assert_eq!(parts, cloned);
-    }
-
-    #[rstest]
-    #[case(RequestParts::new(1, None, vec![]), Some(42), Some(42))]
-    #[case(RequestParts::new(1, Some(7), vec![]), None, Some(7))]
-    #[case(RequestParts::new(1, None, vec![]), None, None)]
-    #[case(RequestParts::new(1, Some(7), vec![]), Some(8), Some(8))]
-    fn inherit_correlation_variants(
-        #[case] start: RequestParts,
-        #[case] source: Option<u64>,
-        #[case] expected: Option<u64>,
-    ) {
-        let got = start.inherit_correlation(source);
-        assert_eq!(got.correlation_id(), expected);
-    }
-
-    #[rstest]
-    fn empty_metadata_is_valid() {
-        let parts = RequestParts::new(1, None, vec![]);
-        assert!(parts.metadata().is_empty());
-    }
-}
+#[cfg(test)]
+mod stream_tests;
