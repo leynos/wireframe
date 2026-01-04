@@ -340,14 +340,14 @@ integration boundaries.
 
 ### 9.1. Codec enhancements
 
-- [ ] 9.1.1. Make `FrameCodec::wrap_payload` instance-aware for stateful
+- [x] 9.1.1. Make `FrameCodec::wrap_payload` instance-aware for stateful
   codecs.
-  - [ ] Update the trait to accept `&self` and a `Bytes` payload to reduce
+  - [x] Update the trait to accept `&self` and a `Bytes` payload to reduce
     copies, then document the change in
     `adr-004-pluggable-protocol-codecs.md`.
-  - [ ] Update `LengthDelimitedFrameCodec` and any adapters to use the new
+  - [x] Update `LengthDelimitedFrameCodec` and any adapters to use the new
     payload type.
-  - [ ] Reuse a per-connection encoder, so sequence counters can advance
+  - [x] Reuse a per-connection encoder, so sequence counters can advance
     deterministically.
 - [ ] 9.1.2. Introduce a `CodecError` taxonomy.
   - [ ] Add a `CodecError` enum separating framing, protocol, and IO failures.

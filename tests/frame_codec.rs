@@ -1,10 +1,17 @@
 //! Integration coverage for custom `FrameCodec` implementations.
 
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+};
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder, Framed};
 use wireframe::{
     Serializer,
     app::{Envelope, Packet, WireframeApp},
@@ -18,13 +25,30 @@ struct TaggedFrame {
     payload: Vec<u8>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct TaggedFrameCodec {
     max_frame_length: usize,
+    counter: AtomicU8,
 }
 
 impl TaggedFrameCodec {
-    fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    fn new(max_frame_length: usize) -> Self {
+        Self {
+            max_frame_length,
+            counter: AtomicU8::new(0),
+        }
+    }
+
+    fn next_tag(&self) -> u8 { self.counter.fetch_add(1, Ordering::SeqCst).wrapping_add(1) }
+}
+
+impl Clone for TaggedFrameCodec {
+    fn clone(&self) -> Self {
+        Self {
+            max_frame_length: self.max_frame_length,
+            counter: AtomicU8::new(0),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -99,7 +123,12 @@ impl FrameCodec for TaggedFrameCodec {
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame { TaggedFrame { tag: 0x1, payload } }
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
+        TaggedFrame {
+            tag: self.next_tag(),
+            payload: payload.to_vec(),
+        }
+    }
 
     fn correlation_id(frame: &Self::Frame) -> Option<u64> { Some(u64::from(frame.tag)) }
 
@@ -157,4 +186,42 @@ async fn custom_codec_round_trips_frames() {
     assert_eq!(response_env.correlation_id(), Some(7));
     let response_payload = response_env.into_parts().payload();
     assert_eq!(response_payload, b"ping".to_vec());
+}
+
+#[tokio::test]
+async fn stateful_codec_advances_tags_per_connection() {
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .expect("build app")
+        .with_codec(TaggedFrameCodec::new(64))
+        .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))
+        .expect("route configured");
+
+    let (client, server) = tokio::io::duplex(256);
+    let server_task = tokio::spawn(async move {
+        app.handle_connection_result(server)
+            .await
+            .expect("server should exit cleanly");
+    });
+
+    let mut framed = Framed::new(client, TaggedAdapter::new(64));
+    for expected_tag in [1_u8, 2] {
+        let request = Envelope::new(1, None, b"ping".to_vec());
+        let payload = BincodeSerializer
+            .serialize(&request)
+            .expect("serialize request");
+        framed
+            .send(TaggedFrame { tag: 7, payload })
+            .await
+            .expect("send request");
+        let response = framed
+            .next()
+            .await
+            .expect("missing response")
+            .expect("response frame");
+        assert_eq!(response.tag, expected_tag);
+    }
+
+    let mut stream = framed.into_inner();
+    stream.shutdown().await.expect("shutdown client");
+    server_task.await.expect("join server task");
 }

@@ -10,42 +10,49 @@ No `PLANS.md` exists in this repository as of 2026-01-04.
 
 Stateful codecs (for example, protocols that stamp sequence counters or
 transaction ids in headers) need access to per-connection state when wrapping
-outbound payloads. Today `FrameCodec::wrap_payload` is a static function that
-only sees a `Vec<u8>`, which forces copies and prevents deterministic state
-advancement. This change makes `wrap_payload` instance-aware and accept a
-`Bytes` payload, then threads a per-connection codec instance through the send
-path so state advances deterministically per connection. Success is visible
-when a custom codec can increment a sequence counter on each response without
+outbound payloads. Previously `FrameCodec::wrap_payload` was a static function
+that only saw a `Vec<u8>`, which forced copies and prevented deterministic
+state advancement. This change makes `wrap_payload` instance-aware and accept
+`Bytes`, then threads a per-connection codec instance through the send path so
+state advances deterministically per connection. Success is visible when a
+custom codec can increment a sequence counter on each response without
 cross-connection interference, and the default length-delimited behaviour
 remains unchanged.
 
 ## Progress
 
 - [x] (2026-01-04 00:00Z) Drafted ExecPlan for 9.1.1.
-- [ ] Review existing codec and send paths to identify all wrap sites.
-- [ ] Update `FrameCodec::wrap_payload` signature and adjust all
-  implementations and call sites.
-- [ ] Introduce per-connection codec reuse for outbound wrapping.
-- [ ] Add unit, integration, and behavioural tests for instance-aware wrapping.
-- [ ] Update documentation and mark roadmap entry 9.1.1 as done.
-- [ ] Run formatting, lint, and test gates.
+- [x] (2026-01-04 01:05Z) Reviewed codec usage and send paths for wrap sites.
+- [x] (2026-01-04 01:20Z) Updated `FrameCodec::wrap_payload` to accept `&self`
+  and `Bytes`, then adjusted implementations and call sites.
+- [x] (2026-01-04 01:30Z) Reused a per-connection codec instance and encoder in
+  the connection pipeline.
+- [x] (2026-01-04 01:50Z) Added unit, integration, and behavioural tests for
+  instance-aware wrapping.
+- [x] (2026-01-04 02:05Z) Updated documentation and marked roadmap entry 9.1.1
+  as done.
+- [x] (2026-01-04 02:30Z) Ran formatting, lint, and test gates.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Not applicable.
+- Observation: `make markdownlint` required overriding `MDLINT` to point at
+  `/root/.bun/bin/markdownlint-cli2`. Evidence:
+  `/tmp/wireframe-markdownlint.log`.
 
 ## Decision Log
 
-- Decision: Pending.
-  Rationale: Needs validation once code review confirms the best way to supply
-  per-connection codec state.
+- Decision: Require `FrameCodec` to be `Clone` and clone it per connection.
+  Rationale: `wrap_payload(&self, Bytes)` needs a per-connection state holder,
+  and cloning allows deterministic counters without cross-connection leakage.
   Date/Author: 2026-01-04 / Codex.
 
 ## Outcomes & Retrospective
 
-Work not started yet. This section will summarise outcomes once the change is
-implemented and validated.
+Instance-aware payload wrapping is implemented, with per-connection codec
+clones and a `Bytes`-based payload surface. Unit, integration, and behavioural
+tests validate the new stateful wrapping behaviour, and the ADR, users guide,
+and roadmap entries are updated to reflect the new API. Remaining work is to
+run the formatting, lint, and test gates.
 
 ## Context and Orientation
 
@@ -220,16 +227,17 @@ clean up after each scenario.
 
 Record key evidence here once available, for example:
 
-    - The output of `tests/frame_codec.rs` showing sequence numbers 1 then 2.
-    - The Cucumber feature scenario transcript proving per-connection reset.
-    - Links to updated documentation sections.
+    - `make fmt` log: `/tmp/wireframe-fmt.log`.
+    - `make markdownlint` log: `/tmp/wireframe-markdownlint.log`.
+    - `make check-fmt` log: `/tmp/wireframe-check-fmt.log`.
+    - `make lint` log: `/tmp/wireframe-lint.log`.
+    - `make test` log: `/tmp/wireframe-test.log`.
 
 ## Interfaces and Dependencies
 
-At completion, the codec interface must look like this (in
-`src/codec.rs`):
+At completion, the codec interface must look like this (in `src/codec.rs`):
 
-    pub trait FrameCodec: Send + Sync + 'static {
+    pub trait FrameCodec: Send + Sync + Clone + 'static {
         type Frame: Send + Sync + 'static;
         type Decoder: Decoder<Item = Self::Frame, Error = io::Error> + Send;
         type Encoder: Encoder<Self::Frame, Error = io::Error> + Send;
@@ -242,10 +250,11 @@ At completion, the codec interface must look like this (in
         fn max_frame_length(&self) -> usize;
     }
 
-If per-connection state requires cloning, add `Clone` to the trait bounds and
-ensure `WireframeApp` keeps a per-connection instance for response wrapping.
+Wireframe clones the codec per connection, so ensure `Clone` produces the
+desired per-connection state when counters or dictionaries are involved.
 
 ## Revision note (required when editing an ExecPlan)
 
-Initial plan created for roadmap item 9.1.1, covering the API change, tests,
-behavioural coverage, and documentation updates.
+Updated progress, decisions, and outcomes to reflect the implemented changes,
+including the `FrameCodec` signature update, per-connection codec reuse, tests,
+and documentation edits.

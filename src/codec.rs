@@ -23,7 +23,7 @@ pub mod examples;
 ///
 /// Implementors define their own `Frame` type (for example, a struct carrying
 /// transaction identifiers) and provide decoder/encoder instances.
-pub trait FrameCodec: Send + Sync + 'static {
+pub trait FrameCodec: Send + Sync + Clone + 'static {
     /// Frame type produced by decoding.
     type Frame: Send + Sync + 'static;
     /// Decoder type for this codec.
@@ -41,7 +41,7 @@ pub trait FrameCodec: Send + Sync + 'static {
     fn frame_payload(frame: &Self::Frame) -> &[u8];
 
     /// Wrap serialized payload bytes into a frame for sending.
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame;
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame;
 
     /// Extract correlation ID for request/response matching.
     ///
@@ -149,7 +149,7 @@ impl FrameCodec for LengthDelimitedFrameCodec {
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.as_ref() }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame { Bytes::from(payload) }
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame { payload }
 
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
@@ -170,8 +170,8 @@ mod tests {
         let mut encoder = codec.encoder();
         let mut decoder = codec.decoder();
 
-        let payload = vec![1_u8, 2, 3, 4];
-        let frame = LengthDelimitedFrameCodec::wrap_payload(payload.clone());
+        let payload = Bytes::from(vec![1_u8, 2, 3, 4]);
+        let frame = codec.wrap_payload(payload.clone());
 
         let mut buf = BytesMut::new();
         encoder
@@ -185,7 +185,7 @@ mod tests {
 
         assert_eq!(
             LengthDelimitedFrameCodec::frame_payload(&decoded_frame),
-            payload.as_slice()
+            payload.as_ref()
         );
     }
 
@@ -194,13 +194,23 @@ mod tests {
         let codec = LengthDelimitedFrameCodec::new(MIN_FRAME_LENGTH);
         let mut encoder = codec.encoder();
 
-        let payload = vec![0_u8; MIN_FRAME_LENGTH.saturating_add(1)];
-        let frame = LengthDelimitedFrameCodec::wrap_payload(payload);
+        let payload = Bytes::from(vec![0_u8; MIN_FRAME_LENGTH.saturating_add(1)]);
+        let frame = codec.wrap_payload(payload);
         let mut buf = BytesMut::new();
 
         let err = encoder
             .encode(frame, &mut buf)
             .expect_err("expected encode to fail for oversized frame");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn length_delimited_wrap_payload_reuses_bytes() {
+        let codec = LengthDelimitedFrameCodec::new(128);
+        let payload = Bytes::from(vec![9_u8; 4]);
+        let frame = codec.wrap_payload(payload.clone());
+
+        assert_eq!(payload.len(), frame.len());
+        assert_eq!(payload.as_ref().as_ptr(), frame.as_ref().as_ptr());
     }
 }

@@ -4,6 +4,7 @@
 
 use std::io;
 
+use bytes::Bytes;
 use futures::SinkExt;
 use log::warn;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -58,6 +59,18 @@ where
     pub(crate) serializer: &'a S,
     pub(crate) framed: &'a mut Framed<W, ConnectionCodec<F>>,
     pub(crate) fragmentation: &'a mut Option<FragmentationState>,
+    pub(crate) codec: &'a F,
+}
+
+struct SendContext<'a, W, F>
+where
+    W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+{
+    codec: &'a F,
+    framed: &'a mut Framed<W, ConnectionCodec<F>>,
+    id: u32,
+    correlation_id: Option<u64>,
 }
 
 /// Attempt to reassemble a potentially fragmented envelope.
@@ -126,7 +139,13 @@ where
             break; // already logged
         };
 
-        if send_response_payload::<F, W>(ctx.framed, bytes, env.id, correlation_id)
+        let send_ctx = SendContext {
+            codec: ctx.codec,
+            framed: ctx.framed,
+            id: env.id,
+            correlation_id,
+        };
+        if send_response_payload::<F, W>(send_ctx, Bytes::from(bytes))
             .await
             .is_err()
         {
@@ -184,19 +203,17 @@ fn serialize_response<S: Serializer>(
 /// Wraps the raw payload bytes in the codec's native frame format via
 /// [`FrameCodec::wrap_payload`] before writing to the underlying stream.
 /// This ensures responses are encoded correctly for the configured protocol.
-async fn send_response_payload<F, W>(
-    framed: &mut Framed<W, ConnectionCodec<F>>,
-    payload: Vec<u8>,
-    id: u32,
-    correlation_id: Option<u64>,
-) -> io::Result<()>
+async fn send_response_payload<F, W>(ctx: SendContext<'_, W, F>, payload: Bytes) -> io::Result<()>
 where
     W: AsyncRead + AsyncWrite + Unpin,
     F: FrameCodec,
 {
-    let frame = F::wrap_payload(payload);
-    if let Err(e) = framed.send(frame).await {
-        warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
+    let frame = ctx.codec.wrap_payload(payload);
+    if let Err(e) = ctx.framed.send(frame).await {
+        warn!(
+            "failed to send response: id={}, correlation_id={:?}, error={e:?}",
+            ctx.id, ctx.correlation_id
+        );
         crate::metrics::inc_handler_errors();
         return Err(io::Error::other("send failed"));
     }
@@ -205,7 +222,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use bytes::{Buf, BufMut, BytesMut};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use bytes::{Buf, BufMut, Bytes, BytesMut};
     use futures::StreamExt;
     use tokio_util::codec::{Decoder, Encoder};
 
@@ -222,10 +244,18 @@ mod tests {
     #[derive(Clone, Debug)]
     struct TestCodec {
         max_frame_length: usize,
+        counter: Arc<AtomicUsize>,
     }
 
     impl TestCodec {
-        fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+        fn new(max_frame_length: usize) -> Self {
+            Self {
+                max_frame_length,
+                counter: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn wraps(&self) -> usize { self.counter.load(Ordering::SeqCst) }
     }
 
     #[derive(Clone, Debug)]
@@ -301,7 +331,13 @@ mod tests {
         fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
 
         /// Wraps payload with tag byte 0x42 to verify codec-aware wrapping.
-        fn wrap_payload(payload: Vec<u8>) -> Self::Frame { TestFrame { tag: 0x42, payload } }
+        fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
+            self.counter.fetch_add(1, Ordering::SeqCst);
+            TestFrame {
+                tag: 0x42,
+                payload: payload.to_vec(),
+            }
+        }
 
         fn correlation_id(frame: &Self::Frame) -> Option<u64> { Some(u64::from(frame.tag)) }
 
@@ -317,7 +353,13 @@ mod tests {
         let mut framed = Framed::new(server, combined);
 
         let payload = vec![1, 2, 3, 4];
-        send_response_payload::<TestCodec, _>(&mut framed, payload.clone(), 1, Some(99))
+        let send_ctx = SendContext {
+            codec: &codec,
+            framed: &mut framed,
+            id: 1,
+            correlation_id: Some(99),
+        };
+        send_response_payload::<TestCodec, _>(send_ctx, Bytes::from(payload.clone()))
             .await
             .expect("send should succeed");
 
@@ -333,6 +375,7 @@ mod tests {
 
         assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
         assert_eq!(frame.payload, payload, "payload should match");
+        assert_eq!(codec.wraps(), 1, "wrap_payload should advance codec state");
     }
 
     /// Verify `ResponseContext` fields are accessible and usable.
@@ -351,6 +394,7 @@ mod tests {
             serializer: &serializer,
             framed: &mut framed,
             fragmentation: &mut fragmentation,
+            codec: &codec,
         };
 
         // Verify fields are accessible (compile-time check with runtime assertion)
@@ -367,9 +411,14 @@ mod tests {
 
         // Payload exceeds max_frame_length, so encode will fail
         let oversized_payload = vec![0u8; 100];
+        let send_ctx = SendContext {
+            codec: &codec,
+            framed: &mut framed,
+            id: 1,
+            correlation_id: Some(99),
+        };
         let result =
-            send_response_payload::<TestCodec, _>(&mut framed, oversized_payload, 1, Some(99))
-                .await;
+            send_response_payload::<TestCodec, _>(send_ctx, Bytes::from(oversized_payload)).await;
 
         assert!(
             result.is_err(),

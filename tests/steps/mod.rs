@@ -5,6 +5,7 @@
 
 mod client_preamble_steps;
 mod client_steps;
+mod codec_stateful_steps;
 mod correlation_steps;
 mod fragment_steps;
 mod multi_packet_steps;

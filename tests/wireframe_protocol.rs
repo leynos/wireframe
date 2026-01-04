@@ -129,7 +129,7 @@ impl FrameCodec for VecFrameCodec {
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.as_slice() }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame { payload }
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame { payload.to_vec() }
 
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }

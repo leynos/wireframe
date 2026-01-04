@@ -147,7 +147,7 @@ At the end of this work, the following interfaces must exist and be public:
 
 - `crate::codec::FrameCodec` trait with the following signature:
 
-    pub trait FrameCodec: Send + Sync + 'static {
+    pub trait FrameCodec: Send + Sync + Clone + 'static {
         type Frame: Send + Sync + 'static;
         type Decoder: tokio_util::codec::Decoder<
             Item = Self::Frame,
@@ -161,7 +161,7 @@ At the end of this work, the following interfaces must exist and be public:
         fn decoder(&self) -> Self::Decoder;
         fn encoder(&self) -> Self::Encoder;
         fn frame_payload(frame: &Self::Frame) -> &[u8];
-        fn wrap_payload(payload: Vec<u8>) -> Self::Frame;
+        fn wrap_payload(&self, payload: Bytes) -> Self::Frame;
         fn correlation_id(frame: &Self::Frame) -> Option<u64> { None }
         fn max_frame_length(&self) -> usize;
     }
@@ -248,3 +248,9 @@ section to locate the failure before retrying.
 ## Artifacts and Notes
 
 - None yet.
+
+## Revision note (2026-01-04)
+
+Updated the `FrameCodec` signature snippet to include `Clone` and the
+`wrap_payload(&self, Bytes)` signature so the historical ExecPlan reflects the
+current public API. This does not change the completed status of the work.

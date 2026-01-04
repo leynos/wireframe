@@ -1,6 +1,6 @@
 //! Tests for Wireframe connection handling.
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe_testing::logger;
 
@@ -48,10 +48,10 @@ impl FrameCodec for BadCodec {
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame {
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
         BadFrame {
             correlation_id: 0,
-            payload,
+            payload: payload.to_vec(),
         }
     }
 

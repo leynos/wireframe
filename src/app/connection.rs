@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
 use log::{debug, warn};
 use tokio::{
@@ -78,7 +78,7 @@ where
             .serialize(msg)
             .map_err(SendError::Serialize)?;
         let payload_len = bytes.len();
-        let frame = F::wrap_payload(bytes);
+        let frame = self.codec.wrap_payload(Bytes::from(bytes));
         let mut encoder = self.codec.encoder();
         let mut encoded_buf = BytesMut::with_capacity(payload_len);
         encoder
@@ -110,7 +110,7 @@ where
             .serializer
             .serialize(msg)
             .map_err(SendError::Serialize)?;
-        let frame = F::wrap_payload(bytes);
+        let frame = self.codec.wrap_payload(Bytes::from(bytes));
         framed.send(frame).await.map_err(SendError::Io)
     }
 }
@@ -240,9 +240,10 @@ where
     where
         W: AsyncRead + AsyncWrite + Unpin,
     {
-        let codec = CombinedCodec::new(self.codec.decoder(), self.codec.encoder());
-        let mut framed = Framed::new(stream, codec);
-        let requested_frame_length = self.codec.max_frame_length();
+        let codec = self.codec.clone();
+        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let mut framed = Framed::new(stream, combined);
+        let requested_frame_length = codec.max_frame_length();
         let max_frame_length = clamp_frame_length(requested_frame_length);
         if requested_frame_length > MAX_FRAME_LENGTH {
             warn!(
@@ -266,6 +267,7 @@ where
                             routes,
                             fragmentation: &mut fragmentation,
                         },
+                        &codec,
                     )
                     .await?;
                 }
@@ -285,6 +287,7 @@ where
         &self,
         frame: &F::Frame,
         ctx: FrameHandlingContext<'_, E, W, F>,
+        codec: &F,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Unpin,
@@ -318,6 +321,7 @@ where
                     serializer: &self.serializer,
                     framed,
                     fragmentation,
+                    codec,
                 },
             )
             .await?;
