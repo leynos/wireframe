@@ -1,6 +1,6 @@
 [package]
 name = "wireframe_testing"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Helper utilities for exercising Wireframe applications in tests"
 license = "ISC"
@@ -12,7 +12,7 @@ documentation = "https://docs.rs/wireframe_testing"
 
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt", "io-util"] }
-wireframe = { version = "0.1.0", path = ".." }
+wireframe = { version = "0.2.0", path = ".." }
 bincode = "^2.0"
 bytes = "^1.0"
 rstest = "0.18.2"
