@@ -73,102 +73,90 @@ impl MessageAssembler for TestAssembler {
 
 #[test]
 fn parse_first_frame_header_without_total() {
-    let mut bytes = BytesMut::new();
-    bytes.put_u8(0x01); // kind
-    bytes.put_u8(0b0); // flags
-    bytes.put_u64(9);
-    bytes.put_u16(2);
-    bytes.put_u32(12);
-    let payload = bytes.to_vec();
-
-    let parsed = TestAssembler
-        .parse_frame_header(&payload)
-        .expect("header parse");
-
-    let FrameHeader::First(header) = parsed.header() else {
-        panic!("expected first frame header");
-    };
-
-    assert_eq!(header.message_key, MessageKey(9));
-    assert_eq!(header.metadata_len, 2);
-    assert_eq!(header.body_len, 12);
-    assert_eq!(header.total_body_len, None);
-    assert!(!header.is_last);
-    assert_eq!(parsed.header_len(), payload.len());
+    let payload = build_first_header_payload(FirstHeaderSpec {
+        flags: 0b0,
+        message_key: 9,
+        metadata_len: 2,
+        body_len: 12,
+        total_body_len: None,
+    });
+    let parsed = parse_header(&payload);
+    assert_first_header(
+        &parsed,
+        FirstFrameHeader {
+            message_key: MessageKey(9),
+            metadata_len: 2,
+            body_len: 12,
+            total_body_len: None,
+            is_last: false,
+        },
+        payload.len(),
+    );
 }
 
 #[test]
 fn parse_first_frame_header_with_total_and_last() {
-    let mut bytes = BytesMut::new();
-    bytes.put_u8(0x01);
-    bytes.put_u8(0b11); // last + total
-    bytes.put_u64(42);
-    bytes.put_u16(0);
-    bytes.put_u32(8);
-    bytes.put_u32(64);
-    let payload = bytes.to_vec();
-
-    let parsed = TestAssembler
-        .parse_frame_header(&payload)
-        .expect("header parse");
-
-    let FrameHeader::First(header) = parsed.header() else {
-        panic!("expected first frame header");
-    };
-
-    assert_eq!(header.message_key, MessageKey(42));
-    assert_eq!(header.metadata_len, 0);
-    assert_eq!(header.body_len, 8);
-    assert_eq!(header.total_body_len, Some(64));
-    assert!(header.is_last);
-    assert_eq!(parsed.header_len(), payload.len());
+    let payload = build_first_header_payload(FirstHeaderSpec {
+        flags: 0b11,
+        message_key: 42,
+        metadata_len: 0,
+        body_len: 8,
+        total_body_len: Some(64),
+    });
+    let parsed = parse_header(&payload);
+    assert_first_header(
+        &parsed,
+        FirstFrameHeader {
+            message_key: MessageKey(42),
+            metadata_len: 0,
+            body_len: 8,
+            total_body_len: Some(64),
+            is_last: true,
+        },
+        payload.len(),
+    );
 }
 
 #[test]
 fn parse_continuation_header_with_sequence() {
-    let mut bytes = BytesMut::new();
-    bytes.put_u8(0x02);
-    bytes.put_u8(0b10); // sequence present
-    bytes.put_u64(7);
-    bytes.put_u32(16);
-    bytes.put_u32(3);
-    let payload = bytes.to_vec();
-
-    let parsed = TestAssembler
-        .parse_frame_header(&payload)
-        .expect("header parse");
-
-    let FrameHeader::Continuation(header) = parsed.header() else {
-        panic!("expected continuation header");
-    };
-
-    assert_eq!(header.message_key, MessageKey(7));
-    assert_eq!(header.body_len, 16);
-    assert_eq!(header.sequence, Some(FrameSequence(3)));
-    assert!(!header.is_last);
+    let payload = build_continuation_header_payload(ContinuationHeaderSpec {
+        flags: 0b10,
+        message_key: 7,
+        body_len: 16,
+        sequence: Some(3),
+    });
+    let parsed = parse_header(&payload);
+    assert_continuation_header(
+        &parsed,
+        ContinuationFrameHeader {
+            message_key: MessageKey(7),
+            sequence: Some(FrameSequence(3)),
+            body_len: 16,
+            is_last: false,
+        },
+        payload.len(),
+    );
 }
 
 #[test]
 fn parse_continuation_header_without_sequence() {
-    let mut bytes = BytesMut::new();
-    bytes.put_u8(0x02);
-    bytes.put_u8(0b1); // last, no sequence
-    bytes.put_u64(11);
-    bytes.put_u32(5);
-    let payload = bytes.to_vec();
-
-    let parsed = TestAssembler
-        .parse_frame_header(&payload)
-        .expect("header parse");
-
-    let FrameHeader::Continuation(header) = parsed.header() else {
-        panic!("expected continuation header");
-    };
-
-    assert_eq!(header.message_key, MessageKey(11));
-    assert_eq!(header.body_len, 5);
-    assert_eq!(header.sequence, None);
-    assert!(header.is_last);
+    let payload = build_continuation_header_payload(ContinuationHeaderSpec {
+        flags: 0b1,
+        message_key: 11,
+        body_len: 5,
+        sequence: None,
+    });
+    let parsed = parse_header(&payload);
+    assert_continuation_header(
+        &parsed,
+        ContinuationFrameHeader {
+            message_key: MessageKey(11),
+            sequence: None,
+            body_len: 5,
+            is_last: true,
+        },
+        payload.len(),
+    );
 }
 
 #[test]
@@ -220,4 +208,70 @@ fn ensure_remaining(buf: &mut &[u8], needed: usize) -> Result<(), io::Error> {
 
 fn invalid_data(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+#[derive(Clone, Copy)]
+struct FirstHeaderSpec {
+    flags: u8,
+    message_key: u64,
+    metadata_len: u16,
+    body_len: u32,
+    total_body_len: Option<u32>,
+}
+
+#[derive(Clone, Copy)]
+struct ContinuationHeaderSpec {
+    flags: u8,
+    message_key: u64,
+    body_len: u32,
+    sequence: Option<u32>,
+}
+
+fn build_first_header_payload(spec: FirstHeaderSpec) -> Vec<u8> {
+    let mut bytes = BytesMut::new();
+    bytes.put_u8(0x01);
+    bytes.put_u8(spec.flags);
+    bytes.put_u64(spec.message_key);
+    bytes.put_u16(spec.metadata_len);
+    bytes.put_u32(spec.body_len);
+    if let Some(total_body_len) = spec.total_body_len {
+        bytes.put_u32(total_body_len);
+    }
+    bytes.to_vec()
+}
+
+fn build_continuation_header_payload(spec: ContinuationHeaderSpec) -> Vec<u8> {
+    let mut bytes = BytesMut::new();
+    bytes.put_u8(0x02);
+    bytes.put_u8(spec.flags);
+    bytes.put_u64(spec.message_key);
+    bytes.put_u32(spec.body_len);
+    if let Some(sequence) = spec.sequence {
+        bytes.put_u32(sequence);
+    }
+    bytes.to_vec()
+}
+
+fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
+    TestAssembler
+        .parse_frame_header(payload)
+        .expect("header parse")
+}
+
+fn assert_first_header(
+    parsed: &ParsedFrameHeader,
+    expected: FirstFrameHeader,
+    expected_len: usize,
+) {
+    assert_eq!(parsed.header(), &FrameHeader::First(expected));
+    assert_eq!(parsed.header_len(), expected_len);
+}
+
+fn assert_continuation_header(
+    parsed: &ParsedFrameHeader,
+    expected: ContinuationFrameHeader,
+    expected_len: usize,
+) {
+    assert_eq!(parsed.header(), &FrameHeader::Continuation(expected));
+    assert_eq!(parsed.header_len(), expected_len);
 }
