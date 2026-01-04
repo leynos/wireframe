@@ -575,7 +575,7 @@ The default remains "buffered request" to preserve Wireframe's existing
 transparent assembly ergonomics for small messages and simple protocols.
 Handlers MAY opt into streaming by declaring a compatible extractor signature.
 
-Wireframe MAY expose an `AsyncRead` adapter for `RequestBodyStream` so protocol
+Wireframe MAY expose an `AsyncRead` adaptor for `RequestBodyStream` so protocol
 crates can reuse existing parsers that expect `AsyncRead` rather than `Stream`.
 
 ### 11.3 Symmetry with response streaming

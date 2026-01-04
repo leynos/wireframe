@@ -132,7 +132,7 @@ control how headers are encoded on the wire, but it now produces a
 
 ### 3.3 Fragmenter helper (17 November 2025 update)
 
-To simplify outbound slicing before the full adapter arrives, the crate now
+To simplify outbound slicing before the full adaptor arrives, the crate now
 ships a small `Fragmenter` helper. It accepts a `NonZeroUsize` payload cap and
 creates sequential fragments tagged with `MessageId`, `FragmentIndex`, and the
 `is_last_fragment` flag described above. The helper exposes three entry points:
@@ -164,7 +164,7 @@ configuration requires updating this section alongside the code. The
 length-delimited codec therefore observes one frame per fragment; the encoded
 body is bounded by `fragment_payload_cap + fragment_overhead`.
 
-`WireframeApp` and `ConnectionActor` enable this adapter by default when a
+`WireframeApp` and `ConnectionActor` enable this adaptor by default when a
 frame budget is available. Defaults derive `fragment_payload_cap` from
 `buffer_capacity`, cap reassembled messages at 16× that budget, and evict
 partial assemblies after 30 seconds.
@@ -279,10 +279,10 @@ async fn streamed() -> Response<Vec<u8>> {
 The reassembly logic is the most complex part of the feature and must be robust
 against errors and attacks.
 
-1. **Header Decoding:** The adapter reads from the socket buffer and calls
+1. **Header Decoding:** The adaptor reads from the socket buffer and calls
    `strategy.decode_header()`. If it returns `Ok(None)`, it waits for more data.
 
-2. **Payload Extraction:** Once a header is decoded, the adapter ensures the
+2. **Payload Extraction:** Once a header is decoded, the adaptor ensures the
    full payload for that fragment is available in the buffer before proceeding.
 
 3. **Multiplexed State Management:**
@@ -291,7 +291,7 @@ against errors and attacks.
      (if `is_final`) or an error (if not `is_final` and a non-multiplexed
      reassembly is already in progress).
 
-   - If `meta.msg_id` is `Some(id)`, the adapter accesses the
+   - If `meta.msg_id` is `Some(id)`, the adaptor accesses the
      `reassembly_buffers` map.
 
    - **New Message (**`.entry().or_insert_with(...)`**):**
@@ -329,7 +329,7 @@ against errors and attacks.
 
 The outbound path is simpler and purely procedural.
 
-1. **Size Check:** When `write(frame)` is called, the adapter checks
+1. **Size Check:** When `write(frame)` is called, the adaptor checks
    `frame.len()` against `strategy.max_fragment_payload(&frame)`.
 
 2. **No Fragmentation:** If the frame is small enough, it is passed directly to
@@ -340,7 +340,7 @@ The outbound path is simpler and purely procedural.
    - A new `msg_id` is generated via
      `next_outbound_msg_id.fetch_add(1, Ordering::Relaxed)`.
 
-   - The adapter iterates through the frame's payload in chunks of
+   - The adaptor iterates through the frame's payload in chunks of
      `max_fragment_payload`.
 
    - For each chunk, it calls `strategy.encode_header()` to write the fragment
@@ -371,11 +371,11 @@ This feature is designed as a foundational layer that other features build upon.
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                      | 100% of the public API surface is present and correctly typed.                                                                                                                              |
 | Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly reassembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and reassembled.                                                  |
-| Multiplexing    | The adapter can correctly reassemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly reassembled messages, A and B.                                                                                 |
-| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                    | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                              |
-| Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                               | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                              |
-| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                    | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter.           |
-| Resilience      | The adapter enforces the configured `max_message_size`, `fragment_payload_cap`, and `reassembly_timeout` used in production.               | Benchmarks and regression tests assert the 16× message cap, per-fragment payload cap derived from buffer capacity, and a 30s timeout for purging stale assemblies (WireframeApp defaults).  |
+| Multiplexing    | The adaptor can correctly reassemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly reassembled messages, A and B.                                                                                 |
+| Resilience      | The adaptor protects against memory exhaustion from oversized messages.                                                                    | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                              |
+| Resilience      | The adaptor protects against resource leaks from abandoned partial messages.                                                               | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                              |
+| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                    | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adaptor.           |
+| Resilience      | The adaptor enforces the configured `max_message_size`, `fragment_payload_cap`, and `reassembly_timeout` used in production.               | Benchmarks and regression tests assert the 16× message cap, per-fragment payload cap derived from buffer capacity, and a 30s timeout for purging stale assemblies (WireframeApp defaults).  |
 
 ## 8. Design decisions (14 November 2025, updated 17 November 2025)
 

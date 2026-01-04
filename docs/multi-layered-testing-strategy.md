@@ -100,21 +100,21 @@ This test validates that the `FragmentAdapter` can correctly reassemble a
 sequence of fragments into the original logical message.
 
 **Test Construction:** For a given `FragmentStrategy`, a known payload is split
-into valid fragments. The `adapter.decode()` method is called repeatedly with
+into valid fragments. The `adaptor.decode()` method is called repeatedly with
 each fragment, accumulating the partial state.
 
 ```rust
 #[test]
 fn test_fragment_reassembly() {
     let strategy = LenSeq16M;
-    let adapter = FragmentAdapter::new(strategy);
+    let adaptor = FragmentAdapter::new(strategy);
     let payload = Bytes::from_static(b"hello world");
 
     let fragments = strategy.split_into_fragments(&payload);
     let mut partial_state = None;
 
     for frag_bytes in fragments {
-        partial_state = adapter.decode(frag_bytes, partial_state).unwrap();
+        partial_state = adaptor.decode(frag_bytes, partial_state).unwrap();
     }
 
     // Assert that the final state is a completed frame matching the payload
@@ -123,7 +123,7 @@ fn test_fragment_reassembly() {
 
 ```
 
-**Expected Outcome & Measurable Objective:** The adapter must return `Ok(None)`
+**Expected Outcome & Measurable Objective:** The adaptor must return `Ok(None)`
 for partial fragments and `Ok(Some(Frame))` for the final fragment. The
 reassembled `Frame` payload must be byte-for-byte identical to the original
 payload. The objective is **100% byte-for-byte reconstruction accuracy.**
@@ -133,7 +133,7 @@ payload. The objective is **100% byte-for-byte reconstruction accuracy.**
 This test ensures that when a large frame is written, the `FragmentAdapter`
 splits it into the correct number of fragments with valid headers.
 
-**Test Construction:** An adapter is instantiated with a small
+**Test Construction:** An adaptor is instantiated with a small
 `max_fragment_payload` (e.g., 1 KiB). A 5 KiB frame is passed to its `write()`
 method, and the resulting output bytes are captured for inspection.
 
@@ -141,11 +141,11 @@ method, and the resulting output bytes are captured for inspection.
 #[test]
 fn test_fragment_splitting() {
     let strategy = LenSeq16M { max_payload: 1024 };
-    let adapter = FragmentAdapter::new(strategy);
+    let adaptor = FragmentAdapter::new(strategy);
     let large_frame = MyFrame::new_of_size(5 * 1024);
     let mut buffer = BytesMut::new();
 
-    adapter.write(large_frame, &mut buffer);
+    adaptor.write(large_frame, &mut buffer);
 
     // Assert buffer contains 5 distinct fragments with correct
     // lengths, sequence IDs, and final-frame flags.
@@ -274,18 +274,18 @@ terminate. The main server task must exit cleanly. The objective is that
 This test confirms that the `FragmentAdapter` protects against memory
 exhaustion by enforcing the `max_message_size`.
 
-**Test Construction:** An adapter is configured with `max_message_size(1024)`.
+**Test Construction:** An adaptor is configured with `max_message_size(1024)`.
 Fragments are decoded that would total more than this limit.
 
 ```rust
 #[test]
 fn test_fragmentation_limit() {
-    let adapter = FragmentAdapter::new(strategy)
+    let adaptor = FragmentAdapter::new(strategy)
         .with_max_message_size(1024);
 
     // Send two 600-byte fragments, which will exceed the 1024-byte limit.
-    let res1 = adapter.decode(frag1_600_bytes, None);
-    let res2 = adapter.decode(frag2_600_bytes, res1.unwrap());
+    let res1 = adaptor.decode(frag1_600_bytes, None);
+    let res2 = adaptor.decode(frag2_600_bytes, res1.unwrap());
 
     assert!(matches!(res2, Err(e) if e.kind() == io::ErrorKind::InvalidData));
 }
@@ -298,7 +298,7 @@ the exact fragment that crosses the threshold, not later.**
 
 ### 3.5 Fragmentation Sequence Error: Protocol Correctness
 
-This test ensures the adapter correctly handles out-of-order fragments for
+This test ensures the adaptor correctly handles out-of-order fragments for
 protocols that require sequencing.
 
 **Test Construction:** A strategy that enforces sequencing (e.g., `LenSeq16M`)
@@ -308,8 +308,8 @@ is used. Fragments with a gap in the sequence ID are fed to the decoder.
 #[test]
 fn test_fragmentation_sequence_error() {
     // Create fragment for seq 0, then seq 2, skipping 1.
-    let res1 = adapter.decode(frag_seq_0, None);
-    let res2 = adapter.decode(frag_seq_2, res1.unwrap());
+    let res1 = adaptor.decode(frag_seq_0, None);
+    let res2 = adaptor.decode(frag_seq_2, res1.unwrap());
 
     // Assert that an error is returned due to the sequence gap.
     assert!(matches!(res2, Err(e) if e.kind() == io::ErrorKind::InvalidData));
@@ -340,12 +340,12 @@ the `FragmentAdapter`.
 (e.g., `SendFragment(bytes)`, `SendCompleteFrame(bytes)`). The test runner
 applies these actions to both the real `FragmentAdapter` and a simple,
 validated "model" of its state. The test asserts that the model and the real
-adapter's state always agree.
+adaptor's state always agree.
 
 ```rust
 proptest! {
     #[test]
-    fn test_fragment_adapter_state(
+    fn test_fragment_adaptor_state(
         actions in prop::collection::vec(any::<Action>(), 1..50)
     ) {
         let mut model = Model::new();
@@ -501,7 +501,7 @@ frame into fragments and, separately, to re-assemble those fragments.
 
 **Measurable Objective:** Throughput must **exceed 2 GiB/s** on a standard CI
 runner, reflecting recent measurements on shared runners. Revisit this target
-if benchmark environments or adapter implementation change.
+if benchmark environments or adaptor implementation change.
 
 ### 5.3 Macro-benchmark: End-to-End Throughput & Latency
 

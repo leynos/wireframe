@@ -306,7 +306,7 @@ The standalone `Fragmenter` helper now slices oversized payloads into capped
 fragments while stamping the shared `MessageId` and sequential `FragmentIndex`.
 Each call returns a `FragmentBatch` that reports whether the message required
 fragmentation and yields individual `FragmentFrame` values for serialization or
-logging. This keeps transport experiments lightweight while the full adapter
+logging. This keeps transport experiments lightweight while the full adaptor
 layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
 failures or index overflows—so production code should bubble the error up or
 log it rather than unwrapping.
@@ -617,7 +617,7 @@ async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
 }
 ```
 
-The `RequestBodyReader` adapter implements `AsyncRead`, allowing protocol
+The `RequestBodyReader` adaptor implements `AsyncRead`, allowing protocol
 crates to reuse existing parsers. For raw stream access, use the
 `RequestBodyStream` directly with `StreamExt` methods:
 
@@ -1223,7 +1223,7 @@ Phase out older message versions without breaking clients:
 - Emit version N on egress so clients observe a single schema.
 - Publish metrics and logs describing legacy usage to support operator
   dashboards.[^33][^8]
-- Remove adapters once the sunset window ends.
+- Remove adaptors once the sunset window ends.
 
 ```rust
 use std::sync::Arc;

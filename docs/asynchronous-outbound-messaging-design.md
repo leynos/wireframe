@@ -843,8 +843,8 @@ let app = WireframeApp::new()
     .buffer_capacity(MAX_FRAME);
 let codec = app.length_codec();
 
-// Wrap the length-delimited frames with the fragmentation adapter.
-// Pseudocode pending actual adapter API naming:
+// Wrap the length-delimited frames with the fragmentation adaptor.
+// Pseudocode pending actual adaptor API naming:
 // let codec = FragmentAdapter::new(FragmentConfig::default()).wrap(codec);
 ```
 

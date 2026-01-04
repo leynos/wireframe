@@ -72,7 +72,7 @@ pub type RequestBodyStream =
 
 - Handlers MAY receive `RequestParts` plus `RequestBodyStream` rather than a
   fully reassembled `Vec<u8>`.
-- Wireframe MAY expose an `AsyncRead` adapter for `RequestBodyStream` so
+- Wireframe MAY expose an `AsyncRead` adaptor for `RequestBodyStream` so
   protocol crates can reuse existing parsers.
 - The default remains “buffered request” to preserve Wireframe’s existing
   transparent assembly ergonomics for small messages and simple protocols.
@@ -198,7 +198,7 @@ pub struct ContinuationFrameHeader {
   and “max in-flight bytes”; and
 - a clear failure mode (back-pressure where safe, early abort where required).
 
-This generalises the intent of the existing fragmentation adapter design
+This generalises the intent of the existing fragmentation adaptor design
 without introducing protocol-specific assumptions.[^fragmentation]
 
 #### Failure modes and cleanup semantics

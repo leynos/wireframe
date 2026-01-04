@@ -42,7 +42,7 @@ mechanics usable and intuitive.*
 | 2.3  | Leak-Proof SessionRegistry        | Implement the `SessionRegistry` for discovering connection handles. This must use `dashmap` with `Weak<T>` pointers to prevent memory leaks from terminated connections.                                        | Medium | #2.2             |
 | 2.4  | async-stream Integration & Docs   | Remove the proposed `FrameSink` from the design. Update the `Response::Stream` handling and document `async-stream` as the canonical way to create streams imperatively.                                        | Small  | #1.1             |
 | 2.5  | Initial Test Suite                | Write unit and integration tests for the new public APIs. Verify that `Response::Vec` and `Response::Stream` work, and that `PushHandle` can successfully send frames that are received by a client.            | Large  | #2.1, #2.3, #2.4 |
-| 2.6  | Basic Fragmentation Example       | Implement a simple `FragmentStrategy` (e.g. `LenFlag32K`) and an example showing the `FragmentAdapter` in use. This validates the adapter's basic functionality.                                                | Medium | #1.5, #2.5       |
+| 2.6  | Basic Fragmentation Example       | Implement a simple `FragmentStrategy` (e.g. `LenFlag32K`) and an example showing the `FragmentAdapter` in use. This validates the adaptor's basic functionality.                                                | Medium | #1.5, #2.5       |
 
 ## Phase 3: Production Hardening & Resilience
 

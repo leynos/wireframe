@@ -8,7 +8,7 @@ connecting to a server and exchanging messages.
 ## Motivation
 
 The library currently focuses on server development. However, the core layers
-are intentionally generic: transport adapters, framing, serialization, routing,
+are intentionally generic: transport adaptors, framing, serialization, routing,
 and middleware form a pipeline that is largely independent of server-specific
 logic. The design document outlines these layers, which process frames from raw
 bytes to typed messages and back[^1]. Reusing these pieces enables the

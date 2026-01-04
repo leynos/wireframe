@@ -49,14 +49,14 @@ backward compatibility and performance.
 
 ### Option A: keep the bincode-only `Message` trait (status quo)
 
-Continue to require `bincode` traits and document adapter strategies for other
+Continue to require `bincode` traits and document adaptor strategies for other
 serializers.
 
 ### Option B: introduce a serializer-agnostic message boundary (preferred)
 
 Introduce a new `MessageBody` (or similar) trait that is independent of
 `bincode`, along with a `SerializerAdapter` that bridges to concrete
-serializers. Provide bincode and optional wire-rs/Serde adapters, with a
+serializers. Provide bincode and optional wire-rs/Serde adaptors, with a
 migration path for existing `Message` types.
 
 ### Option C: adopt wire-rs as the primary serializer
@@ -64,7 +64,7 @@ migration path for existing `Message` types.
 Move `Message` to wire-rs `Encode`/`Decode`, ship bincode as a compatibility
 layer, and update examples and docs accordingly.
 
-| Topic                        | Option A: status quo | Option B: adapter | Option C: wire-rs |
+| Topic                        | Option A: status quo | Option B: adaptor | Option C: wire-rs |
 | ---------------------------- | -------------------- | ----------------- | ----------------- |
 | Alternative serializers      | Poor                 | Strong            | Strong            |
 | Backward compatibility       | Full                 | High              | Medium            |
@@ -76,9 +76,9 @@ _Table 1: Trade-offs between serialization abstraction options._
 
 ## Decision Outcome / Proposed Direction
 
-Adopt Option B: introduce a serializer-agnostic message boundary with adapter
-traits. Provide a bincode adapter to preserve existing behaviour, and supply
-optional wire-rs or Serde adapters to reduce boilerplate. This allows frame
+Adopt Option B: introduce a serializer-agnostic message boundary with adaptor
+traits. Provide a bincode adaptor to preserve existing behaviour, and supply
+optional wire-rs or Serde adaptors to reduce boilerplate. This allows frame
 metadata to participate in deserialization, supports version negotiation, and
 avoids committing Wireframe to a single serializer.
 
@@ -100,12 +100,12 @@ avoids committing Wireframe to a single serializer.
 ### Phase 1: new abstractions
 
 - Introduce `MessageBody` (or equivalent) and `SerializerAdapter` traits.
-- Implement a bincode adapter that preserves current behaviour.
-- Add optional adapters for wire-rs and Serde-based serializers.
+- Implement a bincode adaptor that preserves current behaviour.
+- Add optional adaptors for wire-rs and Serde-based serializers.
 
 ### Phase 2: integration and compatibility
 
-- Update `WireframeApp`/`Serializer` plumbing to accept the new adapter.
+- Update `WireframeApp`/`Serializer` plumbing to accept the new adaptor.
 - Provide blanket implementations or shims for existing `Message` types.
 - Deprecate direct reliance on bincode traits in public APIs.
 
@@ -125,7 +125,7 @@ avoids committing Wireframe to a single serializer.
 
 - Define the precise `MessageBody` surface (borrowed vs owned payloads).
 - Decide how codec metadata is passed into the deserializer context.
-- Choose which optional adapters ship by default and which are feature-gated.
+- Choose which optional adaptors ship by default and which are feature-gated.
 
 ## Architectural Rationale
 
