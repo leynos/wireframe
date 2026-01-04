@@ -282,6 +282,56 @@ reconstruction), `RequestParts` carries only protocol-defined metadata required
 to interpret the streaming body. The body itself is consumed through a separate
 stream, enabling back-pressure and incremental processing.[^46]
 
+### Message assembler hook
+
+Wireframe exposes a protocol-facing `MessageAssembler` hook that parses
+per-frame headers into `FrameHeader::First` and `FrameHeader::Continuation`
+values. It returns a `ParsedFrameHeader` that includes the header length so the
+remaining bytes can be treated as the body chunk.
+
+Register an assembler with `WireframeApp::with_message_assembler`:
+
+```rust,no_run
+use wireframe::{
+    app::WireframeApp,
+    message_assembler::{
+        FrameHeader,
+        FirstFrameHeader,
+        MessageAssembler,
+        MessageKey,
+        ParsedFrameHeader,
+    },
+};
+
+struct DemoAssembler;
+
+impl MessageAssembler for DemoAssembler {
+    fn parse_frame_header(
+        &self,
+        _payload: &[u8],
+    ) -> Result<ParsedFrameHeader, std::io::Error> {
+        Ok(ParsedFrameHeader::new(
+            FrameHeader::First(FirstFrameHeader {
+                message_key: MessageKey(1),
+                metadata_len: 0,
+                body_len: 0,
+                total_body_len: None,
+                is_last: true,
+            }),
+            0,
+        ))
+    }
+}
+
+let _app = WireframeApp::new()
+    .expect("builder")
+    .with_message_assembler(DemoAssembler);
+```
+
+Note: the hook is stored on the application today but is wired into the inbound
+connection path in roadmap item 8.2.5. Until that integration lands, protocol
+crates can use the trait for shared parsing logic and tests.
+
 ### Streaming request body consumption
 
 Handlers can opt into streaming request bodies using the `StreamingBody`

@@ -22,6 +22,7 @@ pub mod fragment;
 pub mod frame;
 pub mod hooks;
 pub mod message;
+pub mod message_assembler;
 pub mod metrics;
 pub mod middleware;
 pub mod panic;
@@ -58,6 +59,15 @@ pub use fragment::{
     fragment_overhead,
 };
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
+pub use message_assembler::{
+    ContinuationFrameHeader,
+    FirstFrameHeader,
+    FrameHeader,
+    FrameSequence,
+    MessageAssembler,
+    MessageKey,
+    ParsedFrameHeader,
+};
 pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
 pub use request::{
     DEFAULT_BODY_CHANNEL_CAPACITY,

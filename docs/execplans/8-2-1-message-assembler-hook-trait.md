@@ -9,10 +9,10 @@ No `PLANS.md` exists in this repository as of 2026-01-04.
 ## Purpose / Big Picture
 
 Wireframe needs a protocol-facing hook for multi-frame request assembly and a
-shared header model that distinguishes “first frame” from “continuation
-frame”. This work delivers the `MessageAssembler` trait and the first version
-of header parsing types so protocol crates can implement consistent parsing and
-Wireframe can later apply shared buffering and assembly logic.
+shared header model that distinguishes “first frame” from “continuation frame”.
+This work delivers the `MessageAssembler` trait and the first version of header
+parsing types so protocol crates can implement consistent parsing and Wireframe
+can later apply shared buffering and assembly logic.
 
 Success is observable when:
 
@@ -32,41 +32,41 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-01-04 00:00Z) Draft ExecPlan for 8.2.1 and 8.2.2.
-- [ ] Define `MessageAssembler` trait and header types under
+- [x] (2026-01-04 01:00Z) Define `MessageAssembler` trait and header types under
   `src/message_assembler/` with module-level docs and examples.
-- [ ] Add builder support to store an optional assembler in
+- [x] (2026-01-04 01:00Z) Add builder support to store an optional assembler in
   `src/app/builder.rs`.
-- [ ] Add unit tests for header parsing and error handling.
-- [ ] Add Cucumber feature, world, and steps for message assembler parsing.
-- [ ] Update design docs, user guide, and roadmap checkboxes.
-- [ ] Run formatting, linting, and test gates with `make` targets.
+- [x] (2026-01-04 01:05Z) Add unit tests for header parsing and error handling.
+- [x] (2026-01-04 01:10Z) Add Cucumber feature, world, and steps for message
+  assembler parsing.
+- [x] (2026-01-04 01:15Z) Update design docs, user guide, and roadmap
+  checkboxes.
+- [x] (2026-01-04 02:05Z) Run formatting, linting, and test gates with `make`
+  targets.
 
 ## Surprises & Discoveries
 
 - Observation: Streaming request primitives exist (`src/request/mod.rs` and
-  `src/extractor.rs`), but the inbound pipeline in
-  `src/app/connection.rs` does not yet invoke a message-assembly hook. This
-  plan keeps integration scoped to 8.2.1/8.2.2 and documents the limitation in
-  the user guide until 8.2.5.
+  `src/extractor.rs`), but the inbound pipeline in `src/app/connection.rs` does
+  not yet invoke a message-assembly hook. This plan keeps integration scoped to
+  8.2.1/8.2.2 and documents the limitation in the user guide until 8.2.5.
   Evidence: `WireframeApp::handle_frame` decodes to `Envelope` and dispatches
   directly to handlers after fragmentation reassembly.
 
 ## Decision Log
 
 - Decision: Introduce a dedicated public module
-  `src/message_assembler/` for the hook trait and header types.
-  Rationale: Keeps assembly concerns distinct from `hooks` and allows clear
-  documentation of the protocol-facing interface.
-  Date/Author: 2026-01-04 (Codex).
+  `src/message_assembler/` for the hook trait and header types. Rationale:
+  Keeps assembly concerns distinct from `hooks` and allows clear documentation
+  of the protocol-facing interface. Date/Author: 2026-01-04 (Codex).
 - Decision: Model frame headers with a public `FrameHeader` enum and
   `FirstFrameHeader`/`ContinuationFrameHeader` structs plus newtypes for
-  `MessageKey` and optional `FrameSequence`.
-  Rationale: Avoids integer soup and aligns with the ADR’s required header
-  fields while leaving room for 8.2.3/8.2.4.
-  Date/Author: 2026-01-04 (Codex).
+  `MessageKey` and optional `FrameSequence`. Rationale: Avoids integer soup and
+  aligns with the ADR’s required header fields while leaving room for
+  8.2.3/8.2.4. Date/Author: 2026-01-04 (Codex).
 - Decision: Use `std::io::Error` for parse failures in the trait method.
-  Rationale: Matches the existing framing/codec error model and keeps the
-  trait object-safe without adding another type parameter to `WireframeApp`.
+  Rationale: Matches the existing framing/codec error model and keeps the trait
+  object-safe without adding another type parameter to `WireframeApp`.
   Date/Author: 2026-01-04 (Codex).
 
 ## Outcomes & Retrospective
@@ -82,10 +82,10 @@ reassembly via `src/app/fragmentation_state.rs` and
 through `ServiceRequest` and `PacketParts` in `src/middleware.rs`.
 
 Streaming request types (`RequestParts`, `RequestBodyStream`, and the
-`StreamingBody` extractor) live in `src/request/mod.rs` and
-`src/extractor.rs`, but they are not yet wired into the connection loop.
-The `MessageAssembler` hook introduced here is the protocol-facing interface
-for that forthcoming integration (see ADR 0002).
+`StreamingBody` extractor) live in `src/request/mod.rs` and `src/extractor.rs`,
+but they are not yet wired into the connection loop. The `MessageAssembler`
+hook introduced here is the protocol-facing interface for that forthcoming
+integration (see ADR 0002).
 
 Key references:
 
@@ -96,8 +96,8 @@ Key references:
 - `docs/multi-packet-and-streaming-responses-design.md` section 11.4
   (MessageAssembler composition narrative).
 - `docs/the-road-to-wireframe-1-0-feature-set-`
-  `philosophy-and-capability-maturity.md` section
-  “Protocol-level message assembly”.
+  `philosophy-and-capability-maturity.md` section “Protocol-level message
+  assembly”.
 - `docs/hardening-wireframe-a-guide-to-production-resilience.md` (resource
   limits and failure semantics).
 - Testing guidance: `docs/rust-testing-with-rstest-fixtures.md`,
@@ -116,8 +116,8 @@ so applications can register an assembler via
 `message_assembler()`), even though the runtime integration lands in 8.2.5.
 Then add unit tests for parsing behaviours and error handling using a
 lightweight test assembler. Add a Cucumber feature that asserts the same
-behaviours through the behavioural harness. Finally, update the design and
-user documentation, and mark 8.2.1/8.2.2 as done in the roadmap.
+behaviours through the behavioural harness. Finally, update the design and user
+documentation, and mark 8.2.1/8.2.2 as done in the roadmap.
 
 ## Concrete Steps
 
@@ -224,10 +224,10 @@ If Mermaid diagrams are edited or added, also run:
 ## Idempotence and Recovery
 
 All steps are additive and can be re-run safely. If a step fails, fix the
-underlying issue and re-run only the affected command(s). Use the `tee`
-outputs to locate the failure before retrying. Avoid destructive commands; if
-a local change needs to be backed out, revert only the specific files edited
-for this feature.
+underlying issue and re-run only the affected command(s). Use the `tee` outputs
+to locate the failure before retrying. Avoid destructive commands; if a local
+change needs to be backed out, revert only the specific files edited for this
+feature.
 
 ## Artifacts and Notes
 
@@ -254,37 +254,37 @@ re-exported from `src/lib.rs`:
 
 - Header model:
 
-    pub enum FrameHeader {
-        First(FirstFrameHeader),
-        Continuation(ContinuationFrameHeader),
-    }
+        pub enum FrameHeader {
+            First(FirstFrameHeader),
+            Continuation(ContinuationFrameHeader),
+        }
 
-    pub struct FirstFrameHeader {
-        pub message_key: MessageKey,
-        pub metadata_len: usize,
-        pub body_len: usize,
-        pub total_body_len: Option<usize>,
-        pub is_last: bool,
-    }
+        pub struct FirstFrameHeader {
+            pub message_key: MessageKey,
+            pub metadata_len: usize,
+            pub body_len: usize,
+            pub total_body_len: Option<usize>,
+            pub is_last: bool,
+        }
 
-    pub struct ContinuationFrameHeader {
-        pub message_key: MessageKey,
-        pub sequence: Option<FrameSequence>,
-        pub body_len: usize,
-        pub is_last: bool,
-    }
+        pub struct ContinuationFrameHeader {
+            pub message_key: MessageKey,
+            pub sequence: Option<FrameSequence>,
+            pub body_len: usize,
+            pub is_last: bool,
+        }
 
   If header length accounting is needed for slicing, add a
   `ParsedFrameHeader { header_len, header }` wrapper.
 
 - Hook trait:
 
-    pub trait MessageAssembler: Send + Sync + 'static {
-        fn parse_frame_header(
-            &self,
-            payload: &[u8],
-        ) -> Result<ParsedFrameHeader, std::io::Error>;
-    }
+        pub trait MessageAssembler: Send + Sync + 'static {
+            fn parse_frame_header(
+                &self,
+                payload: &[u8],
+            ) -> Result<ParsedFrameHeader, std::io::Error>;
+        }
 
 - Builder configuration:
 

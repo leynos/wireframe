@@ -23,6 +23,7 @@ use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     fragment::FragmentationConfig,
     hooks::{ProtocolHooks, WireframeProtocol},
+    message_assembler::MessageAssembler,
     middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
 };
@@ -50,6 +51,7 @@ pub struct WireframeApp<
     pub(super) codec: F,
     pub(super) read_timeout_ms: u64,
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
 }
 
 impl<S, C, E, F> Default for WireframeApp<S, C, E, F>
@@ -77,6 +79,7 @@ where
             codec,
             read_timeout_ms: 100,
             fragmentation: default_fragmentation(max_frame_length),
+            message_assembler: None,
         }
     }
 }
@@ -138,6 +141,7 @@ where
         codec: F2,
         protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
         fragmentation: Option<FragmentationConfig>,
+        message_assembler: Option<Arc<dyn MessageAssembler>>,
     ) -> WireframeApp<S2, C, E, F2>
     where
         S2: Serializer + Send + Sync,
@@ -156,6 +160,7 @@ where
             codec,
             read_timeout_ms: self.read_timeout_ms,
             fragmentation,
+            message_assembler,
         }
     }
 
@@ -171,7 +176,8 @@ where
     {
         let fragmentation = default_fragmentation(codec.max_frame_length());
         let serializer = std::mem::take(&mut self.serializer);
-        self.rebuild_with_params(serializer, codec, None, fragmentation)
+        let message_assembler = self.message_assembler.take();
+        self.rebuild_with_params(serializer, codec, None, fragmentation, message_assembler)
     }
 
     /// Register a route that maps `id` to `handler`.
@@ -257,6 +263,7 @@ where
             codec: self.codec,
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: self.fragmentation,
+            message_assembler: self.message_assembler,
         })
     }
 
@@ -292,6 +299,74 @@ where
             protocol: Some(Arc::new(protocol)),
             ..self
         }
+    }
+
+    /// Install a [`MessageAssembler`] implementation.
+    ///
+    /// The assembler parses protocol-specific frame headers to support
+    /// multi-frame request assembly once the inbound pipeline integrates it.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     app::WireframeApp,
+    ///     message_assembler::{MessageAssembler, ParsedFrameHeader},
+    /// };
+    ///
+    /// struct DemoAssembler;
+    ///
+    /// impl MessageAssembler for DemoAssembler {
+    ///     fn parse_frame_header(&self, _payload: &[u8]) -> Result<ParsedFrameHeader, std::io::Error> {
+    ///         Err(std::io::Error::new(
+    ///             std::io::ErrorKind::InvalidData,
+    ///             "unimplemented",
+    ///         ))
+    ///     }
+    /// }
+    ///
+    /// let app = WireframeApp::new()
+    ///     .expect("builder")
+    ///     .with_message_assembler(DemoAssembler);
+    /// let _ = app;
+    /// ```
+    #[must_use]
+    pub fn with_message_assembler(self, assembler: impl MessageAssembler + 'static) -> Self {
+        WireframeApp {
+            message_assembler: Some(Arc::new(assembler)),
+            ..self
+        }
+    }
+
+    /// Get the configured message assembler, if any.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::{
+    ///     app::WireframeApp,
+    ///     message_assembler::{MessageAssembler, ParsedFrameHeader},
+    /// };
+    ///
+    /// struct DemoAssembler;
+    ///
+    /// impl MessageAssembler for DemoAssembler {
+    ///     fn parse_frame_header(&self, _payload: &[u8]) -> Result<ParsedFrameHeader, std::io::Error> {
+    ///         Err(std::io::Error::new(
+    ///             std::io::ErrorKind::InvalidData,
+    ///             "unimplemented",
+    ///         ))
+    ///     }
+    /// }
+    ///
+    /// let app = WireframeApp::new()
+    ///     .expect("builder")
+    ///     .with_message_assembler(DemoAssembler);
+    /// assert!(app.message_assembler().is_some());
+    /// ```
+    #[must_use]
+    pub fn message_assembler(&self) -> Option<Arc<dyn MessageAssembler>> {
+        self.message_assembler.clone()
     }
 
     /// Configure a Dead Letter Queue for dropped push frames.
@@ -348,7 +423,14 @@ where
         let codec = std::mem::take(&mut self.codec);
         let protocol = self.protocol.take();
         let fragmentation = self.fragmentation.take();
-        self.rebuild_with_params(serializer, codec, protocol, fragmentation)
+        let message_assembler = self.message_assembler.take();
+        self.rebuild_with_params(
+            serializer,
+            codec,
+            protocol,
+            fragmentation,
+            message_assembler,
+        )
     }
 
     /// Configure the read timeout in milliseconds.

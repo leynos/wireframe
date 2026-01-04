@@ -277,9 +277,9 @@ and standardized per-connection memory budgets.
 
 ### 8.2. MessageAssembler abstraction
 
-- [ ] 8.2.1. Define a `MessageAssembler` hook trait for protocol-specific
+- [x] 8.2.1. Define a `MessageAssembler` hook trait for protocol-specific
   multi-frame parsing.
-- [ ] 8.2.2. Implement per-frame header parsing with "first frame" versus
+- [x] 8.2.2. Implement per-frame header parsing with "first frame" versus
   "continuation frame" handling.
 - [ ] 8.2.3. Add message key support for multiplexing interleaved assemblies.
 - [ ] 8.2.4. Implement continuity validation (ordering, missing frames, and

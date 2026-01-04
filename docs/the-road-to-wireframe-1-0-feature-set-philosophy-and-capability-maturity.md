@@ -217,6 +217,8 @@ The `MessageAssembler` hook allows a protocol to provide:
 
 Wireframe provides, centrally:
 
+- a stable hook trait and header model exposed as
+  `wireframe::message_assembler::MessageAssembler`;
 - buffering and assembly state management;
 - enforcement of maximum total message size, maximum fragment size, timeouts,
   and "max in-flight bytes"; and

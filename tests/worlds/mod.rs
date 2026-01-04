@@ -2,9 +2,9 @@
 //!
 //! Provides world types for behaviour-driven tests covering fragmentation,
 //! correlation, panic recovery, stream termination, multi-packet channels,
-//! stateful codecs, and request parts. Shared utilities like
-//! `build_small_queues` keep individual worlds focused on their respective
-//! scenarios.
+//! stateful codecs, request parts, and message assembler parsing. Shared
+//! utilities like `build_small_queues` keep individual worlds focused on their
+//! respective scenarios.
 #![cfg(not(loom))]
 
 #[path = "../common/mod.rs"]
@@ -32,6 +32,7 @@ pub mod client_runtime;
 pub mod codec_stateful;
 pub mod correlation;
 pub mod fragment;
+pub mod message_assembler;
 pub mod multi_packet;
 pub mod panic;
 pub mod request_parts;

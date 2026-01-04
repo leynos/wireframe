@@ -7,6 +7,7 @@
 //! - `StreamEndWorld`: Verifies end-of-stream signalling
 //! - `MultiPacketWorld`: Tests channel-backed multi-packet response delivery
 //! - `FragmentWorld`: Tests fragment metadata enforcement and reassembly primitives
+//! - `MessageAssemblerWorld`: Tests message assembler header parsing
 //! - `ClientRuntimeWorld`: Tests client runtime configuration and framing behaviour
 //! - `CodecStatefulWorld`: Tests instance-aware codec sequence counters
 //! - `RequestPartsWorld`: Tests request parts metadata handling
@@ -21,6 +22,7 @@
 //! tests/features/stream_end.feature          -> StreamEndWorld context
 //! tests/features/multi_packet.feature        -> MultiPacketWorld context
 //! tests/features/fragment.feature            -> FragmentWorld context
+//! tests/features/message_assembler.feature   -> MessageAssemblerWorld context
 //! tests/features/client_runtime.feature      -> ClientRuntimeWorld context
 //! tests/features/codec_stateful.feature      -> CodecStatefulWorld context
 //! tests/features/request_parts.feature       -> RequestPartsWorld context
@@ -40,6 +42,7 @@ use world::{
     CodecStatefulWorld,
     CorrelationWorld,
     FragmentWorld,
+    MessageAssemblerWorld,
     MultiPacketWorld,
     PanicWorld,
     RequestPartsWorld,
@@ -53,6 +56,7 @@ async fn main() {
     StreamEndWorld::run("tests/features/stream_end.feature").await;
     MultiPacketWorld::run("tests/features/multi_packet.feature").await;
     FragmentWorld::run("tests/features/fragment.feature").await;
+    MessageAssemblerWorld::run("tests/features/message_assembler.feature").await;
     ClientRuntimeWorld::run("tests/features/client_runtime.feature").await;
     CodecStatefulWorld::run("tests/features/codec_stateful.feature").await;
     RequestPartsWorld::run("tests/features/request_parts.feature").await;
