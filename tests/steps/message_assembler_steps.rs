@@ -11,11 +11,7 @@ const NO_SEQUENCE: Option<u32> = None;
 const NO_TOTAL_LEN: Option<usize> = None;
 
 // Helper builders to reduce duplication in step definitions
-fn first_header_without_total(
-    key: u64,
-    metadata_len: usize,
-    body_len: usize,
-) -> FirstHeaderSpec {
+fn first_header_without_total(key: u64, metadata_len: usize, body_len: usize) -> FirstHeaderSpec {
     FirstHeaderSpec {
         key,
         metadata_len,
