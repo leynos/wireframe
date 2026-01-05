@@ -62,17 +62,6 @@ where
     pub(crate) codec: &'a F,
 }
 
-struct SendContext<'a, W, F>
-where
-    W: AsyncRead + AsyncWrite + Unpin,
-    F: FrameCodec,
-{
-    codec: &'a F,
-    framed: &'a mut Framed<W, ConnectionCodec<F>>,
-    id: u32,
-    correlation_id: Option<u64>,
-}
-
 /// Attempt to reassemble a potentially fragmented envelope.
 pub(crate) fn reassemble_if_needed(
     fragmentation: &mut Option<FragmentationState>,
@@ -139,13 +128,7 @@ where
             break; // already logged
         };
 
-        let send_ctx = SendContext {
-            codec: ctx.codec,
-            framed: ctx.framed,
-            id: env.id,
-            correlation_id,
-        };
-        if send_response_payload::<F, W>(send_ctx, Bytes::from(bytes))
+        if send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response)
             .await
             .is_err()
         {
@@ -203,17 +186,21 @@ fn serialize_response<S: Serializer>(
 /// Wraps the raw payload bytes in the codec's native frame format via
 /// [`FrameCodec::wrap_payload`] before writing to the underlying stream.
 /// This ensures responses are encoded correctly for the configured protocol.
-async fn send_response_payload<F, W>(ctx: SendContext<'_, W, F>, payload: Bytes) -> io::Result<()>
+async fn send_response_payload<F, W>(
+    codec: &F,
+    framed: &mut Framed<W, ConnectionCodec<F>>,
+    payload: Bytes,
+    response: &Envelope,
+) -> io::Result<()>
 where
     W: AsyncRead + AsyncWrite + Unpin,
     F: FrameCodec,
 {
-    let frame = ctx.codec.wrap_payload(payload);
-    if let Err(e) = ctx.framed.send(frame).await {
-        warn!(
-            "failed to send response: id={}, correlation_id={:?}, error={e:?}",
-            ctx.id, ctx.correlation_id
-        );
+    let frame = codec.wrap_payload(payload);
+    if let Err(e) = framed.send(frame).await {
+        let id = response.id;
+        let correlation_id = response.correlation_id;
+        warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
         crate::metrics::inc_handler_errors();
         return Err(io::Error::other("send failed"));
     }
@@ -353,15 +340,15 @@ mod tests {
         let mut framed = Framed::new(server, combined);
 
         let payload = vec![1, 2, 3, 4];
-        let send_ctx = SendContext {
-            codec: &codec,
-            framed: &mut framed,
-            id: 1,
-            correlation_id: Some(99),
-        };
-        send_response_payload::<TestCodec, _>(send_ctx, Bytes::from(payload.clone()))
-            .await
-            .expect("send should succeed");
+        let response = Envelope::new(1, Some(99), payload.clone());
+        send_response_payload::<TestCodec, _>(
+            &codec,
+            &mut framed,
+            Bytes::from(payload.clone()),
+            &response,
+        )
+        .await
+        .expect("send should succeed");
 
         drop(framed);
 
@@ -411,14 +398,14 @@ mod tests {
 
         // Payload exceeds max_frame_length, so encode will fail
         let oversized_payload = vec![0u8; 100];
-        let send_ctx = SendContext {
-            codec: &codec,
-            framed: &mut framed,
-            id: 1,
-            correlation_id: Some(99),
-        };
-        let result =
-            send_response_payload::<TestCodec, _>(send_ctx, Bytes::from(oversized_payload)).await;
+        let response = Envelope::new(1, Some(99), oversized_payload.clone());
+        let result = send_response_payload::<TestCodec, _>(
+            &codec,
+            &mut framed,
+            Bytes::from(oversized_payload),
+            &response,
+        )
+        .await;
 
         assert!(
             result.is_err(),

@@ -1,6 +1,6 @@
 # Instance-aware payload wrapping for FrameCodec
 
-This ExecPlan is a living document. The sections `Progress`,
+This execution plan (ExecPlan) is a living document. The sections `Progress`,
 `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must
 be kept up to date as work proceeds.
 
@@ -9,7 +9,7 @@ No `PLANS.md` exists in this repository as of 2026-01-04.
 ## Purpose / Big Picture
 
 Stateful codecs (for example, protocols that stamp sequence counters or
-transaction ids in headers) need access to per-connection state when wrapping
+transaction IDs in headers) need access to per-connection state when wrapping
 outbound payloads. Previously `FrameCodec::wrap_payload` was a static function
 that only saw a `Vec<u8>`, which forced copies and prevented deterministic
 state advancement. This change makes `wrap_payload` instance-aware and accept
@@ -220,8 +220,8 @@ Acceptance is based on observable behaviour:
 
 All changes are safe to reapply. If a refactor breaks compilation, revert the
 individual file changes and reapply the steps one by one. Behavioural tests can
-be re-run without side effects because they bind to ephemeral TCP ports and
-clean up after each scenario.
+be re-run without side effects because they bind to ephemeral Transmission
+Control Protocol (TCP) ports and clean up after each scenario.
 
 ## Artifacts and Notes
 
