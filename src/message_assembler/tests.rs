@@ -73,80 +73,7 @@ impl MessageAssembler for TestAssembler {
 
 #[test]
 fn parse_frame_headers() {
-    let cases = vec![
-        HeaderCase {
-            name: "first frame without total",
-            build_payload: Box::new(|| {
-                build_first_header_payload(FirstHeaderSpec {
-                    flags: 0b0,
-                    message_key: 9,
-                    metadata_len: 2,
-                    body_len: 12,
-                    total_body_len: None,
-                })
-            }),
-            expected_header: FrameHeader::First(FirstFrameHeader {
-                message_key: MessageKey(9),
-                metadata_len: 2,
-                body_len: 12,
-                total_body_len: None,
-                is_last: false,
-            }),
-        },
-        HeaderCase {
-            name: "first frame with total and last",
-            build_payload: Box::new(|| {
-                build_first_header_payload(FirstHeaderSpec {
-                    flags: 0b11,
-                    message_key: 42,
-                    metadata_len: 0,
-                    body_len: 8,
-                    total_body_len: Some(64),
-                })
-            }),
-            expected_header: FrameHeader::First(FirstFrameHeader {
-                message_key: MessageKey(42),
-                metadata_len: 0,
-                body_len: 8,
-                total_body_len: Some(64),
-                is_last: true,
-            }),
-        },
-        HeaderCase {
-            name: "continuation frame with sequence",
-            build_payload: Box::new(|| {
-                build_continuation_header_payload(ContinuationHeaderSpec {
-                    flags: 0b10,
-                    message_key: 7,
-                    body_len: 16,
-                    sequence: Some(3),
-                })
-            }),
-            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
-                message_key: MessageKey(7),
-                sequence: Some(FrameSequence(3)),
-                body_len: 16,
-                is_last: false,
-            }),
-        },
-        HeaderCase {
-            name: "continuation frame without sequence",
-            build_payload: Box::new(|| {
-                build_continuation_header_payload(ContinuationHeaderSpec {
-                    flags: 0b1,
-                    message_key: 11,
-                    body_len: 5,
-                    sequence: None,
-                })
-            }),
-            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
-                message_key: MessageKey(11),
-                sequence: None,
-                body_len: 5,
-                is_last: true,
-            }),
-        },
-    ];
+    let cases = build_test_cases();
 
     for case in cases {
         let payload = (case.build_payload)();
@@ -253,6 +180,83 @@ fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
     TestAssembler
         .parse_frame_header(payload)
         .expect("header parse")
+}
+
+fn build_test_cases() -> Vec<HeaderCase> {
+    vec![
+        HeaderCase {
+            name: "first frame without total",
+            build_payload: Box::new(|| {
+                build_first_header_payload(FirstHeaderSpec {
+                    flags: 0b0,
+                    message_key: 9,
+                    metadata_len: 2,
+                    body_len: 12,
+                    total_body_len: None,
+                })
+            }),
+            expected_header: FrameHeader::First(FirstFrameHeader {
+                message_key: MessageKey(9),
+                metadata_len: 2,
+                body_len: 12,
+                total_body_len: None,
+                is_last: false,
+            }),
+        },
+        HeaderCase {
+            name: "first frame with total and last",
+            build_payload: Box::new(|| {
+                build_first_header_payload(FirstHeaderSpec {
+                    flags: 0b11,
+                    message_key: 42,
+                    metadata_len: 0,
+                    body_len: 8,
+                    total_body_len: Some(64),
+                })
+            }),
+            expected_header: FrameHeader::First(FirstFrameHeader {
+                message_key: MessageKey(42),
+                metadata_len: 0,
+                body_len: 8,
+                total_body_len: Some(64),
+                is_last: true,
+            }),
+        },
+        HeaderCase {
+            name: "continuation frame with sequence",
+            build_payload: Box::new(|| {
+                build_continuation_header_payload(ContinuationHeaderSpec {
+                    flags: 0b10,
+                    message_key: 7,
+                    body_len: 16,
+                    sequence: Some(3),
+                })
+            }),
+            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
+                message_key: MessageKey(7),
+                sequence: Some(FrameSequence(3)),
+                body_len: 16,
+                is_last: false,
+            }),
+        },
+        HeaderCase {
+            name: "continuation frame without sequence",
+            build_payload: Box::new(|| {
+                build_continuation_header_payload(ContinuationHeaderSpec {
+                    flags: 0b1,
+                    message_key: 11,
+                    body_len: 5,
+                    sequence: None,
+                })
+            }),
+            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
+                message_key: MessageKey(11),
+                sequence: None,
+                body_len: 5,
+                is_last: true,
+            }),
+        },
+    ]
 }
 
 struct HeaderCase {

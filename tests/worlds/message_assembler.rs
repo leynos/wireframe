@@ -1,7 +1,7 @@
 //! Test world for message assembler header parsing.
 #![cfg(not(loom))]
 
-use std::{fmt::Display, io};
+use std::{fmt, io};
 
 use bytes::{Buf, BufMut, BytesMut};
 use cucumber::World;
@@ -56,13 +56,50 @@ pub struct MessageAssemblerWorld {
 impl MessageAssemblerWorld {
     fn assert_common_field<T, F>(&self, field: &str, expected: T, extractor: F) -> TestResult
     where
-        T: PartialEq + Display,
+        T: PartialEq + fmt::Display,
         F: FnOnce(&FrameHeader) -> T,
     {
         let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
         let actual = extractor(parsed.header());
         if actual != expected {
             return Err(format!("expected {field} {expected}, got {actual}").into());
+        }
+        Ok(())
+    }
+
+    fn assert_first_field<T, F>(&self, field_name: &str, expected: T, extractor: F) -> TestResult
+    where
+        T: PartialEq + fmt::Display,
+        F: FnOnce(&FirstFrameHeader) -> T,
+    {
+        let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
+        let FrameHeader::First(header) = parsed.header() else {
+            return Err("expected first header".into());
+        };
+        let actual = extractor(header);
+        if actual != expected {
+            return Err(format!("expected {field_name} {expected}, got {actual}").into());
+        }
+        Ok(())
+    }
+
+    fn assert_continuation_field<T, F>(
+        &self,
+        field_name: &str,
+        expected: T,
+        extractor: F,
+    ) -> TestResult
+    where
+        T: PartialEq + fmt::Display,
+        F: FnOnce(&ContinuationFrameHeader) -> T,
+    {
+        let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
+        let FrameHeader::Continuation(header) = parsed.header() else {
+            return Err("expected continuation header".into());
+        };
+        let actual = extractor(header);
+        if actual != expected {
+            return Err(format!("expected {field_name} {expected}, got {actual}").into());
         }
         Ok(())
     }
@@ -182,18 +219,7 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the metadata length differs.
     pub fn assert_metadata_len(&self, expected: usize) -> TestResult {
-        let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
-        let FrameHeader::First(header) = parsed.header() else {
-            return Err("expected first header".into());
-        };
-        if header.metadata_len != expected {
-            return Err(format!(
-                "expected metadata length {expected}, got {}",
-                header.metadata_len
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_first_field("metadata length", expected, |header| header.metadata_len)
     }
 
     /// Assert that the parsed header contains the expected body length.
@@ -214,18 +240,11 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the total length differs.
     pub fn assert_total_len(&self, expected: Option<usize>) -> TestResult {
-        let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
-        let FrameHeader::First(header) = parsed.header() else {
-            return Err("expected first header".into());
-        };
-        if header.total_body_len != expected {
-            return Err(format!(
-                "expected total length {:?}, got {:?}",
-                expected, header.total_body_len
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_first_field(
+            "total length",
+            DebugDisplay(expected),
+            |header| DebugDisplay(header.total_body_len),
+        )
     }
 
     /// Assert that the parsed header contains the expected sequence.
@@ -234,19 +253,12 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the sequence differs.
     pub fn assert_sequence(&self, expected: Option<u32>) -> TestResult {
-        let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
-        let FrameHeader::Continuation(header) = parsed.header() else {
-            return Err("expected continuation header".into());
-        };
         let expected = expected.map(FrameSequence::from);
-        if header.sequence != expected {
-            return Err(format!(
-                "expected sequence {:?}, got {:?}",
-                expected, header.sequence
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_continuation_field(
+            "sequence",
+            DebugDisplay(expected),
+            |header| DebugDisplay(header.sequence),
+        )
     }
 
     /// Assert that the parsed header matches the expected `is_last` flag.
@@ -273,6 +285,13 @@ impl MessageAssemblerWorld {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DebugDisplay<T>(T);
+
+impl<T: fmt::Debug> fmt::Display for DebugDisplay<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{:?}", self.0) }
 }
 
 struct TestAssembler;
