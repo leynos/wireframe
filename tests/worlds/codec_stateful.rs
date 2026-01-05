@@ -78,14 +78,9 @@ impl SeqAdapter {
             max_frame_length,
         }
     }
-}
 
-impl Decoder for SeqAdapter {
-    type Item = SeqFrame;
-    type Error = std::io::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let Some(mut bytes) = self.inner.decode(src)? else {
+    fn process_frame(frame: Option<BytesMut>) -> Result<Option<SeqFrame>, std::io::Error> {
+        let Some(mut bytes) = frame else {
             return Ok(None);
         };
         if bytes.len() < 8 {
@@ -98,20 +93,18 @@ impl Decoder for SeqAdapter {
         let payload = bytes.to_vec();
         Ok(Some(SeqFrame { sequence, payload }))
     }
+}
+
+impl Decoder for SeqAdapter {
+    type Item = SeqFrame;
+    type Error = std::io::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        Self::process_frame(self.inner.decode(src)?)
+    }
 
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let Some(mut bytes) = self.inner.decode_eof(src)? else {
-            return Ok(None);
-        };
-        if bytes.len() < 8 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "frame too short",
-            ));
-        }
-        let sequence = bytes.get_u64();
-        let payload = bytes.to_vec();
-        Ok(Some(SeqFrame { sequence, payload }))
+        Self::process_frame(self.inner.decode_eof(src)?)
     }
 }
 
@@ -224,13 +217,7 @@ impl CodecStatefulWorld {
     /// # Errors
     /// Returns an error if the observed sequence numbers do not match.
     pub async fn verify_first_sequences(&self, expected: &[u64]) -> TestResult {
-        if self.first_sequences.as_slice() != expected {
-            return Err(format!(
-                "unexpected first connection sequences: {:?}",
-                self.first_sequences
-            )
-            .into());
-        }
+        Self::verify_sequences(&self.first_sequences, expected, "first")?;
         tokio::task::yield_now().await;
         Ok(())
     }
@@ -240,14 +227,18 @@ impl CodecStatefulWorld {
     /// # Errors
     /// Returns an error if the observed sequence numbers do not match.
     pub async fn verify_second_sequences(&mut self, expected: &[u64]) -> TestResult {
-        if self.second_sequences.as_slice() != expected {
+        Self::verify_sequences(&self.second_sequences, expected, "second")?;
+        self.await_server().await?;
+        Ok(())
+    }
+
+    fn verify_sequences(sequences: &[u64], expected: &[u64], connection_name: &str) -> TestResult {
+        if sequences != expected {
             return Err(format!(
-                "unexpected second connection sequences: {:?}",
-                self.second_sequences
+                "unexpected {connection_name} connection sequences: {sequences:?}"
             )
             .into());
         }
-        self.await_server().await?;
         Ok(())
     }
 
