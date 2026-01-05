@@ -10,6 +10,54 @@ const FLAG_LAST: bool = true;
 const NO_SEQUENCE: Option<u32> = None;
 const NO_TOTAL_LEN: Option<usize> = None;
 
+// Helper builders to reduce duplication in step definitions
+fn first_header_without_total(
+    key: u64,
+    metadata_len: usize,
+    body_len: usize,
+) -> FirstHeaderSpec {
+    FirstHeaderSpec {
+        key,
+        metadata_len,
+        body_len,
+        total_len: NO_TOTAL_LEN,
+        is_last: FLAG_NONE,
+    }
+}
+
+fn first_header_with_total(key: u64, body_len: usize, total_len: usize) -> FirstHeaderSpec {
+    FirstHeaderSpec {
+        key,
+        metadata_len: DEFAULT_METADATA_LEN,
+        body_len,
+        total_len: Some(total_len),
+        is_last: FLAG_LAST,
+    }
+}
+
+fn continuation_header_with_sequence(
+    key: u64,
+    body_len: usize,
+    sequence: u32,
+) -> ContinuationHeaderSpec {
+    ContinuationHeaderSpec {
+        key,
+        body_len,
+        sequence: Some(sequence),
+        is_last: FLAG_NONE,
+    }
+}
+
+fn continuation_header_without_sequence(key: u64, body_len: usize) -> ContinuationHeaderSpec {
+    ContinuationHeaderSpec {
+        key,
+        body_len,
+        sequence: NO_SEQUENCE,
+        is_last: FLAG_LAST,
+    }
+}
+
+// Cucumber step definitions
 #[given(expr = "a first frame header with key {int} metadata length {int} body length {int}")]
 fn given_first_header(
     world: &mut MessageAssemblerWorld,
@@ -17,13 +65,7 @@ fn given_first_header(
     metadata_len: usize,
     body_len: usize,
 ) -> crate::world::TestResult {
-    world.set_first_header(FirstHeaderSpec {
-        key,
-        metadata_len,
-        body_len,
-        total_len: NO_TOTAL_LEN,
-        is_last: FLAG_NONE,
-    })
+    world.set_first_header(first_header_without_total(key, metadata_len, body_len))
 }
 
 #[given(expr = "a first frame header with key {int} body length {int} total {int}")]
@@ -33,13 +75,7 @@ fn given_first_header_with_total(
     body_len: usize,
     total_len: usize,
 ) -> crate::world::TestResult {
-    world.set_first_header(FirstHeaderSpec {
-        key,
-        metadata_len: DEFAULT_METADATA_LEN,
-        body_len,
-        total_len: Some(total_len),
-        is_last: FLAG_LAST,
-    })
+    world.set_first_header(first_header_with_total(key, body_len, total_len))
 }
 
 #[given(expr = "a continuation header with key {int} body length {int} sequence {int}")]
@@ -49,12 +85,7 @@ fn given_continuation_header_with_sequence(
     body_len: usize,
     sequence: u32,
 ) -> crate::world::TestResult {
-    world.set_continuation_header(ContinuationHeaderSpec {
-        key,
-        body_len,
-        sequence: Some(sequence),
-        is_last: FLAG_NONE,
-    })
+    world.set_continuation_header(continuation_header_with_sequence(key, body_len, sequence))
 }
 
 #[given(expr = "a continuation header with key {int} body length {int}")]
@@ -63,12 +94,7 @@ fn given_continuation_header(
     key: u64,
     body_len: usize,
 ) -> crate::world::TestResult {
-    world.set_continuation_header(ContinuationHeaderSpec {
-        key,
-        body_len,
-        sequence: NO_SEQUENCE,
-        is_last: FLAG_LAST,
-    })
+    world.set_continuation_header(continuation_header_without_sequence(key, body_len))
 }
 
 #[given("an invalid message header")]
