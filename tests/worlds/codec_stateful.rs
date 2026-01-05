@@ -47,6 +47,9 @@ impl SeqFrameCodec {
         }
     }
 
+    /// Return a 1-based sequence value by atomically incrementing the counter.
+    ///
+    /// The first call yields 1 to match the behavioural test expectations.
     fn next_sequence(&self) -> u64 { self.counter.fetch_add(1, Ordering::SeqCst) + 1 }
 }
 

@@ -14,7 +14,7 @@ async fn when_first_client_sends(world: &mut CodecStatefulWorld, count: usize) -
     world.send_first_requests(count).await
 }
 
-#[when(expr = "the second client sends {int} requests")]
+#[when(expr = "the second client sends {int} request")]
 async fn when_second_client_sends(world: &mut CodecStatefulWorld, count: usize) -> TestResult {
     world.send_second_requests(count).await
 }

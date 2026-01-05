@@ -50,7 +50,7 @@ remains unchanged.
 
 Instance-aware payload wrapping is implemented, with per-connection codec
 clones and a `Bytes`-based payload surface. Unit, integration, and behavioural
-tests validate the new stateful wrapping behaviour, and the ADR, users guide,
+tests validate the new stateful wrapping behaviour, and the ADR, user's guide,
 and roadmap entries are updated to reflect the new API. Remaining work is to
 run the formatting, lint, and test gates.
 
@@ -86,9 +86,9 @@ Relevant documentation to update or cross-check:
 - `docs/multi-packet-and-streaming-responses-design.md` (references current
   `wrap_payload` limits; update if the description changes).
 - `docs/generic-message-fragmentation-and-re-assembly-design.md`.
-- `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-`
-  `maturity.md`.
-- `docs/hardening-wireframe-a-guide-to-production-resilience.md` for alignment
+- docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-
+  maturity.md.
+- docs/hardening-wireframe-a-guide-to-production-resilience.md for alignment
   notes.
 
 Behavioural tests run via `tests/cucumber.rs` and feature files in
@@ -107,7 +107,7 @@ that build frames outside a `Framed` stream.
 After the API change, update all tests and examples to use `Bytes` payloads and
 instance-aware wrapping. Add new tests that confirm per-connection sequence
 state advances correctly, including a behavioural scenario using the existing
-Cucumber harness. Finally, update documentation (ADR and users guide) and mark
+Cucumber harness. Finally, update documentation (ADR and user's guide) and mark
 roadmap item 9.1.1 as done, then run the required Makefile gates.
 
 ## Concrete Steps
