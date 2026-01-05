@@ -103,10 +103,11 @@ For orientation, the trait shape is expected to look like this:
 
 ```rust,no_run
 use std::io;
+use bytes::Bytes;
 use tokio_util::codec::{Decoder, Encoder};
 
 /// Trait for pluggable frame codecs supporting different wire protocols.
-pub trait FrameCodec: Send + Sync + 'static {
+pub trait FrameCodec: Send + Sync + Clone + 'static {
     /// Frame type produced by decoding.
     type Frame: Send + Sync + 'static;
     /// Decoder type for this codec.
@@ -124,7 +125,7 @@ pub trait FrameCodec: Send + Sync + 'static {
     fn frame_payload(frame: &Self::Frame) -> &[u8];
 
     /// Wrap payload bytes into a frame for sending.
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame;
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame;
 
     /// Extract correlation ID for request/response matching.
     fn correlation_id(_frame: &Self::Frame) -> Option<u64> { None }
@@ -185,13 +186,12 @@ pub trait FrameCodec: Send + Sync + 'static {
 
 ### Codec ergonomics and stateful metadata
 
-- `FrameCodec::wrap_payload` is a static constructor that takes `Vec<u8>`. The
-  Hotline and MySQL example codecs therefore stamp default metadata values
-  (transaction ID and sequence number set to `0`) unless the caller manually
-  constructs a frame and bypasses the default send path.
-- Payload extraction now uses `Bytes` frames to avoid copying on decode, but
-  `wrap_payload` still takes `Vec<u8>`, so outbound framing remains
-  allocation-bound.
+- `FrameCodec::wrap_payload` is instance-aware and accepts `Bytes`, so codecs
+  can advance sequence counters or stamp metadata without bypassing the normal
+  send path.
+- Wireframe clones the codec per connection and uses that instance for
+  outbound wrapping, which keeps state deterministic per connection when
+  `Clone` produces independent state.
 
 ### Error handling and recovery
 
@@ -218,9 +218,9 @@ pub trait FrameCodec: Send + Sync + 'static {
   explicit checks for payload length, total frame size, and header layout.
 - Implementing MySQL’s 3-byte little-endian length header required custom
   helpers; there is no shared utility for non-standard integer widths.
-- Clippy’s indexing and truncation lints forced the examples to use `bytes::Buf`
-  and explicit `try_from` conversions, suggesting a need for shared parsing
-  helpers to reduce boilerplate.
+- Clippy’s indexing and truncation lints forced the examples to use
+  `bytes::Buf` and explicit `try_from` conversions, suggesting a need for
+  shared parsing helpers to reduce boilerplate.
 
 ## Implementation guidance
 
@@ -246,9 +246,6 @@ pub trait FrameCodec: Send + Sync + 'static {
 
 ## Outstanding Decisions
 
-- Decide whether `FrameCodec::wrap_payload` should accept `&self` (or other
-  state) to support codecs that maintain sequence counters or compression
-  dictionaries.
 - Decide whether to introduce a `CodecError` taxonomy and recovery policy
   (drop frame versus close connection) for protocol-specific failures.
 - Decide how to realign fragmentation with the `FragmentAdapter` design so

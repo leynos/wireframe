@@ -129,8 +129,8 @@ A codec implementation must:
   `std::io::Error` on failure.
 - Return only the logical payload bytes from `frame_payload` so metadata parsing
   and deserialisation run against the right buffer.
-- Wrap outbound payloads with `wrap_payload`, adding any protocol headers or
-  metadata required by the wire format.
+- Wrap outbound payloads with `wrap_payload(&self, Bytes)`, adding any protocol
+  headers or metadata required by the wire format.
 - Provide `correlation_id` when the protocol stores it outside the payload;
   Wireframe only uses this hook when the deserialized envelope is missing a
   correlation identifier.
@@ -139,8 +139,11 @@ A codec implementation must:
 
 Install a custom codec with `with_codec`. The builder resets fragmentation to
 the codec-derived defaults, so override fragmentation afterwards if the
-protocol uses a different budget. When a framed stream is already available,
-use `send_response_framed_with_codec`, so responses pass through
+protocol uses a different budget. Wireframe clones the codec per connection, so
+stateful codecs should ensure `Clone` produces an independent state (for
+example, reset sequence counters) when per-connection isolation is required.
+When a framed stream is already available, use
+`send_response_framed_with_codec`, so responses pass through
 `FrameCodec::wrap_payload`.
 
 Assume `MyCodec` implements `FrameCodec`:

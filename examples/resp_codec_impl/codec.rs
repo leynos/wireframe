@@ -2,7 +2,7 @@
 
 use std::io;
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe::codec::FrameCodec;
 
@@ -85,7 +85,9 @@ impl FrameCodec for RespFrameCodec {
         }
     }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame { RespFrame::BulkString(Some(payload)) }
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
+        RespFrame::BulkString(Some(payload.to_vec()))
+    }
 
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }

@@ -6,7 +6,7 @@
 
 use std::io;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::FrameCodec;
@@ -116,10 +116,10 @@ impl FrameCodec for HotlineFrameCodec {
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame {
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
         HotlineFrame {
             transaction_id: 0,
-            payload,
+            payload: payload.to_vec(),
         }
     }
 
@@ -239,10 +239,10 @@ impl FrameCodec for MysqlFrameCodec {
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
 
-    fn wrap_payload(payload: Vec<u8>) -> Self::Frame {
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
         MysqlFrame {
             sequence_id: 0,
-            payload,
+            payload: payload.to_vec(),
         }
     }
 
