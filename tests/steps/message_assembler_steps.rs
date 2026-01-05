@@ -4,6 +4,12 @@ use cucumber::{given, then, when};
 
 use crate::world::{ContinuationHeaderSpec, FirstHeaderSpec, MessageAssemblerWorld};
 
+const DEFAULT_METADATA_LEN: usize = 0;
+const FLAG_NONE: bool = false;
+const FLAG_LAST: bool = true;
+const NO_SEQUENCE: Option<u32> = None;
+const NO_TOTAL_LEN: Option<usize> = None;
+
 #[given(expr = "a first frame header with key {int} metadata length {int} body length {int}")]
 fn given_first_header(
     world: &mut MessageAssemblerWorld,
@@ -15,8 +21,8 @@ fn given_first_header(
         key,
         metadata_len,
         body_len,
-        total_len: None,
-        is_last: false,
+        total_len: NO_TOTAL_LEN,
+        is_last: FLAG_NONE,
     })
 }
 
@@ -29,10 +35,10 @@ fn given_first_header_with_total(
 ) -> crate::world::TestResult {
     world.set_first_header(FirstHeaderSpec {
         key,
-        metadata_len: 0,
+        metadata_len: DEFAULT_METADATA_LEN,
         body_len,
         total_len: Some(total_len),
-        is_last: true,
+        is_last: FLAG_LAST,
     })
 }
 
@@ -47,7 +53,7 @@ fn given_continuation_header_with_sequence(
         key,
         body_len,
         sequence: Some(sequence),
-        is_last: false,
+        is_last: FLAG_NONE,
     })
 }
 
@@ -60,8 +66,8 @@ fn given_continuation_header(
     world.set_continuation_header(ContinuationHeaderSpec {
         key,
         body_len,
-        sequence: None,
-        is_last: true,
+        sequence: NO_SEQUENCE,
+        is_last: FLAG_LAST,
     })
 }
 

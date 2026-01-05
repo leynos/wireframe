@@ -72,91 +72,88 @@ impl MessageAssembler for TestAssembler {
 }
 
 #[test]
-fn parse_first_frame_header_without_total() {
-    let payload = build_first_header_payload(FirstHeaderSpec {
-        flags: 0b0,
-        message_key: 9,
-        metadata_len: 2,
-        body_len: 12,
-        total_body_len: None,
-    });
-    let parsed = parse_header(&payload);
-    assert_first_header(
-        &parsed,
-        FirstFrameHeader {
-            message_key: MessageKey(9),
-            metadata_len: 2,
-            body_len: 12,
-            total_body_len: None,
-            is_last: false,
+fn parse_frame_headers() {
+    let cases = vec![
+        HeaderCase {
+            name: "first frame without total",
+            build_payload: Box::new(|| {
+                build_first_header_payload(FirstHeaderSpec {
+                    flags: 0b0,
+                    message_key: 9,
+                    metadata_len: 2,
+                    body_len: 12,
+                    total_body_len: None,
+                })
+            }),
+            expected_header: FrameHeader::First(FirstFrameHeader {
+                message_key: MessageKey(9),
+                metadata_len: 2,
+                body_len: 12,
+                total_body_len: None,
+                is_last: false,
+            }),
         },
-        payload.len(),
-    );
-}
+        HeaderCase {
+            name: "first frame with total and last",
+            build_payload: Box::new(|| {
+                build_first_header_payload(FirstHeaderSpec {
+                    flags: 0b11,
+                    message_key: 42,
+                    metadata_len: 0,
+                    body_len: 8,
+                    total_body_len: Some(64),
+                })
+            }),
+            expected_header: FrameHeader::First(FirstFrameHeader {
+                message_key: MessageKey(42),
+                metadata_len: 0,
+                body_len: 8,
+                total_body_len: Some(64),
+                is_last: true,
+            }),
+        },
+        HeaderCase {
+            name: "continuation frame with sequence",
+            build_payload: Box::new(|| {
+                build_continuation_header_payload(ContinuationHeaderSpec {
+                    flags: 0b10,
+                    message_key: 7,
+                    body_len: 16,
+                    sequence: Some(3),
+                })
+            }),
+            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
+                message_key: MessageKey(7),
+                sequence: Some(FrameSequence(3)),
+                body_len: 16,
+                is_last: false,
+            }),
+        },
+        HeaderCase {
+            name: "continuation frame without sequence",
+            build_payload: Box::new(|| {
+                build_continuation_header_payload(ContinuationHeaderSpec {
+                    flags: 0b1,
+                    message_key: 11,
+                    body_len: 5,
+                    sequence: None,
+                })
+            }),
+            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
+                message_key: MessageKey(11),
+                sequence: None,
+                body_len: 5,
+                is_last: true,
+            }),
+        },
+    ];
 
-#[test]
-fn parse_first_frame_header_with_total_and_last() {
-    let payload = build_first_header_payload(FirstHeaderSpec {
-        flags: 0b11,
-        message_key: 42,
-        metadata_len: 0,
-        body_len: 8,
-        total_body_len: Some(64),
-    });
-    let parsed = parse_header(&payload);
-    assert_first_header(
-        &parsed,
-        FirstFrameHeader {
-            message_key: MessageKey(42),
-            metadata_len: 0,
-            body_len: 8,
-            total_body_len: Some(64),
-            is_last: true,
-        },
-        payload.len(),
-    );
-}
-
-#[test]
-fn parse_continuation_header_with_sequence() {
-    let payload = build_continuation_header_payload(ContinuationHeaderSpec {
-        flags: 0b10,
-        message_key: 7,
-        body_len: 16,
-        sequence: Some(3),
-    });
-    let parsed = parse_header(&payload);
-    assert_continuation_header(
-        &parsed,
-        ContinuationFrameHeader {
-            message_key: MessageKey(7),
-            sequence: Some(FrameSequence(3)),
-            body_len: 16,
-            is_last: false,
-        },
-        payload.len(),
-    );
-}
-
-#[test]
-fn parse_continuation_header_without_sequence() {
-    let payload = build_continuation_header_payload(ContinuationHeaderSpec {
-        flags: 0b1,
-        message_key: 11,
-        body_len: 5,
-        sequence: None,
-    });
-    let parsed = parse_header(&payload);
-    assert_continuation_header(
-        &parsed,
-        ContinuationFrameHeader {
-            message_key: MessageKey(11),
-            sequence: None,
-            body_len: 5,
-            is_last: true,
-        },
-        payload.len(),
-    );
+    for case in cases {
+        let payload = (case.build_payload)();
+        let parsed = parse_header(&payload);
+        assert_eq!(parsed.header(), &case.expected_header, "case: {}", case.name);
+        assert_eq!(parsed.header_len(), payload.len(), "case: {}", case.name);
+    }
 }
 
 #[test]
@@ -258,20 +255,8 @@ fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
         .expect("header parse")
 }
 
-fn assert_first_header(
-    parsed: &ParsedFrameHeader,
-    expected: FirstFrameHeader,
-    expected_len: usize,
-) {
-    assert_eq!(parsed.header(), &FrameHeader::First(expected));
-    assert_eq!(parsed.header_len(), expected_len);
-}
-
-fn assert_continuation_header(
-    parsed: &ParsedFrameHeader,
-    expected: ContinuationFrameHeader,
-    expected_len: usize,
-) {
-    assert_eq!(parsed.header(), &FrameHeader::Continuation(expected));
-    assert_eq!(parsed.header_len(), expected_len);
+struct HeaderCase {
+    name: &'static str,
+    build_payload: Box<dyn Fn() -> Vec<u8>>,
+    expected_header: FrameHeader,
 }
