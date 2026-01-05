@@ -73,12 +73,19 @@ impl MessageAssembler for TestAssembler {
 
 #[test]
 fn parse_frame_headers() {
-    let cases = build_test_cases();
+    let mut cases = Vec::new();
+    cases.extend(build_first_frame_test_cases());
+    cases.extend(build_continuation_frame_test_cases());
 
     for case in cases {
         let payload = (case.build_payload)();
         let parsed = parse_header(&payload);
-        assert_eq!(parsed.header(), &case.expected_header, "case: {}", case.name);
+        assert_eq!(
+            parsed.header(),
+            &case.expected_header,
+            "case: {}",
+            case.name
+        );
         assert_eq!(parsed.header_len(), payload.len(), "case: {}", case.name);
     }
 }
@@ -182,7 +189,7 @@ fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
         .expect("header parse")
 }
 
-fn build_test_cases() -> Vec<HeaderCase> {
+fn build_first_frame_test_cases() -> Vec<HeaderCase> {
     vec![
         HeaderCase {
             name: "first frame without total",
@@ -222,6 +229,11 @@ fn build_test_cases() -> Vec<HeaderCase> {
                 is_last: true,
             }),
         },
+    ]
+}
+
+fn build_continuation_frame_test_cases() -> Vec<HeaderCase> {
+    vec![
         HeaderCase {
             name: "continuation frame with sequence",
             build_payload: Box::new(|| {
