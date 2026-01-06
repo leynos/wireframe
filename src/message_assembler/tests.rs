@@ -5,8 +5,6 @@ use std::io;
 use bytes::{BufMut, BytesMut};
 use rstest::rstest;
 
-use crate::test_helpers::TestAssembler;
-
 use super::{
     ContinuationFrameHeader,
     FirstFrameHeader,
@@ -16,6 +14,7 @@ use super::{
     MessageKey,
     ParsedFrameHeader,
 };
+use crate::test_helpers::TestAssembler;
 
 #[rstest]
 #[case::first_frame_without_total(

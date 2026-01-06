@@ -12,6 +12,7 @@ Feature: Message assembler header parsing
     And the message key is 9
     And the metadata length is 2
     And the body length is 12
+    And the header length is 16
     And the total body length is absent
     And the frame is marked last false
 
@@ -22,6 +23,7 @@ Feature: Message assembler header parsing
     And the message key is 9
     And the metadata length is 2
     And the body length is 12
+    And the header length is 16
     And the total body length is absent
     And the frame is marked last false
 
@@ -32,6 +34,7 @@ Feature: Message assembler header parsing
     And the message key is 42
     And the metadata length is 0
     And the body length is 8
+    And the header length is 20
     And the total body length is 64
     And the frame is marked last true
 
@@ -41,6 +44,7 @@ Feature: Message assembler header parsing
     Then the parsed header is continuation
     And the message key is 7
     And the body length is 16
+    And the header length is 18
     And the sequence is 3
     And the frame is marked last false
 
@@ -50,6 +54,7 @@ Feature: Message assembler header parsing
     Then the parsed header is continuation
     And the message key is 11
     And the body length is 5
+    And the header length is 14
     And the sequence is absent
     And the frame is marked last true
 

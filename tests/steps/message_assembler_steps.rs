@@ -133,6 +133,14 @@ fn then_body_len(world: &mut MessageAssemblerWorld, body_len: usize) -> crate::w
     world.assert_body_len(body_len)
 }
 
+#[then(expr = "the header length is {int}")]
+fn then_header_len(
+    world: &mut MessageAssemblerWorld,
+    header_len: usize,
+) -> crate::world::TestResult {
+    world.assert_header_len(header_len)
+}
+
 #[then("the total body length is absent")]
 fn then_total_absent(world: &mut MessageAssemblerWorld) -> crate::world::TestResult {
     world.assert_total_len(None)

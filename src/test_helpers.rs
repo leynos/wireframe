@@ -26,6 +26,10 @@ impl MessageAssembler for TestAssembler {
 }
 
 /// Parse a protocol-specific frame header for tests.
+///
+/// # Errors
+///
+/// Returns an error if the payload is too short or contains an invalid header.
 pub fn parse_frame_header(payload: &[u8]) -> Result<ParsedFrameHeader, io::Error> {
     let mut buf = payload;
     let initial = buf.remaining();
