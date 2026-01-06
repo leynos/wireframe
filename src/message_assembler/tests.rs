@@ -5,9 +5,7 @@ use std::io;
 use bytes::{BufMut, BytesMut};
 use rstest::rstest;
 
-#[path = "../../tests/common/message_assembler.rs"]
-mod message_assembler_helpers;
-use message_assembler_helpers::TestAssembler;
+use crate::test_helpers::TestAssembler;
 
 use super::{
     ContinuationFrameHeader,

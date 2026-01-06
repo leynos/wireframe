@@ -3009,6 +3009,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
+ "wireframe",
  "wireframe_testing",
 ]
 

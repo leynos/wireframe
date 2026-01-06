@@ -36,6 +36,8 @@ pub mod rewind_stream;
 #[cfg(not(loom))]
 pub mod server;
 pub mod session;
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod test_helpers;
 
 pub use client::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient};
 pub use connection::ConnectionActor;

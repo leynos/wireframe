@@ -1,9 +1,11 @@
-//! Shared helpers for parsing message assembler headers in tests.
+#![cfg(any(test, feature = "test-helpers"))]
+//! Test-only helpers for shared test utilities.
 
 use std::io;
 
 use bytes::Buf;
-use wireframe::message_assembler::{
+
+use crate::message_assembler::{
     ContinuationFrameHeader,
     FirstFrameHeader,
     FrameHeader,

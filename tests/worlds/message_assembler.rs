@@ -15,9 +15,7 @@ use wireframe::message_assembler::{
 };
 
 use super::{TestApp, TestResult};
-#[path = "../common/message_assembler.rs"]
-mod message_assembler_helpers;
-use message_assembler_helpers::TestAssembler;
+use wireframe::test_helpers::TestAssembler;
 
 /// Specification for first-frame header encoding used in tests.
 #[derive(Debug, Clone, Copy)]

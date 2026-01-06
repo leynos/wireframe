@@ -49,6 +49,7 @@ socket2 = "0.6.0"
 
 [dev-dependencies]
 rstest = "0.26.1"
+wireframe = { path = ".", features = ["test-helpers"] }
 wireframe_testing = { path = "./wireframe_testing" }
 logtest = "2.0.0"
 proptest = "1.7.0"
@@ -85,6 +86,7 @@ advanced-tests = []
 examples = []
 cucumber-tests = []
 test-support = []
+test-helpers = []
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
