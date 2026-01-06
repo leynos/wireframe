@@ -166,44 +166,61 @@ fn custom_hook_overrides_default_policy() {
 // LengthDelimitedDecoder EOF handling tests
 // ============================================================================
 
-#[test]
-fn decoder_eof_empty_buffer_returns_clean_close() {
+/// Helper to test EOF error behaviour for the length-delimited decoder.
+///
+/// Creates a decoder with `max_frame_length=128`, initialises a buffer from the
+/// given bytes, calls `decode_eof`, and asserts:
+/// - The result is an error
+/// - The error kind is `UnexpectedEof`
+/// - The error message contains `expected_error_substring`
+///
+/// # Panics
+///
+/// Panics if `decode_eof` returns `Ok`, or if the error kind or message does
+/// not match expectations.
+fn assert_decode_eof_error(
+    initial_buffer: &[u8],
+    expected_error_substring: &str,
+    test_description: &str,
+) {
     let codec = LengthDelimitedFrameCodec::new(128);
     let mut decoder = codec.decoder();
-    let mut buf = BytesMut::new();
+    let mut buf = BytesMut::from(initial_buffer);
 
-    let err = decoder
-        .decode_eof(&mut buf)
-        .expect_err("expected clean close");
-    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
-    assert!(err.to_string().contains("connection closed"));
+    let Err(err) = decoder.decode_eof(&mut buf) else {
+        panic!("{test_description}: expected error, got Ok");
+    };
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::UnexpectedEof,
+        "{test_description}: expected UnexpectedEof"
+    );
+    assert!(
+        err.to_string().contains(expected_error_substring),
+        "{test_description}: error message should contain '{expected_error_substring}', got: {err}"
+    );
+}
+
+#[test]
+fn decoder_eof_empty_buffer_returns_clean_close() {
+    // Empty buffer: connection closed cleanly at frame boundary
+    assert_decode_eof_error(&[], "connection closed", "clean close");
 }
 
 #[test]
 fn decoder_eof_partial_header_returns_mid_header() {
-    let codec = LengthDelimitedFrameCodec::new(128);
-    let mut decoder = codec.decoder();
-    // Only 2 bytes of the 4-byte header
-    let mut buf = BytesMut::from(&[0x00, 0x10][..]);
-
-    let err = decoder
-        .decode_eof(&mut buf)
-        .expect_err("expected mid-header");
-    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
-    assert!(err.to_string().contains("header"));
+    // Only 2 bytes of the 4-byte length prefix header
+    assert_decode_eof_error(&[0x00, 0x10], "header", "mid-header EOF");
 }
 
 #[test]
 fn decoder_eof_partial_payload_returns_mid_frame() {
-    let codec = LengthDelimitedFrameCodec::new(128);
-    let mut decoder = codec.decoder();
-    // 4-byte header saying 16 bytes payload, but only 4 bytes of payload
-    let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x10, 0x01, 0x02, 0x03, 0x04][..]);
-
-    let err = decoder
-        .decode_eof(&mut buf)
-        .expect_err("expected mid-frame");
-    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    // 4-byte header (0x00000010 = 16 bytes payload), but only 4 bytes of payload present
+    assert_decode_eof_error(
+        &[0x00, 0x00, 0x00, 0x10, 0x01, 0x02, 0x03, 0x04],
+        "EOF",
+        "mid-frame EOF",
+    );
 }
 
 #[test]
