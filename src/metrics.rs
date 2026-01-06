@@ -33,6 +33,16 @@ pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
 /// ```
 pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
 
+/// Name of the counter tracking codec errors by type and recovery policy.
+///
+/// ```text
+/// # HELP wireframe_codec_errors_total Count of codec errors by type and recovery policy.
+/// # TYPE wireframe_codec_errors_total counter
+/// wireframe_codec_errors_total{error_type="framing",recovery_policy="drop"} 5
+/// wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
+/// ```
+pub const CODEC_ERRORS: &str = "wireframe_codec_errors_total";
+
 /// Direction of frame processing.
 #[derive(Clone, Copy)]
 pub enum Direction {
@@ -109,3 +119,34 @@ pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
 
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connection_panics() {}
+
+/// Record a codec error with its type and recovery policy.
+///
+/// # Arguments
+///
+/// * `error_type` - The category of error: `"framing"`, `"protocol"`, `"io"`, or `"eof"`.
+/// * `recovery_policy` - The recovery action taken: `"drop"`, `"quarantine"`, or `"disconnect"`.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wireframe::metrics;
+///
+/// // Record an oversized frame that was dropped
+/// metrics::inc_codec_error("framing", "drop");
+///
+/// // Record a premature EOF that caused disconnect
+/// metrics::inc_codec_error("eof", "disconnect");
+/// ```
+#[cfg(feature = "metrics")]
+pub fn inc_codec_error(error_type: &str, recovery_policy: &str) {
+    counter!(
+        CODEC_ERRORS,
+        "error_type" => error_type.to_string(),
+        "recovery_policy" => recovery_policy.to_string()
+    )
+    .increment(1);
+}
+
+#[cfg(not(feature = "metrics"))]
+pub fn inc_codec_error(_error_type: &str, _recovery_policy: &str) {}

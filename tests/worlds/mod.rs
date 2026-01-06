@@ -30,6 +30,7 @@ pub(crate) fn build_small_queues<T: Send + 'static>()
 pub mod client_lifecycle;
 pub mod client_preamble;
 pub mod client_runtime;
+pub mod codec_error;
 pub mod codec_stateful;
 pub mod correlation;
 pub mod fragment;

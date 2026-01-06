@@ -6,7 +6,10 @@
 
 use std::sync::Arc;
 
-use crate::push::{FrameLike, PushHandle};
+use crate::{
+    codec::EofError,
+    push::{FrameLike, PushHandle},
+};
 
 /// Per-connection state passed to protocol callbacks.
 ///
@@ -59,6 +62,44 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// frame, and the stream ends silently. The `before_send` hook runs for
     /// this frame if registered.
     fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
+
+    /// Called when an EOF condition is detected during frame decoding.
+    ///
+    /// This hook is invoked when the connection closes unexpectedly (mid-frame
+    /// or mid-header) or cleanly (at frame boundary). Implementations can use
+    /// this to log diagnostics, update metrics, or perform cleanup.
+    ///
+    /// The `partial_data` parameter contains any bytes that were received
+    /// before EOF. For clean closes, this will be empty.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use wireframe::{ConnectionContext, EofError, WireframeProtocol};
+    ///
+    /// struct MyProtocol;
+    ///
+    /// impl WireframeProtocol for MyProtocol {
+    ///     type Frame = Vec<u8>;
+    ///     type ProtocolError = String;
+    ///
+    ///     fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
+    ///         match error {
+    ///             EofError::CleanClose => tracing::info!("connection closed cleanly"),
+    ///             EofError::MidFrame { .. } => {
+    ///                 tracing::warn!(
+    ///                     partial_bytes = partial_data.len(),
+    ///                     "connection closed mid-frame"
+    ///                 );
+    ///             }
+    ///             EofError::MidHeader { .. } => {
+    ///                 tracing::warn!("connection closed mid-header");
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    fn on_eof(&self, _error: &EofError, _partial_data: &[u8], _ctx: &mut ConnectionContext) {}
 }
 
 /// Type alias for the `before_send` callback.
@@ -77,6 +118,9 @@ type HandleErrorHook<E> = Box<dyn FnMut(E, &mut ConnectionContext) + Send + 'sta
 /// Type alias for the `stream_end_frame` callback.
 type StreamEndHook<F> = Box<dyn FnMut(&mut ConnectionContext) -> Option<F> + Send + 'static>;
 
+/// Type alias for the `on_eof` callback.
+type OnEofHook = Box<dyn FnMut(&EofError, &[u8], &mut ConnectionContext) + Send + 'static>;
+
 /// Callbacks used by the connection actor.
 pub struct ProtocolHooks<F, E> {
     /// Invoked when a connection is established.
@@ -89,6 +133,8 @@ pub struct ProtocolHooks<F, E> {
     pub handle_error: Option<HandleErrorHook<E>>,
     /// Invoked to construct an end-of-stream frame.
     pub stream_end: Option<StreamEndHook<F>>,
+    /// Invoked when an EOF condition is detected.
+    pub on_eof: Option<OnEofHook>,
 }
 
 impl<F, E> Default for ProtocolHooks<F, E> {
@@ -99,6 +145,7 @@ impl<F, E> Default for ProtocolHooks<F, E> {
             on_command_end: None,
             handle_error: None,
             stream_end: None,
+            on_eof: None,
         }
     }
 }
@@ -136,6 +183,13 @@ impl<F, E> ProtocolHooks<F, E> {
         self.stream_end.as_mut().and_then(|hook| hook(ctx))
     }
 
+    /// Run the `on_eof` hook if registered.
+    pub fn on_eof(&mut self, error: &EofError, partial_data: &[u8], ctx: &mut ConnectionContext) {
+        if let Some(hook) = &mut self.on_eof {
+            hook(error, partial_data, ctx);
+        }
+    }
+
     /// Construct hooks from a [`WireframeProtocol`] implementation.
     pub fn from_protocol<P>(protocol: &Arc<P>) -> Self
     where
@@ -166,12 +220,20 @@ impl<F, E> ProtocolHooks<F, E> {
             Box::new(move |ctx: &mut ConnectionContext| protocol_stream_end.stream_end_frame(ctx))
                 as StreamEndHook<F>;
 
+        let protocol_eof = Arc::clone(protocol);
+        let on_eof = Box::new(
+            move |error: &EofError, partial_data: &[u8], ctx: &mut ConnectionContext| {
+                protocol_eof.on_eof(error, partial_data, ctx);
+            },
+        ) as OnEofHook;
+
         Self {
             on_connection_setup: Some(setup),
             before_send: Some(before),
             on_command_end: Some(end),
             handle_error: Some(err),
             stream_end: Some(stream_end),
+            on_eof: Some(on_eof),
         }
     }
 }

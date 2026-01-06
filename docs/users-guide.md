@@ -165,6 +165,109 @@ let app = WireframeApp::new()?
 See `examples/hotline_codec.rs` and `examples/mysql_codec.rs` for complete
 implementations.
 
+### Codec error handling
+
+The codec layer provides a structured error taxonomy via `CodecError` that
+enables recovery policies, structured logging, and proper EOF handling.
+
+**Error categories:**
+
+- `FramingError` - Wire-level frame boundary issues (oversized frames, invalid
+  length encoding, incomplete headers, checksum mismatches, empty frames).
+- `ProtocolError` - Semantic violations after frame extraction (unknown message
+  types, invalid versions).
+- `io::Error` - Transport layer failures (connection resets, timeouts).
+- `EofError` - End-of-stream conditions with clean/mid-frame/mid-header
+  variants.
+
+**Recovery policies:**
+
+Each error type has a default recovery policy:
+
+| Error Type                     | Default Policy |
+| ------------------------------ | -------------- |
+| `FramingError::OversizedFrame` | Drop           |
+| `FramingError::EmptyFrame`     | Drop           |
+| Other `FramingError`           | Disconnect     |
+| All `ProtocolError`            | Drop           |
+| All `io::Error`                | Disconnect     |
+| `EofError::CleanClose`         | Disconnect     |
+| Other `EofError`               | Disconnect     |
+
+Override recovery policies with a custom `RecoveryPolicyHook`:
+
+```rust
+use wireframe::codec::{
+    CodecError, CodecErrorContext, RecoveryPolicy, RecoveryPolicyHook,
+};
+
+struct StrictRecovery;
+
+impl RecoveryPolicyHook for StrictRecovery {
+    fn recovery_policy(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
+        // Disconnect on any codec error
+        RecoveryPolicy::Disconnect
+    }
+}
+```
+
+`CodecErrorContext` provides connection metadata for policy decisions:
+
+```rust
+use wireframe::codec::CodecErrorContext;
+
+let ctx = CodecErrorContext::new()
+    .with_connection_id(42)
+    .with_correlation_id(123)
+    .with_codec_state("seq=5");
+```
+
+**Protocol hooks for EOF:**
+
+The `WireframeProtocol` trait includes an `on_eof` hook for handling EOF
+conditions during frame decoding:
+
+```rust,ignore
+use wireframe::{ConnectionContext, EofError, WireframeProtocol};
+
+impl WireframeProtocol for MyProtocol {
+    type Frame = Vec<u8>;
+    type ProtocolError = String;
+
+    fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
+        match error {
+            EofError::CleanClose => tracing::info!("connection closed cleanly"),
+            EofError::MidFrame { bytes_received, expected } => {
+                tracing::warn!(
+                    received = bytes_received,
+                    expected = expected,
+                    partial_len = partial_data.len(),
+                    "connection closed mid-frame"
+                );
+            }
+            EofError::MidHeader { bytes_received, header_size } => {
+                tracing::warn!(
+                    received = bytes_received,
+                    header_size = header_size,
+                    "connection closed mid-header"
+                );
+            }
+        }
+    }
+}
+```
+
+**Metrics:**
+
+When the `metrics` feature is enabled, codec errors increment the
+`wireframe_codec_errors_total` counter with `error_type` and `recovery_policy`
+labels:
+
+```text
+wireframe_codec_errors_total{error_type="framing",recovery_policy="drop"} 5
+wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
+```
+
 ## Packets, payloads, and serialization
 
 Packets drive routing. Implement the `Packet` trait (or use the bundled

@@ -1,7 +1,7 @@
 #![cfg(not(loom))]
 //! Cucumber test runner for integration tests.
 //!
-//! Orchestrates eleven distinct test suites:
+//! Orchestrates twelve distinct test suites:
 //! - `PanicWorld`: Tests server resilience during connection panics
 //! - `CorrelationWorld`: Tests correlation ID propagation in multi-frame responses
 //! - `StreamEndWorld`: Verifies end-of-stream signalling
@@ -13,6 +13,7 @@
 //! - `RequestPartsWorld`: Tests request parts metadata handling
 //! - `ClientPreambleWorld`: Tests client preamble exchange and callbacks
 //! - `ClientLifecycleWorld`: Tests client connection lifecycle hooks
+//! - `CodecErrorWorld`: Tests codec error taxonomy and recovery policies
 //!
 //! # Example
 //!
@@ -29,6 +30,7 @@
 //! tests/features/request_parts.feature       -> RequestPartsWorld context
 //! tests/features/client_preamble.feature     -> ClientPreambleWorld context
 //! tests/features/client_lifecycle.feature    -> ClientLifecycleWorld context
+//! tests/features/codec_error.feature         -> CodecErrorWorld context
 //! ```
 //!
 //! Each context provides specialised step definitions and state management
@@ -42,6 +44,7 @@ use world::{
     ClientLifecycleWorld,
     ClientPreambleWorld,
     ClientRuntimeWorld,
+    CodecErrorWorld,
     CodecStatefulWorld,
     CorrelationWorld,
     FragmentWorld,
@@ -65,4 +68,5 @@ async fn main() {
     RequestPartsWorld::run("tests/features/request_parts.feature").await;
     ClientPreambleWorld::run("tests/features/client_preamble.feature").await;
     ClientLifecycleWorld::run("tests/features/client_lifecycle.feature").await;
+    CodecErrorWorld::run("tests/features/codec_error.feature").await;
 }

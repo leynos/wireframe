@@ -6,6 +6,7 @@
 mod client_lifecycle_steps;
 mod client_preamble_steps;
 mod client_steps;
+mod codec_error_steps;
 mod codec_stateful_steps;
 mod correlation_steps;
 mod fragment_steps;
