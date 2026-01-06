@@ -440,7 +440,9 @@ not hang.
   protocol crates to supply protocol-specific parsing and continuity rules
   while Wireframe provides shared buffering machinery and limit enforcement.
   See the [fragmentation design][frag-design] for how transport-level
-  fragmentation and protocol-level assembly compose.
+  fragmentation and protocol-level assembly compose. The hook is surfaced as
+  `wireframe::message_assembler::MessageAssembler` and registered via
+  `WireframeApp::with_message_assembler`.
 
 [frag-design]: generic-message-fragmentation-and-re-assembly-design.md
 

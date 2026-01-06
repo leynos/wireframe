@@ -146,6 +146,53 @@ At a minimum, the hook must allow a protocol to provide:
 
 Wireframe will provide, centrally:
 
+- a stable hook trait and header model for protocol crates. The initial public
+  surface is:
+
+```rust
+use wireframe::message_assembler::{
+    ContinuationFrameHeader,
+    FrameHeader,
+    FrameSequence,
+    FirstFrameHeader,
+    MessageAssembler,
+    MessageKey,
+    ParsedFrameHeader,
+};
+
+pub trait MessageAssembler: Send + Sync + 'static {
+    fn parse_frame_header(
+        &self,
+        payload: &[u8],
+    ) -> Result<ParsedFrameHeader, std::io::Error>;
+}
+
+pub struct ParsedFrameHeader {
+    header: FrameHeader,
+    header_len: usize,
+}
+
+pub enum FrameHeader {
+    First(FirstFrameHeader),
+    Continuation(ContinuationFrameHeader),
+}
+
+pub struct FirstFrameHeader {
+    pub message_key: MessageKey,
+    pub metadata_len: usize,
+    pub body_len: usize,
+    pub total_body_len: Option<usize>,
+    pub is_last: bool,
+}
+
+pub struct ContinuationFrameHeader {
+    pub message_key: MessageKey,
+    pub sequence: Option<FrameSequence>,
+    pub body_len: usize,
+    pub is_last: bool,
+}
+```
+
 - buffering and assembly state management;
 - enforcement of maximum total message size, maximum fragment size, timeouts,
   and “max in-flight bytes”; and

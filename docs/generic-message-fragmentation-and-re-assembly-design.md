@@ -460,6 +460,12 @@ This ordering ensures protocol crates migrating to `MessageAssembler` do not
 need to special-case transport fragments: the assembler only sees complete
 packet payloads and focuses on protocol continuity rules.
 
+Wireframe exposes the hook surface as
+`wireframe::message_assembler::MessageAssembler`, and applications register an
+implementation via `WireframeApp::with_message_assembler`. The hook is stored
+on the builder today and integrated into the inbound pipeline in roadmap item
+8.2.5.
+
 ### 9.3 Memory budget integration
 
 Per-connection memory budgets apply across both layers. Budgets cover:

@@ -4,6 +4,8 @@
 //! This crate provides building blocks for asynchronous binary protocol
 //! servers, including routing, middleware, and connection utilities.
 
+extern crate self as wireframe;
+
 pub mod app;
 pub mod byte_order;
 pub mod codec;
@@ -22,6 +24,7 @@ pub mod fragment;
 pub mod frame;
 pub mod hooks;
 pub mod message;
+pub mod message_assembler;
 pub mod metrics;
 pub mod middleware;
 pub mod panic;
@@ -33,6 +36,8 @@ pub mod rewind_stream;
 #[cfg(not(loom))]
 pub mod server;
 pub mod session;
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod test_helpers;
 
 pub use client::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient};
 pub use connection::ConnectionActor;
@@ -58,6 +63,15 @@ pub use fragment::{
     fragment_overhead,
 };
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
+pub use message_assembler::{
+    ContinuationFrameHeader,
+    FirstFrameHeader,
+    FrameHeader,
+    FrameSequence,
+    MessageAssembler,
+    MessageKey,
+    ParsedFrameHeader,
+};
 pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
 pub use request::{
     DEFAULT_BODY_CHANNEL_CAPACITY,
