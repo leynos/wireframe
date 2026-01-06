@@ -85,7 +85,7 @@ Streaming request types (`RequestParts`, `RequestBodyStream`, and the
 `StreamingBody` extractor) live in `src/request/mod.rs` and `src/extractor.rs`,
 but they are not yet wired into the connection loop. The `MessageAssembler`
 hook introduced here is the protocol-facing interface for that forthcoming
-integration (see ADR 0002).
+integration (see Architecture Decision Record (ADR) 0002).
 
 Key references:
 

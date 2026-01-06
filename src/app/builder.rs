@@ -365,8 +365,8 @@ where
     /// assert!(app.message_assembler().is_some());
     /// ```
     #[must_use]
-    pub fn message_assembler(&self) -> Option<Arc<dyn MessageAssembler>> {
-        self.message_assembler.clone()
+    pub fn message_assembler(&self) -> Option<&Arc<dyn MessageAssembler>> {
+        self.message_assembler.as_ref()
     }
 
     /// Configure a Dead Letter Queue for dropped push frames.

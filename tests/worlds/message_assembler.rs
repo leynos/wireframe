@@ -3,7 +3,7 @@
 
 use std::{fmt, io};
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 use cucumber::World;
 use wireframe::message_assembler::{
     ContinuationFrameHeader,
@@ -11,11 +11,13 @@ use wireframe::message_assembler::{
     FrameHeader,
     FrameSequence,
     MessageAssembler,
-    MessageKey,
     ParsedFrameHeader,
 };
 
-use super::TestResult;
+use super::{TestApp, TestResult};
+#[path = "../common/message_assembler.rs"]
+mod message_assembler_helpers;
+use message_assembler_helpers::TestAssembler;
 
 /// Specification for first-frame header encoding used in tests.
 #[derive(Debug, Clone, Copy)]
@@ -46,11 +48,26 @@ pub struct ContinuationHeaderSpec {
 }
 
 /// World used by Cucumber to test message assembler header parsing.
-#[derive(Debug, Default, World)]
+#[derive(Default, World)]
 pub struct MessageAssemblerWorld {
     payload: Option<Vec<u8>>,
     parsed: Option<ParsedFrameHeader>,
     error: Option<io::Error>,
+    app: Option<TestApp>,
+}
+
+impl fmt::Debug for MessageAssemblerWorld {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MessageAssemblerWorld")
+            .field("payload", &self.payload)
+            .field("parsed", &self.parsed)
+            .field("error", &self.error)
+            .field(
+                "app",
+                &self.app.as_ref().map(|_| "wireframe::app::WireframeApp"),
+            )
+            .finish()
+    }
 }
 
 impl MessageAssemblerWorld {
@@ -170,7 +187,15 @@ impl MessageAssemblerWorld {
     /// Returns an error if no payload has been configured.
     pub fn parse_header(&mut self) -> TestResult {
         let payload = self.payload.as_deref().ok_or("payload not set")?;
-        match TestAssembler.parse_frame_header(payload) {
+        let fallback = TestAssembler;
+        let assembler: &dyn MessageAssembler = match self.app.as_ref() {
+            Some(app) => app
+                .message_assembler()
+                .ok_or("message assembler not set")?
+                .as_ref(),
+            None => &fallback,
+        };
+        match assembler.parse_frame_header(payload) {
             Ok(parsed) => {
                 self.parsed = Some(parsed);
                 self.error = None;
@@ -283,6 +308,33 @@ impl MessageAssemblerWorld {
         }
         Ok(())
     }
+
+    /// Store a wireframe app configured with a test message assembler.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the app builder fails.
+    pub fn set_app_with_message_assembler(&mut self) -> TestResult {
+        let app = TestApp::new()
+            .map_err(|err| format!("failed to build app: {err}"))?
+            .with_message_assembler(TestAssembler);
+        self.app = Some(app);
+        Ok(())
+    }
+
+    /// Assert that the app exposes a message assembler.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the app or assembler is missing.
+    pub fn assert_message_assembler_configured(&self) -> TestResult {
+        let app = self.app.as_ref().ok_or("app not set")?;
+        if app.message_assembler().is_some() {
+            Ok(())
+        } else {
+            Err("expected message assembler".into())
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -290,89 +342,4 @@ struct DebugDisplay<T>(T);
 
 impl<T: fmt::Debug> fmt::Display for DebugDisplay<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{:?}", self.0) }
-}
-
-struct TestAssembler;
-
-impl MessageAssembler for TestAssembler {
-    fn parse_frame_header(&self, payload: &[u8]) -> Result<ParsedFrameHeader, io::Error> {
-        let mut buf = payload;
-        let initial = buf.remaining();
-        let kind = take_u8(&mut buf)?;
-        let flags = take_u8(&mut buf)?;
-        let message_key = MessageKey::from(take_u64(&mut buf)?);
-
-        let header = match kind {
-            0x01 => {
-                let metadata_len = usize::from(take_u16(&mut buf)?);
-                let body_len = usize::try_from(take_u32(&mut buf)?)
-                    .map_err(|_| invalid_data("body length too large"))?;
-                let total_body_len = if flags & 0b10 == 0b10 {
-                    Some(
-                        usize::try_from(take_u32(&mut buf)?)
-                            .map_err(|_| invalid_data("total length too large"))?,
-                    )
-                } else {
-                    None
-                };
-                FrameHeader::First(FirstFrameHeader {
-                    message_key,
-                    metadata_len,
-                    body_len,
-                    total_body_len,
-                    is_last: flags & 0b1 == 0b1,
-                })
-            }
-            0x02 => {
-                let body_len = usize::try_from(take_u32(&mut buf)?)
-                    .map_err(|_| invalid_data("body length too large"))?;
-                let sequence = if flags & 0b10 == 0b10 {
-                    Some(FrameSequence::from(take_u32(&mut buf)?))
-                } else {
-                    None
-                };
-                FrameHeader::Continuation(ContinuationFrameHeader {
-                    message_key,
-                    sequence,
-                    body_len,
-                    is_last: flags & 0b1 == 0b1,
-                })
-            }
-            _ => return Err(invalid_data("unknown header kind")),
-        };
-
-        let header_len = initial - buf.remaining();
-        Ok(ParsedFrameHeader::new(header, header_len))
-    }
-}
-
-fn take_u8(buf: &mut &[u8]) -> Result<u8, io::Error> {
-    ensure_remaining(buf, 1)?;
-    Ok(buf.get_u8())
-}
-
-fn take_u16(buf: &mut &[u8]) -> Result<u16, io::Error> {
-    ensure_remaining(buf, 2)?;
-    Ok(buf.get_u16())
-}
-
-fn take_u32(buf: &mut &[u8]) -> Result<u32, io::Error> {
-    ensure_remaining(buf, 4)?;
-    Ok(buf.get_u32())
-}
-
-fn take_u64(buf: &mut &[u8]) -> Result<u64, io::Error> {
-    ensure_remaining(buf, 8)?;
-    Ok(buf.get_u64())
-}
-
-fn ensure_remaining(buf: &mut &[u8], needed: usize) -> Result<(), io::Error> {
-    if buf.remaining() < needed {
-        return Err(invalid_data("header too short"));
-    }
-    Ok(())
-}
-
-fn invalid_data(message: &'static str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message)
 }

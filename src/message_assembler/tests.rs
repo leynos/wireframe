@@ -2,7 +2,12 @@
 
 use std::io;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
+use rstest::rstest;
+
+#[path = "../../tests/common/message_assembler.rs"]
+mod message_assembler_helpers;
+use message_assembler_helpers::TestAssembler;
 
 use super::{
     ContinuationFrameHeader,
@@ -14,80 +19,102 @@ use super::{
     ParsedFrameHeader,
 };
 
-struct TestAssembler;
+#[rstest]
+#[case::first_frame_without_total(
+    "first frame without total",
+    build_first_header_payload(FirstHeaderSpec {
+        flags: 0b0,
+        message_key: 9,
+        metadata_len: 2,
+        body_len: 12,
+        total_body_len: None,
+    }),
+    FrameHeader::First(FirstFrameHeader {
+        message_key: MessageKey(9),
+        metadata_len: 2,
+        body_len: 12,
+        total_body_len: None,
+        is_last: false,
+    }),
+)]
+#[case::first_frame_with_total_and_last(
+    "first frame with total and last",
+    build_first_header_payload(FirstHeaderSpec {
+        flags: 0b11,
+        message_key: 42,
+        metadata_len: 0,
+        body_len: 8,
+        total_body_len: Some(64),
+    }),
+    FrameHeader::First(FirstFrameHeader {
+        message_key: MessageKey(42),
+        metadata_len: 0,
+        body_len: 8,
+        total_body_len: Some(64),
+        is_last: true,
+    }),
+)]
+#[case::continuation_frame_with_sequence(
+    "continuation frame with sequence",
+    build_continuation_header_payload(ContinuationHeaderSpec {
+        flags: 0b10,
+        message_key: 7,
+        body_len: 16,
+        sequence: Some(3),
+    }),
+    FrameHeader::Continuation(ContinuationFrameHeader {
+        message_key: MessageKey(7),
+        sequence: Some(FrameSequence(3)),
+        body_len: 16,
+        is_last: false,
+    }),
+)]
+#[case::continuation_frame_without_sequence(
+    "continuation frame without sequence",
+    build_continuation_header_payload(ContinuationHeaderSpec {
+        flags: 0b1,
+        message_key: 11,
+        body_len: 5,
+        sequence: None,
+    }),
+    FrameHeader::Continuation(ContinuationFrameHeader {
+        message_key: MessageKey(11),
+        sequence: None,
+        body_len: 5,
+        is_last: true,
+    }),
+)]
+fn parse_frame_headers(
+    #[case] case_name: &'static str,
+    #[case] payload: Vec<u8>,
+    #[case] expected_header: FrameHeader,
+) {
+    let parsed = parse_header(&payload);
+    assert_eq!(parsed.header(), &expected_header, "case: {case_name}");
+    assert_eq!(
+        parsed.header_len(),
+        payload.len(),
+        "case (header-only payload): {case_name}"
+    );
 
-impl MessageAssembler for TestAssembler {
-    fn parse_frame_header(&self, payload: &[u8]) -> Result<ParsedFrameHeader, io::Error> {
-        let mut buf = payload;
-        let initial = buf.remaining();
+    let mut payload_with_body = payload.clone();
+    payload_with_body.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
 
-        let kind = take_u8(&mut buf)?;
-        let flags = take_u8(&mut buf)?;
-        let message_key = MessageKey::from(take_u64(&mut buf)?);
-
-        let header = match kind {
-            0x01 => {
-                let metadata_len = usize::from(take_u16(&mut buf)?);
-                let body_len = usize::try_from(take_u32(&mut buf)?)
-                    .map_err(|_| invalid_data("body length too large"))?;
-                let total_body_len = if flags & 0b10 == 0b10 {
-                    Some(
-                        usize::try_from(take_u32(&mut buf)?)
-                            .map_err(|_| invalid_data("total length too large"))?,
-                    )
-                } else {
-                    None
-                };
-
-                FrameHeader::First(FirstFrameHeader {
-                    message_key,
-                    metadata_len,
-                    body_len,
-                    total_body_len,
-                    is_last: flags & 0b1 == 0b1,
-                })
-            }
-            0x02 => {
-                let body_len = usize::try_from(take_u32(&mut buf)?)
-                    .map_err(|_| invalid_data("body length too large"))?;
-                let sequence = if flags & 0b10 == 0b10 {
-                    Some(FrameSequence::from(take_u32(&mut buf)?))
-                } else {
-                    None
-                };
-
-                FrameHeader::Continuation(ContinuationFrameHeader {
-                    message_key,
-                    sequence,
-                    body_len,
-                    is_last: flags & 0b1 == 0b1,
-                })
-            }
-            _ => return Err(invalid_data("unknown header kind")),
-        };
-
-        let header_len = initial - buf.remaining();
-        Ok(ParsedFrameHeader::new(header, header_len))
-    }
-}
-
-#[test]
-fn parse_frame_headers() {
-    let mut cases = Vec::new();
-    cases.extend(build_first_frame_test_cases());
-    cases.extend(build_continuation_frame_test_cases());
-
-    for case in cases {
-        let payload = (case.build_payload)();
-        let parsed = parse_header(&payload);
-        assert_eq!(
-            parsed.header(),
-            &case.expected_header,
-            "case: {}",
-            case.name
-        );
-        assert_eq!(parsed.header_len(), payload.len(), "case: {}", case.name);
-    }
+    let parsed_with_body = parse_header(&payload_with_body);
+    assert_eq!(
+        parsed_with_body.header(),
+        &expected_header,
+        "case (with body bytes): {case_name}"
+    );
+    assert_eq!(
+        parsed_with_body.header_len(),
+        payload.len(),
+        "case (with body bytes, header_len mismatch): {case_name}"
+    );
+    assert!(
+        parsed_with_body.header_len() < payload_with_body.len(),
+        "case (with body bytes, header_len not less than payload.len()): {case_name}"
+    );
 }
 
 #[test]
@@ -102,43 +129,17 @@ fn short_header_errors() {
 
 #[test]
 fn unknown_header_kind_errors() {
-    let payload = vec![0xff, 0x00, 0x00];
+    let mut bytes = BytesMut::new();
+    bytes.put_u8(0xff);
+    bytes.put_u8(0x00);
+    bytes.put_u64(0);
+    let payload = bytes.to_vec();
     let err = TestAssembler
         .parse_frame_header(&payload)
         .expect_err("expected error");
 
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-}
-
-fn take_u8(buf: &mut &[u8]) -> Result<u8, io::Error> {
-    ensure_remaining(buf, 1)?;
-    Ok(buf.get_u8())
-}
-
-fn take_u16(buf: &mut &[u8]) -> Result<u16, io::Error> {
-    ensure_remaining(buf, 2)?;
-    Ok(buf.get_u16())
-}
-
-fn take_u32(buf: &mut &[u8]) -> Result<u32, io::Error> {
-    ensure_remaining(buf, 4)?;
-    Ok(buf.get_u32())
-}
-
-fn take_u64(buf: &mut &[u8]) -> Result<u64, io::Error> {
-    ensure_remaining(buf, 8)?;
-    Ok(buf.get_u64())
-}
-
-fn ensure_remaining(buf: &mut &[u8], needed: usize) -> Result<(), io::Error> {
-    if buf.remaining() < needed {
-        return Err(invalid_data("header too short"));
-    }
-    Ok(())
-}
-
-fn invalid_data(message: &'static str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message)
+    assert_eq!(err.to_string(), "unknown header kind");
 }
 
 #[derive(Clone, Copy)]
@@ -187,92 +188,4 @@ fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
     TestAssembler
         .parse_frame_header(payload)
         .expect("header parse")
-}
-
-fn build_first_frame_test_cases() -> Vec<HeaderCase> {
-    vec![
-        HeaderCase {
-            name: "first frame without total",
-            build_payload: Box::new(|| {
-                build_first_header_payload(FirstHeaderSpec {
-                    flags: 0b0,
-                    message_key: 9,
-                    metadata_len: 2,
-                    body_len: 12,
-                    total_body_len: None,
-                })
-            }),
-            expected_header: FrameHeader::First(FirstFrameHeader {
-                message_key: MessageKey(9),
-                metadata_len: 2,
-                body_len: 12,
-                total_body_len: None,
-                is_last: false,
-            }),
-        },
-        HeaderCase {
-            name: "first frame with total and last",
-            build_payload: Box::new(|| {
-                build_first_header_payload(FirstHeaderSpec {
-                    flags: 0b11,
-                    message_key: 42,
-                    metadata_len: 0,
-                    body_len: 8,
-                    total_body_len: Some(64),
-                })
-            }),
-            expected_header: FrameHeader::First(FirstFrameHeader {
-                message_key: MessageKey(42),
-                metadata_len: 0,
-                body_len: 8,
-                total_body_len: Some(64),
-                is_last: true,
-            }),
-        },
-    ]
-}
-
-fn build_continuation_frame_test_cases() -> Vec<HeaderCase> {
-    vec![
-        HeaderCase {
-            name: "continuation frame with sequence",
-            build_payload: Box::new(|| {
-                build_continuation_header_payload(ContinuationHeaderSpec {
-                    flags: 0b10,
-                    message_key: 7,
-                    body_len: 16,
-                    sequence: Some(3),
-                })
-            }),
-            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
-                message_key: MessageKey(7),
-                sequence: Some(FrameSequence(3)),
-                body_len: 16,
-                is_last: false,
-            }),
-        },
-        HeaderCase {
-            name: "continuation frame without sequence",
-            build_payload: Box::new(|| {
-                build_continuation_header_payload(ContinuationHeaderSpec {
-                    flags: 0b1,
-                    message_key: 11,
-                    body_len: 5,
-                    sequence: None,
-                })
-            }),
-            expected_header: FrameHeader::Continuation(ContinuationFrameHeader {
-                message_key: MessageKey(11),
-                sequence: None,
-                body_len: 5,
-                is_last: true,
-            }),
-        },
-    ]
-}
-
-struct HeaderCase {
-    name: &'static str,
-    build_payload: Box<dyn Fn() -> Vec<u8>>,
-    expected_header: FrameHeader,
 }

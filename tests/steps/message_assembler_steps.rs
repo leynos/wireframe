@@ -93,6 +93,11 @@ fn given_continuation_header(
     world.set_continuation_header(continuation_header_without_sequence(key, body_len))
 }
 
+#[given("a wireframe app with a message assembler")]
+fn given_app_with_message_assembler(world: &mut MessageAssemblerWorld) -> crate::world::TestResult {
+    world.set_app_with_message_assembler()
+}
+
 #[given("an invalid message header")]
 fn given_invalid_header(world: &mut MessageAssemblerWorld) { world.set_invalid_payload(); }
 
@@ -102,10 +107,12 @@ fn when_parsing(world: &mut MessageAssemblerWorld) -> crate::world::TestResult {
 }
 
 #[then(expr = "the parsed header is {word}")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "cucumber hands {word} captures to step functions as owned strings"
+)]
 fn then_header_kind(world: &mut MessageAssemblerWorld, kind: String) -> crate::world::TestResult {
-    let result = world.assert_header_kind(&kind);
-    drop(kind);
-    result
+    world.assert_header_kind(&kind)
 }
 
 #[then(expr = "the message key is {int}")]
@@ -147,14 +154,22 @@ fn then_sequence_absent(world: &mut MessageAssemblerWorld) -> crate::world::Test
 }
 
 #[then(expr = "the frame is marked last {word}")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "cucumber hands {word} captures to step functions as owned strings"
+)]
 fn then_is_last(world: &mut MessageAssemblerWorld, expected: String) -> crate::world::TestResult {
-    let expected_str = expected;
-    let expected = expected_str == "true";
-    drop(expected_str);
-    world.assert_is_last(expected)
+    world.assert_is_last(expected == "true")
 }
 
 #[then("the parse fails with invalid data")]
 fn then_invalid_data(world: &mut MessageAssemblerWorld) -> crate::world::TestResult {
     world.assert_invalid_data_error()
+}
+
+#[then("the app exposes a message assembler")]
+fn then_app_exposes_message_assembler(
+    world: &mut MessageAssemblerWorld,
+) -> crate::world::TestResult {
+    world.assert_message_assembler_configured()
 }

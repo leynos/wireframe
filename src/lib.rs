@@ -4,6 +4,8 @@
 //! This crate provides building blocks for asynchronous binary protocol
 //! servers, including routing, middleware, and connection utilities.
 
+extern crate self as wireframe;
+
 pub mod app;
 pub mod byte_order;
 pub mod codec;

@@ -3,6 +3,18 @@ Feature: Message assembler header parsing
   parsing. The hook distinguishes first frames from continuation frames and
   exposes key metadata needed for assembly.
 
+  Scenario: Builder exposes a configured message assembler
+    Given a wireframe app with a message assembler
+    And a first frame header with key 9 metadata length 2 body length 12
+    When the message assembler parses the header
+    Then the app exposes a message assembler
+    And the parsed header is first
+    And the message key is 9
+    And the metadata length is 2
+    And the body length is 12
+    And the total body length is absent
+    And the frame is marked last false
+
   Scenario: Parsing a first frame header without total length
     Given a first frame header with key 9 metadata length 2 body length 12
     When the message assembler parses the header
