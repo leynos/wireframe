@@ -125,6 +125,7 @@ fn short_header_errors() {
         .expect_err("expected error");
 
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(err.to_string(), "header too short");
 }
 
 #[test]
