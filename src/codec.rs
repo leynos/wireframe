@@ -143,7 +143,7 @@ impl Decoder for LengthDelimitedDecoder {
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Clean close: no data remaining at frame boundary
         if src.is_empty() {
-            return Err(CodecError::Eof(EofError::CleanClose).into());
+            return Ok(None);
         }
 
         // Try to decode any remaining data
@@ -322,11 +322,17 @@ mod tests {
     }
 
     #[test]
-    fn decode_eof_with_empty_buffer_returns_clean_close() {
-        // Empty buffer: connection closed cleanly at frame boundary
-        assert_decode_eof_error(&[], io::ErrorKind::UnexpectedEof, |msg| {
-            msg.contains("connection closed")
-        });
+    fn decode_eof_with_empty_buffer_returns_none() {
+        // Empty buffer: connection closed cleanly at frame boundary - returns Ok(None)
+        let codec = LengthDelimitedFrameCodec::new(128);
+        let mut decoder = codec.decoder();
+        let mut buf = BytesMut::new();
+
+        let result = decoder.decode_eof(&mut buf);
+        assert!(
+            matches!(result, Ok(None)),
+            "clean close should return Ok(None), got {result:?}"
+        );
     }
 
     #[test]

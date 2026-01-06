@@ -202,9 +202,17 @@ fn assert_decode_eof_error(
 }
 
 #[test]
-fn decoder_eof_empty_buffer_returns_clean_close() {
-    // Empty buffer: connection closed cleanly at frame boundary
-    assert_decode_eof_error(&[], "connection closed", "clean close");
+fn decoder_eof_empty_buffer_returns_none() {
+    // Empty buffer: connection closed cleanly at frame boundary - returns Ok(None)
+    let codec = LengthDelimitedFrameCodec::new(128);
+    let mut decoder = codec.decoder();
+    let mut buf = BytesMut::new();
+
+    let result = decoder.decode_eof(&mut buf);
+    assert!(
+        matches!(result, Ok(None)),
+        "clean close should return Ok(None), got {result:?}"
+    );
 }
 
 #[test]
