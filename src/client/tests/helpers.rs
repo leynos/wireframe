@@ -55,6 +55,9 @@ where
 }
 
 /// Helper function to test lifecycle hooks with a connected client.
+///
+/// The server stream is intentionally dropped after connection, simulating a disconnected
+/// server. This allows tests to verify client behaviour when the peer disconnects.
 pub async fn test_with_client<F, C>(
     configure_builder: F,
 ) -> WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>, C>
@@ -67,6 +70,7 @@ where
         .connect(addr)
         .await
         .expect("connect client");
+    // Server stream is dropped here, simulating a disconnected server.
     let _server = accept.await.expect("join accept task");
     client
 }

@@ -1,8 +1,4 @@
 //! Error handling tests for the wireframe client.
-#![expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 
 use std::{
     sync::{
@@ -50,6 +46,10 @@ where
 }
 
 #[tokio::test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 async fn error_callback_invoked_on_receive_error() {
     let error_count = test_error_hook_on_disconnect(|builder, count| {
         builder.on_error(move |_err| {
@@ -82,6 +82,10 @@ async fn no_error_hook_does_not_panic() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 async fn error_callback_invoked_on_deserialize_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
@@ -121,6 +125,10 @@ async fn error_callback_invoked_on_deserialize_error() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 async fn error_callback_invoked_on_send_io_error() {
     #[derive(bincode::Encode, bincode::BorrowDecode)]
     struct TestMessage(Vec<u8>);
@@ -167,6 +175,10 @@ async fn error_callback_invoked_on_send_io_error() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 async fn error_callback_invoked_on_serialize_error() {
     #[derive(bincode::Encode, bincode::BorrowDecode)]
     struct TestMessage(u32);

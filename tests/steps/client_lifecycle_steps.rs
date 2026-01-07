@@ -98,6 +98,12 @@ fn then_preamble_success_invoked(world: &mut ClientLifecycleWorld) -> TestResult
     Ok(())
 }
 
+/// Verifies setup ran after preamble exchange.
+///
+/// The "after preamble" ordering is implicitly guaranteed by the runtime: the preamble
+/// exchange must complete before the client builder returns, and setup hooks run during
+/// connection establishment. This step verifies the setup hook fired; the ordering is
+/// structurally enforced by the implementation rather than observable via timestamps.
 #[then("the setup callback is invoked after preamble exchange")]
 fn then_setup_after_preamble(world: &mut ClientLifecycleWorld) -> TestResult {
     assert_count_equals(world.setup_count(), 1, "setup")

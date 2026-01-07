@@ -1,8 +1,4 @@
 //! Lifecycle hook tests for the wireframe client.
-#![expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 
 use std::sync::{
     Arc,
@@ -26,6 +22,10 @@ async fn setup_callback_invoked_on_connect() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 async fn teardown_callback_receives_setup_state() {
     let teardown_value = Arc::new(AtomicUsize::new(0));
     let value = teardown_value.clone();
@@ -70,6 +70,10 @@ async fn teardown_without_setup_does_not_run() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 async fn setup_and_teardown_callbacks_run() {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
@@ -110,6 +114,10 @@ async fn setup_and_teardown_callbacks_run() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 async fn on_connection_setup_preserves_error_hook() {
     // Configure on_error first, then on_connection_setup.
     // The error hook should be preserved.
