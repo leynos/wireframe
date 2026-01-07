@@ -25,4 +25,4 @@ Feature: Client connection lifecycle hooks
     Given a preamble-aware echo server that sends acknowledgement
     When a client connects with preamble and lifecycle callbacks
     Then the preamble success callback is invoked
-    And the setup callback is invoked after preamble exchange
+    And the setup callback is invoked exactly once
