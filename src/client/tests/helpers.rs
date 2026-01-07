@@ -17,6 +17,12 @@ use crate::{
     client::{ClientError, WireframeClient, WireframeClientBuilder},
 };
 
+/// Type alias for async hooks that return their input after performing side effects.
+///
+/// Used by [`counting_hook`] to provide a reusable closure type for lifecycle tests.
+pub type CountingHookClosure<T> =
+    Arc<dyn Fn(T) -> Pin<Box<dyn Future<Output = T> + Send>> + Send + Sync>;
+
 /// Spawns a TCP listener and returns the address and a handle to accept a connection.
 pub async fn spawn_listener() -> (SocketAddr, tokio::task::JoinHandle<TcpStream>) {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -69,15 +75,7 @@ where
 ///
 /// Returns a tuple of the counter and a closure that increments the counter
 /// when invoked and returns the provided value.
-#[expect(
-    clippy::type_complexity,
-    reason = "the complex return type is local to tests and extracting a type alias adds \
-              indirection"
-)]
-pub fn counting_hook<T>() -> (
-    Arc<AtomicUsize>,
-    impl Fn(T) -> Pin<Box<dyn Future<Output = T> + Send>> + Clone,
-)
+pub fn counting_hook<T>() -> (Arc<AtomicUsize>, CountingHookClosure<T>)
 where
     T: Send + 'static,
 {
@@ -92,7 +90,7 @@ where
         }) as Pin<Box<dyn Future<Output = T> + Send>>
     };
 
-    (counter, increment)
+    (counter, Arc::new(increment))
 }
 
 /// Helper function to test error hook invocation on disconnect.

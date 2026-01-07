@@ -14,10 +14,64 @@ use std::{
 
 use bytes::Bytes;
 use futures::SinkExt;
+use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use super::helpers::{FailingSerializer, spawn_listener, test_error_hook_on_disconnect};
-use crate::client::{ClientError, WireframeClient};
+use super::helpers::{
+    FailingSerializer,
+    spawn_listener,
+    test_error_hook_on_disconnect,
+    test_with_client,
+};
+use crate::{
+    BincodeSerializer,
+    client::{ClientError, WireframeClient, WireframeClientBuilder},
+    rewind_stream::RewindStream,
+};
+
+/// Connects a client and returns both the client and server stream for custom server behaviour.
+///
+/// This helper is used by tests that need to manipulate the server stream after connection,
+/// such as sending invalid data or dropping the connection at specific times.
+async fn connect_with_server<F, C>(
+    configure_builder: F,
+) -> (
+    WireframeClient<BincodeSerializer, RewindStream<TcpStream>, C>,
+    TcpStream,
+)
+where
+    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<BincodeSerializer, (), C>,
+    C: Send + 'static,
+{
+    let (addr, accept) = spawn_listener().await;
+    let client = configure_builder(WireframeClient::builder())
+        .connect(addr)
+        .await
+        .expect("connect client");
+    let server_stream = accept.await.expect("join accept task");
+    (client, server_stream)
+}
+
+/// Connects a client with a custom serializer, keeping the server alive for the test duration.
+///
+/// Returns the client while holding the server connection open. The server stream is dropped
+/// when the returned client goes out of scope.
+async fn test_with_serializer<S, F, C>(
+    configure_builder: F,
+) -> WireframeClient<S, RewindStream<TcpStream>, C>
+where
+    S: crate::Serializer + Send + Sync + 'static,
+    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<S, (), C>,
+    C: Send + 'static,
+{
+    let (addr, accept) = spawn_listener().await;
+    let client = configure_builder(WireframeClient::builder())
+        .connect(addr)
+        .await
+        .expect("connect client");
+    let _server = accept.await.expect("join accept task");
+    client
+}
 
 #[tokio::test]
 async fn error_callback_invoked_on_receive_error() {
@@ -40,16 +94,8 @@ async fn error_callback_invoked_on_receive_error() {
 
 #[tokio::test]
 async fn no_error_hook_does_not_panic() {
-    let (addr, accept) = spawn_listener().await;
-
-    let mut client = WireframeClient::builder()
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    // Drop server to cause disconnect
-    let server = accept.await.expect("join accept task");
-    drop(server);
+    // Server is dropped inside test_with_client after connection
+    let mut client = test_with_client(|builder| builder).await;
 
     // Receive should fail but not panic since there's no error hook
     let result: Result<Vec<u8>, ClientError> = client.receive().await;
@@ -64,21 +110,17 @@ async fn error_callback_invoked_on_deserialize_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
 
-    let (addr, accept) = spawn_listener().await;
-
-    let mut client = WireframeClient::builder()
-        .on_error(move |_err| {
+    let (mut client, server_stream) = connect_with_server(|builder| {
+        builder.on_error(move |_err| {
             let count = count.clone();
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
             }
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
-    // Get server stream and send invalid bincode data
-    let server_stream = accept.await.expect("join accept task");
+    // Send invalid bincode data via the server stream
     let mut framed = Framed::new(server_stream, LengthDelimitedCodec::new());
 
     // Send bytes that are not valid bincode for Vec<u8>
@@ -110,22 +152,18 @@ async fn error_callback_invoked_on_send_io_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
 
-    let (addr, accept) = spawn_listener().await;
-
-    let mut client = WireframeClient::builder()
-        .on_error(move |_err| {
+    let (mut client, server_stream) = connect_with_server(|builder| {
+        builder.on_error(move |_err| {
             let count = count.clone();
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
             }
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
     // Drop the server side to cause a broken pipe on send
-    let server = accept.await.expect("join accept task");
-    drop(server);
+    drop(server_stream);
 
     // Retry sending until we get an I/O error, with exponential backoff.
     // The OS needs time to propagate the RST/FIN, which varies by platform and load.
@@ -160,22 +198,15 @@ async fn error_callback_invoked_on_serialize_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
 
-    let (addr, accept) = spawn_listener().await;
-
-    let mut client = WireframeClient::builder()
-        .serializer(FailingSerializer)
-        .on_error(move |_err| {
+    let mut client = test_with_serializer(|builder| {
+        builder.serializer(FailingSerializer).on_error(move |_err| {
             let count = count.clone();
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
             }
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    // Keep the server alive so the connection doesn't fail for other reasons
-    let _server = accept.await.expect("join accept task");
+    })
+    .await;
 
     // Try to send - should fail with serialization error and invoke error hook
     let result = client.send(&TestMessage(42)).await;
