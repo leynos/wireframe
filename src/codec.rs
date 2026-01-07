@@ -142,9 +142,9 @@ impl Decoder for LengthDelimitedDecoder {
 
     #[expect(
         clippy::match_same_arms,
-        reason = "Ok(None) and Err(_) have same body but distinct semantics: \
-                  Ok(None) = inner decoder needs more data; Err(_) = inner codec error. \
-                  Keeping them separate documents the two paths to our EOF error."
+        reason = "Ok(None) and Err(_) have same body but distinct semantics: Ok(None) = inner \
+                  decoder needs more data; Err(_) = inner codec error. Keeping them separate \
+                  documents the two paths to our EOF error."
     )]
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Clean close: no data remaining at frame boundary
