@@ -20,18 +20,21 @@ fn given_server_max_frame(world: &mut CodecErrorWorld, max_len: usize) {
 }
 
 #[given(expr = "a codec error of type {word} with variant {word}")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "cucumber step macros require owned String for {word} captures"
+)]
 fn given_error_type_variant(
     world: &mut CodecErrorWorld,
     error_type: String,
     variant: String,
 ) -> TestResult {
-    let error_type = error_type.into_boxed_str();
-    let variant = variant.into_boxed_str();
-    world.set_error_type(error_type.as_ref())?;
-    match error_type.as_ref() {
-        "framing" => world.set_framing_variant(variant.as_ref())?,
-        "eof" => world.set_eof_variant(variant.as_ref())?,
-        _ => {}
+    world.set_error_type(&error_type)?;
+    match error_type.as_str() {
+        "framing" => world.set_framing_variant(&variant)?,
+        "eof" => world.set_eof_variant(&variant)?,
+        "protocol" | "io" => {} // No sub-variants to set
+        _ => return Err(format!("unknown error type: {error_type}").into()),
     }
     Ok(())
 }
@@ -89,7 +92,10 @@ fn then_server_oversized(world: &mut CodecErrorWorld) -> TestResult {
 }
 
 #[then(expr = "the default recovery policy is {word}")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "cucumber step macros require owned String for {word} captures"
+)]
 fn then_recovery_policy(world: &mut CodecErrorWorld, policy: String) -> TestResult {
-    let policy = policy.into_boxed_str();
-    world.verify_recovery_policy(policy.as_ref())
+    world.verify_recovery_policy(&policy)
 }

@@ -139,11 +139,11 @@ pub fn inc_connection_panics() {}
 /// metrics::inc_codec_error("eof", "disconnect");
 /// ```
 #[cfg(feature = "metrics")]
-pub fn inc_codec_error(error_type: &str, recovery_policy: &str) {
+pub fn inc_codec_error(error_type: &'static str, recovery_policy: &'static str) {
     counter!(
         CODEC_ERRORS,
-        "error_type" => error_type.to_string(),
-        "recovery_policy" => recovery_policy.to_string()
+        "error_type" => error_type,
+        "recovery_policy" => recovery_policy
     )
     .increment(1);
 }

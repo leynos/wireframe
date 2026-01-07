@@ -21,23 +21,23 @@ integration, and behavioural tests.
 ## Progress
 
 - [x] (2026-01-06) Draft ExecPlan for 9.1.2.
-- [ ] Create `src/codec/error.rs` with `CodecError` taxonomy.
-- [ ] Create `src/codec/recovery.rs` with recovery policy types and traits.
-- [ ] Extend `WireframeError` in `src/response.rs` with `Codec` variant.
-- [ ] Extend `WireframeError` in `src/app/error.rs` with `Codec` variant.
-- [ ] Update `LengthDelimitedDecoder` to produce structured EOF errors.
+- [x] (2026-01-07) Create `src/codec/error.rs` with `CodecError` taxonomy.
+- [x] (2026-01-07) Create `src/codec/recovery.rs` with recovery policy types and traits.
+- [x] (2026-01-07) Extend `WireframeError` in `src/response.rs` with `Codec` variant.
+- [x] (2026-01-07) Extend `WireframeError` in `src/app/error.rs` with `Codec` variant.
+- [x] (2026-01-07) Update `LengthDelimitedDecoder` to produce structured EOF errors.
 - [ ] Integrate `CodecErrorContext` population in connection processing.
 - [ ] Add recovery policy evaluation in `src/app/connection.rs`.
 - [ ] Add structured logging with codec error fields.
 - [ ] Add `on_eof` hook to `ProtocolHooks`.
-- [ ] Add codec error metrics.
-- [ ] Add unit tests for `CodecError` taxonomy.
-- [ ] Add integration tests for error propagation and recovery.
-- [ ] Add Cucumber behavioural tests for codec error scenarios.
+- [x] (2026-01-07) Add codec error metrics.
+- [x] (2026-01-07) Add unit tests for `CodecError` taxonomy.
+- [x] (2026-01-07) Add integration tests for error propagation and recovery.
+- [x] (2026-01-07) Add Cucumber behavioural tests for codec error scenarios.
 - [ ] Update `docs/users-guide.md` with error handling documentation.
 - [ ] Update `docs/adr-004-pluggable-protocol-codecs.md` with design decisions.
 - [ ] Mark roadmap entry 9.1.2 as done.
-- [ ] Run formatting, lint, and test gates.
+- [x] (2026-01-07) Run formatting, lint, and test gates.
 
 ## Surprises & Discoveries
 
@@ -127,9 +127,9 @@ taxonomy follows a three-tier classification:
    violation)
 3. **IO errors** - Transport layer failures (wrapped `io::Error`)
 4. **EOF errors** - End-of-stream handling with three sub-variants:
-   - `CleanClose` - EOF at frame boundary (normal)
-   - `MidFrame` - EOF during payload read (premature)
-   - `MidHeader` - EOF during header read (premature)
+   - `CleanClose`: EOF at frame boundary (normal)
+   - `MidFrame`: EOF during payload read (premature)
+   - `MidHeader`: EOF during header read (premature)
 
 Each error type provides a `default_recovery_policy()` method returning one of:
 
@@ -140,7 +140,7 @@ Each error type provides a `default_recovery_policy()` method returning one of:
 ### Phase 2: Recovery Policy Infrastructure
 
 Create recovery policy types and the `RecoveryPolicyHook` trait that allows
-customisation of error handling behaviour:
+customization of error handling behaviour:
 
 - `RecoveryPolicy` enum with `Drop`, `Quarantine`, `Disconnect` variants
 - `CodecErrorContext` struct with `connection_id`, `peer_address`,

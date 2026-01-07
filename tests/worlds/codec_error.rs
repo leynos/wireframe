@@ -52,8 +52,8 @@ pub enum EofVariant {
     MidHeader,
 }
 
-#[derive(Debug, Default, World)]
 /// Test world for codec error taxonomy scenarios.
+#[derive(Debug, Default, World)]
 pub struct CodecErrorWorld {
     error_type: ErrorType,
     framing_variant: FramingVariant,

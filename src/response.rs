@@ -245,15 +245,11 @@ impl<E> WireframeError<E> {
     /// Returns true if this error represents a clean connection close.
     ///
     /// A clean close occurs when the peer closes the connection at a frame
-    /// boundary, indicating no data was lost.
+    /// boundary, indicating no data was lost. Delegates to
+    /// [`CodecError::is_clean_close`](crate::codec::CodecError::is_clean_close).
     #[must_use]
     pub fn is_clean_close(&self) -> bool {
-        matches!(
-            self,
-            WireframeError::Codec(crate::codec::CodecError::Eof(
-                crate::codec::EofError::CleanClose
-            ))
-        )
+        matches!(self, WireframeError::Codec(e) if e.is_clean_close())
     }
 }
 

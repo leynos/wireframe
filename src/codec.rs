@@ -140,6 +140,12 @@ impl Decoder for LengthDelimitedDecoder {
         self.inner.decode(src).map(|opt| opt.map(BytesMut::freeze))
     }
 
+    #[expect(
+        clippy::match_same_arms,
+        reason = "Ok(None) and Err(_) have same body but distinct semantics: \
+                  Ok(None) = inner decoder needs more data; Err(_) = inner codec error. \
+                  Keeping them separate documents the two paths to our EOF error."
+    )]
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Clean close: no data remaining at frame boundary
         if src.is_empty() {
@@ -149,9 +155,15 @@ impl Decoder for LengthDelimitedDecoder {
         // Try to decode any remaining data
         match self.inner.decode_eof(src) {
             Ok(Some(frame)) => Ok(Some(BytesMut::freeze(frame))),
-            // Inner decoder returns Ok(None) or Err for incomplete data at EOF.
-            // In both cases, convert to our structured EOF error.
-            Ok(None) | Err(_) => Err(build_eof_error(src)),
+            // Inner decoder returns Ok(None) for incomplete data at EOF - synthesise
+            // our structured EOF error with context about what was received.
+            Ok(None) => Err(build_eof_error(src)),
+            // Inner decoder returned an error. Preserve framing errors (InvalidData)
+            // like oversized frames to maintain correct recovery policy (Drop vs
+            // Disconnect). For all other errors (typically incomplete data indicated
+            // by Other kind), convert to our structured EOF error.
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => Err(e),
+            Err(_) => Err(build_eof_error(src)),
         }
     }
 }
