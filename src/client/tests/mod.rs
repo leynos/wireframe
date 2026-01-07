@@ -1,8 +1,4 @@
 //! Unit tests for the wireframe client runtime.
-#![expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 
 mod error_handling;
 mod helpers;

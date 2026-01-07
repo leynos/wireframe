@@ -1,4 +1,8 @@
 //! Error handling tests for the wireframe client.
+#![expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 
 use std::{
     sync::{
@@ -123,11 +127,19 @@ async fn error_callback_invoked_on_send_io_error() {
     let server = accept.await.expect("join accept task");
     drop(server);
 
-    // Give the OS time to register the closed connection
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Retry sending until we get an I/O error, with exponential backoff.
+    // The OS needs time to propagate the RST/FIN, which varies by platform and load.
+    let mut delay = Duration::from_millis(5);
+    let mut result = Ok(());
+    for _ in 0..5 {
+        tokio::time::sleep(delay).await;
+        result = client.send(&TestMessage(vec![0u8; 1024])).await;
+        if matches!(result, Err(ClientError::Io(_))) {
+            break;
+        }
+        delay *= 2;
+    }
 
-    // Try to send - should fail with I/O error and invoke error hook
-    let result = client.send(&TestMessage(vec![0u8; 1024])).await;
     assert!(
         matches!(result, Err(ClientError::Io(_))),
         "send should fail with I/O error after disconnect"

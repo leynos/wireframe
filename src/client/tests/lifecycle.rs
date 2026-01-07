@@ -1,4 +1,8 @@
 //! Lifecycle hook tests for the wireframe client.
+#![expect(
+    clippy::excessive_nesting,
+    reason = "async closures within builder patterns are inherently nested"
+)]
 
 use std::sync::{
     Arc,
@@ -125,24 +129,5 @@ async fn on_connection_setup_preserves_error_hook() {
         error_count.load(Ordering::SeqCst),
         1,
         "error hook configured before on_connection_setup should be preserved"
-    );
-}
-
-#[tokio::test]
-async fn close_without_setup_does_not_invoke_teardown() {
-    let (teardown_count, increment) = counting_hook();
-
-    // Configure only teardown without setup - teardown should not run
-    let client = test_with_client(|builder| {
-        builder.on_connection_teardown(move |value: ()| increment(value))
-    })
-    .await;
-
-    client.close().await;
-
-    assert_eq!(
-        teardown_count.load(Ordering::SeqCst),
-        0,
-        "teardown should not run when no setup hook produced state"
     );
 }

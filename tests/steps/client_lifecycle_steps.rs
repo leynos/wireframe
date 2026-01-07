@@ -41,7 +41,10 @@ async fn when_connect_with_setup_and_teardown(world: &mut ClientLifecycleWorld) 
 }
 
 #[when("the client closes the connection")]
-async fn when_client_closes(world: &mut ClientLifecycleWorld) { world.close_client().await; }
+async fn when_client_closes(world: &mut ClientLifecycleWorld) -> TestResult {
+    world.close_client().await;
+    Ok(())
+}
 
 #[when("a client connects with an error callback")]
 async fn when_connect_with_error_callback(world: &mut ClientLifecycleWorld) -> TestResult {
