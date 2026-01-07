@@ -2,21 +2,15 @@
 
 use std::io;
 
-use bytes::{Bytes, BytesMut};
-use tokio_util::codec::Decoder;
-use wireframe::{
-    FrameCodec,
-    codec::{
-        CodecError,
-        CodecErrorContext,
-        EofError,
-        FramingError,
-        LengthDelimitedFrameCodec,
-        ProtocolError,
-        RecoveryConfig,
-        RecoveryPolicy,
-        RecoveryPolicyHook,
-    },
+use wireframe::codec::{
+    CodecError,
+    CodecErrorContext,
+    EofError,
+    FramingError,
+    ProtocolError,
+    RecoveryConfig,
+    RecoveryPolicy,
+    RecoveryPolicyHook,
 };
 
 // ============================================================================
@@ -162,114 +156,9 @@ fn custom_hook_overrides_default_policy() {
     assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
 }
 
-// ============================================================================
-// LengthDelimitedDecoder EOF handling tests
-// ============================================================================
-
-/// Helper to test EOF error behaviour for the length-delimited decoder.
-///
-/// Creates a decoder with `max_frame_length=128`, initialises a buffer from the
-/// given bytes, calls `decode_eof`, and asserts:
-/// - The result is an error
-/// - The error kind is `UnexpectedEof`
-/// - The error message contains `expected_error_substring`
-///
-/// # Panics
-///
-/// Panics if `decode_eof` returns `Ok`, or if the error kind or message does
-/// not match expectations.
-fn assert_decode_eof_error(
-    initial_buffer: &[u8],
-    expected_error_substring: &str,
-    test_description: &str,
-) {
-    let codec = LengthDelimitedFrameCodec::new(128);
-    let mut decoder = codec.decoder();
-    let mut buf = BytesMut::from(initial_buffer);
-
-    let Err(err) = decoder.decode_eof(&mut buf) else {
-        panic!("{test_description}: expected error, got Ok");
-    };
-    assert_eq!(
-        err.kind(),
-        io::ErrorKind::UnexpectedEof,
-        "{test_description}: expected UnexpectedEof"
-    );
-    assert!(
-        err.to_string().contains(expected_error_substring),
-        "{test_description}: error message should contain '{expected_error_substring}', got: {err}"
-    );
-}
-
-#[test]
-fn decoder_eof_empty_buffer_returns_none() {
-    // Empty buffer: connection closed cleanly at frame boundary - returns Ok(None)
-    let codec = LengthDelimitedFrameCodec::new(128);
-    let mut decoder = codec.decoder();
-    let mut buf = BytesMut::new();
-
-    let result = decoder.decode_eof(&mut buf);
-    assert!(
-        matches!(result, Ok(None)),
-        "clean close should return Ok(None), got {result:?}"
-    );
-}
-
-#[test]
-fn decoder_eof_partial_header_returns_mid_header() {
-    // Only 2 bytes of the 4-byte length prefix header
-    assert_decode_eof_error(&[0x00, 0x10], "header", "mid-header EOF");
-}
-
-#[test]
-fn decoder_eof_partial_payload_returns_mid_frame() {
-    // 4-byte header (0x00000010 = 16 bytes payload), but only 4 bytes of payload present
-    assert_decode_eof_error(
-        &[0x00, 0x00, 0x00, 0x10, 0x01, 0x02, 0x03, 0x04],
-        "EOF",
-        "mid-frame EOF",
-    );
-}
-
-#[test]
-fn decoder_eof_complete_frame_succeeds() {
-    use tokio_util::codec::Encoder;
-
-    let codec = LengthDelimitedFrameCodec::new(128);
-    let mut enc = codec.encoder();
-    let mut dec = codec.decoder();
-
-    let payload = Bytes::from(vec![1_u8, 2, 3, 4]);
-    let frame = payload.clone();
-
-    let mut buf = BytesMut::new();
-    enc.encode(frame, &mut buf).expect("encode");
-
-    let result = dec.decode_eof(&mut buf).expect("decode").expect("frame");
-    assert_eq!(result.as_ref(), payload.as_ref());
-}
-
-// ============================================================================
-// Encoder oversized frame produces structured error
-// ============================================================================
-
-#[test]
-fn encoder_rejects_oversized_with_framing_error() {
-    use tokio_util::codec::Encoder;
-    use wireframe::codec::MIN_FRAME_LENGTH;
-
-    let codec = LengthDelimitedFrameCodec::new(MIN_FRAME_LENGTH);
-    let mut encoder = codec.encoder();
-
-    let payload = Bytes::from(vec![0_u8; MIN_FRAME_LENGTH + 1]);
-    let mut buf = BytesMut::new();
-
-    let err = encoder
-        .encode(payload, &mut buf)
-        .expect_err("expected oversized error");
-    // Should be InvalidData (converted from FramingError::OversizedFrame)
-    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-}
+// NOTE: Decoder EOF and oversized frame tests are covered in src/codec.rs unit tests.
+// This integration test file focuses on taxonomy, recovery policy, and error type
+// integration tests that exercise the public API from a consumer perspective.
 
 // ============================================================================
 // WireframeError integration tests

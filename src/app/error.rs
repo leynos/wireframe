@@ -26,19 +26,6 @@ pub enum WireframeError {
     Codec(#[from] CodecError),
 }
 
-impl PartialEq for WireframeError {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::DuplicateRoute(a), Self::DuplicateRoute(b)) => a == b,
-            // CodecError cannot be compared for equality (contains io::Error)
-            // All other combinations are not equal
-            _ => false,
-        }
-    }
-}
-
-impl Eq for WireframeError {}
-
 /// Errors produced when sending a handler response over a stream.
 #[derive(Debug, Error)]
 #[non_exhaustive]

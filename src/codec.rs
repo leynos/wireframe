@@ -156,10 +156,18 @@ impl Decoder for LengthDelimitedDecoder {
     }
 }
 
+/// Parse a u32 length prefix from a 4-byte big-endian array.
+#[inline]
+fn u32_from_be_bytes(bytes: [u8; 4]) -> u32 {
+    #[expect(
+        clippy::big_endian_bytes,
+        reason = "Wire endianness is explicit; length-delimited codec uses big-endian."
+    )]
+    u32::from_be_bytes(bytes)
+}
+
 /// Helper to build the appropriate EOF error based on remaining buffer state.
 fn build_eof_error(src: &BytesMut) -> io::Error {
-    use bytes::Buf;
-
     let bytes_received = src.len();
     if bytes_received < LENGTH_HEADER_SIZE {
         // EOF during header read
@@ -172,15 +180,22 @@ fn build_eof_error(src: &BytesMut) -> io::Error {
 
     // EOF during payload read - we have a header but incomplete payload
     // Parse the length prefix to determine expected size
-    // The length check above guarantees this won't be None
-    let Some(mut header) = src.get(..LENGTH_HEADER_SIZE) else {
+    // The length check above guarantees this slice will succeed
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "length checked above to be >= LENGTH_HEADER_SIZE"
+    )]
+    let header_slice = &src[..LENGTH_HEADER_SIZE];
+    // SAFETY: header_slice is exactly LENGTH_HEADER_SIZE bytes, so try_into succeeds
+    let Ok(header) = <[u8; LENGTH_HEADER_SIZE]>::try_from(header_slice) else {
+        // Unreachable: slice is exactly 4 bytes
         return CodecError::Eof(EofError::MidHeader {
             bytes_received,
             header_size: LENGTH_HEADER_SIZE,
         })
         .into();
     };
-    let expected = header.get_u32() as usize;
+    let expected = u32_from_be_bytes(header) as usize;
     CodecError::Eof(EofError::MidFrame {
         bytes_received: bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
         expected,
