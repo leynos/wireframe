@@ -24,7 +24,6 @@ use super::helpers::{
     test_with_client,
 };
 use crate::{
-    BincodeSerializer,
     client::{ClientError, WireframeClient, WireframeClientBuilder},
     rewind_stream::RewindStream,
 };
@@ -33,32 +32,9 @@ use crate::{
 ///
 /// This helper is used by tests that need to manipulate the server stream after connection,
 /// such as sending invalid data or dropping the connection at specific times.
-async fn connect_with_server<F, C>(
+async fn connect_with_server<S, F, C>(
     configure_builder: F,
-) -> (
-    WireframeClient<BincodeSerializer, RewindStream<TcpStream>, C>,
-    TcpStream,
-)
-where
-    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<BincodeSerializer, (), C>,
-    C: Send + 'static,
-{
-    let (addr, accept) = spawn_listener().await;
-    let client = configure_builder(WireframeClient::builder())
-        .connect(addr)
-        .await
-        .expect("connect client");
-    let server_stream = accept.await.expect("join accept task");
-    (client, server_stream)
-}
-
-/// Connects a client with a custom serializer, keeping the server alive for the test duration.
-///
-/// Returns the client while holding the server connection open. The server stream is dropped
-/// when the returned client goes out of scope.
-async fn test_with_serializer<S, F, C>(
-    configure_builder: F,
-) -> WireframeClient<S, RewindStream<TcpStream>, C>
+) -> (WireframeClient<S, RewindStream<TcpStream>, C>, TcpStream)
 where
     S: crate::Serializer + Send + Sync + 'static,
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<S, (), C>,
@@ -69,8 +45,8 @@ where
         .connect(addr)
         .await
         .expect("connect client");
-    let _server = accept.await.expect("join accept task");
-    client
+    let server_stream = accept.await.expect("join accept task");
+    (client, server_stream)
 }
 
 #[tokio::test]
@@ -198,7 +174,7 @@ async fn error_callback_invoked_on_serialize_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
 
-    let mut client = test_with_serializer(|builder| {
+    let (mut client, _server) = connect_with_server(|builder| {
         builder.serializer(FailingSerializer).on_error(move |_err| {
             let count = count.clone();
             async move {
