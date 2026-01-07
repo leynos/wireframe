@@ -5,13 +5,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use super::helpers::{
-    counting_hook,
-    spawn_listener,
-    test_error_hook_on_disconnect,
-    test_with_client,
-};
-use crate::client::WireframeClient;
+use super::helpers::{counting_hook, test_error_hook_on_disconnect, test_with_client};
 
 #[tokio::test]
 async fn setup_callback_invoked_on_connect() {
@@ -78,27 +72,23 @@ async fn setup_and_teardown_callbacks_run() {
     let setup = setup_count.clone();
     let teardown = teardown_count.clone();
 
-    let (addr, accept) = spawn_listener().await;
-
-    let client = WireframeClient::builder()
-        .on_connection_setup(move || {
-            let setup = setup.clone();
-            async move {
-                setup.fetch_add(1, Ordering::SeqCst);
-                "state"
-            }
-        })
-        .on_connection_teardown(move |_: &str| {
-            let teardown = teardown.clone();
-            async move {
-                teardown.fetch_add(1, Ordering::SeqCst);
-            }
-        })
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let _server = accept.await.expect("join accept task");
+    let client = test_with_client(|builder| {
+        builder
+            .on_connection_setup(move || {
+                let setup = setup.clone();
+                async move {
+                    setup.fetch_add(1, Ordering::SeqCst);
+                    "state"
+                }
+            })
+            .on_connection_teardown(move |_: &str| {
+                let teardown = teardown.clone();
+                async move {
+                    teardown.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+    })
+    .await;
 
     assert_eq!(
         setup_count.load(Ordering::SeqCst),
@@ -140,24 +130,14 @@ async fn on_connection_setup_preserves_error_hook() {
 
 #[tokio::test]
 async fn close_without_setup_does_not_invoke_teardown() {
-    let teardown_count = Arc::new(AtomicUsize::new(0));
-    let count = teardown_count.clone();
-
-    let (addr, accept) = spawn_listener().await;
+    let (teardown_count, increment) = counting_hook();
 
     // Configure only teardown without setup - teardown should not run
-    let client = WireframeClient::builder()
-        .on_connection_teardown(move |(): ()| {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
-        })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    let client = test_with_client(|builder| {
+        builder.on_connection_teardown(move |value: ()| increment(value))
+    })
+    .await;
 
-    let _server = accept.await.expect("join accept task");
     client.close().await;
 
     assert_eq!(
