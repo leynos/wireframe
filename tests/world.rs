@@ -14,6 +14,7 @@ pub use worlds::{
     correlation::CorrelationWorld,
     fragment::FragmentWorld,
     message_assembler::{ContinuationHeaderSpec, FirstHeaderSpec, MessageAssemblerWorld},
+    message_assembly::MessageAssemblyWorld,
     multi_packet::MultiPacketWorld,
     panic::PanicWorld,
     request_parts::RequestPartsWorld,

@@ -78,12 +78,18 @@ pub use fragment::{
 };
 pub use hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
 pub use message_assembler::{
+    AssembledMessage,
     ContinuationFrameHeader,
     FirstFrameHeader,
     FrameHeader,
     FrameSequence,
     MessageAssembler,
+    MessageAssemblyError,
+    MessageAssemblyState,
     MessageKey,
+    MessageSeries,
+    MessageSeriesError,
+    MessageSeriesStatus,
     ParsedFrameHeader,
 };
 pub use metrics::{CODEC_ERRORS, CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};

@@ -4,11 +4,30 @@
 //! "first" frames from "continuation" frames. The hook operates above
 //! transport fragmentation and feeds the streaming request pipeline once the
 //! connection actor integrates it (see ADR 0002).
+//!
+//! ## Message key multiplexing (8.2.3)
+//!
+//! The [`MessageAssemblyState`] type manages multiple concurrent assemblies
+//! keyed by [`MessageKey`], enabling interleaved frame streams from different
+//! logical messages on the same connection.
+//!
+//! ## Continuity validation (8.2.4)
+//!
+//! The [`MessageSeries`] type validates frame ordering when protocols supply
+//! sequence numbers via [`ContinuationFrameHeader::sequence`]. It detects:
+//!
+//! - Out-of-order frames (sequence gaps)
+//! - Duplicate frames (already-processed sequences)
+//! - Frames arriving after the series is complete
 
+pub mod error;
 mod header;
+pub mod series;
+pub mod state;
 
 use std::io;
 
+pub use error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus};
 pub use header::{
     ContinuationFrameHeader,
     FirstFrameHeader,
@@ -17,6 +36,8 @@ pub use header::{
     MessageKey,
     ParsedFrameHeader,
 };
+pub use series::MessageSeries;
+pub use state::{AssembledMessage, MessageAssemblyState};
 
 /// Hook trait for protocol-specific multi-frame request parsing.
 ///
