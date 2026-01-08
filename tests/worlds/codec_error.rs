@@ -270,6 +270,23 @@ impl CodecErrorWorld {
         }
     }
 
+    /// Length prefix header size (4 bytes for big-endian u32).
+    const LENGTH_HEADER_SIZE: usize = 4;
+
+    /// Extract the expected payload length from the buffer's length header.
+    ///
+    /// Returns 0 if the buffer doesn't contain a complete 4-byte header.
+    #[expect(
+        clippy::big_endian_bytes,
+        reason = "Wire protocol uses big-endian length prefix; this matches the codec."
+    )]
+    fn extract_expected_length(&self) -> usize {
+        self.buffer
+            .get(..Self::LENGTH_HEADER_SIZE)
+            .and_then(|slice| <[u8; 4]>::try_from(slice).ok())
+            .map_or(0, |bytes| u32::from_be_bytes(bytes) as usize)
+    }
+
     /// Classify the EOF error type from the error message.
     ///
     /// # Implementation Note
@@ -277,7 +294,9 @@ impl CodecErrorWorld {
     /// This method infers EOF type by checking if the error message contains
     /// "header". This is fragile: if the upstream error message format changes,
     /// this classification will silently produce incorrect results.
-    /// Additionally, `expected: 0` discards the actual expected frame size.
+    ///
+    /// When the buffer contains at least 4 bytes (a complete length header),
+    /// we extract the expected payload length from the big-endian u32 prefix.
     ///
     /// This approach is acceptable for test code where we control the error
     /// messages, but would need a more robust solution (e.g., downcasting to
@@ -290,12 +309,12 @@ impl CodecErrorWorld {
         self.detected_eof = Some(if msg.contains("header") {
             EofError::MidHeader {
                 bytes_received: self.buffer.len(),
-                header_size: 4,
+                header_size: Self::LENGTH_HEADER_SIZE,
             }
         } else {
             EofError::MidFrame {
-                bytes_received: self.buffer.len().saturating_sub(4),
-                expected: 0,
+                bytes_received: self.buffer.len().saturating_sub(Self::LENGTH_HEADER_SIZE),
+                expected: self.extract_expected_length(),
             }
         });
     }

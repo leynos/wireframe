@@ -1,3 +1,8 @@
+//! Unit tests for the length-delimited frame codec.
+//!
+//! Tests codec construction, frame round-tripping, oversized payload rejection,
+//! and EOF handling behaviour.
+
 use std::io;
 
 use bytes::{Bytes, BytesMut};

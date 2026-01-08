@@ -140,12 +140,6 @@ impl Decoder for LengthDelimitedDecoder {
         self.inner.decode(src).map(|opt| opt.map(BytesMut::freeze))
     }
 
-    #[expect(
-        clippy::match_same_arms,
-        reason = "Ok(None) and Err(_) have same body but distinct semantics: Ok(None) = inner \
-                  decoder needs more data; Err(_) = inner codec error. Keeping them separate \
-                  documents the two paths to our EOF error."
-    )]
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Clean close: no data remaining at frame boundary
         if src.is_empty() {
@@ -163,57 +157,55 @@ impl Decoder for LengthDelimitedDecoder {
             // Disconnect). For all other errors (typically incomplete data indicated
             // by Other kind), convert to our structured EOF error.
             Err(e) if e.kind() == io::ErrorKind::InvalidData => Err(e),
-            Err(_) => Err(build_eof_error(src)),
+            Err(e) => {
+                // Log inner error for diagnostics before replacing with structured EOF error
+                tracing::debug!(
+                    inner_error = %e,
+                    "inner decoder error at EOF, converting to structured EOF error"
+                );
+                Err(build_eof_error(src))
+            }
         }
     }
 }
 
 /// Parse a u32 length prefix from a 4-byte big-endian array.
-#[inline]
-fn u32_from_be_bytes(bytes: [u8; 4]) -> u32 {
-    #[expect(
-        clippy::big_endian_bytes,
-        reason = "Wire endianness is explicit; length-delimited codec uses big-endian."
-    )]
-    u32::from_be_bytes(bytes)
+#[expect(
+    clippy::big_endian_bytes,
+    reason = "Wire endianness is explicit; length-delimited codec uses big-endian."
+)]
+fn parse_length_header(bytes: [u8; LENGTH_HEADER_SIZE]) -> usize {
+    u32::from_be_bytes(bytes) as usize
 }
 
 /// Helper to build the appropriate EOF error based on remaining buffer state.
 fn build_eof_error(src: &BytesMut) -> io::Error {
     let bytes_received = src.len();
-    if bytes_received < LENGTH_HEADER_SIZE {
-        // EOF during header read
-        return CodecError::Eof(EofError::MidHeader {
-            bytes_received,
-            header_size: LENGTH_HEADER_SIZE,
-        })
-        .into();
-    }
 
-    // EOF during payload read - we have a header but incomplete payload
-    // Parse the length prefix to determine expected size
-    // The length check above guarantees this slice will succeed
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "length checked above to be >= LENGTH_HEADER_SIZE"
-    )]
-    let header_slice = &src[..LENGTH_HEADER_SIZE];
-    // Defensive: the length check guarantees header_slice is exactly LENGTH_HEADER_SIZE
-    // bytes, so try_into always succeeds. The else branch is defensive code that
-    // degrades gracefully if this invariant is ever violated (e.g., due to refactoring).
-    let Ok(header) = <[u8; LENGTH_HEADER_SIZE]>::try_from(header_slice) else {
-        return CodecError::Eof(EofError::MidHeader {
-            bytes_received,
-            header_size: LENGTH_HEADER_SIZE,
-        })
-        .into();
-    };
-    let expected = u32_from_be_bytes(header) as usize;
-    CodecError::Eof(EofError::MidFrame {
-        bytes_received: bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
-        expected,
-    })
-    .into()
+    // Use safe accessor to extract the length header if present
+    let expected = src
+        .get(..LENGTH_HEADER_SIZE)
+        .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
+        .map(parse_length_header);
+
+    match expected {
+        Some(expected) => {
+            // EOF during payload read - we have a header but incomplete payload
+            CodecError::Eof(EofError::MidFrame {
+                bytes_received: bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
+                expected,
+            })
+            .into()
+        }
+        None => {
+            // EOF during header read
+            CodecError::Eof(EofError::MidHeader {
+                bytes_received,
+                header_size: LENGTH_HEADER_SIZE,
+            })
+            .into()
+        }
+    }
 }
 
 #[doc(hidden)]
