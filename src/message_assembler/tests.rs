@@ -196,35 +196,48 @@ mod series_tests {
     use super::*;
     use crate::message_assembler::{MessageSeries, MessageSeriesError, MessageSeriesStatus};
 
-    #[test]
-    fn series_accepts_sequential_continuation_frames() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
+    // Helper functions to reduce test setup duplication
+    fn first_header(key: u64, is_last: bool) -> FirstFrameHeader {
+        FirstFrameHeader {
+            message_key: MessageKey(key),
             metadata_len: 0,
             body_len: 10,
             total_body_len: None,
-            is_last: false,
-        };
+            is_last,
+        }
+    }
+
+    fn continuation_header(key: u64, sequence: u32, is_last: bool) -> ContinuationFrameHeader {
+        ContinuationFrameHeader {
+            message_key: MessageKey(key),
+            sequence: Some(FrameSequence(sequence)),
+            body_len: 10,
+            is_last,
+        }
+    }
+
+    fn continuation_header_untracked(key: u64, is_last: bool) -> ContinuationFrameHeader {
+        ContinuationFrameHeader {
+            message_key: MessageKey(key),
+            sequence: None,
+            body_len: 5,
+            is_last,
+        }
+    }
+
+    #[test]
+    fn series_accepts_sequential_continuation_frames() {
+        let first = first_header(1, false);
         let mut series = MessageSeries::from_first_frame(&first);
         assert!(!series.is_complete());
 
-        let cont1 = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(1)),
-            body_len: 10,
-            is_last: false,
-        };
+        let cont1 = continuation_header(1, 1, false);
         assert_eq!(
             series.accept_continuation(&cont1),
             Ok(MessageSeriesStatus::Incomplete)
         );
 
-        let cont2 = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(2)),
-            body_len: 10,
-            is_last: true,
-        };
+        let cont2 = continuation_header(1, 2, true);
         assert_eq!(
             series.accept_continuation(&cont2),
             Ok(MessageSeriesStatus::Complete)
@@ -234,22 +247,11 @@ mod series_tests {
 
     #[test]
     fn series_accepts_continuation_without_sequence() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
-            metadata_len: 0,
-            body_len: 10,
-            total_body_len: None,
-            is_last: false,
-        };
+        let first = first_header(1, false);
         let mut series = MessageSeries::from_first_frame(&first);
 
         // Continuations without sequences are accepted (no ordering check)
-        let cont = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: None,
-            body_len: 5,
-            is_last: true,
-        };
+        let cont = continuation_header_untracked(1, true);
         assert_eq!(
             series.accept_continuation(&cont),
             Ok(MessageSeriesStatus::Complete)
@@ -258,21 +260,10 @@ mod series_tests {
 
     #[test]
     fn series_rejects_wrong_key() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
-            metadata_len: 0,
-            body_len: 10,
-            total_body_len: None,
-            is_last: false,
-        };
+        let first = first_header(1, false);
         let mut series = MessageSeries::from_first_frame(&first);
 
-        let cont = ContinuationFrameHeader {
-            message_key: MessageKey(2), // Wrong key
-            sequence: Some(FrameSequence(1)),
-            body_len: 10,
-            is_last: false,
-        };
+        let cont = continuation_header(2, 1, false); // Wrong key
         assert!(matches!(
             series.accept_continuation(&cont),
             Err(MessageSeriesError::KeyMismatch {
@@ -284,33 +275,17 @@ mod series_tests {
 
     #[test]
     fn series_rejects_out_of_order_sequence() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
-            metadata_len: 0,
-            body_len: 10,
-            total_body_len: None,
-            is_last: false,
-        };
+        let first = first_header(1, false);
         let mut series = MessageSeries::from_first_frame(&first);
 
         // Accept first continuation
-        let cont1 = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(1)),
-            body_len: 5,
-            is_last: false,
-        };
+        let cont1 = continuation_header(1, 1, false);
         series
             .accept_continuation(&cont1)
             .expect("first continuation");
 
         // Skip sequence 2, send 3 (gap)
-        let cont3 = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(3)),
-            body_len: 5,
-            is_last: false,
-        };
+        let cont3 = continuation_header(1, 3, false);
         assert!(matches!(
             series.accept_continuation(&cont3),
             Err(MessageSeriesError::SequenceMismatch {
@@ -322,44 +297,23 @@ mod series_tests {
 
     #[test]
     fn series_rejects_duplicate_sequence() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
-            metadata_len: 0,
-            body_len: 10,
-            total_body_len: None,
-            is_last: false,
-        };
+        let first = first_header(1, false);
         let mut series = MessageSeries::from_first_frame(&first);
 
         // Accept first continuation
-        let cont1 = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(1)),
-            body_len: 5,
-            is_last: false,
-        };
+        let cont1 = continuation_header(1, 1, false);
         series
             .accept_continuation(&cont1)
             .expect("first continuation");
 
         // Accept second continuation
-        let cont2 = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(2)),
-            body_len: 5,
-            is_last: false,
-        };
+        let cont2 = continuation_header(1, 2, false);
         series
             .accept_continuation(&cont2)
             .expect("second continuation");
 
         // Try to send sequence 1 again (duplicate)
-        let duplicate = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(1)),
-            body_len: 5,
-            is_last: false,
-        };
+        let duplicate = continuation_header(1, 1, false);
         assert!(matches!(
             series.accept_continuation(&duplicate),
             Err(MessageSeriesError::DuplicateFrame {
@@ -371,34 +325,18 @@ mod series_tests {
 
     #[test]
     fn series_rejects_after_completion() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
-            metadata_len: 0,
-            body_len: 10,
-            total_body_len: None,
-            is_last: false,
-        };
+        let first = first_header(1, false);
         let mut series = MessageSeries::from_first_frame(&first);
 
         // Complete the series
-        let final_cont = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(1)),
-            body_len: 5,
-            is_last: true,
-        };
+        let final_cont = continuation_header(1, 1, true);
         series
             .accept_continuation(&final_cont)
             .expect("final continuation");
         assert!(series.is_complete());
 
         // Try to add more
-        let extra = ContinuationFrameHeader {
-            message_key: MessageKey(1),
-            sequence: Some(FrameSequence(2)),
-            body_len: 5,
-            is_last: false,
-        };
+        let extra = continuation_header(1, 2, false);
         assert!(matches!(
             series.accept_continuation(&extra),
             Err(MessageSeriesError::SeriesComplete)
@@ -407,13 +345,7 @@ mod series_tests {
 
     #[test]
     fn series_detects_sequence_overflow() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
-            metadata_len: 0,
-            body_len: 10,
-            total_body_len: None,
-            is_last: false,
-        };
+        let first = first_header(1, false);
         let mut series = MessageSeries::from_first_frame(&first);
 
         // Force next_sequence to u32::MAX
@@ -448,13 +380,7 @@ mod series_tests {
 
     #[test]
     fn series_completes_on_single_frame_message() {
-        let first = FirstFrameHeader {
-            message_key: MessageKey(1),
-            metadata_len: 0,
-            body_len: 10,
-            total_body_len: None,
-            is_last: true, // Single frame message
-        };
+        let first = first_header(1, true); // Single frame message
         let series = MessageSeries::from_first_frame(&first);
         assert!(series.is_complete());
     }

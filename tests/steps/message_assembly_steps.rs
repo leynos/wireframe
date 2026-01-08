@@ -4,6 +4,15 @@ use cucumber::{given, then, when};
 
 use crate::world::{MessageAssemblyWorld, TestResult};
 
+/// Helper function to reduce duplication in Then step assertions
+fn assert_condition(condition: bool, error_msg: impl Into<String>) -> TestResult {
+    if condition {
+        Ok(())
+    } else {
+        Err(error_msg.into().into())
+    }
+}
+
 // =============================================================================
 // Given steps
 // =============================================================================
@@ -103,11 +112,10 @@ fn when_purge_expired(world: &mut MessageAssemblyWorld) -> TestResult { world.pu
 
 #[then("the assembly result is incomplete")]
 fn then_result_incomplete(world: &mut MessageAssemblyWorld) -> TestResult {
-    if world.last_result_is_incomplete() {
-        Ok(())
-    } else {
-        Err("expected incomplete result".into())
-    }
+    assert_condition(
+        world.last_result_is_incomplete(),
+        "expected incomplete result",
+    )
 }
 
 #[then(expr = "the assembly completes with body {string}")]
@@ -119,16 +127,14 @@ fn then_completes_with_body(world: &mut MessageAssemblyWorld, body: String) -> T
     let actual = world
         .last_completed_body()
         .ok_or("expected completed message")?;
-    if actual == body.as_bytes() {
-        Ok(())
-    } else {
-        Err(format!(
+    assert_condition(
+        actual == body.as_bytes(),
+        format!(
             "body mismatch: expected {:?}, got {:?}",
             body.as_bytes(),
             actual
-        )
-        .into())
-    }
+        ),
+    )
 }
 
 #[then(expr = "key {int} completes with body {string}")]
@@ -140,26 +146,23 @@ fn then_key_completes(world: &mut MessageAssemblyWorld, key: u64, body: String) 
     let actual = world
         .completed_body_for_key(key)
         .ok_or_else(|| format!("expected completed message for key {key}"))?;
-    if actual == body.as_bytes() {
-        Ok(())
-    } else {
-        Err(format!(
+    assert_condition(
+        actual == body.as_bytes(),
+        format!(
             "body mismatch for key {key}: expected {:?}, got {:?}",
             body.as_bytes(),
             actual
-        )
-        .into())
-    }
+        ),
+    )
 }
 
 #[then(expr = "the buffered count is {int}")]
 fn then_buffered_count(world: &mut MessageAssemblyWorld, count: usize) -> TestResult {
     let actual = world.buffered_count();
-    if actual == count {
-        Ok(())
-    } else {
-        Err(format!("buffered count mismatch: expected {count}, got {actual}").into())
-    }
+    assert_condition(
+        actual == count,
+        format!("buffered count mismatch: expected {count}, got {actual}"),
+    )
 }
 
 #[then(expr = "the error is sequence mismatch expecting {int} but found {int}")]
@@ -168,74 +171,63 @@ fn then_error_sequence_mismatch(
     expected: u32,
     found: u32,
 ) -> TestResult {
-    if world.is_sequence_mismatch(expected, found) {
-        Ok(())
-    } else {
-        Err(format!(
+    assert_condition(
+        world.is_sequence_mismatch(expected, found),
+        format!(
             "expected sequence mismatch error, got {:?}",
             world.last_error()
-        )
-        .into())
-    }
+        ),
+    )
 }
 
 #[then(expr = "the error is duplicate frame for key {int} sequence {int}")]
 fn then_error_duplicate_frame(world: &mut MessageAssemblyWorld, key: u64, seq: u32) -> TestResult {
-    if world.is_duplicate_frame(key, seq) {
-        Ok(())
-    } else {
-        Err(format!(
+    assert_condition(
+        world.is_duplicate_frame(key, seq),
+        format!(
             "expected duplicate frame error, got {:?}",
             world.last_error()
-        )
-        .into())
-    }
+        ),
+    )
 }
 
 #[then(expr = "the error is missing first frame for key {int}")]
 fn then_error_missing_first_frame(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
-    if world.is_missing_first_frame(key) {
-        Ok(())
-    } else {
-        Err(format!(
+    assert_condition(
+        world.is_missing_first_frame(key),
+        format!(
             "expected missing first frame error, got {:?}",
             world.last_error()
-        )
-        .into())
-    }
+        ),
+    )
 }
 
 #[then(expr = "the error is duplicate first frame for key {int}")]
 fn then_error_duplicate_first_frame(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
-    if world.is_duplicate_first_frame(key) {
-        Ok(())
-    } else {
-        Err(format!(
+    assert_condition(
+        world.is_duplicate_first_frame(key),
+        format!(
             "expected duplicate first frame error, got {:?}",
             world.last_error()
-        )
-        .into())
-    }
+        ),
+    )
 }
 
 #[then(expr = "the error is message too large for key {int}")]
 fn then_error_message_too_large(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
-    if world.is_message_too_large(key) {
-        Ok(())
-    } else {
-        Err(format!(
+    assert_condition(
+        world.is_message_too_large(key),
+        format!(
             "expected message too large error, got {:?}",
             world.last_error()
-        )
-        .into())
-    }
+        ),
+    )
 }
 
 #[then(expr = "key {int} was evicted")]
 fn then_key_evicted(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
-    if world.was_evicted(key) {
-        Ok(())
-    } else {
-        Err(format!("expected key {key} to be evicted").into())
-    }
+    assert_condition(
+        world.was_evicted(key),
+        format!("expected key {key} to be evicted"),
+    )
 }
