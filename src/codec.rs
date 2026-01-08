@@ -125,7 +125,7 @@ impl Default for LengthDelimitedFrameCodec {
 }
 
 /// Length prefix header size (4 bytes for big-endian u32).
-const LENGTH_HEADER_SIZE: usize = 4;
+pub const LENGTH_HEADER_SIZE: usize = 4;
 
 #[doc(hidden)]
 pub struct LengthDelimitedDecoder {

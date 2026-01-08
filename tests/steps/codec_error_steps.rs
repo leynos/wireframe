@@ -83,7 +83,7 @@ fn then_server_clean_eof(world: &mut CodecErrorWorld) -> TestResult { world.veri
 
 #[then("the server detects a mid-frame EOF with partial data")]
 fn then_server_mid_frame_eof(world: &mut CodecErrorWorld) -> TestResult {
-    world.verify_mid_frame_eof()
+    world.verify_incomplete_eof()
 }
 
 #[then("the server rejects the frame with an oversized error")]
