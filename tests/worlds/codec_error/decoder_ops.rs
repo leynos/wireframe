@@ -86,7 +86,7 @@ impl CodecErrorWorld {
 
     /// Extract the expected payload length from the buffer's length header.
     ///
-    /// Returns 0 if the buffer doesn't contain a complete 4-byte header.
+    /// Returns 0 if the buffer doesn't contain a complete length header.
     #[expect(
         clippy::big_endian_bytes,
         reason = "Wire protocol uses big-endian length prefix; this matches the codec."
@@ -94,7 +94,7 @@ impl CodecErrorWorld {
     fn extract_expected_length(&self) -> usize {
         self.buffer
             .get(..LENGTH_HEADER_SIZE)
-            .and_then(|slice| <[u8; 4]>::try_from(slice).ok())
+            .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
             .map_or(0, |bytes| u32::from_be_bytes(bytes) as usize)
     }
 

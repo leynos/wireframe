@@ -178,7 +178,14 @@ fn parse_length_header(bytes: [u8; LENGTH_HEADER_SIZE]) -> usize {
     u32::from_be_bytes(bytes) as usize
 }
 
-/// Helper to build the appropriate EOF error based on remaining buffer state.
+/// Build the appropriate EOF error based on remaining buffer state.
+///
+/// Determines whether the connection closed mid-header or mid-frame:
+///
+/// - [`EofError::MidHeader`]: Fewer than 4 bytes received (incomplete length prefix). The
+///   connection closed before the full frame header could be read.
+/// - [`EofError::MidFrame`]: Header complete but payload truncated. The length prefix was
+///   successfully read but the connection closed before the full payload arrived.
 fn build_eof_error(src: &BytesMut) -> io::Error {
     let bytes_received = src.len();
 
