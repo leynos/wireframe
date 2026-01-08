@@ -33,7 +33,7 @@ integration, and behavioural tests.
 - [x] (2026-01-07) Add codec error metrics.
 - [x] (2026-01-07) Add unit tests for `CodecError` taxonomy.
 - [x] (2026-01-07) Add integration tests for error propagation and recovery.
-- [x] (2026-01-07) Add Cucumber behavioural tests for codec error scenarios.
+- [x] (2026-01-07) Add BDD behavioural tests for codec error scenarios.
 - [ ] Update `docs/users-guide.md` with error handling documentation.
 - [ ] Update `docs/adr-004-pluggable-protocol-codecs.md` with design decisions.
 - [ ] Mark roadmap entry 9.1.2 as done.
@@ -215,7 +215,7 @@ Add comprehensive tests:
    - Mid-frame EOF surfaces to handler
    - Custom recovery policy hook is invoked
 
-3. **Cucumber behavioural tests** in `tests/features/codec_error.feature`:
+3. **BDD behavioural tests** in `tests/features/codec_error.feature`:
    - Scenario: Oversized frame triggers drop recovery
    - Scenario: Consecutive drop limit triggers disconnect
    - Scenario: Clean EOF at frame boundary
@@ -223,7 +223,7 @@ Add comprehensive tests:
    - Scenario: Custom recovery policy hook
 
 4. Add step definitions in `tests/steps/codec_error_steps.rs`
-5. Add world type in `tests/worlds/codec_error.rs`
+5. Add world type in `tests/worlds/codec_error/`
 
 ### Phase 9: Documentation
 
@@ -308,7 +308,7 @@ Update documentation:
     - Add behavioural scenarios for codec errors
 
 13. Create `tests/steps/codec_error_steps.rs` and
-    `tests/worlds/codec_error.rs`:
+    `tests/worlds/codec_error/`:
     - Add step definitions and world type
 
 14. Update `tests/cucumber.rs`:
@@ -360,7 +360,7 @@ Acceptance is based on observable behaviour:
 - `on_eof` hook is invoked for protocol-specific EOF handling
 - All unit tests pass for error taxonomy and recovery policies
 - All integration tests pass for error propagation
-- All Cucumber tests pass for behavioural scenarios
+- All BDD tests pass for behavioural scenarios
 - `make check-fmt`, `make lint`, and `make test` succeed
 
 ## Idempotence and Recovery
@@ -438,9 +438,9 @@ Record key evidence here once available:
 | `src/metrics.rs`                            | Modify: Add codec error metrics  |
 | `src/lib.rs`                                | Modify: Re-export types          |
 | `tests/codec_error.rs`                      | New: Integration tests           |
-| `tests/features/codec_error.feature`        | New: Cucumber tests              |
+| `tests/features/codec_error.feature`        | New: BDD tests                   |
 | `tests/steps/codec_error_steps.rs`          | New: Step definitions            |
-| `tests/worlds/codec_error.rs`               | New: World type                  |
+| `tests/worlds/codec_error/`                 | New: World type                  |
 | `tests/cucumber.rs`                         | Modify: Register world           |
 | `docs/users-guide.md`                       | Modify: Error handling docs      |
 | `docs/adr-004-pluggable-protocol-codecs.md` | Modify: Design decisions         |

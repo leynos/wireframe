@@ -2,112 +2,133 @@
 
 use std::io;
 
+use rstest::rstest;
+
 use super::{CodecError, EofError, FramingError, ProtocolError};
 use crate::codec::RecoveryPolicy;
 
-#[test]
-fn oversized_frame_recommends_drop() {
-    let err = CodecError::Framing(FramingError::OversizedFrame {
-        size: 2000,
-        max: 1024,
-    });
-    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Drop);
-    assert!(!err.should_disconnect());
-}
-
-#[test]
-fn empty_frame_recommends_drop() {
-    let err = CodecError::Framing(FramingError::EmptyFrame);
-    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Drop);
-    assert!(!err.should_disconnect());
-}
-
-#[test]
-fn invalid_length_encoding_recommends_disconnect() {
-    let err = CodecError::Framing(FramingError::InvalidLengthEncoding);
-    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Disconnect);
-    assert!(err.should_disconnect());
-}
-
-#[test]
-fn protocol_error_recommends_drop() {
-    let err = CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 99 });
-    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Drop);
-    assert!(!err.should_disconnect());
-}
-
-#[test]
-fn io_error_recommends_disconnect() {
-    let err = CodecError::Io(io::Error::other("test"));
-    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Disconnect);
-    assert!(err.should_disconnect());
+/// Parameterised test for recovery policy defaults and disconnect behaviour.
+///
+/// Each case specifies:
+/// - `error`: the `CodecError` variant to test
+/// - `expected_policy`: the expected default recovery policy
+/// - `should_disconnect`: whether the error should trigger a disconnect
+#[rstest]
+#[case::oversized_frame(
+    CodecError::Framing(FramingError::OversizedFrame { size: 2000, max: 1024 }),
+    RecoveryPolicy::Drop,
+    false
+)]
+#[case::empty_frame(
+    CodecError::Framing(FramingError::EmptyFrame),
+    RecoveryPolicy::Drop,
+    false
+)]
+#[case::invalid_length_encoding(
+    CodecError::Framing(FramingError::InvalidLengthEncoding),
+    RecoveryPolicy::Disconnect,
+    true
+)]
+#[case::protocol_error(
+    CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 99 }),
+    RecoveryPolicy::Drop,
+    false
+)]
+#[case::io_error(
+    CodecError::Io(io::Error::other("test")),
+    RecoveryPolicy::Disconnect,
+    true
+)]
+#[case::clean_eof(
+    CodecError::Eof(EofError::CleanClose),
+    RecoveryPolicy::Disconnect,
+    true
+)]
+#[case::mid_frame_eof(
+    CodecError::Eof(EofError::MidFrame { bytes_received: 100, expected: 200 }),
+    RecoveryPolicy::Disconnect,
+    true
+)]
+#[case::mid_header_eof(
+    CodecError::Eof(EofError::MidHeader { bytes_received: 2, header_size: 4 }),
+    RecoveryPolicy::Disconnect,
+    true
+)]
+fn recovery_policy_defaults(
+    #[case] error: CodecError,
+    #[case] expected_policy: RecoveryPolicy,
+    #[case] should_disconnect: bool,
+) {
+    assert_eq!(error.default_recovery_policy(), expected_policy);
+    assert_eq!(error.should_disconnect(), should_disconnect);
 }
 
 #[test]
 fn clean_eof_is_detectable() {
     let err = CodecError::Eof(EofError::CleanClose);
     assert!(err.is_clean_close());
-    assert!(err.should_disconnect());
 }
 
 #[test]
-fn mid_frame_eof_recommends_disconnect() {
+fn mid_frame_eof_is_not_clean() {
     let err = CodecError::Eof(EofError::MidFrame {
         bytes_received: 100,
         expected: 200,
     });
     assert!(!err.is_clean_close());
-    assert!(err.should_disconnect());
 }
 
 #[test]
-fn mid_header_eof_recommends_disconnect() {
+fn mid_header_eof_is_not_clean() {
     let err = CodecError::Eof(EofError::MidHeader {
         bytes_received: 2,
         header_size: 4,
     });
     assert!(!err.is_clean_close());
-    assert!(err.should_disconnect());
 }
 
-#[test]
-fn codec_error_converts_to_io_error_with_correct_kind() {
-    // Framing errors convert to InvalidData
-    let err = CodecError::Framing(FramingError::EmptyFrame);
-    let io_err: io::Error = err.into();
-    assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
-
-    // EOF errors convert to UnexpectedEof
-    let err = CodecError::Eof(EofError::MidFrame {
-        bytes_received: 10,
-        expected: 20,
-    });
-    let io_err: io::Error = err.into();
-    assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
-
-    // Protocol errors convert to InvalidData
-    let err = CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 1 });
-    let io_err: io::Error = err.into();
-    assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
-
-    // Io errors pass through unchanged
-    let err = CodecError::Io(io::Error::other("test"));
-    let io_err: io::Error = err.into();
-    assert_eq!(io_err.kind(), io::ErrorKind::Other);
+/// Parameterised test for `CodecError` to `io::Error` conversion.
+///
+/// Each case specifies:
+/// - `error`: the `CodecError` variant to convert
+/// - `expected_kind`: the expected `io::ErrorKind` after conversion
+#[rstest]
+#[case::framing_error(
+    CodecError::Framing(FramingError::EmptyFrame),
+    io::ErrorKind::InvalidData
+)]
+#[case::eof_error(
+    CodecError::Eof(EofError::MidFrame { bytes_received: 10, expected: 20 }),
+    io::ErrorKind::UnexpectedEof
+)]
+#[case::protocol_error(
+    CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 1 }),
+    io::ErrorKind::InvalidData
+)]
+#[case::io_error(CodecError::Io(io::Error::other("test")), io::ErrorKind::Other)]
+fn codec_error_converts_to_io_error_with_correct_kind(
+    #[case] error: CodecError,
+    #[case] expected_kind: io::ErrorKind,
+) {
+    let io_err: io::Error = error.into();
+    assert_eq!(io_err.kind(), expected_kind);
 }
 
-#[test]
-fn error_type_returns_correct_category() {
-    assert_eq!(
-        CodecError::Framing(FramingError::EmptyFrame).error_type(),
-        "framing"
-    );
-    assert_eq!(
-        CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 1 }).error_type(),
-        "protocol"
-    );
-    assert_eq!(CodecError::Io(io::Error::other("test")).error_type(), "io");
-    assert_eq!(CodecError::Eof(EofError::CleanClose).error_type(), "eof");
+/// Parameterised test for `error_type()` category strings.
+///
+/// Each case specifies:
+/// - `error`: the `CodecError` variant to test
+/// - `expected_type`: the expected error type string
+#[rstest]
+#[case::framing(CodecError::Framing(FramingError::EmptyFrame), "framing")]
+#[case::protocol(
+    CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 1 }),
+    "protocol"
+)]
+#[case::io(CodecError::Io(io::Error::other("test")), "io")]
+#[case::eof(CodecError::Eof(EofError::CleanClose), "eof")]
+fn error_type_returns_correct_category(#[case] error: CodecError, #[case] expected_type: &str) {
+    assert_eq!(error.error_type(), expected_type);
 }
 
 #[test]

@@ -90,6 +90,28 @@ pub enum RecoveryPolicy {
     Disconnect,
 }
 
+impl RecoveryPolicy {
+    /// Returns the policy name as a static string for metrics and logging.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::codec::RecoveryPolicy;
+    ///
+    /// assert_eq!(RecoveryPolicy::Drop.as_str(), "drop");
+    /// assert_eq!(RecoveryPolicy::Quarantine.as_str(), "quarantine");
+    /// assert_eq!(RecoveryPolicy::Disconnect.as_str(), "disconnect");
+    /// ```
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Drop => "drop",
+            Self::Quarantine => "quarantine",
+            Self::Disconnect => "disconnect",
+        }
+    }
+}
+
 /// Structured context for codec error logging and diagnostics.
 ///
 /// This struct captures connection-specific information to include in

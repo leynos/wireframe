@@ -112,6 +112,8 @@ impl CodecErrorWorld {
     /// This approach is acceptable for test code where we control the error
     /// messages, but would need a more robust solution (e.g., downcasting to
     /// `CodecError`) if the underlying error type becomes available.
+    // FIXME(#418): Replace string-matching with downcasting when CodecError
+    // becomes available in the io::Error source chain.
     fn classify_eof_error(&mut self, e: &std::io::Error) {
         if e.kind() != std::io::ErrorKind::UnexpectedEof {
             return;
