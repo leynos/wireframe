@@ -11,7 +11,7 @@ use futures::future::BoxFuture;
 use super::{ClientError, WireframeClientBuilder};
 use crate::serializer::Serializer;
 
-impl<S, P> WireframeClientBuilder<S, P>
+impl<S, P, C> WireframeClientBuilder<S, P, C>
 where
     S: Serializer + Send + Sync,
     P: Encode + Send + Sync + 'static,

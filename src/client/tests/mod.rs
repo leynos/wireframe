@@ -1,18 +1,19 @@
 //! Unit tests for the wireframe client runtime.
 
-use std::{net::SocketAddr, time::Duration};
+mod error_handling;
+mod helpers;
+mod lifecycle;
+
+use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
+use helpers::socket_option_test;
 use rstest::rstest;
 use socket2::SockRef;
-use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::*;
-use crate::{
-    BincodeSerializer,
-    frame::{Endianness, LengthFormat},
-};
+use crate::frame::{Endianness, LengthFormat};
 
 const MIN_FRAME_LENGTH: usize = 64;
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
@@ -21,43 +22,6 @@ const KEEPALIVE_DURATION: Duration = Duration::from_secs(30);
 const LINGER_DURATION: Duration = Duration::from_secs(1);
 const BUFFER_SIZE_U32: u32 = 256 * 1024;
 const BUFFER_SIZE_USIZE: usize = 256 * 1024;
-
-async fn spawn_listener() -> (SocketAddr, tokio::task::JoinHandle<TcpStream>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("listener addr");
-    let accept = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept client");
-        stream
-    });
-    (addr, accept)
-}
-
-/// Helper function to test that a builder option is correctly applied to the TCP socket.
-async fn assert_builder_option<F, A>(configure_builder: F, assert_option: A)
-where
-    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder,
-    A: FnOnce(&WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>>),
-{
-    let (addr, accept) = spawn_listener().await;
-
-    let client = configure_builder(WireframeClient::builder())
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    assert_option(&client);
-
-    let _server_stream = accept.await.expect("join accept task");
-}
-
-macro_rules! socket_option_test {
-    ($name:ident, $configure:expr, $assert:expr $(,)?) => {
-        #[tokio::test]
-        async fn $name() { assert_builder_option($configure, $assert).await; }
-    };
-}
 
 #[rstest]
 #[case(1, MIN_FRAME_LENGTH)]

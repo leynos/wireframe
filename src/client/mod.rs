@@ -1,7 +1,9 @@
 //! Client runtime for wireframe connections.
 //!
 //! This module provides a configurable client runtime that mirrors the
-//! server's framing and serialization layers.
+//! server's framing and serialization layers. The client supports connection
+//! lifecycle hooks that mirror the server's hooks, enabling consistent
+//! instrumentation across both ends of a wireframe connection.
 
 use std::{io, sync::Arc};
 
@@ -12,6 +14,7 @@ mod builder;
 mod codec_config;
 mod config;
 mod error;
+mod hooks;
 mod preamble_builder;
 mod preamble_exchange;
 mod runtime;
@@ -20,6 +23,11 @@ pub use builder::WireframeClientBuilder;
 pub use codec_config::ClientCodecConfig;
 pub use config::SocketOptions;
 pub use error::ClientError;
+pub use hooks::{
+    ClientConnectionSetupHandler,
+    ClientConnectionTeardownHandler,
+    ClientErrorHandler,
+};
 pub use runtime::WireframeClient;
 
 /// Handler invoked after the client successfully writes its preamble.

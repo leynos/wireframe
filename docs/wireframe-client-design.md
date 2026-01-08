@@ -77,9 +77,51 @@ deserializes the response type.
 
 ### Connection lifecycle
 
-Like the server, the client should expose hooks for connection setup and
-teardown. These mirror the server's lifecycle callbacks, so both sides can
-share initialization logic.
+The client builder exposes lifecycle hooks that mirror the server's hook
+system, enabling consistent instrumentation across client and server:
+
+- **Setup hook** (`on_connection_setup`): Runs after TCP connection and
+  preamble exchange (if configured) succeed. Returns connection-specific state
+  of type `C` stored in the client for the connection's lifetime. The setup
+  callback must be an `FnOnce` closure returning a `Future` that produces `C`.
+
+- **Teardown hook** (`on_connection_teardown`): Runs when `close()` is called.
+  Receives the state `C` produced by the setup hook. The teardown hook only
+  executes if a setup hook was configured and successfully produced state.
+
+- **Error hook** (`on_error`): Runs when errors occur during `send`, `receive`,
+  or `call` operations. Receives a reference to the `ClientError` for logging
+  or metrics. This hook is independent of the setup/teardown pair.
+
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct SessionState {
+    request_count: AtomicUsize,
+}
+
+let client = WireframeClient::builder()
+    .on_connection_setup(|| async {
+        SessionState { request_count: AtomicUsize::new(0) }
+    })
+    .on_connection_teardown(|state: SessionState| async move {
+        println!("Session ended after {} requests",
+            state.request_count.load(Ordering::SeqCst));
+    })
+    .on_error(|err| async move {
+        eprintln!("Client error: {err}");
+    })
+    .connect(addr)
+    .await?;
+
+// Use the client...
+client.close().await; // Teardown hook invoked here
+```
+
+The builder uses a type-changing pattern for `on_connection_setup`: calling it
+changes the `C` type parameter from the default `()` to the user's state type.
+This ensures type safety—teardown callbacks must accept the exact state type
+produced by setup.
 
 ### Preamble support
 

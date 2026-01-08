@@ -5,6 +5,7 @@
 mod worlds;
 
 pub use worlds::{
+    client_lifecycle::{ClientLifecycleWorld, EXPECTED_SETUP_STATE},
     client_preamble::ClientPreambleWorld,
     client_runtime::ClientRuntimeWorld,
     codec_stateful::CodecStatefulWorld,

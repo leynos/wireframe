@@ -451,7 +451,7 @@ behavioural guarantees.
 - [x] 10.1.2. Integrate the existing preamble helpers so clients can emit and
   verify preambles before exchanging frames, with integration tests covering
   success and failure callbacks.
-- [ ] 10.1.3. Expose connection lifecycle hooks (setup, teardown, and error)
+- [x] 10.1.3. Expose connection lifecycle hooks (setup, teardown, and error)
   that mirror the server hooks so middleware and instrumentation receive
   matching events.
 
