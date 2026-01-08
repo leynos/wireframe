@@ -149,4 +149,4 @@ pub fn inc_codec_error(error_type: &'static str, recovery_policy: &'static str) 
 }
 
 #[cfg(not(feature = "metrics"))]
-pub fn inc_codec_error(_error_type: &str, _recovery_policy: &str) {}
+pub fn inc_codec_error(_error_type: &'static str, _recovery_policy: &'static str) {}

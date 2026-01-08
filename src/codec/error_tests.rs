@@ -72,16 +72,28 @@ fn mid_header_eof_recommends_disconnect() {
 
 #[test]
 fn codec_error_converts_to_io_error_with_correct_kind() {
+    // Framing errors convert to InvalidData
     let err = CodecError::Framing(FramingError::EmptyFrame);
     let io_err: io::Error = err.into();
     assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
 
+    // EOF errors convert to UnexpectedEof
     let err = CodecError::Eof(EofError::MidFrame {
         bytes_received: 10,
         expected: 20,
     });
     let io_err: io::Error = err.into();
     assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
+
+    // Protocol errors convert to InvalidData
+    let err = CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 1 });
+    let io_err: io::Error = err.into();
+    assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
+
+    // Io errors pass through unchanged
+    let err = CodecError::Io(io::Error::other("test"));
+    let io_err: io::Error = err.into();
+    assert_eq!(io_err.kind(), io::ErrorKind::Other);
 }
 
 #[test]

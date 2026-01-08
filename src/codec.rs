@@ -198,9 +198,10 @@ fn build_eof_error(src: &BytesMut) -> io::Error {
         reason = "length checked above to be >= LENGTH_HEADER_SIZE"
     )]
     let header_slice = &src[..LENGTH_HEADER_SIZE];
-    // SAFETY: header_slice is exactly LENGTH_HEADER_SIZE bytes, so try_into succeeds
+    // Defensive: the length check guarantees header_slice is exactly LENGTH_HEADER_SIZE
+    // bytes, so try_into always succeeds. The else branch is defensive code that
+    // degrades gracefully if this invariant is ever violated (e.g., due to refactoring).
     let Ok(header) = <[u8; LENGTH_HEADER_SIZE]>::try_from(header_slice) else {
-        // Unreachable: slice is exactly 4 bytes
         return CodecError::Eof(EofError::MidHeader {
             bytes_received,
             header_size: LENGTH_HEADER_SIZE,

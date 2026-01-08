@@ -55,10 +55,15 @@ pub enum EofVariant {
 /// Test world for codec error taxonomy scenarios.
 #[derive(Debug, Default, World)]
 pub struct CodecErrorWorld {
+    /// Current error type category being tested.
     error_type: ErrorType,
+    /// Specific framing error variant when `error_type` is `Framing`.
     framing_variant: FramingVariant,
+    /// Specific EOF error variant when `error_type` is `Eof`.
     eof_variant: EofVariant,
+    /// Constructed error based on `error_type` and variant settings.
     current_error: Option<CodecError>,
+    /// EOF error detected during decoder operations.
     detected_eof: Option<EofError>,
     /// Maximum frame length for the codec under test.
     max_frame_length: usize,
@@ -85,6 +90,7 @@ impl CodecErrorWorld {
             "eof" => ErrorType::Eof,
             _ => return Err(format!("unknown error type: {error_type}").into()),
         };
+        self.build_error();
         Ok(())
     }
 
@@ -193,20 +199,23 @@ impl CodecErrorWorld {
     // Real E2E decoder operations
     // =========================================================================
 
-    /// Configure the codec with default settings.
-    pub fn setup_default_codec(&mut self) {
-        self.max_frame_length = 1024;
+    /// Reset codec state to prepare for a new test operation.
+    fn reset_codec_state(&mut self) {
         self.buffer = BytesMut::new();
         self.decoder_error = None;
         self.clean_close_detected = false;
     }
 
+    /// Configure the codec with default settings.
+    pub fn setup_default_codec(&mut self) {
+        self.max_frame_length = 1024;
+        self.reset_codec_state();
+    }
+
     /// Configure the codec with a specific max frame length.
     pub fn setup_codec_with_max_length(&mut self, max_len: usize) {
         self.max_frame_length = max_len;
-        self.buffer = BytesMut::new();
-        self.decoder_error = None;
-        self.clean_close_detected = false;
+        self.reset_codec_state();
     }
 
     /// Simulate a client sending a complete frame by encoding data into the buffer.
@@ -262,6 +271,17 @@ impl CodecErrorWorld {
     }
 
     /// Classify the EOF error type from the error message.
+    ///
+    /// # Implementation Note
+    ///
+    /// This method infers EOF type by checking if the error message contains
+    /// "header". This is fragile: if the upstream error message format changes,
+    /// this classification will silently produce incorrect results.
+    /// Additionally, `expected: 0` discards the actual expected frame size.
+    ///
+    /// This approach is acceptable for test code where we control the error
+    /// messages, but would need a more robust solution (e.g., downcasting to
+    /// `CodecError`) if the underlying error type becomes available.
     fn classify_eof_error(&mut self, e: &std::io::Error) {
         if e.kind() != std::io::ErrorKind::UnexpectedEof {
             return;
