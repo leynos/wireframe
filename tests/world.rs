@@ -8,6 +8,7 @@ pub use worlds::{
     client_lifecycle::{ClientLifecycleWorld, EXPECTED_SETUP_STATE},
     client_preamble::ClientPreambleWorld,
     client_runtime::ClientRuntimeWorld,
+    codec_error::CodecErrorWorld,
     codec_stateful::CodecStatefulWorld,
     common::TestResult,
     correlation::CorrelationWorld,

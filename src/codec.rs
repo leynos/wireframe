@@ -3,14 +3,49 @@
 //! Codecs define how raw byte streams are split into frames and how outgoing
 //! payloads are wrapped for transmission. The default implementation uses a
 //! length-prefixed format compatible with the previous Wireframe behaviour.
+//!
+//! # Error Handling
+//!
+//! The codec layer provides a structured error taxonomy via [`CodecError`] that
+//! distinguishes between framing errors, protocol errors, I/O errors, and EOF
+//! conditions. See the [`error`] module for details.
+//!
+//! Recovery policies determine how errors are handled:
+//!
+//! - [`RecoveryPolicy::Drop`]: Discard the malformed frame and continue.
+//! - [`RecoveryPolicy::Quarantine`]: Pause the connection temporarily.
+//! - [`RecoveryPolicy::Disconnect`]: Terminate the connection.
+//!
+//! See the [`recovery`] module for customising error handling behaviour.
 
 use std::io;
 
 use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
-pub(crate) const MIN_FRAME_LENGTH: usize = 64;
-pub(crate) const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
+pub mod error;
+pub mod recovery;
+
+pub use error::{CodecError, EofError, FramingError, ProtocolError};
+pub use recovery::{
+    CodecErrorContext,
+    DefaultRecoveryPolicy,
+    RecoveryConfig,
+    RecoveryPolicy,
+    RecoveryPolicyHook,
+};
+
+/// Minimum frame length in bytes.
+///
+/// Frame lengths passed to codec constructors are clamped to at least this
+/// value to ensure enough space for protocol overhead.
+pub const MIN_FRAME_LENGTH: usize = 64;
+
+/// Maximum frame length in bytes (16 MiB).
+///
+/// Frame lengths passed to codec constructors are clamped to at most this
+/// value to prevent unbounded memory allocation.
+pub const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
 
 pub(crate) fn clamp_frame_length(value: usize) -> usize {
     value.clamp(MIN_FRAME_LENGTH, MAX_FRAME_LENGTH)
@@ -89,6 +124,9 @@ impl Default for LengthDelimitedFrameCodec {
     }
 }
 
+/// Length prefix header size (4 bytes for big-endian u32).
+pub const LENGTH_HEADER_SIZE: usize = 4;
+
 #[doc(hidden)]
 pub struct LengthDelimitedDecoder {
     inner: LengthDelimitedCodec,
@@ -103,9 +141,77 @@ impl Decoder for LengthDelimitedDecoder {
     }
 
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        self.inner
-            .decode_eof(src)
-            .map(|opt| opt.map(BytesMut::freeze))
+        // Clean close: no data remaining at frame boundary
+        if src.is_empty() {
+            return Ok(None);
+        }
+
+        // Try to decode any remaining data
+        match self.inner.decode_eof(src) {
+            Ok(Some(frame)) => Ok(Some(BytesMut::freeze(frame))),
+            // Inner decoder returns Ok(None) for incomplete data at EOF - synthesise
+            // our structured EOF error with context about what was received.
+            Ok(None) => Err(build_eof_error(src)),
+            // Inner decoder returned an error. Preserve framing errors (InvalidData)
+            // like oversized frames to maintain correct recovery policy (Drop vs
+            // Disconnect). For all other errors (typically incomplete data indicated
+            // by Other kind), convert to our structured EOF error.
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => Err(e),
+            Err(e) => {
+                // Log inner error for diagnostics before replacing with structured EOF error
+                tracing::debug!(
+                    inner_error = %e,
+                    "inner decoder error at EOF, converting to structured EOF error"
+                );
+                Err(build_eof_error(src))
+            }
+        }
+    }
+}
+
+/// Parse a u32 length prefix from a 4-byte big-endian array.
+#[expect(
+    clippy::big_endian_bytes,
+    reason = "Wire endianness is explicit; length-delimited codec uses big-endian."
+)]
+fn parse_length_header(bytes: [u8; LENGTH_HEADER_SIZE]) -> usize {
+    u32::from_be_bytes(bytes) as usize
+}
+
+/// Build the appropriate EOF error based on remaining buffer state.
+///
+/// Determines whether the connection closed mid-header or mid-frame:
+///
+/// - [`EofError::MidHeader`]: Fewer than 4 bytes received (incomplete length prefix). The
+///   connection closed before the full frame header could be read.
+/// - [`EofError::MidFrame`]: Header complete but payload truncated. The length prefix was
+///   successfully read but the connection closed before the full payload arrived.
+fn build_eof_error(src: &BytesMut) -> io::Error {
+    let bytes_received = src.len();
+
+    // Use safe accessor to extract the length header if present
+    let expected = src
+        .get(..LENGTH_HEADER_SIZE)
+        .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
+        .map(parse_length_header);
+
+    match expected {
+        Some(expected) => {
+            // EOF during payload read - we have a header but incomplete payload
+            CodecError::Eof(EofError::MidFrame {
+                bytes_received: bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
+                expected,
+            })
+            .into()
+        }
+        None => {
+            // EOF during header read
+            CodecError::Eof(EofError::MidHeader {
+                bytes_received,
+                header_size: LENGTH_HEADER_SIZE,
+            })
+            .into()
+        }
     }
 }
 
@@ -120,10 +226,11 @@ impl Encoder<Bytes> for LengthDelimitedEncoder {
 
     fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if item.len() > self.max_frame_length {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "frame exceeds max_frame_length",
-            ));
+            return Err(CodecError::Framing(FramingError::OversizedFrame {
+                size: item.len(),
+                max: self.max_frame_length,
+            })
+            .into());
         }
         self.inner.encode(item, dst)
     }
@@ -155,62 +262,4 @@ impl FrameCodec for LengthDelimitedFrameCodec {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn length_delimited_codec_clamps_max_frame_length() {
-        let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH.saturating_add(1));
-        assert_eq!(codec.max_frame_length(), MAX_FRAME_LENGTH);
-    }
-
-    #[test]
-    fn length_delimited_codec_round_trips_payload() {
-        let codec = LengthDelimitedFrameCodec::new(128);
-        let mut encoder = codec.encoder();
-        let mut decoder = codec.decoder();
-
-        let payload = Bytes::from(vec![1_u8, 2, 3, 4]);
-        let frame = codec.wrap_payload(payload.clone());
-
-        let mut buf = BytesMut::new();
-        encoder
-            .encode(frame, &mut buf)
-            .expect("encode should succeed");
-
-        let decoded_frame = decoder
-            .decode(&mut buf)
-            .expect("decode should succeed")
-            .expect("expected a frame");
-
-        assert_eq!(
-            LengthDelimitedFrameCodec::frame_payload(&decoded_frame),
-            payload.as_ref()
-        );
-    }
-
-    #[test]
-    fn length_delimited_codec_rejects_oversized_payloads() {
-        let codec = LengthDelimitedFrameCodec::new(MIN_FRAME_LENGTH);
-        let mut encoder = codec.encoder();
-
-        let payload = Bytes::from(vec![0_u8; MIN_FRAME_LENGTH.saturating_add(1)]);
-        let frame = codec.wrap_payload(payload);
-        let mut buf = BytesMut::new();
-
-        let err = encoder
-            .encode(frame, &mut buf)
-            .expect_err("expected encode to fail for oversized frame");
-        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
-    }
-
-    #[test]
-    fn length_delimited_wrap_payload_reuses_bytes() {
-        let codec = LengthDelimitedFrameCodec::new(128);
-        let payload = Bytes::from(vec![9_u8; 4]);
-        let frame = codec.wrap_payload(payload.clone());
-
-        assert_eq!(payload.len(), frame.len());
-        assert_eq!(payload.as_ref().as_ptr(), frame.as_ref().as_ptr());
-    }
-}
+mod tests;

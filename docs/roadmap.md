@@ -349,15 +349,15 @@ integration boundaries.
     payload type.
   - [x] Reuse a per-connection encoder, so sequence counters can advance
     deterministically.
-- [ ] 9.1.2. Introduce a `CodecError` taxonomy.
-  - [ ] Add a `CodecError` enum separating framing, protocol, and IO failures.
-  - [ ] Extend `WireframeError` to surface `CodecError` and add structured
+- [x] 9.1.2. Introduce a `CodecError` taxonomy.
+  - [x] Add a `CodecError` enum separating framing, protocol, and IO failures.
+  - [x] Extend `WireframeError` to surface `CodecError` and add structured
     logging fields for codec failures.
-  - [ ] Define recovery policy hooks for malformed frames (drop, quarantine, or
+  - [x] Define recovery policy hooks for malformed frames (drop, quarantine, or
     disconnect) and document the default behaviour.
-  - [ ] Define how EOF mid-frame is surfaced to handlers or protocol hooks, and
+  - [x] Define how EOF mid-frame is surfaced to handlers or protocol hooks, and
     add tests for partial-frame closure handling.
-  - [ ] Add tests that validate error propagation, recovery policy, and
+  - [x] Add tests that validate error propagation, recovery policy, and
     structured logging fields.
 - [ ] 9.1.3. Enable zero-copy payload extraction for codecs.
   - [ ] Update `FrameCodec::frame_payload` to return a `Bytes`-backed view (or

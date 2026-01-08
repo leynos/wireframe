@@ -197,6 +197,9 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
 
 /// A generic error type for wireframe operations.
 ///
+/// This enum distinguishes between transport-level I/O errors, protocol-defined
+/// logical errors, and codec-layer errors with structured context.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -218,6 +221,12 @@ pub enum WireframeError<E = ()> {
     Io(std::io::Error),
     /// A protocol-defined logical error.
     Protocol(E),
+    /// A codec-layer error with structured context.
+    ///
+    /// Codec errors are categorised by their origin: framing errors (wire-level
+    /// frame boundary issues), protocol errors (semantic violations), I/O
+    /// errors, or EOF conditions. See [`crate::codec::CodecError`] for details.
+    Codec(crate::codec::CodecError),
 }
 
 impl<E> From<E> for WireframeError<E> {
@@ -228,6 +237,20 @@ impl<E> WireframeError<E> {
     /// Convert an I/O error into a `WireframeError`.
     #[must_use]
     pub fn from_io(e: std::io::Error) -> Self { WireframeError::Io(e) }
+
+    /// Convert a codec error into a `WireframeError`.
+    #[must_use]
+    pub fn from_codec(e: crate::codec::CodecError) -> Self { WireframeError::Codec(e) }
+
+    /// Returns true if this error represents a clean connection close.
+    ///
+    /// A clean close occurs when the peer closes the connection at a frame
+    /// boundary, indicating no data was lost. Delegates to
+    /// [`CodecError::is_clean_close`](crate::codec::CodecError::is_clean_close).
+    #[must_use]
+    pub fn is_clean_close(&self) -> bool {
+        matches!(self, WireframeError::Codec(e) if e.is_clean_close())
+    }
 }
 
 impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
@@ -235,6 +258,7 @@ impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
         match self {
             WireframeError::Io(e) => write!(f, "transport error: {e}"),
             WireframeError::Protocol(e) => write!(f, "protocol error: {e:?}"),
+            WireframeError::Codec(e) => write!(f, "codec error: {e}"),
         }
     }
 }
@@ -247,6 +271,7 @@ where
         match self {
             WireframeError::Io(e) => Some(e),
             WireframeError::Protocol(e) => Some(e),
+            WireframeError::Codec(e) => Some(e),
         }
     }
 }

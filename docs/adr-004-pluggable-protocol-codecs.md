@@ -246,14 +246,34 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
 
 ## Outstanding Decisions
 
-- Decide whether to introduce a `CodecError` taxonomy and recovery policy
-  (drop frame versus close connection) for protocol-specific failures.
 - Decide how to realign fragmentation with the `FragmentAdapter` design so
   opt-in behaviour and composition order are explicit.
 - Decide whether to unify codec handling between the app router path and the
   `Connection` actor to ensure protocol hooks run consistently.
 - Future protocol adoption may still require revisiting how correlation
   identifiers are surfaced for FIFO protocols (for example, RESP).
+
+## Resolved Decisions
+
+### CodecError taxonomy and recovery policies (resolved 2026-01-06)
+
+A structured `CodecError` taxonomy has been implemented with the following
+design:
+
+- **Three-tier error classification plus EOF**: `FramingError` for wire-level
+  issues, `ProtocolError` for semantic violations, `io::Error` for transport
+  failures (wrapped), and `EofError` with clean/mid-frame/mid-header variants.
+- **Recovery policies**: Each error type has a default policy (`Drop`,
+  `Quarantine`, or `Disconnect`). Custom policies can be installed via the
+  `RecoveryPolicyHook` trait.
+- **Backward compatibility**: `From<CodecError> for io::Error` preserves
+  compatibility with the `tokio_util::codec` trait bounds.
+- **Protocol hooks**: `WireframeProtocol::on_eof` provides a callback for EOF
+  conditions during frame decoding.
+- **Observability**: The `wireframe_codec_errors_total` metric tracks codec
+  errors by type and recovery policy when the `metrics` feature is enabled.
+
+See `src/codec/error.rs` and `src/codec/recovery.rs` for implementation details.
 
 ## Architectural Rationale
 

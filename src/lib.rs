@@ -14,7 +14,21 @@ pub mod codec;
 pub use app::error::Result;
 pub mod client;
 pub mod serializer;
-pub use codec::{FrameCodec, LengthDelimitedFrameCodec};
+pub use codec::{
+    CodecError,
+    CodecErrorContext,
+    DefaultRecoveryPolicy,
+    EofError,
+    FrameCodec,
+    FramingError,
+    LengthDelimitedFrameCodec,
+    MAX_FRAME_LENGTH,
+    MIN_FRAME_LENGTH,
+    ProtocolError,
+    RecoveryConfig,
+    RecoveryPolicy,
+    RecoveryPolicyHook,
+};
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;
 pub mod correlation;
@@ -72,7 +86,7 @@ pub use message_assembler::{
     MessageKey,
     ParsedFrameHeader,
 };
-pub use metrics::{CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
+pub use metrics::{CODEC_ERRORS, CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
 pub use request::{
     DEFAULT_BODY_CHANNEL_CAPACITY,
     RequestBodyReader,
