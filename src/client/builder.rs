@@ -1,6 +1,11 @@
 //! Builder for configuring and connecting a wireframe client.
 
-use std::{future::Future, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    net::SocketAddr,
+    sync::{Arc, atomic::AtomicU64},
+    time::Duration,
+};
 
 use bincode::Encode;
 use tokio::net::TcpSocket;
@@ -544,6 +549,7 @@ where
             connection_state,
             on_disconnect: self.lifecycle_hooks.on_disconnect,
             on_error: self.lifecycle_hooks.on_error,
+            correlation_counter: AtomicU64::new(1),
         })
     }
 }
