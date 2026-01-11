@@ -1,13 +1,14 @@
 #![cfg(not(loom))]
 //! Cucumber test runner for integration tests.
 //!
-//! Orchestrates twelve distinct test suites:
+//! Orchestrates thirteen distinct test suites:
 //! - `PanicWorld`: Tests server resilience during connection panics
 //! - `CorrelationWorld`: Tests correlation ID propagation in multi-frame responses
 //! - `StreamEndWorld`: Verifies end-of-stream signalling
 //! - `MultiPacketWorld`: Tests channel-backed multi-packet response delivery
 //! - `FragmentWorld`: Tests fragment metadata enforcement and reassembly primitives
 //! - `MessageAssemblerWorld`: Tests message assembler header parsing
+//! - `MessageAssemblyWorld`: Tests message assembly multiplexing and continuity
 //! - `ClientRuntimeWorld`: Tests client runtime configuration and framing behaviour
 //! - `CodecStatefulWorld`: Tests instance-aware codec sequence counters
 //! - `RequestPartsWorld`: Tests request parts metadata handling
@@ -25,6 +26,7 @@
 //! tests/features/multi_packet.feature        -> MultiPacketWorld context
 //! tests/features/fragment.feature            -> FragmentWorld context
 //! tests/features/message_assembler.feature   -> MessageAssemblerWorld context
+//! tests/features/message_assembly.feature    -> MessageAssemblyWorld context
 //! tests/features/client_runtime.feature      -> ClientRuntimeWorld context
 //! tests/features/codec_stateful.feature      -> CodecStatefulWorld context
 //! tests/features/request_parts.feature       -> RequestPartsWorld context
@@ -49,6 +51,7 @@ use world::{
     CorrelationWorld,
     FragmentWorld,
     MessageAssemblerWorld,
+    MessageAssemblyWorld,
     MultiPacketWorld,
     PanicWorld,
     RequestPartsWorld,
@@ -63,6 +66,7 @@ async fn main() {
     MultiPacketWorld::run("tests/features/multi_packet.feature").await;
     FragmentWorld::run("tests/features/fragment.feature").await;
     MessageAssemblerWorld::run("tests/features/message_assembler.feature").await;
+    MessageAssemblyWorld::run("tests/features/message_assembly.feature").await;
     ClientRuntimeWorld::run("tests/features/client_runtime.feature").await;
     CodecStatefulWorld::run("tests/features/codec_stateful.feature").await;
     RequestPartsWorld::run("tests/features/request_parts.feature").await;

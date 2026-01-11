@@ -281,8 +281,8 @@ and standardized per-connection memory budgets.
   multi-frame parsing.
 - [x] 8.2.2. Implement per-frame header parsing with "first frame" versus
   "continuation frame" handling.
-- [ ] 8.2.3. Add message key support for multiplexing interleaved assemblies.
-- [ ] 8.2.4. Implement continuity validation (ordering, missing frames, and
+- [x] 8.2.3. Add message key support for multiplexing interleaved assemblies.
+- [x] 8.2.4. Implement continuity validation (ordering, missing frames, and
   duplicate frames).
 - [ ] 8.2.5. Integrate with the connection actor's inbound path, applying
   after transport fragmentation.

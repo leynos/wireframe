@@ -37,6 +37,24 @@ impl fmt::Display for FrameSequence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.0) }
 }
 
+impl FrameSequence {
+    /// Increment the sequence, returning `None` on overflow.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::message_assembler::FrameSequence;
+    ///
+    /// let seq = FrameSequence(1);
+    /// assert_eq!(seq.checked_increment(), Some(FrameSequence(2)));
+    ///
+    /// let max = FrameSequence(u32::MAX);
+    /// assert_eq!(max.checked_increment(), None);
+    /// ```
+    #[must_use]
+    pub fn checked_increment(self) -> Option<Self> { self.0.checked_add(1).map(Self) }
+}
+
 /// Parsed per-frame header information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FrameHeader {
