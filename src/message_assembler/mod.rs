@@ -37,7 +37,7 @@ pub use header::{
     ParsedFrameHeader,
 };
 pub use series::MessageSeries;
-pub use state::{AssembledMessage, MessageAssemblyState};
+pub use state::{AssembledMessage, FirstFrameInput, MessageAssemblyState};
 
 /// Hook trait for protocol-specific multi-frame request parsing.
 ///

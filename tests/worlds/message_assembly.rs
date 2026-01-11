@@ -12,6 +12,7 @@ use wireframe::message_assembler::{
     AssembledMessage,
     ContinuationFrameHeader,
     FirstFrameHeader,
+    FirstFrameInput,
     FrameSequence,
     MessageAssemblyError,
     MessageAssemblyState,
@@ -20,6 +21,86 @@ use wireframe::message_assembler::{
 };
 
 use super::TestResult;
+
+/// Parameters for creating a first frame.
+#[derive(Debug)]
+pub struct FirstFrameParams {
+    /// Message key.
+    pub key: MessageKey,
+    /// Metadata bytes.
+    pub metadata: Vec<u8>,
+    /// Body bytes.
+    pub body: Vec<u8>,
+    /// Whether this is the final frame.
+    pub is_last: bool,
+}
+
+impl FirstFrameParams {
+    /// Create parameters for a first frame with default values.
+    #[must_use]
+    pub fn new(key: MessageKey, body: Vec<u8>) -> Self {
+        Self {
+            key,
+            metadata: vec![],
+            body,
+            is_last: false,
+        }
+    }
+
+    /// Set metadata bytes.
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Vec<u8>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    /// Mark as the final frame.
+    #[must_use]
+    pub fn final_frame(mut self) -> Self {
+        self.is_last = true;
+        self
+    }
+}
+
+/// Parameters for creating a continuation frame.
+#[derive(Debug)]
+pub struct ContinuationFrameParams {
+    /// Message key.
+    pub key: MessageKey,
+    /// Optional sequence number.
+    pub sequence: Option<FrameSequence>,
+    /// Body bytes.
+    pub body: Vec<u8>,
+    /// Whether this is the final frame.
+    pub is_last: bool,
+}
+
+impl ContinuationFrameParams {
+    /// Create parameters for a continuation frame with default sequence 1.
+    #[must_use]
+    pub fn new(key: MessageKey, body: Vec<u8>) -> Self {
+        Self {
+            key,
+            sequence: Some(FrameSequence(1)),
+            body,
+            is_last: false,
+        }
+    }
+
+    /// Set the sequence number.
+    #[must_use]
+    pub fn with_sequence(mut self, sequence: FrameSequence) -> Self {
+        self.sequence = Some(sequence);
+        self
+    }
+
+    /// Mark as the final frame.
+    #[must_use]
+    pub fn final_frame(mut self) -> Self {
+        self.is_last = true;
+        self
+    }
+}
 
 /// Cucumber world for message assembly tests.
 #[derive(Default, World)]
@@ -92,18 +173,17 @@ impl MessageAssemblyWorld {
     }
 
     /// Queue a first frame for later acceptance.
-    #[expect(clippy::too_many_arguments, reason = "test helper clarity")]
-    pub fn add_first_frame(&mut self, key: u64, metadata: Vec<u8>, body: Vec<u8>, is_last: bool) {
+    pub fn add_first_frame(&mut self, params: FirstFrameParams) {
         self.pending_first_frames.push(PendingFirstFrame {
             header: FirstFrameHeader {
-                message_key: MessageKey(key),
-                metadata_len: metadata.len(),
-                body_len: body.len(),
+                message_key: params.key,
+                metadata_len: params.metadata.len(),
+                body_len: params.body.len(),
                 total_body_len: None,
-                is_last,
+                is_last: params.is_last,
             },
-            metadata,
-            body,
+            metadata: params.metadata,
+            body: params.body,
         });
     }
 
@@ -123,9 +203,7 @@ impl MessageAssemblyWorld {
             return Err("time not set".into());
         };
         self.last_result = Some(state.accept_first_frame_at(
-            &pending.header,
-            pending.metadata,
-            &pending.body,
+            FirstFrameInput::new(&pending.header, pending.metadata, &pending.body),
             now,
         ));
         if let Some(Ok(Some(msg))) = &self.last_result {
@@ -148,8 +226,10 @@ impl MessageAssemblyWorld {
         };
 
         while let Some(pending) = self.pending_first_frames.pop() {
-            let result =
-                state.accept_first_frame_at(&pending.header, pending.metadata, &pending.body, now);
+            let result = state.accept_first_frame_at(
+                FirstFrameInput::new(&pending.header, pending.metadata, &pending.body),
+                now,
+            );
             if let Ok(Some(msg)) = &result {
                 self.completed_messages.push(msg.clone());
             }
@@ -163,14 +243,11 @@ impl MessageAssemblyWorld {
     /// # Errors
     ///
     /// Returns an error if state not initialised or time not set.
-    #[expect(clippy::too_many_arguments, reason = "test helper clarity")]
-    pub fn accept_continuation(
-        &mut self,
-        key: u64,
-        sequence: Option<u32>,
-        body: &[u8],
-        is_last: bool,
-    ) -> TestResult {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "parameter object consistency with add_first_frame API"
+    )]
+    pub fn accept_continuation(&mut self, params: ContinuationFrameParams) -> TestResult {
         let Some(state) = self.state.as_mut() else {
             return Err("state not initialised".into());
         };
@@ -179,12 +256,12 @@ impl MessageAssemblyWorld {
         };
 
         let header = ContinuationFrameHeader {
-            message_key: MessageKey(key),
-            sequence: sequence.map(FrameSequence),
-            body_len: body.len(),
-            is_last,
+            message_key: params.key,
+            sequence: params.sequence,
+            body_len: params.body.len(),
+            is_last: params.is_last,
         };
-        self.last_result = Some(state.accept_continuation_frame_at(&header, body, now));
+        self.last_result = Some(state.accept_continuation_frame_at(&header, &params.body, now));
         if let Some(Ok(Some(msg))) = &self.last_result {
             self.completed_messages.push(msg.clone());
         }
@@ -234,11 +311,11 @@ impl MessageAssemblyWorld {
 
     /// Body of the completed message for the given key.
     #[must_use]
-    pub fn completed_body_for_key(&self, key: u64) -> Option<&[u8]> {
+    pub fn completed_body_for_key(&self, key: MessageKey) -> Option<&[u8]> {
         self.completed_messages
             .iter()
             .rev()
-            .find(|m| m.message_key() == MessageKey(key))
+            .find(|m| m.message_key() == key)
             .map(AssembledMessage::body)
     }
 
@@ -253,58 +330,58 @@ impl MessageAssemblyWorld {
 
     /// Whether the last error is a sequence mismatch.
     #[must_use]
-    pub fn is_sequence_mismatch(&self, expected: u32, found: u32) -> bool {
+    pub fn is_sequence_mismatch(&self, expected: FrameSequence, found: FrameSequence) -> bool {
         matches!(
             self.last_error(),
             Some(MessageAssemblyError::Series(MessageSeriesError::SequenceMismatch {
                 expected: e,
                 found: f,
-            })) if e.0 == expected && f.0 == found
+            })) if *e == expected && *f == found
         )
     }
 
     /// Whether the last error is a duplicate frame.
     #[must_use]
-    pub fn is_duplicate_frame(&self, key: u64, sequence: u32) -> bool {
+    pub fn is_duplicate_frame(&self, key: MessageKey, sequence: FrameSequence) -> bool {
         matches!(
             self.last_error(),
             Some(MessageAssemblyError::Series(MessageSeriesError::DuplicateFrame {
                 key: k,
                 sequence: s,
-            })) if k.0 == key && s.0 == sequence
+            })) if *k == key && *s == sequence
         )
     }
 
     /// Whether the last error is a missing first frame.
     #[must_use]
-    pub fn is_missing_first_frame(&self, key: u64) -> bool {
+    pub fn is_missing_first_frame(&self, key: MessageKey) -> bool {
         matches!(
             self.last_error(),
             Some(MessageAssemblyError::Series(MessageSeriesError::MissingFirstFrame {
                 key: k,
-            })) if k.0 == key
+            })) if *k == key
         )
     }
 
     /// Whether the last error is a duplicate first frame.
     #[must_use]
-    pub fn is_duplicate_first_frame(&self, key: u64) -> bool {
+    pub fn is_duplicate_first_frame(&self, key: MessageKey) -> bool {
         matches!(
             self.last_error(),
-            Some(MessageAssemblyError::DuplicateFirstFrame { key: k }) if k.0 == key
+            Some(MessageAssemblyError::DuplicateFirstFrame { key: k }) if *k == key
         )
     }
 
     /// Whether the last error is message too large.
     #[must_use]
-    pub fn is_message_too_large(&self, key: u64) -> bool {
+    pub fn is_message_too_large(&self, key: MessageKey) -> bool {
         matches!(
             self.last_error(),
-            Some(MessageAssemblyError::MessageTooLarge { key: k, .. }) if k.0 == key
+            Some(MessageAssemblyError::MessageTooLarge { key: k, .. }) if *k == key
         )
     }
 
     /// Whether the given key was evicted.
     #[must_use]
-    pub fn was_evicted(&self, key: u64) -> bool { self.evicted_keys.contains(&MessageKey(key)) }
+    pub fn was_evicted(&self, key: MessageKey) -> bool { self.evicted_keys.contains(&key) }
 }

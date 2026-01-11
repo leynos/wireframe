@@ -1,8 +1,15 @@
 //! Step definitions for message assembly multiplexing and continuity validation.
 
 use cucumber::{given, then, when};
+use wireframe::message_assembler::{FrameSequence, MessageKey};
 
-use crate::world::{MessageAssemblyWorld, TestResult};
+use crate::world::{ContinuationFrameParams, FirstFrameParams, MessageAssemblyWorld, TestResult};
+
+/// Convert primitive key to domain type at the boundary.
+fn to_key(key: u64) -> MessageKey { MessageKey(key) }
+
+/// Convert primitive sequence to domain type at the boundary.
+fn to_seq(seq: u32) -> FrameSequence { FrameSequence(seq) }
 
 /// Helper function to reduce duplication in Then step assertions
 fn assert_condition(condition: bool, error_msg: impl Into<String>) -> TestResult {
@@ -29,17 +36,19 @@ fn given_first_frame_with_metadata(
     metadata: String,
     body: String,
 ) {
-    world.add_first_frame(key, metadata.into_bytes(), body.into_bytes(), false);
+    world.add_first_frame(
+        FirstFrameParams::new(to_key(key), body.into_bytes()).with_metadata(metadata.into_bytes()),
+    );
 }
 
 #[given(expr = "a first frame for key {int} with body {string}")]
 fn given_first_frame(world: &mut MessageAssemblyWorld, key: u64, body: String) {
-    world.add_first_frame(key, vec![], body.into_bytes(), false);
+    world.add_first_frame(FirstFrameParams::new(to_key(key), body.into_bytes()));
 }
 
 #[given(expr = "a final first frame for key {int} with body {string}")]
 fn given_final_first_frame(world: &mut MessageAssemblyWorld, key: u64, body: String) {
-    world.add_first_frame(key, vec![], body.into_bytes(), true);
+    world.add_first_frame(FirstFrameParams::new(to_key(key), body.into_bytes()).final_frame());
 }
 
 // =============================================================================
@@ -62,40 +71,38 @@ fn when_all_first_frames_accepted(world: &mut MessageAssemblyWorld) -> TestResul
 }
 
 #[when(expr = "a final continuation for key {int} with sequence {int} and body {string} arrives")]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "cucumber hands {string} captures to step functions as owned strings"
-)]
 fn when_final_continuation(
     world: &mut MessageAssemblyWorld,
     key: u64,
     seq: u32,
     body: String,
 ) -> TestResult {
-    world.accept_continuation(key, Some(seq), body.as_bytes(), true)
+    world.accept_continuation(
+        ContinuationFrameParams::new(to_key(key), body.into_bytes())
+            .with_sequence(to_seq(seq))
+            .final_frame(),
+    )
 }
 
 #[when(expr = "a continuation for key {int} with sequence {int} arrives")]
 fn when_continuation_with_seq(world: &mut MessageAssemblyWorld, key: u64, seq: u32) -> TestResult {
-    world.accept_continuation(key, Some(seq), b"data", false)
+    world.accept_continuation(
+        ContinuationFrameParams::new(to_key(key), b"data".to_vec()).with_sequence(to_seq(seq)),
+    )
 }
 
 #[when(expr = "a continuation for key {int} with body {string} arrives")]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "cucumber hands {string} captures to step functions as owned strings"
-)]
 fn when_continuation_with_body(
     world: &mut MessageAssemblyWorld,
     key: u64,
     body: String,
 ) -> TestResult {
-    world.accept_continuation(key, Some(1), body.as_bytes(), false)
+    world.accept_continuation(ContinuationFrameParams::new(to_key(key), body.into_bytes()))
 }
 
 #[when(expr = "another first frame for key {int} with body {string} arrives")]
 fn when_another_first_frame(world: &mut MessageAssemblyWorld, key: u64, body: String) {
-    world.add_first_frame(key, vec![], body.into_bytes(), false);
+    world.add_first_frame(FirstFrameParams::new(to_key(key), body.into_bytes()));
     // Ignore result, we check error in Then
     let _ = world.accept_first_frame();
 }
@@ -144,7 +151,7 @@ fn then_completes_with_body(world: &mut MessageAssemblyWorld, body: String) -> T
 )]
 fn then_key_completes(world: &mut MessageAssemblyWorld, key: u64, body: String) -> TestResult {
     let actual = world
-        .completed_body_for_key(key)
+        .completed_body_for_key(to_key(key))
         .ok_or_else(|| format!("expected completed message for key {key}"))?;
     assert_condition(
         actual == body.as_bytes(),
@@ -172,7 +179,7 @@ fn then_error_sequence_mismatch(
     found: u32,
 ) -> TestResult {
     assert_condition(
-        world.is_sequence_mismatch(expected, found),
+        world.is_sequence_mismatch(to_seq(expected), to_seq(found)),
         format!(
             "expected sequence mismatch error, got {:?}",
             world.last_error()
@@ -183,7 +190,7 @@ fn then_error_sequence_mismatch(
 #[then(expr = "the error is duplicate frame for key {int} sequence {int}")]
 fn then_error_duplicate_frame(world: &mut MessageAssemblyWorld, key: u64, seq: u32) -> TestResult {
     assert_condition(
-        world.is_duplicate_frame(key, seq),
+        world.is_duplicate_frame(to_key(key), to_seq(seq)),
         format!(
             "expected duplicate frame error, got {:?}",
             world.last_error()
@@ -194,7 +201,7 @@ fn then_error_duplicate_frame(world: &mut MessageAssemblyWorld, key: u64, seq: u
 #[then(expr = "the error is missing first frame for key {int}")]
 fn then_error_missing_first_frame(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
     assert_condition(
-        world.is_missing_first_frame(key),
+        world.is_missing_first_frame(to_key(key)),
         format!(
             "expected missing first frame error, got {:?}",
             world.last_error()
@@ -205,7 +212,7 @@ fn then_error_missing_first_frame(world: &mut MessageAssemblyWorld, key: u64) ->
 #[then(expr = "the error is duplicate first frame for key {int}")]
 fn then_error_duplicate_first_frame(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
     assert_condition(
-        world.is_duplicate_first_frame(key),
+        world.is_duplicate_first_frame(to_key(key)),
         format!(
             "expected duplicate first frame error, got {:?}",
             world.last_error()
@@ -216,7 +223,7 @@ fn then_error_duplicate_first_frame(world: &mut MessageAssemblyWorld, key: u64) 
 #[then(expr = "the error is message too large for key {int}")]
 fn then_error_message_too_large(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
     assert_condition(
-        world.is_message_too_large(key),
+        world.is_message_too_large(to_key(key)),
         format!(
             "expected message too large error, got {:?}",
             world.last_error()
@@ -227,7 +234,7 @@ fn then_error_message_too_large(world: &mut MessageAssemblyWorld, key: u64) -> T
 #[then(expr = "key {int} was evicted")]
 fn then_key_evicted(world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
     assert_condition(
-        world.was_evicted(key),
+        world.was_evicted(to_key(key)),
         format!("expected key {key} to be evicted"),
     )
 }

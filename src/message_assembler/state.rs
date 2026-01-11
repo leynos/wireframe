@@ -18,6 +18,47 @@ use super::{
     series::MessageSeries,
 };
 
+/// Input data for a first frame.
+///
+/// Groups the header and payload components that comprise a first frame.
+///
+/// # Examples
+///
+/// ```
+/// use wireframe::message_assembler::{FirstFrameHeader, FirstFrameInput, MessageKey};
+///
+/// let header = FirstFrameHeader {
+///     message_key: MessageKey(1),
+///     metadata_len: 2,
+///     body_len: 5,
+///     total_body_len: None,
+///     is_last: false,
+/// };
+/// let input = FirstFrameInput::new(&header, vec![0x01, 0x02], b"hello");
+/// assert_eq!(input.header.message_key, MessageKey(1));
+/// ```
+#[derive(Debug)]
+pub struct FirstFrameInput<'a> {
+    /// The frame header.
+    pub header: &'a FirstFrameHeader,
+    /// Protocol-specific metadata.
+    pub metadata: Vec<u8>,
+    /// Body payload slice.
+    pub body: &'a [u8],
+}
+
+impl<'a> FirstFrameInput<'a> {
+    /// Create a new first frame input.
+    #[must_use]
+    pub fn new(header: &'a FirstFrameHeader, metadata: Vec<u8>, body: &'a [u8]) -> Self {
+        Self {
+            header,
+            metadata,
+            body,
+        }
+    }
+}
+
 /// Partial message assembly in progress.
 #[derive(Debug)]
 struct PartialAssembly {
@@ -106,6 +147,7 @@ impl AssembledMessage {
 /// use wireframe::message_assembler::{
 ///     ContinuationFrameHeader,
 ///     FirstFrameHeader,
+///     FirstFrameInput,
 ///     FrameSequence,
 ///     MessageAssemblyState,
 ///     MessageKey,
@@ -122,7 +164,7 @@ impl AssembledMessage {
 ///     total_body_len: Some(10),
 ///     is_last: false,
 /// };
-/// let result = state.accept_first_frame(&first, vec![0x01, 0x02], b"hello");
+/// let result = state.accept_first_frame(FirstFrameInput::new(&first, vec![0x01, 0x02], b"hello"));
 /// assert!(result.is_ok());
 /// assert!(result.unwrap().is_none()); // Not yet complete
 ///
@@ -175,11 +217,9 @@ impl MessageAssemblyState {
     /// if the body exceeds the configured limit.
     pub fn accept_first_frame(
         &mut self,
-        header: &FirstFrameHeader,
-        metadata: Vec<u8>,
-        body: &[u8],
+        input: FirstFrameInput<'_>,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
-        self.accept_first_frame_at(header, metadata, body, Instant::now())
+        self.accept_first_frame_at(input, Instant::now())
     }
 
     /// Process a first frame with an explicit timestamp.
@@ -191,20 +231,14 @@ impl MessageAssemblyState {
     /// Returns [`MessageAssemblyError::DuplicateFirstFrame`] if an assembly
     /// for this key is already in progress, or [`MessageAssemblyError::MessageTooLarge`]
     /// if the body exceeds the configured limit.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "timestamp parameter needed for deterministic testing"
-    )]
     pub fn accept_first_frame_at(
         &mut self,
-        header: &FirstFrameHeader,
-        metadata: Vec<u8>,
-        body: &[u8],
+        input: FirstFrameInput<'_>,
         now: Instant,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
         self.purge_expired_at(now);
 
-        let key = header.message_key;
+        let key = input.header.message_key;
 
         // Check for duplicate first frame
         if self.assemblies.contains_key(&key) {
@@ -212,25 +246,29 @@ impl MessageAssemblyState {
         }
 
         // Validate body size
-        if body.len() > self.max_message_size.get() {
+        if input.body.len() > self.max_message_size.get() {
             return Err(MessageAssemblyError::MessageTooLarge {
                 key,
-                attempted: body.len(),
+                attempted: input.body.len(),
                 limit: self.max_message_size,
             });
         }
 
-        let series = MessageSeries::from_first_frame(header);
+        let series = MessageSeries::from_first_frame(input.header);
 
         // If this is a single-frame message, return immediately
-        if header.is_last {
-            return Ok(Some(AssembledMessage::new(key, metadata, body.to_vec())));
+        if input.header.is_last {
+            return Ok(Some(AssembledMessage::new(
+                key,
+                input.metadata,
+                input.body.to_vec(),
+            )));
         }
 
         // Start new assembly
         let mut partial = PartialAssembly::new(series, now);
-        partial.set_metadata(metadata);
-        partial.push_body(body);
+        partial.set_metadata(input.metadata);
+        partial.push_body(input.body);
         self.assemblies.insert(key, partial);
 
         Ok(None)

@@ -81,6 +81,7 @@ pub use message_assembler::{
     AssembledMessage,
     ContinuationFrameHeader,
     FirstFrameHeader,
+    FirstFrameInput,
     FrameHeader,
     FrameSequence,
     MessageAssembler,
