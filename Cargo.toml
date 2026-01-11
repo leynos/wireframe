@@ -21,7 +21,7 @@ features = ["metrics"]
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
 bincode = "2.0.1"
-tokio = { version = "1.47.1", default-features = false, features = [
+tokio = { version = "1.48.0", default-features = false, features = [
     "net",
     "signal",
     "rt-multi-thread",
@@ -62,7 +62,7 @@ metrics-util = "0.20.0"
 tracing-test = "0.2.5"
 mockall = "0.13.1"
 
-tokio = { version = "1.47.1", default-features = false, features = [
+tokio = { version = "1.48.0", default-features = false, features = [
     "macros",
     "rt-multi-thread",
     "sync",
