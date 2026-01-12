@@ -182,28 +182,7 @@ where
     /// # }
     /// ```
     pub async fn receive<M: Message>(&mut self) -> Result<M, ClientError> {
-        let Some(frame) = self.framed.next().await else {
-            let err = ClientError::Disconnected;
-            self.invoke_error_hook(&err).await;
-            return Err(err);
-        };
-        let bytes = match frame {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = ClientError::from(e);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        let (message, _consumed) = match self.serializer.deserialize(&bytes) {
-            Ok(result) => result,
-            Err(e) => {
-                let err = ClientError::Deserialize(e);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        Ok(message)
+        self.receive_internal().await
     }
 
     /// Send a message and await the next response.
@@ -297,6 +276,32 @@ where
         if let Some(ref handler) = self.on_error {
             handler(error).await;
         }
+    }
+
+    /// Internal helper for receiving and deserializing a frame.
+    async fn receive_internal<R: Message>(&mut self) -> Result<R, ClientError> {
+        let Some(frame) = self.framed.next().await else {
+            let err = ClientError::Disconnected;
+            self.invoke_error_hook(&err).await;
+            return Err(err);
+        };
+        let bytes = match frame {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let err = ClientError::from(e);
+                self.invoke_error_hook(&err).await;
+                return Err(err);
+            }
+        };
+        let (message, _consumed) = match self.serializer.deserialize(&bytes) {
+            Ok(result) => result,
+            Err(e) => {
+                let err = ClientError::Deserialize(e);
+                self.invoke_error_hook(&err).await;
+                return Err(err);
+            }
+        };
+        Ok(message)
     }
 
     /// Generate the next unique correlation identifier for this connection.
@@ -421,28 +426,7 @@ where
     /// # }
     /// ```
     pub async fn receive_envelope<P: Packet>(&mut self) -> Result<P, ClientError> {
-        let Some(frame) = self.framed.next().await else {
-            let err = ClientError::Disconnected;
-            self.invoke_error_hook(&err).await;
-            return Err(err);
-        };
-        let bytes = match frame {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = ClientError::from(e);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        let (envelope, _consumed) = match self.serializer.deserialize(&bytes) {
-            Ok(result) => result,
-            Err(e) => {
-                let err = ClientError::Deserialize(e);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        Ok(envelope)
+        self.receive_internal().await
     }
 
     /// Send an envelope and await a correlated response.

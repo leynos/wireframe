@@ -178,16 +178,21 @@ impl ClientMessagingWorld {
         Ok(())
     }
 
+    /// Get the first sent correlation ID.
+    fn get_first_correlation_id(&self) -> TestResult<u64> {
+        self.sent_correlation_ids
+            .first()
+            .copied()
+            .ok_or_else(|| "no correlation ID captured".into())
+    }
+
     /// Verify that an auto-generated correlation ID was assigned.
     ///
     /// # Errors
     /// Returns an error if no correlation ID was captured or it is zero.
     pub fn verify_auto_generated_correlation(&self) -> TestResult {
-        let id = self
-            .sent_correlation_ids
-            .first()
-            .ok_or("no correlation ID captured")?;
-        if *id == 0 {
+        let id = self.get_first_correlation_id()?;
+        if id == 0 {
             return Err("correlation ID should be non-zero".into());
         }
         Ok(())
@@ -198,11 +203,8 @@ impl ClientMessagingWorld {
     /// # Errors
     /// Returns an error if no correlation ID was captured or it doesn't match.
     pub fn verify_correlation_id(&self, expected: u64) -> TestResult {
-        let id = self
-            .sent_correlation_ids
-            .first()
-            .ok_or("no correlation ID captured")?;
-        if *id != expected {
+        let id = self.get_first_correlation_id()?;
+        if id != expected {
             return Err(format!("expected correlation ID {expected}, got {id}").into());
         }
         Ok(())

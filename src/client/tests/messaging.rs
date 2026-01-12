@@ -17,22 +17,35 @@ use crate::{
     client::ClientError,
 };
 
-/// Echo a single frame back to the client.
-async fn echo_frame<T>(framed: &mut Framed<T, LengthDelimitedCodec>, bytes: &[u8]) -> bool
-where
-    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    let Ok((envelope, _)) = crate::BincodeSerializer.deserialize::<Envelope>(bytes) else {
-        return false;
-    };
-    let Ok(response_bytes) = crate::BincodeSerializer.serialize(&envelope) else {
-        return false;
-    };
-    framed.send(Bytes::from(response_bytes)).await.is_ok()
+/// Server mode for testing various correlation ID scenarios.
+#[derive(Debug, Clone, Copy)]
+enum ServerMode {
+    /// Echo envelopes back with the same correlation ID.
+    Echo,
+    /// Return envelopes with a different (mismatched) correlation ID.
+    Mismatch,
 }
 
-/// Spawn a TCP listener and return an echo server that preserves correlation IDs.
-async fn spawn_envelope_echo_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+/// Process a single frame and return the response bytes.
+fn process_frame(mode: ServerMode, bytes: &[u8]) -> Option<Vec<u8>> {
+    let (envelope, _): (Envelope, usize) = crate::BincodeSerializer.deserialize(bytes).ok()?;
+
+    let response = match mode {
+        ServerMode::Echo => envelope,
+        ServerMode::Mismatch => {
+            let wrong_id = envelope.correlation_id().map(|id| id.wrapping_add(999));
+            let parts = envelope.into_parts();
+            Envelope::new(parts.id(), wrong_id, parts.payload())
+        }
+    };
+
+    crate::BincodeSerializer.serialize(&response).ok()
+}
+
+/// Spawn a test server with the specified mode.
+async fn spawn_test_server(
+    mode: ServerMode,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind listener");
@@ -43,7 +56,10 @@ async fn spawn_envelope_echo_server() -> (std::net::SocketAddr, tokio::task::Joi
         let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
         while let Some(Ok(bytes)) = framed.next().await {
-            if !echo_frame(&mut framed, &bytes).await {
+            let Some(response_bytes) = process_frame(mode, &bytes) else {
+                break;
+            };
+            if framed.send(Bytes::from(response_bytes)).await.is_err() {
                 break;
             }
         }
@@ -52,46 +68,15 @@ async fn spawn_envelope_echo_server() -> (std::net::SocketAddr, tokio::task::Joi
     (addr, handle)
 }
 
-/// Echo a single frame back with a different correlation ID.
-async fn echo_mismatched_frame<T>(
-    framed: &mut Framed<T, LengthDelimitedCodec>,
-    bytes: &[u8],
-) -> bool
-where
-    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    let Ok((envelope, _)) = crate::BincodeSerializer.deserialize::<Envelope>(bytes) else {
-        return false;
-    };
-    let wrong_id = envelope.correlation_id().map(|id| id.wrapping_add(999));
-    let parts = envelope.into_parts();
-    let new_envelope = Envelope::new(parts.id(), wrong_id, parts.payload());
-    let Ok(response_bytes) = crate::BincodeSerializer.serialize(&new_envelope) else {
-        return false;
-    };
-    framed.send(Bytes::from(response_bytes)).await.is_ok()
+/// Spawn a TCP listener and return an echo server that preserves correlation IDs.
+async fn spawn_envelope_echo_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    spawn_test_server(ServerMode::Echo).await
 }
 
 /// Spawn a server that returns envelopes with a different correlation ID.
 async fn spawn_mismatched_correlation_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>)
 {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("listener addr");
-
-    let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept client");
-        let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
-
-        while let Some(Ok(bytes)) = framed.next().await {
-            if !echo_mismatched_frame(&mut framed, &bytes).await {
-                break;
-            }
-        }
-    });
-
-    (addr, handle)
+    spawn_test_server(ServerMode::Mismatch).await
 }
 
 use crate::Serializer;
