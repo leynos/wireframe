@@ -10,6 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use thiserror::Error;
+
 use super::{
     ContinuationFrameHeader,
     FirstFrameHeader,
@@ -49,9 +51,10 @@ pub struct FirstFrameInput<'a> {
 }
 
 /// Error returned when [`FirstFrameInput`] validation fails.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum FirstFrameInputError {
     /// Metadata length in header does not match actual metadata size.
+    #[error("metadata length mismatch: header declares {header_len} bytes, got {actual_len}")]
     MetadataLengthMismatch {
         /// Length declared in header.
         header_len: usize,
@@ -59,6 +62,7 @@ pub enum FirstFrameInputError {
         actual_len: usize,
     },
     /// Body length in header does not match actual body size.
+    #[error("body length mismatch: header declares {header_len} bytes, got {actual_len}")]
     BodyLengthMismatch {
         /// Length declared in header.
         header_len: usize,
@@ -66,29 +70,6 @@ pub enum FirstFrameInputError {
         actual_len: usize,
     },
 }
-
-impl std::fmt::Display for FirstFrameInputError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MetadataLengthMismatch {
-                header_len,
-                actual_len,
-            } => write!(
-                f,
-                "metadata length mismatch: header declares {header_len} bytes, got {actual_len}"
-            ),
-            Self::BodyLengthMismatch {
-                header_len,
-                actual_len,
-            } => write!(
-                f,
-                "body length mismatch: header declares {header_len} bytes, got {actual_len}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for FirstFrameInputError {}
 
 impl<'a> FirstFrameInput<'a> {
     /// Create a new first frame input, validating header lengths against payloads.
@@ -382,6 +363,17 @@ impl MessageAssemblyState {
 
         let key = header.message_key;
 
+        // Validate header body_len matches actual payload
+        if header.body_len != body.len() {
+            return Err(MessageAssemblyError::Series(
+                MessageSeriesError::ContinuationBodyLengthMismatch {
+                    key,
+                    header_len: header.body_len,
+                    actual_len: body.len(),
+                },
+            ));
+        }
+
         let Entry::Occupied(mut entry) = self.assemblies.entry(key) else {
             return Err(MessageAssemblyError::Series(
                 MessageSeriesError::MissingFirstFrame { key },
@@ -392,7 +384,24 @@ impl MessageAssemblyState {
         let status = match entry.get_mut().series.accept_continuation(header) {
             Ok(s) => s,
             Err(e) => {
-                entry.remove();
+                // Only remove assembly for unrecoverable errors.
+                // DuplicateFrame, SequenceMismatch, and SeriesComplete are potentially
+                // recoverable (retransmits, reordering) - retain assembly for recovery
+                // or timeout-based cleanup.
+                match &e {
+                    MessageSeriesError::KeyMismatch { .. }
+                    | MessageSeriesError::SequenceOverflow { .. }
+                    | MessageSeriesError::MissingFirstFrame { .. }
+                    | MessageSeriesError::MissingSequence { .. }
+                    | MessageSeriesError::ContinuationBodyLengthMismatch { .. } => {
+                        entry.remove();
+                    }
+                    MessageSeriesError::DuplicateFrame { .. }
+                    | MessageSeriesError::SequenceMismatch { .. }
+                    | MessageSeriesError::SeriesComplete => {
+                        // Retain assembly for recovery or timeout-based cleanup
+                    }
+                }
                 return Err(MessageAssemblyError::Series(e));
             }
         };

@@ -24,7 +24,7 @@ Success is observable when:
   `MessageKey`, supporting interleaved first/continuation frames.
 - Unit tests cover single-message assembly, interleaved assembly, ordering
   violations, duplicate detection, and size/timeout limits.
-- Cucumber behavioural tests validate the same scenarios through the harness.
+- Integration tests validate the same scenarios through the harness.
 - `docs/users-guide.md` documents the new public interface.
 - `docs/roadmap.md` marks 8.2.3 and 8.2.4 as done.
 
@@ -71,7 +71,7 @@ Success is observable when:
 - [x] Update `src/message_assembler/mod.rs` to export new submodules.
 - [x] Update `src/lib.rs` to re-export new public types.
 - [x] Add unit tests to `src/message_assembler/tests.rs`.
-- [x] Create Cucumber feature `tests/features/message_assembly.feature`.
+- [x] Create integration feature `tests/features/message_assembly.feature`.
 - [x] Create test world `tests/worlds/message_assembly.rs`.
 - [x] Create step definitions `tests/steps/message_assembly_steps.rs`.
 - [x] Register new tests in `tests/cucumber.rs`, `tests/worlds/mod.rs`, and
@@ -88,7 +88,7 @@ Success is observable when:
 
 - Decision: Mirror the `FragmentSeries`/`Reassembler` patterns from
   `src/fragment/` for consistency. Rationale: Reduces cognitive load;
-  developers familiar with transport-level fragmentation will recognise the
+  developers familiar with transport-level fragmentation will recognize the
   analogous protocol-level structures. Date/Author: 2026-01-07 (Codex).
 
 - Decision: Make sequence validation optional by checking if
@@ -134,13 +134,12 @@ patterns:
 
 Testing patterns:
 
-- Unit tests use rstest for parameterised cases
+- Unit tests use rstest for parameterized cases
   (`src/message_assembler/tests.rs`).
-- Cucumber Behaviour-Driven Development (BDD) tests in
-  `tests/features/message_assembly.feature`.
+- Integration tests in `tests/features/message_assembly.feature`.
 - Test helper `TestAssembler` in `src/test_helpers.rs`.
 - World/steps in `tests/worlds/message_assembler.rs` and
-  `tests/steps/message_assembler_steps.rs`.
+  `tests/steps/message_assembly_steps.rs`.
 
 ## Plan of Work
 
@@ -208,7 +207,7 @@ Extend `src/message_assembler/tests.rs` with:
 - `state_enforces_size_limit`
 - `state_purges_expired_assemblies`
 
-### Stage G: Cucumber behavioural tests
+### Stage G: Integration tests
 
 - Create `tests/features/message_assembly.feature` with scenarios for
   single-message assembly, interleaved messages, out-of-order rejection,
@@ -262,7 +261,7 @@ Extend `src/message_assembler/tests.rs` with:
 
        # Edit src/message_assembler/tests.rs or create new test module
 
-8. Add Cucumber tests:
+8. Add integration tests:
 
        # Create tests/features/message_assembly.feature
        # Create tests/worlds/message_assembly.rs
@@ -292,7 +291,7 @@ Acceptance requires:
 - New `MessageAssemblyState` type manages multiple concurrent assemblies with
   `accept_first_frame()` and `accept_continuation_frame()`.
 - Unit tests cover ordering, duplicates, size limits, and timeout purging.
-- Cucumber scenarios for interleaved assembly pass.
+- Integration scenarios for interleaved assembly pass.
 - `make check-fmt`, `make lint`, and `make test` exit with status 0.
 - `docs/users-guide.md` documents the new types.
 - `docs/roadmap.md` marks 8.2.3 and 8.2.4 as done.

@@ -67,6 +67,19 @@ pub enum MessageSeriesError {
         /// Message key that expected a sequence number.
         key: MessageKey,
     },
+    /// Continuation frame body length in header does not match actual payload.
+    #[error(
+        "continuation body length mismatch for key {key}: header declares {header_len} bytes, got \
+         {actual_len}"
+    )]
+    ContinuationBodyLengthMismatch {
+        /// Message key the frame belongs to.
+        key: MessageKey,
+        /// Length declared in header.
+        header_len: usize,
+        /// Actual length of body slice.
+        actual_len: usize,
+    },
 }
 
 /// Errors produced during message assembly.

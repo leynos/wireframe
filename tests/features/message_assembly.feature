@@ -32,23 +32,23 @@ Feature: Message assembly multiplexing and continuity validation
     Then key 2 completes with body "B1B2"
     And the buffered count is 0
 
-  Scenario: Out-of-order continuation is rejected
+  Scenario: Out-of-order continuation is rejected but assembly retained
     Given a first frame for key 1 with body "start"
     When the first frame is accepted
     And a continuation for key 1 with sequence 1 arrives
     Then the assembly result is incomplete
     When a continuation for key 1 with sequence 3 arrives
     Then the error is sequence mismatch expecting 2 but found 3
-    And the buffered count is 0
+    And the buffered count is 1
 
-  Scenario: Duplicate continuation is rejected
+  Scenario: Duplicate continuation is rejected but assembly retained
     Given a first frame for key 1 with body "start"
     When the first frame is accepted
     And a continuation for key 1 with sequence 1 arrives
     And a continuation for key 1 with sequence 2 arrives
     When a continuation for key 1 with sequence 1 arrives
     Then the error is duplicate frame for key 1 sequence 1
-    And the buffered count is 0
+    And the buffered count is 1
 
   Scenario: Continuation without first frame is rejected
     When a continuation for key 99 with sequence 1 arrives

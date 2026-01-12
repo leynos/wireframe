@@ -1,6 +1,9 @@
 //! Test world for message assembly multiplexing and continuity validation.
 #![cfg(not(loom))]
 
+#[path = "message_assembly_params.rs"]
+mod message_assembly_params;
+
 use std::{
     collections::VecDeque,
     fmt,
@@ -9,6 +12,7 @@ use std::{
 };
 
 use cucumber::World;
+pub use message_assembly_params::{ContinuationFrameParams, FirstFrameParams};
 use wireframe::message_assembler::{
     AssembledMessage,
     ContinuationFrameHeader,
@@ -22,86 +26,6 @@ use wireframe::message_assembler::{
 };
 
 use super::TestResult;
-
-/// Parameters for creating a first frame.
-#[derive(Debug)]
-pub struct FirstFrameParams {
-    /// Message key.
-    pub key: MessageKey,
-    /// Metadata bytes.
-    pub metadata: Vec<u8>,
-    /// Body bytes.
-    pub body: Vec<u8>,
-    /// Whether this is the final frame.
-    pub is_last: bool,
-}
-
-impl FirstFrameParams {
-    /// Create parameters for a first frame with default values.
-    #[must_use]
-    pub fn new(key: MessageKey, body: Vec<u8>) -> Self {
-        Self {
-            key,
-            metadata: vec![],
-            body,
-            is_last: false,
-        }
-    }
-
-    /// Set metadata bytes.
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: Vec<u8>) -> Self {
-        self.metadata = metadata;
-        self
-    }
-
-    /// Mark as the final frame.
-    #[must_use]
-    pub fn final_frame(mut self) -> Self {
-        self.is_last = true;
-        self
-    }
-}
-
-/// Parameters for creating a continuation frame.
-#[derive(Debug)]
-pub struct ContinuationFrameParams {
-    /// Message key.
-    pub key: MessageKey,
-    /// Optional sequence number.
-    pub sequence: Option<FrameSequence>,
-    /// Body bytes.
-    pub body: Vec<u8>,
-    /// Whether this is the final frame.
-    pub is_last: bool,
-}
-
-impl ContinuationFrameParams {
-    /// Create parameters for a continuation frame with default sequence 1.
-    #[must_use]
-    pub fn new(key: MessageKey, body: Vec<u8>) -> Self {
-        Self {
-            key,
-            sequence: Some(FrameSequence(1)),
-            body,
-            is_last: false,
-        }
-    }
-
-    /// Set the sequence number.
-    #[must_use]
-    pub fn with_sequence(mut self, sequence: FrameSequence) -> Self {
-        self.sequence = Some(sequence);
-        self
-    }
-
-    /// Mark as the final frame.
-    #[must_use]
-    pub fn final_frame(mut self) -> Self {
-        self.is_last = true;
-        self
-    }
-}
 
 /// Cucumber world for message assembly tests.
 #[derive(Default, World)]
@@ -157,10 +81,11 @@ impl MessageAssemblyWorld {
     ///
     /// # Panics
     ///
-    /// Panics if `max_size` is zero.
+    /// Panics if `max_size` is zero because `MessageAssemblyState` requires a
+    /// positive size limit.
     pub fn create_state(&mut self, max_size: usize, timeout_secs: u64) {
         let Some(size) = NonZeroUsize::new(max_size) else {
-            panic!("max_size must be non-zero");
+            panic!("max_size must be non-zero for MessageAssemblyState");
         };
         self.state = Some(MessageAssemblyState::new(
             size,
@@ -268,10 +193,16 @@ impl MessageAssemblyWorld {
     }
 
     /// Advance the simulated clock.
-    pub fn advance_time(&mut self, secs: u64) {
-        if let Some(current) = self.current_time {
-            self.current_time = Some(current + Duration::from_secs(secs));
-        }
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if time not set.
+    pub fn advance_time(&mut self, secs: u64) -> TestResult {
+        let Some(current) = self.current_time else {
+            return Err("time not set".into());
+        };
+        self.current_time = Some(current + Duration::from_secs(secs));
+        Ok(())
     }
 
     /// Purge expired assemblies and record evicted keys.

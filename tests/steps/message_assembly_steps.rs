@@ -111,7 +111,9 @@ fn when_another_first_frame(
 }
 
 #[when(expr = "time advances by {int} seconds")]
-fn when_time_advances(world: &mut MessageAssemblyWorld, secs: u64) { world.advance_time(secs); }
+fn when_time_advances(world: &mut MessageAssemblyWorld, secs: u64) -> TestResult {
+    world.advance_time(secs)
+}
 
 #[when("expired assemblies are purged")]
 fn when_purge_expired(world: &mut MessageAssemblyWorld) -> TestResult { world.purge_expired() }
