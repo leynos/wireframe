@@ -449,25 +449,28 @@ use std::{num::NonZeroUsize, time::Duration};
 use wireframe::message_assembler::{
     ContinuationFrameHeader,
     FirstFrameHeader,
+    FirstFrameInput,
     FrameSequence,
     MessageAssemblyState,
     MessageKey,
 };
 
 let mut state = MessageAssemblyState::new(
-    NonZeroUsize::new(1_048_576).unwrap(), // 1 MiB max message
-    Duration::from_secs(30),               // 30s timeout for partial assemblies
+    NonZeroUsize::new(1_048_576).expect("non-zero size"), // 1 mebibyte (MiB) max message
+    Duration::from_secs(30),                               // 30s timeout for partial assemblies
 );
 
 // First frame for message key=1
 let first1 = FirstFrameHeader {
     message_key: MessageKey(1),
     metadata_len: 0,
-    body_len: 10,
-    total_body_len: Some(20),
+    body_len: 5,
+    total_body_len: Some(15),
     is_last: false,
 };
-state.accept_first_frame(&first1, vec![], b"hello")?;
+let input1 = FirstFrameInput::new(&first1, vec![], b"hello")
+    .expect("header lengths match");
+state.accept_first_frame(input1)?;
 
 // First frame for message key=2 (interleaved)
 let first2 = FirstFrameHeader {
@@ -477,7 +480,9 @@ let first2 = FirstFrameHeader {
     total_body_len: None,
     is_last: false,
 };
-state.accept_first_frame(&first2, vec![], b"world")?;
+let input2 = FirstFrameInput::new(&first2, vec![], b"world")
+    .expect("header lengths match");
+state.accept_first_frame(input2)?;
 
 // Continuation for key=1 completes its message
 let cont1 = ContinuationFrameHeader {
@@ -544,6 +549,46 @@ let cont3 = ContinuationFrameHeader {
 assert!(matches!(
     series.accept_continuation(&cont3),
     Err(MessageSeriesError::SequenceMismatch { .. })
+));
+
+// Accept sequence 2, then try sequence 1 again (duplicate)
+let cont2 = ContinuationFrameHeader {
+    message_key: MessageKey(1),
+    sequence: Some(FrameSequence(2)),
+    body_len: 5,
+    is_last: false,
+};
+assert_eq!(series.accept_continuation(&cont2), Ok(MessageSeriesStatus::Incomplete));
+
+let dup = ContinuationFrameHeader {
+    message_key: MessageKey(1),
+    sequence: Some(FrameSequence(1)), // Already seen
+    body_len: 5,
+    is_last: false,
+};
+assert!(matches!(
+    series.accept_continuation(&dup),
+    Err(MessageSeriesError::DuplicateFrame { .. })
+));
+
+// Complete the series, then try to add more (SeriesComplete)
+let final_cont = ContinuationFrameHeader {
+    message_key: MessageKey(1),
+    sequence: Some(FrameSequence(3)),
+    body_len: 5,
+    is_last: true,
+};
+assert_eq!(series.accept_continuation(&final_cont), Ok(MessageSeriesStatus::Complete));
+
+let extra = ContinuationFrameHeader {
+    message_key: MessageKey(1),
+    sequence: Some(FrameSequence(4)),
+    body_len: 5,
+    is_last: false,
+};
+assert!(matches!(
+    series.accept_continuation(&extra),
+    Err(MessageSeriesError::SeriesComplete)
 ));
 ```
 

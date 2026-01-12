@@ -422,9 +422,8 @@ mod state_tests {
             total_body_len: Some(10),
             is_last: false,
         };
-        let result = state
-            .accept_first_frame(FirstFrameInput::new(&first, vec![0x01, 0x02], b"hello"))
-            .expect("accept first frame");
+        let input = FirstFrameInput::new(&first, vec![0x01, 0x02], b"hello").expect("valid input");
+        let result = state.accept_first_frame(input).expect("accept first frame");
         assert!(result.is_none());
         assert_eq!(state.buffered_count(), 1);
 
@@ -457,7 +456,7 @@ mod state_tests {
             is_last: false,
         };
         state
-            .accept_first_frame(FirstFrameInput::new(&first1, vec![], b"A1"))
+            .accept_first_frame(FirstFrameInput::new(&first1, vec![], b"A1").expect("valid input"))
             .expect("first frame 1");
 
         // Start message 2
@@ -469,7 +468,7 @@ mod state_tests {
             is_last: false,
         };
         state
-            .accept_first_frame(FirstFrameInput::new(&first2, vec![], b"B1"))
+            .accept_first_frame(FirstFrameInput::new(&first2, vec![], b"B1").expect("valid input"))
             .expect("first frame 2");
 
         assert_eq!(state.buffered_count(), 2);
@@ -536,12 +535,16 @@ mod state_tests {
             is_last: false,
         };
         state
-            .accept_first_frame(FirstFrameInput::new(&first, vec![], b"hello"))
+            .accept_first_frame(
+                FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"),
+            )
             .expect("first frame");
 
         // Try duplicate first frame
         let err = state
-            .accept_first_frame(FirstFrameInput::new(&first, vec![], b"again"))
+            .accept_first_frame(
+                FirstFrameInput::new(&first, vec![], b"again").expect("valid input"),
+            )
             .expect_err("should reject duplicate");
         assert!(matches!(
             err,
@@ -564,7 +567,9 @@ mod state_tests {
             is_last: false,
         };
         let err = state
-            .accept_first_frame(FirstFrameInput::new(&first, vec![], &[0u8; 20]))
+            .accept_first_frame(
+                FirstFrameInput::new(&first, vec![], &[0u8; 20]).expect("valid input"),
+            )
             .expect_err("should reject oversized");
         assert!(matches!(
             err,
@@ -591,7 +596,9 @@ mod state_tests {
             is_last: false,
         };
         state
-            .accept_first_frame(FirstFrameInput::new(&first, vec![], b"hello"))
+            .accept_first_frame(
+                FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"),
+            )
             .expect("first frame");
 
         // Continuation would push us over the limit
@@ -633,7 +640,10 @@ mod state_tests {
             is_last: false,
         };
         state
-            .accept_first_frame_at(FirstFrameInput::new(&first, vec![], b"hello"), now)
+            .accept_first_frame_at(
+                FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"),
+                now,
+            )
             .expect("accept first frame");
         assert_eq!(state.buffered_count(), 1);
 
@@ -650,13 +660,15 @@ mod state_tests {
 
         let first = FirstFrameHeader {
             message_key: MessageKey(1),
-            metadata_len: 0,
+            metadata_len: 1,
             body_len: 5,
             total_body_len: None,
             is_last: true, // Single frame message
         };
         let msg = state
-            .accept_first_frame(FirstFrameInput::new(&first, vec![0xaa], b"hello"))
+            .accept_first_frame(
+                FirstFrameInput::new(&first, vec![0xaa], b"hello").expect("valid input"),
+            )
             .expect("accept first frame")
             .expect("single frame should complete");
         assert_eq!(msg.message_key(), MessageKey(1));

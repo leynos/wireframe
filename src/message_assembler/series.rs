@@ -180,7 +180,12 @@ impl MessageSeries {
 
         // Validate sequence ordering if protocol supplies sequences
         if let Some(incoming_seq) = header.sequence {
-            self.validate_and_advance_sequence(incoming_seq)?;
+            self.validate_and_advance_sequence(incoming_seq, header.is_last)?;
+        } else if self.sequence_tracking == SequenceTracking::Tracked {
+            // Once tracking is active, reject frames without sequence numbers
+            return Err(MessageSeriesError::MissingSequence {
+                key: self.message_key,
+            });
         }
 
         // Mark complete if this is the final frame
@@ -195,13 +200,15 @@ impl MessageSeries {
     fn validate_and_advance_sequence(
         &mut self,
         incoming: FrameSequence,
+        is_last: bool,
     ) -> Result<(), MessageSeriesError> {
         match self.sequence_tracking {
             SequenceTracking::Untracked => {
                 // First continuation with a sequence number; start tracking
                 self.sequence_tracking = SequenceTracking::Tracked;
                 self.next_sequence = incoming.checked_increment();
-                if self.next_sequence.is_none() && !self.complete {
+                // Overflow is only an error if more frames are expected
+                if self.next_sequence.is_none() && !is_last {
                     return Err(MessageSeriesError::SequenceOverflow { last: incoming });
                 }
                 Ok(())
@@ -229,8 +236,8 @@ impl MessageSeries {
 
                 // Advance expected sequence
                 self.next_sequence = incoming.checked_increment();
-                // Detect overflow on non-final frames
-                if self.next_sequence.is_none() && !self.complete {
+                // Overflow is only an error if more frames are expected
+                if self.next_sequence.is_none() && !is_last {
                     return Err(MessageSeriesError::SequenceOverflow { last: incoming });
                 }
                 Ok(())

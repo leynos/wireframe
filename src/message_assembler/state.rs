@@ -34,7 +34,8 @@ use super::{
 ///     total_body_len: None,
 ///     is_last: false,
 /// };
-/// let input = FirstFrameInput::new(&header, vec![0x01, 0x02], b"hello");
+/// let input = FirstFrameInput::new(&header, vec![0x01, 0x02], b"hello")
+///     .expect("header lengths match payload sizes");
 /// assert_eq!(input.header.message_key, MessageKey(1));
 /// ```
 #[derive(Debug)]
@@ -47,15 +48,77 @@ pub struct FirstFrameInput<'a> {
     pub body: &'a [u8],
 }
 
+/// Error returned when [`FirstFrameInput`] validation fails.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirstFrameInputError {
+    /// Metadata length in header does not match actual metadata size.
+    MetadataLengthMismatch {
+        /// Length declared in header.
+        header_len: usize,
+        /// Actual length of metadata slice.
+        actual_len: usize,
+    },
+    /// Body length in header does not match actual body size.
+    BodyLengthMismatch {
+        /// Length declared in header.
+        header_len: usize,
+        /// Actual length of body slice.
+        actual_len: usize,
+    },
+}
+
+impl std::fmt::Display for FirstFrameInputError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MetadataLengthMismatch {
+                header_len,
+                actual_len,
+            } => write!(
+                f,
+                "metadata length mismatch: header declares {header_len} bytes, got {actual_len}"
+            ),
+            Self::BodyLengthMismatch {
+                header_len,
+                actual_len,
+            } => write!(
+                f,
+                "body length mismatch: header declares {header_len} bytes, got {actual_len}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FirstFrameInputError {}
+
 impl<'a> FirstFrameInput<'a> {
-    /// Create a new first frame input.
-    #[must_use]
-    pub fn new(header: &'a FirstFrameHeader, metadata: Vec<u8>, body: &'a [u8]) -> Self {
-        Self {
+    /// Create a new first frame input, validating header lengths against payloads.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `header.metadata_len` does not match `metadata.len()`
+    /// or `header.body_len` does not match `body.len()`.
+    pub fn new(
+        header: &'a FirstFrameHeader,
+        metadata: Vec<u8>,
+        body: &'a [u8],
+    ) -> Result<Self, FirstFrameInputError> {
+        if header.metadata_len != metadata.len() {
+            return Err(FirstFrameInputError::MetadataLengthMismatch {
+                header_len: header.metadata_len,
+                actual_len: metadata.len(),
+            });
+        }
+        if header.body_len != body.len() {
+            return Err(FirstFrameInputError::BodyLengthMismatch {
+                header_len: header.body_len,
+                actual_len: body.len(),
+            });
+        }
+        Ok(Self {
             header,
             metadata,
             body,
-        }
+        })
     }
 }
 
@@ -153,8 +216,10 @@ impl AssembledMessage {
 ///     MessageKey,
 /// };
 ///
-/// let mut state =
-///     MessageAssemblyState::new(NonZeroUsize::new(1024).unwrap(), Duration::from_secs(30));
+/// let mut state = MessageAssemblyState::new(
+///     NonZeroUsize::new(1024).expect("non-zero message size"),
+///     Duration::from_secs(30),
+/// );
 ///
 /// // Start assembly for key 1
 /// let first = FirstFrameHeader {
@@ -164,9 +229,12 @@ impl AssembledMessage {
 ///     total_body_len: Some(10),
 ///     is_last: false,
 /// };
-/// let result = state.accept_first_frame(FirstFrameInput::new(&first, vec![0x01, 0x02], b"hello"));
-/// assert!(result.is_ok());
-/// assert!(result.unwrap().is_none()); // Not yet complete
+/// let input =
+///     FirstFrameInput::new(&first, vec![0x01, 0x02], b"hello").expect("header lengths match");
+/// let msg = state
+///     .accept_first_frame(input)
+///     .expect("first frame accepted");
+/// assert!(msg.is_none()); // Not yet complete
 ///
 /// // Complete with continuation
 /// let cont = ContinuationFrameHeader {
@@ -175,9 +243,10 @@ impl AssembledMessage {
 ///     body_len: 5,
 ///     is_last: true,
 /// };
-/// let result = state.accept_continuation_frame(&cont, b"world");
-/// assert!(result.is_ok());
-/// let msg = result.unwrap().expect("should complete");
+/// let msg = state
+///     .accept_continuation_frame(&cont, b"world")
+///     .expect("continuation accepted")
+///     .expect("message should complete");
 /// assert_eq!(msg.body(), b"helloworld");
 /// ```
 #[derive(Debug)]
@@ -245,11 +314,14 @@ impl MessageAssemblyState {
             return Err(MessageAssemblyError::DuplicateFirstFrame { key });
         }
 
-        // Validate body size
-        if input.body.len() > self.max_message_size.get() {
+        // Validate message size (prefer declared total body length, include metadata)
+        let declared_body_len = input.header.total_body_len.unwrap_or(input.body.len());
+        let total_message_size = declared_body_len.saturating_add(input.metadata.len());
+
+        if total_message_size > self.max_message_size.get() {
             return Err(MessageAssemblyError::MessageTooLarge {
                 key,
-                attempted: input.body.len(),
+                attempted: total_message_size,
                 limit: self.max_message_size,
             });
         }

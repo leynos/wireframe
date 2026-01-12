@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 No `PLANS.md` exists in this repository.
 
@@ -63,22 +63,22 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-01-07 00:00Z) Draft ExecPlan for 8.2.3 and 8.2.4.
-- [ ] Add `checked_increment()` to `FrameSequence` in `header.rs`.
-- [ ] Create `src/message_assembler/error.rs` with error and status types.
-- [ ] Create `src/message_assembler/series.rs` with `MessageSeries`.
-- [ ] Create `src/message_assembler/state.rs` with `MessageAssemblyState` and
+- [x] Add `checked_increment()` to `FrameSequence` in `header.rs`.
+- [x] Create `src/message_assembler/error.rs` with error and status types.
+- [x] Create `src/message_assembler/series.rs` with `MessageSeries`.
+- [x] Create `src/message_assembler/state.rs` with `MessageAssemblyState` and
   `AssembledMessage`.
-- [ ] Update `src/message_assembler/mod.rs` to export new submodules.
-- [ ] Update `src/lib.rs` to re-export new public types.
-- [ ] Add unit tests to `src/message_assembler/tests.rs`.
-- [ ] Create Cucumber feature `tests/features/message_assembly.feature`.
-- [ ] Create test world `tests/worlds/message_assembly.rs`.
-- [ ] Create step definitions `tests/steps/message_assembly_steps.rs`.
-- [ ] Register new tests in `tests/cucumber.rs`, `tests/worlds/mod.rs`, and
+- [x] Update `src/message_assembler/mod.rs` to export new submodules.
+- [x] Update `src/lib.rs` to re-export new public types.
+- [x] Add unit tests to `src/message_assembler/tests.rs`.
+- [x] Create Cucumber feature `tests/features/message_assembly.feature`.
+- [x] Create test world `tests/worlds/message_assembly.rs`.
+- [x] Create step definitions `tests/steps/message_assembly_steps.rs`.
+- [x] Register new tests in `tests/cucumber.rs`, `tests/worlds/mod.rs`, and
   `tests/steps/mod.rs`.
-- [ ] Update `docs/users-guide.md` with new public interface documentation.
-- [ ] Update `docs/roadmap.md` to mark 8.2.3 and 8.2.4 as done.
-- [ ] Run formatting, linting, and test gates with `make` targets.
+- [x] Update `docs/users-guide.md` with new public interface documentation.
+- [x] Update `docs/roadmap.md` to mark 8.2.3 and 8.2.4 as done.
+- [x] Run formatting, linting, and test gates with `make` targets.
 
 ## Surprises & Discoveries
 
@@ -136,7 +136,8 @@ Testing patterns:
 
 - Unit tests use rstest for parameterised cases
   (`src/message_assembler/tests.rs`).
-- Cucumber BDD tests in `tests/features/message_assembler.feature`.
+- Cucumber Behaviour-Driven Development (BDD) tests in
+  `tests/features/message_assembly.feature`.
 - Test helper `TestAssembler` in `src/test_helpers.rs`.
 - World/steps in `tests/worlds/message_assembler.rs` and
   `tests/steps/message_assembler_steps.rs`.

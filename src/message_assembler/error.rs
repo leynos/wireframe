@@ -60,6 +60,13 @@ pub enum MessageSeriesError {
         /// Sequence number that was duplicated.
         sequence: FrameSequence,
     },
+    /// A continuation frame arrived without a sequence number after sequence
+    /// tracking was activated.
+    #[error("continuation frame missing sequence number for key {key}")]
+    MissingSequence {
+        /// Message key that expected a sequence number.
+        key: MessageKey,
+    },
 }
 
 /// Errors produced during message assembly.
@@ -78,7 +85,7 @@ pub enum MessageAssemblyError {
     },
 
     /// The assembled message would exceed the configured size limit.
-    #[error("message {key} exceeds size limit: {attempted} bytes > {limit} byte limit")]
+    #[error("message {key} exceeds size limit: {attempted} bytes > {limit} bytes")]
     MessageTooLarge {
         /// Message key that exceeded the limit.
         key: MessageKey,

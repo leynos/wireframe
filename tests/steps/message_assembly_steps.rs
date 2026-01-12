@@ -101,10 +101,13 @@ fn when_continuation_with_body(
 }
 
 #[when(expr = "another first frame for key {int} with body {string} arrives")]
-fn when_another_first_frame(world: &mut MessageAssemblyWorld, key: u64, body: String) {
+fn when_another_first_frame(
+    world: &mut MessageAssemblyWorld,
+    key: u64,
+    body: String,
+) -> TestResult {
     world.add_first_frame(FirstFrameParams::new(to_key(key), body.into_bytes()));
-    // Ignore result, we check error in Then
-    let _ = world.accept_first_frame();
+    world.accept_first_frame()
 }
 
 #[when(expr = "time advances by {int} seconds")]

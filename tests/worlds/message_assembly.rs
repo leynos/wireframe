@@ -2,6 +2,7 @@
 #![cfg(not(loom))]
 
 use std::{
+    collections::VecDeque,
     fmt,
     num::NonZeroUsize,
     time::{Duration, Instant},
@@ -108,7 +109,7 @@ impl ContinuationFrameParams {
 pub struct MessageAssemblyWorld {
     state: Option<MessageAssemblyState>,
     current_time: Option<Instant>,
-    pending_first_frames: Vec<PendingFirstFrame>,
+    pending_first_frames: VecDeque<PendingFirstFrame>,
     last_result: Option<Result<Option<AssembledMessage>, MessageAssemblyError>>,
     completed_messages: Vec<AssembledMessage>,
     evicted_keys: Vec<MessageKey>,
@@ -145,7 +146,7 @@ impl MessageAssemblyWorld {
         Self {
             state: None,
             current_time: None,
-            pending_first_frames: Vec::new(),
+            pending_first_frames: VecDeque::new(),
             last_result: None,
             completed_messages: Vec::new(),
             evicted_keys: Vec::new(),
@@ -172,9 +173,9 @@ impl MessageAssemblyWorld {
         self.evicted_keys.clear();
     }
 
-    /// Queue a first frame for later acceptance.
+    /// Queue a first frame for later acceptance (FIFO).
     pub fn add_first_frame(&mut self, params: FirstFrameParams) {
-        self.pending_first_frames.push(PendingFirstFrame {
+        self.pending_first_frames.push_back(PendingFirstFrame {
             header: FirstFrameHeader {
                 message_key: params.key,
                 metadata_len: params.metadata.len(),
@@ -187,13 +188,13 @@ impl MessageAssemblyWorld {
         });
     }
 
-    /// Accept the most recently queued first frame.
+    /// Accept the first queued first frame (FIFO).
     ///
     /// # Errors
     ///
     /// Returns an error if no pending frames, state not initialised, or time not set.
     pub fn accept_first_frame(&mut self) -> TestResult {
-        let Some(pending) = self.pending_first_frames.pop() else {
+        let Some(pending) = self.pending_first_frames.pop_front() else {
             return Err("no pending first frame".into());
         };
         let Some(state) = self.state.as_mut() else {
@@ -202,10 +203,9 @@ impl MessageAssemblyWorld {
         let Some(now) = self.current_time else {
             return Err("time not set".into());
         };
-        self.last_result = Some(state.accept_first_frame_at(
-            FirstFrameInput::new(&pending.header, pending.metadata, &pending.body),
-            now,
-        ));
+        let input = FirstFrameInput::new(&pending.header, pending.metadata, &pending.body)
+            .map_err(|e| format!("invalid input: {e}"))?;
+        self.last_result = Some(state.accept_first_frame_at(input, now));
         if let Some(Ok(Some(msg))) = &self.last_result {
             self.completed_messages.push(msg.clone());
         }
@@ -225,11 +225,10 @@ impl MessageAssemblyWorld {
             return Err("time not set".into());
         };
 
-        while let Some(pending) = self.pending_first_frames.pop() {
-            let result = state.accept_first_frame_at(
-                FirstFrameInput::new(&pending.header, pending.metadata, &pending.body),
-                now,
-            );
+        while let Some(pending) = self.pending_first_frames.pop_front() {
+            let input = FirstFrameInput::new(&pending.header, pending.metadata, &pending.body)
+                .map_err(|e| format!("invalid input: {e}"))?;
+            let result = state.accept_first_frame_at(input, now);
             if let Ok(Some(msg)) = &result {
                 self.completed_messages.push(msg.clone());
             }
