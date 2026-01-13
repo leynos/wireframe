@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 use crate::message_assembler::{
     AssembledMessage,
@@ -19,6 +19,8 @@ use crate::message_assembler::{
     MessageSeriesError,
 };
 
+/// Creates a `MessageAssemblyState` with sensible defaults for testing.
+#[fixture]
 fn state_with_defaults() -> MessageAssemblyState {
     MessageAssemblyState::new(
         NonZeroUsize::new(1024).expect("non-zero"),
@@ -26,10 +28,56 @@ fn state_with_defaults() -> MessageAssemblyState {
     )
 }
 
-#[test]
-fn state_tracks_single_message_assembly() {
-    let mut state = state_with_defaults();
+// =============================================================================
+// Header factory helpers to reduce duplication
+// =============================================================================
 
+/// Creates a `FirstFrameHeader` with sensible defaults.
+fn first_header(key: u64, body_len: usize, is_last: bool) -> FirstFrameHeader {
+    FirstFrameHeader {
+        message_key: MessageKey(key),
+        metadata_len: 0,
+        body_len,
+        total_body_len: None,
+        is_last,
+    }
+}
+
+/// Creates a `FirstFrameHeader` with a declared total body length for early validation.
+fn first_header_with_total(key: u64, body_len: usize, total: usize) -> FirstFrameHeader {
+    FirstFrameHeader {
+        message_key: MessageKey(key),
+        metadata_len: 0,
+        body_len,
+        total_body_len: Some(total),
+        is_last: false,
+    }
+}
+
+/// Creates a `ContinuationFrameHeader` with a sequence number.
+fn continuation_header(
+    key: u64,
+    seq: u32,
+    body_len: usize,
+    is_last: bool,
+) -> ContinuationFrameHeader {
+    ContinuationFrameHeader {
+        message_key: MessageKey(key),
+        sequence: Some(FrameSequence(seq)),
+        body_len,
+        is_last,
+    }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[rstest]
+fn state_tracks_single_message_assembly(
+    #[from(state_with_defaults)] mut state: MessageAssemblyState,
+) {
+    // Use a header with metadata to test metadata handling
     let first = FirstFrameHeader {
         message_key: MessageKey(1),
         metadata_len: 2,
@@ -42,12 +90,7 @@ fn state_tracks_single_message_assembly() {
     assert!(result.is_none());
     assert_eq!(state.buffered_count(), 1);
 
-    let cont = ContinuationFrameHeader {
-        message_key: MessageKey(1),
-        sequence: Some(FrameSequence(1)),
-        body_len: 5,
-        is_last: true,
-    };
+    let cont = continuation_header(1, 1, 5, true);
     let msg = state
         .accept_continuation_frame(&cont, b"world")
         .expect("accept continuation")
@@ -58,30 +101,18 @@ fn state_tracks_single_message_assembly() {
     assert_eq!(state.buffered_count(), 0);
 }
 
-#[test]
-fn state_tracks_multiple_interleaved_messages() {
-    let mut state = state_with_defaults();
-
+#[rstest]
+fn state_tracks_multiple_interleaved_messages(
+    #[from(state_with_defaults)] mut state: MessageAssemblyState,
+) {
     // Start message 1
-    let first1 = FirstFrameHeader {
-        message_key: MessageKey(1),
-        metadata_len: 0,
-        body_len: 2,
-        total_body_len: None,
-        is_last: false,
-    };
+    let first1 = first_header(1, 2, false);
     state
         .accept_first_frame(FirstFrameInput::new(&first1, vec![], b"A1").expect("valid input"))
         .expect("first frame 1");
 
     // Start message 2
-    let first2 = FirstFrameHeader {
-        message_key: MessageKey(2),
-        metadata_len: 0,
-        body_len: 2,
-        total_body_len: None,
-        is_last: false,
-    };
+    let first2 = first_header(2, 2, false);
     state
         .accept_first_frame(FirstFrameInput::new(&first2, vec![], b"B1").expect("valid input"))
         .expect("first frame 2");
@@ -89,12 +120,7 @@ fn state_tracks_multiple_interleaved_messages() {
     assert_eq!(state.buffered_count(), 2);
 
     // Continue message 1
-    let cont1 = ContinuationFrameHeader {
-        message_key: MessageKey(1),
-        sequence: Some(FrameSequence(1)),
-        body_len: 2,
-        is_last: true,
-    };
+    let cont1 = continuation_header(1, 1, 2, true);
     let msg1 = state
         .accept_continuation_frame(&cont1, b"A2")
         .expect("continuation 1")
@@ -103,12 +129,7 @@ fn state_tracks_multiple_interleaved_messages() {
     assert_eq!(state.buffered_count(), 1);
 
     // Continue message 2
-    let cont2 = ContinuationFrameHeader {
-        message_key: MessageKey(2),
-        sequence: Some(FrameSequence(1)),
-        body_len: 2,
-        is_last: true,
-    };
+    let cont2 = continuation_header(2, 1, 2, true);
     let msg2 = state
         .accept_continuation_frame(&cont2, b"B2")
         .expect("continuation 2")
@@ -117,16 +138,11 @@ fn state_tracks_multiple_interleaved_messages() {
     assert_eq!(state.buffered_count(), 0);
 }
 
-#[test]
-fn state_rejects_continuation_without_first_frame() {
-    let mut state = state_with_defaults();
-
-    let cont = ContinuationFrameHeader {
-        message_key: MessageKey(99),
-        sequence: Some(FrameSequence(1)),
-        body_len: 4,
-        is_last: false,
-    };
+#[rstest]
+fn state_rejects_continuation_without_first_frame(
+    #[from(state_with_defaults)] mut state: MessageAssemblyState,
+) {
+    let cont = continuation_header(99, 1, 4, false);
     let err = state
         .accept_continuation_frame(&cont, b"data")
         .expect_err("should reject");
@@ -138,17 +154,11 @@ fn state_rejects_continuation_without_first_frame() {
     ));
 }
 
-#[test]
-fn state_rejects_duplicate_first_frame() {
-    let mut state = state_with_defaults();
-
-    let first = FirstFrameHeader {
-        message_key: MessageKey(1),
-        metadata_len: 0,
-        body_len: 5,
-        total_body_len: None,
-        is_last: false,
-    };
+#[rstest]
+fn state_rejects_duplicate_first_frame(
+    #[from(state_with_defaults)] mut state: MessageAssemblyState,
+) {
+    let first = first_header(1, 5, false);
     state
         .accept_first_frame(FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"))
         .expect("first frame");
@@ -241,6 +251,31 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
 }
 
 #[test]
+fn state_enforces_size_limit_on_first_frame() {
+    let mut state = MessageAssemblyState::new(
+        NonZeroUsize::new(10).expect("non-zero"),
+        Duration::from_secs(30),
+    );
+
+    // First frame body is within limit but declared total exceeds it
+    let first = first_header_with_total(1, 5, 20);
+    let input = FirstFrameInput::new(&first, vec![], b"hello").expect("valid input");
+
+    let err = state
+        .accept_first_frame(input)
+        .expect_err("should reject based on declared total");
+    assert!(matches!(
+        err,
+        MessageAssemblyError::MessageTooLarge {
+            key: MessageKey(1),
+            attempted: 20,
+            ..
+        }
+    ));
+    assert_eq!(state.buffered_count(), 0);
+}
+
+#[test]
 fn state_purges_expired_assemblies() {
     let mut state = MessageAssemblyState::new(
         NonZeroUsize::new(1024).expect("non-zero"),
@@ -249,13 +284,7 @@ fn state_purges_expired_assemblies() {
 
     let now = Instant::now();
 
-    let first = FirstFrameHeader {
-        message_key: MessageKey(1),
-        metadata_len: 0,
-        body_len: 5,
-        total_body_len: None,
-        is_last: false,
-    };
+    let first = first_header(1, 5, false);
     state
         .accept_first_frame_at(
             FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"),
@@ -271,10 +300,11 @@ fn state_purges_expired_assemblies() {
     assert_eq!(state.buffered_count(), 0);
 }
 
-#[test]
-fn state_returns_single_frame_message_immediately() {
-    let mut state = state_with_defaults();
-
+#[rstest]
+fn state_returns_single_frame_message_immediately(
+    #[from(state_with_defaults)] mut state: MessageAssemblyState,
+) {
+    // Single frame message with metadata requires explicit header construction
     let first = FirstFrameHeader {
         message_key: MessageKey(1),
         metadata_len: 1,

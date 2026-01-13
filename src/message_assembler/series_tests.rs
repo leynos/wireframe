@@ -179,6 +179,28 @@ fn series_detects_sequence_overflow() {
 }
 
 #[test]
+fn series_accepts_final_continuation_at_max_sequence() {
+    let first = first_header(1, false);
+    let mut series = MessageSeries::from_first_frame(&first);
+
+    // Force next_sequence to u32::MAX
+    series.force_next_sequence_for_tests(FrameSequence(u32::MAX));
+
+    // Send a final frame at MAX - should succeed (overflow only checked for non-final)
+    let cont = ContinuationFrameHeader {
+        message_key: MessageKey(1),
+        sequence: Some(FrameSequence(u32::MAX)),
+        body_len: 5,
+        is_last: true,
+    };
+    assert_eq!(
+        series.accept_continuation(&cont),
+        Ok(MessageSeriesStatus::Complete)
+    );
+    assert!(series.is_complete());
+}
+
+#[test]
 fn series_stores_expected_total_from_first_frame() {
     let first = FirstFrameHeader {
         message_key: MessageKey(42),
