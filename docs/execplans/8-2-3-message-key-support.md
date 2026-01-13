@@ -10,7 +10,7 @@ No `PLANS.md` exists in this repository.
 
 ## Purpose / Big Picture
 
-Wireframe's `MessageAssembler` module needs multiplexing support so protocol
+Wireframe's `MessageAssembler` module needs multiplexing support, so protocol
 implementations can process interleaved frame streams from multiple logical
 messages on the same connection. This work delivers message key tracking and
 continuity validation (ordering, missing frames, duplicate frames) at the
@@ -277,60 +277,80 @@ Extend `src/message_assembler/tests.rs` with:
 
 1. Read existing code:
 
-       cat src/message_assembler/header.rs
-       cat src/fragment/series.rs
-       cat src/fragment/error.rs
+   ```sh
+   cat src/message_assembler/header.rs
+   cat src/fragment/series.rs
+   cat src/fragment/error.rs
+   ```
 
 2. Add `checked_increment()` to `FrameSequence`:
 
-       # Edit src/message_assembler/header.rs
-       # Add impl block with checked_increment() method
+   ```sh
+   # Edit src/message_assembler/header.rs
+   # Add impl block with checked_increment() method
+   ```
 
 3. Create error types:
 
-       # Create src/message_assembler/error.rs
-       # Define MessageSeriesStatus and MessageSeriesError
+   ```sh
+   # Create src/message_assembler/error.rs
+   # Define MessageSeriesStatus and MessageSeriesError
+   ```
 
 4. Create MessageSeries:
 
-       # Create src/message_assembler/series.rs
-       # Define MessageSeries with from_first_frame and accept_continuation
+   ```sh
+   # Create src/message_assembler/series.rs
+   # Define MessageSeries with from_first_frame and accept_continuation
+   ```
 
 5. Create MessageAssemblyState:
 
-       # Create src/message_assembler/state.rs
-       # Define PartialAssembly, AssembledMessage, MessageAssemblyError,
-       # MessageAssemblyState
+   ```sh
+   # Create src/message_assembler/state.rs
+   # Define PartialAssembly, AssembledMessage, MessageAssemblyError,
+   # MessageAssemblyState
+   ```
 
 6. Update module exports:
 
-       # Edit src/message_assembler/mod.rs to add submodules and exports
-       # Edit src/lib.rs to add re-exports
+   ```sh
+   # Edit src/message_assembler/mod.rs to add submodules and exports
+   # Edit src/lib.rs to add re-exports
+   ```
 
 7. Add unit tests:
 
-       # Edit src/message_assembler/tests.rs or create new test module
+   ```sh
+   # Edit src/message_assembler/tests.rs or create new test module
+   ```
 
 8. Add integration tests:
 
-       # Create tests/features/message_assembly.feature
-       # Create tests/worlds/message_assembly.rs
-       # Create tests/steps/message_assembly_steps.rs
-       # Update tests/cucumber.rs, tests/worlds/mod.rs, tests/steps/mod.rs
+   ```sh
+   # Create tests/features/message_assembly.feature
+   # Create tests/worlds/message_assembly.rs
+   # Create tests/steps/message_assembly_steps.rs
+   # Update tests/cucumber.rs, tests/worlds/mod.rs, tests/steps/mod.rs
+   ```
 
 9. Update documentation:
 
-       # Edit docs/users-guide.md
-       # Edit docs/roadmap.md
+   ```sh
+   # Edit docs/users-guide.md
+   # Edit docs/roadmap.md
+   ```
 
 10. Run quality gates:
 
-        set -o pipefail
-        timeout 300 make fmt 2>&1 | tee /tmp/wireframe-fmt.log
-        timeout 300 make markdownlint 2>&1 | tee /tmp/wireframe-markdownlint.log
-        timeout 300 make check-fmt 2>&1 | tee /tmp/wireframe-check-fmt.log
-        timeout 300 make lint 2>&1 | tee /tmp/wireframe-lint.log
-        timeout 300 make test 2>&1 | tee /tmp/wireframe-test.log
+    ```sh
+    set -o pipefail
+    timeout 300 make fmt 2>&1 | tee /tmp/wireframe-fmt.log
+    timeout 300 make markdownlint 2>&1 | tee /tmp/wireframe-markdownlint.log
+    timeout 300 make check-fmt 2>&1 | tee /tmp/wireframe-check-fmt.log
+    timeout 300 make lint 2>&1 | tee /tmp/wireframe-lint.log
+    timeout 300 make test 2>&1 | tee /tmp/wireframe-test.log
+    ```
 
 ## Validation and Acceptance
 
@@ -375,57 +395,61 @@ Expected artefacts:
 At completion, the following public interfaces must exist in
 `wireframe::message_assembler`:
 
-    pub enum MessageSeriesStatus {
-        Incomplete,
-        Complete,
-    }
+```rust
+pub enum MessageSeriesStatus {
+    Incomplete,
+    Complete,
+}
 
-    pub enum MessageSeriesError {
-        KeyMismatch { expected: MessageKey, found: MessageKey },
-        SequenceMismatch { expected: FrameSequence, found: FrameSequence },
-        SeriesComplete,
-        SequenceOverflow { last: FrameSequence },
-        MissingFirstFrame { key: MessageKey },
-        DuplicateFrame { key: MessageKey, sequence: FrameSequence },
-    }
+pub enum MessageSeriesError {
+    KeyMismatch { expected: MessageKey, found: MessageKey },
+    SequenceMismatch { expected: FrameSequence, found: FrameSequence },
+    SeriesComplete,
+    SequenceOverflow { last: FrameSequence },
+    MissingFirstFrame { key: MessageKey },
+    DuplicateFrame { key: MessageKey, sequence: FrameSequence },
+}
 
-    pub struct MessageSeries { … }
-    impl MessageSeries {
-        pub fn from_first_frame(header: &FirstFrameHeader) -> Self;
-        pub fn message_key(&self) -> MessageKey;
-        pub fn is_complete(&self) -> bool;
-        pub fn expected_total(&self) -> Option<usize>;
-        pub fn accept_continuation(
-            &mut self,
-            header: &ContinuationFrameHeader,
-        ) -> Result<MessageSeriesStatus, MessageSeriesError>;
-    }
+pub struct MessageSeries { /* … */ }
+impl MessageSeries {
+    pub fn from_first_frame(header: &FirstFrameHeader) -> Self;
+    pub fn message_key(&self) -> MessageKey;
+    pub fn is_complete(&self) -> bool;
+    pub fn expected_total(&self) -> Option<usize>;
+    pub fn accept_continuation(
+        &mut self,
+        header: &ContinuationFrameHeader,
+    ) -> Result<MessageSeriesStatus, MessageSeriesError>;
+}
 
-    pub struct AssembledMessage { … }
-    impl AssembledMessage {
-        pub fn message_key(&self) -> MessageKey;
-        pub fn metadata(&self) -> &[u8];
-        pub fn body(&self) -> &[u8];
-        pub fn into_body(self) -> Vec<u8>;
-    }
+pub struct AssembledMessage { /* … */ }
+impl AssembledMessage {
+    pub fn message_key(&self) -> MessageKey;
+    pub fn metadata(&self) -> &[u8];
+    pub fn body(&self) -> &[u8];
+    pub fn into_body(self) -> Vec<u8>;
+}
 
-    pub enum MessageAssemblyError {
-        Series(MessageSeriesError),
-        DuplicateFirstFrame { key: MessageKey },
-        MessageTooLarge { key: MessageKey, attempted: usize, limit: NonZeroUsize },
-    }
+pub enum MessageAssemblyError {
+    Series(MessageSeriesError),
+    DuplicateFirstFrame { key: MessageKey },
+    MessageTooLarge { key: MessageKey, attempted: usize, limit: NonZeroUsize },
+}
 
-    pub struct MessageAssemblyState { … }
-    impl MessageAssemblyState {
-        pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self;
-        pub fn accept_first_frame(…) -> Result<Option<AssembledMessage>, MessageAssemblyError>;
-        pub fn accept_continuation_frame(…) -> Result<Option<AssembledMessage>, MessageAssemblyError>;
-        pub fn purge_expired(&mut self) -> Vec<MessageKey>;
-        pub fn buffered_count(&self) -> usize;
-    }
+pub struct MessageAssemblyState { /* … */ }
+impl MessageAssemblyState {
+    pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self;
+    pub fn accept_first_frame(/* … */) -> Result<Option<AssembledMessage>, MessageAssemblyError>;
+    pub fn accept_continuation_frame(/* … */) -> Result<Option<AssembledMessage>, MessageAssemblyError>;
+    pub fn purge_expired(&mut self) -> Vec<MessageKey>;
+    pub fn buffered_count(&self) -> usize;
+}
+```
 
 In `src/message_assembler/header.rs`, add:
 
-    impl FrameSequence {
-        pub fn checked_increment(self) -> Option<Self>;
-    }
+```rust
+impl FrameSequence {
+    pub fn checked_increment(self) -> Option<Self>;
+}
+```

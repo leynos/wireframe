@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rstest::rstest;
+
 use crate::message_assembler::{
     AssembledMessage,
     ContinuationFrameHeader,
@@ -161,70 +163,80 @@ fn state_rejects_duplicate_first_frame() {
     ));
 }
 
-#[test]
-fn state_enforces_size_limit_on_first_frame() {
-    let mut state = MessageAssemblyState::new(
-        NonZeroUsize::new(10).expect("non-zero"), // Very small limit
-        Duration::from_secs(30),
-    );
-
-    let first = FirstFrameHeader {
-        message_key: MessageKey(1),
-        metadata_len: 0,
-        body_len: 20,
-        total_body_len: None,
-        is_last: false,
-    };
-    let err = state
-        .accept_first_frame(FirstFrameInput::new(&first, vec![], &[0u8; 20]).expect("valid input"))
-        .expect_err("should reject oversized");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::MessageTooLarge {
-            key: MessageKey(1),
-            attempted: 20,
-            ..
-        }
-    ));
+/// Parameters for size limit test cases.
+struct SizeLimitCase {
+    first_body_len: usize,
+    continuation_body_len: Option<usize>,
+    expected_attempted: usize,
 }
 
-#[test]
-fn state_enforces_size_limit_on_continuation() {
+#[rstest]
+#[case::first_frame_exceeds_limit(SizeLimitCase {
+    first_body_len: 20,
+    continuation_body_len: None,
+    expected_attempted: 20,
+})]
+#[case::continuation_exceeds_limit(SizeLimitCase {
+    first_body_len: 5,
+    continuation_body_len: Some(10),
+    expected_attempted: 15,
+})]
+fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
     let mut state = MessageAssemblyState::new(
         NonZeroUsize::new(10).expect("non-zero"),
         Duration::from_secs(30),
     );
 
+    let first_body = vec![0u8; params.first_body_len];
     let first = FirstFrameHeader {
         message_key: MessageKey(1),
         metadata_len: 0,
-        body_len: 5,
+        body_len: params.first_body_len,
         total_body_len: None,
-        is_last: false,
+        is_last: params.continuation_body_len.is_none(),
     };
-    state
-        .accept_first_frame(FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"))
-        .expect("first frame");
+    let input = FirstFrameInput::new(&first, vec![], &first_body).expect("valid input");
 
-    // Continuation would push us over the limit
-    let cont = ContinuationFrameHeader {
-        message_key: MessageKey(1),
-        sequence: Some(FrameSequence(1)),
-        body_len: 10,
-        is_last: true,
-    };
-    let err = state
-        .accept_continuation_frame(&cont, &[0u8; 10])
-        .expect_err("should reject oversized");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::MessageTooLarge {
-            key: MessageKey(1),
-            attempted: 15,
-            ..
+    match params.continuation_body_len {
+        None => {
+            // Rejection on first frame
+            let err = state
+                .accept_first_frame(input)
+                .expect_err("should reject oversized first frame");
+            assert!(matches!(
+                err,
+                MessageAssemblyError::MessageTooLarge {
+                    key: MessageKey(1),
+                    attempted,
+                    ..
+                } if attempted == params.expected_attempted
+            ));
         }
-    ));
-    // Partial should be removed on error
+        Some(cont_len) => {
+            // First frame succeeds, continuation rejected
+            state.accept_first_frame(input).expect("first frame");
+
+            let cont = ContinuationFrameHeader {
+                message_key: MessageKey(1),
+                sequence: Some(FrameSequence(1)),
+                body_len: cont_len,
+                is_last: true,
+            };
+            let cont_body = vec![0u8; cont_len];
+            let err = state
+                .accept_continuation_frame(&cont, &cont_body)
+                .expect_err("should reject oversized continuation");
+            assert!(matches!(
+                err,
+                MessageAssemblyError::MessageTooLarge {
+                    key: MessageKey(1),
+                    attempted,
+                    ..
+                } if attempted == params.expected_attempted
+            ));
+        }
+    }
+
     assert_eq!(state.buffered_count(), 0);
 }
 

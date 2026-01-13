@@ -56,12 +56,8 @@ fn given_final_first_frame(world: &mut MessageAssemblyWorld, key: u64, body: Str
 // =============================================================================
 
 #[when("the first frame is accepted")]
-fn when_first_frame_accepted(world: &mut MessageAssemblyWorld) -> TestResult {
-    world.accept_first_frame()
-}
-
 #[when("the first frame is accepted at time T")]
-fn when_first_frame_accepted_at_time_t(world: &mut MessageAssemblyWorld) -> TestResult {
+fn when_first_frame_accepted(world: &mut MessageAssemblyWorld) -> TestResult {
     world.accept_first_frame()
 }
 

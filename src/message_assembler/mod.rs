@@ -24,6 +24,7 @@ pub mod error;
 mod header;
 pub mod series;
 pub mod state;
+pub mod types;
 
 use std::io;
 
@@ -37,7 +38,8 @@ pub use header::{
     ParsedFrameHeader,
 };
 pub use series::MessageSeries;
-pub use state::{AssembledMessage, FirstFrameInput, FirstFrameInputError, MessageAssemblyState};
+pub use state::MessageAssemblyState;
+pub use types::{AssembledMessage, FirstFrameInput, FirstFrameInputError};
 
 /// Hook trait for protocol-specific multi-frame request parsing.
 ///
