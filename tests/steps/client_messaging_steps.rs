@@ -9,7 +9,6 @@
 )]
 
 use cucumber::{given, then, when};
-use wireframe::app::Packet;
 
 use crate::world::{ClientMessagingWorld, TestResult};
 
@@ -47,7 +46,7 @@ async fn given_envelope_with_payload(
 #[given("a server that returns mismatched correlation IDs")]
 async fn given_mismatch_server(world: &mut ClientMessagingWorld) -> TestResult {
     // First, abort the existing server.
-    world.await_server();
+    world.abort_server();
     // Start a mismatch server.
     world.start_mismatch_server().await?;
     world.connect_client().await
@@ -100,9 +99,5 @@ async fn then_unique_correlation_ids(world: &mut ClientMessagingWorld) -> TestRe
 
 #[then(expr = "the response contains the same message ID and payload")]
 async fn then_response_matches(world: &mut ClientMessagingWorld) -> TestResult {
-    // Get the values from the envelope that was sent (now stored in response).
-    let response = world.response.as_ref().ok_or("no response")?;
-    let message_id = response.id();
-    let payload = String::from_utf8_lossy(&response.clone().into_parts().payload()).to_string();
-    world.verify_response_matches(message_id, &payload)
+    world.verify_response_matches_expected()
 }

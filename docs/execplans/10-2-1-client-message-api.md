@@ -1,6 +1,6 @@
 # Client Message API with Correlation Identifiers
 
-This ExecPlan is a living document. The sections `Progress`,
+This Execution Plan (ExecPlan) is a living document. The sections `Progress`,
 `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must
 be kept up to date as work proceeds.
 
@@ -37,8 +37,9 @@ Success is observable when:
 - [x] (2026-01-09) Implement `call_correlated<P: Packet>()` with validation.
 - [x] (2026-01-09) Add unit tests in `src/client/tests/messaging.rs`.
 - [x] (2026-01-09) Add Cucumber feature and steps for client messaging.
-- [ ] Update `docs/users-guide.md` with client messaging API documentation.
-- [ ] Mark roadmap 10.2.1 as done.
+- [x] (2026-01-09) Update `docs/users-guide.md` with client messaging API
+      documentation.
+- [x] (2026-01-09) Mark roadmap 10.2.1 as done.
 - [ ] Run full validation (fmt, lint, test).
 
 ## Surprises & Discoveries
@@ -95,7 +96,7 @@ trait for routing and correlation. The `Envelope` contains:
 - `id: u32` - Message type ID for routing
 - `correlation_id: Option<u64>` - Optional correlation ID for request/response
   matching
-- `payload: Vec<u8>` - Serialized message payload
+- `payload: Vec<u8>` - Serialised message payload
 
 The `CorrelatableFrame` trait (`src/correlation.rs`) provides generic access to
 correlation IDs on frames.
@@ -214,13 +215,15 @@ feature.
 
 ## Artifacts and Notes
 
-Expected artefacts after completion:
+Expected artifacts after completion:
 
 - Modified `src/client/runtime.rs` with new methods and correlation counter.
 - Modified `src/client/error.rs` with `CorrelationMismatch` variant.
 - Modified `src/client/builder.rs` to initialize correlation counter.
 - New `src/client/tests/messaging.rs` with unit tests.
-- New `tests/features/client_messaging.feature` with BDD scenarios.
+- New `tests/features/client_messaging.feature` with behaviour-driven
+  development
+  (BDD) scenarios.
 - New `tests/worlds/client_messaging.rs` with test world.
 - New `tests/steps/client_messaging_steps.rs` with step definitions.
 - Updated `docs/users-guide.md` with API documentation.

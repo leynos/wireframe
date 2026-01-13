@@ -34,13 +34,16 @@ pub enum ServerMode {
 pub struct ClientMessagingWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
-    server_mode: ServerMode,
     client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>,
     envelope: Option<Envelope>,
     sent_correlation_ids: Vec<u64>,
     /// The last response received from the server.
     pub response: Option<Envelope>,
     last_error: Option<ClientError>,
+    /// Expected message ID for response verification.
+    expected_message_id: Option<u32>,
+    /// Expected payload for response verification.
+    expected_payload: Option<String>,
 }
 
 /// Process a single frame in the echo server.
@@ -73,7 +76,6 @@ impl ClientMessagingWorld {
     /// # Errors
     /// Returns an error if binding or spawning the server fails.
     pub async fn start_mismatch_server(&mut self) -> TestResult {
-        self.server_mode = ServerMode::Mismatch;
         self.start_server_with_mode(ServerMode::Mismatch).await
     }
 
@@ -120,6 +122,8 @@ impl ClientMessagingWorld {
     /// Set an envelope with a specific message ID and payload.
     pub fn set_envelope_with_payload(&mut self, message_id: u32, payload: &str) {
         self.envelope = Some(Envelope::new(message_id, None, payload.as_bytes().to_vec()));
+        self.expected_message_id = Some(message_id);
+        self.expected_payload = Some(payload.to_string());
     }
 
     /// Send the configured envelope and capture the returned correlation ID.
@@ -259,24 +263,41 @@ impl ClientMessagingWorld {
         Ok(())
     }
 
-    /// Verify that the response matches the request's message ID and payload.
+    /// Verify that the response matches the expected message ID and payload.
+    ///
+    /// Uses the expected values stored when the envelope was configured via
+    /// `set_envelope_with_payload`.
     ///
     /// # Errors
-    /// Returns an error if the response is missing or doesn't match.
-    pub fn verify_response_matches(&self, message_id: u32, payload: &str) -> TestResult {
+    /// Returns an error if the response is missing, expected values weren't set,
+    /// or the response doesn't match.
+    pub fn verify_response_matches_expected(&self) -> TestResult {
         let response = self.response.as_ref().ok_or("no response captured")?;
-        if response.id() != message_id {
-            return Err(format!("expected message ID {message_id}, got {}", response.id()).into());
+        let expected_id = self
+            .expected_message_id
+            .ok_or("expected message ID not set")?;
+        let expected_payload = self
+            .expected_payload
+            .as_ref()
+            .ok_or("expected payload not set")?;
+
+        if response.id() != expected_id {
+            return Err(format!("expected message ID {expected_id}, got {}", response.id()).into());
         }
         let response_payload = response.clone().into_parts().payload();
-        if response_payload != payload.as_bytes() {
-            return Err("response payload does not match".into());
+        if response_payload != expected_payload.as_bytes() {
+            return Err(format!(
+                "expected payload {:?}, got {:?}",
+                expected_payload.as_bytes(),
+                response_payload
+            )
+            .into());
         }
         Ok(())
     }
 
-    /// Wait for the server task to complete.
-    pub fn await_server(&mut self) {
+    /// Abort the server task.
+    pub fn abort_server(&mut self) {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }

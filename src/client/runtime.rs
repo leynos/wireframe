@@ -366,13 +366,12 @@ where
     /// # }
     /// ```
     pub async fn send_envelope<P: Packet>(&mut self, envelope: P) -> Result<u64, ClientError> {
-        // Auto-generate correlation ID if not present.
-        let correlation_id = envelope
-            .correlation_id()
-            .unwrap_or_else(|| self.next_correlation_id());
+        // Check once whether correlation ID is present.
+        let existing = envelope.correlation_id();
+        let correlation_id = existing.unwrap_or_else(|| self.next_correlation_id());
 
         // Rebuild envelope with correlation ID if it was auto-generated.
-        let envelope = if envelope.correlation_id().is_none() {
+        let envelope = if existing.is_none() {
             let parts = envelope.into_parts();
             P::from_parts(crate::app::PacketParts::new(
                 parts.id(),

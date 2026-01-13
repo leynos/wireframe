@@ -866,16 +866,16 @@ next ID, which is useful when managing correlation manually.
 
 **Envelope-aware methods**:
 
-- `send_envelope<P: Packet>(envelope: P)` - Sends an envelope, auto-generating
+- `send_envelope<P: Packet>(envelope: P)` — Sends an envelope, auto-generating
   a correlation ID if not present. Returns the correlation ID used.
-- `receive_envelope<P: Packet>()` - Receives and deserializes the next frame as
+- `receive_envelope<P: Packet>()` — Receives and deserialises the next frame as
   the specified packet type.
-- `call_correlated<P: Packet>(request: P)` - Sends a request with auto-
+- `call_correlated<P: Packet>(request: P)` — Sends a request with auto-
   generated correlation ID, receives the response, and validates that the
   response's correlation ID matches the request. Returns
   `ClientError::CorrelationMismatch` if the IDs differ.
 
-```rust
+```rust,no_run
 use std::net::SocketAddr;
 
 use wireframe::{
@@ -883,6 +883,7 @@ use wireframe::{
     WireframeClient,
 };
 
+# async fn example() -> Result<(), wireframe::ClientError> {
 let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
 let mut client = WireframeClient::builder()
     .connect(addr)
@@ -897,13 +898,17 @@ let response: Envelope = client.call_correlated(request).await?;
 
 // The response's correlation ID matches the auto-generated request ID.
 assert!(response.correlation_id().is_some());
+# Ok(())
+# }
 ```
 
 For more control over correlation, use `send_envelope` and `receive_envelope`
 separately:
 
-```rust
+```rust,no_run
 use wireframe::app::{Envelope, Packet};
+# use wireframe::WireframeClient;
+# async fn example(client: &mut WireframeClient) -> Result<(), wireframe::ClientError> {
 
 // Auto-generate correlation ID when sending.
 let envelope = Envelope::new(1, None, b"payload".to_vec());
@@ -914,12 +919,14 @@ let response: Envelope = client.receive_envelope().await?;
 
 // Manually verify correlation if needed.
 assert_eq!(response.correlation_id(), Some(correlation_id));
+# Ok(())
+# }
 ```
 
 The `CorrelationMismatch` error provides diagnostic information when validation
 fails:
 
-```rust
+```rust,ignore
 use wireframe::client::ClientError;
 
 match client.call_correlated(request).await {

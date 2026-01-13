@@ -18,6 +18,7 @@ mod hooks;
 mod preamble_builder;
 mod preamble_exchange;
 mod runtime;
+mod socket_option_methods;
 
 pub use builder::WireframeClientBuilder;
 pub use codec_config::ClientCodecConfig;
