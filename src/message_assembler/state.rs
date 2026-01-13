@@ -344,6 +344,51 @@ impl MessageAssemblyState {
         self.accept_continuation_frame_at(header, body, Instant::now())
     }
 
+    /// Whether a continuity error is unrecoverable and requires assembly removal.
+    ///
+    /// Unrecoverable errors (`KeyMismatch`, `SequenceOverflow`, etc.) indicate the
+    /// assembly is corrupted. Recoverable errors (`DuplicateFrame`, `SequenceMismatch`,
+    /// `SeriesComplete`) may be transient and the assembly is retained for recovery
+    /// or timeout-based cleanup.
+    const fn is_unrecoverable_continuity_error(error: &MessageSeriesError) -> bool {
+        matches!(
+            error,
+            MessageSeriesError::KeyMismatch { .. }
+                | MessageSeriesError::SequenceOverflow { .. }
+                | MessageSeriesError::MissingFirstFrame { .. }
+                | MessageSeriesError::MissingSequence { .. }
+                | MessageSeriesError::ContinuationBodyLengthMismatch { .. }
+        )
+    }
+
+    /// Check if accumulated size plus new body would exceed the limit.
+    ///
+    /// Returns the new total size on success.
+    fn check_size_limit(
+        max_message_size: NonZeroUsize,
+        key: MessageKey,
+        accumulated: usize,
+        body_len: usize,
+    ) -> Result<usize, MessageAssemblyError> {
+        let Some(new_len) = accumulated.checked_add(body_len) else {
+            return Err(MessageAssemblyError::MessageTooLarge {
+                key,
+                attempted: usize::MAX,
+                limit: max_message_size,
+            });
+        };
+
+        if new_len > max_message_size.get() {
+            return Err(MessageAssemblyError::MessageTooLarge {
+                key,
+                attempted: new_len,
+                limit: max_message_size,
+            });
+        }
+
+        Ok(new_len)
+    }
+
     /// Process a continuation frame with an explicit timestamp.
     ///
     /// See [`accept_continuation_frame`](Self::accept_continuation_frame) for
@@ -384,23 +429,8 @@ impl MessageAssemblyState {
         let status = match entry.get_mut().series.accept_continuation(header) {
             Ok(s) => s,
             Err(e) => {
-                // Only remove assembly for unrecoverable errors.
-                // DuplicateFrame, SequenceMismatch, and SeriesComplete are potentially
-                // recoverable (retransmits, reordering) - retain assembly for recovery
-                // or timeout-based cleanup.
-                match &e {
-                    MessageSeriesError::KeyMismatch { .. }
-                    | MessageSeriesError::SequenceOverflow { .. }
-                    | MessageSeriesError::MissingFirstFrame { .. }
-                    | MessageSeriesError::MissingSequence { .. }
-                    | MessageSeriesError::ContinuationBodyLengthMismatch { .. } => {
-                        entry.remove();
-                    }
-                    MessageSeriesError::DuplicateFrame { .. }
-                    | MessageSeriesError::SequenceMismatch { .. }
-                    | MessageSeriesError::SeriesComplete => {
-                        // Retain assembly for recovery or timeout-based cleanup
-                    }
+                if Self::is_unrecoverable_continuity_error(&e) {
+                    entry.remove();
                 }
                 return Err(MessageAssemblyError::Series(e));
             }
@@ -408,22 +438,10 @@ impl MessageAssemblyState {
 
         // Check size limit
         let accumulated = entry.get().accumulated_len();
-        let Some(new_len) = accumulated.checked_add(body.len()) else {
+        if let Err(e) = Self::check_size_limit(self.max_message_size, key, accumulated, body.len())
+        {
             entry.remove();
-            return Err(MessageAssemblyError::MessageTooLarge {
-                key,
-                attempted: usize::MAX,
-                limit: self.max_message_size,
-            });
-        };
-
-        if new_len > self.max_message_size.get() {
-            entry.remove();
-            return Err(MessageAssemblyError::MessageTooLarge {
-                key,
-                attempted: new_len,
-                limit: self.max_message_size,
-            });
+            return Err(e);
         }
 
         entry.get_mut().push_body(body);

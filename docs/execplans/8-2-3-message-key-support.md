@@ -141,6 +141,56 @@ Testing patterns:
 - World/steps in `tests/worlds/message_assembler.rs` and
   `tests/steps/message_assembly_steps.rs`.
 
+The following diagram illustrates how `MessageAssemblyState` manages
+interleaved frame streams from two concurrent message keys, demonstrating
+multiplexing, continuity validation, and timeout-based cleanup:
+
+```mermaid
+sequenceDiagram
+    actor Protocol
+    participant MessageAssemblyState
+    participant MessageSeries_key1 as MessageSeries_key1
+    participant MessageSeries_key2 as MessageSeries_key2
+    participant AssembledMessage
+
+    Note over Protocol,MessageAssemblyState: Start first frame for message key 1
+    Protocol->>MessageAssemblyState: accept_first_frame(FirstFrameInput{key=1, is_last=false})
+    activate MessageAssemblyState
+    MessageAssemblyState->>MessageSeries_key1: from_first_frame(FirstFrameHeader{key=1})
+    MessageAssemblyState-->>Protocol: Ok(None)
+    deactivate MessageAssemblyState
+
+    Note over Protocol,MessageAssemblyState: Interleaved first frame for message key 2
+    Protocol->>MessageAssemblyState: accept_first_frame(FirstFrameInput{key=2, is_last=false})
+    activate MessageAssemblyState
+    MessageAssemblyState->>MessageSeries_key2: from_first_frame(FirstFrameHeader{key=2})
+    MessageAssemblyState-->>Protocol: Ok(None)
+    deactivate MessageAssemblyState
+
+    Note over Protocol,MessageAssemblyState: Continuation for key 1 completes message 1
+    Protocol->>MessageAssemblyState: accept_continuation_frame(ContinuationFrameHeader{key=1, seq=1, is_last=true}, body)
+    activate MessageAssemblyState
+    MessageAssemblyState->>MessageSeries_key1: accept_continuation(header)
+    MessageSeries_key1-->>MessageAssemblyState: Ok(Complete)
+    MessageAssemblyState->>AssembledMessage: new(key=1, metadata, body)
+    MessageAssemblyState-->>Protocol: Ok(Some(AssembledMessage))
+    deactivate MessageAssemblyState
+
+    Note over Protocol,MessageAssemblyState: Continuation for key 2 keeps assembly in progress
+    Protocol->>MessageAssemblyState: accept_continuation_frame(ContinuationFrameHeader{key=2, seq=1, is_last=false}, body)
+    activate MessageAssemblyState
+    MessageAssemblyState->>MessageSeries_key2: accept_continuation(header)
+    MessageSeries_key2-->>MessageAssemblyState: Ok(Incomplete)
+    MessageAssemblyState-->>Protocol: Ok(None)
+    deactivate MessageAssemblyState
+
+    Note over Protocol,MessageAssemblyState: Optional cleanup of expired assemblies
+    Protocol->>MessageAssemblyState: purge_expired()
+    activate MessageAssemblyState
+    MessageAssemblyState-->>Protocol: Vec<MessageKey> (evicted keys)
+    deactivate MessageAssemblyState
+```
+
 ## Plan of Work
 
 ### Stage A: Extend FrameSequence (no new files)
