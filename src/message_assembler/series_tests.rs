@@ -8,35 +8,22 @@ use crate::message_assembler::{
     MessageSeries,
     MessageSeriesError,
     MessageSeriesStatus,
+    test_helpers::{
+        continuation_header as cont_header,
+        continuation_header_untracked as cont_header_untracked,
+        first_header as first_hdr,
+    },
 };
 
-// Helper functions to reduce test setup duplication
-fn first_header(key: u64, is_last: bool) -> FirstFrameHeader {
-    FirstFrameHeader {
-        message_key: MessageKey(key),
-        metadata_len: 0,
-        body_len: 10,
-        total_body_len: None,
-        is_last,
-    }
-}
+// Local wrappers that use the shared helpers with default body_len values
+fn first_header(key: u64, is_last: bool) -> FirstFrameHeader { first_hdr(key, 10, is_last) }
 
 fn continuation_header(key: u64, sequence: u32, is_last: bool) -> ContinuationFrameHeader {
-    ContinuationFrameHeader {
-        message_key: MessageKey(key),
-        sequence: Some(FrameSequence(sequence)),
-        body_len: 10,
-        is_last,
-    }
+    cont_header(key, sequence, 10, is_last)
 }
 
 fn continuation_header_untracked(key: u64, is_last: bool) -> ContinuationFrameHeader {
-    ContinuationFrameHeader {
-        message_key: MessageKey(key),
-        sequence: None,
-        body_len: 5,
-        is_last,
-    }
+    cont_header_untracked(key, 5, is_last)
 }
 
 #[test]

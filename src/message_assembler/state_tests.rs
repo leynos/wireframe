@@ -9,14 +9,13 @@ use rstest::{fixture, rstest};
 
 use crate::message_assembler::{
     AssembledMessage,
-    ContinuationFrameHeader,
     FirstFrameHeader,
     FirstFrameInput,
-    FrameSequence,
     MessageAssemblyError,
     MessageAssemblyState,
     MessageKey,
     MessageSeriesError,
+    test_helpers::{continuation_header, first_header, first_header_with_total},
 };
 
 /// Creates a `MessageAssemblyState` with sensible defaults for testing.
@@ -26,47 +25,6 @@ fn state_with_defaults() -> MessageAssemblyState {
         NonZeroUsize::new(1024).expect("non-zero"),
         Duration::from_secs(30),
     )
-}
-
-// =============================================================================
-// Header factory helpers to reduce duplication
-// =============================================================================
-
-/// Creates a `FirstFrameHeader` with sensible defaults.
-fn first_header(key: u64, body_len: usize, is_last: bool) -> FirstFrameHeader {
-    FirstFrameHeader {
-        message_key: MessageKey(key),
-        metadata_len: 0,
-        body_len,
-        total_body_len: None,
-        is_last,
-    }
-}
-
-/// Creates a `FirstFrameHeader` with a declared total body length for early validation.
-fn first_header_with_total(key: u64, body_len: usize, total: usize) -> FirstFrameHeader {
-    FirstFrameHeader {
-        message_key: MessageKey(key),
-        metadata_len: 0,
-        body_len,
-        total_body_len: Some(total),
-        is_last: false,
-    }
-}
-
-/// Creates a `ContinuationFrameHeader` with a sequence number.
-fn continuation_header(
-    key: u64,
-    seq: u32,
-    body_len: usize,
-    is_last: bool,
-) -> ContinuationFrameHeader {
-    ContinuationFrameHeader {
-        message_key: MessageKey(key),
-        sequence: Some(FrameSequence(seq)),
-        body_len,
-        is_last,
-    }
 }
 
 // =============================================================================
@@ -176,6 +134,7 @@ fn state_rejects_duplicate_first_frame(
 /// Parameters for size limit test cases.
 struct SizeLimitCase {
     first_body_len: usize,
+    total_body_len: Option<usize>,
     continuation_body_len: Option<usize>,
     expected_attempted: usize,
 }
@@ -183,13 +142,21 @@ struct SizeLimitCase {
 #[rstest]
 #[case::first_frame_exceeds_limit(SizeLimitCase {
     first_body_len: 20,
+    total_body_len: None,
     continuation_body_len: None,
     expected_attempted: 20,
 })]
 #[case::continuation_exceeds_limit(SizeLimitCase {
     first_body_len: 5,
+    total_body_len: None,
     continuation_body_len: Some(10),
     expected_attempted: 15,
+})]
+#[case::declared_total_exceeds_limit(SizeLimitCase {
+    first_body_len: 5,
+    total_body_len: Some(20),
+    continuation_body_len: None,
+    expected_attempted: 20,
 })]
 fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
     let mut state = MessageAssemblyState::new(
@@ -198,18 +165,19 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
     );
 
     let first_body = vec![0u8; params.first_body_len];
-    let first = FirstFrameHeader {
-        message_key: MessageKey(1),
-        metadata_len: 0,
-        body_len: params.first_body_len,
-        total_body_len: None,
-        is_last: params.continuation_body_len.is_none(),
+    let first = match params.total_body_len {
+        Some(total) => first_header_with_total(1, params.first_body_len, total),
+        None => first_header(
+            1,
+            params.first_body_len,
+            params.continuation_body_len.is_none(),
+        ),
     };
     let input = FirstFrameInput::new(&first, vec![], &first_body).expect("valid input");
 
     match params.continuation_body_len {
         None => {
-            // Rejection on first frame
+            // Rejection on first frame (either body too large or declared total too large)
             let err = state
                 .accept_first_frame(input)
                 .expect_err("should reject oversized first frame");
@@ -226,12 +194,7 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
             // First frame succeeds, continuation rejected
             state.accept_first_frame(input).expect("first frame");
 
-            let cont = ContinuationFrameHeader {
-                message_key: MessageKey(1),
-                sequence: Some(FrameSequence(1)),
-                body_len: cont_len,
-                is_last: true,
-            };
+            let cont = continuation_header(1, 1, cont_len, true);
             let cont_body = vec![0u8; cont_len];
             let err = state
                 .accept_continuation_frame(&cont, &cont_body)
@@ -247,31 +210,6 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
         }
     }
 
-    assert_eq!(state.buffered_count(), 0);
-}
-
-#[test]
-fn state_enforces_size_limit_on_first_frame() {
-    let mut state = MessageAssemblyState::new(
-        NonZeroUsize::new(10).expect("non-zero"),
-        Duration::from_secs(30),
-    );
-
-    // First frame body is within limit but declared total exceeds it
-    let first = first_header_with_total(1, 5, 20);
-    let input = FirstFrameInput::new(&first, vec![], b"hello").expect("valid input");
-
-    let err = state
-        .accept_first_frame(input)
-        .expect_err("should reject based on declared total");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::MessageTooLarge {
-            key: MessageKey(1),
-            attempted: 20,
-            ..
-        }
-    ));
     assert_eq!(state.buffered_count(), 0);
 }
 
