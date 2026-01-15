@@ -16,6 +16,7 @@ use bytes::BytesMut;
 use tokio_util::codec::Encoder;
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
+    correlation::CorrelatableFrame,
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{
@@ -147,10 +148,16 @@ struct StateEnvelope {
     payload: Vec<u8>,
 }
 
+impl CorrelatableFrame for StateEnvelope {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
+        self.correlation_id = correlation_id;
+    }
+}
+
 impl Packet for StateEnvelope {
     fn id(&self) -> u32 { self.id }
-
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     fn into_parts(self) -> PacketParts {
         PacketParts::new(self.id, self.correlation_id, self.payload)

@@ -309,6 +309,18 @@ where
     /// Correlation identifiers are generated sequentially starting from 1.
     /// Each call returns a unique value within this client instance.
     ///
+    /// # Concurrency
+    ///
+    /// This method uses `Ordering::Relaxed` for the atomic increment. Relaxed
+    /// ordering is sufficient here because:
+    ///
+    /// 1. The only guarantee required is uniqueness of IDs, not ordering relative to other memory
+    ///    operations.
+    /// 2. The atomic `fetch_add` operation itself is always atomic regardless of memory ordering,
+    ///    ensuring no two calls ever return the same value.
+    /// 3. There are no other memory operations that need to be synchronised with the counter
+    ///    increment.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -365,22 +377,16 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn send_envelope<P: Packet>(&mut self, envelope: P) -> Result<u64, ClientError> {
+    pub async fn send_envelope<P: Packet>(&mut self, mut envelope: P) -> Result<u64, ClientError> {
         // Check once whether correlation ID is present.
         let existing = envelope.correlation_id();
         let correlation_id = existing.unwrap_or_else(|| self.next_correlation_id());
 
-        // Rebuild envelope with correlation ID if it was auto-generated.
-        let envelope = if existing.is_none() {
-            let parts = envelope.into_parts();
-            P::from_parts(crate::app::PacketParts::new(
-                parts.id(),
-                Some(correlation_id),
-                parts.payload(),
-            ))
-        } else {
-            envelope
-        };
+        // Set correlation ID in-place if it was auto-generated.
+        // This preserves any custom fields in the Packet implementation.
+        if existing.is_none() {
+            envelope.set_correlation_id(Some(correlation_id));
+        }
 
         let bytes = match self.serializer.serialize(&envelope) {
             Ok(bytes) => bytes,

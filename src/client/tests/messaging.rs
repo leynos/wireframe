@@ -16,6 +16,7 @@ use crate::{
     WireframeClient,
     app::{Envelope, Packet},
     client::ClientError,
+    correlation::CorrelatableFrame,
 };
 
 /// Spawn a test server with the specified mode.

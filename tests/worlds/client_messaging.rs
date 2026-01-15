@@ -13,6 +13,7 @@ use wireframe::{
     BincodeSerializer,
     app::{Envelope, Packet},
     client::{ClientError, WireframeClient},
+    correlation::CorrelatableFrame,
     rewind_stream::RewindStream,
 };
 use wireframe_testing::{ServerMode, process_frame};

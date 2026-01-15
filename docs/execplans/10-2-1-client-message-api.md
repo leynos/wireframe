@@ -224,8 +224,7 @@ Expected artifacts after completion:
 - Modified `src/client/builder.rs` to initialize correlation counter.
 - New `src/client/tests/messaging.rs` with unit tests.
 - New `tests/features/client_messaging.feature` with behaviour-driven
-  development
-  (BDD) scenarios.
+  development (BDD) scenarios.
 - New `tests/worlds/client_messaging.rs` with test world.
 - New `tests/steps/client_messaging_steps.rs` with step definitions.
 - Updated `docs/users-guide.md` with API documentation.

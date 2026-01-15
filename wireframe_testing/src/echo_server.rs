@@ -8,6 +8,7 @@ use wireframe::{
     BincodeSerializer,
     Serializer,
     app::{Envelope, Packet},
+    correlation::CorrelatableFrame,
 };
 
 /// Server mode for testing various correlation ID scenarios.

@@ -17,6 +17,7 @@ use tokio_util::codec::Encoder;
 use wireframe::{
     Serializer,
     app::{Packet, PacketParts},
+    correlation::CorrelatableFrame,
     message::Message,
     serializer::BincodeSerializer,
 };
@@ -37,12 +38,17 @@ struct TestEnvelope {
     payload: Vec<u8>,
 }
 
+impl CorrelatableFrame for TestEnvelope {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
+        self.correlation_id = correlation_id;
+    }
+}
+
 impl Packet for TestEnvelope {
     #[inline]
     fn id(&self) -> u32 { self.id }
-
-    #[inline]
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     fn into_parts(self) -> PacketParts {
         PacketParts::new(self.id, self.correlation_id, self.payload)
