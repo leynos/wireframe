@@ -1,5 +1,7 @@
 //! Unit tests for `MessageSeries` (8.2.3/8.2.4).
 
+use rstest::rstest;
+
 use crate::message_assembler::{
     ContinuationFrameHeader,
     FirstFrameHeader,
@@ -24,6 +26,15 @@ fn continuation_header(key: u64, sequence: u32, is_last: bool) -> ContinuationFr
 
 fn continuation_header_untracked(key: u64, is_last: bool) -> ContinuationFrameHeader {
     cont_header_untracked(key, 5, is_last)
+}
+
+/// Expected outcome for sequence overflow tests.
+#[derive(Debug)]
+enum SequenceOverflowExpectation {
+    /// Expect `SequenceOverflow` error.
+    Overflow,
+    /// Expect `Complete` status.
+    Complete,
 }
 
 #[test]
@@ -144,47 +155,44 @@ fn series_rejects_after_completion() {
     ));
 }
 
-#[test]
-fn series_detects_sequence_overflow() {
+#[rstest]
+#[case(false, SequenceOverflowExpectation::Overflow)]
+#[case(true, SequenceOverflowExpectation::Complete)]
+fn series_handles_max_sequence_based_on_finality(
+    #[case] is_last: bool,
+    #[case] expected: SequenceOverflowExpectation,
+) {
     let first = first_header(1, false);
     let mut series = MessageSeries::from_first_frame(&first);
 
     // Force next_sequence to u32::MAX
     series.force_next_sequence_for_tests(FrameSequence(u32::MAX));
 
-    // Send a non-final frame at MAX
+    // Send continuation at MAX sequence
     let cont = ContinuationFrameHeader {
         message_key: MessageKey(1),
         sequence: Some(FrameSequence(u32::MAX)),
         body_len: 5,
-        is_last: false,
+        is_last,
     };
-    assert!(matches!(
-        series.accept_continuation(&cont),
-        Err(MessageSeriesError::SequenceOverflow { .. })
-    ));
-}
 
-#[test]
-fn series_accepts_final_continuation_at_max_sequence() {
-    let first = first_header(1, false);
-    let mut series = MessageSeries::from_first_frame(&first);
-
-    // Force next_sequence to u32::MAX
-    series.force_next_sequence_for_tests(FrameSequence(u32::MAX));
-
-    // Send a final frame at MAX - should succeed (overflow only checked for non-final)
-    let cont = ContinuationFrameHeader {
-        message_key: MessageKey(1),
-        sequence: Some(FrameSequence(u32::MAX)),
-        body_len: 5,
-        is_last: true,
-    };
-    assert_eq!(
-        series.accept_continuation(&cont),
-        Ok(MessageSeriesStatus::Complete)
-    );
-    assert!(series.is_complete());
+    match expected {
+        SequenceOverflowExpectation::Overflow => {
+            // Non-final frame at MAX should overflow
+            assert!(matches!(
+                series.accept_continuation(&cont),
+                Err(MessageSeriesError::SequenceOverflow { .. })
+            ));
+        }
+        SequenceOverflowExpectation::Complete => {
+            // Final frame at MAX is valid
+            assert_eq!(
+                series.accept_continuation(&cont),
+                Ok(MessageSeriesStatus::Complete)
+            );
+            assert!(series.is_complete());
+        }
+    }
 }
 
 #[test]
