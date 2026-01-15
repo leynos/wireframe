@@ -22,14 +22,10 @@ integration, and behavioural tests.
 
 - [x] (2026-01-06) Draft ExecPlan for 9.1.2.
 - [x] (2026-01-07) Create `src/codec/error.rs` with `CodecError` taxonomy.
-- [x] (2026-01-07) Create `src/codec/recovery.rs` with recovery policy types
-      and traits.
-- [x] (2026-01-07) Extend `WireframeError` in `src/response.rs` with `Codec`
-      variant.
-- [x] (2026-01-07) Extend `WireframeError` in `src/app/error.rs` with `Codec`
-      variant.
-- [x] (2026-01-07) Update `LengthDelimitedDecoder` to produce structured EOF
-      errors.
+- [x] (2026-01-07) Create `src/codec/recovery.rs` with recovery policy types and traits.
+- [x] (2026-01-07) Extend `WireframeError` in `src/response.rs` with `Codec` variant.
+- [x] (2026-01-07) Extend `WireframeError` in `src/app/error.rs` with `Codec` variant.
+- [x] (2026-01-07) Update `LengthDelimitedDecoder` to produce structured EOF errors.
 - [ ] Integrate `CodecErrorContext` population in connection processing.
 - [ ] Add recovery policy evaluation in `src/app/connection.rs`.
 - [ ] Add structured logging with codec error fields.

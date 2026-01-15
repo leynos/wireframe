@@ -868,7 +868,7 @@ next ID, which is useful when managing correlation manually.
 
 - `send_envelope<P: Packet>(envelope: P)` — Sends an envelope, auto-generating
   a correlation ID if not present. Returns the correlation ID used.
-- `receive_envelope<P: Packet>()` — Receives and deserialises the next frame as
+- `receive_envelope<P: Packet>()` — Receives and deserializes the next frame as
   the specified packet type.
 - `call_correlated<P: Packet>(request: P)` — Sends a request with auto-
   generated correlation ID, receives the response, and validates that the

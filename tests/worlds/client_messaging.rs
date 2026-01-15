@@ -11,23 +11,13 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     BincodeSerializer,
-    Serializer,
     app::{Envelope, Packet},
     client::{ClientError, WireframeClient},
     rewind_stream::RewindStream,
 };
+use wireframe_testing::{ServerMode, process_frame};
 
 use super::TestResult;
-
-/// Server mode for testing various correlation ID scenarios.
-#[derive(Debug, Clone, Copy, Default)]
-pub enum ServerMode {
-    /// Echo envelopes back with the same correlation ID.
-    #[default]
-    Echo,
-    /// Return envelopes with a different (mismatched) correlation ID.
-    Mismatch,
-}
 
 /// Test world for client messaging scenarios.
 #[derive(Debug, Default, World)]
@@ -44,22 +34,6 @@ pub struct ClientMessagingWorld {
     expected_message_id: Option<u32>,
     /// Expected payload for response verification.
     expected_payload: Option<String>,
-}
-
-/// Process a single frame in the echo server.
-fn process_frame(mode: ServerMode, bytes: &[u8]) -> Option<Vec<u8>> {
-    let (envelope, _): (Envelope, usize) = BincodeSerializer.deserialize(bytes).ok()?;
-
-    let response = match mode {
-        ServerMode::Echo => envelope,
-        ServerMode::Mismatch => {
-            let wrong_id = envelope.correlation_id().map(|id| id.wrapping_add(999));
-            let parts = envelope.into_parts();
-            Envelope::new(parts.id(), wrong_id, parts.payload())
-        }
-    };
-
-    BincodeSerializer.serialize(&response).ok()
 }
 
 impl ClientMessagingWorld {

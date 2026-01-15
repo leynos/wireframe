@@ -10,37 +10,13 @@ use futures::{SinkExt, StreamExt};
 use rstest::rstest;
 use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use wireframe_testing::{ServerMode, process_frame};
 
 use crate::{
     WireframeClient,
     app::{Envelope, Packet},
     client::ClientError,
 };
-
-/// Server mode for testing various correlation ID scenarios.
-#[derive(Debug, Clone, Copy)]
-enum ServerMode {
-    /// Echo envelopes back with the same correlation ID.
-    Echo,
-    /// Return envelopes with a different (mismatched) correlation ID.
-    Mismatch,
-}
-
-/// Process a single frame and return the response bytes.
-fn process_frame(mode: ServerMode, bytes: &[u8]) -> Option<Vec<u8>> {
-    let (envelope, _): (Envelope, usize) = crate::BincodeSerializer.deserialize(bytes).ok()?;
-
-    let response = match mode {
-        ServerMode::Echo => envelope,
-        ServerMode::Mismatch => {
-            let wrong_id = envelope.correlation_id().map(|id| id.wrapping_add(999));
-            let parts = envelope.into_parts();
-            Envelope::new(parts.id(), wrong_id, parts.payload())
-        }
-    };
-
-    crate::BincodeSerializer.serialize(&response).ok()
-}
 
 /// Spawn a test server with the specified mode.
 async fn spawn_test_server(
@@ -78,8 +54,6 @@ async fn spawn_mismatched_correlation_server() -> (std::net::SocketAddr, tokio::
 {
     spawn_test_server(ServerMode::Mismatch).await
 }
-
-use crate::Serializer;
 
 #[tokio::test]
 async fn next_correlation_id_generates_sequential_unique_ids() {

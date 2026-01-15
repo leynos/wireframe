@@ -96,7 +96,7 @@ trait for routing and correlation. The `Envelope` contains:
 - `id: u32` - Message type ID for routing
 - `correlation_id: Option<u64>` - Optional correlation ID for request/response
   matching
-- `payload: Vec<u8>` - Serialised message payload
+- `payload: Vec<u8>` - Serialized message payload
 
 The `CorrelatableFrame` trait (`src/correlation.rs`) provides generic access to
 correlation IDs on frames.
@@ -160,11 +160,13 @@ Finally, update documentation and mark the roadmap item as done.
    - Test error hook invocation on mismatch
    - Test round-trip with various payload sizes
 
-9. Add Cucumber behavioural tests:
+9. Add behavioural tests using existing test infrastructure:
    - Create `tests/features/client_messaging.feature`
    - Create `tests/worlds/client_messaging.rs`
    - Create `tests/steps/client_messaging_steps.rs`
    - Register world in `tests/cucumber.rs` and `tests/world.rs`
+   - Note: Uses current Cucumber infrastructure pending rstest-bdd migration
+     per ADR-003.
 
 10. Update `docs/users-guide.md` with client messaging API documentation:
     - Add section on correlation ID support
@@ -179,7 +181,7 @@ Acceptance requires all of the following:
 
 - New public methods compile and are documented with examples.
 - Unit tests cover correlation ID generation, stamping, and validation.
-- Cucumber behavioural tests for client messaging pass.
+- Behavioural tests for client messaging pass.
 - Documentation updated in users guide.
 - Roadmap item 10.2.1 marked as done.
 
