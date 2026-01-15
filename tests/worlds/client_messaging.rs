@@ -258,12 +258,11 @@ impl ClientMessagingWorld {
         if response.id() != expected_id {
             return Err(format!("expected message ID {expected_id}, got {}", response.id()).into());
         }
-        let response_payload = response.clone().into_parts().payload();
-        if response_payload != expected_payload.as_bytes() {
+        if response.payload_bytes() != expected_payload.as_bytes() {
             return Err(format!(
                 "expected payload {:?}, got {:?}",
                 expected_payload.as_bytes(),
-                response_payload
+                response.payload_bytes()
             )
             .into());
         }

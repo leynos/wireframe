@@ -89,6 +89,19 @@ impl Envelope {
             payload,
         }
     }
+
+    /// Borrow the raw payload bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::Envelope;
+    ///
+    /// let envelope = Envelope::new(1, None, vec![7, 8]);
+    /// assert_eq!(envelope.payload_bytes(), &[7, 8]);
+    /// ```
+    #[must_use]
+    pub fn payload_bytes(&self) -> &[u8] { &self.payload }
 }
 
 impl Packet for Envelope {
@@ -147,6 +160,19 @@ impl PacketParts {
     /// ```
     #[must_use]
     pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    /// Borrow the raw payload bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::PacketParts;
+    ///
+    /// let parts = PacketParts::new(1, None, vec![7, 8]);
+    /// assert_eq!(parts.payload_bytes(), &[7, 8]);
+    /// ```
+    #[must_use]
+    pub fn payload_bytes(&self) -> &[u8] { &self.payload }
 
     /// Consume the parts and return the raw payload bytes.
     ///
