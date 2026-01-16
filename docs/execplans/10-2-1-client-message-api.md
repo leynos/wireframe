@@ -65,11 +65,11 @@ Success is observable when:
 
 - Decision: Use per-client `AtomicU64` counter starting from 1 for correlation
   ID generation, using `Ordering::Relaxed` for atomic increments. Rationale:
-  Avoids global contention and ensures uniqueness within a connection. Counter
-  starts at 1 so that 0 can be distinguished from auto-generated IDs if needed.
-  `Ordering::Relaxed` is sufficient because correlation IDs only require
-  per-connection uniqueness, not cross-thread ordering or synchronization with
-  other memory operations. Date/Author: 2026-01-09 (Codex).
+  Avoids global contention and ensures uniqueness within a connection. The
+  counter starts at 1 so that 0 can be distinguished from auto-generated IDs if
+  needed. `Ordering::Relaxed` is sufficient because correlation IDs only
+  require per-connection uniqueness, not cross-thread ordering or
+  synchronization with other memory operations. Date/Author: 2026-01-09 (Codex).
 
 - Decision: Validate correlation ID match in `call_correlated` and return
   `CorrelationMismatch` error on failure. Rationale: Mismatched correlation IDs
@@ -99,7 +99,7 @@ trait for routing and correlation. The `Envelope` contains:
 - `id: u32` - Message type ID for routing
 - `correlation_id: Option<u64>` - Optional correlation ID for request/response
   matching
-- `payload: Vec<u8>` - Serialised message payload
+- `payload: Vec<u8>` - Serialized message payload
 
 The `CorrelatableFrame` trait (`src/correlation.rs`) provides generic access to
 correlation IDs on frames.
