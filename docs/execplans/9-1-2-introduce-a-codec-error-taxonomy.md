@@ -37,7 +37,8 @@ integration, and behavioural tests.
 - [x] (2026-01-07) Add codec error metrics.
 - [x] (2026-01-07) Add unit tests for `CodecError` taxonomy.
 - [x] (2026-01-07) Add integration tests for error propagation and recovery.
-- [x] (2026-01-07) Add BDD behavioural tests for codec error scenarios.
+- [x] (2026-01-07) Add Behaviour-Driven Development (BDD) behavioural tests for
+  codec error scenarios.
 - [ ] Update `docs/users-guide.md` with error handling documentation.
 - [ ] Update `docs/adr-004-pluggable-protocol-codecs.md` with design decisions.
 - [ ] Mark roadmap entry 9.1.2 as done.

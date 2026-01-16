@@ -15,8 +15,7 @@ use std::{
 use bytes::BytesMut;
 use tokio_util::codec::Encoder;
 use wireframe::{
-    app::{Envelope, Packet, PacketParts},
-    correlation::CorrelatableFrame,
+    app::{Envelope, Packet},
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{
@@ -28,7 +27,7 @@ use wireframe_testing::{
 };
 
 mod common;
-use common::TestResult;
+use common::{CommonTestEnvelope, TestResult};
 
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -141,40 +140,6 @@ async fn teardown_without_setup_does_not_run() -> TestResult<()> {
     Ok(())
 }
 
-#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
-struct StateEnvelope {
-    id: u32,
-    correlation_id: Option<u64>,
-    payload: Vec<u8>,
-}
-
-impl CorrelatableFrame for StateEnvelope {
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-
-    fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
-        self.correlation_id = correlation_id;
-    }
-}
-
-impl Packet for StateEnvelope {
-    fn id(&self) -> u32 { self.id }
-
-    fn into_parts(self) -> PacketParts {
-        PacketParts::new(self.id, self.correlation_id, self.payload)
-    }
-
-    fn from_parts(parts: PacketParts) -> Self {
-        let id = parts.id();
-        let correlation_id = parts.correlation_id();
-        let payload = parts.payload();
-        Self {
-            id,
-            correlation_id,
-            payload,
-        }
-    }
-}
-
 #[tokio::test]
 #[expect(
     clippy::panic_in_result_fn,
@@ -184,10 +149,10 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let setup = Arc::new(AtomicUsize::new(0));
     let teardown = Arc::new(AtomicUsize::new(0));
 
-    let app = wireframe_app_with_lifecycle_callbacks::<StateEnvelope>(&setup, &teardown, 7)?
-        .route(1, Arc::new(|_: &StateEnvelope| Box::pin(async {})))?;
+    let app = wireframe_app_with_lifecycle_callbacks::<CommonTestEnvelope>(&setup, &teardown, 7)?
+        .route(1, Arc::new(|_: &CommonTestEnvelope| Box::pin(async {})))?;
 
-    let env = StateEnvelope {
+    let env = CommonTestEnvelope {
         id: 1,
         correlation_id: Some(0),
         payload: vec![1],
@@ -204,7 +169,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let [first] = frames.as_slice() else {
         panic!("expected a single response frame");
     };
-    let (resp, _) = BincodeSerializer.deserialize::<StateEnvelope>(first)?;
+    let (resp, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
     assert_eq!(resp.correlation_id, Some(0), "correlation id not preserved");
 
     assert_eq!(

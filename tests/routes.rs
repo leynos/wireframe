@@ -11,16 +11,10 @@ use std::sync::{
 };
 
 use bytes::BytesMut;
-use common::TestResult;
+use common::{CommonTestEnvelope, TestResult};
 use rstest::rstest;
 use tokio_util::codec::Encoder;
-use wireframe::{
-    Serializer,
-    app::{Packet, PacketParts},
-    correlation::CorrelatableFrame,
-    message::Message,
-    serializer::BincodeSerializer,
-};
+use wireframe::{Serializer, app::Packet, message::Message, serializer::BincodeSerializer};
 use wireframe_testing::{
     TEST_MAX_FRAME,
     decode_frames,
@@ -29,42 +23,7 @@ use wireframe_testing::{
     new_test_codec,
 };
 
-type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), TestEnvelope>;
-
-#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug, Clone)]
-struct TestEnvelope {
-    id: u32,
-    correlation_id: Option<u64>,
-    payload: Vec<u8>,
-}
-
-impl CorrelatableFrame for TestEnvelope {
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-
-    fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
-        self.correlation_id = correlation_id;
-    }
-}
-
-impl Packet for TestEnvelope {
-    #[inline]
-    fn id(&self) -> u32 { self.id }
-
-    fn into_parts(self) -> PacketParts {
-        PacketParts::new(self.id, self.correlation_id, self.payload)
-    }
-
-    fn from_parts(parts: PacketParts) -> Self {
-        let id = parts.id();
-        let correlation_id = parts.correlation_id();
-        let payload = parts.payload();
-        Self {
-            id,
-            correlation_id,
-            payload,
-        }
-    }
-}
+type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), CommonTestEnvelope>;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Echo(u8);
@@ -79,7 +38,7 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
     let called_clone = called.clone();
     let app = TestApp::new()?.route(
         1,
-        std::sync::Arc::new(move |_: &TestEnvelope| {
+        std::sync::Arc::new(move |_: &CommonTestEnvelope| {
             let called_inner = called_clone.clone();
             Box::pin(async move {
                 called_inner.fetch_add(1, Ordering::SeqCst);
@@ -88,7 +47,7 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
         }),
     )?;
     let msg_bytes = Echo(42).to_bytes()?;
-    let env = TestEnvelope {
+    let env = CommonTestEnvelope {
         id: 1,
         correlation_id: Some(99),
         payload: msg_bytes,
@@ -100,7 +59,7 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };
-    let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
+    let (resp_env, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
     assert_eq!(resp_env.correlation_id, Some(99), "correlation id mismatch");
     let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
     assert_eq!(echo, Echo(42), "echo payload mismatch");
@@ -120,11 +79,11 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
 async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     let app = TestApp::new()?.route(
         1,
-        std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+        std::sync::Arc::new(|_: &CommonTestEnvelope| Box::pin(async {})),
     )?;
 
     let msg_bytes = Echo(7).to_bytes()?;
-    let env = TestEnvelope {
+    let env = CommonTestEnvelope {
         id: 1,
         correlation_id: None,
         payload: msg_bytes,
@@ -135,7 +94,7 @@ async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };
-    let (resp_env, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
+    let (resp_env, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
 
     assert!(
         resp_env.correlation_id.is_none(),
@@ -154,14 +113,14 @@ async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
 async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let app = TestApp::new()?.route(
         1,
-        std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+        std::sync::Arc::new(|_: &CommonTestEnvelope| Box::pin(async {})),
     )?;
 
     let mut codec = new_test_codec(TEST_MAX_FRAME);
     let mut encoded_frames = Vec::new();
     for id in 1u8..=2 {
         let msg_bytes = Echo(id).to_bytes()?;
-        let env = TestEnvelope {
+        let env = CommonTestEnvelope {
             id: 1,
             correlation_id: Some(u64::from(id)),
             payload: msg_bytes,
@@ -178,9 +137,9 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let [first, second] = frames.as_slice() else {
         return Err("expected two response frames".into());
     };
-    let (env1, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
+    let (env1, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
     let (echo1, _) = Echo::from_bytes(&env1.payload)?;
-    let (env2, _) = BincodeSerializer.deserialize::<TestEnvelope>(second)?;
+    let (env2, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(second)?;
     let (echo2, _) = Echo::from_bytes(&env2.payload)?;
     assert_eq!(
         env1.correlation_id,
@@ -205,11 +164,11 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
 async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> TestResult<()> {
     let app = TestApp::new()?.route(
         1,
-        std::sync::Arc::new(|_: &TestEnvelope| Box::pin(async {})),
+        std::sync::Arc::new(|_: &CommonTestEnvelope| Box::pin(async {})),
     )?;
 
     let msg_bytes = Echo(5).to_bytes()?;
-    let env = TestEnvelope {
+    let env = CommonTestEnvelope {
         id: 1,
         correlation_id: cid,
         payload: msg_bytes,
@@ -225,7 +184,7 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> Tes
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };
-    let (resp, _) = BincodeSerializer.deserialize::<TestEnvelope>(first)?;
+    let (resp, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
 
     assert_eq!(resp.correlation_id, cid, "correlation id mismatch");
     Ok(())
@@ -233,12 +192,12 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> Tes
 
 #[test]
 fn packet_from_parts_round_trips() {
-    let env = TestEnvelope {
+    let env = CommonTestEnvelope {
         id: 5,
         correlation_id: Some(9),
         payload: vec![1, 2, 3],
     };
     let parts = env.clone().into_parts();
-    let rebuilt = TestEnvelope::from_parts(parts);
+    let rebuilt = CommonTestEnvelope::from_parts(parts);
     assert_eq!(rebuilt, env);
 }

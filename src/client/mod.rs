@@ -15,6 +15,7 @@ mod codec_config;
 mod config;
 mod error;
 mod hooks;
+mod messaging;
 mod preamble_builder;
 mod preamble_exchange;
 mod runtime;

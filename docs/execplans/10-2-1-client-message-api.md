@@ -64,9 +64,12 @@ Success is observable when:
   that doesn't need correlation. Date/Author: 2026-01-09 (Codex).
 
 - Decision: Use per-client `AtomicU64` counter starting from 1 for correlation
-  ID generation. Rationale: Avoids global contention and ensures uniqueness
-  within a connection. Counter starts at 1 so that 0 can be distinguished from
-  auto-generated IDs if needed. Date/Author: 2026-01-09 (Codex).
+  ID generation, using `Ordering::Relaxed` for atomic increments. Rationale:
+  Avoids global contention and ensures uniqueness within a connection. Counter
+  starts at 1 so that 0 can be distinguished from auto-generated IDs if needed.
+  `Ordering::Relaxed` is sufficient because correlation IDs only require
+  per-connection uniqueness, not cross-thread ordering or synchronisation with
+  other memory operations. Date/Author: 2026-01-09 (Codex).
 
 - Decision: Validate correlation ID match in `call_correlated` and return
   `CorrelationMismatch` error on failure. Rationale: Mismatched correlation IDs
