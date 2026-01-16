@@ -28,8 +28,8 @@ where
     ///
     /// # Concurrency
     ///
-    /// This method uses `Ordering::Relaxed` for the atomic increment. Relaxed
-    /// ordering is sufficient here because:
+    /// This method is thread-safe: the counter uses `AtomicU64` with
+    /// `Ordering::Relaxed`. Relaxed ordering is sufficient here because:
     ///
     /// 1. The only guarantee required is uniqueness of IDs, not ordering relative to other memory
     ///    operations.
@@ -37,6 +37,9 @@ where
     ///    ensuring no two calls ever return the same value.
     /// 3. There are no other memory operations that need to be synchronised with the counter
     ///    increment.
+    ///
+    /// The counter is safe for cross-thread access, though typical usage
+    /// involves a single task holding `&self` at a time.
     ///
     /// # Examples
     ///

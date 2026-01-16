@@ -5,7 +5,10 @@
 //! duplication across test modules.
 
 // Items in this shared module may not be used by all test binaries that import it.
-#![allow(dead_code, reason = "shared test utilities are not used by all test binaries")]
+#![allow(
+    dead_code,
+    reason = "shared test utilities are not used by all test binaries"
+)]
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 
