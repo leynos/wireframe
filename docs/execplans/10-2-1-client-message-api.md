@@ -96,7 +96,7 @@ trait for routing and correlation. The `Envelope` contains:
 - `id: u32` - Message type ID for routing
 - `correlation_id: Option<u64>` - Optional correlation ID for request/response
   matching
-- `payload: Vec<u8>` - Serialized message payload
+- `payload: Vec<u8>` - Serialised message payload
 
 The `CorrelatableFrame` trait (`src/correlation.rs`) provides generic access to
 correlation IDs on frames.
