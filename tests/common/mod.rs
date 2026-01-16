@@ -4,10 +4,20 @@
 //! create a TCP listener bound to an unused local port. These helpers reduce
 //! duplication across test modules.
 
-// Items in this shared module may not be used by all test binaries that import it.
+// File-level suppression required because:
+// 1. CommonTestEnvelope is used by some test binaries (routes, lifecycle) but not others
+//    (middleware_order), so dead_code fires inconsistently across binaries.
+// 2. #[expect(dead_code)] fails in binaries that use the type (unfulfilled expectation).
+// 3. #[allow(dead_code)] is rejected by clippy::allow_attributes.
+// 4. #[expect(clippy::allow_attributes)] also fires inconsistently across binaries.
+// This is a known limitation when sharing test utilities across multiple test binaries.
+#![allow(
+    clippy::allow_attributes,
+    reason = "expect fails inconsistently across test binaries"
+)]
 #![allow(
     dead_code,
-    reason = "shared test utilities are not used by all test binaries"
+    reason = "shared utilities not used by all importing test binaries"
 )]
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
@@ -60,13 +70,10 @@ impl Packet for CommonTestEnvelope {
     }
 
     fn from_parts(parts: PacketParts) -> Self {
-        let id = parts.id();
-        let correlation_id = parts.correlation_id();
-        let payload = parts.payload();
         Self {
-            id,
-            correlation_id,
-            payload,
+            id: parts.id(),
+            correlation_id: parts.correlation_id(),
+            payload: parts.payload(),
         }
     }
 }
