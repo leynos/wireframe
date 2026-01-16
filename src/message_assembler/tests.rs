@@ -187,3 +187,17 @@ fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
         .parse_frame_header(payload)
         .expect("header parse")
 }
+
+// =============================================================================
+// MessageSeries tests (8.2.3/8.2.4) - see series_tests.rs
+// =============================================================================
+
+#[path = "series_tests.rs"]
+mod series_tests;
+
+// =============================================================================
+// MessageAssemblyState tests (8.2.3/8.2.4) - see state_tests.rs
+// =============================================================================
+
+#[path = "state_tests.rs"]
+mod state_tests;
