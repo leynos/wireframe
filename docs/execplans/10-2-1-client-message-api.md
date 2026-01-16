@@ -68,7 +68,7 @@ Success is observable when:
   Avoids global contention and ensures uniqueness within a connection. Counter
   starts at 1 so that 0 can be distinguished from auto-generated IDs if needed.
   `Ordering::Relaxed` is sufficient because correlation IDs only require
-  per-connection uniqueness, not cross-thread ordering or synchronisation with
+  per-connection uniqueness, not cross-thread ordering or synchronization with
   other memory operations. Date/Author: 2026-01-09 (Codex).
 
 - Decision: Validate correlation ID match in `call_correlated` and return

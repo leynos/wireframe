@@ -39,7 +39,7 @@ pub struct CommonTestEnvelope {
     pub id: u32,
     /// Optional correlation ID for request/response matching.
     pub correlation_id: Option<u64>,
-    /// Serialised message payload.
+    /// Serialized message payload.
     pub payload: Vec<u8>,
 }
 
