@@ -4,20 +4,29 @@
 //! create a TCP listener bound to an unused local port. These helpers reduce
 //! duplication across test modules.
 
-// File-level suppression required because:
-// 1. CommonTestEnvelope is used by some test binaries (routes, lifecycle) but not others
-//    (middleware_order), so dead_code fires inconsistently across binaries.
-// 2. #[expect(dead_code)] fails in binaries that use the type (unfulfilled expectation).
-// 3. #[allow(dead_code)] is rejected by clippy::allow_attributes.
-// 4. #[expect(clippy::allow_attributes)] also fires inconsistently across binaries.
-// This is a known limitation when sharing test utilities across multiple test binaries.
+// FIXME(#333): File-level #![allow] required as last resort.
+//
+// Conditional compilation is not viable because:
+// - Cargo features cannot coordinate across independent test binaries
+// - Each integration test file compiles as a separate crate with its own view of which items are
+//   "used"
+// - `#[cfg(test)]` has no effect since this is already under tests/
+//
+// `#[expect]` is not viable because:
+// - `dead_code` fires inconsistently: CommonTestEnvelope is used by routes.rs and lifecycle.rs but
+//   not by middleware_order.rs et al.
+// - `expect(dead_code)` fails with "unfulfilled lint expectation" in binaries that do use the type
+// - `expect(clippy::allow_attributes)` also fires inconsistently for the same reason
+//
+// This is a known Rust limitation when sharing utilities across multiple
+// integration test binaries. Track resolution in issue #333.
 #![allow(
     clippy::allow_attributes,
-    reason = "expect fails inconsistently across test binaries"
+    reason = "expect fails inconsistently across test binaries; see FIXME(#333)"
 )]
 #![allow(
     dead_code,
-    reason = "shared utilities not used by all importing test binaries"
+    reason = "shared utilities not used by all importing test binaries; see FIXME(#333)"
 )]
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
