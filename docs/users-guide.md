@@ -1007,6 +1007,98 @@ configured). The teardown hook only runs if a setup hook was configured and
 successfully produced state. The error hook is independent and can be
 configured without a setup hook.
 
+### Client message API with correlation identifiers
+
+The client provides envelope-aware messaging APIs that work with the `Packet`
+trait, supporting automatic correlation ID generation and validation. These
+methods complement the basic `send`, `receive`, and `call` methods that operate
+on raw `Message` types.
+
+**Correlation ID generation**: Each client maintains an atomic counter for
+generating unique correlation IDs. The `next_correlation_id` method returns the
+next ID, which is useful when managing correlation manually.
+
+**Envelope-aware methods**:
+
+- `send_envelope<P: Packet>(envelope: P)` — Sends an envelope, auto-generating
+  a correlation ID if not present. Returns the correlation ID used.
+- `receive_envelope<P: Packet>()` — Receives and deserializes the next frame as
+  the specified packet type.
+- `call_correlated<P: Packet>(request: P)` — Sends a request with auto-
+  generated correlation ID, receives the response, and validates that the
+  response's correlation ID matches the request. Returns
+  `ClientError::CorrelationMismatch` if the IDs differ.
+
+```rust,no_run
+use std::net::SocketAddr;
+
+use wireframe::{
+    app::{Envelope, Packet},
+    WireframeClient,
+};
+
+# async fn example() -> Result<(), wireframe::ClientError> {
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+let mut client = WireframeClient::builder()
+    .connect(addr)
+    .await?;
+
+// Create an envelope without a correlation ID.
+let request = Envelope::new(1, None, vec![1, 2, 3]);
+
+// call_correlated auto-generates a correlation ID, sends the request,
+// receives the response, and validates the correlation ID matches.
+let response: Envelope = client.call_correlated(request).await?;
+
+// The response's correlation ID matches the auto-generated request ID.
+assert!(response.correlation_id().is_some());
+# Ok(())
+# }
+```
+
+For more control over correlation, use `send_envelope` and `receive_envelope`
+separately:
+
+```rust,no_run
+use wireframe::app::{Envelope, Packet};
+# use wireframe::WireframeClient;
+# async fn example(client: &mut WireframeClient) -> Result<(), wireframe::ClientError> {
+
+// Auto-generate correlation ID when sending.
+let envelope = Envelope::new(1, None, b"payload".to_vec());
+let correlation_id = client.send_envelope(envelope).await?;
+
+// Receive the response.
+let response: Envelope = client.receive_envelope().await?;
+
+// Manually verify correlation if needed.
+assert_eq!(response.correlation_id(), Some(correlation_id));
+# Ok(())
+# }
+```
+
+The `CorrelationMismatch` error provides diagnostic information when validation
+fails:
+
+```rust,ignore
+use wireframe::client::ClientError;
+
+match client.call_correlated(request).await {
+    Ok(response) => {
+        // Handle successful response.
+    }
+    Err(ClientError::CorrelationMismatch { expected, received }) => {
+        eprintln!(
+            "Correlation mismatch: expected {:?}, received {:?}",
+            expected, received
+        );
+    }
+    Err(e) => {
+        // Handle other errors.
+    }
+}
+```
+
 ## Push queues and connection actors
 
 Background work interacts with connections through `PushQueues`. The fluent

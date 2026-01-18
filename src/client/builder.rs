@@ -1,6 +1,10 @@
 //! Builder for configuring and connecting a wireframe client.
 
-use std::{future::Future, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    net::SocketAddr,
+    sync::{Arc, atomic::AtomicU64},
+};
 
 use bincode::Encode;
 use tokio::net::TcpSocket;
@@ -185,144 +189,8 @@ where
         self
     }
 
-    /// Replace the socket options applied before connecting.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::{SocketOptions, WireframeClientBuilder};
-    ///
-    /// let options = SocketOptions::default().nodelay(true);
-    /// let builder = WireframeClientBuilder::new().socket_options(options);
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn socket_options(mut self, socket_options: SocketOptions) -> Self {
-        self.socket_options = socket_options;
-        self
-    }
-
-    /// Configure `TCP_NODELAY` for the connection.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().nodelay(true);
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn nodelay(mut self, enabled: bool) -> Self {
-        self.socket_options = self.socket_options.nodelay(enabled);
-        self
-    }
-
-    /// Configure `SO_KEEPALIVE` for the connection.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().keepalive(Some(Duration::from_secs(30)));
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn keepalive(mut self, duration: Option<Duration>) -> Self {
-        self.socket_options = self.socket_options.keepalive(duration);
-        self
-    }
-
-    /// Configure TCP linger behaviour for the connection.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().linger(Some(Duration::from_secs(1)));
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn linger(mut self, duration: Option<Duration>) -> Self {
-        self.socket_options = self.socket_options.linger(duration);
-        self
-    }
-
-    /// Configure the socket send buffer size.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().send_buffer_size(4096);
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn send_buffer_size(mut self, size: u32) -> Self {
-        self.socket_options = self.socket_options.send_buffer_size(size);
-        self
-    }
-
-    /// Configure the socket receive buffer size.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().recv_buffer_size(4096);
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn recv_buffer_size(mut self, size: u32) -> Self {
-        self.socket_options = self.socket_options.recv_buffer_size(size);
-        self
-    }
-
-    /// Configure `SO_REUSEADDR` for the connection.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().reuseaddr(true);
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn reuseaddr(mut self, enabled: bool) -> Self {
-        self.socket_options = self.socket_options.reuseaddr(enabled);
-        self
-    }
-
-    /// Configure `SO_REUSEPORT` for the connection on supported platforms.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().reuseport(true);
-    /// let _ = builder;
-    /// ```
-    #[cfg(all(
-        unix,
-        not(target_os = "solaris"),
-        not(target_os = "illumos"),
-        not(target_os = "cygwin"),
-    ))]
-    #[must_use]
-    pub fn reuseport(mut self, enabled: bool) -> Self {
-        self.socket_options = self.socket_options.reuseport(enabled);
-        self
-    }
+    // Socket option convenience methods (nodelay, keepalive, linger, etc.) are
+    // in `socket_option_methods.rs` to keep this file under 400 lines.
 
     /// Configure a preamble to send before exchanging frames.
     ///
@@ -544,6 +412,7 @@ where
             connection_state,
             on_disconnect: self.lifecycle_hooks.on_disconnect,
             on_error: self.lifecycle_hooks.on_error,
+            correlation_counter: AtomicU64::new(1),
         })
     }
 }

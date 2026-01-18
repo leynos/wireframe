@@ -19,38 +19,47 @@ use crate::{correlation::CorrelatableFrame, message::Message};
 /// ```
 /// use wireframe::{
 ///     app::{Packet, PacketParts},
+///     correlation::CorrelatableFrame,
 ///     message::Message,
 /// };
 ///
 /// #[derive(bincode::Decode, bincode::Encode)]
 /// struct CustomEnvelope {
 ///     id: u32,
+///     correlation_id: Option<u64>,
 ///     payload: Vec<u8>,
 ///     timestamp: u64,
+/// }
+///
+/// // CorrelatableFrame is required by Packet.
+/// impl CorrelatableFrame for CustomEnvelope {
+///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+///
+///     fn set_correlation_id(&mut self, correlation_id: Option<u64>) {
+///         self.correlation_id = correlation_id;
+///     }
 /// }
 ///
 /// impl Packet for CustomEnvelope {
 ///     fn id(&self) -> u32 { self.id }
 ///
-///     fn correlation_id(&self) -> Option<u64> { None }
-///
-///     fn into_parts(self) -> PacketParts { PacketParts::new(self.id, None, self.payload) }
+///     fn into_parts(self) -> PacketParts {
+///         PacketParts::new(self.id, self.correlation_id, self.payload)
+///     }
 ///
 ///     fn from_parts(parts: PacketParts) -> Self {
 ///         Self {
 ///             id: parts.id(),
+///             correlation_id: parts.correlation_id(),
 ///             payload: parts.payload(),
 ///             timestamp: 0,
 ///         }
 ///     }
 /// }
 /// ```
-pub trait Packet: Message + Send + Sync + 'static {
+pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     /// Return the message identifier used for routing.
     fn id(&self) -> u32;
-
-    /// Return the correlation identifier tying this frame to a request.
-    fn correlation_id(&self) -> Option<u64>;
 
     /// Consume the packet and return its identifier, correlation id and payload bytes.
     fn into_parts(self) -> PacketParts;
@@ -89,14 +98,24 @@ impl Envelope {
             payload,
         }
     }
+
+    /// Borrow the raw payload bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::Envelope;
+    ///
+    /// let envelope = Envelope::new(1, None, vec![7, 8]);
+    /// assert_eq!(envelope.payload_bytes(), &[7, 8]);
+    /// ```
+    #[must_use]
+    pub fn payload_bytes(&self) -> &[u8] { &self.payload }
 }
 
 impl Packet for Envelope {
     #[inline]
     fn id(&self) -> u32 { self.id }
-
-    #[inline]
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     fn into_parts(self) -> PacketParts { self.into() }
 
@@ -147,6 +166,19 @@ impl PacketParts {
     /// ```
     #[must_use]
     pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    /// Borrow the raw payload bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::PacketParts;
+    ///
+    /// let parts = PacketParts::new(1, None, vec![7, 8]);
+    /// assert_eq!(parts.payload_bytes(), &[7, 8]);
+    /// ```
+    #[must_use]
+    pub fn payload_bytes(&self) -> &[u8] { &self.payload }
 
     /// Consume the parts and return the raw payload bytes.
     ///

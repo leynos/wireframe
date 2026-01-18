@@ -10,6 +10,7 @@
 //! - `MessageAssemblerWorld`: Tests message assembler header parsing
 //! - `MessageAssemblyWorld`: Tests message assembly multiplexing and continuity
 //! - `ClientRuntimeWorld`: Tests client runtime configuration and framing behaviour
+//! - `ClientMessagingWorld`: Tests client messaging APIs with correlation ID support
 //! - `CodecStatefulWorld`: Tests instance-aware codec sequence counters
 //! - `RequestPartsWorld`: Tests request parts metadata handling
 //! - `ClientPreambleWorld`: Tests client preamble exchange and callbacks
@@ -28,6 +29,7 @@
 //! tests/features/message_assembler.feature   -> MessageAssemblerWorld context
 //! tests/features/message_assembly.feature    -> MessageAssemblyWorld context
 //! tests/features/client_runtime.feature      -> ClientRuntimeWorld context
+//! tests/features/client_messaging.feature    -> ClientMessagingWorld context
 //! tests/features/codec_stateful.feature      -> CodecStatefulWorld context
 //! tests/features/request_parts.feature       -> RequestPartsWorld context
 //! tests/features/client_preamble.feature     -> ClientPreambleWorld context
@@ -44,6 +46,7 @@ mod world;
 use cucumber::World;
 use world::{
     ClientLifecycleWorld,
+    ClientMessagingWorld,
     ClientPreambleWorld,
     ClientRuntimeWorld,
     CodecErrorWorld,
@@ -68,6 +71,7 @@ async fn main() {
     MessageAssemblerWorld::run("tests/features/message_assembler.feature").await;
     MessageAssemblyWorld::run("tests/features/message_assembly.feature").await;
     ClientRuntimeWorld::run("tests/features/client_runtime.feature").await;
+    ClientMessagingWorld::run("tests/features/client_messaging.feature").await;
     CodecStatefulWorld::run("tests/features/codec_stateful.feature").await;
     RequestPartsWorld::run("tests/features/request_parts.feature").await;
     ClientPreambleWorld::run("tests/features/client_preamble.feature").await;
