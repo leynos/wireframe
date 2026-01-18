@@ -71,7 +71,6 @@ impl CorrelatableFrame for CommonTestEnvelope {
 }
 
 impl Packet for CommonTestEnvelope {
-    #[inline]
     fn id(&self) -> u32 { self.id }
 
     fn into_parts(self) -> PacketParts {
