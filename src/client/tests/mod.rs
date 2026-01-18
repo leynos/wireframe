@@ -3,6 +3,7 @@
 mod error_handling;
 mod helpers;
 mod lifecycle;
+mod messaging;
 
 use std::time::Duration;
 

@@ -9,8 +9,9 @@ use cucumber::World;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    app::{Envelope, Packet},
+    app::Envelope,
     connection::ConnectionActor,
+    correlation::CorrelatableFrame,
     response::FrameStream,
 };
 

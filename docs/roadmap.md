@@ -457,7 +457,7 @@ behavioural guarantees.
 
 ### 10.2. Request and response pipeline
 
-- [ ] 10.2.1. Provide async `send`, `receive`, and `call` APIs that encode
+- [x] 10.2.1. Provide async `send`, `receive`, and `call` APIs that encode
   `Message` implementers, forward correlation identifiers, and deserialize
   typed responses using the configured serializer.
 - [ ] 10.2.2. Map decode and transport failures into `WireframeError` variants

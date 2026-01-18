@@ -4,6 +4,7 @@
 //! behaviour-driven tests under `tests/features`.
 
 mod client_lifecycle_steps;
+mod client_messaging_steps;
 mod client_preamble_steps;
 mod client_steps;
 mod codec_error_steps;

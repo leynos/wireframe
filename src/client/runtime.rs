@@ -1,9 +1,9 @@
 //! Wireframe client runtime implementation.
 
-use std::fmt;
+use std::{fmt, sync::atomic::AtomicU64};
 
 use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
@@ -32,6 +32,14 @@ impl<T> ClientStream for T where T: AsyncRead + AsyncWrite + Unpin {}
 /// hooks, enabling consistent instrumentation across both ends of a wireframe
 /// connection.
 ///
+/// # Correlation Identifiers
+///
+/// When using the envelope-aware APIs ([`send_envelope`](Self::send_envelope),
+/// [`receive_envelope`](Self::receive_envelope), and
+/// [`call_correlated`](Self::call_correlated)), the client automatically
+/// generates unique correlation identifiers for each request. The response
+/// is validated to ensure its correlation ID matches the request.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -56,6 +64,8 @@ where
     pub(crate) connection_state: Option<C>,
     pub(crate) on_disconnect: Option<ClientConnectionTeardownHandler<C>>,
     pub(crate) on_error: Option<ClientErrorHandler>,
+    /// Counter for generating unique correlation identifiers.
+    pub(crate) correlation_counter: AtomicU64,
 }
 
 impl<S, T, C> fmt::Debug for WireframeClient<S, T, C>
@@ -168,28 +178,7 @@ where
     /// # }
     /// ```
     pub async fn receive<M: Message>(&mut self) -> Result<M, ClientError> {
-        let Some(frame) = self.framed.next().await else {
-            let err = ClientError::Disconnected;
-            self.invoke_error_hook(&err).await;
-            return Err(err);
-        };
-        let bytes = match frame {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = ClientError::from(e);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        let (message, _consumed) = match self.serializer.deserialize(&bytes) {
-            Ok(result) => result,
-            Err(e) => {
-                let err = ClientError::Deserialize(e);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        Ok(message)
+        self.receive_internal().await
     }
 
     /// Send a message and await the next response.
@@ -277,13 +266,6 @@ where
     /// ```
     #[must_use]
     pub fn stream(&self) -> &T { self.framed.get_ref() }
-
-    /// Invoke the error hook if one is registered.
-    async fn invoke_error_hook(&self, error: &ClientError) {
-        if let Some(ref handler) = self.on_error {
-            handler(error).await;
-        }
-    }
 }
 
 impl<S, C> WireframeClient<S, RewindStream<TcpStream>, C>

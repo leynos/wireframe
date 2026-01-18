@@ -90,14 +90,21 @@ payload bytes. Applications can supply their own envelope type by calling
 `Packet` trait:
 
 ```rust
-use wireframe::app::{Packet, PacketParts, WireframeApp};
+use wireframe::{
+    app::{Packet, PacketParts, WireframeApp},
+    correlation::CorrelatableFrame,
+};
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
 struct MyEnv { id: u32, correlation_id: Option<u64>, payload: Vec<u8> }
 
+impl CorrelatableFrame for MyEnv {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    fn set_correlation_id(&mut self, id: Option<u64>) { self.correlation_id = id; }
+}
+
 impl Packet for MyEnv {
     fn id(&self) -> u32 { self.id }
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     fn into_parts(self) -> PacketParts {
         PacketParts::new(self.id, self.correlation_id, self.payload)
     }

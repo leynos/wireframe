@@ -16,6 +16,7 @@ use wireframe::{
     Serializer,
     app::{Envelope, Packet, WireframeApp},
     codec::FrameCodec,
+    correlation::CorrelatableFrame,
     serializer::BincodeSerializer,
 };
 

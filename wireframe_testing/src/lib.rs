@@ -18,10 +18,12 @@
 //! # }
 //! ```
 
+pub mod echo_server;
 pub mod helpers;
 pub mod logging;
 pub mod multi_packet;
 
+pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{
     TEST_MAX_FRAME,
     TestSerializer,

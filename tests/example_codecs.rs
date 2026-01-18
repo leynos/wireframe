@@ -13,6 +13,7 @@ use wireframe::{
         FrameCodec,
         examples::{HotlineFrame, HotlineFrameCodec, MysqlFrame, MysqlFrameCodec},
     },
+    correlation::CorrelatableFrame,
 };
 
 #[test]

@@ -29,4 +29,15 @@ pub enum ClientError {
     /// Preamble exchange timed out.
     #[error("preamble exchange timed out")]
     PreambleTimeout,
+    /// Response correlation ID does not match the request.
+    ///
+    /// This error is returned by [`crate::WireframeClient::call_correlated`]
+    /// when the response envelope's correlation ID differs from the request's.
+    #[error("correlation ID mismatch: expected {expected:?}, received {received:?}")]
+    CorrelationMismatch {
+        /// The correlation ID sent with the request.
+        expected: Option<u64>,
+        /// The correlation ID received in the response.
+        received: Option<u64>,
+    },
 }
