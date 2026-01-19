@@ -19,7 +19,6 @@ copying, validated by pointer-equality assertions in unit tests.
 
 ## Progress
 
-- [x] Draft ExecPlan for 9.1.3.
 - [x] Add `frame_payload_bytes` method to `FrameCodec` trait in `src/codec.rs`.
 - [x] Override `frame_payload_bytes` for `LengthDelimitedFrameCodec`.
 - [x] Update `HotlineFrame` to use `Bytes` instead of `Vec<u8>`.
@@ -35,7 +34,8 @@ copying, validated by pointer-equality assertions in unit tests.
 - [x] Add zero-copy regression test for `HotlineFrameCodec` wrap.
 - [x] Add zero-copy regression test for `MysqlFrameCodec` decode.
 - [x] Add zero-copy regression test for `MysqlFrameCodec` wrap.
-- [x] Update `docs/adr-004-pluggable-protocol-codecs.md` with design decision.
+- [x] Update `docs/adr-004-pluggable-protocol-codecs.md` (Architecture Decision
+      Record) with design decision.
 - [x] Update `docs/users-guide.md` with zero-copy guidance.
 - [x] Mark roadmap entry 9.1.3 as done.
 - [x] Run formatting, lint, and test gates.
@@ -90,9 +90,28 @@ copying, validated by pointer-equality assertions in unit tests.
 
 ## Context and Orientation
 
+### Dependencies
+
+> **Prerequisite: ExecPlan 9.1.2 must be complete before starting this work.**
+>
+> This plan depends on the error taxonomy introduced in ExecPlan 9.1.2
+> ("Introduce a CodecError taxonomy"). Specifically, the following items from
+> 9.1.2 must be merged before beginning 9.1.3:
+>
+> - **Error propagation surfaces**: The `Codec(CodecError)` variant added to
+>   `WireframeError` in `src/response.rs` and `src/app/error.rs`, which provides
+>   the structured error pathway for codec failures.
+> - **WireframeError extensions**: The `From<CodecError>` implementations and
+>   updated `Display`/`Error` traits that allow codec errors to flow through the
+>   existing error handling infrastructure.
+>
+> These are required so that any errors arising from the new `frame_payload_bytes`
+> method can be surfaced through the established error taxonomy rather than
+> falling back to generic `io::Error` handling.
+
 ### Current State
 
-The `FrameCodec` trait in `src/codec.rs:57-88` defines:
+The `FrameCodec` trait in `src/codec.rs` defines:
 
 ```rust
 pub trait FrameCodec: Send + Sync + Clone + 'static {
@@ -111,8 +130,7 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
 
 ### Default Codec (Already Zero-Copy)
 
-`LengthDelimitedFrameCodec` (`src/codec.rs:239-262`) uses `Bytes` as its frame
-type:
+`LengthDelimitedFrameCodec` in `src/codec.rs` uses `Bytes` as its frame type:
 
 - `frame_payload(frame: &Bytes) -> &[u8]` returns `frame.as_ref()` (zero-copy
   borrow)
@@ -132,19 +150,22 @@ pub struct HotlineFrame {
 }
 ```
 
-The decoder (line 72) copies: `let payload = frame_bytes.to_vec();`
+The `HotlineAdapter::decode()` method copies:
+`let payload = frame_bytes.to_vec();`
 
-The `wrap_payload` (lines 119-124) copies: `payload: payload.to_vec()`
+The `HotlineFrameCodec::wrap_payload()` method copies:
+`payload: payload.to_vec()`
 
 ### Primary Usage Site
 
-`src/app/connection.rs:363` calls `F::frame_payload(frame)` to extract payload
-bytes for envelope parsing. This works with `&[u8]` and would also work with
-`Bytes` via `as_ref()`.
+The connection handling code in `src/app/connection.rs` calls
+`F::frame_payload(frame)` to extract payload bytes for envelope parsing. This
+works with `&[u8]` and would also work with `Bytes` via `as_ref()`.
 
 ### Existing Zero-Copy Test
 
-`src/codec/tests.rs:61-68` already verifies `wrap_payload` reuses memory:
+The `length_delimited_wrap_payload_reuses_bytes` test in `src/codec/tests.rs`
+already verifies `wrap_payload` reuses memory:
 
 ```rust
 fn length_delimited_wrap_payload_reuses_bytes() {
@@ -212,8 +233,8 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
 
 ### Phase 5: Documentation Updates
 
-1. Add "Zero-copy payload extraction" section to ADR 004 under "Resolved
-   Decisions"
+1. Add "Zero-copy payload extraction" section to Architecture Decision Record
+   (ADR) 004 under "Resolved Decisions"
 2. Update the "Custom frame codecs" section in `docs/users-guide.md` with
    guidance on implementing zero-copy codecs
 3. Mark all 9.1.3 sub-items as done in `docs/roadmap.md`
@@ -222,7 +243,7 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
 
 1. Update `src/codec.rs` to add the `frame_payload_bytes` method:
 
-   Add after `frame_payload` (around line 76):
+   Add after the `frame_payload` method in the `FrameCodec` trait:
 
    ```rust
    /// Extract the message payload bytes from a frame as owned [`Bytes`].
@@ -257,7 +278,7 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
 
 4. Update `HotlineAdapter::decode()`:
 
-   Change line 72 from:
+   Change the payload extraction from:
 
    ```rust
    let payload = frame_bytes.to_vec();
@@ -271,7 +292,7 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
 
 5. Update `HotlineAdapter::encode()`:
 
-   Change line 103 from:
+   Change the payload write from:
 
    ```rust
    dst.extend_from_slice(&item.payload);
@@ -342,7 +363,7 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
     Add under "Resolved Decisions":
 
     ```markdown
-    ### Zero-copy payload extraction (resolved 2026-01-XX)
+    ### Zero-copy payload extraction (resolved 2026-01-19)
 
     A `frame_payload_bytes` method was added to `FrameCodec` to enable zero-copy
     payload extraction:
@@ -365,6 +386,7 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
     ```rust
     let extracted = MyCodec::frame_payload_bytes(&frame);
     assert_eq!(frame.payload.as_ptr(), extracted.as_ptr());
+    ```
     ```
 
 11. Update `docs/users-guide.md`:
@@ -409,6 +431,7 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
         let payload = src.split_to(payload_len).freeze();  // Zero-copy
         Ok(Some(MyFrame { metadata, payload }))
     }
+    ```
     ```
 
 12. Update `docs/roadmap.md`:
@@ -536,4 +559,14 @@ pub struct MysqlFrame {
 
 ## Revision note (required when editing an ExecPlan)
 
-Initial draft of ExecPlan for roadmap item 9.1.3.
+- 2026-01-19: Fixed markdown formatting issues: closed unclosed fenced code
+  blocks in Concrete Steps items 10 and 11; updated placeholder date
+  "2026-01-XX" to "2026-01-19" in ADR update snippet; expanded "ADR" acronym
+  in Progress checklist item for `adr-004-pluggable-protocol-codecs.md`.
+- 2026-01-19: Added explicit dependency note in "Context and Orientation"
+  section stating that ExecPlan 9.1.2 must complete its error propagation
+  surfaces and WireframeError extensions before 9.1.3 can begin.
+- 2026-01-19: Removed "Draft ExecPlan" meta-item from Progress. Replaced line
+  number references with type/function names for stability. Expanded "ADR"
+  acronym on first use in Phase 5.
+- 2026-01-11: Initial draft of ExecPlan for roadmap item 9.1.3.

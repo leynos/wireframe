@@ -283,7 +283,7 @@ payload extraction:
 - **New method**: `fn frame_payload_bytes(frame: &Self::Frame) -> Bytes`
 - **Default behaviour**: Copies from `frame_payload()` for backward
   compatibility
-- **Optimised implementations**: Return `frame.payload.clone()` for
+- **Optimized implementations**: Return `frame.payload.clone()` for
   `Bytes`-backed frames (cheap atomic reference count increment)
 
 Guidelines for custom codecs:
