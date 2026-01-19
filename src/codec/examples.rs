@@ -14,7 +14,7 @@ use super::FrameCodec;
 #[derive(Clone, Debug)]
 pub struct HotlineFrame {
     pub transaction_id: u32,
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 #[derive(Clone, Debug)]
@@ -69,7 +69,7 @@ impl Decoder for HotlineAdapter {
 
         let mut frame_bytes = src.split_to(total_size);
         frame_bytes.advance(HEADER_LEN);
-        let payload = frame_bytes.to_vec();
+        let payload = frame_bytes.freeze();
 
         Ok(Some(HotlineFrame {
             transaction_id,
@@ -114,12 +114,14 @@ impl FrameCodec for HotlineFrameCodec {
 
     fn encoder(&self) -> Self::Encoder { HotlineAdapter::new(self.max_frame_length) }
 
-    fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
+    fn frame_payload(frame: &Self::Frame) -> &[u8] { &frame.payload }
+
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes { frame.payload.clone() }
 
     fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
         HotlineFrame {
             transaction_id: 0,
-            payload: payload.to_vec(),
+            payload,
         }
     }
 
@@ -131,7 +133,7 @@ impl FrameCodec for HotlineFrameCodec {
 #[derive(Clone, Debug)]
 pub struct MysqlFrame {
     pub sequence_id: u8,
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 #[derive(Clone, Debug)]
@@ -181,7 +183,7 @@ impl Decoder for MysqlAdapter {
 
         let mut frame_bytes = src.split_to(HEADER_LEN + len);
         frame_bytes.advance(HEADER_LEN);
-        let payload = frame_bytes.to_vec();
+        let payload = frame_bytes.freeze();
 
         Ok(Some(MysqlFrame {
             sequence_id,
@@ -237,12 +239,14 @@ impl FrameCodec for MysqlFrameCodec {
 
     fn encoder(&self) -> Self::Encoder { MysqlAdapter::new(self.max_frame_length) }
 
-    fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
+    fn frame_payload(frame: &Self::Frame) -> &[u8] { &frame.payload }
+
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes { frame.payload.clone() }
 
     fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
         MysqlFrame {
             sequence_id: 0,
-            payload: payload.to_vec(),
+            payload,
         }
     }
 

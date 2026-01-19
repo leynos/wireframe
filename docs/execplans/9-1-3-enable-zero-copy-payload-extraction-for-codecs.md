@@ -19,30 +19,36 @@ copying, validated by pointer-equality assertions in unit tests.
 
 ## Progress
 
-- [ ] Draft ExecPlan for 9.1.3.
-- [ ] Add `frame_payload_bytes` method to `FrameCodec` trait in `src/codec.rs`.
-- [ ] Override `frame_payload_bytes` for `LengthDelimitedFrameCodec`.
-- [ ] Update `HotlineFrame` to use `Bytes` instead of `Vec<u8>`.
-- [ ] Update `HotlineAdapter` decoder to use `BytesMut::freeze()`.
-- [ ] Update `HotlineAdapter` encoder to work with `Bytes`.
-- [ ] Update `HotlineFrameCodec` to override `frame_payload_bytes`.
-- [ ] Update `MysqlFrame` to use `Bytes` instead of `Vec<u8>`.
-- [ ] Update `MysqlAdapter` decoder to use `BytesMut::freeze()`.
-- [ ] Update `MysqlAdapter` encoder to work with `Bytes`.
-- [ ] Update `MysqlFrameCodec` to override `frame_payload_bytes`.
-- [ ] Add zero-copy regression test for `LengthDelimitedFrameCodec`.
-- [ ] Add zero-copy regression test for `HotlineFrameCodec` decode.
-- [ ] Add zero-copy regression test for `HotlineFrameCodec` wrap.
-- [ ] Add zero-copy regression test for `MysqlFrameCodec` decode.
-- [ ] Add zero-copy regression test for `MysqlFrameCodec` wrap.
-- [ ] Update `docs/adr-004-pluggable-protocol-codecs.md` with design decision.
-- [ ] Update `docs/users-guide.md` with zero-copy guidance.
-- [ ] Mark roadmap entry 9.1.3 as done.
-- [ ] Run formatting, lint, and test gates.
+- [x] Draft ExecPlan for 9.1.3.
+- [x] Add `frame_payload_bytes` method to `FrameCodec` trait in `src/codec.rs`.
+- [x] Override `frame_payload_bytes` for `LengthDelimitedFrameCodec`.
+- [x] Update `HotlineFrame` to use `Bytes` instead of `Vec<u8>`.
+- [x] Update `HotlineAdapter` decoder to use `BytesMut::freeze()`.
+- [x] Update `HotlineAdapter` encoder to work with `Bytes`.
+- [x] Update `HotlineFrameCodec` to override `frame_payload_bytes`.
+- [x] Update `MysqlFrame` to use `Bytes` instead of `Vec<u8>`.
+- [x] Update `MysqlAdapter` decoder to use `BytesMut::freeze()`.
+- [x] Update `MysqlAdapter` encoder to work with `Bytes`.
+- [x] Update `MysqlFrameCodec` to override `frame_payload_bytes`.
+- [x] Add zero-copy regression test for `LengthDelimitedFrameCodec`.
+- [x] Add zero-copy regression test for `HotlineFrameCodec` decode.
+- [x] Add zero-copy regression test for `HotlineFrameCodec` wrap.
+- [x] Add zero-copy regression test for `MysqlFrameCodec` decode.
+- [x] Add zero-copy regression test for `MysqlFrameCodec` wrap.
+- [x] Update `docs/adr-004-pluggable-protocol-codecs.md` with design decision.
+- [x] Update `docs/users-guide.md` with zero-copy guidance.
+- [x] Mark roadmap entry 9.1.3 as done.
+- [x] Run formatting, lint, and test gates.
 
 ## Surprises & Discoveries
 
-(To be filled during implementation)
+- The `HotlineAdapter` and `MysqlAdapter` encoders required no changes because
+  `extend_from_slice` works with `Bytes` via `Deref<Target = [u8]>`.
+- Integration tests in `tests/example_codecs.rs` needed updates to construct
+  frames with `Bytes` payloads instead of `Vec<u8>`.
+- The existing test `length_delimited_wrap_payload_reuses_bytes` already
+  validated zero-copy for wrapping; the new tests extend coverage to
+  `frame_payload_bytes` extraction and example codecs.
 
 ## Decision Log
 
@@ -65,7 +71,22 @@ copying, validated by pointer-equality assertions in unit tests.
 
 ## Outcomes & Retrospective
 
-(To be filled on completion)
+**Completed 2026-01-19.**
+
+- The `frame_payload_bytes` method was added to `FrameCodec` with a default
+  implementation that copies from `frame_payload()`, ensuring backward
+  compatibility.
+- `LengthDelimitedFrameCodec`, `HotlineFrameCodec`, and `MysqlFrameCodec` all
+  override `frame_payload_bytes` to return `frame.payload.clone()` (cheap
+  atomic increment).
+- `HotlineFrame` and `MysqlFrame` now use `Bytes` payloads, and their decoders
+  use `BytesMut::freeze()` for zero-copy extraction from the receive buffer.
+- Seven zero-copy regression tests verify pointer equality across decode,
+  wrap, and extraction paths.
+- Documentation updated in ADR-004 (resolved decision) and users-guide.md
+  (zero-copy guidance section).
+- Roadmap milestone 9.1.3 marked complete.
+- All formatting, lint, and test gates pass.
 
 ## Context and Orientation
 

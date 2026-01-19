@@ -126,3 +126,170 @@ fn decode_eof_with_complete_frame_succeeds() {
         .expect("expected a frame");
     assert_eq!(result.as_ref(), payload.as_ref());
 }
+
+// ---------------------------------------------------------------------------
+// Zero-copy regression tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn frame_payload_bytes_reuses_memory_for_length_delimited() {
+    let codec = LengthDelimitedFrameCodec::new(128);
+    let payload = Bytes::from(vec![1_u8, 2, 3, 4]);
+    let frame = codec.wrap_payload(payload.clone());
+
+    let extracted = LengthDelimitedFrameCodec::frame_payload_bytes(&frame);
+
+    assert_eq!(
+        frame.as_ref().as_ptr(),
+        extracted.as_ref().as_ptr(),
+        "frame_payload_bytes should return the same memory region"
+    );
+}
+
+#[test]
+fn hotline_decode_produces_zero_copy_payload() {
+    use bytes::BufMut;
+    use tokio_util::codec::Decoder;
+
+    use super::examples::HotlineFrameCodec;
+
+    // Build a valid Hotline frame in a buffer.
+    // Header: data_size (u32) + total_size (u32) + transaction_id (u32) + reserved (8 bytes) = 20
+    // bytes
+    let payload_data: &[u8] = &[0xde, 0xad, 0xbe, 0xef];
+    let data_size: u32 = 4;
+    let total_size: u32 = 20 + 4;
+
+    let mut buf = BytesMut::with_capacity(total_size as usize);
+    // Hotline wire protocol uses big-endian encoding.
+    buf.put_u32(data_size);
+    buf.put_u32(total_size);
+    buf.put_u32(42); // transaction_id
+    buf.extend_from_slice(&[0_u8; 8]); // reserved
+    buf.extend_from_slice(payload_data);
+
+    // Record pointer to payload region in buffer before decode
+    let payload_ptr = buf
+        .get(20..)
+        .expect("buffer should have at least 20 bytes")
+        .as_ptr();
+
+    let codec = HotlineFrameCodec::new(128);
+    let mut decoder = codec.decoder();
+    let frame = decoder
+        .decode(&mut buf)
+        .expect("decode should succeed")
+        .expect("expected a frame");
+
+    // The decoded payload should point to the same memory (zero-copy via freeze)
+    assert_eq!(
+        payload_ptr,
+        frame.payload.as_ptr(),
+        "decoded payload should reuse buffer memory (zero-copy)"
+    );
+}
+
+#[test]
+fn hotline_wrap_payload_reuses_bytes() {
+    use super::examples::HotlineFrameCodec;
+
+    let codec = HotlineFrameCodec::new(128);
+    let payload = Bytes::from(vec![5_u8; 8]);
+    let frame = codec.wrap_payload(payload.clone());
+
+    assert_eq!(
+        payload.as_ref().as_ptr(),
+        frame.payload.as_ref().as_ptr(),
+        "wrap_payload should reuse the Bytes without copying"
+    );
+}
+
+#[test]
+fn hotline_frame_payload_bytes_reuses_memory() {
+    use super::examples::HotlineFrameCodec;
+
+    let codec = HotlineFrameCodec::new(128);
+    let payload = Bytes::from(vec![7_u8; 6]);
+    let frame = codec.wrap_payload(payload.clone());
+
+    let extracted = HotlineFrameCodec::frame_payload_bytes(&frame);
+
+    assert_eq!(
+        frame.payload.as_ptr(),
+        extracted.as_ptr(),
+        "frame_payload_bytes should return the same memory region"
+    );
+}
+
+#[test]
+fn mysql_decode_produces_zero_copy_payload() {
+    use bytes::BufMut;
+    use tokio_util::codec::Decoder;
+
+    use super::examples::MysqlFrameCodec;
+
+    // Build a valid MySQL frame in a buffer.
+    // Header: 3-byte little-endian length + 1-byte sequence_id = 4 bytes
+    let payload_data: &[u8] = &[0xca, 0xfe, 0xba, 0xbe];
+    let payload_len: u32 = 4;
+
+    let mut buf = BytesMut::with_capacity(8);
+    // MySQL uses little-endian 3-byte length
+    buf.put_u8((payload_len & 0xff) as u8);
+    buf.put_u8(((payload_len >> 8) & 0xff) as u8);
+    buf.put_u8(((payload_len >> 16) & 0xff) as u8);
+    buf.put_u8(1); // sequence_id
+    buf.extend_from_slice(payload_data);
+
+    // Record pointer to payload region in buffer before decode
+    let payload_ptr = buf
+        .get(4..)
+        .expect("buffer should have at least 4 bytes")
+        .as_ptr();
+
+    let codec = MysqlFrameCodec::new(128);
+    let mut decoder = codec.decoder();
+    let frame = decoder
+        .decode(&mut buf)
+        .expect("decode should succeed")
+        .expect("expected a frame");
+
+    // The decoded payload should point to the same memory (zero-copy via freeze)
+    assert_eq!(
+        payload_ptr,
+        frame.payload.as_ptr(),
+        "decoded payload should reuse buffer memory (zero-copy)"
+    );
+}
+
+#[test]
+fn mysql_wrap_payload_reuses_bytes() {
+    use super::examples::MysqlFrameCodec;
+
+    let codec = MysqlFrameCodec::new(128);
+    let payload = Bytes::from(vec![3_u8; 10]);
+    let frame = codec.wrap_payload(payload.clone());
+
+    assert_eq!(
+        payload.as_ref().as_ptr(),
+        frame.payload.as_ref().as_ptr(),
+        "wrap_payload should reuse the Bytes without copying"
+    );
+}
+
+#[test]
+fn mysql_frame_payload_bytes_reuses_memory() {
+    use super::examples::MysqlFrameCodec;
+
+    let codec = MysqlFrameCodec::new(128);
+    let payload = Bytes::from(vec![9_u8; 5]);
+    let frame = codec.wrap_payload(payload.clone());
+
+    let extracted = MysqlFrameCodec::frame_payload_bytes(&frame);
+
+    assert_eq!(
+        frame.payload.as_ptr(),
+        extracted.as_ptr(),
+        "frame_payload_bytes should return the same memory region"
+    );
+}

@@ -165,6 +165,60 @@ let app = WireframeApp::new()?
 See `examples/hotline_codec.rs` and `examples/mysql_codec.rs` for complete
 implementations.
 
+#### Zero-copy payload extraction
+
+For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload
+storage and override `frame_payload_bytes` to avoid allocation:
+
+```rust
+use bytes::Bytes;
+use wireframe::codec::FrameCodec;
+
+pub struct MyFrame {
+    pub metadata: u32,
+    pub payload: Bytes,  // Use Bytes, not Vec<u8>
+}
+
+impl FrameCodec for MyCodec {
+    type Frame = MyFrame;
+    // ... other associated types ...
+
+    fn frame_payload(frame: &Self::Frame) -> &[u8] {
+        &frame.payload
+    }
+
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
+        frame.payload.clone()  // Cheap: atomic reference count increment
+    }
+
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
+        MyFrame {
+            metadata: 0,
+            payload,  // Store directly, no copy
+        }
+    }
+
+    // ... other methods ...
+}
+```
+
+In the decoder, use `BytesMut::freeze()` instead of `.to_vec()`:
+
+```rust
+use bytes::BytesMut;
+use tokio_util::codec::Decoder;
+
+fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+    // ... parse header ...
+    let payload = src.split_to(payload_len).freeze();  // Zero-copy
+    Ok(Some(MyFrame { metadata, payload }))
+}
+```
+
+The default `frame_payload_bytes` implementation copies from the
+`frame_payload()` slice, ensuring backward compatibility for codecs that use
+`Vec<u8>` payloads.
+
 ### Codec error handling
 
 The codec layer provides a structured error taxonomy via `CodecError` that
