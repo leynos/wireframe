@@ -105,7 +105,8 @@ copying, validated by pointer-equality assertions in unit tests.
 >   updated `Display`/`Error` traits that allow codec errors to flow through the
 >   existing error handling infrastructure.
 >
-> These are required so that any errors arising from the new `frame_payload_bytes`
+> These are required so that any errors arising from the new
+> `frame_payload_bytes`
 > method can be surfaced through the established error taxonomy rather than
 > falling back to generic `io::Error` handling.
 
@@ -387,7 +388,6 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
     let extracted = MyCodec::frame_payload_bytes(&frame);
     assert_eq!(frame.payload.as_ptr(), extracted.as_ptr());
     ```
-    ```
 
 11. Update `docs/users-guide.md`:
 
@@ -431,7 +431,6 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
         let payload = src.split_to(payload_len).freeze();  // Zero-copy
         Ok(Some(MyFrame { metadata, payload }))
     }
-    ```
     ```
 
 12. Update `docs/roadmap.md`:
@@ -559,10 +558,11 @@ pub struct MysqlFrame {
 
 ## Revision note (required when editing an ExecPlan)
 
-- 2026-01-19: Fixed markdown formatting issues: closed unclosed fenced code
-  blocks in Concrete Steps items 10 and 11; updated placeholder date
-  "2026-01-XX" to "2026-01-19" in ADR update snippet; expanded "ADR" acronym
-  in Progress checklist item for `adr-004-pluggable-protocol-codecs.md`.
+- 2026-01-19: Fixed markdown formatting issues: removed orphan closing fences
+  in Concrete Steps items 10 and 11 that violated MD040 (fenced code blocks
+  must have a language specified); updated placeholder date "2026-01-XX" to
+  "2026-01-19" in ADR update snippet; expanded "ADR" acronym in Progress
+  checklist item for `adr-004-pluggable-protocol-codecs.md`.
 - 2026-01-19: Added explicit dependency note in "Context and Orientation"
   section stating that ExecPlan 9.1.2 must complete its error propagation
   surfaces and WireframeError extensions before 9.1.3 can begin.

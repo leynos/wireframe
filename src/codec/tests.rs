@@ -131,18 +131,110 @@ fn decode_eof_with_complete_frame_succeeds() {
 // Zero-copy regression tests
 // ---------------------------------------------------------------------------
 
-#[test]
-fn frame_payload_bytes_reuses_memory_for_length_delimited() {
-    let codec = LengthDelimitedFrameCodec::new(128);
-    let payload = Bytes::from(vec![1_u8, 2, 3, 4]);
-    let frame = codec.wrap_payload(payload.clone());
+use super::examples::{HotlineFrameCodec, MysqlFrameCodec};
 
-    let extracted = LengthDelimitedFrameCodec::frame_payload_bytes(&frame);
+/// Helper to wrap payload and extract the payload pointer for different codecs.
+///
+/// Returns `(input_payload_ptr, frame_payload_ptr)` for pointer equality checks.
+fn wrap_and_get_payload_ptrs(codec_name: &str, payload: Bytes) -> (*const u8, *const u8) {
+    let input_ptr = payload.as_ptr();
+    let frame_ptr = match codec_name {
+        "length_delimited" => {
+            let codec = LengthDelimitedFrameCodec::new(128);
+            let frame = codec.wrap_payload(payload);
+            frame.as_ptr()
+        }
+        "hotline" => {
+            let codec = HotlineFrameCodec::new(128);
+            let frame = codec.wrap_payload(payload);
+            frame.payload.as_ptr()
+        }
+        "mysql" => {
+            let codec = MysqlFrameCodec::new(128);
+            let frame = codec.wrap_payload(payload);
+            frame.payload.as_ptr()
+        }
+        _ => panic!("unknown codec: {codec_name}"),
+    };
+    (input_ptr, frame_ptr)
+}
+
+/// Helper to wrap payload and extract payload bytes for different codecs.
+///
+/// Returns `(frame_payload_ptr, extracted_payload_ptr)` for pointer equality checks.
+fn wrap_and_extract_payload_bytes_ptrs(codec_name: &str, payload: Bytes) -> (*const u8, *const u8) {
+    match codec_name {
+        "length_delimited" => {
+            let codec = LengthDelimitedFrameCodec::new(128);
+            let frame = codec.wrap_payload(payload);
+            let extracted = LengthDelimitedFrameCodec::frame_payload_bytes(&frame);
+            (frame.as_ptr(), extracted.as_ptr())
+        }
+        "hotline" => {
+            let codec = HotlineFrameCodec::new(128);
+            let frame = codec.wrap_payload(payload);
+            let extracted = HotlineFrameCodec::frame_payload_bytes(&frame);
+            (frame.payload.as_ptr(), extracted.as_ptr())
+        }
+        "mysql" => {
+            let codec = MysqlFrameCodec::new(128);
+            let frame = codec.wrap_payload(payload);
+            let extracted = MysqlFrameCodec::frame_payload_bytes(&frame);
+            (frame.payload.as_ptr(), extracted.as_ptr())
+        }
+        _ => panic!("unknown codec: {codec_name}"),
+    }
+}
+
+/// Parameterized test for `wrap_payload` zero-copy behaviour.
+///
+/// Verifies that `wrap_payload` stores the `Bytes` directly without copying
+/// for all codec types that support zero-copy.
+#[rstest]
+#[case::length_delimited("length_delimited", vec![9_u8; 4])]
+#[case::hotline("hotline", vec![5_u8; 8])]
+#[case::mysql("mysql", vec![3_u8; 10])]
+fn wrap_payload_reuses_bytes(#[case] codec_name: &str, #[case] payload_data: Vec<u8>) {
+    let payload = Bytes::from(payload_data);
+    let (input_ptr, frame_ptr) = wrap_and_get_payload_ptrs(codec_name, payload);
 
     assert_eq!(
-        frame.as_ref().as_ptr(),
-        extracted.as_ref().as_ptr(),
+        input_ptr, frame_ptr,
+        "wrap_payload should reuse the Bytes without copying"
+    );
+}
+
+/// Parameterized test for `frame_payload_bytes` zero-copy behaviour.
+///
+/// Verifies that `frame_payload_bytes` returns a `Bytes` pointing to the same
+/// memory region as the frame's payload for all codec types.
+#[rstest]
+#[case::length_delimited("length_delimited", vec![1_u8, 2, 3, 4])]
+#[case::hotline("hotline", vec![7_u8; 6])]
+#[case::mysql("mysql", vec![9_u8; 5])]
+fn frame_payload_bytes_reuses_memory(#[case] codec_name: &str, #[case] payload_data: Vec<u8>) {
+    let payload = Bytes::from(payload_data);
+    let (frame_ptr, extracted_ptr) = wrap_and_extract_payload_bytes_ptrs(codec_name, payload);
+
+    assert_eq!(
+        frame_ptr, extracted_ptr,
         "frame_payload_bytes should return the same memory region"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Decode zero-copy tests (kept separate due to codec-specific frame construction)
+// ---------------------------------------------------------------------------
+
+/// Helper to verify that a decoded frame's payload points to the original buffer memory.
+fn assert_decode_zero_copy(
+    payload_ptr_before_decode: *const u8,
+    decoded_payload_ptr: *const u8,
+    codec_name: &str,
+) {
+    assert_eq!(
+        payload_ptr_before_decode, decoded_payload_ptr,
+        "{codec_name}: decoded payload should reuse buffer memory (zero-copy)"
     );
 }
 
@@ -150,8 +242,6 @@ fn frame_payload_bytes_reuses_memory_for_length_delimited() {
 fn hotline_decode_produces_zero_copy_payload() {
     use bytes::BufMut;
     use tokio_util::codec::Decoder;
-
-    use super::examples::HotlineFrameCodec;
 
     // Build a valid Hotline frame in a buffer.
     // Header: data_size (u32) + total_size (u32) + transaction_id (u32) + reserved (8 bytes) = 20
@@ -181,52 +271,13 @@ fn hotline_decode_produces_zero_copy_payload() {
         .expect("decode should succeed")
         .expect("expected a frame");
 
-    // The decoded payload should point to the same memory (zero-copy via freeze)
-    assert_eq!(
-        payload_ptr,
-        frame.payload.as_ptr(),
-        "decoded payload should reuse buffer memory (zero-copy)"
-    );
-}
-
-#[test]
-fn hotline_wrap_payload_reuses_bytes() {
-    use super::examples::HotlineFrameCodec;
-
-    let codec = HotlineFrameCodec::new(128);
-    let payload = Bytes::from(vec![5_u8; 8]);
-    let frame = codec.wrap_payload(payload.clone());
-
-    assert_eq!(
-        payload.as_ref().as_ptr(),
-        frame.payload.as_ref().as_ptr(),
-        "wrap_payload should reuse the Bytes without copying"
-    );
-}
-
-#[test]
-fn hotline_frame_payload_bytes_reuses_memory() {
-    use super::examples::HotlineFrameCodec;
-
-    let codec = HotlineFrameCodec::new(128);
-    let payload = Bytes::from(vec![7_u8; 6]);
-    let frame = codec.wrap_payload(payload.clone());
-
-    let extracted = HotlineFrameCodec::frame_payload_bytes(&frame);
-
-    assert_eq!(
-        frame.payload.as_ptr(),
-        extracted.as_ptr(),
-        "frame_payload_bytes should return the same memory region"
-    );
+    assert_decode_zero_copy(payload_ptr, frame.payload.as_ptr(), "hotline");
 }
 
 #[test]
 fn mysql_decode_produces_zero_copy_payload() {
     use bytes::BufMut;
     use tokio_util::codec::Decoder;
-
-    use super::examples::MysqlFrameCodec;
 
     // Build a valid MySQL frame in a buffer.
     // Header: 3-byte little-endian length + 1-byte sequence_id = 4 bytes
@@ -254,42 +305,5 @@ fn mysql_decode_produces_zero_copy_payload() {
         .expect("decode should succeed")
         .expect("expected a frame");
 
-    // The decoded payload should point to the same memory (zero-copy via freeze)
-    assert_eq!(
-        payload_ptr,
-        frame.payload.as_ptr(),
-        "decoded payload should reuse buffer memory (zero-copy)"
-    );
-}
-
-#[test]
-fn mysql_wrap_payload_reuses_bytes() {
-    use super::examples::MysqlFrameCodec;
-
-    let codec = MysqlFrameCodec::new(128);
-    let payload = Bytes::from(vec![3_u8; 10]);
-    let frame = codec.wrap_payload(payload.clone());
-
-    assert_eq!(
-        payload.as_ref().as_ptr(),
-        frame.payload.as_ref().as_ptr(),
-        "wrap_payload should reuse the Bytes without copying"
-    );
-}
-
-#[test]
-fn mysql_frame_payload_bytes_reuses_memory() {
-    use super::examples::MysqlFrameCodec;
-
-    let codec = MysqlFrameCodec::new(128);
-    let payload = Bytes::from(vec![9_u8; 5]);
-    let frame = codec.wrap_payload(payload.clone());
-
-    let extracted = MysqlFrameCodec::frame_payload_bytes(&frame);
-
-    assert_eq!(
-        frame.payload.as_ptr(),
-        extracted.as_ptr(),
-        "frame_payload_bytes should return the same memory region"
-    );
+    assert_decode_zero_copy(payload_ptr, frame.payload.as_ptr(), "mysql");
 }
