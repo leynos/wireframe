@@ -562,7 +562,7 @@ pub struct MysqlFrame {
 - 2026-01-19: Updated Outcomes section to correctly describe
   `LengthDelimitedFrameCodec::frame_payload_bytes` as returning `frame.clone()`
   (since its frame type is `Bytes` itself) rather than `frame.payload.clone()`.
-- 2026-01-19: Fixed markdown formatting issues: removed orphan closing fences
+- 2026-01-19: Fixed Markdown formatting issues: removed orphan closing fences
   in Concrete Steps items 10 and 11 that violated MD040 (fenced code blocks
   must have a language specified); updated placeholder date "2026-01-XX" to
   "2026-01-19" in ADR update snippet; expanded "ADR" acronym in Progress
