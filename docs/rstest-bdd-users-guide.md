@@ -23,19 +23,20 @@ owner, the developer, and the tester.
 
 ## Toolchain requirements
 
-`rstest-bdd` targets Rust 1.75 or newer across every crate in the workspace.
-Each `Cargo.toml` declares `rust-version = "1.75"`, so `cargo` will refuse to
-compile the project on older stable compilers. The workspace now settles on the
-Rust 2021 edition to keep the declared Minimum Supported Rust Version (MSRV)
-and edition compatible. The repository still pins a nightly toolchain for
-development because the runtime uses auto traits and negative impls. Those
-nightly-only features remain behind the existing `rust-toolchain.toml` pin and
-do not alter the public MSRV. Step definitions and writers remain synchronous
-functions; the framework no longer depends on the `async-trait` crate to
-express async methods in traits. Projects that previously relied on
-`#[async_trait]` in helper traits should replace those methods with ordinary
-functions—`StepFn` continues to execute synchronously and exposes results via
-`StepExecution`.
+`rstest-bdd` targets Rust 1.85 or newer across every crate in the workspace.
+Each `Cargo.toml` declares `rust-version = "1.85"`, so `cargo` will refuse to
+compile the project on older compilers. The workspace uses the Rust 2024
+edition.
+
+`rstest-bdd` builds on stable Rust. The repository pins a stable toolchain for
+development via `rust-toolchain.toml` so contributors get consistent `rustfmt`
+and `clippy` behaviour.
+
+Step definitions and writers remain synchronous functions; the framework no
+longer depends on the `async-trait` crate to express async methods in traits.
+Projects that previously relied on `#[async_trait]` in helper traits should
+replace those methods with ordinary functions—`StepFn` continues to execute
+synchronously and exposes results via `StepExecution`.
 
 ## The three amigos
 
@@ -64,7 +65,7 @@ Scenarios follow the simple `Given‑When‑Then` pattern. Support for **Scenari
 Outline** is available, enabling a single scenario to run with multiple sets of
 data from an `Examples` table. A `Background` section defines steps that run
 before each `Scenario` in a feature file, enabling shared setup across
-scenarios. Advanced constructs such as data tables and Docstrings provide
+scenarios. Advanced constructs such as data tables and doc strings provide
 structured or free‑form arguments to steps.
 
 ### Example feature file
@@ -287,7 +288,27 @@ missing matches leave fixtures untouched, keeping scenarios predictable while
 still allowing a functional style without mutable fixtures.
 
 Steps may also return `Result<T, E>`. An `Err` aborts the scenario, while an
-`Ok` value is injected as above. Type aliases to `Result` behave identically.
+`Ok` value is injected as above.
+
+The step macros recognize these `Result` shapes during expansion:
+
+- `Result<..>`, `std::result::Result<..>`, and `core::result::Result<..>`
+- `rstest_bdd::StepResult<..>` (an alias provided by the runtime crate)
+
+When inference cannot determine whether a return type is a `Result` (for
+example, when returning a type alias), prefer returning
+`rstest_bdd::StepResult` or spelling out `Result<..>` in the signature.
+Alternatively, add an explicit return-kind hint: `#[when(result)]` /
+`#[when(value)]`.
+
+The `result`/`value` hints are validated for obvious misconfigurations.
+`result` is rejected for primitive return types. For aliases, the macro cannot
+validate the underlying definition and assumes `Result<..>` semantics.
+
+Use `#[when("...", value)]` (or `#[when(value)]` when using the inferred
+pattern) to force treating the return value as a payload even when it is
+`Result<..>`.
+
 Returning `()` or `Ok(())` produces no stored value, so fixtures of `()` are
 not overwritten.
 
@@ -635,15 +656,20 @@ substring matching to confirm that a message contains the expected reason.
 
 ```rust,no_run
 use rstest_bdd::{assert_scenario_skipped, assert_step_skipped, StepExecution};
-use rstest_bdd::reporting::{ScenarioRecord, ScenarioStatus, SkippedScenario};
+use rstest_bdd::reporting::{ScenarioMetadata, ScenarioRecord, ScenarioStatus, SkippedScenario};
 
 let outcome = StepExecution::skipped(Some("maintenance pending".into()));
 let message = assert_step_skipped!(outcome, message = "maintenance");
 assert_eq!(message, Some("maintenance pending".into()));
 
-let record = ScenarioRecord::new(
+let metadata = ScenarioMetadata::new(
     "features/unhappy.feature",
     "pending work",
+    12,
+    vec!["@allow_skipped".into()],
+);
+let record = ScenarioRecord::from_metadata(
+    metadata,
     ScenarioStatus::Skipped(SkippedScenario::new(None, true, false)),
 );
 let details = assert_scenario_skipped!(
@@ -682,8 +708,115 @@ union of feature, scenario, and example tags described above. Scenarios that do
 not match simply do not generate a test, and outline examples drop unmatched
 rows.
 
-Generated tests cannot currently accept fixtures; use `#[scenario]` when
-fixture injection or custom assertions are required.
+### Fixture injection with `scenarios!`
+
+The `fixtures = [name: Type, ...]` parameter injects fixtures into all
+generated scenario tests. Fixtures are bound via rstest and inserted into the
+step context, making them available to step functions that declare the
+corresponding parameter.
+
+```rust,no_run
+use rstest::fixture;
+use rstest_bdd_macros::{given, scenarios};
+
+struct TestWorld { value: i32 }
+
+#[fixture]
+fn world() -> TestWorld { TestWorld { value: 42 } }
+
+#[given("a precondition")]
+fn step_uses_world(world: &TestWorld) {
+    assert_eq!(world.value, 42);
+}
+
+scenarios!("tests/features/auto", fixtures = [world: TestWorld]);
+```
+
+The macro adds `#[expect(unused_variables)]` to generated test functions when
+fixtures are present, preventing lint warnings since fixture parameters are
+consumed via `StepContext` rather than referenced directly in the test body.
+
+## Async scenario execution
+
+Scenarios can run asynchronously under Tokio's current-thread runtime. This
+enables test code to `.await` async operations while preserving the
+`RefCell`-backed fixture model for mutable borrows across await points.
+
+### Using `#[scenario]` with async
+
+Declare the test function as `async fn` and add
+`#[tokio::test(flavor = "current_thread")]` before the `#[scenario]` attribute.
+The macro detects the async signature and generates an async step executor:
+
+```rust,no_run
+use rstest_bdd_macros::{given, scenario, then, when};
+use rstest::fixture;
+
+#[derive(Default)]
+struct Counter {
+    value: i32,
+}
+
+#[fixture]
+fn counter() -> Counter {
+    Counter::default()
+}
+
+#[given("a counter initialised to 0")]
+fn init(counter: &mut Counter) {
+    counter.value = 0;
+}
+
+#[when("the counter is incremented")]
+fn increment(counter: &mut Counter) {
+    counter.value += 1;
+}
+
+#[then(expr = "the counter value is {n}")]
+fn check_value(counter: &Counter, n: i32) {
+    assert_eq!(counter.value, n);
+}
+
+#[scenario(path = "tests/features/counter.feature", name = "Increment counter")]
+#[tokio::test(flavor = "current_thread")]
+async fn increment_counter(counter: Counter) {}
+```
+
+The macro generates `#[rstest::rstest]` without duplicating
+`#[tokio::test(flavor = "current_thread")]` when the user already supplies it.
+
+### Using `scenarios!` with async
+
+The `scenarios!` macro accepts a `runtime` argument to generate async tests for
+all discovered scenarios:
+
+```rust,no_run
+use rstest_bdd_macros::{given, then, when, scenarios};
+
+#[given("a precondition")] fn precondition() {}
+#[when("an action occurs")] fn action() {}
+#[then("events are recorded")] fn events() {}
+
+scenarios!("tests/features/auto", runtime = "tokio-current-thread");
+```
+
+When `runtime = "tokio-current-thread"` is specified:
+
+- Generated test functions are `async fn`.
+- Each test is annotated with `#[tokio::test(flavor = "current_thread")]`.
+- Steps execute sequentially within the single-threaded Tokio runtime.
+
+### Current limitations
+
+- **Sync step definitions only:** The async executor currently calls the sync
+  `run` handler directly rather than `run_async`. This avoids higher-ranked
+  trait bound (HRTB) lifetime issues but means steps cannot `.await`
+  internally. True async step definitions (with `async fn` bodies) are planned
+  for a future release.
+- **Current-thread mode only:** Multi-threaded Tokio mode would require `Send`
+  futures, which conflicts with the `RefCell`-backed fixture storage. See
+  [ADR-001](adr-001-async-fixtures-and-test.md) for the full design rationale.
+- **No `async_std` runtime:** Only Tokio is supported at present.
 
 ## Running and maintaining tests
 
@@ -705,14 +838,14 @@ To enable validation, pin a feature in the project's `dev-dependencies`:
 
 ```toml
 [dev-dependencies]
-rstest-bdd-macros = { version = "0.2.0", features = ["compile-time-validation"] }
+rstest-bdd-macros = { version = "0.4.0", features = ["compile-time-validation"] }
 ```
 
 For strict checking use:
 
 ```toml
 [dev-dependencies]
-rstest-bdd-macros = { version = "0.2.0", features = ["strict-compile-time-validation"] }
+rstest-bdd-macros = { version = "0.4.0", features = ["strict-compile-time-validation"] }
 ```
 
 Steps are only validated when one of these features is enabled.
@@ -762,7 +895,7 @@ Best practices for writing effective scenarios include:
   treated as generic placeholders and capture any non-newline text using a
   non-greedy match.
 
-## Data tables and Docstrings
+## Data tables and doc strings
 
 Steps may supply structured or free-form data via a trailing argument. A data
 table is received by including a parameter annotated with `#[datatable]` or
@@ -1029,8 +1162,8 @@ fn capture_both(datatable: Vec<Vec<String>>, docstring: String) {
 
 At runtime, the generated wrapper converts the table cells or copies the block
 text and passes them to the step function. It panics if the step declares
-`datatable` or `docstring` but the feature omits the content. Docstrings may be
-delimited by triple double-quotes or triple backticks.
+`datatable` or `docstring` but the feature omits the content. These doc strings
+may be delimited by triple double-quotes or triple backticks.
 
 ## Limitations and roadmap
 
@@ -1105,7 +1238,7 @@ Localization tooling can be added to `Cargo.toml` as follows:
 
 ```toml
 [dependencies]
-rstest-bdd = "0.2.0"
+rstest-bdd = "0.4.0"
 i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
 unic-langid = "0.9"
 ```
@@ -1145,24 +1278,34 @@ https://docs.rs/i18n-embed/latest/i18n_embed/fluent/struct.FluentLanguageLoader.
 Synopsis
 
 - `cargo bdd steps`
+- `cargo bdd steps --skipped`
 - `cargo bdd unused`
 - `cargo bdd duplicates`
+- `cargo bdd skipped`
 
 Examples
 
 - `cargo bdd steps`
+- `cargo bdd steps --skipped --json`
 - `cargo bdd unused --quiet`
 - `cargo bdd duplicates --json`
+- `cargo bdd skipped --reasons`
+- `cargo bdd steps --skipped --json` must be paired; using `--json` without
+  `--skipped` is rejected by the CLI, so invalid combinations fail fast.
 
-The tool inspects the runtime step registry and offers three commands:
+The tool inspects the runtime step registry and offers four commands:
 
 - `cargo bdd steps` prints every registered step with its source location and
   appends any skipped scenario outcomes using lowercase status labels whilst
   preserving long messages.
+- `cargo bdd steps --skipped` limits the listing to step definitions that were
+  bypassed after a scenario requested a skip, preserving the scenario context.
 - `cargo bdd unused` lists steps that were never executed in the current
   process.
 - `cargo bdd duplicates` groups step definitions that share the same keyword
   and pattern, helping to identify accidental copies.
+- `cargo bdd skipped` lists skipped scenarios and supports `--reasons` to show
+  file and line numbers alongside the explanatory message.
 
 The subcommand builds each test target in the workspace and runs the resulting
 binary with `RSTEST_BDD_DUMP_STEPS=1` and a private `--dump-steps` flag to
@@ -1171,6 +1314,12 @@ Because usage tracking is process local, `unused` only reflects steps invoked
 during that same execution. The merged output powers the commands above and the
 skip status summary, helping to keep the step library tidy and discover dead
 code early in the development cycle.
+
+`steps --skipped` and `skipped` accept `--json` and emit objects that always
+include `feature`, `scenario`, `line`, `tags`, and `reason` fields. The former
+adds an embedded `step` object describing each bypassed definition (keyword,
+pattern, file, and line) to help trace which definitions were sidelined by a
+runtime skip.
 
 ### Scenario report writers
 
@@ -1196,6 +1345,208 @@ rstest_bdd::reporting::junit::write_snapshot(&mut xml)?;
 
 Both writers accept explicit `&[ScenarioRecord]` slices when callers want to
 serialize a custom selection of outcomes rather than the full snapshot.
+
+## Language server
+
+The `rstest-bdd-server` crate provides a Language Server Protocol (LSP)
+implementation that bridges Gherkin `.feature` files and Rust step definitions.
+The binary is named `rstest-bdd-lsp` and communicates over stdin/stdout using
+JSON-RPC, making it compatible with any editor supporting the LSP (VS Code,
+Neovim, Zed, Helix, etc.).
+
+### Installation
+
+Build and install the language server from the workspace:
+
+```bash
+cargo install --path crates/rstest-bdd-server
+```
+
+The binary `rstest-bdd-lsp` is placed in the Cargo bin directory.
+
+### Configuration
+
+The server reads configuration from environment variables:
+
+| Variable                     | Description                                         | Default |
+| ---------------------------- | --------------------------------------------------- | ------- |
+| `RSTEST_BDD_LSP_LOG_LEVEL`   | Logging verbosity (trace, debug, info, warn, error) | `info`  |
+| `RSTEST_BDD_LSP_DEBOUNCE_MS` | Delay (ms) before processing file changes           | `300`   |
+
+Example:
+
+```bash
+RSTEST_BDD_LSP_LOG_LEVEL=debug rstest-bdd-lsp
+```
+
+### Editor integration
+
+#### VS Code
+
+Add a configuration in the `settings.json` file or use an extension that allows
+custom LSP servers. A minimal example using the
+[LSP-client](https://marketplace.visualstudio.com/items?itemName=ACharLuk.easy-lsp-client)
+ extension:
+
+```json
+{
+  "easylsp.servers": [
+    {
+      "language": ["rust", "gherkin"],
+      "command": "rstest-bdd-lsp"
+    }
+  ]
+}
+```
+
+#### Neovim (nvim-lspconfig)
+
+```lua
+local lspconfig = require('lspconfig')
+local configs = require('lspconfig.configs')
+
+if not configs.rstest_bdd then
+  configs.rstest_bdd = {
+    default_config = {
+      cmd = { 'rstest-bdd-lsp' },
+      filetypes = { 'rust', 'cucumber' },
+      root_dir = lspconfig.util.root_pattern('Cargo.toml'),
+    },
+  }
+end
+
+lspconfig.rstest_bdd.setup({})
+```
+
+### Current capabilities
+
+The language server provides the following capabilities:
+
+- **Lifecycle handlers**: Responds to `initialize`, `initialized`, and
+  `shutdown` requests per the LSP specification.
+- **Workspace discovery**: Uses `cargo metadata` to locate the workspace root
+  and enumerate packages.
+- **Feature indexing (on save)**: Parses saved `.feature` files using the
+  `gherkin` parser and records steps, doc strings, data tables, and Examples
+  header columns with byte offsets. Parse failures are logged.
+- **Rust step indexing (on save)**: Parses saved `.rs` files with `syn` and
+  records `#[given]`, `#[when]`, and `#[then]` functions, including the step
+  keyword, pattern string (including inferred patterns when the attribute has
+  no arguments), the parameter list, and whether the step expects a data table
+  or doc string.
+- **Step pattern registry (on save)**: Compiles the indexed step patterns with
+  `rstest-bdd-patterns` and caches compiled regex matchers in a keyword-keyed
+  in-memory registry. The registry is updated incrementally per file save, so
+  removed steps do not linger.
+  - **API note (embedding)**: `StepDefinitionRegistry::{steps_for_keyword,
+    steps_for_file}` returns `Arc<CompiledStepDefinition>` entries so the
+    compiled matcher and metadata are shared between the per-file and
+    per-keyword indices.
+- **Structured logging**: Configurable via environment variables; logs are
+  written to stderr using the `tracing` framework.
+
+### Navigation (Go to Definition)
+
+The language server supports navigation from Rust step definitions to matching
+feature steps. This enables developers to quickly find all usages of a step
+definition across feature files.
+
+**Usage:**
+
+1. Place the cursor on a Rust function annotated with `#[given]`, `#[when]`, or
+   `#[then]`.
+2. Invoke "Go to Definition" (typically F12 or Ctrl+Click in most editors).
+3. The editor navigates to all matching steps in `.feature` files.
+
+When multiple feature files contain matching steps, the editor presents a list
+of locations to choose from.
+
+**How matching works:**
+
+- Matching is keyword-aware: a `#[given]` step only matches `Given` steps in
+  feature files. The parser correctly handles `And` and `But` keywords by
+  resolving them to their contextual step type.
+- Patterns with placeholders (e.g., `"I have {count:u32} items"`) match feature
+  steps using the same regex semantics as the runtime.
+
+#### Go to Implementation (Feature → Rust)
+
+The inverse navigation—from feature steps to Rust implementations—is provided
+via the `textDocument/implementation` handler. This enables developers to jump
+from a step line in a `.feature` file directly to the Rust function(s) that
+implement it.
+
+**Usage:**
+
+1. Place the cursor on a step line in a `.feature` file (e.g., `Given a user
+   exists`).
+2. Invoke "Go to Implementation" (typically Ctrl+F12 or a similar keybinding in
+   most editors).
+3. The editor navigates to all matching Rust step functions.
+
+When multiple implementations match (duplicate step patterns), the editor
+presents a list of locations to choose from.
+
+**How matching works:**
+
+- Matching is keyword-aware: a `Given` step in a feature file only matches
+  `#[given]` implementations in Rust.
+- The step text is matched against the compiled regex patterns from the step
+  registry, ensuring consistency with the runtime.
+
+### Diagnostics (on save)
+
+The language server publishes diagnostics when files are saved, helping
+developers identify consistency issues between feature files and Rust step
+definitions:
+
+- **Unimplemented feature steps** (`unimplemented-step`): When a step in a
+  `.feature` file has no matching Rust implementation, a warning diagnostic is
+  published at the step location. The message indicates the step keyword and
+  text that needs an implementation.
+
+- **Unused step definitions** (`unused-step-definition`): When a Rust step
+  definition (annotated with `#[given]`, `#[when]`, or `#[then]`) is not
+  matched by any feature step, a warning diagnostic is published at the
+  function definition. This helps identify dead code or typos in step patterns.
+
+- **Placeholder count mismatch** (`placeholder-count-mismatch`): When a step
+  pattern contains a different number of placeholder occurrences than the
+  function has step arguments, a warning diagnostic is published on the Rust
+  step definition. Each placeholder occurrence is counted separately (e.g.,
+  `{x} and {x}` counts as two placeholders), matching the macro's capture
+  semantics. A step argument is a function parameter whose normalized name
+  matches a placeholder name in the pattern; `datatable`, `docstring`, and
+  fixture parameters are excluded from the count.
+
+- **Data table expected** (`table-expected`): When a Rust step expects a data
+  table (has a `datatable` parameter) but the matching feature step does not
+  provide one, a warning diagnostic is published on the feature step.
+
+- **Data table not expected** (`table-not-expected`): When a feature step
+  provides a data table but the matching Rust implementation does not expect
+  one, a warning diagnostic is published on the data table in the feature file.
+
+- **Doc string expected** (`docstring-expected`): When a Rust step expects a doc
+  string (has a `docstring: String` parameter) but the matching feature step
+  does not provide one, a warning diagnostic is published on the feature step.
+
+- **Doc string not expected** (`docstring-not-expected`): When a feature step
+  provides a doc string but the matching Rust implementation does not expect
+  one, a warning diagnostic is published on the doc string in the feature file.
+
+Diagnostics are updated incrementally:
+
+- Saving a `.feature` file recomputes diagnostics for that file, including
+  unimplemented steps and table/docstring expectation mismatches.
+- Saving a `.rs` file recomputes diagnostics for all feature files (since new
+  or removed step definitions may affect which steps are implemented) and
+  checks for unused definitions and placeholder count mismatches in the saved
+  file.
+
+Diagnostics appear in the editor's Problems panel and as inline warnings,
+similar to compiler diagnostics. They use the source `rstest-bdd` and the codes
+listed above for filtering.
 
 ## Summary
 
