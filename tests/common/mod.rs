@@ -39,10 +39,15 @@ use wireframe::{
 };
 
 /// Create a TCP listener bound to a free local port.
+///
+/// # Panics
+/// Panics if unable to bind to an ephemeral localhost port, which should never
+/// happen in a well-configured test environment.
 #[expect(
     clippy::expect_used,
     reason = "binding to an ephemeral localhost port must abort the test immediately"
 )]
+#[must_use]
 pub fn unused_listener() -> StdTcpListener {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
     StdTcpListener::bind(addr).expect("failed to bind port")
@@ -91,7 +96,7 @@ pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>
 /// Shared result type for cucumber step implementations.
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-/// Default WireframeApp factory for integration tests.
+/// Default `WireframeApp` factory for integration tests.
 #[fixture]
 pub fn factory() -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
     fn build() -> TestApp { TestApp::default() }

@@ -15,6 +15,7 @@ mod support;
 
 use wireframe::{app::Envelope, push::PushQueues, serializer::BincodeSerializer};
 
+#[expect(dead_code, reason = "shared type not used by all test scenarios yet")]
 pub(crate) type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 pub(crate) fn build_small_queues<T: Send + 'static>()

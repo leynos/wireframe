@@ -621,6 +621,7 @@ fn when_server_starts(world: &mut ServerWorld) -> TestResult {
 NOT work with rstest-bdd v0.4.0's current implementation.
 
 **The Problem**:
+
 - Scenarios marked with `#[tokio::test(flavor = "current_thread")] async fn`
   create a tokio runtime
 - Steps are sync and must remain sync (documented limitation)
@@ -630,6 +631,7 @@ NOT work with rstest-bdd v0.4.0's current implementation.
   scenario itself is async
 
 **The Solution**:
+
 - Scenarios must be **sync functions** (remove `async fn` and
   `#[tokio::test]`)
 - Steps remain sync and create their own `Runtime::new()` for async
@@ -655,6 +657,7 @@ fn when_process(correlation_world: &mut CorrelationWorld) -> TestResult {
 ```
 
 **Impact on Migration Plan**:
+
 - All references to `#[tokio::test(flavor = "current_thread")]` in scenario
   examples should be removed
 - All scenario functions are sync, not async

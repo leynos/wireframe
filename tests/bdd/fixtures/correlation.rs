@@ -1,8 +1,10 @@
-//! CorrelationWorld fixture for rstest-bdd tests.
+//! `CorrelationWorld` fixture for rstest-bdd tests.
 //!
 //! Converted from Cucumber World to rstest fixture. The struct and its methods
 //! remain largely unchanged; only the trait derivation and fixture function are
 //! added.
+
+#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
 
 use async_stream::try_stream;
 use rstest::fixture;
@@ -15,11 +17,10 @@ use wireframe::{
     response::FrameStream,
 };
 
-// Re-export TestResult from common for use in steps
-pub use crate::common::TestResult;
-
 // Import build_small_queues from parent module
 use crate::build_small_queues;
+// Re-export TestResult from common for use in steps
+pub use crate::common::TestResult;
 
 #[derive(Debug, Default)]
 /// Test world capturing correlation expectations for frame emission.
@@ -29,21 +30,15 @@ pub struct CorrelationWorld {
 }
 
 #[fixture]
-pub fn correlation_world() -> CorrelationWorld {
-    CorrelationWorld::default()
-}
+pub fn correlation_world() -> CorrelationWorld { CorrelationWorld::default() }
 
 impl CorrelationWorld {
     /// Record the correlation identifier expected on emitted frames.
-    pub fn set_expected(&mut self, expected: Option<u64>) {
-        self.expected = expected;
-    }
+    pub fn set_expected(&mut self, expected: Option<u64>) { self.expected = expected; }
 
     /// Return the correlation identifier configured for this scenario.
     #[must_use]
-    pub fn expected(&self) -> Option<u64> {
-        self.expected
-    }
+    pub fn expected(&self) -> Option<u64> { self.expected }
 
     /// Run the connection actor and collect frames for later verification.
     ///
