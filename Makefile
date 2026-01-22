@@ -8,8 +8,8 @@ RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= markdownlint-cli2
 NIXIE ?= nixie
 
-build: target/debug/lib$(CRATE) ## Build debug binary
-release: target/release/lib$(CRATE) ## Build release binary
+build: target/debug/lib$(CRATE).rlib ## Build debug binary
+release: target/release/lib$(CRATE).rlib ## Build release binary
 
 all: release ## Default target builds release binary
 
