@@ -477,8 +477,8 @@ pub fn fragment_world() -> FragmentWorld {
 
 | Phase | Worlds | Scenarios | Status         | Completion |
 | ----- | ------ | --------- | -------------- | ---------- |
-| 0     | -      | -         | Not Started    | -          |
-| 1     | 2      | 6         | Not Started    | -          |
+| 0     | -      | -         | Complete       | 2026-01-22 |
+| 1     | 2      | 6         | In Progress    | 1/2 done   |
 | 2     | 4      | 15        | Not Started    | -          |
 | 3     | 4      | 20        | Not Started    | -          |
 | 4     | 4      | 19+       | Not Started    | -          |
@@ -615,7 +615,54 @@ fn when_server_starts(world: &mut ServerWorld) -> TestResult {
 
 ## Lessons Learned
 
-To be filled during implementation.
+### Phase 1: CorrelationWorld Migration (Completed)
+
+**CRITICAL DISCOVERY**: The async scenario approach outlined in the plan does
+NOT work with rstest-bdd v0.4.0's current implementation.
+
+**The Problem**:
+- Scenarios marked with `#[tokio::test(flavor = "current_thread")] async fn`
+  create a tokio runtime
+- Steps are sync and must remain sync (documented limitation)
+- Attempting to call `tokio::runtime::Handle::current().block_on()` from
+  within a step fails with "Cannot start runtime within runtime"
+- Attempting to create `Runtime::new()` in a step also fails when the
+  scenario itself is async
+
+**The Solution**:
+- Scenarios must be **sync functions** (remove `async fn` and
+  `#[tokio::test]`)
+- Steps remain sync and create their own `Runtime::new()` for async
+  operations
+- Pattern: `let rt = tokio::runtime::Runtime::new()?; rt.block_on(async_fn())`
+
+**Updated Async Pattern**:
+
+```rust
+// Scenario: SYNC (not async!)
+#[scenario(path = "tests/features/correlation_id.feature",
+           name = "Streamed frames reuse the request correlation id")]
+fn streamed_frames_correlation(correlation_world: CorrelationWorld) {
+    let _ = correlation_world;
+}
+
+// Step: Sync, creates own runtime
+#[when("a stream of frames is processed")]
+fn when_process(correlation_world: &mut CorrelationWorld) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(correlation_world.process())
+}
+```
+
+**Impact on Migration Plan**:
+- All references to `#[tokio::test(flavor = "current_thread")]` in scenario
+  examples should be removed
+- All scenario functions are sync, not async
+- `tokio::task::block_in_place` is NOT needed and won't work
+- Each async step creates its own `Runtime::new()` and uses `block_on()`
+
+**Validation**: CorrelationWorld migration complete with all 3 scenarios
+passing, verified against Cucumber output.
 
 ## References
 
