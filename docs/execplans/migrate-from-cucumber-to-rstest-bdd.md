@@ -320,8 +320,11 @@ cargo test --test bdd correlation
 
 **Commits**:
 
-- "Migrate CorrelationWorld to rstest-bdd"
-- "Migrate RequestPartsWorld to rstest-bdd"
+- ✅ "Migrate CorrelationWorld to rstest-bdd" (commit 8ce5b55)
+- ✅ "Migrate RequestPartsWorld to rstest-bdd" (commit 154e5c8)
+
+**Status**: ✅ **COMPLETE** - Both pilot worlds successfully migrated and all
+tests passing.
 
 ### Phase 2: Medium Complexity Worlds (Weeks 4-5)
 
@@ -666,6 +669,34 @@ fn when_process(correlation_world: &mut CorrelationWorld) -> TestResult {
 
 **Validation**: CorrelationWorld migration complete with all 3 scenarios
 passing, verified against Cucumber output.
+
+### Phase 1: RequestPartsWorld Migration (Completed)
+
+**Date**: 2026-01-22
+
+**Migration**: `RequestPartsWorld` demonstrates the pattern for purely
+synchronous worlds with no async operations.
+
+**Key Patterns**:
+
+- Synchronous world with no async methods
+- Step functions are simple sync wrappers (no `Runtime::new()` needed)
+- All 6 scenarios migrated successfully
+
+**Test Results**:
+
+- Cucumber: 6 scenarios (6 passed), 20 steps (20 passed)
+- rstest-bdd: 6 scenarios (6 passed), 20 steps (20 passed)
+
+**Additional Fixes**:
+
+- Added module-level `#[expect(unused_braces)]` to fixture files to suppress
+  clippy/rustfmt conflict
+- Fixed `doc_markdown` clippy lints across all BDD files
+- Added `#[must_use]` and `# Panics` documentation to `unused_listener()`
+
+**Validation**: RequestPartsWorld migration complete with all 6 scenarios
+passing. Phase 1 is complete.
 
 ## References
 
