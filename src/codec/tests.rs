@@ -8,7 +8,10 @@ use std::io;
 use bytes::{Bytes, BytesMut};
 use rstest::rstest;
 
-use super::*;
+use super::{
+    examples::{HotlineFrameCodec, MysqlFrameCodec},
+    *,
+};
 
 #[test]
 fn length_delimited_codec_clamps_max_frame_length() {
@@ -131,58 +134,60 @@ fn decode_eof_with_complete_frame_succeeds() {
 // Zero-copy regression tests
 // ---------------------------------------------------------------------------
 
-use super::examples::{HotlineFrameCodec, MysqlFrameCodec};
-
-/// Helper to wrap payload and extract the payload pointer for different codecs.
-///
-/// Returns `(input_payload_ptr, frame_payload_ptr)` for pointer equality checks.
-fn wrap_and_get_payload_ptrs(codec_name: &str, payload: Bytes) -> (*const u8, *const u8) {
-    let input_ptr = payload.as_ptr();
-    let frame_ptr = match codec_name {
-        "length_delimited" => {
-            let codec = LengthDelimitedFrameCodec::new(128);
-            let frame = codec.wrap_payload(payload);
-            frame.as_ptr()
-        }
-        "hotline" => {
-            let codec = HotlineFrameCodec::new(128);
-            let frame = codec.wrap_payload(payload);
-            frame.payload.as_ptr()
-        }
-        "mysql" => {
-            let codec = MysqlFrameCodec::new(128);
-            let frame = codec.wrap_payload(payload);
-            frame.payload.as_ptr()
-        }
-        _ => panic!("unknown codec: {codec_name}"),
-    };
-    (input_ptr, frame_ptr)
+/// Codec variants used for parameterized zero-copy tests.
+#[derive(Debug, Clone, Copy)]
+enum TestCodec {
+    LengthDelimited,
+    Hotline,
+    Mysql,
 }
 
-/// Helper to wrap payload and extract payload bytes for different codecs.
-///
-/// Returns `(frame_payload_ptr, extracted_payload_ptr)` for pointer equality checks.
-fn wrap_and_extract_payload_bytes_ptrs(codec_name: &str, payload: Bytes) -> (*const u8, *const u8) {
-    match codec_name {
-        "length_delimited" => {
-            let codec = LengthDelimitedFrameCodec::new(128);
-            let frame = codec.wrap_payload(payload);
-            let extracted = LengthDelimitedFrameCodec::frame_payload_bytes(&frame);
-            (frame.as_ptr(), extracted.as_ptr())
+impl TestCodec {
+    /// Wrap a payload and return the pointer to the wrapped frame's payload.
+    fn wrap_and_get_payload_ptr(self, payload: Bytes) -> *const u8 {
+        match self {
+            Self::LengthDelimited => {
+                let codec = LengthDelimitedFrameCodec::new(128);
+                let frame = codec.wrap_payload(payload);
+                frame.as_ptr()
+            }
+            Self::Hotline => {
+                let codec = HotlineFrameCodec::new(128);
+                let frame = codec.wrap_payload(payload);
+                frame.payload.as_ptr()
+            }
+            Self::Mysql => {
+                let codec = MysqlFrameCodec::new(128);
+                let frame = codec.wrap_payload(payload);
+                frame.payload.as_ptr()
+            }
         }
-        "hotline" => {
-            let codec = HotlineFrameCodec::new(128);
-            let frame = codec.wrap_payload(payload);
-            let extracted = HotlineFrameCodec::frame_payload_bytes(&frame);
-            (frame.payload.as_ptr(), extracted.as_ptr())
+    }
+
+    /// Wrap a payload and extract payload bytes, returning both pointers.
+    ///
+    /// Returns `(frame_payload_ptr, extracted_payload_ptr)` for pointer equality checks.
+    fn wrap_and_extract_payload_bytes_ptrs(self, payload: Bytes) -> (*const u8, *const u8) {
+        match self {
+            Self::LengthDelimited => {
+                let codec = LengthDelimitedFrameCodec::new(128);
+                let frame = codec.wrap_payload(payload);
+                let extracted = LengthDelimitedFrameCodec::frame_payload_bytes(&frame);
+                (frame.as_ptr(), extracted.as_ptr())
+            }
+            Self::Hotline => {
+                let codec = HotlineFrameCodec::new(128);
+                let frame = codec.wrap_payload(payload);
+                let extracted = HotlineFrameCodec::frame_payload_bytes(&frame);
+                (frame.payload.as_ptr(), extracted.as_ptr())
+            }
+            Self::Mysql => {
+                let codec = MysqlFrameCodec::new(128);
+                let frame = codec.wrap_payload(payload);
+                let extracted = MysqlFrameCodec::frame_payload_bytes(&frame);
+                (frame.payload.as_ptr(), extracted.as_ptr())
+            }
         }
-        "mysql" => {
-            let codec = MysqlFrameCodec::new(128);
-            let frame = codec.wrap_payload(payload);
-            let extracted = MysqlFrameCodec::frame_payload_bytes(&frame);
-            (frame.payload.as_ptr(), extracted.as_ptr())
-        }
-        _ => panic!("unknown codec: {codec_name}"),
     }
 }
 
@@ -191,12 +196,13 @@ fn wrap_and_extract_payload_bytes_ptrs(codec_name: &str, payload: Bytes) -> (*co
 /// Verifies that `wrap_payload` stores the `Bytes` directly without copying
 /// for all codec types that support zero-copy.
 #[rstest]
-#[case::length_delimited("length_delimited", vec![9_u8; 4])]
-#[case::hotline("hotline", vec![5_u8; 8])]
-#[case::mysql("mysql", vec![3_u8; 10])]
-fn wrap_payload_reuses_bytes(#[case] codec_name: &str, #[case] payload_data: Vec<u8>) {
+#[case::length_delimited(TestCodec::LengthDelimited, vec![9_u8; 4])]
+#[case::hotline(TestCodec::Hotline, vec![5_u8; 8])]
+#[case::mysql(TestCodec::Mysql, vec![3_u8; 10])]
+fn wrap_payload_reuses_bytes(#[case] codec: TestCodec, #[case] payload_data: Vec<u8>) {
     let payload = Bytes::from(payload_data);
-    let (input_ptr, frame_ptr) = wrap_and_get_payload_ptrs(codec_name, payload);
+    let input_ptr = payload.as_ptr();
+    let frame_ptr = codec.wrap_and_get_payload_ptr(payload);
 
     assert_eq!(
         input_ptr, frame_ptr,
@@ -209,12 +215,12 @@ fn wrap_payload_reuses_bytes(#[case] codec_name: &str, #[case] payload_data: Vec
 /// Verifies that `frame_payload_bytes` returns a `Bytes` pointing to the same
 /// memory region as the frame's payload for all codec types.
 #[rstest]
-#[case::length_delimited("length_delimited", vec![1_u8, 2, 3, 4])]
-#[case::hotline("hotline", vec![7_u8; 6])]
-#[case::mysql("mysql", vec![9_u8; 5])]
-fn frame_payload_bytes_reuses_memory(#[case] codec_name: &str, #[case] payload_data: Vec<u8>) {
+#[case::length_delimited(TestCodec::LengthDelimited, vec![1_u8, 2, 3, 4])]
+#[case::hotline(TestCodec::Hotline, vec![7_u8; 6])]
+#[case::mysql(TestCodec::Mysql, vec![9_u8; 5])]
+fn frame_payload_bytes_reuses_memory(#[case] codec: TestCodec, #[case] payload_data: Vec<u8>) {
     let payload = Bytes::from(payload_data);
-    let (frame_ptr, extracted_ptr) = wrap_and_extract_payload_bytes_ptrs(codec_name, payload);
+    let (frame_ptr, extracted_ptr) = codec.wrap_and_extract_payload_bytes_ptrs(payload);
 
     assert_eq!(
         frame_ptr, extracted_ptr,
