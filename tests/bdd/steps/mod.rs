@@ -4,5 +4,6 @@
 //! `tokio::task::block_in_place`.
 
 mod correlation_steps;
+mod multi_packet_steps;
 mod panic_steps;
 mod request_parts_steps;
