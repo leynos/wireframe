@@ -10,6 +10,9 @@
 #[path = "../common/mod.rs"]
 pub mod common;
 
+#[path = "../common/terminator.rs"]
+mod terminator;
+
 #[path = "../support.rs"]
 mod support;
 
@@ -25,4 +28,3 @@ pub(crate) fn build_small_queues<T: Send + 'static>()
 
 mod fixtures;
 mod scenarios;
-mod steps;

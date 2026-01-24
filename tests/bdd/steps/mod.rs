@@ -1,9 +1,10 @@
 //! Step definitions for rstest-bdd tests.
 //!
 //! Step functions are synchronous and call async world methods via
-//! `tokio::task::block_in_place`.
+//! `Runtime::new().block_on(...)`.
 
 mod correlation_steps;
 mod multi_packet_steps;
 mod panic_steps;
 mod request_parts_steps;
+mod stream_end_steps;
