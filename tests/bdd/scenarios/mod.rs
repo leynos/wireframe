@@ -7,6 +7,7 @@
 #[path = "../steps/mod.rs"]
 mod steps;
 
+mod codec_stateful_scenarios;
 mod correlation_scenarios;
 mod multi_packet_scenarios;
 mod panic_scenarios;

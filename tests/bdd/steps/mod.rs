@@ -3,6 +3,7 @@
 //! Step functions are synchronous and call async world methods via
 //! `Runtime::new().block_on(...)`.
 
+mod codec_stateful_steps;
 mod correlation_steps;
 mod multi_packet_steps;
 mod panic_steps;
