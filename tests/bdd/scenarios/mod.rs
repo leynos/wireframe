@@ -7,6 +7,7 @@
 #[path = "../steps/mod.rs"]
 mod steps;
 
+mod client_messaging_scenarios;
 mod client_runtime_scenarios;
 mod codec_stateful_scenarios;
 mod correlation_scenarios;
