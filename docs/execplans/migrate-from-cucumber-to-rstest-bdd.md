@@ -4,19 +4,21 @@
 
 **Duration**: 9 weeks (phased incremental migration)
 
-**Status**: Planning
+**Status**: In Progress
 
-**Last Updated**: 2026-01-22
+**Last Updated**: 2026-01-24
 
 ## Executive Summary
 
-Migrate Wireframe's 14 Cucumber-based BDD test suites (~3,941 lines of
-world code, ~1,330 lines of steps, 60+ scenarios) to rstest-bdd v0.4.0.
-The migration leverages rstest-bdd's new async scenario support while
-maintaining test coverage through parallel execution during migration.
+Migrate Wireframe's 14 Cucumber-based BDD test suites (~3,941 lines of world
+code, ~1,330 lines of steps, 60+ scenarios) to rstest-bdd v0.4.0. The migration
+leverages rstest-bdd's async scenario support where steps are fully
+synchronous, while maintaining test coverage through parallel execution during
+migration.
 
-**Key Strategy**: Async scenarios with sync steps calling async helpers
-via `tokio::task::block_in_place`.
+**Key Strategy**: Use async scenarios (`tokio` current-thread) for scenarios
+with synchronous steps, and use per-step runtimes for async world methods until
+rstest-bdd supports async steps.
 
 ## Current State Analysis
 
@@ -54,32 +56,36 @@ via `tokio::task::block_in_place`.
 
 ### Async Handling Model
 
-rstest-bdd v0.4.0 supports **async scenarios** with **sync step
-definitions**:
+rstest-bdd v0.4.0 supports **async scenarios** with **sync step definitions**,
+using Tokio's current-thread runtime:
 
 ```rust
 // Scenario function is async
 #[scenario(path = "tests/features/client_messaging.feature",
            name = "Client sends envelope")]
 #[tokio::test(flavor = "current_thread")]
-async fn client_sends_envelope_scenario(world: ClientMessagingWorld) {}
+async fn client_sends_envelope_scenario(world: ClientMessagingWorld) {
+    let _ = world;
+}
 
-// Steps are sync, call async helpers
+// Steps remain sync (no await inside steps)
 #[when("the client sends the envelope")]
-fn when_client_sends_envelope(world: &mut ClientMessagingWorld)
-    -> TestResult
-{
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(
-            world.send_envelope()
-        )
-    })
+fn when_client_sends_envelope(world: &mut ClientMessagingWorld) {
+    world.mark_envelope_sent();
 }
 ```
 
-**Why this works**: `#[tokio::test(flavor = "current_thread")]` creates
-async runtime, `block_in_place` allows sync steps to await,
-current-thread flavor avoids `Send` bounds with `&mut` fixtures.
+**Important limitations (from the user guide)**:
+
+- Steps are synchronous; async step bodies are not supported yet.
+- Current-thread Tokio runtime is required to avoid `Send` bounds on fixtures.
+
+**Practical rule for this codebase**:
+
+- For worlds with async methods, keep scenarios **sync** and run those methods
+  inside a dedicated runtime per step (`Runtime::new().block_on(...)`).
+- For worlds with purely synchronous steps, prefer async scenarios so the test
+  body can `await` any extra async assertions or cleanup logic.
 
 ### World-to-Fixture Conversion
 
@@ -127,15 +133,14 @@ fn client_messaging_world() -> ClientMessagingWorld {
 
 ### Feature File Changes
 
-**NONE REQUIRED** - rstest-bdd uses same Gherkin parser as Cucumber.
-All existing `.feature` files are 100% compatible.
+**NONE REQUIRED** - rstest-bdd uses same Gherkin parser as Cucumber. All
+existing `.feature` files are 100% compatible.
 
 ## Phase Breakdown
 
 ### Phase 0: Foundation (Week 1)
 
-**Objective**: Set up parallel infrastructure without disrupting
-existing tests.
+**Objective**: Set up parallel infrastructure without disrupting existing tests.
 
 **Tasks**:
 
@@ -194,15 +199,15 @@ existing tests.
    test: test-bdd test-cucumber ## Run all tests
    ```
 
-**Validation**: `make test-cucumber` still works, `make test-bdd` runs
-(empty at first).
+**Validation**: `make test-cucumber` still works, `make test-bdd` runs (empty
+at first).
 
 **Commit**: "Set up parallel rstest-bdd infrastructure"
 
 ### Phase 1: Pilot Migration - Simple Worlds (Weeks 2-3)
 
-**Objective**: Validate approach with 2 simple worlds, establish
-conversion patterns.
+**Objective**: Validate approach with 2 simple worlds, establish conversion
+patterns.
 
 **Selected Worlds**:
 
@@ -212,8 +217,10 @@ conversion patterns.
 **Per-World Steps**:
 
 1. Convert World struct → fixture
-2. Migrate step definitions (remove `async`, add `block_in_place`)
-3. Create scenario tests with `#[scenario]` + `#[tokio::test]`
+2. Migrate step definitions (remove `async`, run async methods via a per-step
+   runtime)
+3. Create scenario tests with `#[scenario]` (use async scenarios only when
+   steps are fully synchronous)
 4. Run and validate against Cucumber
 
 **Example - CorrelationWorld**:
@@ -253,21 +260,18 @@ impl CorrelationWorld {
 // tests/bdd/steps/correlation_steps.rs
 use rstest_bdd_macros::{given, when, then};
 
-#[given(expr = "a correlation id {int}")]
+#[given(expr = "a correlation id {id:u64}")]
 fn given_cid(world: &mut CorrelationWorld, id: u64) {
     world.set_expected(Some(id));
 }
 
 #[when("a stream of frames is processed")]
 fn when_process(world: &mut CorrelationWorld) -> TestResult {
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(
-            world.process()
-        )
-    })
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(world.process())
 }
 
-#[then(expr = "each emitted frame uses correlation id {int}")]
+#[then(expr = "each emitted frame uses correlation id {id:u64}")]
 fn then_verify(world: &mut CorrelationWorld, id: u64)
     -> TestResult
 {
@@ -285,27 +289,26 @@ use crate::fixtures::correlation::*;
 
 #[scenario(path = "tests/features/correlation_id.feature",
            name = "Streamed frames reuse the request correlation id")]
-#[tokio::test(flavor = "current_thread")]
-async fn streamed_frames_correlation(
+fn streamed_frames_correlation(
     correlation_world: CorrelationWorld
-) {}
+) { let _ = correlation_world; }
 
 #[scenario(
     path = "tests/features/correlation_id.feature",
     name = "Multi-packet responses reuse the request correlation id"
 )]
-#[tokio::test(flavor = "current_thread")]
-async fn multi_packet_correlation(
+fn multi_packet_correlation(
     correlation_world: CorrelationWorld
-) {}
+) { let _ = correlation_world; }
 
 #[scenario(
     path = "tests/features/correlation_id.feature",
     name = "Multi-packet responses clear correlation ids without \
            a request id"
 )]
-#[tokio::test(flavor = "current_thread")]
-async fn no_correlation(correlation_world: CorrelationWorld) {}
+fn no_correlation(correlation_world: CorrelationWorld) {
+    let _ = correlation_world;
+}
 ```
 
 **Validation**:
@@ -353,17 +356,18 @@ fn panic_world() -> PanicWorld {
 
 #[given("a panic server")]
 fn given_panic_server(world: &mut PanicWorld) -> TestResult {
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let server = PanicServer::spawn().await?;
-            world.server.set(server);
-            Ok(())
-        })
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let server = PanicServer::spawn().await?;
+        world.server.set(server);
+        Ok(())
     })
 }
 ```
 
 **Commits**: One per world (4 commits).
+
+**Status**: In Progress - `PanicWorld` and `MultiPacketWorld` migrated.
 
 ### Phase 3: Complex Worlds - Client & Messaging (Weeks 6-7)
 
@@ -374,19 +378,17 @@ fn given_panic_server(world: &mut PanicWorld) -> TestResult {
 3. `ClientLifecycleWorld` (lifecycle hooks)
 4. `ClientPreambleWorld` (preamble exchange)
 
-**Focus**: Multi-step async sequences, server + client coordination,
-callbacks.
+**Focus**: Multi-step async sequences, server + client coordination, callbacks.
 
 **Multi-Async Step Pattern**:
 
 ```rust
 #[given("an envelope echo server")]
 fn given_echo_server(world: &mut ClientMessagingWorld) -> TestResult {
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            world.start_echo_server().await?;
-            world.connect_client().await
-        })
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        world.start_echo_server().await?;
+        world.connect_client().await
     })
 }
 ```
@@ -478,14 +480,14 @@ pub fn fragment_world() -> FragmentWorld {
 
 ## Migration Progress Tracking
 
-| Phase | Worlds | Scenarios | Status         | Completion |
-| ----- | ------ | --------- | -------------- | ---------- |
-| 0     | -      | -         | Complete       | 2026-01-22 |
-| 1     | 2      | 6         | In Progress    | 1/2 done   |
-| 2     | 4      | 15        | Not Started    | -          |
-| 3     | 4      | 20        | Not Started    | -          |
-| 4     | 4      | 19+       | Not Started    | -          |
-| 5     | -      | -         | Not Started    | -          |
+| Phase | Worlds | Scenarios | Status      | Completion |
+| ----- | ------ | --------- | ----------- | ---------- |
+| 0     | -      | -         | Complete    | 2026-01-22 |
+| 1     | 2      | 6         | Complete    | 2026-01-22 |
+| 2     | 4      | 15        | In Progress | 2/4 done   |
+| 3     | 4      | 20        | Not Started | -          |
+| 4     | 4      | 19+       | Not Started | -          |
+| 5     | -      | -         | Not Started | -          |
 
 **Total**: 14 worlds, 60+ scenarios
 
@@ -493,32 +495,32 @@ pub fn fragment_world() -> FragmentWorld {
 
 ### Risk 1: Async Boundary Issues
 
-**Mitigation**: Test `block_in_place` pattern in Phase 1 before
-widespread adoption. Keep complex `ClientMessagingWorld` for Phase 3
-after validation.
+**Mitigation**: Validate the per-step runtime pattern in Phase 1 before
+widespread adoption. Keep complex `ClientMessagingWorld` for Phase 3 after
+validation.
 
-**Contingency**: Create helper async functions if `block_in_place` has
-issues.
+**Contingency**: Add a shared runtime helper if runtime creation becomes too
+costly or repetitive.
 
 ### Risk 2: Server Spawning Conflicts
 
-**Mitigation**: Use `Slot<Server>` pattern, not direct fixture spawn.
-Test in Phase 2 with `PanicWorld`.
+**Mitigation**: Use `Slot<Server>` pattern, not direct fixture spawn. Test in
+Phase 2 with `PanicWorld`.
 
 ### Risk 3: Fragment.feature Complexity (11 scenarios)
 
-**Mitigation**: Migrate in Phase 4 after patterns proven. Can use
-`scenarios!` macro if individual tests become verbose.
+**Mitigation**: Migrate in Phase 4 after patterns proven. Can use `scenarios!`
+macro if individual tests become verbose.
 
 ### Risk 4: Compile-Time Validation False Positives
 
-**Mitigation**: Start with `compile-time-validation` (warnings only),
-enable strict mode in Phase 5.
+**Mitigation**: Start with `compile-time-validation` (warnings only), enable
+strict mode in Phase 5.
 
 ### Risk 5: Migration Timeline Slippage
 
-**Mitigation**: Strict phase boundaries. Parallel execution allows
-partial migration. Can pause after any phase.
+**Mitigation**: Strict phase boundaries. Parallel execution allows partial
+migration. Can pause after any phase.
 
 ## Critical Files
 
@@ -539,18 +541,16 @@ partial migration. Can pause after any phase.
 
 ### Phase 2 (Medium Complexity)
 
-Panic, MultiPacket, StreamEnd, CodecStateful (fixtures, steps,
-scenarios) - 12 files total
+Panic, MultiPacket, StreamEnd, CodecStateful (fixtures, steps, scenarios) - 12
+files total
 
 ### Phase 3 (Complex)
 
-ClientRuntime, ClientMessaging, ClientLifecycle, ClientPreamble - 12
-files total
+ClientRuntime, ClientMessaging, ClientLifecycle, ClientPreamble - 12 files total
 
 ### Phase 4 (Specialized)
 
-MessageAssembler, MessageAssembly, CodecError, Fragment - 12 files
-total
+MessageAssembler, MessageAssembly, CodecError, Fragment - 12 files total
 
 ### Phase 5 (Cleanup)
 
@@ -588,20 +588,23 @@ Create shared async helper:
 
 ```rust
 // tests/bdd/async_helpers.rs
-/// Execute an async closure within the current tokio runtime.
-pub fn run_async<F, T>(f: F) -> T
+/// Execute an async future in a dedicated Tokio runtime.
+///
+/// # Errors
+/// Returns an error if the runtime cannot be created.
+pub fn run_async<F, T>(future: F) -> Result<T, std::io::Error>
 where
     F: std::future::Future<Output = T>,
 {
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(f)
-    })
+    let rt = tokio::runtime::Runtime::new()?;
+    Ok(rt.block_on(future))
 }
 
 // Usage in steps:
 #[when("server starts")]
 fn when_server_starts(world: &mut ServerWorld) -> TestResult {
-    run_async(world.start_server())
+    run_async(world.start_server())?;
+    Ok(())
 }
 ```
 
@@ -620,52 +623,17 @@ fn when_server_starts(world: &mut ServerWorld) -> TestResult {
 
 ### Phase 1: CorrelationWorld Migration (Completed)
 
-**CRITICAL DISCOVERY**: The async scenario approach outlined in the plan does
-NOT work with rstest-bdd v0.4.0's current implementation.
+**Key Observation**: rstest-bdd supports async scenarios, but step definitions
+remain synchronous (per the user guide). If a step needs to call async world
+methods, invoking `block_on` from inside an async scenario panics with "Cannot
+start runtime within runtime".
 
-**The Problem**:
+**Adopted Pattern**:
 
-- Scenarios marked with `#[tokio::test(flavor = "current_thread")] async fn`
-  create a tokio runtime
-- Steps are sync and must remain sync (documented limitation)
-- Attempting to call `tokio::runtime::Handle::current().block_on()` from
-  within a step fails with "Cannot start runtime within runtime"
-- Attempting to create `Runtime::new()` in a step also fails when the
-  scenario itself is async
-
-**The Solution**:
-
-- Scenarios must be **sync functions** (remove `async fn` and
-  `#[tokio::test]`)
-- Steps remain sync and create their own `Runtime::new()` for async
-  operations
-- Pattern: `let rt = tokio::runtime::Runtime::new()?; rt.block_on(async_fn())`
-
-**Updated Async Pattern**:
-
-```rust
-// Scenario: SYNC (not async!)
-#[scenario(path = "tests/features/correlation_id.feature",
-           name = "Streamed frames reuse the request correlation id")]
-fn streamed_frames_correlation(correlation_world: CorrelationWorld) {
-    let _ = correlation_world;
-}
-
-// Step: Sync, creates own runtime
-#[when("a stream of frames is processed")]
-fn when_process(correlation_world: &mut CorrelationWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(correlation_world.process())
-}
-```
-
-**Impact on Migration Plan**:
-
-- All references to `#[tokio::test(flavor = "current_thread")]` in scenario
-  examples should be removed
-- All scenario functions are sync, not async
-- `tokio::task::block_in_place` is NOT needed and won't work
-- Each async step creates its own `Runtime::new()` and uses `block_on()`
+- Keep scenarios **sync** when steps need to run async world methods.
+- Create a fresh Tokio runtime per async step and call `block_on`.
+- Reserve async scenarios for worlds whose steps are purely synchronous, so the
+  scenario body can `await` extra assertions or cleanup when needed.
 
 **Validation**: CorrelationWorld migration complete with all 3 scenarios
 passing, verified against Cucumber output.
