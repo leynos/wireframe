@@ -9,55 +9,6 @@ use crate::fixtures::message_assembler::{
     TestResult,
 };
 
-const DEFAULT_METADATA_LEN: usize = 0;
-const FLAG_NONE: bool = false;
-const FLAG_LAST: bool = true;
-const NO_SEQUENCE: Option<u32> = None;
-const NO_TOTAL_LEN: Option<usize> = None;
-
-// Helper builders to reduce duplication in step definitions
-fn first_header_without_total(key: u64, metadata_len: usize, body_len: usize) -> FirstHeaderSpec {
-    FirstHeaderSpec {
-        key,
-        metadata_len,
-        body_len,
-        total_len: NO_TOTAL_LEN,
-        is_last: FLAG_NONE,
-    }
-}
-
-fn first_header_with_total(key: u64, body_len: usize, total_len: usize) -> FirstHeaderSpec {
-    FirstHeaderSpec {
-        key,
-        metadata_len: DEFAULT_METADATA_LEN,
-        body_len,
-        total_len: Some(total_len),
-        is_last: FLAG_LAST,
-    }
-}
-
-fn continuation_header_with_sequence(
-    key: u64,
-    body_len: usize,
-    sequence: u32,
-) -> ContinuationHeaderSpec {
-    ContinuationHeaderSpec {
-        key,
-        body_len,
-        sequence: Some(sequence),
-        is_last: FLAG_NONE,
-    }
-}
-
-fn continuation_header_without_sequence(key: u64, body_len: usize) -> ContinuationHeaderSpec {
-    ContinuationHeaderSpec {
-        key,
-        body_len,
-        sequence: NO_SEQUENCE,
-        is_last: FLAG_LAST,
-    }
-}
-
 #[given(
     "a first frame header with key {key:u64} metadata length {metadata_len:usize} body length \
      {body_len:usize}"
@@ -68,11 +19,8 @@ fn given_first_header(
     metadata_len: usize,
     body_len: usize,
 ) -> TestResult {
-    message_assembler_world.set_first_header(first_header_without_total(
-        key,
-        metadata_len,
-        body_len,
-    ))
+    message_assembler_world
+        .set_first_header(FirstHeaderSpec::new(key, body_len).with_metadata_len(metadata_len))
 }
 
 #[given(
@@ -84,7 +32,11 @@ fn given_first_header_with_total(
     body_len: usize,
     total_len: usize,
 ) -> TestResult {
-    message_assembler_world.set_first_header(first_header_with_total(key, body_len, total_len))
+    message_assembler_world.set_first_header(
+        FirstHeaderSpec::new(key, body_len)
+            .with_total_len(total_len)
+            .with_last_flag(true),
+    )
 }
 
 #[given(
@@ -97,7 +49,7 @@ fn given_continuation_header_with_sequence(
     sequence: u32,
 ) -> TestResult {
     message_assembler_world
-        .set_continuation_header(continuation_header_with_sequence(key, body_len, sequence))
+        .set_continuation_header(ContinuationHeaderSpec::new(key, body_len).with_sequence(sequence))
 }
 
 #[given("a continuation header with key {key:u64} body length {body_len:usize}")]
@@ -107,7 +59,7 @@ fn given_continuation_header(
     body_len: usize,
 ) -> TestResult {
     message_assembler_world
-        .set_continuation_header(continuation_header_without_sequence(key, body_len))
+        .set_continuation_header(ContinuationHeaderSpec::new(key, body_len).with_last_flag(true))
 }
 
 #[given("a wireframe app with a message assembler")]

@@ -32,6 +32,37 @@ pub struct FirstHeaderSpec {
     pub is_last: bool,
 }
 
+impl FirstHeaderSpec {
+    /// Create a first header spec with default metadata and flags.
+    pub fn new(key: u64, body_len: usize) -> Self {
+        Self {
+            key,
+            metadata_len: 0,
+            body_len,
+            total_len: None,
+            is_last: false,
+        }
+    }
+
+    /// Set the metadata length to encode into the header.
+    pub fn with_metadata_len(mut self, metadata_len: usize) -> Self {
+        self.metadata_len = metadata_len;
+        self
+    }
+
+    /// Set the total message length to encode into the header.
+    pub fn with_total_len(mut self, total_len: usize) -> Self {
+        self.total_len = Some(total_len);
+        self
+    }
+
+    /// Set whether the header should be marked as the final frame.
+    pub fn with_last_flag(mut self, is_last: bool) -> Self {
+        self.is_last = is_last;
+        self
+    }
+}
+
 /// Specification for continuation-frame header encoding used in tests.
 #[derive(Debug, Clone, Copy)]
 pub struct ContinuationHeaderSpec {
@@ -43,6 +74,30 @@ pub struct ContinuationHeaderSpec {
     pub sequence: Option<u32>,
     /// Whether the frame is the final one in the series.
     pub is_last: bool,
+}
+
+impl ContinuationHeaderSpec {
+    /// Create a continuation header spec with default sequence and flags.
+    pub fn new(key: u64, body_len: usize) -> Self {
+        Self {
+            key,
+            body_len,
+            sequence: None,
+            is_last: false,
+        }
+    }
+
+    /// Set the continuation sequence to encode into the header.
+    pub fn with_sequence(mut self, sequence: u32) -> Self {
+        self.sequence = Some(sequence);
+        self
+    }
+
+    /// Set whether the header should be marked as the final frame.
+    pub fn with_last_flag(mut self, is_last: bool) -> Self {
+        self.is_last = is_last;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
