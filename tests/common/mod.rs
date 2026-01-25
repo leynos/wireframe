@@ -3,6 +3,10 @@
 //! Provides fixtures for a basic [`WireframeApp`] factory and a helper to
 //! create a TCP listener bound to an unused local port. These helpers reduce
 //! duplication across test modules.
+//!
+//! Submodules:
+//! - `fragment_helpers`: Shared helpers for fragment transport tests
+//! - `terminator`: Connection termination utilities
 
 // FIXME(#333): File-level #![allow] required as last resort.
 //
@@ -28,6 +32,8 @@
     dead_code,
     reason = "shared utilities not used by all importing test binaries; see FIXME(#333)"
 )]
+
+pub mod fragment_helpers;
 
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 
