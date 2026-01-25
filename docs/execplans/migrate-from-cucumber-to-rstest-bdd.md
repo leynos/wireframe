@@ -4,7 +4,7 @@
 
 **Duration**: 9 weeks (phased incremental migration)
 
-**Status**: In Progress
+**Status**: Complete
 
 **Last Updated**: 2026-01-25
 
@@ -491,6 +491,8 @@ pub fn fragment_world() -> FragmentWorld {
    # Update imports
    ```
 
+   Completed 2026-01-25: fixtures, steps, and scenarios now live under `tests/`.
+
 **Commits**:
 
 - "Enable strict compile-time validation"
@@ -499,14 +501,14 @@ pub fn fragment_world() -> FragmentWorld {
 
 ## Migration Progress Tracking
 
-| Phase | Worlds | Scenarios | Status      | Completion |
-| ----- | ------ | --------- | ----------- | ---------- |
-| 0     | -      | -         | Complete    | 2026-01-22 |
-| 1     | 2      | 6         | Complete    | 2026-01-22 |
-| 2     | 4      | 15        | Complete    | 2026-01-24 |
-| 3     | 4      | 20        | Complete    | 2026-01-25 |
-| 4     | 4      | 19+       | Complete    | 2026-01-25 |
-| 5     | -      | -         | In Progress | 2026-01-25 |
+| Phase | Worlds | Scenarios | Status   | Completion |
+| ----- | ------ | --------- | -------- | ---------- |
+| 0     | -      | -         | Complete | 2026-01-22 |
+| 1     | 2      | 6         | Complete | 2026-01-22 |
+| 2     | 4      | 15        | Complete | 2026-01-24 |
+| 3     | 4      | 20        | Complete | 2026-01-25 |
+| 4     | 4      | 19+       | Complete | 2026-01-25 |
+| 5     | -      | -         | Complete | 2026-01-25 |
 
 **Total**: 14 worlds, 60+ scenarios
 

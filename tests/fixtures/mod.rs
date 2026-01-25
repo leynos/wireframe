@@ -1,6 +1,7 @@
 //! Fixture definitions for rstest-bdd tests.
 //!
-//! Each world from the Cucumber tests is converted to an rstest fixture here.
+//! Each world from the former Cucumber tests is converted to an rstest fixture
+//! here.
 
 pub mod client_lifecycle;
 pub mod client_messaging;

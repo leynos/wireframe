@@ -1,10 +1,9 @@
 #![cfg(not(loom))]
 //! rstest-bdd behavioural tests.
 //!
-//! This module contains the rstest-bdd-based BDD tests that are gradually
-//! replacing the Cucumber test suite. These tests use the same `.feature`
-//! files as the Cucumber tests but execute under the standard `cargo test`
-//! harness with rstest fixtures.
+//! This module contains the rstest-bdd-based BDD tests that replaced the
+//! former Cucumber test suite. These tests use the same `.feature` files but
+//! execute under the standard `cargo test` harness with rstest fixtures.
 
 // Re-export common utilities from the parent tests directory
 #[path = "../common/mod.rs"]
@@ -25,5 +24,8 @@ pub(crate) fn build_small_queues<T: Send + 'static>()
     support::builder::<T>().unlimited().build()
 }
 
+#[path = "../fixtures/mod.rs"]
 mod fixtures;
+
+#[path = "../scenarios/mod.rs"]
 mod scenarios;
