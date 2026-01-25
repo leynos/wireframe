@@ -3,6 +3,7 @@
 //! Step functions are synchronous and call async world methods via
 //! `Runtime::new().block_on(...)`.
 
+mod client_lifecycle_steps;
 mod client_messaging_steps;
 mod client_runtime_steps;
 mod codec_stateful_steps;
