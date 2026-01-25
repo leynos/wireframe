@@ -9,6 +9,7 @@ pub mod client_runtime;
 pub mod codec_stateful;
 pub mod correlation;
 pub mod message_assembler;
+pub mod message_assembly;
 pub mod multi_packet;
 pub mod panic;
 pub mod request_parts;
