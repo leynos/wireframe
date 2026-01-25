@@ -10,6 +10,7 @@ mod client_runtime_steps;
 mod codec_error_steps;
 mod codec_stateful_steps;
 mod correlation_steps;
+mod fragment_steps;
 mod message_assembler_steps;
 mod message_assembly_steps;
 mod multi_packet_steps;

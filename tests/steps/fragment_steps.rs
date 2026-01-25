@@ -135,7 +135,7 @@ fn when_reassembler_fragment_final(
     Ok(())
 }
 
-#[when(expr = "time advances by {int} seconds")]
+#[when(expr = "time advances by {int} seconds for reassembly")]
 fn when_time_advances(world: &mut FragmentWorld, seconds: u64) -> TestResult {
     world.advance_time(Duration::from_secs(seconds))?;
     Ok(())
