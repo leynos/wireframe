@@ -9,6 +9,7 @@ mod steps;
 
 mod client_lifecycle_scenarios;
 mod client_messaging_scenarios;
+mod client_preamble_scenarios;
 mod client_runtime_scenarios;
 mod codec_stateful_scenarios;
 mod correlation_scenarios;

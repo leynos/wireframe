@@ -9,7 +9,7 @@ async fn given_preamble_server(world: &mut ClientPreambleWorld) -> TestResult {
     world.start_preamble_server().await
 }
 
-#[given("a preamble-aware echo server that sends acknowledgement")]
+#[given("a preamble-aware echo server that sends an acknowledgement preamble")]
 async fn given_ack_server(world: &mut ClientPreambleWorld) -> TestResult {
     world.start_ack_server().await
 }
@@ -19,7 +19,7 @@ async fn given_slow_server(world: &mut ClientPreambleWorld) -> TestResult {
     world.start_slow_server().await
 }
 
-#[given("a standard echo server")]
+#[given("a standard echo server without preamble support")]
 async fn given_standard_server(world: &mut ClientPreambleWorld) -> TestResult {
     world.start_standard_server().await
 }
