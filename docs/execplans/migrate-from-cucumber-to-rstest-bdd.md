@@ -459,6 +459,8 @@ pub fn fragment_world() -> FragmentWorld {
        features = ["strict-compile-time-validation"] }
    ```
 
+   Completed 2026-01-25: strict compile-time validation is enabled.
+
 3. **Performance check**:
 
    ```bash
