@@ -1,6 +1,6 @@
 //! Step definitions for message assembly multiplexing and continuity validation.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, str::FromStr};
 
 use rstest_bdd_macros::{given, then, when};
 use wireframe::message_assembler::{FrameSequence, MessageKey};
@@ -11,6 +11,54 @@ use crate::fixtures::message_assembly::{
     MessageAssemblyWorld,
     TestResult,
 };
+
+/// Wrapper for message key parameters in BDD steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MessageKeyParam(pub u64);
+
+impl FromStr for MessageKeyParam {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u64>().map(MessageKeyParam) }
+}
+
+impl MessageKeyParam {
+    pub fn to_key(self) -> MessageKey { MessageKey(self.0) }
+}
+
+/// Wrapper for sequence number parameters in BDD steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SequenceParam(pub u32);
+
+impl FromStr for SequenceParam {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u32>().map(SequenceParam) }
+}
+
+impl SequenceParam {
+    pub fn to_seq(self) -> FrameSequence { FrameSequence(self.0) }
+}
+
+/// Wrapper for count/size parameters in BDD steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CountParam(pub usize);
+
+impl FromStr for CountParam {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<usize>().map(CountParam) }
+}
+
+/// Wrapper for timeout duration parameters in BDD steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimeoutParam(pub u64);
+
+impl FromStr for TimeoutParam {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u64>().map(TimeoutParam) }
+}
 
 /// Convert primitive key to domain type at the boundary.
 fn to_key(key: u64) -> MessageKey { MessageKey(key) }
@@ -101,38 +149,50 @@ fn assert_equals<T: PartialEq + Debug>(
 // =============================================================================
 
 #[given(
-    "a message assembly state with max size {max_size:usize} and timeout {timeout:u64} seconds"
+    "a message assembly state with max size {max_size:CountParam} and timeout \
+     {timeout:TimeoutParam} seconds"
 )]
-fn given_state(message_assembly_world: &mut MessageAssemblyWorld, max_size: usize, timeout: u64) {
-    let config = AssemblyConfig::new(max_size, timeout);
+fn given_state(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    max_size: CountParam,
+    timeout: TimeoutParam,
+) {
+    let config = AssemblyConfig::new(max_size.0, timeout.0);
     message_assembly_world.create_state(config.max_message_size, config.timeout_seconds);
 }
 
-#[given("a first frame for key {key:u64} with metadata {metadata:string} and body {body:string}")]
+#[given(
+    "a first frame for key {key:MessageKeyParam} with metadata {metadata:string} and body \
+     {body:string}"
+)]
 fn given_first_frame_with_metadata(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
     metadata: String,
     body: String,
 ) {
     message_assembly_world.add_first_frame(
-        FirstFrameParams::new(to_key(key), body.into_bytes()).with_metadata(metadata.into_bytes()),
+        FirstFrameParams::new(key.to_key(), body.into_bytes()).with_metadata(metadata.into_bytes()),
     );
 }
 
-#[given("a first frame for key {key:u64} with body {body:string}")]
-fn given_first_frame(message_assembly_world: &mut MessageAssemblyWorld, key: u64, body: String) {
-    message_assembly_world.add_first_frame(FirstFrameParams::new(to_key(key), body.into_bytes()));
+#[given("a first frame for key {key:MessageKeyParam} with body {body:string}")]
+fn given_first_frame(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+    body: String,
+) {
+    message_assembly_world.add_first_frame(FirstFrameParams::new(key.to_key(), body.into_bytes()));
 }
 
-#[given("a final first frame for key {key:u64} with body {body:string}")]
+#[given("a final first frame for key {key:MessageKeyParam} with body {body:string}")]
 fn given_final_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
     body: String,
 ) {
     message_assembly_world
-        .add_first_frame(FirstFrameParams::new(to_key(key), body.into_bytes()).final_frame());
+        .add_first_frame(FirstFrameParams::new(key.to_key(), body.into_bytes()).final_frame());
 }
 
 // =============================================================================
@@ -151,56 +211,64 @@ fn when_all_first_frames_accepted(message_assembly_world: &mut MessageAssemblyWo
 }
 
 #[when(
-    "a final continuation for key {key:u64} with sequence {sequence:u32} and body {body:string} \
-     arrives"
+    "a final continuation for key {key:MessageKeyParam} with sequence {sequence:SequenceParam} \
+     and body {body:string} arrives"
 )]
 fn when_final_continuation(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
-    sequence: u32,
+    key: MessageKeyParam,
+    sequence: SequenceParam,
     body: String,
 ) -> TestResult {
     message_assembly_world.accept_continuation(
-        ContinuationFrameParams::new(to_key(key), body.into_bytes())
-            .with_sequence(to_seq(sequence))
+        ContinuationFrameParams::new(key.to_key(), body.into_bytes())
+            .with_sequence(sequence.to_seq())
             .final_frame(),
     )
 }
 
-#[when("a continuation for key {key:u64} with sequence {sequence:u32} arrives")]
+#[when(
+    "a continuation for key {key:MessageKeyParam} with sequence {sequence:SequenceParam} arrives"
+)]
 fn when_continuation_with_seq(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
-    sequence: u32,
+    key: MessageKeyParam,
+    sequence: SequenceParam,
 ) -> TestResult {
     message_assembly_world.accept_continuation(
-        ContinuationFrameParams::new(to_key(key), b"data".to_vec()).with_sequence(to_seq(sequence)),
+        ContinuationFrameParams::new(key.to_key(), b"data".to_vec())
+            .with_sequence(sequence.to_seq()),
     )
 }
 
-#[when("a continuation for key {key:u64} with body {body:string} arrives")]
+#[when("a continuation for key {key:MessageKeyParam} with body {body:string} arrives")]
 fn when_continuation_with_body(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
     body: String,
 ) -> TestResult {
-    message_assembly_world
-        .accept_continuation(ContinuationFrameParams::new(to_key(key), body.into_bytes()))
+    message_assembly_world.accept_continuation(ContinuationFrameParams::new(
+        key.to_key(),
+        body.into_bytes(),
+    ))
 }
 
-#[when("another first frame for key {key:u64} with body {body:string} arrives")]
+#[when("another first frame for key {key:MessageKeyParam} with body {body:string} arrives")]
 fn when_another_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
     body: String,
 ) -> TestResult {
-    message_assembly_world.add_first_frame(FirstFrameParams::new(to_key(key), body.into_bytes()));
+    message_assembly_world.add_first_frame(FirstFrameParams::new(key.to_key(), body.into_bytes()));
     message_assembly_world.accept_first_frame()
 }
 
-#[when("time advances by {secs:u64} seconds")]
-fn when_time_advances(message_assembly_world: &mut MessageAssemblyWorld, secs: u64) -> TestResult {
-    message_assembly_world.advance_time(secs)
+#[when("time advances by {secs:TimeoutParam} seconds")]
+fn when_time_advances(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    secs: TimeoutParam,
+) -> TestResult {
+    message_assembly_world.advance_time(secs.0)
 }
 
 #[when("expired assemblies are purged")]
@@ -231,51 +299,56 @@ fn then_completes_with_body(
     assert_equals(&actual, &body.as_bytes(), "body mismatch")
 }
 
-#[then("key {key:u64} completes with body {body:string}")]
+#[then("key {key:MessageKeyParam} completes with body {body:string}")]
 fn then_key_completes(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
     body: String,
 ) -> TestResult {
     let actual = message_assembly_world
-        .completed_body_for_key(to_key(key))
-        .ok_or_else(|| format!("expected completed message for key {key}"))?;
+        .completed_body_for_key(key.to_key())
+        .ok_or_else(|| format!("expected completed message for key {}", key.0))?;
     assert_equals(
         &actual,
         &body.as_bytes(),
-        format!("body mismatch for key {key}"),
+        format!("body mismatch for key {}", key.0),
     )
 }
 
-#[then("the buffered count is {count:usize}")]
+#[then("the buffered count is {count:CountParam}")]
 fn then_buffered_count(
     message_assembly_world: &mut MessageAssemblyWorld,
-    count: usize,
+    count: CountParam,
 ) -> TestResult {
     let actual = message_assembly_world.buffered_count();
-    assert_equals(&actual, &count, "buffered count mismatch")
+    assert_equals(&actual, &count.0, "buffered count mismatch")
 }
 
-#[then("the error is sequence mismatch expecting {expected:u32} but found {found:u32}")]
+#[then(
+    "the error is sequence mismatch expecting {expected:SequenceParam} but found \
+     {found:SequenceParam}"
+)]
 fn then_error_sequence_mismatch(
     message_assembly_world: &mut MessageAssemblyWorld,
-    expected: u32,
-    found: u32,
+    expected: SequenceParam,
+    found: SequenceParam,
 ) -> TestResult {
     assert_error(
         message_assembly_world,
-        |world| world.is_sequence_mismatch(to_seq(expected), to_seq(found)),
+        |world| world.is_sequence_mismatch(expected.to_seq(), found.to_seq()),
         "expected sequence mismatch error",
     )
 }
 
-#[then("the error is duplicate frame for key {key:u64} sequence {sequence:u32}")]
+#[then(
+    "the error is duplicate frame for key {key:MessageKeyParam} sequence {sequence:SequenceParam}"
+)]
 fn then_error_duplicate_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
-    sequence: u32,
+    key: MessageKeyParam,
+    sequence: SequenceParam,
 ) -> TestResult {
-    let frame_id = FrameId::new(key, sequence);
+    let frame_id = FrameId::new(key.0, sequence.0);
     assert_error(
         message_assembly_world,
         |world| world.is_duplicate_frame(frame_id),
@@ -283,12 +356,12 @@ fn then_error_duplicate_frame(
     )
 }
 
-#[then("the error is missing first frame for key {key:u64}")]
+#[then("the error is missing first frame for key {key:MessageKeyParam}")]
 fn then_error_missing_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
 ) -> TestResult {
-    let frame_id = FrameId::with_key(key);
+    let frame_id = FrameId::with_key(key.0);
     assert_error(
         message_assembly_world,
         |world| world.is_missing_first_frame(frame_id.key),
@@ -296,35 +369,38 @@ fn then_error_missing_first_frame(
     )
 }
 
-#[then("the error is duplicate first frame for key {key:u64}")]
+#[then("the error is duplicate first frame for key {key:MessageKeyParam}")]
 fn then_error_duplicate_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
 ) -> TestResult {
     assert_error(
         message_assembly_world,
-        |world| world.is_duplicate_first_frame(to_key(key)),
+        |world| world.is_duplicate_first_frame(key.to_key()),
         "expected duplicate first frame error",
     )
 }
 
-#[then("the error is message too large for key {key:u64}")]
+#[then("the error is message too large for key {key:MessageKeyParam}")]
 fn then_error_message_too_large(
     message_assembly_world: &mut MessageAssemblyWorld,
-    key: u64,
+    key: MessageKeyParam,
 ) -> TestResult {
     assert_error(
         message_assembly_world,
-        |world| world.is_message_too_large(to_key(key)),
+        |world| world.is_message_too_large(key.to_key()),
         "expected message too large error",
     )
 }
 
-#[then("key {key:u64} was evicted")]
-fn then_key_evicted(message_assembly_world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
+#[then("key {key:MessageKeyParam} was evicted")]
+fn then_key_evicted(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+) -> TestResult {
     assert_error(
         message_assembly_world,
-        |world| world.was_evicted(to_key(key)),
-        format!("expected key {key} to be evicted"),
+        |world| world.was_evicted(key.to_key()),
+        format!("expected key {} to be evicted", key.0),
     )
 }
