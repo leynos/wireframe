@@ -469,6 +469,9 @@ pub fn fragment_world() -> FragmentWorld {
    # Should be within 10-20%
    ```
 
+   Result (2026-01-25): Hyperfine shows cucumber ~923 ms mean and rstest-bdd
+   ~934 ms mean (within ~1%).
+
 4. **Remove Cucumber infrastructure**:
    - Delete `tests/cucumber.rs`
    - Delete `tests/worlds/`
