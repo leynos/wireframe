@@ -449,6 +449,9 @@ pub fn fragment_world() -> FragmentWorld {
    # Compare scenario counts, all should pass
    ```
 
+   Result (2026-01-25): Cucumber and rstest-bdd both run 64 scenarios, all
+   passing.
+
 2. **Enable strict validation**:
 
    ```toml
