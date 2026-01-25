@@ -479,6 +479,9 @@ pub fn fragment_world() -> FragmentWorld {
    - Remove `cucumber = "0.21.1"` from `Cargo.toml`
    - Update Makefile: `test` → `test-bdd` only
 
+   Completed 2026-01-25: removed runner, worlds, steps, dependency, and
+   Makefile target.
+
 5. **Rename structure** (optional cleanup):
 
    ```bash
@@ -503,7 +506,7 @@ pub fn fragment_world() -> FragmentWorld {
 | 2     | 4      | 15        | Complete    | 2026-01-24 |
 | 3     | 4      | 20        | Complete    | 2026-01-25 |
 | 4     | 4      | 19+       | Complete    | 2026-01-25 |
-| 5     | -      | -         | Not Started | -          |
+| 5     | -      | -         | In Progress | 2026-01-25 |
 
 **Total**: 14 worlds, 60+ scenarios
 

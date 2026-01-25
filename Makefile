@@ -19,10 +19,7 @@ clean: ## Remove build artifacts
 test-bdd: ## Run rstest-bdd tests only
 	RUSTFLAGS="-D warnings" $(CARGO) test --test bdd --all-features $(BUILD_JOBS)
 
-test-cucumber: ## Run Cucumber tests only
-	RUSTFLAGS="-D warnings" $(CARGO) test --test cucumber --features advanced-tests,cucumber-tests $(BUILD_JOBS)
-
-test: test-bdd test-cucumber ## Run all tests (both bdd and cucumber)
+test: test-bdd ## Run all tests (bdd + unit/integration)
 	RUSTFLAGS="-D warnings" $(CARGO) test --all-targets --all-features $(BUILD_JOBS)
 
 # will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib

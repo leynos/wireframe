@@ -1,5 +1,9 @@
 # A Developer's Guide to Behavioural Testing in Rust with Cucumber
 
+Note: This guide is retained for historical context. The project removed
+Cucumber-based tests on 2026-01-25 in favour of rstest-bdd; use
+`docs/rstest-bdd-users-guide.md` for current guidance.
+
 ## Part 1: The Philosophy and Practice of Behaviour-Driven Development (BDD)
 
 Behaviour-Driven Development (BDD) is a software development process that

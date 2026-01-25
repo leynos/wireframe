@@ -58,8 +58,6 @@ proptest = "1.7.0"
 loom = "0.7.2"
 async-stream = "0.3.6"
 serial_test = "3.2.0"
-# Permit compatible bug fixes but block breaking updates
-cucumber = "0.21.1"
 metrics-util = "0.20.0"
 tracing-test = "0.2.5"
 mockall = "0.13.1"
@@ -86,7 +84,6 @@ metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
 serializer-bincode = []
 advanced-tests = []
 examples = []
-cucumber-tests = []
 test-support = []
 test-helpers = []
 
@@ -180,13 +177,6 @@ required-features = ["examples"]
 name = "resp_codec"
 path = "examples/resp_codec.rs"
 required-features = ["examples"]
-
-# The Cucumber test runner defines its own async main function,
-# so the standard test harness must be disabled.
-[[test]]
-name = "cucumber"
-harness = false
-required-features = ["advanced-tests", "cucumber-tests"]
 
 # rstest-bdd behavioural tests use standard test harness
 [[test]]

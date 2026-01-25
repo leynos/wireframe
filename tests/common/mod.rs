@@ -91,9 +91,9 @@ impl Packet for CommonTestEnvelope {
     }
 }
 
-/// Default app type used by cucumber worlds during integration tests.
+/// Default app type used by integration test suites.
 pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
-/// Shared result type for cucumber step implementations.
+/// Shared result type for BDD step implementations.
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Default `WireframeApp` factory for integration tests.
