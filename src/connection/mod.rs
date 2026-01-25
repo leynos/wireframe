@@ -5,8 +5,11 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
+mod event;
+mod multi_packet;
+mod state;
+
 use std::{
-    fmt,
     future::Future,
     net::SocketAddr,
     sync::{
@@ -15,8 +18,11 @@ use std::{
     },
 };
 
+use event::Event;
 use futures::StreamExt;
 use log::{info, warn};
+use multi_packet::{MultiPacketContext, MultiPacketStamp, MultiPacketTerminationReason};
+use state::ActorState;
 use tokio::{
     sync::mpsc::{self, error::TryRecvError},
     time::Duration,
@@ -59,25 +65,6 @@ use crate::{
     response::{FrameStream, WireframeError},
     session::ConnectionId,
 };
-
-/// Events returned by [`next_event`].
-///
-/// Only `Debug` is derived because `WireframeError<E>` does not implement
-/// `Clone` or `PartialEq`.
-#[derive(Debug)]
-enum Event<F, E> {
-    Shutdown,
-    High(Option<F>),
-    Low(Option<F>),
-    /// Frames drained from the multi-packet response channel.
-    /// Frames are forwarded in channel order after low-priority queues to
-    /// preserve fairness and reuse the existing back-pressure.
-    /// The actor emits the protocol terminator when the sender closes the
-    /// channel so downstream observers see end-of-stream signalling.
-    MultiPacket(Option<F>),
-    Response(Option<Result<F, WireframeError<E>>>),
-    Idle,
-}
 
 /// Configuration controlling fairness when draining push queues.
 #[derive(Clone, Copy, Debug)]
@@ -156,91 +143,6 @@ pub struct ConnectionActor<F, E> {
 struct DrainContext<'a, F> {
     out: &'a mut Vec<F>,
     state: &'a mut ActorState,
-}
-
-/// Multi-packet correlation stamping state.
-///
-/// Tracks the active receiver and how frames should be stamped before emission.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MultiPacketStamp {
-    /// Stamping is disabled because no multi-packet channel is active.
-    Disabled,
-    /// Stamping is enabled and frames are stamped with the provided identifier.
-    Enabled(Option<u64>),
-}
-
-/// Reasons why a multi-packet stream closed.
-///
-/// The reason informs logging severity so operators can distinguish between
-/// natural completion and abrupt termination.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MultiPacketTerminationReason {
-    /// The sender dropped the channel after producing all frames.
-    Drained,
-    /// The sender was dropped without yielding an explicit end-of-stream.
-    Disconnected,
-    /// Shutdown cancelled the stream before it completed.
-    Shutdown,
-}
-
-impl MultiPacketTerminationReason {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Drained => "drained",
-            Self::Disconnected => "disconnected",
-            Self::Shutdown => "shutdown",
-        }
-    }
-}
-
-impl fmt::Display for MultiPacketTerminationReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.as_str()) }
-}
-
-/// Multi-packet channel state tracking the active receiver and stamping config.
-struct MultiPacketContext<F> {
-    channel: Option<mpsc::Receiver<F>>,
-    stamp: MultiPacketStamp,
-}
-
-impl<F> MultiPacketContext<F> {
-    const fn new() -> Self {
-        Self {
-            channel: None,
-            stamp: MultiPacketStamp::Disabled,
-        }
-    }
-
-    fn install(&mut self, channel: Option<mpsc::Receiver<F>>, stamp: MultiPacketStamp) {
-        debug_assert_eq!(
-            channel.is_some(),
-            matches!(stamp, MultiPacketStamp::Enabled(_)),
-            "channel presence must match stamp: channel is Some iff stamp is \
-             MultiPacketStamp::Enabled(...)",
-        );
-        self.channel = channel;
-        self.stamp = stamp;
-    }
-
-    fn clear(&mut self) {
-        self.channel = None;
-        self.stamp = MultiPacketStamp::Disabled;
-    }
-
-    fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
-
-    fn take_channel(&mut self) -> Option<mpsc::Receiver<F>> { self.channel.take() }
-
-    fn stamp(&self) -> MultiPacketStamp { self.stamp }
-
-    fn correlation_id(&self) -> Option<u64> {
-        match self.stamp {
-            MultiPacketStamp::Enabled(value) => value,
-            MultiPacketStamp::Disabled => None,
-        }
-    }
-
-    fn is_active(&self) -> bool { self.channel.is_some() }
 }
 
 /// Queue variants processed by the connection actor.
@@ -914,78 +816,6 @@ where
     ) -> Option<Result<F, WireframeError<E>>> {
         Self::poll_optional(resp, |s| s.next()).await
     }
-}
-
-/// Internal run state for the connection actor.
-enum RunState {
-    /// All sources are open and frames are still being processed.
-    Active,
-    /// A shutdown request has been observed and queues are being closed.
-    ShuttingDown,
-    /// All sources have completed and the actor can exit.
-    Finished,
-}
-
-/// Tracks progress through the actor lifecycle.
-struct ActorState {
-    run_state: RunState,
-    closed_sources: usize,
-    total_sources: usize,
-}
-
-impl ActorState {
-    /// Create a new `ActorState`.
-    ///
-    /// `has_response` indicates whether a streaming response is currently
-    /// attached.
-    /// `has_multi_packet` signals that a channel-backed response is active.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use wireframe::connection::ActorState;
-    ///
-    /// let state = ActorState::new(true, false);
-    /// assert!(state.is_active());
-    /// ```
-    fn new(has_response: bool, has_multi_packet: bool) -> Self {
-        Self {
-            run_state: RunState::Active,
-            // The shutdown token is considered closed until cancellation
-            // occurs, matching previous behaviour where draining sources
-            // without explicit shutdown terminates the actor.
-            closed_sources: 1,
-            // total_sources counts all sources that keep the actor alive:
-            // - 3 for the baseline sources (main loop, shutdown token, and queue drains)
-            // - +1 if a streaming response is active (has_response)
-            // - +1 if multi-packet handling is enabled (has_multi_packet)
-            total_sources: 3 + usize::from(has_response) + usize::from(has_multi_packet),
-        }
-    }
-
-    /// Mark a source as closed and update the run state if all are closed.
-    fn mark_closed(&mut self) {
-        self.closed_sources += 1;
-        if self.closed_sources >= self.total_sources {
-            self.run_state = RunState::Finished;
-        }
-    }
-
-    /// Transition to `ShuttingDown` if currently active.
-    fn start_shutdown(&mut self) {
-        if matches!(self.run_state, RunState::Active) {
-            self.run_state = RunState::ShuttingDown;
-        }
-    }
-
-    /// Returns `true` while the actor is actively processing sources.
-    fn is_active(&self) -> bool { matches!(self.run_state, RunState::Active) }
-
-    /// Returns `true` once shutdown has begun.
-    fn is_shutting_down(&self) -> bool { matches!(self.run_state, RunState::ShuttingDown) }
-
-    /// Returns `true` when all sources have finished.
-    fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 }
 
 #[cfg(not(loom))]

@@ -7,16 +7,16 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    ActorState,
     ConnectionActor,
     ConnectionChannels,
     DrainContext,
-    MultiPacketTerminationReason,
-    ProtocolHooks,
     QueueKind,
+    multi_packet::MultiPacketTerminationReason,
+    state::ActorState,
 };
 use crate::{
     app::{Packet, PacketParts},
+    hooks::ProtocolHooks,
     push::{PushConfigError, PushQueues},
 };
 
