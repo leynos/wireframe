@@ -5,7 +5,7 @@
 
 // Load step definitions first so compile-time validation can see them.
 #[path = "../steps/mod.rs"]
-mod steps;
+pub(crate) mod steps;
 
 mod client_lifecycle_scenarios;
 mod client_messaging_scenarios;

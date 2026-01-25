@@ -30,6 +30,7 @@ use wireframe::message_assembler::{
 
 // Re-export TestResult from common for use in steps
 pub use crate::common::TestResult;
+use crate::scenarios::steps::FrameId;
 
 /// Test world for message assembly multiplexing scenarios.
 #[derive(Default)]
@@ -267,13 +268,13 @@ impl MessageAssemblyWorld {
 
     /// Whether the last error is a duplicate frame.
     #[must_use]
-    pub fn is_duplicate_frame(&self, key: MessageKey, sequence: FrameSequence) -> bool {
+    pub fn is_duplicate_frame(&self, frame_id: FrameId) -> bool {
         matches!(
             self.last_error(),
             Some(MessageAssemblyError::Series(MessageSeriesError::DuplicateFrame {
                 key: k,
                 sequence: s,
-            })) if *k == key && *s == sequence
+            })) if *k == frame_id.key && *s == frame_id.sequence
         )
     }
 

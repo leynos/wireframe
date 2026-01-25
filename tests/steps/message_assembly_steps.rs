@@ -16,6 +16,45 @@ fn to_key(key: u64) -> MessageKey { MessageKey(key) }
 /// Convert primitive sequence to domain type at the boundary.
 fn to_seq(seq: u32) -> FrameSequence { FrameSequence(seq) }
 
+/// Configuration for message assembly state initialisation.
+#[derive(Debug, Clone)]
+pub struct AssemblyConfig {
+    pub max_message_size: usize,
+    pub timeout_seconds: u64,
+}
+
+impl AssemblyConfig {
+    pub fn new(max_message_size: usize, timeout_seconds: u64) -> Self {
+        Self {
+            max_message_size,
+            timeout_seconds,
+        }
+    }
+}
+
+/// Frame identification combining key and optional sequence.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameId {
+    pub key: MessageKey,
+    pub sequence: FrameSequence,
+}
+
+impl FrameId {
+    pub fn new(key: u64, sequence: u32) -> Self {
+        Self {
+            key: to_key(key),
+            sequence: to_seq(sequence),
+        }
+    }
+
+    pub fn with_key(key: u64) -> Self {
+        Self {
+            key: to_key(key),
+            sequence: FrameSequence(0),
+        }
+    }
+}
+
 /// Helper function to reduce duplication in Then step assertions.
 fn assert_condition(condition: bool, error_msg: impl Into<String>) -> TestResult {
     if condition {
@@ -33,7 +72,8 @@ fn assert_condition(condition: bool, error_msg: impl Into<String>) -> TestResult
     "a message assembly state with max size {max_size:usize} and timeout {timeout:u64} seconds"
 )]
 fn given_state(message_assembly_world: &mut MessageAssemblyWorld, max_size: usize, timeout: u64) {
-    message_assembly_world.create_state(max_size, timeout);
+    let config = AssemblyConfig::new(max_size, timeout);
+    message_assembly_world.create_state(config.max_message_size, config.timeout_seconds);
 }
 
 #[given("a first frame for key {key:u64} with metadata {metadata:string} and body {body:string}")]
@@ -218,8 +258,9 @@ fn then_error_duplicate_frame(
     key: u64,
     sequence: u32,
 ) -> TestResult {
+    let frame_id = FrameId::new(key, sequence);
     assert_condition(
-        message_assembly_world.is_duplicate_frame(to_key(key), to_seq(sequence)),
+        message_assembly_world.is_duplicate_frame(frame_id),
         format!(
             "expected duplicate frame error, got {:?}",
             message_assembly_world.last_error()
@@ -232,8 +273,9 @@ fn then_error_missing_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: u64,
 ) -> TestResult {
+    let frame_id = FrameId::with_key(key);
     assert_condition(
-        message_assembly_world.is_missing_first_frame(to_key(key)),
+        message_assembly_world.is_missing_first_frame(frame_id.key),
         format!(
             "expected missing first frame error, got {:?}",
             message_assembly_world.last_error()
