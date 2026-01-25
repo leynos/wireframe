@@ -1,5 +1,7 @@
 //! Step definitions for message assembly multiplexing and continuity validation.
 
+use std::fmt::Debug;
+
 use rstest_bdd_macros::{given, then, when};
 use wireframe::message_assembler::{FrameSequence, MessageKey};
 
@@ -62,6 +64,36 @@ fn assert_condition(condition: bool, error_msg: impl Into<String>) -> TestResult
     } else {
         Err(error_msg.into().into())
     }
+}
+
+fn assert_error<F>(
+    world: &MessageAssemblyWorld,
+    check: F,
+    description: impl Into<String>,
+) -> TestResult
+where
+    F: FnOnce(&MessageAssemblyWorld) -> bool,
+{
+    assert_condition(
+        check(world),
+        format!("{}; got {:?}", description.into(), world.last_error()),
+    )
+}
+
+fn assert_equals<T: PartialEq + Debug>(
+    actual: &T,
+    expected: &T,
+    context: impl Into<String>,
+) -> TestResult {
+    assert_condition(
+        actual == expected,
+        format!(
+            "{}: expected {:?}, got {:?}",
+            context.into(),
+            expected,
+            actual
+        ),
+    )
 }
 
 // =============================================================================
@@ -196,14 +228,7 @@ fn then_completes_with_body(
     let actual = message_assembly_world
         .last_completed_body()
         .ok_or("expected completed message")?;
-    assert_condition(
-        actual == body.as_bytes(),
-        format!(
-            "body mismatch: expected {:?}, got {:?}",
-            body.as_bytes(),
-            actual
-        ),
-    )
+    assert_equals(&actual, &body.as_bytes(), "body mismatch")
 }
 
 #[then("key {key:u64} completes with body {body:string}")]
@@ -215,13 +240,10 @@ fn then_key_completes(
     let actual = message_assembly_world
         .completed_body_for_key(to_key(key))
         .ok_or_else(|| format!("expected completed message for key {key}"))?;
-    assert_condition(
-        actual == body.as_bytes(),
-        format!(
-            "body mismatch for key {key}: expected {:?}, got {:?}",
-            body.as_bytes(),
-            actual
-        ),
+    assert_equals(
+        &actual,
+        &body.as_bytes(),
+        format!("body mismatch for key {key}"),
     )
 }
 
@@ -231,10 +253,7 @@ fn then_buffered_count(
     count: usize,
 ) -> TestResult {
     let actual = message_assembly_world.buffered_count();
-    assert_condition(
-        actual == count,
-        format!("buffered count mismatch: expected {count}, got {actual}"),
-    )
+    assert_equals(&actual, &count, "buffered count mismatch")
 }
 
 #[then("the error is sequence mismatch expecting {expected:u32} but found {found:u32}")]
@@ -243,12 +262,10 @@ fn then_error_sequence_mismatch(
     expected: u32,
     found: u32,
 ) -> TestResult {
-    assert_condition(
-        message_assembly_world.is_sequence_mismatch(to_seq(expected), to_seq(found)),
-        format!(
-            "expected sequence mismatch error, got {:?}",
-            message_assembly_world.last_error()
-        ),
+    assert_error(
+        message_assembly_world,
+        |world| world.is_sequence_mismatch(to_seq(expected), to_seq(found)),
+        "expected sequence mismatch error",
     )
 }
 
@@ -259,12 +276,10 @@ fn then_error_duplicate_frame(
     sequence: u32,
 ) -> TestResult {
     let frame_id = FrameId::new(key, sequence);
-    assert_condition(
-        message_assembly_world.is_duplicate_frame(frame_id),
-        format!(
-            "expected duplicate frame error, got {:?}",
-            message_assembly_world.last_error()
-        ),
+    assert_error(
+        message_assembly_world,
+        |world| world.is_duplicate_frame(frame_id),
+        "expected duplicate frame error",
     )
 }
 
@@ -274,12 +289,10 @@ fn then_error_missing_first_frame(
     key: u64,
 ) -> TestResult {
     let frame_id = FrameId::with_key(key);
-    assert_condition(
-        message_assembly_world.is_missing_first_frame(frame_id.key),
-        format!(
-            "expected missing first frame error, got {:?}",
-            message_assembly_world.last_error()
-        ),
+    assert_error(
+        message_assembly_world,
+        |world| world.is_missing_first_frame(frame_id.key),
+        "expected missing first frame error",
     )
 }
 
@@ -288,12 +301,10 @@ fn then_error_duplicate_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: u64,
 ) -> TestResult {
-    assert_condition(
-        message_assembly_world.is_duplicate_first_frame(to_key(key)),
-        format!(
-            "expected duplicate first frame error, got {:?}",
-            message_assembly_world.last_error()
-        ),
+    assert_error(
+        message_assembly_world,
+        |world| world.is_duplicate_first_frame(to_key(key)),
+        "expected duplicate first frame error",
     )
 }
 
@@ -302,19 +313,18 @@ fn then_error_message_too_large(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: u64,
 ) -> TestResult {
-    assert_condition(
-        message_assembly_world.is_message_too_large(to_key(key)),
-        format!(
-            "expected message too large error, got {:?}",
-            message_assembly_world.last_error()
-        ),
+    assert_error(
+        message_assembly_world,
+        |world| world.is_message_too_large(to_key(key)),
+        "expected message too large error",
     )
 }
 
 #[then("key {key:u64} was evicted")]
 fn then_key_evicted(message_assembly_world: &mut MessageAssemblyWorld, key: u64) -> TestResult {
-    assert_condition(
-        message_assembly_world.was_evicted(to_key(key)),
+    assert_error(
+        message_assembly_world,
+        |world| world.was_evicted(to_key(key)),
         format!("expected key {key} to be evicted"),
     )
 }
