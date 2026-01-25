@@ -368,6 +368,8 @@ fn given_panic_server(world: &mut PanicWorld) -> TestResult {
 
 **Commits**: One per world (4 commits).
 
+**Status**: In Progress - `MessageAssemblerWorld` migrated.
+
 **Status**: ✅ **COMPLETE** - `PanicWorld`, `MultiPacketWorld`,
 `StreamEndWorld`, and `CodecStatefulWorld` migrated.
 
@@ -491,7 +493,7 @@ pub fn fragment_world() -> FragmentWorld {
 | 1     | 2      | 6         | Complete    | 2026-01-22 |
 | 2     | 4      | 15        | Complete    | 2026-01-24 |
 | 3     | 4      | 20        | Complete    | 2026-01-25 |
-| 4     | 4      | 19+       | Not Started | -          |
+| 4     | 4      | 19+       | In Progress | 1/4 done   |
 | 5     | -      | -         | Not Started | -          |
 
 **Total**: 14 worlds, 60+ scenarios

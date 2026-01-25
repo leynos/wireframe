@@ -120,7 +120,7 @@ fn then_message_key(world: &mut MessageAssemblerWorld, key: u64) -> crate::world
     world.assert_message_key(key)
 }
 
-#[then(expr = "the metadata length is {int}")]
+#[then(expr = "the header metadata length is {int}")]
 fn then_metadata_len(
     world: &mut MessageAssemblerWorld,
     metadata_len: usize,

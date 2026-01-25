@@ -10,7 +10,7 @@ Feature: Message assembler header parsing
     Then the app exposes a message assembler
     And the parsed header is first
     And the message key is 9
-    And the metadata length is 2
+    And the header metadata length is 2
     And the body length is 12
     And the header length is 16
     And the total body length is absent
@@ -21,7 +21,7 @@ Feature: Message assembler header parsing
     When the message assembler parses the header
     Then the parsed header is first
     And the message key is 9
-    And the metadata length is 2
+    And the header metadata length is 2
     And the body length is 12
     And the header length is 16
     And the total body length is absent
@@ -32,7 +32,7 @@ Feature: Message assembler header parsing
     When the message assembler parses the header
     Then the parsed header is first
     And the message key is 42
-    And the metadata length is 0
+    And the header metadata length is 0
     And the body length is 8
     And the header length is 20
     And the total body length is 64

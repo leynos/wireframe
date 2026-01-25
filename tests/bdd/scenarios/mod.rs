@@ -13,6 +13,7 @@ mod client_preamble_scenarios;
 mod client_runtime_scenarios;
 mod codec_stateful_scenarios;
 mod correlation_scenarios;
+mod message_assembler_scenarios;
 mod multi_packet_scenarios;
 mod panic_scenarios;
 mod request_parts_scenarios;
