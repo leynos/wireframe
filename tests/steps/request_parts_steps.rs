@@ -4,15 +4,25 @@
 
 use rstest_bdd_macros::{given, then, when};
 
-use crate::fixtures::request_parts::{RequestPartsWorld, TestResult};
+use crate::fixtures::request_parts::{
+    CorrelationId,
+    MetadataByte,
+    RequestId,
+    RequestPartsWorld,
+    TestResult,
+};
 
 #[given("request parts with id {id:u32} and correlation id {cid:u64}")]
-fn given_parts_with_correlation(request_parts_world: &mut RequestPartsWorld, id: u32, cid: u64) {
+fn given_parts_with_correlation(
+    request_parts_world: &mut RequestPartsWorld,
+    id: RequestId,
+    cid: CorrelationId,
+) {
     request_parts_world.create_parts(id, Some(cid), vec![]);
 }
 
 #[given("request parts with id {id:u32} and no correlation id")]
-fn given_parts_no_correlation(request_parts_world: &mut RequestPartsWorld, id: u32) {
+fn given_parts_no_correlation(request_parts_world: &mut RequestPartsWorld, id: RequestId) {
     request_parts_world.create_parts(id, None, vec![]);
 }
 
@@ -20,16 +30,16 @@ fn given_parts_no_correlation(request_parts_world: &mut RequestPartsWorld, id: u
 // Gherkin phrasing: scenarios that later add metadata use the shorter form,
 // while this form explicitly states the empty-metadata precondition.
 #[given("request parts with id {id:u32}, no correlation id, and empty metadata")]
-fn given_parts_empty_metadata(request_parts_world: &mut RequestPartsWorld, id: u32) {
+fn given_parts_empty_metadata(request_parts_world: &mut RequestPartsWorld, id: RequestId) {
     request_parts_world.create_parts(id, None, vec![]);
 }
 
 #[given("metadata bytes {b1:u8}, {b2:u8}, {b3:u8}")]
 fn given_metadata_bytes_three(
     request_parts_world: &mut RequestPartsWorld,
-    b1: u8,
-    b2: u8,
-    b3: u8,
+    b1: MetadataByte,
+    b2: MetadataByte,
+    b3: MetadataByte,
 ) -> TestResult {
     request_parts_world.append_metadata_byte(b1)?;
     request_parts_world.append_metadata_byte(b2)?;
@@ -37,12 +47,18 @@ fn given_metadata_bytes_three(
 }
 
 #[given("metadata byte {byte:u8}")]
-fn given_metadata_byte(request_parts_world: &mut RequestPartsWorld, byte: u8) -> TestResult {
+fn given_metadata_byte(
+    request_parts_world: &mut RequestPartsWorld,
+    byte: MetadataByte,
+) -> TestResult {
     request_parts_world.append_metadata_byte(byte)
 }
 
 #[when("inheriting correlation id {cid:u64}")]
-fn when_inherit_correlation(request_parts_world: &mut RequestPartsWorld, cid: u64) -> TestResult {
+fn when_inherit_correlation(
+    request_parts_world: &mut RequestPartsWorld,
+    cid: CorrelationId,
+) -> TestResult {
     request_parts_world.inherit_correlation(Some(cid))
 }
 
@@ -52,19 +68,22 @@ fn when_inherit_no_correlation(request_parts_world: &mut RequestPartsWorld) -> T
 }
 
 #[when("appending byte {byte:u8} to metadata")]
-fn when_append_metadata(request_parts_world: &mut RequestPartsWorld, byte: u8) -> TestResult {
+fn when_append_metadata(
+    request_parts_world: &mut RequestPartsWorld,
+    byte: MetadataByte,
+) -> TestResult {
     request_parts_world.append_metadata_byte(byte)
 }
 
 #[then("the request id is {expected:u32}")]
-fn then_id_is(request_parts_world: &mut RequestPartsWorld, expected: u32) -> TestResult {
+fn then_id_is(request_parts_world: &mut RequestPartsWorld, expected: RequestId) -> TestResult {
     request_parts_world.assert_id(expected)
 }
 
 #[then("the correlation id is {expected:u64}")]
 fn then_correlation_id_is(
     request_parts_world: &mut RequestPartsWorld,
-    expected: u64,
+    expected: CorrelationId,
 ) -> TestResult {
     request_parts_world.assert_correlation_id(Some(expected))
 }
