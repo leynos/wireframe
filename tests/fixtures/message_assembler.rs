@@ -79,30 +79,19 @@ impl fmt::Debug for MessageAssemblerWorld {
 pub fn message_assembler_world() -> MessageAssemblerWorld { MessageAssemblerWorld::default() }
 
 impl MessageAssemblerWorld {
-    fn assert_common_field<T, F>(&self, field: &str, expected: &T, extractor: F) -> TestResult
-    where
-        T: PartialEq + fmt::Display + Copy,
-        F: FnOnce(&FrameHeader) -> T,
-    {
-        let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
-        let actual = extractor(parsed.header());
-        if actual != *expected {
-            return Err(format!("expected {field} {expected}, got {actual}").into());
-        }
-        Ok(())
-    }
-
-    /// Generic helper for asserting header-type-specific fields.
+    /// Generic assertion helper for any header field.
     ///
-    /// The extractor performs both type-checking (via pattern matching) and field
-    /// extraction, returning an error message if the header type is incorrect.
-    fn assert_header_field<T, F>(&self, field_name: &str, expected: &T, extractor: F) -> TestResult
+    /// The extractor returns `Result<T, String>` to allow for both type-checking
+    /// and field extraction. For fields present in both header types, the extractor
+    /// should always succeed. For type-specific fields, the extractor can return an
+    /// error if the header type is incorrect.
+    fn assert_field<T, F>(&self, field_name: &str, expected: &T, extractor: F) -> TestResult
     where
         T: PartialEq + fmt::Display + Copy,
-        F: FnOnce(&FrameHeader) -> Result<T, &'static str>,
+        F: FnOnce(&FrameHeader) -> Result<T, String>,
     {
         let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
-        let actual = extractor(parsed.header()).map_err(ToString::to_string)?;
+        let actual = extractor(parsed.header())?;
         if actual != *expected {
             return Err(format!("expected {field_name} {expected}, got {actual}").into());
         }
@@ -241,9 +230,11 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the key does not match.
     pub fn assert_message_key(&self, expected: u64) -> TestResult {
-        self.assert_common_field("key", &expected, |header| match header {
-            FrameHeader::First(header) => u64::from(header.message_key),
-            FrameHeader::Continuation(header) => u64::from(header.message_key),
+        self.assert_field("key", &expected, |header| {
+            Ok(match header {
+                FrameHeader::First(header) => u64::from(header.message_key),
+                FrameHeader::Continuation(header) => u64::from(header.message_key),
+            })
         })
     }
 
@@ -253,11 +244,11 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the metadata length differs.
     pub fn assert_metadata_len(&self, expected: usize) -> TestResult {
-        self.assert_header_field("metadata length", &expected, |header| {
+        self.assert_field("metadata length", &expected, |header| {
             if let FrameHeader::First(header) = header {
                 Ok(header.metadata_len)
             } else {
-                Err("expected first header")
+                Err("expected first header".to_string())
             }
         })
     }
@@ -268,9 +259,11 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the body length differs.
     pub fn assert_body_len(&self, expected: usize) -> TestResult {
-        self.assert_common_field("body length", &expected, |header| match header {
-            FrameHeader::First(header) => header.body_len,
-            FrameHeader::Continuation(header) => header.body_len,
+        self.assert_field("body length", &expected, |header| {
+            Ok(match header {
+                FrameHeader::First(header) => header.body_len,
+                FrameHeader::Continuation(header) => header.body_len,
+            })
         })
     }
 
@@ -281,11 +274,11 @@ impl MessageAssemblerWorld {
     /// Returns an error if no header was parsed or the total length differs.
     pub fn assert_total_len(&self, expected: Option<usize>) -> TestResult {
         let expected = DebugDisplay(expected);
-        self.assert_header_field("total length", &expected, |header| {
+        self.assert_field("total length", &expected, |header| {
             if let FrameHeader::First(header) = header {
                 Ok(DebugDisplay(header.total_body_len))
             } else {
-                Err("expected first header")
+                Err("expected first header".to_string())
             }
         })
     }
@@ -298,11 +291,11 @@ impl MessageAssemblerWorld {
     pub fn assert_sequence(&self, expected: Option<u32>) -> TestResult {
         let expected = expected.map(FrameSequence::from);
         let expected = DebugDisplay(expected);
-        self.assert_header_field("sequence", &expected, |header| {
+        self.assert_field("sequence", &expected, |header| {
             if let FrameHeader::Continuation(header) = header {
                 Ok(DebugDisplay(header.sequence))
             } else {
-                Err("expected continuation header")
+                Err("expected continuation header".to_string())
             }
         })
     }
@@ -313,9 +306,11 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the flag differs.
     pub fn assert_is_last(&self, expected: bool) -> TestResult {
-        self.assert_common_field("is_last", &expected, |header| match header {
-            FrameHeader::First(header) => header.is_last,
-            FrameHeader::Continuation(header) => header.is_last,
+        self.assert_field("is_last", &expected, |header| {
+            Ok(match header {
+                FrameHeader::First(header) => header.is_last,
+                FrameHeader::Continuation(header) => header.is_last,
+            })
         })
     }
 
