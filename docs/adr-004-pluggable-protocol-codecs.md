@@ -275,6 +275,34 @@ design:
 
 See `src/codec/error.rs` and `src/codec/recovery.rs` for implementation details.
 
+### Zero-copy payload extraction (resolved 2026-01-19)
+
+A `frame_payload_bytes` method was added to `FrameCodec` to enable zero-copy
+payload extraction:
+
+- **New method**: `fn frame_payload_bytes(frame: &Self::Frame) -> Bytes`
+- **Default behaviour**: Copies from `frame_payload()` for backward
+  compatibility
+- **Optimized implementations**: Return `frame.payload.clone()` for
+  `Bytes`-backed frames (cheap atomic reference count increment)
+
+Guidelines for custom codecs:
+
+1. Use `Bytes` instead of `Vec<u8>` for payload storage in frame types
+2. Use `BytesMut::freeze()` in decoders instead of `.to_vec()`
+3. Override `frame_payload_bytes` to return `frame.payload.clone()`
+4. In `wrap_payload`, store the `Bytes` directly without conversion
+
+Verification via pointer equality:
+
+```rust
+let extracted = MyCodec::frame_payload_bytes(&frame);
+assert_eq!(frame.payload.as_ptr(), extracted.as_ptr());
+```
+
+See `src/codec/tests.rs` for zero-copy regression tests covering
+`LengthDelimitedFrameCodec`, `HotlineFrameCodec`, and `MysqlFrameCodec`.
+
 ## Architectural Rationale
 
 A dedicated `FrameCodec` abstraction aligns framing with the protocol boundary

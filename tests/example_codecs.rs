@@ -2,7 +2,7 @@
 
 use std::{io, sync::Arc};
 
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
@@ -19,7 +19,7 @@ use wireframe::{
 #[test]
 fn hotline_codec_round_trips_payload_and_correlation() {
     let codec = HotlineFrameCodec::new(8);
-    let payload = vec![1_u8, 2, 3, 4, 5, 6, 7, 8];
+    let payload = Bytes::from(vec![1_u8, 2, 3, 4, 5, 6, 7, 8]);
     let frame = HotlineFrame {
         transaction_id: 42,
         payload: payload.clone(),
@@ -60,7 +60,7 @@ fn hotline_codec_rejects_invalid_total_size() {
 #[test]
 fn mysql_codec_round_trips_payload_and_correlation() {
     let codec = MysqlFrameCodec::new(5);
-    let payload = vec![9_u8, 8, 7, 6, 5];
+    let payload = Bytes::from(vec![9_u8, 8, 7, 6, 5]);
     let frame = MysqlFrame {
         sequence_id: 3,
         payload: payload.clone(),
@@ -92,7 +92,7 @@ fn mysql_codec_rejects_oversized_payload() {
         .encode(
             MysqlFrame {
                 sequence_id: 0,
-                payload: vec![0_u8; 4],
+                payload: Bytes::from(vec![0_u8; 4]),
             },
             &mut buf,
         )
@@ -127,7 +127,7 @@ async fn hotline_codec_round_trips_through_app() {
         .encode(
             HotlineFrame {
                 transaction_id: 7,
-                payload,
+                payload: Bytes::from(payload),
             },
             &mut buf,
         )

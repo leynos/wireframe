@@ -75,6 +75,19 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
     /// Extract the message payload bytes from a frame.
     fn frame_payload(frame: &Self::Frame) -> &[u8];
 
+    /// Extract the message payload bytes from a frame as owned [`Bytes`].
+    ///
+    /// This method enables zero-copy payload extraction for codecs whose frame
+    /// type uses `Bytes` internally. The default implementation copies the
+    /// slice returned by [`frame_payload`][Self::frame_payload] into a new
+    /// `Bytes` buffer.
+    ///
+    /// Override this method when the frame type can provide the payload
+    /// without allocation.
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
+        Bytes::copy_from_slice(Self::frame_payload(frame))
+    }
+
     /// Wrap serialized payload bytes into a frame for sending.
     fn wrap_payload(&self, payload: Bytes) -> Self::Frame;
 
@@ -255,6 +268,8 @@ impl FrameCodec for LengthDelimitedFrameCodec {
     }
 
     fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.as_ref() }
+
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes { frame.clone() }
 
     fn wrap_payload(&self, payload: Bytes) -> Self::Frame { payload }
 

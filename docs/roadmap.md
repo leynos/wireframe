@@ -359,13 +359,14 @@ integration boundaries.
     add tests for partial-frame closure handling.
   - [x] Add tests that validate error propagation, recovery policy, and
     structured logging fields.
-- [ ] 9.1.3. Enable zero-copy payload extraction for codecs.
-  - [ ] Update `FrameCodec::frame_payload` to return a `Bytes`-backed view (or
-    equivalent) without forcing a `Vec<u8>` allocation.
-  - [ ] Update the default codec adaptor to avoid `Bytes` to `Vec<u8>` copying
+- [x] 9.1.3. Enable zero-copy payload extraction for codecs.
+  - [x] Add `FrameCodec::frame_payload_bytes` method returning `Bytes` directly
+    (with a default implementation that copies from `frame_payload()` for
+    backward compatibility).
+  - [x] Update the default codec adaptor to avoid `Bytes` to `Vec<u8>` copying
     on decode.
-  - [ ] Add a regression test or benchmark to confirm payloads reuse the
-    receive buffer where possible.
+  - [x] Add regression tests confirming payloads reuse the receive buffer via
+    pointer equality checks.
 
 ### 9.2. Fragment adaptor alignment
 
