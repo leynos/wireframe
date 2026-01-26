@@ -153,6 +153,41 @@ impl MessageAssemblerWorld {
         Ok(())
     }
 
+    /// Assert a field specific to First headers.
+    fn assert_first_field<T, F>(&self, field_name: &str, expected: &T, extractor: F) -> TestResult
+    where
+        T: PartialEq + fmt::Display + Copy,
+        F: FnOnce(&wireframe::message_assembler::FirstFrameHeader) -> T,
+    {
+        self.assert_field(field_name, expected, |header| {
+            if let FrameHeader::First(header) = header {
+                Ok(extractor(header))
+            } else {
+                Err("expected first header".to_string())
+            }
+        })
+    }
+
+    /// Assert a field specific to Continuation headers.
+    fn assert_continuation_field<T, F>(
+        &self,
+        field_name: &str,
+        expected: &T,
+        extractor: F,
+    ) -> TestResult
+    where
+        T: PartialEq + fmt::Display + Copy,
+        F: FnOnce(&wireframe::message_assembler::ContinuationFrameHeader) -> T,
+    {
+        self.assert_field(field_name, expected, |header| {
+            if let FrameHeader::Continuation(header) = header {
+                Ok(extractor(header))
+            } else {
+                Err("expected continuation header".to_string())
+            }
+        })
+    }
+
     /// Store an encoded first-frame header in the world payload.
     ///
     /// # Errors
@@ -299,13 +334,7 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the metadata length differs.
     pub fn assert_metadata_len(&self, expected: usize) -> TestResult {
-        self.assert_field("metadata length", &expected, |header| {
-            if let FrameHeader::First(header) = header {
-                Ok(header.metadata_len)
-            } else {
-                Err("expected first header".to_string())
-            }
-        })
+        self.assert_first_field("metadata length", &expected, |header| header.metadata_len)
     }
 
     /// Assert that the parsed header contains the expected body length.
@@ -329,12 +358,8 @@ impl MessageAssemblerWorld {
     /// Returns an error if no header was parsed or the total length differs.
     pub fn assert_total_len(&self, expected: Option<usize>) -> TestResult {
         let expected = DebugDisplay(expected);
-        self.assert_field("total length", &expected, |header| {
-            if let FrameHeader::First(header) = header {
-                Ok(DebugDisplay(header.total_body_len))
-            } else {
-                Err("expected first header".to_string())
-            }
+        self.assert_first_field("total length", &expected, |header| {
+            DebugDisplay(header.total_body_len)
         })
     }
 
@@ -346,12 +371,8 @@ impl MessageAssemblerWorld {
     pub fn assert_sequence(&self, expected: Option<u32>) -> TestResult {
         let expected = expected.map(FrameSequence::from);
         let expected = DebugDisplay(expected);
-        self.assert_field("sequence", &expected, |header| {
-            if let FrameHeader::Continuation(header) = header {
-                Ok(DebugDisplay(header.sequence))
-            } else {
-                Err("expected continuation header".to_string())
-            }
+        self.assert_continuation_field("sequence", &expected, |header| {
+            DebugDisplay(header.sequence)
         })
     }
 
