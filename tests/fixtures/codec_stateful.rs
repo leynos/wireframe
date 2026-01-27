@@ -177,7 +177,10 @@ pub struct CodecStatefulWorld {
     second_sequences: Vec<u64>,
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for stateful codec scenarios used by rstest-bdd steps.
+///
+/// Note: rustfmt collapses simple fixtures into one line, which triggers
+/// `unused_braces`, so keep `rustfmt::skip`.
 #[rustfmt::skip]
 #[fixture]
 pub fn codec_stateful_world() -> CodecStatefulWorld {
