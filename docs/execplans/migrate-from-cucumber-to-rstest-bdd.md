@@ -523,7 +523,7 @@ Phase 2 with `PanicWorld`.
 
 ### Risk 3: Fragment.feature Complexity (11 scenarios)
 
-**Mitigation**: Migrate in Phase 4 after patterns proven. Can use `scenarios!`
+**Mitigation**: Migrate in Phase 4 after patterns are proven. Can use `scenarios!`
 macro if individual tests become verbose.
 
 ### Risk 4: Compile-Time Validation False Positives
