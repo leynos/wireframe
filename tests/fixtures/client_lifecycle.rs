@@ -87,8 +87,9 @@ impl Drop for ClientLifecycleWorld {
 /// Fixture for `ClientLifecycleWorld`.
 #[fixture]
 pub fn client_lifecycle_world() -> ClientLifecycleWorld {
-    let mut world = ClientLifecycleWorld::default();
-    std::mem::take(&mut world)
+    let world = ClientLifecycleWorld::default();
+    let _ = world.last_error;
+    world
 }
 
 impl ClientLifecycleWorld {

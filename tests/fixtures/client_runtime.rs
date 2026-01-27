@@ -25,7 +25,8 @@ pub use crate::common::TestResult;
 /// Test world exercising the wireframe client runtime.
 #[derive(Debug)]
 pub struct ClientRuntimeWorld {
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
+    runtime_error: Option<String>,
     addr: Cell<Option<SocketAddr>>,
     server: RefCell<Option<JoinHandle<()>>>,
     client:
@@ -35,21 +36,40 @@ pub struct ClientRuntimeWorld {
     last_error: RefCell<Option<ClientError>>,
 }
 
-impl Default for ClientRuntimeWorld {
-    fn default() -> Self {
-        let runtime = match tokio::runtime::Runtime::new() {
-            Ok(runtime) => runtime,
-            Err(err) => panic!("failed to create runtime: {err}"),
-        };
-        Self {
-            runtime,
-            addr: Cell::new(None),
-            server: RefCell::new(None),
-            client: RefCell::new(None),
-            payload: RefCell::new(None),
-            response: RefCell::new(None),
-            last_error: RefCell::new(None),
+impl ClientRuntimeWorld {
+    /// Build a new runtime-backed client world.
+    pub fn new() -> Self {
+        match tokio::runtime::Runtime::new() {
+            Ok(runtime) => Self {
+                runtime: Some(runtime),
+                runtime_error: None,
+                addr: Cell::new(None),
+                server: RefCell::new(None),
+                client: RefCell::new(None),
+                payload: RefCell::new(None),
+                response: RefCell::new(None),
+                last_error: RefCell::new(None),
+            },
+            Err(err) => Self {
+                runtime: None,
+                runtime_error: Some(format!("failed to create runtime: {err}")),
+                addr: Cell::new(None),
+                server: RefCell::new(None),
+                client: RefCell::new(None),
+                payload: RefCell::new(None),
+                response: RefCell::new(None),
+                last_error: RefCell::new(None),
+            },
         }
+    }
+
+    fn runtime(&self) -> TestResult<&tokio::runtime::Runtime> {
+        self.runtime.as_ref().ok_or_else(|| {
+            self.runtime_error
+                .clone()
+                .unwrap_or_else(|| "runtime unavailable".to_string())
+                .into()
+        })
     }
 }
 
@@ -59,10 +79,11 @@ struct ClientPayload {
 }
 
 /// Fixture for `ClientRuntimeWorld`.
-#[rustfmt::skip]
 #[fixture]
 pub fn client_runtime_world() -> ClientRuntimeWorld {
-    ClientRuntimeWorld::default()
+    let world = ClientRuntimeWorld::new();
+    let _ = world.runtime_error.as_deref();
+    world
 }
 
 impl ClientRuntimeWorld {
@@ -71,11 +92,10 @@ impl ClientRuntimeWorld {
     /// # Errors
     /// Returns an error if binding or spawning the server fails.
     pub fn start_server(&self, max_frame_length: usize) -> TestResult {
-        let listener = self
-            .runtime
-            .block_on(async { TcpListener::bind("127.0.0.1:0").await })?;
+        let runtime = self.runtime()?;
+        let listener = runtime.block_on(async { TcpListener::bind("127.0.0.1:0").await })?;
         let addr = listener.local_addr()?;
-        let handle = self.runtime.spawn(async move {
+        let handle = runtime.spawn(async move {
             let Ok((stream, _)) = listener.accept().await else {
                 warn!("client runtime server failed to accept connection");
                 return;
@@ -109,7 +129,8 @@ impl ClientRuntimeWorld {
     pub fn connect_client(&self, max_frame_length: usize) -> TestResult {
         let addr = self.addr.get().ok_or("server address missing")?;
         let codec_config = ClientCodecConfig::default().max_frame_length(max_frame_length);
-        let client = self.runtime.block_on(async {
+        let runtime = self.runtime()?;
+        let client = runtime.block_on(async {
             WireframeClient::builder()
                 .codec_config(codec_config)
                 .connect(addr)
@@ -132,9 +153,8 @@ impl ClientRuntimeWorld {
             .borrow_mut()
             .take()
             .ok_or("client not connected")?;
-        let response: ClientPayload = self
-            .runtime
-            .block_on(async { client.call(&payload).await })?;
+        let runtime = self.runtime()?;
+        let response: ClientPayload = runtime.block_on(async { client.call(&payload).await })?;
         *self.client.borrow_mut() = Some(client);
         *self.payload.borrow_mut() = Some(payload);
         *self.response.borrow_mut() = Some(response);
@@ -155,8 +175,9 @@ impl ClientRuntimeWorld {
             .borrow_mut()
             .take()
             .ok_or("client not connected")?;
+        let runtime = self.runtime()?;
         let result: Result<ClientPayload, ClientError> =
-            self.runtime.block_on(async { client.call(&payload).await });
+            runtime.block_on(async { client.call(&payload).await });
         *self.client.borrow_mut() = Some(client);
         match result {
             Ok(_) => return Err("expected client error for oversized payload".into()),
@@ -199,7 +220,8 @@ impl ClientRuntimeWorld {
 
     fn await_server(&self) -> TestResult {
         if let Some(handle) = self.server.borrow_mut().take() {
-            self.runtime.block_on(async {
+            let runtime = self.runtime()?;
+            runtime.block_on(async {
                 handle
                     .await
                     .map_err(|err| format!("server task failed: {err}"))

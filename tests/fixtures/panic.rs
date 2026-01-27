@@ -9,7 +9,7 @@ use rstest::fixture;
 use tokio::{net::TcpStream, sync::oneshot};
 use wireframe::server::WireframeServer;
 
-// Re-export TestResult from common for use in steps
+/// `TestResult` for step definitions.
 pub use crate::common::TestResult;
 use crate::common::{TestApp, unused_listener};
 
@@ -86,8 +86,9 @@ pub struct PanicWorld {
 /// Fixture for `PanicWorld`.
 #[fixture]
 pub fn panic_world() -> PanicWorld {
-    let mut world = PanicWorld::default();
-    std::mem::take(&mut world)
+    let world = PanicWorld::default();
+    let _ = world.attempts;
+    world
 }
 
 impl PanicWorld {

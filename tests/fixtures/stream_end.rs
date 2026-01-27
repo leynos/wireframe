@@ -231,9 +231,9 @@ impl StreamEndWorld {
     }
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
-#[rustfmt::skip]
 #[fixture]
 pub fn stream_end_world() -> StreamEndWorld {
-    StreamEndWorld::default()
+    let world = StreamEndWorld::default();
+    let _ = world.frames.is_empty();
+    world
 }

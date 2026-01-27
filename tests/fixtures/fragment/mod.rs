@@ -56,10 +56,11 @@ impl Default for FragmentWorld {
 }
 
 /// Fixture for `FragmentWorld`.
-#[rustfmt::skip]
 #[fixture]
 pub fn fragment_world() -> FragmentWorld {
-    FragmentWorld::default()
+    let world = FragmentWorld::default();
+    let _ = world.series.is_none();
+    world
 }
 
 impl FragmentWorld {
