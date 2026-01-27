@@ -6,6 +6,7 @@ use crate::fixtures::message_assembler::{
     BodyLength,
     ContinuationHeaderSpec,
     FirstHeaderSpec,
+    HeaderLength,
     MessageAssemblerWorld,
     MessageKey,
     MetadataLength,
@@ -122,7 +123,7 @@ fn then_header_len(
     message_assembler_world: &mut MessageAssemblerWorld,
     header_len: usize,
 ) -> TestResult {
-    message_assembler_world.assert_header_len(header_len)
+    message_assembler_world.assert_header_len(HeaderLength(header_len))
 }
 
 #[then("the total body length is absent")]

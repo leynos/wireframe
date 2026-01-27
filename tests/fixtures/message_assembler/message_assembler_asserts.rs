@@ -12,6 +12,7 @@ use wireframe::{
 
 use super::{
     BodyLength,
+    HeaderLength,
     MessageAssemblerWorld,
     MessageKey,
     MetadataLength,
@@ -109,11 +110,11 @@ impl MessageAssemblerWorld {
     /// # Errors
     ///
     /// Returns an error if no header was parsed or the length differs.
-    pub fn assert_header_len(&self, expected: usize) -> TestResult {
+    pub fn assert_header_len(&self, expected: HeaderLength) -> TestResult {
         let parsed = self.parsed.as_ref().ok_or("no parsed header")?;
         let actual = parsed.header_len();
-        if actual != expected {
-            return Err(format!("expected header length {expected}, got {actual}").into());
+        if actual != expected.0 {
+            return Err(format!("expected header length {}, got {actual}", expected.0).into());
         }
         Ok(())
     }

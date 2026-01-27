@@ -75,13 +75,6 @@ impl FrameId {
             sequence: FrameSequence(sequence),
         }
     }
-
-    pub fn with_key(key: u64) -> Self {
-        Self {
-            key: MessageKey(key),
-            sequence: FrameSequence(0),
-        }
-    }
 }
 
 /// Helper function to reduce duplication in Then step assertions.
@@ -332,10 +325,9 @@ fn then_error_missing_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
 ) -> TestResult {
-    let frame_id = FrameId::with_key(key.0);
     assert_error(
         message_assembly_world,
-        |world| world.is_missing_first_frame(frame_id.key),
+        |world| world.is_missing_first_frame(key.to_key()),
         "expected missing first frame error",
     )
 }
@@ -369,9 +361,8 @@ fn then_key_evicted(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
 ) -> TestResult {
-    assert_error(
-        message_assembly_world,
-        |world| world.was_evicted(key.to_key()),
+    assert_condition(
+        message_assembly_world.was_evicted(key.to_key()),
         format!("expected key {} to be evicted", key.0),
     )
 }

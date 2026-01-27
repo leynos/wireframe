@@ -37,3 +37,12 @@ impl FromStr for MetadataLength {
     type Err = ParseIntError;
     fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse().map(Self) }
 }
+
+/// Header length in bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeaderLength(pub usize);
+
+impl FromStr for HeaderLength {
+    type Err = ParseIntError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse().map(Self) }
+}

@@ -200,7 +200,7 @@ disambiguating client preamble step text to avoid ambiguous step definitions).
 
 **Commit**: "Set up parallel rstest-bdd infrastructure"
 
-### Phase 1: Pilot Migration - Simple Worlds (Weeks 2-3)
+### Phase 1: Pilot Migration – Simple Worlds (Weeks 2-3)
 
 **Objective**: Validate approach with 2 simple worlds, establish conversion
 patterns.
@@ -219,7 +219,7 @@ patterns.
    steps are fully synchronous)
 4. Run and validate against Cucumber
 
-**Example - CorrelationWorld**:
+**Example – CorrelationWorld**:
 
 ```rust
 // tests/bdd/fixtures/correlation.rs
@@ -319,7 +319,7 @@ cargo test --test bdd request_parts
 - ✅ "Migrate CorrelationWorld to rstest-bdd" (commit 8ce5b55)
 - ✅ "Migrate RequestPartsWorld to rstest-bdd" (commit 154e5c8)
 
-**Status**: ✅ **COMPLETE** - Both pilot worlds successfully migrated and all
+**Status**: ✅ **COMPLETE** – Both pilot worlds successfully migrated and all
 tests passing.
 
 ### Phase 2: Medium Complexity Worlds (Weeks 4-5)
@@ -360,13 +360,13 @@ fn given_panic_server(world: &mut PanicWorld) -> TestResult {
 
 **Commits**: One per world (4 commits).
 
-**Status**: ✅ **COMPLETE** - `MessageAssemblerWorld`, `MessageAssemblyWorld`,
+**Status**: ✅ **COMPLETE** – `MessageAssemblerWorld`, `MessageAssemblyWorld`,
 `CodecErrorWorld`, and `FragmentWorld` migrated.
 
-**Status**: ✅ **COMPLETE** - `PanicWorld`, `MultiPacketWorld`,
+**Status**: ✅ **COMPLETE** – `PanicWorld`, `MultiPacketWorld`,
 `StreamEndWorld`, and `CodecStatefulWorld` migrated.
 
-### Phase 3: Complex Worlds - Client & Messaging (Weeks 6-7)
+### Phase 3: Complex Worlds – Client & Messaging (Weeks 6-7)
 
 **Selected Worlds** (in order):
 
@@ -392,7 +392,7 @@ fn given_echo_server(world: &mut ClientMessagingWorld) -> TestResult {
 
 **Commits**: One per world (4 commits).
 
-**Status**: ✅ **COMPLETE** - `ClientRuntimeWorld`, `ClientMessagingWorld`,
+**Status**: ✅ **COMPLETE** – `ClientRuntimeWorld`, `ClientMessagingWorld`,
 `ClientLifecycleWorld`, and `ClientPreambleWorld` migrated.
 
 ### Phase 4: Specialized Worlds (Week 8)
@@ -410,8 +410,8 @@ fn given_echo_server(world: &mut ClientMessagingWorld) -> TestResult {
 
 ```rust
 // tests/bdd/fixtures/fragment/
-//   mod.rs         - Main world struct
-//   reassembly.rs  - Helper types
+//   mod.rs         – Main world struct
+//   reassembly.rs  – Helper types
 
 pub mod reassembly;
 use reassembly::*;
@@ -481,7 +481,7 @@ pub fn fragment_world() -> FragmentWorld {
 
 ### Historical baseline (pre-removal)
 
-- Prior to removing the Cucumber runner on 2026-01-25, both suites were run
+- Before removing the Cucumber runner on 2026-01-25, both suites were run
   side by side and passed the same scenario set.
 - The last recorded comparison showed Cucumber at ~923 ms mean and rstest-bdd
   at ~934 ms mean.
@@ -540,31 +540,31 @@ migration. Can pause after any phase.
 
 ### Phase 0 (Foundation)
 
-1. `Cargo.toml` - Dependencies, test targets
-2. `tests/bdd/mod.rs` - New test module root
-3. `Makefile` - Test targets
+1. `Cargo.toml` – Dependencies, test targets
+2. `tests/bdd/mod.rs` – New test module root
+3. `Makefile` – Test targets
 
 ### Phase 1 (Pilot)
 
-1. `tests/bdd/fixtures/correlation.rs` - First fixture
-2. `tests/bdd/steps/correlation_steps.rs` - First steps
-3. `tests/bdd/scenarios/correlation_scenarios.rs` - First scenarios
+1. `tests/bdd/fixtures/correlation.rs` – First fixture
+2. `tests/bdd/steps/correlation_steps.rs` – First steps
+3. `tests/bdd/scenarios/correlation_scenarios.rs` – First scenarios
 4. `tests/bdd/fixtures/request_parts.rs`
 5. `tests/bdd/steps/request_parts_steps.rs`
 6. `tests/bdd/scenarios/request_parts_scenarios.rs`
 
 ### Phase 2 (Medium Complexity)
 
-Panic, MultiPacket, StreamEnd, CodecStateful (fixtures, steps, scenarios) - 12
+Panic, MultiPacket, StreamEnd, CodecStateful (fixtures, steps, scenarios) – 12
 files total
 
 ### Phase 3 (Complex)
 
-ClientRuntime, ClientMessaging, ClientLifecycle, ClientPreamble - 12 files total
+ClientRuntime, ClientMessaging, ClientLifecycle, ClientPreamble – 12 files total
 
 ### Phase 4 (Specialized)
 
-MessageAssembler, MessageAssembly, CodecError, Fragment - 12 files total
+MessageAssembler, MessageAssembly, CodecError, Fragment – 12 files total
 
 ### Phase 5 (Cleanup) — completed 2026-01-25
 
@@ -684,4 +684,4 @@ passing. Phase 1 is complete.
 - [rstest-bdd User's Guide](../rstest-bdd-users-guide.md)
 - [ADR-003: Replace Cucumber with
   rstest-bdd](../adr-003-replace-cucumber-with-rstest-bdd.md)
-- [Plan Agent Output](https://claude.ai) - Agent ID: a9eb419
+- [Plan Agent Output](https://claude.ai) – Agent ID: a9eb419

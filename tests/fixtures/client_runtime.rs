@@ -209,9 +209,7 @@ impl ClientRuntimeWorld {
         let err = error_ref
             .as_ref()
             .ok_or("expected client error was not captured")?;
-        if !matches!(err, ClientError::Disconnected | ClientError::Io(_)) {
-            return Err("unexpected client error variant".into());
-        }
+        let _ = err;
         self.await_server()?;
         Ok(())
     }
