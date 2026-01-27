@@ -8,4 +8,8 @@ use crate::fixtures::codec_stateful::*;
     path = "tests/features/codec_stateful.feature",
     name = "Sequence counters reset per connection"
 )]
-fn sequence_counters_reset(codec_stateful_world: CodecStatefulWorld) { drop(codec_stateful_world); }
+#[expect(
+    unused_variables,
+    reason = "rstest-bdd wires steps via parameters without using them directly"
+)]
+fn sequence_counters_reset(codec_stateful_world: CodecStatefulWorld) {}
