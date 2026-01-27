@@ -360,9 +360,6 @@ fn given_panic_server(world: &mut PanicWorld) -> TestResult {
 
 **Commits**: One per world (4 commits).
 
-**Status**: ✅ **COMPLETE** – `MessageAssemblerWorld`, `MessageAssemblyWorld`,
-`CodecErrorWorld`, and `FragmentWorld` migrated.
-
 **Status**: ✅ **COMPLETE** – `PanicWorld`, `MultiPacketWorld`,
 `StreamEndWorld`, and `CodecStatefulWorld` migrated.
 
@@ -409,7 +406,7 @@ fn given_echo_server(world: &mut ClientMessagingWorld) -> TestResult {
 **Multi-File Pattern** (FragmentWorld):
 
 ```rust
-// tests/bdd/fixtures/fragment/
+// tests/fixtures/fragment/
 //   mod.rs         – Main world struct
 //   reassembly.rs  – Helper types
 
@@ -428,6 +425,9 @@ pub fn fragment_world() -> FragmentWorld {
 ```
 
 **Commits**: One per world (4 commits).
+
+**Status**: ✅ **COMPLETE** – `MessageAssemblerWorld`, `MessageAssemblyWorld`,
+`CodecErrorWorld`, and `FragmentWorld` migrated.
 
 ### Phase 5: Validation & Cleanup (Week 9)
 
@@ -546,12 +546,12 @@ migration. Can pause after any phase.
 
 ### Phase 1 (Pilot)
 
-1. `tests/bdd/fixtures/correlation.rs` – First fixture
-2. `tests/bdd/steps/correlation_steps.rs` – First steps
-3. `tests/bdd/scenarios/correlation_scenarios.rs` – First scenarios
-4. `tests/bdd/fixtures/request_parts.rs`
-5. `tests/bdd/steps/request_parts_steps.rs`
-6. `tests/bdd/scenarios/request_parts_scenarios.rs`
+1. `tests/fixtures/correlation.rs` – First fixture
+2. `tests/steps/correlation_steps.rs` – First steps
+3. `tests/scenarios/correlation_scenarios.rs` – First scenarios
+4. `tests/fixtures/request_parts.rs`
+5. `tests/steps/request_parts_steps.rs`
+6. `tests/scenarios/request_parts_scenarios.rs`
 
 ### Phase 2 (Medium Complexity)
 

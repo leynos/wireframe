@@ -24,7 +24,7 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
-// Re-export TestResult from common for use in steps
+/// Re-export `TestResult` from common for use in steps.
 pub use crate::common::TestResult;
 
 #[derive(Debug)]

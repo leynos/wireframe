@@ -71,6 +71,17 @@ impl ClientRuntimeWorld {
                 .into()
         })
     }
+
+    fn block_on<F, T>(&self, future: F) -> TestResult<T>
+    where
+        F: std::future::Future<Output = T>,
+    {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return Err("nested Tokio runtime detected in client runtime fixture".into());
+        }
+        let runtime = self.runtime()?;
+        Ok(runtime.block_on(future))
+    }
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
@@ -92,10 +103,9 @@ impl ClientRuntimeWorld {
     /// # Errors
     /// Returns an error if binding or spawning the server fails.
     pub fn start_server(&self, max_frame_length: usize) -> TestResult {
-        let runtime = self.runtime()?;
-        let listener = runtime.block_on(async { TcpListener::bind("127.0.0.1:0").await })?;
+        let listener = self.block_on(async { TcpListener::bind("127.0.0.1:0").await })??;
         let addr = listener.local_addr()?;
-        let handle = runtime.spawn(async move {
+        let handle = self.runtime()?.spawn(async move {
             let Ok((stream, _)) = listener.accept().await else {
                 warn!("client runtime server failed to accept connection");
                 return;
@@ -129,13 +139,12 @@ impl ClientRuntimeWorld {
     pub fn connect_client(&self, max_frame_length: usize) -> TestResult {
         let addr = self.addr.get().ok_or("server address missing")?;
         let codec_config = ClientCodecConfig::default().max_frame_length(max_frame_length);
-        let runtime = self.runtime()?;
-        let client = runtime.block_on(async {
+        let client = self.block_on(async {
             WireframeClient::builder()
                 .codec_config(codec_config)
                 .connect(addr)
                 .await
-        })?;
+        })??;
         *self.client.borrow_mut() = Some(client);
         Ok(())
     }
@@ -178,8 +187,7 @@ impl ClientRuntimeWorld {
             .borrow_mut()
             .take()
             .ok_or("client not connected")?;
-        let runtime = self.runtime()?;
-        let result = runtime.block_on(async { client.call(&payload).await });
+        let result = self.block_on(async { client.call(&payload).await })?;
         *self.client.borrow_mut() = Some(client);
         Ok((payload, result))
     }
@@ -206,22 +214,20 @@ impl ClientRuntimeWorld {
     /// Returns an error if no failure was observed.
     pub fn verify_error(&self) -> TestResult {
         let error_ref = self.last_error.borrow();
-        let err = error_ref
+        error_ref
             .as_ref()
             .ok_or("expected client error was not captured")?;
-        let _ = err;
         self.await_server()?;
         Ok(())
     }
 
     fn await_server(&self) -> TestResult {
         if let Some(handle) = self.server.borrow_mut().take() {
-            let runtime = self.runtime()?;
-            runtime.block_on(async {
+            self.block_on(async {
                 handle
                     .await
                     .map_err(|err| format!("server task failed: {err}"))
-            })?;
+            })??;
         }
         Ok(())
     }

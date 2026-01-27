@@ -26,7 +26,7 @@ use wireframe::message_assembler::{
     MessageSeriesError,
 };
 
-// Re-export TestResult from common for use in steps
+/// Re-export `TestResult` from common for use in steps.
 pub use crate::common::TestResult;
 use crate::scenarios::steps::FrameId;
 

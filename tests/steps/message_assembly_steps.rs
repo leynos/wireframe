@@ -61,7 +61,7 @@ impl FromStr for TimeoutParam {
     fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u64>().map(TimeoutParam) }
 }
 
-/// Frame identification combining key and optional sequence.
+/// Frame identification combining key and sequence.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameId {
     pub key: MessageKey,

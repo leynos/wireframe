@@ -17,7 +17,7 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger};
 
-// Re-export TestResult from common for use in steps
+/// Re-export `TestResult` from common for use in steps.
 pub use crate::common::TestResult;
 use crate::{build_small_queues, terminator::Terminator};
 

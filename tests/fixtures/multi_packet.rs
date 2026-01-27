@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{Response, connection::ConnectionActor};
 
 use crate::build_small_queues;
-// Re-export TestResult from common for use in steps
+/// Re-export `TestResult` from common for use in steps.
 pub use crate::common::TestResult;
 
 #[derive(Debug)]

@@ -30,7 +30,7 @@ use wireframe::{
     rewind_stream::RewindStream,
 };
 
-// Re-export TestResult from common for use in steps
+/// Re-export `TestResult` from common for use in steps.
 pub use crate::common::TestResult;
 
 /// Preamble used for testing lifecycle with preamble.
