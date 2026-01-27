@@ -21,8 +21,8 @@ use wireframe_testing::{LoggerHandle, logger};
 pub use crate::common::TestResult;
 use crate::{build_small_queues, terminator::Terminator};
 
-#[derive(Debug, Default)]
 /// Test world capturing frames and logs for stream termination scenarios.
+#[derive(Debug, Default)]
 pub struct StreamEndWorld {
     frames: Vec<u8>,
     logs: Vec<(Level, String)>,

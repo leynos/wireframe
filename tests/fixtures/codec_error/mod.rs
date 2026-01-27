@@ -8,7 +8,7 @@ use bytes::BytesMut;
 use rstest::fixture;
 use wireframe::codec::{CodecError, EofError, FramingError, ProtocolError, RecoveryPolicy};
 
-// Re-export TestResult from common for use in steps
+/// `TestResult` for step definitions.
 pub use crate::common::TestResult;
 
 /// Codec error type for test scenarios.
@@ -64,7 +64,7 @@ pub struct CodecErrorWorld {
     pub(crate) clean_close_detected: bool,
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for `CodecErrorWorld`.
 #[rustfmt::skip]
 #[fixture]
 pub fn codec_error_world() -> CodecErrorWorld {

@@ -83,11 +83,11 @@ pub struct PanicWorld {
     attempts: usize,
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
-#[rustfmt::skip]
+/// Fixture for `PanicWorld`.
 #[fixture]
 pub fn panic_world() -> PanicWorld {
-    PanicWorld::default()
+    let mut world = PanicWorld::default();
+    std::mem::take(&mut world)
 }
 
 impl PanicWorld {

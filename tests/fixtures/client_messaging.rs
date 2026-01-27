@@ -19,7 +19,7 @@ use wireframe::{
 };
 use wireframe_testing::{ServerMode, process_frame};
 
-// Re-export TestResult from common for use in steps
+/// `TestResult` for step definitions.
 pub use crate::common::TestResult;
 
 /// Test world for client messaging scenarios.
@@ -39,7 +39,7 @@ pub struct ClientMessagingWorld {
     expected_payload: Option<String>,
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for `ClientMessagingWorld`.
 #[rustfmt::skip]
 #[fixture]
 pub fn client_messaging_world() -> ClientMessagingWorld {

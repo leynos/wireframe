@@ -87,7 +87,7 @@ fn when_client_sends_envelope(world: &mut ClientMessagingWorld) {
 **Practical rule for this codebase**:
 
 - For worlds with async methods, keep scenarios **sync** and run those methods
-  inside a dedicated runtime per step (`Runtime::new().block_on(...)`).
+  inside a dedicated runtime per step (`Runtime::new().block_on(…)`).
 - For worlds with purely synchronous steps, prefer async scenarios so the test
   body can `await` any extra async assertions or cleanup logic.
 
@@ -117,7 +117,7 @@ pub struct ClientMessagingWorld {
     // Slots for optional/late-bound state
     addr: Slot<SocketAddr>,
     server: Slot<JoinHandle<()>>,
-    client: Slot<WireframeClient<...>>,
+    client: Slot<WireframeClient<…>>,
     envelope: Slot<Envelope>,
 
     // Direct fields for always-present state
@@ -243,11 +243,11 @@ impl CorrelationWorld {
     }
 
     pub async fn process(&mut self) -> TestResult {
-        // ... existing async code
+        // … existing async code
     }
 
     pub fn verify(&self) -> TestResult {
-        // ... existing sync code
+        // … existing sync code
     }
 }
 ```
@@ -418,7 +418,7 @@ use reassembly::*;
 
 #[derive(Debug, ScenarioState)]
 pub struct FragmentWorld {
-    // ... fields
+    // … fields
 }
 
 #[fixture]

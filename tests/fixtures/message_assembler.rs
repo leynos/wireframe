@@ -14,7 +14,7 @@ use wireframe::{
 };
 
 use crate::TestApp;
-// Re-export TestResult from common for use in steps
+/// `TestResult` for step definitions.
 pub use crate::common::TestResult;
 
 /// Specification for first-frame header encoding used in tests.
@@ -130,7 +130,7 @@ impl fmt::Debug for MessageAssemblerWorld {
     }
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for `MessageAssemblerWorld`.
 #[rustfmt::skip]
 #[fixture]
 pub fn message_assembler_world() -> MessageAssemblerWorld {

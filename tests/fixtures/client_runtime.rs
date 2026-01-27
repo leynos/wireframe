@@ -19,7 +19,7 @@ use wireframe::{
     rewind_stream::RewindStream,
 };
 
-// Re-export TestResult from common for use in steps
+/// `TestResult` for step definitions.
 pub use crate::common::TestResult;
 
 /// Test world exercising the wireframe client runtime.
@@ -58,7 +58,7 @@ struct ClientPayload {
     data: Vec<u8>,
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for `ClientRuntimeWorld`.
 #[rustfmt::skip]
 #[fixture]
 pub fn client_runtime_world() -> ClientRuntimeWorld {

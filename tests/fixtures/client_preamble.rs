@@ -23,7 +23,7 @@ use wireframe::{
     rewind_stream::RewindStream,
 };
 
-// Re-export TestResult from common for use in steps
+/// `TestResult` for step definitions.
 pub use crate::common::TestResult;
 
 /// Preamble used for testing.
@@ -89,7 +89,7 @@ pub struct ClientPreambleWorld {
     last_error: Option<ClientError>,
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for `ClientPreambleWorld`.
 #[rustfmt::skip]
 #[fixture]
 pub fn client_preamble_world() -> ClientPreambleWorld {

@@ -22,7 +22,7 @@ use wireframe::fragment::{
     ReassemblyError,
 };
 
-// Re-export TestResult from common for use in steps
+/// `TestResult` for step definitions.
 pub use crate::common::TestResult;
 
 /// Test world tracking fragmentation state across behavioural scenarios.
@@ -55,7 +55,7 @@ impl Default for FragmentWorld {
     }
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for `FragmentWorld`.
 #[rustfmt::skip]
 #[fixture]
 pub fn fragment_world() -> FragmentWorld {

@@ -47,7 +47,7 @@ pub struct RequestPartsWorld {
     parts: Option<RequestParts>,
 }
 
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+/// Fixture for `RequestPartsWorld`.
 #[rustfmt::skip]
 #[fixture]
 pub fn request_parts_world() -> RequestPartsWorld {
