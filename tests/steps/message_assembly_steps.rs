@@ -127,10 +127,8 @@ fn assert_equals<T: PartialEq + Debug>(
 // Given steps
 // =============================================================================
 
-#[given(
-    "a message assembly state with max size {max_size:CountParam} and timeout \
-     {timeout:TimeoutParam} seconds"
-)]
+#[rustfmt::skip]
+#[given("a message assembly state with max size {max_size:CountParam} and timeout {timeout:TimeoutParam} seconds")]
 fn given_state(
     message_assembly_world: &mut MessageAssemblyWorld,
     max_size: CountParam,
@@ -140,10 +138,8 @@ fn given_state(
     message_assembly_world.create_state(config);
 }
 
-#[given(
-    "a first frame for key {key:MessageKeyParam} with metadata {metadata:string} and body \
-     {body:string}"
-)]
+#[rustfmt::skip]
+#[given("a first frame for key {key:MessageKeyParam} with metadata {metadata:string} and body {body:string}")]
 fn given_first_frame_with_metadata(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
@@ -189,10 +185,8 @@ fn when_all_first_frames_accepted(message_assembly_world: &mut MessageAssemblyWo
     message_assembly_world.accept_all_first_frames()
 }
 
-#[when(
-    "a final continuation for key {key:MessageKeyParam} with sequence {sequence:SequenceParam} \
-     and body {body:string} arrives"
-)]
+#[rustfmt::skip]
+#[when("a final continuation for key {key:MessageKeyParam} with sequence {sequence:SequenceParam} and body {body:string} arrives")]
 fn when_final_continuation(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
@@ -303,10 +297,8 @@ fn then_buffered_count(
     assert_equals(&actual, &count.0, "buffered count mismatch")
 }
 
-#[then(
-    "the error is sequence mismatch expecting {expected:SequenceParam} but found \
-     {found:SequenceParam}"
-)]
+#[rustfmt::skip]
+#[then("the error is sequence mismatch expecting {expected:SequenceParam} but found {found:SequenceParam}")]
 fn then_error_sequence_mismatch(
     message_assembly_world: &mut MessageAssemblyWorld,
     expected: SequenceParam,

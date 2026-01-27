@@ -37,17 +37,17 @@ rstest-bdd supports async steps.
 
 ### World Complexity Classification
 
-#### Tier 1 - Simple (115-200 lines)
+#### Tier 1 – Simple (115–200 lines)
 
 - `CorrelationWorld` (115 lines): Simple state + 2 async methods
 - `RequestPartsWorld` (~150 lines): Basic state validation
 
-#### Tier 2 - Medium (200-400 lines)
+#### Tier 2 – Medium (200–400 lines)
 
 - `PanicWorld`, `MultiPacketWorld`, `StreamEndWorld`,
   `MessageAssemblerWorld`, `CodecStatefulWorld`
 
-#### Tier 3 - High Complexity (400+ lines)
+#### Tier 3 – High Complexity (400+ lines)
 
 - `ClientMessagingWorld` (302 lines): Server spawning, client
   connections, envelope handling
@@ -88,7 +88,7 @@ fn when_client_sends_envelope(world: &mut ClientMessagingWorld) {
 
 - For worlds with async methods, keep scenarios **sync** and run those methods
   inside a dedicated runtime per step (`Runtime::new().block_on(…)`).
-- For worlds with purely synchronous steps, prefer async scenarios so the test
+- For worlds with purely synchronous steps, prefer async scenarios, so the test
   body can `await` any extra async assertions or cleanup logic.
 
 ### World-to-Fixture Conversion

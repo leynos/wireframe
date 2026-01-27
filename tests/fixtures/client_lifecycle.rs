@@ -85,11 +85,11 @@ impl Drop for ClientLifecycleWorld {
 }
 
 /// Fixture for `ClientLifecycleWorld`.
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
 pub fn client_lifecycle_world() -> ClientLifecycleWorld {
-    let world = ClientLifecycleWorld::default();
-    let _ = world.last_error;
-    world
+    ClientLifecycleWorld::default()
 }
 
 impl ClientLifecycleWorld {

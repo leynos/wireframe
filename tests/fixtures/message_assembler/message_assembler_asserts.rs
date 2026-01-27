@@ -70,10 +70,10 @@ impl MessageAssemblerWorld {
     /// # Errors
     ///
     /// Returns an error if no header was parsed or the total length differs.
-    pub fn assert_total_len(&self, expected: Option<usize>) -> TestResult {
+    pub fn assert_total_len(&self, expected: Option<BodyLength>) -> TestResult {
         let expected = DebugDisplay(expected);
         self.assert_first_field("total length", &expected, |header| {
-            DebugDisplay(header.total_body_len)
+            DebugDisplay(header.total_body_len.map(BodyLength))
         })
     }
 

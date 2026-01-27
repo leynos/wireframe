@@ -135,7 +135,7 @@ fn then_total_present(
     message_assembler_world: &mut MessageAssemblerWorld,
     total: usize,
 ) -> TestResult {
-    message_assembler_world.assert_total_len(Some(total))
+    message_assembler_world.assert_total_len(Some(BodyLength(total)))
 }
 
 #[then("the sequence is {sequence:u32}")]

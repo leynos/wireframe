@@ -79,11 +79,11 @@ struct ClientPayload {
 }
 
 /// Fixture for `ClientRuntimeWorld`.
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
 pub fn client_runtime_world() -> ClientRuntimeWorld {
-    let world = ClientRuntimeWorld::new();
-    let _ = world.runtime_error.as_deref();
-    world
+    ClientRuntimeWorld::new()
 }
 
 impl ClientRuntimeWorld {
@@ -145,17 +145,8 @@ impl ClientRuntimeWorld {
     /// # Errors
     /// Returns an error if the client is missing or communication fails.
     pub fn send_payload(&self, size: usize) -> TestResult {
-        let payload = ClientPayload {
-            data: vec![7_u8; size],
-        };
-        let mut client = self
-            .client
-            .borrow_mut()
-            .take()
-            .ok_or("client not connected")?;
-        let runtime = self.runtime()?;
-        let response: ClientPayload = runtime.block_on(async { client.call(&payload).await })?;
-        *self.client.borrow_mut() = Some(client);
+        let (payload, result) = self.send_payload_inner(size)?;
+        let response = result?;
         *self.payload.borrow_mut() = Some(payload);
         *self.response.borrow_mut() = Some(response);
         *self.last_error.borrow_mut() = None;
@@ -167,6 +158,18 @@ impl ClientRuntimeWorld {
     /// # Errors
     /// Returns an error if the client is missing or if no failure is observed.
     pub fn send_payload_expect_error(&self, size: usize) -> TestResult {
+        let (_payload, result) = self.send_payload_inner(size)?;
+        match result {
+            Ok(_) => return Err("expected client error for oversized payload".into()),
+            Err(err) => *self.last_error.borrow_mut() = Some(err),
+        }
+        Ok(())
+    }
+
+    fn send_payload_inner(
+        &self,
+        size: usize,
+    ) -> TestResult<(ClientPayload, Result<ClientPayload, ClientError>)> {
         let payload = ClientPayload {
             data: vec![7_u8; size],
         };
@@ -176,14 +179,9 @@ impl ClientRuntimeWorld {
             .take()
             .ok_or("client not connected")?;
         let runtime = self.runtime()?;
-        let result: Result<ClientPayload, ClientError> =
-            runtime.block_on(async { client.call(&payload).await });
+        let result = runtime.block_on(async { client.call(&payload).await });
         *self.client.borrow_mut() = Some(client);
-        match result {
-            Ok(_) => return Err("expected client error for oversized payload".into()),
-            Err(err) => *self.last_error.borrow_mut() = Some(err),
-        }
-        Ok(())
+        Ok((payload, result))
     }
 
     /// Verify that the client received the echoed payload.

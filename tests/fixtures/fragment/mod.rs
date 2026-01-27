@@ -56,11 +56,11 @@ impl Default for FragmentWorld {
 }
 
 /// Fixture for `FragmentWorld`.
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
 pub fn fragment_world() -> FragmentWorld {
-    let world = FragmentWorld::default();
-    let _ = world.series.is_none();
-    world
+    FragmentWorld::default()
 }
 
 impl FragmentWorld {
