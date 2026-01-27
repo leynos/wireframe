@@ -3,7 +3,10 @@
 //! Provides an echo server/client pair to validate client runtime framing
 //! behaviour.
 
-use std::net::SocketAddr;
+use std::{
+    cell::{Cell, RefCell},
+    net::SocketAddr,
+};
 
 use futures::{SinkExt, StreamExt};
 use log::warn;
@@ -20,14 +23,34 @@ use wireframe::{
 pub use crate::common::TestResult;
 
 /// Test world exercising the wireframe client runtime.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ClientRuntimeWorld {
-    addr: Option<SocketAddr>,
-    server: Option<JoinHandle<()>>,
-    client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>,
-    payload: Option<ClientPayload>,
-    response: Option<ClientPayload>,
-    last_error: Option<ClientError>,
+    runtime: tokio::runtime::Runtime,
+    addr: Cell<Option<SocketAddr>>,
+    server: RefCell<Option<JoinHandle<()>>>,
+    client:
+        RefCell<Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>>,
+    payload: RefCell<Option<ClientPayload>>,
+    response: RefCell<Option<ClientPayload>>,
+    last_error: RefCell<Option<ClientError>>,
+}
+
+impl Default for ClientRuntimeWorld {
+    fn default() -> Self {
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(runtime) => runtime,
+            Err(err) => panic!("failed to create runtime: {err}"),
+        };
+        Self {
+            runtime,
+            addr: Cell::new(None),
+            server: RefCell::new(None),
+            client: RefCell::new(None),
+            payload: RefCell::new(None),
+            response: RefCell::new(None),
+            last_error: RefCell::new(None),
+        }
+    }
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
@@ -47,10 +70,12 @@ impl ClientRuntimeWorld {
     ///
     /// # Errors
     /// Returns an error if binding or spawning the server fails.
-    pub async fn start_server(&mut self, max_frame_length: usize) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
+    pub fn start_server(&self, max_frame_length: usize) -> TestResult {
+        let listener = self
+            .runtime
+            .block_on(async { TcpListener::bind("127.0.0.1:0").await })?;
         let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
+        let handle = self.runtime.spawn(async move {
             let Ok((stream, _)) = listener.accept().await else {
                 warn!("client runtime server failed to accept connection");
                 return;
@@ -72,8 +97,8 @@ impl ClientRuntimeWorld {
             }
         });
 
-        self.addr = Some(addr);
-        self.server = Some(handle);
+        self.addr.set(Some(addr));
+        *self.server.borrow_mut() = Some(handle);
         Ok(())
     }
 
@@ -81,14 +106,16 @@ impl ClientRuntimeWorld {
     ///
     /// # Errors
     /// Returns an error if the server has not started or the client fails to connect.
-    pub async fn connect_client(&mut self, max_frame_length: usize) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
+    pub fn connect_client(&self, max_frame_length: usize) -> TestResult {
+        let addr = self.addr.get().ok_or("server address missing")?;
         let codec_config = ClientCodecConfig::default().max_frame_length(max_frame_length);
-        let client = WireframeClient::builder()
-            .codec_config(codec_config)
-            .connect(addr)
-            .await?;
-        self.client = Some(client);
+        let client = self.runtime.block_on(async {
+            WireframeClient::builder()
+                .codec_config(codec_config)
+                .connect(addr)
+                .await
+        })?;
+        *self.client.borrow_mut() = Some(client);
         Ok(())
     }
 
@@ -96,15 +123,22 @@ impl ClientRuntimeWorld {
     ///
     /// # Errors
     /// Returns an error if the client is missing or communication fails.
-    pub async fn send_payload(&mut self, size: usize) -> TestResult {
+    pub fn send_payload(&self, size: usize) -> TestResult {
         let payload = ClientPayload {
             data: vec![7_u8; size],
         };
-        let client = self.client.as_mut().ok_or("client not connected")?;
-        let response: ClientPayload = client.call(&payload).await?;
-        self.payload = Some(payload);
-        self.response = Some(response);
-        self.last_error = None;
+        let mut client = self
+            .client
+            .borrow_mut()
+            .take()
+            .ok_or("client not connected")?;
+        let response: ClientPayload = self
+            .runtime
+            .block_on(async { client.call(&payload).await })?;
+        *self.client.borrow_mut() = Some(client);
+        *self.payload.borrow_mut() = Some(payload);
+        *self.response.borrow_mut() = Some(response);
+        *self.last_error.borrow_mut() = None;
         Ok(())
     }
 
@@ -112,15 +146,21 @@ impl ClientRuntimeWorld {
     ///
     /// # Errors
     /// Returns an error if the client is missing or if no failure is observed.
-    pub async fn send_payload_expect_error(&mut self, size: usize) -> TestResult {
+    pub fn send_payload_expect_error(&self, size: usize) -> TestResult {
         let payload = ClientPayload {
             data: vec![7_u8; size],
         };
-        let client = self.client.as_mut().ok_or("client not connected")?;
-        let result: Result<ClientPayload, ClientError> = client.call(&payload).await;
+        let mut client = self
+            .client
+            .borrow_mut()
+            .take()
+            .ok_or("client not connected")?;
+        let result: Result<ClientPayload, ClientError> =
+            self.runtime.block_on(async { client.call(&payload).await });
+        *self.client.borrow_mut() = Some(client);
         match result {
             Ok(_) => return Err("expected client error for oversized payload".into()),
-            Err(err) => self.last_error = Some(err),
+            Err(err) => *self.last_error.borrow_mut() = Some(err),
         }
         Ok(())
     }
@@ -129,13 +169,15 @@ impl ClientRuntimeWorld {
     ///
     /// # Errors
     /// Returns an error if the response is missing or mismatched.
-    pub async fn verify_echo(&mut self) -> TestResult {
-        let payload = self.payload.as_ref().ok_or("payload missing")?;
-        let response = self.response.as_ref().ok_or("response missing")?;
+    pub fn verify_echo(&self) -> TestResult {
+        let payload_ref = self.payload.borrow();
+        let response_ref = self.response.borrow();
+        let payload = payload_ref.as_ref().ok_or("payload missing")?;
+        let response = response_ref.as_ref().ok_or("response missing")?;
         if payload != response {
             return Err("response did not match payload".into());
         }
-        self.await_server().await?;
+        self.await_server()?;
         Ok(())
     }
 
@@ -143,23 +185,25 @@ impl ClientRuntimeWorld {
     ///
     /// # Errors
     /// Returns an error if no failure was observed.
-    pub async fn verify_error(&mut self) -> TestResult {
-        let err = self
-            .last_error
+    pub fn verify_error(&self) -> TestResult {
+        let error_ref = self.last_error.borrow();
+        let err = error_ref
             .as_ref()
             .ok_or("expected client error was not captured")?;
         if !matches!(err, ClientError::Disconnected | ClientError::Io(_)) {
             return Err("unexpected client error variant".into());
         }
-        self.await_server().await?;
+        self.await_server()?;
         Ok(())
     }
 
-    async fn await_server(&mut self) -> TestResult {
-        if let Some(handle) = self.server.take() {
-            handle
-                .await
-                .map_err(|err| format!("server task failed: {err}"))?;
+    fn await_server(&self) -> TestResult {
+        if let Some(handle) = self.server.borrow_mut().take() {
+            self.runtime.block_on(async {
+                handle
+                    .await
+                    .map_err(|err| format!("server task failed: {err}"))
+            })?;
         }
         Ok(())
     }
