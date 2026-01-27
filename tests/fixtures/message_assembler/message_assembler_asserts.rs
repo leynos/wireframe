@@ -10,7 +10,15 @@ use wireframe::{
     test_helpers::TestAssembler,
 };
 
-use super::{MessageAssemblerWorld, TestApp, TestResult};
+use super::{
+    BodyLength,
+    MessageAssemblerWorld,
+    MessageKey,
+    MetadataLength,
+    SequenceNumber,
+    TestApp,
+    TestResult,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct DebugDisplay<T>(T);
@@ -25,8 +33,8 @@ impl MessageAssemblerWorld {
     /// # Errors
     ///
     /// Returns an error if no header was parsed or the key does not match.
-    pub fn assert_message_key(&self, expected: u64) -> TestResult {
-        self.assert_field("key", &expected, |header| {
+    pub fn assert_message_key(&self, expected: MessageKey) -> TestResult {
+        self.assert_field("key", &expected.0, |header| {
             Ok(match header {
                 FrameHeader::First(header) => u64::from(header.message_key),
                 FrameHeader::Continuation(header) => u64::from(header.message_key),
@@ -39,8 +47,8 @@ impl MessageAssemblerWorld {
     /// # Errors
     ///
     /// Returns an error if no header was parsed or the metadata length differs.
-    pub fn assert_metadata_len(&self, expected: usize) -> TestResult {
-        self.assert_first_field("metadata length", &expected, |header| header.metadata_len)
+    pub fn assert_metadata_len(&self, expected: MetadataLength) -> TestResult {
+        self.assert_first_field("metadata length", &expected.0, |header| header.metadata_len)
     }
 
     /// Assert that the parsed header contains the expected body length.
@@ -48,8 +56,8 @@ impl MessageAssemblerWorld {
     /// # Errors
     ///
     /// Returns an error if no header was parsed or the body length differs.
-    pub fn assert_body_len(&self, expected: usize) -> TestResult {
-        self.assert_field("body length", &expected, |header| {
+    pub fn assert_body_len(&self, expected: BodyLength) -> TestResult {
+        self.assert_field("body length", &expected.0, |header| {
             Ok(match header {
                 FrameHeader::First(header) => header.body_len,
                 FrameHeader::Continuation(header) => header.body_len,
@@ -74,8 +82,8 @@ impl MessageAssemblerWorld {
     /// # Errors
     ///
     /// Returns an error if no header was parsed or the sequence differs.
-    pub fn assert_sequence(&self, expected: Option<u32>) -> TestResult {
-        let expected = expected.map(FrameSequence::from);
+    pub fn assert_sequence(&self, expected: Option<SequenceNumber>) -> TestResult {
+        let expected = expected.map(|sequence| FrameSequence::from(sequence.0));
         let expected = DebugDisplay(expected);
         self.assert_continuation_field("sequence", &expected, |header| {
             DebugDisplay(header.sequence)

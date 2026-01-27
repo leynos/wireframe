@@ -2,10 +2,12 @@
 //!
 //! Provides header parsing helpers for message assembler scenarios.
 
+mod types;
 use std::{fmt, io};
 
 use bytes::{BufMut, BytesMut};
 use rstest::fixture;
+pub use types::*;
 use wireframe::{
     message_assembler::{FrameHeader, MessageAssembler, ParsedFrameHeader},
     test_helpers::TestAssembler,
@@ -19,23 +21,23 @@ pub use crate::common::TestResult;
 #[derive(Debug, Clone, Copy)]
 pub struct FirstHeaderSpec {
     /// Message key to encode into the header.
-    pub key: u64,
+    pub key: MessageKey,
     /// Metadata length in bytes.
-    pub metadata_len: usize,
+    pub metadata_len: MetadataLength,
     /// Body length in bytes for this frame.
-    pub body_len: usize,
+    pub body_len: BodyLength,
     /// Optional total body length across all frames.
-    pub total_len: Option<usize>,
+    pub total_len: Option<BodyLength>,
     /// Whether the frame is the final one in the series.
     pub is_last: bool,
 }
 
 impl FirstHeaderSpec {
     /// Create a first header spec with default metadata and flags.
-    pub fn new(key: u64, body_len: usize) -> Self {
+    pub fn new(key: MessageKey, body_len: BodyLength) -> Self {
         Self {
             key,
-            metadata_len: 0,
+            metadata_len: MetadataLength(0),
             body_len,
             total_len: None,
             is_last: false,
@@ -43,13 +45,13 @@ impl FirstHeaderSpec {
     }
 
     /// Set the metadata length to encode into the header.
-    pub fn with_metadata_len(mut self, metadata_len: usize) -> Self {
+    pub fn with_metadata_len(mut self, metadata_len: MetadataLength) -> Self {
         self.metadata_len = metadata_len;
         self
     }
 
     /// Set the total message length to encode into the header.
-    pub fn with_total_len(mut self, total_len: usize) -> Self {
+    pub fn with_total_len(mut self, total_len: BodyLength) -> Self {
         self.total_len = Some(total_len);
         self
     }
@@ -65,18 +67,18 @@ impl FirstHeaderSpec {
 #[derive(Debug, Clone, Copy)]
 pub struct ContinuationHeaderSpec {
     /// Message key to encode into the header.
-    pub key: u64,
+    pub key: MessageKey,
     /// Body length in bytes for this frame.
-    pub body_len: usize,
+    pub body_len: BodyLength,
     /// Optional sequence number.
-    pub sequence: Option<u32>,
+    pub sequence: Option<SequenceNumber>,
     /// Whether the frame is the final one in the series.
     pub is_last: bool,
 }
 
 impl ContinuationHeaderSpec {
     /// Create a continuation header spec with default sequence and flags.
-    pub fn new(key: u64, body_len: usize) -> Self {
+    pub fn new(key: MessageKey, body_len: BodyLength) -> Self {
         Self {
             key,
             body_len,
@@ -86,7 +88,7 @@ impl ContinuationHeaderSpec {
     }
 
     /// Set the continuation sequence to encode into the header.
-    pub fn with_sequence(mut self, sequence: u32) -> Self {
+    pub fn with_sequence(mut self, sequence: SequenceNumber) -> Self {
         self.sequence = Some(sequence);
         self
     }
@@ -207,16 +209,17 @@ impl MessageAssemblerWorld {
             HeaderEnvelope {
                 kind: 0x01,
                 flags,
-                key: spec.key,
+                key: spec.key.0,
             },
             |bytes| {
                 let metadata_len =
-                    u16::try_from(spec.metadata_len).map_err(|_| "metadata length too large")?;
+                    u16::try_from(spec.metadata_len.0).map_err(|_| "metadata length too large")?;
                 bytes.put_u16(metadata_len);
-                let body_len = u32::try_from(spec.body_len).map_err(|_| "body length too large")?;
+                let body_len =
+                    u32::try_from(spec.body_len.0).map_err(|_| "body length too large")?;
                 bytes.put_u32(body_len);
                 if let Some(total) = spec.total_len {
-                    let total = u32::try_from(total).map_err(|_| "total length too large")?;
+                    let total = u32::try_from(total.0).map_err(|_| "total length too large")?;
                     bytes.put_u32(total);
                 }
                 Ok(())
@@ -241,13 +244,14 @@ impl MessageAssemblerWorld {
             HeaderEnvelope {
                 kind: 0x02,
                 flags,
-                key: spec.key,
+                key: spec.key.0,
             },
             |bytes| {
-                let body_len = u32::try_from(spec.body_len).map_err(|_| "body length too large")?;
+                let body_len =
+                    u32::try_from(spec.body_len.0).map_err(|_| "body length too large")?;
                 bytes.put_u32(body_len);
                 if let Some(seq) = spec.sequence {
-                    bytes.put_u32(seq);
+                    bytes.put_u32(seq.0);
                 }
                 Ok(())
             },
