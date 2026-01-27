@@ -2,8 +2,6 @@
 //!
 //! Provides state and helpers for message assembly multiplexing scenarios.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 #[path = "message_assembly_params.rs"]
 mod message_assembly_params;
 
@@ -31,6 +29,22 @@ use wireframe::message_assembler::{
 // Re-export TestResult from common for use in steps
 pub use crate::common::TestResult;
 use crate::scenarios::steps::FrameId;
+
+/// Configuration for message assembly state initialisation.
+#[derive(Debug, Clone, Copy)]
+pub struct AssemblyConfig {
+    pub max_message_size: usize,
+    pub timeout_seconds: u64,
+}
+
+impl AssemblyConfig {
+    pub fn new(max_message_size: usize, timeout_seconds: u64) -> Self {
+        Self {
+            max_message_size,
+            timeout_seconds,
+        }
+    }
+}
 
 /// Test world for message assembly multiplexing scenarios.
 #[derive(Default)]
@@ -69,23 +83,27 @@ impl fmt::Debug for MessageAssemblyWorld {
     }
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn message_assembly_world() -> MessageAssemblyWorld { MessageAssemblyWorld::default() }
+pub fn message_assembly_world() -> MessageAssemblyWorld {
+    MessageAssemblyWorld::default()
+}
 
 impl MessageAssemblyWorld {
     /// Initialise the assembly state with size limit and timeout.
     ///
     /// # Panics
     ///
-    /// Panics if `max_size` is zero because `MessageAssemblyState` requires a
-    /// positive size limit.
-    pub fn create_state(&mut self, max_size: usize, timeout_secs: u64) {
-        let Some(size) = NonZeroUsize::new(max_size) else {
-            panic!("max_size must be non-zero for MessageAssemblyState");
+    /// Panics if `max_message_size` is zero because `MessageAssemblyState`
+    /// requires a positive size limit.
+    pub fn create_state(&mut self, config: AssemblyConfig) {
+        let Some(size) = NonZeroUsize::new(config.max_message_size) else {
+            panic!("max_message_size must be non-zero for MessageAssemblyState");
         };
         self.state = Some(MessageAssemblyState::new(
             size,
-            Duration::from_secs(timeout_secs),
+            Duration::from_secs(config.timeout_seconds),
         ));
         self.current_time = Some(Instant::now());
         self.pending_first_frames.clear();

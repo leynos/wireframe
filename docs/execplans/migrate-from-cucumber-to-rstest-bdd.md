@@ -6,7 +6,11 @@
 
 **Status**: Complete
 
-**Last Updated**: 2026-01-25
+**Last Updated**: 2026-01-27
+
+> [!IMPORTANT]
+> Migration is complete. The Cucumber runner, worlds, and steps were removed
+> on 2026-01-25. Any remaining Cucumber references are historical context only.
 
 ## Executive Summary
 
@@ -158,18 +162,12 @@ disambiguating client preamble step text to avoid ambiguous step definitions).
 
    ```text
    tests/
-     bdd/              # NEW: rstest-bdd tests
-       mod.rs
-       fixtures/
-         mod.rs
-       steps/
-         mod.rs
-       scenarios/
-         mod.rs
-     cucumber.rs       # KEEP: existing runner
-     features/         # KEEP: shared .feature files
-     worlds/           # KEEP: existing Cucumber worlds
-     steps/            # KEEP: existing Cucumber steps
+     bdd/
+       mod.rs          # rstest-bdd entrypoint
+     fixtures/         # rstest fixtures and test helpers
+     steps/            # rstest-bdd step definitions
+     scenarios/        # rstest-bdd scenario functions
+     features/         # shared `.feature` files
    ```
 
 3. Update `Cargo.toml` test configuration:
@@ -181,9 +179,9 @@ disambiguating client preamble step text to avoid ambiguous step definitions).
    required-features = ["advanced-tests"]
 
    [[test]]
-   name = "cucumber"
-   path = "tests/cucumber.rs"
-   required-features = ["advanced-tests", "cucumber-tests"]
+   name = "concurrency_loom"
+   path = "tests/advanced/concurrency_loom.rs"
+   required-features = ["advanced-tests"]
    ```
 
 4. Update Makefile:
@@ -193,15 +191,12 @@ disambiguating client preamble step text to avoid ambiguous step definitions).
        RUSTFLAGS="-D warnings" $(CARGO) test --test bdd \
            --all-features $(BUILD_JOBS)
 
-   test-cucumber: ## Run Cucumber tests only
-       RUSTFLAGS="-D warnings" $(CARGO) test --test cucumber \
-           --features cucumber-tests $(BUILD_JOBS)
-
-   test: test-bdd test-cucumber ## Run all tests
+   test: ## Run all tests (bdd + unit/integration)
+       RUSTFLAGS="-D warnings" $(CARGO) test --all-targets \
+           --all-features $(BUILD_JOBS)
    ```
 
-**Validation**: `make test-cucumber` still works, `make test-bdd` runs (empty
-at first).
+**Validation**: `make test-bdd` and `make test` both succeed.
 
 **Commit**: "Set up parallel rstest-bdd infrastructure"
 
@@ -315,11 +310,8 @@ fn no_correlation(correlation_world: CorrelationWorld) {
 **Validation**:
 
 ```bash
-# Compare outputs
-cargo test --test cucumber correlation
 cargo test --test bdd correlation
-
-# Both should pass all scenarios
+cargo test --test bdd request_parts
 ```
 
 **Commits**:
@@ -444,13 +436,11 @@ pub fn fragment_world() -> FragmentWorld {
 1. **Comprehensive comparison**:
 
    ```bash
-   cargo test --test cucumber > cucumber-output.txt 2>&1
    cargo test --test bdd > bdd-output.txt 2>&1
-   # Compare scenario counts, all should pass
+   cargo test --all-targets --all-features > full-output.txt 2>&1
    ```
 
-   Result (2026-01-25): Cucumber and rstest-bdd both run 64 scenarios, all
-   passing.
+   Result (2026-01-27): rstest-bdd runs 65 scenarios and the full suite passes.
 
 2. **Enable strict validation**:
 
@@ -464,23 +454,19 @@ pub fn fragment_world() -> FragmentWorld {
 3. **Performance check**:
 
    ```bash
-   hyperfine 'cargo test --test cucumber' \
-             'cargo test --test bdd'
-   # Should be within 10-20%
+   hyperfine 'cargo test --test bdd'
    ```
 
-   Result (2026-01-25): Hyperfine shows cucumber ~923 ms mean and rstest-bdd
-   ~934 ms mean (within ~1%).
+   Result (2026-01-27): rstest-bdd completes within the historical baseline.
 
 4. **Remove Cucumber infrastructure**:
-   - Delete `tests/cucumber.rs`
-   - Delete `tests/worlds/`
-   - Delete `tests/steps/`
-   - Remove `cucumber = "0.21.1"` from `Cargo.toml`
-   - Update Makefile: `test` → `test-bdd` only
+   - ✅ Delete `tests/cucumber.rs`
+   - ✅ Delete `tests/worlds/`
+   - ✅ Delete legacy Cucumber `tests/steps/`
+   - ✅ Remove `cucumber = "0.21.1"` from `Cargo.toml`
+   - ✅ Update Makefile targets for rstest-bdd
 
-   Completed 2026-01-25: removed runner, worlds, steps, dependency, and
-   Makefile target.
+   Completed 2026-01-25.
 
 5. **Rename structure** (optional cleanup):
 
@@ -492,6 +478,13 @@ pub fn fragment_world() -> FragmentWorld {
    ```
 
    Completed 2026-01-25: fixtures, steps, and scenarios now live under `tests/`.
+
+### Historical baseline (pre-removal)
+
+- Prior to removing the Cucumber runner on 2026-01-25, both suites were run
+  side by side and passed the same scenario set.
+- The last recorded comparison showed Cucumber at ~923 ms mean and rstest-bdd
+  at ~934 ms mean.
 
 **Commits**:
 
@@ -573,12 +566,12 @@ ClientRuntime, ClientMessaging, ClientLifecycle, ClientPreamble - 12 files total
 
 MessageAssembler, MessageAssembly, CodecError, Fragment - 12 files total
 
-### Phase 5 (Cleanup)
+### Phase 5 (Cleanup) — completed 2026-01-25
 
-1. `Cargo.toml` - Remove cucumber dependency
-2. `tests/cucumber.rs` - DELETE
-3. `tests/worlds/` - DELETE (directory)
-4. `tests/steps/` - DELETE (old Cucumber steps)
+- ✅ `Cargo.toml`: remove Cucumber dependency
+- ✅ `tests/cucumber.rs`: delete runner
+- ✅ `tests/worlds/`: delete directory
+- ✅ `tests/steps/`: delete legacy Cucumber steps
 
 ## Verification
 
@@ -587,9 +580,8 @@ MessageAssembler, MessageAssembly, CodecError, Fragment - 12 files total
 After each phase:
 
 - [ ] All migrated scenarios pass: `cargo test --test bdd`
-- [ ] Cucumber still works: `cargo test --test cucumber`
 - [ ] No compile warnings
-- [ ] Output matches Cucumber behavior
+- [ ] Output matches expected behaviour
 - [ ] Commit gateways pass (lint, format)
 
 ### Final Validation (Phase 5)
@@ -598,7 +590,7 @@ After each phase:
 - [ ] Strict compile-time validation enabled
 - [ ] No undefined steps
 - [ ] No unused step definitions
-- [ ] Performance within 10-20% of Cucumber
+- [ ] Performance within the historical baseline
 - [ ] Cucumber infrastructure removed
 - [ ] CI pipeline updated
 - [ ] Documentation updated

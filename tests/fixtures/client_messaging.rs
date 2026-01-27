@@ -2,8 +2,6 @@
 //!
 //! Provides server/client coordination for correlation-aware message APIs.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use std::net::SocketAddr;
 
 use bytes::Bytes;
@@ -41,8 +39,12 @@ pub struct ClientMessagingWorld {
     expected_payload: Option<String>,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn client_messaging_world() -> ClientMessagingWorld { ClientMessagingWorld::default() }
+pub fn client_messaging_world() -> ClientMessagingWorld {
+    ClientMessagingWorld::default()
+}
 
 impl ClientMessagingWorld {
     /// Start an envelope echo server.

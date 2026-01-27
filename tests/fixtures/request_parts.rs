@@ -3,8 +3,6 @@
 //! Converted from Cucumber World to rstest fixture. The struct and its methods
 //! remain unchanged; only the trait derivation and fixture function are added.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use std::str::FromStr;
 
 use rstest::fixture;
@@ -43,14 +41,18 @@ impl FromStr for MetadataByte {
     fn from_str(value: &str) -> Result<Self, Self::Err> { value.parse().map(MetadataByte) }
 }
 
-#[derive(Debug, Default)]
 /// Test world exercising `RequestParts` metadata handling.
+#[derive(Debug, Default)]
 pub struct RequestPartsWorld {
     parts: Option<RequestParts>,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn request_parts_world() -> RequestPartsWorld { RequestPartsWorld::default() }
+pub fn request_parts_world() -> RequestPartsWorld {
+    RequestPartsWorld::default()
+}
 
 impl RequestPartsWorld {
     /// Create request parts with all fields specified.

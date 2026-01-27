@@ -3,8 +3,6 @@
 //! Provides test fixtures to ensure the server remains resilient when
 //! connection setup handlers panic before a client fully connects.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use std::net::SocketAddr;
 
 use rstest::fixture;
@@ -85,8 +83,12 @@ pub struct PanicWorld {
     attempts: usize,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn panic_world() -> PanicWorld { PanicWorld::default() }
+pub fn panic_world() -> PanicWorld {
+    PanicWorld::default()
+}
 
 impl PanicWorld {
     /// Start a server that panics during connection setup.

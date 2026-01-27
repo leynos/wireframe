@@ -2,7 +2,6 @@
 //!
 //! Provides server/client coordination for lifecycle hook scenarios.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
 #![expect(
     clippy::expect_used,
     reason = "test code uses expect for concise assertions"
@@ -85,8 +84,12 @@ impl Drop for ClientLifecycleWorld {
     }
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn client_lifecycle_world() -> ClientLifecycleWorld { ClientLifecycleWorld::default() }
+pub fn client_lifecycle_world() -> ClientLifecycleWorld {
+    ClientLifecycleWorld::default()
+}
 
 impl ClientLifecycleWorld {
     async fn spawn_server<F, Fut>(&mut self, behaviour: F) -> TestResult

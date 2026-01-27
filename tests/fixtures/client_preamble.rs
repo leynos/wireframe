@@ -2,7 +2,6 @@
 //!
 //! Provides server/client coordination for preamble exchange scenarios.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
 #![expect(
     clippy::expect_used,
     reason = "test code uses expect for concise assertions"
@@ -90,8 +89,12 @@ pub struct ClientPreambleWorld {
     last_error: Option<ClientError>,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn client_preamble_world() -> ClientPreambleWorld { ClientPreambleWorld::default() }
+pub fn client_preamble_world() -> ClientPreambleWorld {
+    ClientPreambleWorld::default()
+}
 
 impl ClientPreambleWorld {
     /// Start a preamble-aware echo server.

@@ -3,8 +3,6 @@
 //! Provides test fixtures to verify message ordering, back-pressure handling,
 //! and channel lifecycle.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use std::{error::Error, fmt};
 
 use rstest::fixture;
@@ -32,8 +30,12 @@ pub struct MultiPacketWorld {
     is_overflow_error: bool,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn multi_packet_world() -> MultiPacketWorld { MultiPacketWorld::default() }
+pub fn multi_packet_world() -> MultiPacketWorld {
+    MultiPacketWorld::default()
+}
 
 impl MultiPacketWorld {
     async fn collect_frames_from(rx: mpsc::Receiver<u8>) -> TestResult<Vec<u8>> {

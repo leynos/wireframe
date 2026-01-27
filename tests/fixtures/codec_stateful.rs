@@ -3,8 +3,6 @@
 //! Ensures per-connection codec state is isolated so sequence numbers reset
 //! between client connections.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use std::{
     net::SocketAddr,
     sync::atomic::{AtomicU64, Ordering},
@@ -179,8 +177,12 @@ pub struct CodecStatefulWorld {
     second_sequences: Vec<u64>,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn codec_stateful_world() -> CodecStatefulWorld { CodecStatefulWorld::default() }
+pub fn codec_stateful_world() -> CodecStatefulWorld {
+    CodecStatefulWorld::default()
+}
 
 impl CodecStatefulWorld {
     /// Start a server using the sequence-aware codec.

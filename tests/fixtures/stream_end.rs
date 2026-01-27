@@ -3,8 +3,6 @@
 //! Provides test fixtures to verify terminator frames and multi-packet
 //! termination logging for streaming responses.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use std::{mem, sync::Arc};
 
 use async_stream::try_stream;
@@ -233,5 +231,9 @@ impl StreamEndWorld {
     }
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn stream_end_world() -> StreamEndWorld { StreamEndWorld::default() }
+pub fn stream_end_world() -> StreamEndWorld {
+    StreamEndWorld::default()
+}

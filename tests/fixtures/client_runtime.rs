@@ -3,8 +3,6 @@
 //! Provides an echo server/client pair to validate client runtime framing
 //! behaviour.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use std::net::SocketAddr;
 
 use futures::{SinkExt, StreamExt};
@@ -37,8 +35,12 @@ struct ClientPayload {
     data: Vec<u8>,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn client_runtime_world() -> ClientRuntimeWorld { ClientRuntimeWorld::default() }
+pub fn client_runtime_world() -> ClientRuntimeWorld {
+    ClientRuntimeWorld::default()
+}
 
 impl ClientRuntimeWorld {
     /// Start an echo server with the specified maximum frame length.

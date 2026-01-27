@@ -2,8 +2,6 @@
 //!
 //! Verifies codec error taxonomy and recovery policy defaults.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 mod decoder_ops;
 
 use bytes::BytesMut;
@@ -66,8 +64,12 @@ pub struct CodecErrorWorld {
     pub(crate) clean_close_detected: bool,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn codec_error_world() -> CodecErrorWorld { CodecErrorWorld::default() }
+pub fn codec_error_world() -> CodecErrorWorld {
+    CodecErrorWorld::default()
+}
 
 impl CodecErrorWorld {
     /// Set the current error type being tested.

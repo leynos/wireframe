@@ -1,9 +1,10 @@
-#![cfg(not(loom))]
 //! rstest-bdd behavioural tests.
 //!
 //! This module contains the rstest-bdd-based BDD tests that replaced the
 //! former Cucumber test suite. These tests use the same `.feature` files but
 //! execute under the standard `cargo test` harness with rstest fixtures.
+
+#![cfg(not(loom))]
 
 // Re-export common utilities from the parent tests directory
 #[path = "../common/mod.rs"]

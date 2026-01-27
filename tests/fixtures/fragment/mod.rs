@@ -2,8 +2,6 @@
 //!
 //! Tracks fragmentation and reassembly state for fragment scenarios.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 mod reassembly;
 
 use std::{num::NonZeroUsize, time::Instant};
@@ -57,8 +55,12 @@ impl Default for FragmentWorld {
     }
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn fragment_world() -> FragmentWorld { FragmentWorld::default() }
+pub fn fragment_world() -> FragmentWorld {
+    FragmentWorld::default()
+}
 
 impl FragmentWorld {
     /// Start tracking a new logical message.

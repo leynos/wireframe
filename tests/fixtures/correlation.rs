@@ -4,8 +4,6 @@
 //! remain largely unchanged; only the trait derivation and fixture function are
 //! added.
 
-#![expect(unused_braces, reason = "rustfmt forces single-line fixture functions")]
-
 use async_stream::try_stream;
 use rstest::fixture;
 use tokio::sync::mpsc;
@@ -29,8 +27,12 @@ pub struct CorrelationWorld {
     frames: Vec<Envelope>,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
 #[fixture]
-pub fn correlation_world() -> CorrelationWorld { CorrelationWorld::default() }
+pub fn correlation_world() -> CorrelationWorld {
+    CorrelationWorld::default()
+}
 
 impl CorrelationWorld {
     /// Record the correlation identifier expected on emitted frames.

@@ -6,6 +6,7 @@ use rstest_bdd_macros::{given, then, when};
 use wireframe::message_assembler::{FrameSequence, MessageKey};
 
 use crate::fixtures::message_assembly::{
+    AssemblyConfig,
     ContinuationFrameParams,
     FirstFrameParams,
     MessageAssemblyWorld,
@@ -60,28 +61,6 @@ impl FromStr for TimeoutParam {
     fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u64>().map(TimeoutParam) }
 }
 
-/// Convert primitive key to domain type at the boundary.
-fn to_key(key: u64) -> MessageKey { MessageKey(key) }
-
-/// Convert primitive sequence to domain type at the boundary.
-fn to_seq(seq: u32) -> FrameSequence { FrameSequence(seq) }
-
-/// Configuration for message assembly state initialisation.
-#[derive(Debug, Clone)]
-pub struct AssemblyConfig {
-    pub max_message_size: usize,
-    pub timeout_seconds: u64,
-}
-
-impl AssemblyConfig {
-    pub fn new(max_message_size: usize, timeout_seconds: u64) -> Self {
-        Self {
-            max_message_size,
-            timeout_seconds,
-        }
-    }
-}
-
 /// Frame identification combining key and optional sequence.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameId {
@@ -92,14 +71,14 @@ pub struct FrameId {
 impl FrameId {
     pub fn new(key: u64, sequence: u32) -> Self {
         Self {
-            key: to_key(key),
-            sequence: to_seq(sequence),
+            key: MessageKey(key),
+            sequence: FrameSequence(sequence),
         }
     }
 
     pub fn with_key(key: u64) -> Self {
         Self {
-            key: to_key(key),
+            key: MessageKey(key),
             sequence: FrameSequence(0),
         }
     }
@@ -158,7 +137,7 @@ fn given_state(
     timeout: TimeoutParam,
 ) {
     let config = AssemblyConfig::new(max_size.0, timeout.0);
-    message_assembly_world.create_state(config.max_message_size, config.timeout_seconds);
+    message_assembly_world.create_state(config);
 }
 
 #[given(

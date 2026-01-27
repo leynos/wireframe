@@ -1,8 +1,7 @@
 //! Step definitions for `correlation_id` behavioural tests.
 //!
-//! Steps are synchronous but call async World methods via
-//! `Handle::current().block_on()` (`current_thread` runtime doesn't support
-//! `block_in_place`).
+//! Steps are synchronous but call async world methods via
+//! `Runtime::new().block_on(...)`.
 
 use rstest_bdd_macros::{given, then, when};
 
