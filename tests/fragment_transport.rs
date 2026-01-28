@@ -1,7 +1,7 @@
 #![cfg(not(loom))]
 //! Integration tests for transport-level fragmentation and reassembly.
 //!
-//! Tests are organised into submodules by concern:
+//! Tests are organized into submodules by concern:
 //! - Round-trip tests (this file)
 //! - Rejection tests (`fragment_transport/rejection.rs`)
 //! - Eviction tests (`fragment_transport/eviction.rs`)

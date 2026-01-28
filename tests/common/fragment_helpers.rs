@@ -233,10 +233,12 @@ pub async fn assert_handler_observed(
     let observed = timeout(TokioDuration::from_secs(1), rx.recv())
         .await?
         .ok_or(TestError::Setup("handler payload missing"))?;
-    assert_eq!(
-        observed, expected,
-        "observed payload mismatch: expected {expected:?}, got {observed:?}"
-    );
+    if observed != expected {
+        return Err(TestError::Assertion(format!(
+            "observed payload mismatch: expected {expected:?}, got {observed:?}"
+        ))
+        .into());
+    }
     Ok(())
 }
 
