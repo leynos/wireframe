@@ -1,8 +1,7 @@
-//! Test world for stateful codec sequence counters.
+//! `CodecStatefulWorld` fixture for rstest-bdd tests.
 //!
 //! Ensures per-connection codec state is isolated so sequence numbers reset
 //! between client connections.
-#![cfg(not(loom))]
 
 use std::{
     net::SocketAddr,
@@ -10,8 +9,8 @@ use std::{
 };
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use cucumber::World;
 use futures::{SinkExt, StreamExt};
+use rstest::fixture;
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
@@ -25,7 +24,8 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
-use super::TestResult;
+/// Re-export `TestResult` from common for use in steps.
+pub use crate::common::TestResult;
 
 #[derive(Debug)]
 struct SeqFrame {
@@ -168,13 +168,23 @@ async fn serve_stateful_connections(
     }
 }
 
-#[derive(Debug, Default, World)]
+#[derive(Debug, Default)]
 /// Test world for stateful codec scenarios.
 pub struct CodecStatefulWorld {
     server: Option<StatefulServer>,
     max_frame_length: usize,
     first_sequences: Vec<u64>,
     second_sequences: Vec<u64>,
+}
+
+/// Fixture for stateful codec scenarios used by rstest-bdd steps.
+///
+/// Note: rustfmt collapses simple fixtures into one line, which triggers
+/// `unused_braces`, so keep `rustfmt::skip`.
+#[rustfmt::skip]
+#[fixture]
+pub fn codec_stateful_world() -> CodecStatefulWorld {
+    CodecStatefulWorld::default()
 }
 
 impl CodecStatefulWorld {

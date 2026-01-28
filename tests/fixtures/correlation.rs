@@ -1,11 +1,11 @@
-//! Test world for correlation identifier scenarios.
+//! `CorrelationWorld` fixture for rstest-bdd tests.
 //!
-//! Provides [`CorrelationWorld`] to verify that frames carry the correct
-//! correlation identifiers across streaming and multi-packet contexts.
-#![cfg(not(loom))]
+//! Converted from Cucumber World to rstest fixture. The struct and its methods
+//! remain largely unchanged; only the trait derivation and fixture function are
+//! added.
 
 use async_stream::try_stream;
-use cucumber::World;
+use rstest::fixture;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
@@ -15,33 +15,30 @@ use wireframe::{
     response::FrameStream,
 };
 
-use super::{TestResult, build_small_queues};
+// Import build_small_queues from parent module
+use crate::build_small_queues;
+/// Re-export `TestResult` from common for use in steps.
+pub use crate::common::TestResult;
 
-#[derive(Debug, Default, World)]
+#[derive(Debug, Default)]
 /// Test world capturing correlation expectations for frame emission.
 pub struct CorrelationWorld {
     expected: Option<u64>,
     frames: Vec<Envelope>,
 }
 
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
+#[fixture]
+pub fn correlation_world() -> CorrelationWorld {
+    CorrelationWorld::default()
+}
+
 impl CorrelationWorld {
     /// Record the correlation identifier expected on emitted frames.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let mut world = CorrelationWorld::default();
-    /// world.set_expected(Some(99));
-    /// ```
     pub fn set_expected(&mut self, expected: Option<u64>) { self.expected = expected; }
 
     /// Return the correlation identifier configured for this scenario.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let mut world = CorrelationWorld::default();
-    /// world.set_expected(None);
-    /// assert_eq!(world.expected(), None);
-    /// ```
     #[must_use]
     pub fn expected(&self) -> Option<u64> { self.expected }
 
@@ -91,7 +88,8 @@ impl CorrelationWorld {
         Ok(())
     }
 
-    /// Verify that all received frames respect the configured correlation expectation.
+    /// Verify that all received frames respect the configured correlation
+    /// expectation.
     ///
     /// # Errors
     /// Returns an error if any frame violates the stored correlation

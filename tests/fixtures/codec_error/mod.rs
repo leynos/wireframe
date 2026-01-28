@@ -1,17 +1,15 @@
-//! Test world for codec error taxonomy scenarios.
+//! `CodecErrorWorld` fixture for rstest-bdd tests.
 //!
-//! Verifies that codec errors are correctly classified and that recovery
-//! policies are applied as documented. Uses real decoder operations for
-//! end-to-end validation.
-#![cfg(not(loom))]
+//! Verifies codec error taxonomy and recovery policy defaults.
 
 mod decoder_ops;
 
 use bytes::BytesMut;
-use cucumber::World;
+use rstest::fixture;
 use wireframe::codec::{CodecError, EofError, FramingError, ProtocolError, RecoveryPolicy};
 
-use super::TestResult;
+/// `TestResult` for step definitions.
+pub use crate::common::TestResult;
 
 /// Codec error type for test scenarios.
 #[derive(Clone, Copy, Debug, Default)]
@@ -44,7 +42,7 @@ pub enum EofVariant {
 }
 
 /// Test world for codec error taxonomy scenarios.
-#[derive(Debug, Default, World)]
+#[derive(Debug, Default)]
 pub struct CodecErrorWorld {
     /// Current error type category being tested.
     error_type: ErrorType,
@@ -64,6 +62,13 @@ pub struct CodecErrorWorld {
     pub(crate) decoder_error: Option<std::io::Error>,
     /// Whether `decode_eof` returned `Ok(None)` for clean close.
     pub(crate) clean_close_detected: bool,
+}
+
+/// Fixture for `CodecErrorWorld`.
+#[rustfmt::skip]
+#[fixture]
+pub fn codec_error_world() -> CodecErrorWorld {
+    CodecErrorWorld::default()
 }
 
 impl CodecErrorWorld {
@@ -89,7 +94,7 @@ impl CodecErrorWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if `variant` is not a recognized framing variant.
+    /// Returns an error if `variant` is not a recognised framing variant.
     pub fn set_framing_variant(&mut self, variant: &str) -> TestResult {
         self.framing_variant = match variant {
             "oversized" => FramingVariant::Oversized,
@@ -107,7 +112,7 @@ impl CodecErrorWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if `variant` is not a recognized EOF variant.
+    /// Returns an error if `variant` is not a recognised EOF variant.
     pub fn set_eof_variant(&mut self, variant: &str) -> TestResult {
         self.eof_variant = match variant {
             "clean_close" => EofVariant::CleanClose,
@@ -167,7 +172,7 @@ impl CodecErrorWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if `expected` is not a recognized policy or if the
+    /// Returns an error if `expected` is not a recognised policy or if the
     /// actual policy does not match the expected policy.
     pub fn verify_recovery_policy(&self, expected: &str) -> TestResult {
         let expected_policy = match expected {

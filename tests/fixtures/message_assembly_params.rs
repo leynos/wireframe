@@ -1,5 +1,4 @@
 //! Parameter objects for message assembly test steps.
-#![cfg(not(loom))]
 
 use wireframe::message_assembler::{FrameSequence, MessageKey};
 

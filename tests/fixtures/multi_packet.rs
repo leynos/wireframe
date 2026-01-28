@@ -1,17 +1,18 @@
-//! Test world for multi-packet channel scenarios.
+//! `MultiPacketWorld` fixture for rstest-bdd tests.
 //!
-//! Provides [`MultiPacketWorld`] to verify message ordering, back-pressure
-//! handling, and channel lifecycle in cucumber-based behaviour tests.
-#![cfg(not(loom))]
+//! Provides test fixtures to verify message ordering, back-pressure handling,
+//! and channel lifecycle.
 
 use std::{error::Error, fmt};
 
-use cucumber::World;
+use rstest::fixture;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
 use wireframe::{Response, connection::ConnectionActor};
 
-use super::{TestResult, build_small_queues};
+use crate::build_small_queues;
+/// Re-export `TestResult` from common for use in steps.
+pub use crate::common::TestResult;
 
 #[derive(Debug)]
 struct WireframeRunError(wireframe::WireframeError);
@@ -22,11 +23,18 @@ impl fmt::Display for WireframeRunError {
 
 impl Error for WireframeRunError {}
 
-#[derive(Debug, Default, World)]
+#[derive(Debug, Default)]
 /// Test world exercising multi-packet channel behaviours and back-pressure.
 pub struct MultiPacketWorld {
     messages: Vec<u8>,
     is_overflow_error: bool,
+}
+
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
+#[fixture]
+pub fn multi_packet_world() -> MultiPacketWorld {
+    MultiPacketWorld::default()
 }
 
 impl MultiPacketWorld {

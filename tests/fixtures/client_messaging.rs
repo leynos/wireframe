@@ -1,12 +1,13 @@
-//! Test world for client messaging scenarios with correlation ID support.
-#![cfg(not(loom))]
+//! `ClientMessagingWorld` fixture for rstest-bdd tests.
+//!
+//! Provides server/client coordination for correlation-aware message APIs.
 
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use cucumber::World;
 use futures::{SinkExt, StreamExt};
 use log::warn;
+use rstest::fixture;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
@@ -18,10 +19,11 @@ use wireframe::{
 };
 use wireframe_testing::{ServerMode, process_frame};
 
-use super::TestResult;
+/// `TestResult` for step definitions.
+pub use crate::common::TestResult;
 
 /// Test world for client messaging scenarios.
-#[derive(Debug, Default, World)]
+#[derive(Debug, Default)]
 pub struct ClientMessagingWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
@@ -35,6 +37,13 @@ pub struct ClientMessagingWorld {
     expected_message_id: Option<u32>,
     /// Expected payload for response verification.
     expected_payload: Option<String>,
+}
+
+/// Fixture for `ClientMessagingWorld`.
+#[rustfmt::skip]
+#[fixture]
+pub fn client_messaging_world() -> ClientMessagingWorld {
+    ClientMessagingWorld::default()
 }
 
 impl ClientMessagingWorld {

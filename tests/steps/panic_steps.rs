@@ -1,27 +1,28 @@
-//! Cucumber step implementations for panic resilience testing.
+//! Step definitions for panic resilience behavioural tests.
 //!
-//! Defines Given-When-Then steps that verify server stability
-//! when connection tasks panic during setup.
+//! Steps are synchronous but call async World methods via
+//! `Runtime::new().block_on()` (`current_thread` runtime doesn't support
+//! `block_in_place`).
 
-use cucumber::{given, then, when};
+use rstest_bdd_macros::{given, then, when};
 
-use crate::world::{PanicWorld, TestResult};
+use crate::fixtures::panic::{PanicWorld, TestResult};
 
 #[given("a running wireframe server with a panic in connection setup")]
-async fn start_server(world: &mut PanicWorld) -> TestResult {
-    world.start_panic_server().await?;
-    Ok(())
+fn start_server(panic_world: &mut PanicWorld) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(panic_world.start_panic_server())
 }
 
 #[when("I connect to the server")]
 #[when("I connect to the server again")]
-async fn connect(world: &mut PanicWorld) -> TestResult {
-    world.connect_once().await?;
-    Ok(())
+fn connect(panic_world: &mut PanicWorld) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(panic_world.connect_once())
 }
 
 #[then("both connections succeed")]
-async fn verify(world: &mut PanicWorld) -> TestResult {
-    world.verify_and_shutdown().await?;
-    Ok(())
+fn verify(panic_world: &mut PanicWorld) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(panic_world.verify_and_shutdown())
 }

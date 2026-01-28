@@ -64,7 +64,7 @@ Feature: Fragment metadata enforcement
   Scenario: Reassembler evicts stale partial messages
     Given a reassembler allowing 8 bytes with a 1-second reassembly timeout
     When fragment 0 for message 23 with 5 bytes arrives marked non-final
-    And time advances by 2 seconds
+    And time advances by 2 seconds for reassembly
     And expired reassembly buffers are purged
     Then the reassembler is buffering 0 messages
     And message 23 is evicted

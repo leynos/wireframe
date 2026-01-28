@@ -8,15 +8,18 @@ RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= markdownlint-cli2
 NIXIE ?= nixie
 
-build: target/debug/lib$(CRATE) ## Build debug binary
-release: target/release/lib$(CRATE) ## Build release binary
+build: target/debug/lib$(CRATE).rlib ## Build debug binary
+release: target/release/lib$(CRATE).rlib ## Build release binary
 
 all: release ## Default target builds release binary
 
 clean: ## Remove build artifacts
 	$(CARGO) clean
 
-test: ## Run tests with warnings treated as errors
+test-bdd: ## Run rstest-bdd tests only
+	RUSTFLAGS="-D warnings" $(CARGO) test --test bdd --all-features $(BUILD_JOBS)
+
+test: ## Run all tests (bdd + unit/integration)
 	RUSTFLAGS="-D warnings" $(CARGO) test --all-targets --all-features $(BUILD_JOBS)
 
 # will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib

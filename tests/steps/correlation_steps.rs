@@ -1,34 +1,50 @@
-//! Steps for `correlation_id` behavioural tests.
-use cucumber::{given, then, when};
+//! Step definitions for `correlation_id` behavioural tests.
+//!
+//! Steps are synchronous but call async world methods via
+//! `Runtime::new().block_on(...)`.
 
-use crate::world::{CorrelationWorld, TestResult};
+use rstest_bdd_macros::{given, then, when};
 
-#[given(expr = "a correlation id {int}")]
-fn given_cid(world: &mut CorrelationWorld, id: u64) { world.set_expected(Some(id)); }
+use crate::fixtures::correlation::{CorrelationWorld, TestResult};
 
-#[given("no correlation id")]
-fn given_no_correlation(world: &mut CorrelationWorld) { world.set_expected(None); }
-
-#[when("a stream of frames is processed")]
-async fn when_process(world: &mut CorrelationWorld) -> TestResult { world.process().await }
-
-#[when("a multi-packet channel emits frames")]
-async fn when_process_multi(world: &mut CorrelationWorld) -> TestResult {
-    world.process_multi().await
+#[given("a correlation id {id:u64}")]
+fn given_cid(correlation_world: &mut CorrelationWorld, id: u64) {
+    correlation_world.set_expected(Some(id));
 }
 
-#[then(expr = "each emitted frame uses correlation id {int}")]
-fn then_verify(world: &mut CorrelationWorld, id: u64) -> TestResult {
-    if world.expected() != Some(id) {
+#[given("no correlation id")]
+fn given_no_correlation(correlation_world: &mut CorrelationWorld) {
+    correlation_world.set_expected(None);
+}
+
+#[when("a stream of frames is processed")]
+fn when_process(correlation_world: &mut CorrelationWorld) -> TestResult {
+    // Create a new runtime for this step since we can't block_on within an
+    // existing runtime
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(correlation_world.process())
+}
+
+#[when("a multi-packet channel emits frames")]
+fn when_process_multi(correlation_world: &mut CorrelationWorld) -> TestResult {
+    // Create a new runtime for this step since we can't block_on within an
+    // existing runtime
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(correlation_world.process_multi())
+}
+
+#[then("each emitted frame uses correlation id {id:u64}")]
+fn then_verify(correlation_world: &mut CorrelationWorld, id: u64) -> TestResult {
+    if correlation_world.expected() != Some(id) {
         return Err("mismatched expected correlation id".into());
     }
-    world.verify()
+    correlation_world.verify()
 }
 
 #[then("each emitted frame has no correlation id")]
-fn then_verify_absent(world: &mut CorrelationWorld) -> TestResult {
-    if world.expected().is_some() {
+fn then_verify_absent(correlation_world: &mut CorrelationWorld) -> TestResult {
+    if correlation_world.expected().is_some() {
         return Err("expected correlation id should be cleared".into());
     }
-    world.verify()
+    correlation_world.verify()
 }

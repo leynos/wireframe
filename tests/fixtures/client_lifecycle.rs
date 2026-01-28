@@ -1,5 +1,7 @@
-//! Test world for client lifecycle hook scenarios.
-#![cfg(not(loom))]
+//! `ClientLifecycleWorld` fixture for rstest-bdd tests.
+//!
+//! Provides server/client coordination for lifecycle hook scenarios.
+
 #![expect(
     clippy::expect_used,
     reason = "test code uses expect for concise assertions"
@@ -19,6 +21,7 @@ use std::{
 };
 
 use futures::FutureExt;
+use rstest::fixture;
 use tokio::{net::TcpListener, task::JoinHandle};
 use wireframe::{
     BincodeSerializer,
@@ -27,7 +30,8 @@ use wireframe::{
     rewind_stream::RewindStream,
 };
 
-use super::TestResult;
+/// Re-export `TestResult` from common for use in steps.
+pub use crate::common::TestResult;
 
 /// Preamble used for testing lifecycle with preamble.
 #[derive(Debug, Clone, PartialEq, Eq, Default, bincode::Encode, bincode::BorrowDecode)]
@@ -59,7 +63,7 @@ pub const EXPECTED_SETUP_STATE: u32 = 42;
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, u32>;
 
 /// Test world exercising client lifecycle hooks.
-#[derive(Debug, Default, cucumber::World)]
+#[derive(Debug, Default)]
 pub struct ClientLifecycleWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
@@ -74,19 +78,21 @@ pub struct ClientLifecycleWorld {
 
 impl Drop for ClientLifecycleWorld {
     fn drop(&mut self) {
-        // Ensure server tasks are cleaned up even if test assertions fail.
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
     }
 }
 
+/// Fixture for `ClientLifecycleWorld`.
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
+#[fixture]
+pub fn client_lifecycle_world() -> ClientLifecycleWorld {
+    ClientLifecycleWorld::default()
+}
+
 impl ClientLifecycleWorld {
-    /// Spawn a server that executes the provided behaviour closure after accepting a connection.
-    ///
-    /// This helper binds a `TcpListener`, stores the address in `self.addr`, spawns a task
-    /// that accepts a connection and runs the closure, and stores the task handle in
-    /// `self.server`.
     async fn spawn_server<F, Fut>(&mut self, behaviour: F) -> TestResult
     where
         F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
@@ -104,10 +110,6 @@ impl ClientLifecycleWorld {
         Ok(())
     }
 
-    /// Handle the result of a client connection attempt.
-    ///
-    /// Stores the client in `self.client` on success, or the error in `self.last_error`
-    /// on failure.
     fn handle_connection_result(&mut self, result: Result<TestClient, ClientError>) {
         match result {
             Ok(client) => {
@@ -119,10 +121,6 @@ impl ClientLifecycleWorld {
         }
     }
 
-    /// Connect using a builder configuration closure.
-    ///
-    /// This helper retrieves the server address, applies the provided configuration
-    /// to a new builder, connects, and handles the result.
     async fn connect_with_builder<F, P>(&mut self, configure: F) -> TestResult
     where
         F: FnOnce(
@@ -145,7 +143,6 @@ impl ClientLifecycleWorld {
     /// The spawned task panics if accept fails.
     pub async fn start_standard_server(&mut self) -> TestResult {
         self.spawn_server(|_stream| async {
-            // Hold connection briefly
             tokio::time::sleep(Duration::from_millis(100)).await;
         })
         .await
@@ -160,7 +157,6 @@ impl ClientLifecycleWorld {
     /// The spawned task panics if accept fails.
     pub async fn start_disconnecting_server(&mut self) -> TestResult {
         self.spawn_server(|stream| async {
-            // Disconnect immediately
             drop(stream);
         })
         .await
@@ -306,7 +302,6 @@ impl ClientLifecycleWorld {
     /// Returns `Ok` but stores any receive error in `last_error`.
     pub async fn attempt_receive(&mut self) -> TestResult {
         if let Some(ref mut client) = self.client {
-            // Wait a bit for server to disconnect
             tokio::time::sleep(Duration::from_millis(50)).await;
             let result: Result<Vec<u8>, ClientError> = client.receive().await;
             if let Err(e) = result {

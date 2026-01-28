@@ -1,14 +1,13 @@
-//! Test world for verifying stream terminators and multi-packet lifecycle logs.
+//! `StreamEndWorld` fixture for rstest-bdd tests.
 //!
-//! Provides [`StreamEndWorld`] so cucumber scenarios can observe terminator
-//! frames, closure reasons, and shutdown handling for streaming responses.
-#![cfg(not(loom))]
+//! Provides test fixtures to verify terminator frames and multi-packet
+//! termination logging for streaming responses.
 
 use std::{mem, sync::Arc};
 
 use async_stream::try_stream;
-use cucumber::World;
 use log::Level;
+use rstest::fixture;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
@@ -18,10 +17,12 @@ use wireframe::{
 };
 use wireframe_testing::{LoggerHandle, logger};
 
-use super::{Terminator, TestResult, build_small_queues};
+/// Re-export `TestResult` from common for use in steps.
+pub use crate::common::TestResult;
+use crate::{build_small_queues, terminator::Terminator};
 
-#[derive(Debug, Default, World)]
 /// Test world capturing frames and logs for stream termination scenarios.
+#[derive(Debug, Default)]
 pub struct StreamEndWorld {
     frames: Vec<u8>,
     logs: Vec<(Level, String)>,
@@ -228,4 +229,11 @@ impl StreamEndWorld {
         }
         Ok(())
     }
+}
+
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
+#[fixture]
+pub fn stream_end_world() -> StreamEndWorld {
+    StreamEndWorld::default()
 }

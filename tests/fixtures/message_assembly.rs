@@ -1,5 +1,6 @@
-//! Test world for message assembly multiplexing and continuity validation.
-#![cfg(not(loom))]
+//! `MessageAssemblyWorld` fixture for rstest-bdd tests.
+//!
+//! Provides state and helpers for message assembly multiplexing scenarios.
 
 #[path = "message_assembly_params.rs"]
 mod message_assembly_params;
@@ -11,8 +12,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cucumber::World;
 pub use message_assembly_params::{ContinuationFrameParams, FirstFrameParams};
+use rstest::fixture;
 use wireframe::message_assembler::{
     AssembledMessage,
     ContinuationFrameHeader,
@@ -25,11 +26,28 @@ use wireframe::message_assembler::{
     MessageSeriesError,
 };
 
-use super::TestResult;
+/// Re-export `TestResult` from common for use in steps.
+pub use crate::common::TestResult;
+use crate::scenarios::steps::FrameId;
 
-/// Cucumber world for message assembly tests.
-#[derive(Default, World)]
-#[world(init = Self::new)]
+/// Configuration for message assembly state initialisation.
+#[derive(Debug, Clone, Copy)]
+pub struct AssemblyConfig {
+    pub max_message_size: usize,
+    pub timeout_seconds: u64,
+}
+
+impl AssemblyConfig {
+    pub fn new(max_message_size: usize, timeout_seconds: u64) -> Self {
+        Self {
+            max_message_size,
+            timeout_seconds,
+        }
+    }
+}
+
+/// Test world for message assembly multiplexing scenarios.
+#[derive(Default)]
 pub struct MessageAssemblyWorld {
     state: Option<MessageAssemblyState>,
     current_time: Option<Instant>,
@@ -65,31 +83,27 @@ impl fmt::Debug for MessageAssemblyWorld {
     }
 }
 
-impl MessageAssemblyWorld {
-    fn new() -> Self {
-        Self {
-            state: None,
-            current_time: None,
-            pending_first_frames: VecDeque::new(),
-            last_result: None,
-            completed_messages: Vec::new(),
-            evicted_keys: Vec::new(),
-        }
-    }
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
+#[fixture]
+pub fn message_assembly_world() -> MessageAssemblyWorld {
+    MessageAssemblyWorld::default()
+}
 
+impl MessageAssemblyWorld {
     /// Initialise the assembly state with size limit and timeout.
     ///
     /// # Panics
     ///
-    /// Panics if `max_size` is zero because `MessageAssemblyState` requires a
-    /// positive size limit.
-    pub fn create_state(&mut self, max_size: usize, timeout_secs: u64) {
-        let Some(size) = NonZeroUsize::new(max_size) else {
-            panic!("max_size must be non-zero for MessageAssemblyState");
+    /// Panics if `max_message_size` is zero because `MessageAssemblyState`
+    /// requires a positive size limit.
+    pub fn create_state(&mut self, config: AssemblyConfig) {
+        let Some(size) = NonZeroUsize::new(config.max_message_size) else {
+            panic!("max_message_size must be non-zero for MessageAssemblyState");
         };
         self.state = Some(MessageAssemblyState::new(
             size,
-            Duration::from_secs(timeout_secs),
+            Duration::from_secs(config.timeout_seconds),
         ));
         self.current_time = Some(Instant::now());
         self.pending_first_frames.clear();
@@ -272,13 +286,13 @@ impl MessageAssemblyWorld {
 
     /// Whether the last error is a duplicate frame.
     #[must_use]
-    pub fn is_duplicate_frame(&self, key: MessageKey, sequence: FrameSequence) -> bool {
+    pub fn is_duplicate_frame(&self, frame_id: FrameId) -> bool {
         matches!(
             self.last_error(),
             Some(MessageAssemblyError::Series(MessageSeriesError::DuplicateFrame {
                 key: k,
                 sequence: s,
-            })) if *k == key && *s == sequence
+            })) if *k == frame_id.key && *s == frame_id.sequence
         )
     }
 
@@ -287,9 +301,7 @@ impl MessageAssemblyWorld {
     pub fn is_missing_first_frame(&self, key: MessageKey) -> bool {
         matches!(
             self.last_error(),
-            Some(MessageAssemblyError::Series(MessageSeriesError::MissingFirstFrame {
-                key: k,
-            })) if *k == key
+            Some(MessageAssemblyError::Series(MessageSeriesError::MissingFirstFrame { key: k })) if *k == key
         )
     }
 

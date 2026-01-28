@@ -1,5 +1,7 @@
-//! Test world for client preamble scenarios.
-#![cfg(not(loom))]
+//! `ClientPreambleWorld` fixture for rstest-bdd tests.
+//!
+//! Provides server/client coordination for preamble exchange scenarios.
+
 #![expect(
     clippy::expect_used,
     reason = "test code uses expect for concise assertions"
@@ -12,6 +14,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::FutureExt;
+use rstest::fixture;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use wireframe::{
     BincodeSerializer,
@@ -20,7 +23,8 @@ use wireframe::{
     rewind_stream::RewindStream,
 };
 
-use super::TestResult;
+/// `TestResult` for step definitions.
+pub use crate::common::TestResult;
 
 /// Preamble used for testing.
 #[derive(Debug, Clone, PartialEq, Eq, Default, bincode::Encode, bincode::BorrowDecode)]
@@ -72,7 +76,7 @@ fn send_signal<T>(holder: &std::sync::Mutex<Option<oneshot::Sender<T>>>, value: 
 }
 
 /// Test world exercising client preamble exchange.
-#[derive(Debug, Default, cucumber::World)]
+#[derive(Debug, Default)]
 pub struct ClientPreambleWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
@@ -83,6 +87,13 @@ pub struct ClientPreambleWorld {
     success_callback_invoked: bool,
     failure_callback_invoked: bool,
     last_error: Option<ClientError>,
+}
+
+/// Fixture for `ClientPreambleWorld`.
+#[rustfmt::skip]
+#[fixture]
+pub fn client_preamble_world() -> ClientPreambleWorld {
+    ClientPreambleWorld::default()
 }
 
 impl ClientPreambleWorld {
@@ -103,7 +114,6 @@ impl ClientPreambleWorld {
                 .await
                 .expect("read preamble");
             let _ = tx.send(preamble);
-            // Hold connection briefly
             tokio::time::sleep(Duration::from_millis(100)).await;
         });
 
@@ -151,7 +161,6 @@ impl ClientPreambleWorld {
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
             let (_stream, _) = listener.accept().await.expect("accept");
-            // Hold connection but don't respond
             tokio::time::sleep(Duration::from_secs(10)).await;
         });
 
@@ -216,7 +225,6 @@ impl ClientPreambleWorld {
             }
         }
 
-        // Now collect the preamble the server received
         if let Some(preamble_rx) = self.server_preamble_rx.take()
             && let Ok(Ok(preamble)) =
                 tokio::time::timeout(Duration::from_secs(1), preamble_rx).await
@@ -280,7 +288,6 @@ impl ClientPreambleWorld {
             .preamble_timeout(Duration::from_millis(timeout_ms))
             .on_preamble_success(|_preamble, stream| {
                 async move {
-                    // Try to read server response - this should timeout.
                     use tokio::io::AsyncReadExt;
                     let mut buf = [0u8; 1];
                     stream.read_exact(&mut buf).await?;

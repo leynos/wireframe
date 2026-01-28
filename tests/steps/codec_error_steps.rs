@@ -1,39 +1,37 @@
-//! Steps for codec error taxonomy behavioural tests.
+//! Step definitions for codec error taxonomy behavioural tests.
 //!
 //! These steps exercise real codec operations to verify error handling
 //! and recovery policy behaviour.
 
-use cucumber::{given, then, when};
+use rstest_bdd_macros::{given, then, when};
 
-use crate::world::{CodecErrorWorld, TestResult};
+use crate::fixtures::codec_error::{CodecErrorWorld, TestResult};
 
 // =============================================================================
 // Given steps
 // =============================================================================
 
-#[given(expr = "a wireframe server with default codec")]
-fn given_server_default(world: &mut CodecErrorWorld) { world.setup_default_codec(); }
-
-#[given(expr = "a wireframe server with max frame length {int} bytes")]
-fn given_server_max_frame(world: &mut CodecErrorWorld, max_len: usize) {
-    world.setup_codec_with_max_length(max_len);
+#[given("a wireframe server with default codec")]
+fn given_server_default(codec_error_world: &mut CodecErrorWorld) {
+    codec_error_world.setup_default_codec();
 }
 
-#[given(expr = "a codec error of type {word} with variant {word}")]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "cucumber step macros require owned String for {word} captures"
-)]
+#[given("a wireframe server with max frame length {max_len:usize} bytes")]
+fn given_server_max_frame(codec_error_world: &mut CodecErrorWorld, max_len: usize) {
+    codec_error_world.setup_codec_with_max_length(max_len);
+}
+
+#[given("a codec error of type {error_type} with variant {variant}")]
 fn given_error_type_variant(
-    world: &mut CodecErrorWorld,
+    codec_error_world: &mut CodecErrorWorld,
     error_type: String,
     variant: String,
 ) -> TestResult {
-    world.set_error_type(&error_type)?;
+    codec_error_world.set_error_type(&error_type)?;
     match error_type.as_str() {
-        "framing" => world.set_framing_variant(&variant)?,
-        "eof" => world.set_eof_variant(&variant)?,
-        "protocol" | "io" => {} // No sub-variants to set
+        "framing" => codec_error_world.set_framing_variant(&variant)?,
+        "eof" => codec_error_world.set_eof_variant(&variant)?,
+        "protocol" | "io" => {}
         _ => return Err(format!("unknown error type: {error_type}").into()),
     }
     Ok(())
@@ -44,34 +42,37 @@ fn given_error_type_variant(
 // =============================================================================
 
 #[when("a client connects and sends a complete frame")]
-fn when_client_sends_complete(world: &mut CodecErrorWorld) -> TestResult {
+fn when_client_sends_complete(codec_error_world: &mut CodecErrorWorld) -> TestResult {
     // Send a small payload that fits within the frame limit
-    world.send_complete_frame(&[1, 2, 3, 4])
+    codec_error_world.send_complete_frame(&[1, 2, 3, 4])
 }
 
 #[when("the client closes the connection cleanly")]
-fn when_client_closes_clean(world: &mut CodecErrorWorld) -> TestResult {
+fn when_client_closes_clean(codec_error_world: &mut CodecErrorWorld) -> TestResult {
     // Decode the complete frame, then call decode_eof on empty buffer
-    world.decode_eof_clean_close()
+    codec_error_world.decode_eof_clean_close()
 }
 
 #[when("a client connects and sends partial frame data")]
-fn when_client_sends_partial(world: &mut CodecErrorWorld) {
+fn when_client_sends_partial(codec_error_world: &mut CodecErrorWorld) {
     // Send header indicating 100 bytes, but no payload
-    world.send_partial_frame_header_only();
+    codec_error_world.send_partial_frame_header_only();
 }
 
 #[when("the client closes the connection abruptly")]
-fn when_client_closes_abrupt(world: &mut CodecErrorWorld) -> TestResult {
+fn when_client_closes_abrupt(codec_error_world: &mut CodecErrorWorld) -> TestResult {
     // Call decode_eof with partial data in buffer
-    world.decode_eof_with_partial_data()
+    codec_error_world.decode_eof_with_partial_data()
 }
 
-#[when(expr = "a client sends a frame larger than {int} bytes")]
-fn when_client_sends_oversized(world: &mut CodecErrorWorld, max: usize) -> TestResult {
+#[when("a client sends a frame larger than {max_len:usize} bytes")]
+fn when_client_sends_oversized(
+    codec_error_world: &mut CodecErrorWorld,
+    max_len: usize,
+) -> TestResult {
     // Attempt to encode a payload larger than max_frame_length
     // Add 1 to exceed the limit
-    world.encode_oversized_frame(max + 1)
+    codec_error_world.encode_oversized_frame(max_len + 1)
 }
 
 // =============================================================================
@@ -79,23 +80,21 @@ fn when_client_sends_oversized(world: &mut CodecErrorWorld, max: usize) -> TestR
 // =============================================================================
 
 #[then("the server detects a clean EOF")]
-fn then_server_clean_eof(world: &mut CodecErrorWorld) -> TestResult { world.verify_clean_eof() }
+fn then_server_clean_eof(codec_error_world: &mut CodecErrorWorld) -> TestResult {
+    codec_error_world.verify_clean_eof()
+}
 
 #[then("the server detects a mid-frame EOF with partial data")]
-fn then_server_mid_frame_eof(world: &mut CodecErrorWorld) -> TestResult {
-    world.verify_incomplete_eof()
+fn then_server_mid_frame_eof(codec_error_world: &mut CodecErrorWorld) -> TestResult {
+    codec_error_world.verify_incomplete_eof()
 }
 
 #[then("the server rejects the frame with an oversized error")]
-fn then_server_oversized(world: &mut CodecErrorWorld) -> TestResult {
-    world.verify_oversized_error()
+fn then_server_oversized(codec_error_world: &mut CodecErrorWorld) -> TestResult {
+    codec_error_world.verify_oversized_error()
 }
 
-#[then(expr = "the default recovery policy is {word}")]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "cucumber step macros require owned String for {word} captures"
-)]
-fn then_recovery_policy(world: &mut CodecErrorWorld, policy: String) -> TestResult {
-    world.verify_recovery_policy(&policy)
+#[then("the default recovery policy is {policy}")]
+fn then_recovery_policy(codec_error_world: &mut CodecErrorWorld, policy: String) -> TestResult {
+    codec_error_world.verify_recovery_policy(&policy)
 }

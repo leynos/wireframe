@@ -1,16 +1,17 @@
-//! Test world for panic-on-connection scenarios.
+//! `PanicWorld` fixture for rstest-bdd tests.
 //!
-//! Provides [`PanicWorld`] to ensure the server remains resilient when
+//! Provides test fixtures to ensure the server remains resilient when
 //! connection setup handlers panic before a client fully connects.
-#![cfg(not(loom))]
 
 use std::net::SocketAddr;
 
-use cucumber::World;
+use rstest::fixture;
 use tokio::{net::TcpStream, sync::oneshot};
 use wireframe::server::WireframeServer;
 
-use super::{TestApp, TestResult, unused_listener};
+/// `TestResult` for step definitions.
+pub use crate::common::TestResult;
+use crate::common::{TestApp, unused_listener};
 
 #[derive(Debug)]
 struct PanicServer {
@@ -75,11 +76,19 @@ impl Drop for PanicServer {
     }
 }
 
-#[derive(Debug, Default, World)]
 /// Test world that drives a server which intentionally panics during setup.
+#[derive(Debug, Default)]
 pub struct PanicWorld {
     server: Option<PanicServer>,
     attempts: usize,
+}
+
+/// Fixture for `PanicWorld`.
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
+#[fixture]
+pub fn panic_world() -> PanicWorld {
+    PanicWorld::default()
 }
 
 impl PanicWorld {

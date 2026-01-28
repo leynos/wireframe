@@ -1,16 +1,12 @@
-//! Test world for fragmentation scenarios covering both directions.
+//! `FragmentWorld` fixture for rstest-bdd tests.
 //!
-//! Provides [`FragmentWorld`] to verify ordering, completion detection, and
-//! error handling across the fragmentation behavioural tests while also
-//! exercising outbound fragmentation by chunking payloads via the helper
-//! `Fragmenter` and inspecting the resulting `FragmentBatch` state.
-#![cfg(not(loom))]
+//! Tracks fragmentation and reassembly state for fragment scenarios.
 
 mod reassembly;
 
 use std::{num::NonZeroUsize, time::Instant};
 
-use cucumber::World;
+use rstest::fixture;
 use wireframe::fragment::{
     FragmentBatch,
     FragmentError,
@@ -26,10 +22,11 @@ use wireframe::fragment::{
     ReassemblyError,
 };
 
-use super::TestResult;
+/// `TestResult` for step definitions.
+pub use crate::common::TestResult;
 
-#[derive(Debug, World)]
 /// Test world tracking fragmentation state across behavioural scenarios.
+#[derive(Debug)]
 pub struct FragmentWorld {
     series: Option<FragmentSeries>,
     last_result: Option<Result<FragmentStatus, FragmentError>>,
@@ -56,6 +53,14 @@ impl Default for FragmentWorld {
             last_evicted: Vec::new(),
         }
     }
+}
+
+/// Fixture for `FragmentWorld`.
+// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+#[rustfmt::skip]
+#[fixture]
+pub fn fragment_world() -> FragmentWorld {
+    FragmentWorld::default()
 }
 
 impl FragmentWorld {
