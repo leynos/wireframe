@@ -10,7 +10,6 @@ use tokio::{
     sync::mpsc,
     time::{sleep, timeout},
 };
-use tokio_util::codec::Framed;
 use wireframe::{app::Envelope, fragment::Fragmenter};
 
 use crate::common::{
@@ -23,6 +22,7 @@ use crate::common::{
         fragmentation_config_with_timeout,
         make_app,
         send_envelopes,
+        spawn_app,
     },
 };
 
@@ -37,16 +37,12 @@ async fn expired_fragments_are_evicted() -> TestResult {
     let config = fragmentation_config_with_timeout(buffer_capacity, timeout_ms)?;
     let (tx, mut rx) = mpsc::unbounded_channel();
     let app = make_app(buffer_capacity, config, &tx)?;
-    let codec = app.length_codec();
-    let (client_stream, server_stream) = tokio::io::duplex(256);
-    let mut client = Framed::new(client_stream, codec.clone());
     let fragmenter = Fragmenter::new(config.fragment_payload_cap);
+    let (mut client, server) = spawn_app(app);
 
     let payload = vec![3_u8; 800];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload);
     let fragments = fragment_envelope(&request, &fragmenter)?;
-
-    let server = tokio::spawn(async move { app.handle_connection_result(server_stream).await });
 
     // Send the first fragment then pause long enough for eviction.
     let first_fragment = fragments

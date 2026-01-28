@@ -28,16 +28,16 @@ use crate::common::{
 };
 
 /// Test setup holding client, server, fragments, and receiver channel.
-pub struct FragmentRejectionSetup {
-    pub client: Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
-    pub server: tokio::task::JoinHandle<std::io::Result<()>>,
-    pub fragments: Vec<Envelope>,
-    pub rx: mpsc::UnboundedReceiver<Vec<u8>>,
+struct FragmentRejectionSetup {
+    client: Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
+    server: tokio::task::JoinHandle<std::io::Result<()>>,
+    fragments: Vec<Envelope>,
+    rx: mpsc::UnboundedReceiver<Vec<u8>>,
 }
 
 impl FragmentRejectionSetup {
     /// Create a new rejection test setup with the given fragment mutator.
-    pub fn new(
+    fn new(
         capacity: usize,
         config: FragmentationConfig,
         fragment_mutator: impl FnOnce(Vec<Envelope>) -> TestResult<Vec<Envelope>>,
@@ -61,7 +61,7 @@ impl FragmentRejectionSetup {
 }
 
 /// Execute a fragment rejection test with the given mutator.
-pub async fn test_fragment_rejection<F>(fragment_mutator: F, rejection_message: &str) -> TestResult
+async fn test_fragment_rejection<F>(fragment_mutator: F, rejection_message: &str) -> TestResult
 where
     F: FnOnce(Vec<Envelope>) -> TestResult<Vec<Envelope>>,
 {
@@ -88,10 +88,10 @@ where
 }
 
 /// Type alias for fragment mutator functions.
-pub type FragmentMutator = fn(Vec<Envelope>) -> TestResult<Vec<Envelope>>;
+type FragmentMutator = fn(Vec<Envelope>) -> TestResult<Vec<Envelope>>;
 
 /// Mutate fragments by swapping the first two (out-of-order delivery).
-pub fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
+fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     if fragments.len() < 2 {
         return Err(TestError::Setup("expected at least two fragments").into());
     }
@@ -101,7 +101,7 @@ pub fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
 }
 
 /// Mutate fragments by duplicating the first fragment.
-pub fn mutate_duplicate(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
+fn mutate_duplicate(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     let duplicate = fragments
         .first()
         .cloned()
@@ -115,7 +115,7 @@ pub fn mutate_duplicate(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope
     clippy::panic_in_result_fn,
     reason = "asserts provide clearer diagnostics in tests"
 )]
-pub fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
+fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     let parts = fragments
         .first()
         .cloned()
