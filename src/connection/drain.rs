@@ -113,6 +113,10 @@ where
     /// Try to opportunistically drain a queue-backed source when fairness allows.
     ///
     /// Returns `true` when a frame is forwarded to `out`.
+    #[expect(
+        clippy::unreachable,
+        reason = "High variant is structurally unreachable but must remain for exhaustive matching"
+    )]
     pub(super) fn try_opportunistic_drain(
         &mut self,
         kind: QueueKind,
@@ -121,14 +125,10 @@ where
         let DrainContext { out, state } = ctx;
         match kind {
             QueueKind::High => {
-                debug_assert!(
-                    false,
-                    concat!(
-                        "try_opportunistic_drain(High) is unsupported; High is handled by biased ",
-                        "polling"
-                    )
+                unreachable!(
+                    "try_opportunistic_drain(High) is unsupported; High is handled by biased \
+                     polling"
                 );
-                false
             }
             QueueKind::Low => {
                 let res = match self.low_rx.as_mut() {

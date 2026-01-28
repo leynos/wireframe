@@ -42,11 +42,6 @@ where
         }
     }
 
-    /// Await shutdown cancellation on the provided token.
-    pub(super) async fn await_shutdown(token: CancellationToken) {
-        Self::wait_shutdown(token).await;
-    }
-
     /// Poll whichever receiver is provided, returning `None` when absent.
     ///
     /// Multi-packet channels reuse this helper so they share back-pressure with queued frames.

@@ -363,7 +363,7 @@ where
         tokio::select! {
             biased;
 
-            () = Self::await_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
+            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
             res = Self::poll_queue(self.high_rx.as_mut()), if high_available => Event::High(res),
             res = Self::poll_queue(self.low_rx.as_mut()), if low_available => Event::Low(res),
             res = Self::poll_queue(self.multi_packet.channel_mut()), if multi_available => Event::MultiPacket(res),

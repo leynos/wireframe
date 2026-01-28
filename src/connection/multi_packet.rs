@@ -60,7 +60,7 @@ impl<F> MultiPacketContext<F> {
     /// Install a multi-packet channel with an optional correlation identifier.
     ///
     /// When `channel` is `Some`, stamping is enabled with the provided `correlation_id`.
-    /// When `channel` is `None`, stamping is disabled.
+    /// When `channel` is `None`, stamping is disabled and `correlation_id` is ignored.
     pub(super) fn install(
         &mut self,
         channel: Option<mpsc::Receiver<F>>,
