@@ -44,7 +44,7 @@ rstest-bdd supports async steps.
 
 #### Tier 2 – Medium (200–400 lines)
 
-- `PanicWorld`, `MultiPacketWorld`, `StreamEndWorld`,
+- `PanicWorld`, `MultiPacketWorld`, `StreamEndWorld`
   `MessageAssemblerWorld`, `CodecStatefulWorld`
 
 #### Tier 3 – High Complexity (400+ lines)
