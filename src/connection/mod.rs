@@ -255,14 +255,7 @@ where
 
     /// Set or replace the current multi-packet response channel.
     pub fn set_multi_packet(&mut self, channel: Option<mpsc::Receiver<F>>) {
-        debug_assert!(
-            self.response.is_none(),
-            concat!(
-                "ConnectionActor invariant violated: cannot set multi_packet while a ",
-                "response stream is active"
-            ),
-        );
-        self.multi_packet.install(channel, None);
+        self.set_multi_packet_with_correlation(channel, None);
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
