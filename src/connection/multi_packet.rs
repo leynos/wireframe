@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 ///
 /// Tracks the active receiver and how frames should be stamped before emission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum MultiPacketStamp {
+enum MultiPacketStamp {
     /// Stamping is disabled because no multi-packet channel is active.
     Disabled,
     /// Stamping is enabled and frames are stamped with the provided identifier.
@@ -57,15 +57,20 @@ impl<F> MultiPacketContext<F> {
         }
     }
 
-    pub(super) fn install(&mut self, channel: Option<mpsc::Receiver<F>>, stamp: MultiPacketStamp) {
-        debug_assert_eq!(
-            channel.is_some(),
-            matches!(stamp, MultiPacketStamp::Enabled(_)),
-            concat!(
-                "channel presence must match stamp: channel is Some iff stamp is ",
-                "MultiPacketStamp::Enabled(...)"
-            ),
-        );
+    /// Install a multi-packet channel with an optional correlation identifier.
+    ///
+    /// When `channel` is `Some`, stamping is enabled with the provided `correlation_id`.
+    /// When `channel` is `None`, stamping is disabled.
+    pub(super) fn install(
+        &mut self,
+        channel: Option<mpsc::Receiver<F>>,
+        correlation_id: Option<u64>,
+    ) {
+        let stamp = if channel.is_some() {
+            MultiPacketStamp::Enabled(correlation_id)
+        } else {
+            MultiPacketStamp::Disabled
+        };
         self.channel = channel;
         self.stamp = stamp;
     }
@@ -79,7 +84,10 @@ impl<F> MultiPacketContext<F> {
 
     pub(super) fn take_channel(&mut self) -> Option<mpsc::Receiver<F>> { self.channel.take() }
 
-    pub(super) fn stamp(&self) -> MultiPacketStamp { self.stamp }
+    /// Returns `true` if correlation stamping is enabled.
+    pub(super) fn is_stamping_enabled(&self) -> bool {
+        matches!(self.stamp, MultiPacketStamp::Enabled(_))
+    }
 
     pub(super) fn correlation_id(&self) -> Option<u64> {
         match self.stamp {

@@ -1,7 +1,7 @@
 //! Actor lifecycle state management.
 
 /// Internal run state for the connection actor.
-pub(super) enum RunState {
+enum RunState {
     /// All sources are open and frames are still being processed.
     Active,
     /// A shutdown request has been observed and queues are being closed.
@@ -13,8 +13,8 @@ pub(super) enum RunState {
 /// Tracks progress through the actor lifecycle.
 pub(super) struct ActorState {
     run_state: RunState,
-    pub(super) closed_sources: usize,
-    pub(super) total_sources: usize,
+    closed_sources: usize,
+    total_sources: usize,
 }
 
 impl ActorState {
@@ -72,4 +72,10 @@ impl ActorState {
 
     /// Returns `true` when all sources have finished.
     pub(super) fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
+
+    /// Returns the number of sources that have been closed.
+    pub(super) fn closed_sources(&self) -> usize { self.closed_sources }
+
+    /// Returns the total number of sources being tracked.
+    pub(super) fn total_sources(&self) -> usize { self.total_sources }
 }

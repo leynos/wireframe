@@ -103,8 +103,8 @@ impl ActorHarness {
             is_active: self.state.is_active(),
             is_shutting_down: self.state.is_shutting_down(),
             is_done: self.state.is_done(),
-            total_sources: self.state.total_sources,
-            closed_sources: self.state.closed_sources,
+            total_sources: self.state.total_sources(),
+            closed_sources: self.state.closed_sources(),
         }
     }
     /// Replace the low-priority receiver.
@@ -208,8 +208,8 @@ impl ActorStateHarness {
             is_active: self.state.is_active(),
             is_shutting_down: self.state.is_shutting_down(),
             is_done: self.state.is_done(),
-            total_sources: self.state.total_sources,
-            closed_sources: self.state.closed_sources,
+            total_sources: self.state.total_sources(),
+            closed_sources: self.state.closed_sources(),
         }
     }
 }

@@ -5,12 +5,17 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
+mod dispatch;
+mod drain;
 mod event;
+mod frame;
 mod multi_packet;
+mod polling;
+mod response;
+mod shutdown;
 mod state;
 
 use std::{
-    future::Future,
     net::SocketAddr,
     sync::{
         Arc,
@@ -19,14 +24,10 @@ use std::{
 };
 
 use event::Event;
-use futures::StreamExt;
-use log::{info, warn};
-use multi_packet::{MultiPacketContext, MultiPacketStamp, MultiPacketTerminationReason};
+use log::info;
+use multi_packet::MultiPacketContext;
 use state::ActorState;
-use tokio::{
-    sync::mpsc::{self, error::TryRecvError},
-    time::Duration,
-};
+use tokio::{sync::mpsc, time::Duration};
 use tokio_util::sync::CancellationToken;
 
 /// Global gauge tracking active connections.
@@ -56,7 +57,7 @@ impl Drop for ActiveConnection {
 pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
-    app::{Packet, fragment_utils::fragment_packet},
+    app::Packet,
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
     fragment::{FragmentationConfig, Fragmenter},
@@ -261,12 +262,7 @@ where
                 "response stream is active"
             ),
         );
-        let stamp = if channel.is_some() {
-            MultiPacketStamp::Enabled(None)
-        } else {
-            MultiPacketStamp::Disabled
-        };
-        self.multi_packet.install(channel, stamp);
+        self.multi_packet.install(channel, None);
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
@@ -299,41 +295,10 @@ where
                 "response stream is active"
             ),
         );
-        let stamp = if channel.is_some() {
-            MultiPacketStamp::Enabled(correlation_id)
-        } else {
-            MultiPacketStamp::Disabled
-        };
-        self.multi_packet.install(channel, stamp);
+        self.multi_packet.install(channel, correlation_id);
     }
 
     fn clear_multi_packet(&mut self) { self.multi_packet.clear(); }
-
-    fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
-        match self.multi_packet.stamp() {
-            MultiPacketStamp::Enabled(Some(expected)) => {
-                frame.set_correlation_id(Some(expected));
-                debug_assert!(
-                    CorrelatableFrame::correlation_id(frame) == Some(expected)
-                        || CorrelatableFrame::correlation_id(frame).is_none(),
-                    "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
-                    Some(expected),
-                    CorrelatableFrame::correlation_id(frame),
-                );
-            }
-            MultiPacketStamp::Enabled(None) => {
-                frame.set_correlation_id(None);
-                debug_assert!(
-                    CorrelatableFrame::correlation_id(frame).is_none(),
-                    "multi-packet frame correlation unexpectedly present: got={:?}",
-                    CorrelatableFrame::correlation_id(frame),
-                );
-            }
-            MultiPacketStamp::Disabled => {
-                // No channel is active, so there is nothing to stamp.
-            }
-        }
-    }
 
     /// Replace the low-priority queue used for tests.
     pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<F>>) { self.low_rx = queue; }
@@ -427,394 +392,6 @@ where
     ) -> Result<(), WireframeError<E>> {
         let event = self.next_event(state).await;
         self.dispatch_event(event, state, out)
-    }
-
-    /// Dispatch the given event to the appropriate handler.
-    fn dispatch_event(
-        &mut self,
-        event: Event<F, E>,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) -> Result<(), WireframeError<E>> {
-        match event {
-            Event::Shutdown => self.process_shutdown(state),
-            Event::High(res) => self.process_high(res, state, out),
-            Event::Low(res) => self.process_low(res, state, out),
-            Event::MultiPacket(res) => self.process_multi_packet(res, state, out),
-            Event::Response(res) => self.process_response(res, state, out)?,
-            Event::Idle => {}
-        }
-
-        Ok(())
-    }
-
-    /// Begin shutdown once cancellation has been observed.
-    fn process_shutdown(&mut self, state: &mut ActorState) {
-        state.start_shutdown();
-        self.start_shutdown(state);
-    }
-
-    /// Handle the result of polling the high-priority queue.
-    fn process_high(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(QueueKind::High, res, DrainContext { out, state });
-    }
-
-    /// Process a queue-backed source with shared low-priority semantics.
-    fn process_queue(&mut self, kind: QueueKind, res: Option<F>, ctx: DrainContext<'_, F>) {
-        let DrainContext { out, state } = ctx;
-        match res {
-            Some(frame) => {
-                match kind {
-                    QueueKind::Multi
-                        if matches!(self.multi_packet.stamp(), MultiPacketStamp::Enabled(_)) =>
-                    {
-                        self.emit_multi_packet_frame(frame, out);
-                    }
-                    _ => {
-                        self.process_frame_with_hooks_and_metrics(frame, out);
-                    }
-                }
-                match kind {
-                    QueueKind::High => self.after_high(out, state),
-                    QueueKind::Low | QueueKind::Multi => self.after_low(),
-                }
-            }
-            None => match kind {
-                QueueKind::High => {
-                    Self::handle_closed_receiver(&mut self.high_rx, state);
-                    self.fairness.reset();
-                }
-                QueueKind::Low => {
-                    Self::handle_closed_receiver(&mut self.low_rx, state);
-                }
-                QueueKind::Multi => {
-                    self.handle_multi_packet_closed(
-                        MultiPacketTerminationReason::Drained,
-                        state,
-                        out,
-                    );
-                }
-            },
-        }
-    }
-
-    /// Handle the result of polling the low-priority queue.
-    fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(QueueKind::Low, res, DrainContext { out, state });
-    }
-
-    /// Handle frames drained from the multi-packet channel.
-    fn process_multi_packet(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(QueueKind::Multi, res, DrainContext { out, state });
-    }
-
-    fn emit_multi_packet_frame(&mut self, frame: F, out: &mut Vec<F>) {
-        let mut frame = frame;
-        self.apply_multi_packet_correlation(&mut frame);
-        self.process_frame_with_hooks_and_metrics(frame, out);
-    }
-
-    /// Handle a closed multi-packet channel by emitting the protocol terminator
-    /// and notifying hooks.
-    fn handle_multi_packet_closed(
-        &mut self,
-        reason: MultiPacketTerminationReason,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) {
-        let correlation = self.multi_packet.correlation_id();
-        self.log_multi_packet_closure(reason, correlation);
-        if let Some(mut receiver) = self.multi_packet.take_channel() {
-            receiver.close();
-        }
-        state.mark_closed();
-        if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-            self.emit_multi_packet_frame(frame, out);
-            self.after_low();
-        }
-        self.clear_multi_packet();
-        self.hooks.on_command_end(&mut self.ctx);
-    }
-
-    fn log_multi_packet_closure(
-        &self,
-        reason: MultiPacketTerminationReason,
-        correlation_id: Option<u64>,
-    ) {
-        let message = "multi-packet stream closed";
-        match reason {
-            MultiPacketTerminationReason::Disconnected => warn!(
-                "{message}: reason={}, connection_id={:?}, peer={:?}, correlation_id={:?}",
-                reason, self.connection_id, self.peer_addr, correlation_id,
-            ),
-            _ => info!(
-                "{message}: reason={}, connection_id={:?}, peer={:?}, correlation_id={:?}",
-                reason, self.connection_id, self.peer_addr, correlation_id,
-            ),
-        }
-    }
-
-    /// Apply protocol hooks and increment metrics before emitting a frame.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// actor.process_frame_with_hooks_and_metrics(frame, &mut out);
-    /// ```
-    fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>)
-    where
-        F: Packet,
-    {
-        if let Some(fragmenter) = self.fragmenter.as_deref() {
-            let fragmented = fragment_packet(fragmenter, frame);
-            match fragmented {
-                Ok(frames) => frames
-                    .into_iter()
-                    .for_each(|frame| self.push_frame(frame, out)),
-                Err(err) => {
-                    warn!(
-                        "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
-                        self.connection_id, self.peer_addr,
-                    );
-                    crate::metrics::inc_handler_errors();
-                }
-            }
-        } else {
-            self.push_frame(frame, out);
-        }
-    }
-
-    fn push_frame(&mut self, frame: F, out: &mut Vec<F>) {
-        let mut frame = frame;
-        self.hooks.before_send(&mut frame, &mut self.ctx);
-        out.push(frame);
-        crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
-    }
-
-    /// Common logic for handling closed receivers.
-    fn handle_closed_receiver(receiver: &mut Option<mpsc::Receiver<F>>, state: &mut ActorState) {
-        *receiver = None;
-        state.mark_closed();
-    }
-
-    /// Handle the next frame or error from the streaming response.
-    fn process_response(
-        &mut self,
-        res: Option<Result<F, WireframeError<E>>>,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) -> Result<(), WireframeError<E>> {
-        let is_none = res.is_none();
-        let produced = self.handle_response(res, state, out)?;
-        if produced {
-            self.after_low();
-        }
-        if is_none {
-            self.response = None;
-        }
-        Ok(())
-    }
-
-    /// Close all receivers and mark streaming sources as closed if present.
-    fn start_shutdown(&mut self, state: &mut ActorState) {
-        if let Some(rx) = &mut self.high_rx {
-            rx.close();
-        }
-        if let Some(rx) = &mut self.low_rx {
-            rx.close();
-        }
-        if self.multi_packet.is_active() {
-            let correlation = self.multi_packet.correlation_id();
-            self.log_multi_packet_closure(MultiPacketTerminationReason::Shutdown, correlation);
-            if let Some(mut rx) = self.multi_packet.take_channel() {
-                rx.close();
-                state.mark_closed();
-            }
-            self.clear_multi_packet();
-            self.hooks.on_command_end(&mut self.ctx);
-        }
-
-        if self.response.take().is_some() {
-            state.mark_closed();
-        }
-    }
-
-    /// Update counters and opportunistically drain the low-priority and multi-packet queues.
-    fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
-        self.fairness.record_high_priority();
-
-        if !self.fairness.should_yield_to_low_priority() {
-            return;
-        }
-
-        if self.try_opportunistic_drain(
-            QueueKind::Low,
-            DrainContext {
-                out: &mut *out,
-                state: &mut *state,
-            },
-        ) {
-            return;
-        }
-
-        let _ = self.try_opportunistic_drain(
-            QueueKind::Multi,
-            DrainContext {
-                out: &mut *out,
-                state: &mut *state,
-            },
-        );
-    }
-
-    /// Try to opportunistically drain a queue-backed source when fairness allows.
-    ///
-    /// Returns `true` when a frame is forwarded to `out`.
-    fn try_opportunistic_drain(&mut self, kind: QueueKind, ctx: DrainContext<'_, F>) -> bool {
-        let DrainContext { out, state } = ctx;
-        match kind {
-            QueueKind::High => {
-                debug_assert!(
-                    false,
-                    "try_opportunistic_drain(High) is unsupported; High is handled by biased \
-                     polling"
-                );
-                false
-            }
-            QueueKind::Low => {
-                let res = match self.low_rx.as_mut() {
-                    Some(receiver) => receiver.try_recv(),
-                    None => return false,
-                };
-
-                match res {
-                    Ok(frame) => {
-                        self.process_frame_with_hooks_and_metrics(frame, out);
-                        self.after_low();
-                        true
-                    }
-                    Err(TryRecvError::Empty) => false,
-                    Err(TryRecvError::Disconnected) => {
-                        Self::handle_closed_receiver(&mut self.low_rx, state);
-                        false
-                    }
-                }
-            }
-            QueueKind::Multi => {
-                let result = match self.multi_packet.channel_mut() {
-                    Some(rx) => rx.try_recv(),
-                    None => return false,
-                };
-
-                match result {
-                    Ok(frame) => {
-                        self.emit_multi_packet_frame(frame, out);
-                        self.after_low();
-                        true
-                    }
-                    Err(TryRecvError::Empty) => false,
-                    Err(TryRecvError::Disconnected) => {
-                        self.handle_multi_packet_closed(
-                            MultiPacketTerminationReason::Disconnected,
-                            state,
-                            out,
-                        );
-                        false
-                    }
-                }
-            }
-        }
-    }
-
-    /// Reset counters after processing a low-priority frame.
-    fn after_low(&mut self) { self.fairness.reset(); }
-
-    /// Push a frame from the response stream into `out` or handle completion.
-    ///
-    /// Protocol errors are passed to `handle_error` and do not terminate the
-    /// actor. I/O errors propagate to the caller.
-    ///
-    /// Returns `true` if a frame was appended to `out`.
-    fn handle_response(
-        &mut self,
-        res: Option<Result<F, WireframeError<E>>>,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) -> Result<bool, WireframeError<E>> {
-        let mut produced = false;
-        match res {
-            Some(Ok(frame)) => {
-                self.process_frame_with_hooks_and_metrics(frame, out);
-                produced = true;
-            }
-            Some(Err(WireframeError::Protocol(e))) => {
-                warn!("protocol error: error={e:?}");
-                self.hooks.handle_error(e, &mut self.ctx);
-                state.mark_closed();
-                // Stop polling the response after a protocol error to avoid
-                // double-closing and duplicate `on_command_end` signalling.
-                self.response = None;
-                self.hooks.on_command_end(&mut self.ctx);
-                crate::metrics::inc_handler_errors();
-            }
-            Some(Err(e)) => return Err(e),
-            None => {
-                state.mark_closed();
-                if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-                    self.process_frame_with_hooks_and_metrics(frame, out);
-                    produced = true;
-                }
-                self.hooks.on_command_end(&mut self.ctx);
-            }
-        }
-
-        Ok(produced)
-    }
-
-    /// Await cancellation on the provided shutdown token.
-    #[inline]
-    async fn wait_shutdown(token: CancellationToken) { token.cancelled_owned().await; }
-
-    /// Receive the next frame from a push queue.
-    #[inline]
-    async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
-
-    /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
-    #[expect(
-        clippy::manual_async_fn,
-        reason = "Generic lifetime requires explicit async move"
-    )]
-    fn poll_optional<'a, T, Fut, R>(
-        opt: Option<&'a mut T>,
-        f: impl FnOnce(&'a mut T) -> Fut + Send + 'a,
-    ) -> impl Future<Output = Option<R>> + Send + 'a
-    where
-        T: Send + 'a,
-        Fut: Future<Output = Option<R>> + Send + 'a,
-    {
-        async move {
-            if let Some(value) = opt {
-                f(value).await
-            } else {
-                None
-            }
-        }
-    }
-
-    /// Await shutdown cancellation on the provided token.
-    async fn await_shutdown(token: CancellationToken) { Self::wait_shutdown(token).await; }
-
-    /// Poll whichever receiver is provided, returning `None` when absent.
-    ///
-    /// Multi-packet channels reuse this helper so they share back-pressure with queued frames.
-    async fn poll_queue(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
-        Self::poll_optional(rx, Self::recv_push).await
-    }
-
-    /// Poll the streaming response.
-    async fn poll_response(
-        resp: Option<&mut FrameStream<F, E>>,
-    ) -> Option<Result<F, WireframeError<E>>> {
-        Self::poll_optional(resp, |s| s.next()).await
     }
 }
 
