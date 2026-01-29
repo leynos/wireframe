@@ -81,6 +81,11 @@ pub const CORRELATION: Option<u64> = Some(7);
 /// Create a fragmentation config for a given buffer capacity.
 ///
 /// Uses a message limit of 16x capacity and a 30ms reassembly timeout.
+///
+/// # Errors
+///
+/// Returns an error if the message limit overflows or if the frame budget
+/// is too small to accommodate fragment overhead.
 pub fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
     let message_limit = NonZeroUsize::new(capacity.saturating_mul(16))
         .ok_or(TestError::Setup("non-zero message limit"))?;
@@ -95,6 +100,10 @@ pub fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> 
 }
 
 /// Create a fragmentation config with a custom reassembly timeout.
+///
+/// # Errors
+///
+/// Returns an error if the underlying [`fragmentation_config`] fails.
 pub fn fragmentation_config_with_timeout(
     capacity: usize,
     timeout_ms: u64,
@@ -108,6 +117,10 @@ pub fn fragmentation_config_with_timeout(
 ///
 /// Returns the original envelope wrapped in a vec if the payload fits in a
 /// single fragment, otherwise returns the fragmented envelopes.
+///
+/// # Errors
+///
+/// Returns an error if fragmentation or fragment payload encoding fails.
 pub fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<Vec<Envelope>> {
     let parts = env.clone().into_parts();
     let id = parts.id();
@@ -133,6 +146,10 @@ pub fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<
 }
 
 /// Send a slice of envelopes over a framed client connection.
+///
+/// # Errors
+///
+/// Returns an error if serialization or sending fails.
 pub async fn send_envelopes(
     client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
     envelopes: &[Envelope],
@@ -146,6 +163,11 @@ pub async fn send_envelopes(
 }
 
 /// Read and reassemble a fragmented response from a client connection.
+///
+/// # Errors
+///
+/// Returns an error if reading, deserialization, or reassembly fails,
+/// or if the stream ends before reassembly completes.
 pub async fn read_reassembled_response(
     client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
     cfg: &FragmentationConfig,
@@ -171,6 +193,11 @@ pub async fn read_reassembled_response(
 }
 
 /// Create a handler that forwards received payloads to an unbounded channel.
+///
+/// # Panics
+///
+/// The returned handler panics if sending to the channel fails.
+#[must_use]
 pub fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope> {
     let tx = sender.clone();
     std::sync::Arc::new(move |env: &Envelope| {
@@ -186,6 +213,10 @@ pub fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope
 }
 
 /// Create a test [`WireframeApp`] with fragmentation enabled.
+///
+/// # Errors
+///
+/// Returns an error if app creation or route registration fails.
 pub fn make_app(
     capacity: usize,
     config: FragmentationConfig,
@@ -212,6 +243,10 @@ pub fn spawn_app(
 }
 
 /// Build envelopes from a request, optionally fragmenting.
+///
+/// # Errors
+///
+/// Returns an error if fragmentation fails when `should_fragment` is true.
 pub fn build_envelopes(
     request: Envelope,
     config: &FragmentationConfig,
@@ -226,6 +261,11 @@ pub fn build_envelopes(
 }
 
 /// Assert that the handler received the expected payload.
+///
+/// # Errors
+///
+/// Returns an error if the receive times out, the channel is closed,
+/// or the observed payload does not match the expected payload.
 pub async fn assert_handler_observed(
     rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
     expected: &[u8],
@@ -243,6 +283,10 @@ pub async fn assert_handler_observed(
 }
 
 /// Read and return the response payload with a 1-second timeout.
+///
+/// # Errors
+///
+/// Returns an error if the read times out or reassembly fails.
 pub async fn read_response_payload(
     client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
     config: &FragmentationConfig,
