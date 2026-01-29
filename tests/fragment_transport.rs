@@ -61,7 +61,12 @@ async fn run_round_trip_test(
     assert_handler_observed(&mut rx, &payload).await?;
     client.get_mut().shutdown().await?;
     let response = read_response_payload(&mut client, &config).await?;
-    assert_eq!(response, payload);
+    if response != payload {
+        return Err(TestError::Assertion(format!(
+            "response payload mismatch: expected {payload:?}, got {response:?}"
+        ))
+        .into());
+    }
 
     server.await??;
 
