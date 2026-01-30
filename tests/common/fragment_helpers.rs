@@ -87,8 +87,10 @@ pub const CORRELATION: Option<u64> = Some(7);
 /// Returns an error if the message limit overflows or if the frame budget
 /// is too small to accommodate fragment overhead.
 pub fn fragmentation_config(capacity: usize) -> TestResult<FragmentationConfig> {
-    let message_limit = NonZeroUsize::new(capacity.saturating_mul(16))
-        .ok_or(TestError::Setup("non-zero message limit"))?;
+    let message_limit = capacity
+        .checked_mul(16)
+        .and_then(NonZeroUsize::new)
+        .ok_or(TestError::Setup("message limit overflow or zero"))?;
 
     let config =
         FragmentationConfig::for_frame_budget(capacity, message_limit, Duration::from_millis(30))

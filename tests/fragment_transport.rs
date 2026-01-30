@@ -82,10 +82,6 @@ async fn fragmented_request_and_response_round_trip() -> TestResult {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn unfragmented_request_and_response_round_trip() -> TestResult {
     let buffer_capacity = 512;
     let config = fragmentation_config(buffer_capacity)?;
@@ -94,19 +90,17 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     let payload = vec![b's'; payload_len];
 
     let response = run_round_trip_test(buffer_capacity, payload, false).await?;
-    assert!(
-        decode_fragment_payload(&response)?.is_none(),
-        "small payload should pass through unfragmented"
-    );
+    if decode_fragment_payload(&response)?.is_some() {
+        return Err(TestError::Assertion(
+            "small payload should pass through unfragmented".to_string(),
+        )
+        .into());
+    }
 
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let capacity = 1024;
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -133,10 +127,12 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let observed = timeout(Duration::from_secs(1), rx.recv())
         .await?
         .ok_or(TestError::Setup("handler payload missing"))?;
-    assert_eq!(
-        observed, payload,
-        "observed payload mismatch: expected {payload:?}, got {observed:?}"
-    );
+    if observed != payload {
+        return Err(TestError::Assertion(format!(
+            "observed payload mismatch: expected {payload:?}, got {observed:?}"
+        ))
+        .into());
+    }
 
     client.get_mut().shutdown().await?;
     let response = timeout(
@@ -144,10 +140,12 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
         read_reassembled_response(&mut client, &config),
     )
     .await??;
-    assert!(
-        decode_fragment_payload(&response)?.is_none(),
-        "expected no fragmentation when fragmentation is disabled"
-    );
+    if decode_fragment_payload(&response)?.is_some() {
+        return Err(TestError::Assertion(
+            "expected no fragmentation when fragmentation is disabled".to_string(),
+        )
+        .into());
+    }
 
     server.await??;
 
