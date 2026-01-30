@@ -7,16 +7,16 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    ActorState,
     ConnectionActor,
     ConnectionChannels,
     DrainContext,
-    MultiPacketTerminationReason,
-    ProtocolHooks,
     QueueKind,
+    multi_packet::MultiPacketTerminationReason,
+    state::ActorState,
 };
 use crate::{
     app::{Packet, PacketParts},
+    hooks::ProtocolHooks,
     push::{PushConfigError, PushQueues},
 };
 
@@ -103,8 +103,8 @@ impl ActorHarness {
             is_active: self.state.is_active(),
             is_shutting_down: self.state.is_shutting_down(),
             is_done: self.state.is_done(),
-            total_sources: self.state.total_sources,
-            closed_sources: self.state.closed_sources,
+            total_sources: self.state.total_sources(),
+            closed_sources: self.state.closed_sources(),
         }
     }
     /// Replace the low-priority receiver.
@@ -208,8 +208,8 @@ impl ActorStateHarness {
             is_active: self.state.is_active(),
             is_shutting_down: self.state.is_shutting_down(),
             is_done: self.state.is_done(),
-            total_sources: self.state.total_sources,
-            closed_sources: self.state.closed_sources,
+            total_sources: self.state.total_sources(),
+            closed_sources: self.state.closed_sources(),
         }
     }
 }
