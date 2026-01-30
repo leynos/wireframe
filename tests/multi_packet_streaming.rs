@@ -129,7 +129,8 @@ async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()>
 
     harness
         .actor
-        .set_multi_packet_with_correlation(Some(rx), correlation);
+        .set_multi_packet_with_correlation(Some(rx), correlation)
+        .map_err(|e| format!("set_multi_packet_with_correlation: {e}"))?;
 
     harness.release_handle();
 
@@ -178,7 +179,8 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(
 
     harness
         .actor
-        .set_multi_packet_with_correlation(Some(rx), correlation);
+        .set_multi_packet_with_correlation(Some(rx), correlation)
+        .map_err(|e| format!("set_multi_packet_with_correlation: {e}"))?;
 
     harness.actor.set_fairness(interleaving_fairness());
 
@@ -311,7 +313,8 @@ async fn interleaved_multi_packet_and_push_frames_preserve_correlations() -> Tes
 
     harness
         .actor
-        .set_multi_packet_with_correlation(Some(rx), stream_correlation);
+        .set_multi_packet_with_correlation(Some(rx), stream_correlation)
+        .map_err(|e| format!("set_multi_packet_with_correlation: {e}"))?;
     harness.actor.set_fairness(interleaving_fairness());
 
     push_interleaved_frames(harness.handle()?).await?;

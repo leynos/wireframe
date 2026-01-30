@@ -79,7 +79,9 @@ async fn run_multi_packet_channel(
         shutdown,
         hooks,
     );
-    actor.set_multi_packet_with_correlation(Some(rx), request_correlation);
+    actor
+        .set_multi_packet_with_correlation(Some(rx), request_correlation)
+        .map_err(|e| io::Error::other(format!("set_multi_packet_with_correlation: {e}")))?;
 
     let mut out = Vec::new();
     actor

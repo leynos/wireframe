@@ -113,8 +113,16 @@ impl ActorHarness {
     }
 
     /// Replace the multi-packet receiver.
-    pub fn set_multi_queue(&mut self, queue: Option<mpsc::Receiver<u8>>) {
-        self.actor.set_multi_packet(queue);
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::connection::ConnectionStateError`] if a response stream
+    /// is currently active.
+    pub fn set_multi_queue(
+        &mut self,
+        queue: Option<mpsc::Receiver<u8>>,
+    ) -> Result<(), crate::connection::ConnectionStateError> {
+        self.actor.set_multi_packet(queue)
     }
 
     /// Returns `true` when the low-priority queue is still available.
@@ -123,7 +131,7 @@ impl ActorHarness {
 
     /// Returns `true` when the multi-packet queue is still available.
     #[must_use]
-    pub fn has_multi_queue(&self) -> bool { self.actor.multi_packet.is_active() }
+    pub fn has_multi_queue(&self) -> bool { self.actor.active_output.is_multi_packet() }
 
     /// Process a multi-packet poll result.
     pub fn process_multi_packet(&mut self, res: Option<u8>) {
@@ -238,7 +246,7 @@ mod tests {
     fn has_multi_queue_true_after_install() {
         let mut harness = ActorHarness::new().expect("build ActorHarness");
         let (_tx, rx) = mpsc::channel(1);
-        harness.set_multi_queue(Some(rx));
+        harness.set_multi_queue(Some(rx)).expect("set_multi_queue");
         assert!(
             harness.has_multi_queue(),
             "multi-packet queue should be active after install"
@@ -249,12 +257,12 @@ mod tests {
     fn has_multi_queue_false_after_clear() {
         let mut harness = ActorHarness::new().expect("build ActorHarness");
         let (_tx, rx) = mpsc::channel(1);
-        harness.set_multi_queue(Some(rx));
+        harness.set_multi_queue(Some(rx)).expect("set_multi_queue");
         assert!(
             harness.has_multi_queue(),
             "multi-packet queue should be active after install"
         );
-        harness.set_multi_queue(None);
+        harness.set_multi_queue(None).expect("clear multi_queue");
         assert!(
             !harness.has_multi_queue(),
             "multi-packet queue should be inactive after clear"

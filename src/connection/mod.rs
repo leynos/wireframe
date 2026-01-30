@@ -16,6 +16,7 @@ mod shutdown;
 mod state;
 
 use std::{
+    fmt,
     net::SocketAddr,
     sync::{
         Arc,
@@ -96,6 +97,151 @@ impl<F> ConnectionChannels<F> {
     pub fn new(queues: PushQueues<F>, handle: PushHandle<F>) -> Self { Self { queues, handle } }
 }
 
+/// Error returned when attempting to set an active output source while
+/// another source is already active.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectionStateError {
+    /// A multi-packet channel is currently active and must be cleared before
+    /// setting a response stream.
+    MultiPacketActive,
+    /// A response stream is currently active and must be cleared before
+    /// setting a multi-packet channel.
+    ResponseActive,
+}
+
+impl fmt::Display for ConnectionStateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MultiPacketActive => write!(
+                f,
+                "cannot set response while a multi-packet channel is active"
+            ),
+            Self::ResponseActive => write!(
+                f,
+                "cannot set multi-packet channel while a response stream is active"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ConnectionStateError {}
+
+/// Active output source for the connection actor.
+///
+/// At most one output source can be active at a time. This enum makes the
+/// mutual exclusion compile-time enforced rather than runtime-asserted.
+enum ActiveOutput<F, E> {
+    /// No output source is active.
+    None,
+    /// A streaming response is active.
+    Response(FrameStream<F, E>),
+    /// A multi-packet channel is active.
+    MultiPacket(MultiPacketContext<F>),
+}
+
+/// Result of shutting down an active output source.
+struct ShutdownResult {
+    /// Correlation ID of the multi-packet context, if any.
+    correlation_id: Option<u64>,
+    /// Whether the source should be marked as closed in `ActorState`.
+    source_closed: bool,
+    /// Whether `on_command_end` hook should be called.
+    call_on_command_end: bool,
+}
+
+/// Result of closing an active multi-packet channel.
+struct MultiPacketCloseResult {
+    /// Correlation ID of the multi-packet context, if any.
+    correlation_id: Option<u64>,
+}
+
+impl<F, E> ActiveOutput<F, E> {
+    /// Returns `true` if a streaming response is active.
+    fn is_response(&self) -> bool { matches!(self, Self::Response(_)) }
+
+    /// Returns `true` if a multi-packet channel is active.
+    fn is_multi_packet(&self) -> bool { matches!(self, Self::MultiPacket(_)) }
+
+    /// Returns a mutable reference to the multi-packet context if active.
+    fn multi_packet_mut(&mut self) -> Option<&mut MultiPacketContext<F>> {
+        match self {
+            Self::MultiPacket(ctx) => Some(ctx),
+            _ => Option::None,
+        }
+    }
+
+    /// Clears the response stream, leaving `None` in its place.
+    fn clear_response(&mut self) {
+        if matches!(self, Self::Response(_)) {
+            *self = Self::None;
+        }
+    }
+
+    /// Perform shutdown cleanup and return the result.
+    ///
+    /// This takes ownership of the active output, closes any receivers, and
+    /// returns metadata needed by the caller to complete shutdown handling.
+    fn shutdown(&mut self) -> ShutdownResult {
+        match std::mem::replace(self, Self::None) {
+            Self::MultiPacket(mut ctx) => {
+                let correlation_id = ctx.correlation_id();
+                let source_closed = if let Some(rx) = ctx.channel_mut() {
+                    rx.close();
+                    true
+                } else {
+                    false
+                };
+                ShutdownResult {
+                    correlation_id,
+                    source_closed,
+                    call_on_command_end: true,
+                }
+            }
+            Self::Response(_) => ShutdownResult {
+                correlation_id: None,
+                source_closed: true,
+                call_on_command_end: false,
+            },
+            Self::None => ShutdownResult {
+                correlation_id: None,
+                source_closed: false,
+                call_on_command_end: false,
+            },
+        }
+    }
+
+    /// Begin closing a multi-packet channel.
+    ///
+    /// This closes the receiver and returns the correlation ID for logging,
+    /// but does NOT clear the context yet. The caller must call `clear()` after
+    /// emitting any terminator frames that need correlation IDs applied.
+    fn close_multi_packet(&mut self) -> MultiPacketCloseResult {
+        let correlation_id = self.multi_packet_mut().and_then(|ctx| ctx.correlation_id());
+        if let Self::MultiPacket(ctx) = self
+            && let Some(rx) = ctx.channel_mut()
+        {
+            rx.close();
+        }
+        MultiPacketCloseResult { correlation_id }
+    }
+
+    /// Clear the active output to `None`.
+    fn clear(&mut self) { *self = Self::None; }
+}
+
+/// Availability flags for event sources polled by the connection actor.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Availability flags are a natural fit for booleans; no state machine needed"
+)]
+#[derive(Clone, Copy)]
+struct EventAvailability {
+    high: bool,
+    low: bool,
+    multi_packet: bool,
+    response: bool,
+}
+
 impl Default for FairnessConfig {
     fn default() -> Self {
         Self {
@@ -125,11 +271,12 @@ impl Default for FairnessConfig {
 pub struct ConnectionActor<F, E> {
     high_rx: Option<mpsc::Receiver<F>>,
     low_rx: Option<mpsc::Receiver<F>>,
-    response: Option<FrameStream<F, E>>, // current streaming response
-    /// Optional multi-packet channel drained after low-priority frames.
-    /// This preserves fairness with queued sources.
+    /// Active output source: either a streaming response or a multi-packet channel.
+    ///
+    /// At most one output source can be active at a time. The multi-packet channel
+    /// is drained after low-priority frames to preserve fairness with queued sources.
     /// The actor emits the protocol terminator when the sender closes the channel.
-    multi_packet: MultiPacketContext<F>,
+    active_output: ActiveOutput<F, E>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
@@ -202,11 +349,14 @@ where
         let ConnectionChannels { queues, handle } = channels;
         let ctx = ConnectionContext;
         let counter = ActiveConnection::new();
+        let active_output = match response {
+            Some(stream) => ActiveOutput::Response(stream),
+            None => ActiveOutput::None,
+        };
         let mut actor = Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
-            response,
-            multi_packet: MultiPacketContext::new(),
+            active_output,
             shutdown,
             counter: Some(counter),
             hooks,
@@ -242,23 +392,44 @@ where
     }
 
     /// Set or replace the current streaming response.
-    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
-        debug_assert!(
-            !self.multi_packet.is_active(),
-            concat!(
-                "ConnectionActor invariant violated: cannot set response while a ",
-                "multi_packet channel is active"
-            ),
-        );
-        self.response = stream;
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionStateError::MultiPacketActive`] if a multi-packet
+    /// channel is currently active.
+    pub fn set_response(
+        &mut self,
+        stream: Option<FrameStream<F, E>>,
+    ) -> Result<(), ConnectionStateError> {
+        if self.active_output.is_multi_packet() {
+            return Err(ConnectionStateError::MultiPacketActive);
+        }
+        self.active_output = match stream {
+            Some(s) => ActiveOutput::Response(s),
+            None => ActiveOutput::None,
+        };
+        Ok(())
     }
 
     /// Set or replace the current multi-packet response channel.
-    pub fn set_multi_packet(&mut self, channel: Option<mpsc::Receiver<F>>) {
-        self.set_multi_packet_with_correlation(channel, None);
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionStateError::ResponseActive`] if a response stream is
+    /// currently active.
+    pub fn set_multi_packet(
+        &mut self,
+        channel: Option<mpsc::Receiver<F>>,
+    ) -> Result<(), ConnectionStateError> {
+        self.set_multi_packet_with_correlation(channel, None)
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionStateError::ResponseActive`] if a response stream is
+    /// currently active.
     ///
     /// # Examples
     ///
@@ -274,24 +445,27 @@ where
     /// # let shutdown = CancellationToken::new();
     /// # let mut actor = ConnectionActor::new(queues, handle, None, shutdown);
     /// # let (_tx, rx) = mpsc::channel(4);
-    /// actor.set_multi_packet_with_correlation(Some(rx), Some(7));
+    /// actor.set_multi_packet_with_correlation(Some(rx), Some(7))?;
+    /// # Ok::<(), wireframe::connection::ConnectionStateError>(())
     /// ```
     pub fn set_multi_packet_with_correlation(
         &mut self,
         channel: Option<mpsc::Receiver<F>>,
         correlation_id: Option<u64>,
-    ) {
-        debug_assert!(
-            self.response.is_none(),
-            concat!(
-                "ConnectionActor invariant violated: cannot set multi_packet while a ",
-                "response stream is active"
-            ),
-        );
-        self.multi_packet.install(channel, correlation_id);
+    ) -> Result<(), ConnectionStateError> {
+        if self.active_output.is_response() {
+            return Err(ConnectionStateError::ResponseActive);
+        }
+        self.active_output = match channel {
+            Some(rx) => {
+                let mut ctx = MultiPacketContext::new();
+                ctx.install(Some(rx), correlation_id);
+                ActiveOutput::MultiPacket(ctx)
+            }
+            None => ActiveOutput::None,
+        };
+        Ok(())
     }
-
-    fn clear_multi_packet(&mut self) { self.multi_packet.clear(); }
 
     /// Replace the low-priority queue used for tests.
     pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<F>>) { self.low_rx = queue; }
@@ -321,12 +495,10 @@ where
             return Ok(());
         }
 
-        debug_assert!(
-            usize::from(self.response.is_some()) + usize::from(self.multi_packet.is_active()) <= 1,
-            "ConnectionActor invariant violated: at most one of response or multi_packet may be \
-             active"
+        let mut state = ActorState::new(
+            self.active_output.is_response(),
+            self.active_output.is_multi_packet(),
         );
-        let mut state = ActorState::new(self.response.is_some(), self.multi_packet.is_active());
 
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
@@ -337,6 +509,16 @@ where
         );
         let _ = self.counter.take();
         Ok(())
+    }
+
+    /// Compute which event sources are currently available for polling.
+    fn compute_availability(&self, state: &ActorState) -> EventAvailability {
+        EventAvailability {
+            high: self.high_rx.is_some(),
+            low: self.low_rx.is_some(),
+            multi_packet: self.active_output.is_multi_packet() && !state.is_shutting_down(),
+            response: self.active_output.is_response() && !state.is_shutting_down(),
+        }
     }
 
     /// Await the next ready event using biased priority ordering.
@@ -355,19 +537,25 @@ where
         reason = "tokio::select! expands to modulus operations internally"
     )]
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
-        let high_available = self.high_rx.is_some();
-        let low_available = self.low_rx.is_some();
-        let multi_available = self.multi_packet.is_active() && !state.is_shutting_down();
-        let resp_available = self.response.is_some() && !state.is_shutting_down();
+        let avail = self.compute_availability(state);
+
+        // Extract mutable references before the select! to satisfy the borrow
+        // checker. Only one of these can be Some due to the ActiveOutput enum
+        // invariant.
+        let (multi_rx, response_stream) = match &mut self.active_output {
+            ActiveOutput::MultiPacket(ctx) => (ctx.channel_mut(), None),
+            ActiveOutput::Response(stream) => (None, Some(stream)),
+            ActiveOutput::None => (None, None),
+        };
 
         tokio::select! {
             biased;
 
             () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
-            res = Self::poll_queue(self.high_rx.as_mut()), if high_available => Event::High(res),
-            res = Self::poll_queue(self.low_rx.as_mut()), if low_available => Event::Low(res),
-            res = Self::poll_queue(self.multi_packet.channel_mut()), if multi_available => Event::MultiPacket(res),
-            res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
+            res = Self::poll_queue(self.high_rx.as_mut()), if avail.high => Event::High(res),
+            res = Self::poll_queue(self.low_rx.as_mut()), if avail.low => Event::Low(res),
+            res = Self::poll_queue(multi_rx), if avail.multi_packet => Event::MultiPacket(res),
+            res = Self::poll_response(response_stream), if avail.response => Event::Response(res),
             else => Event::Idle,
         }
     }

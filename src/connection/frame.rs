@@ -23,12 +23,16 @@ where
 
     /// Apply correlation stamping to a multi-packet frame.
     pub(super) fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
-        if !self.multi_packet.is_stamping_enabled() {
+        let Some(ctx) = self.active_output.multi_packet_mut() else {
             // No channel is active, so there is nothing to stamp.
+            return;
+        };
+
+        if !ctx.is_stamping_enabled() {
             return;
         }
 
-        let correlation_id = self.multi_packet.correlation_id();
+        let correlation_id = ctx.correlation_id();
         frame.set_correlation_id(correlation_id);
 
         if let Some(expected) = correlation_id {

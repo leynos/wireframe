@@ -80,7 +80,9 @@ impl CorrelationWorld {
         let shutdown = CancellationToken::new();
         let mut actor: ConnectionActor<Envelope, ()> =
             ConnectionActor::new(queues, handle, None, shutdown);
-        actor.set_multi_packet_with_correlation(Some(rx), expected);
+        actor
+            .set_multi_packet_with_correlation(Some(rx), expected)
+            .map_err(|e| format!("set_multi_packet_with_correlation failed: {e}"))?;
         actor
             .run(&mut self.frames)
             .await

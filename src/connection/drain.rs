@@ -36,8 +36,12 @@ where
         let DrainContext { out, state } = ctx;
         match res {
             Some(frame) => {
+                let is_stamping = self
+                    .active_output
+                    .multi_packet_mut()
+                    .is_some_and(|ctx| ctx.is_stamping_enabled());
                 match kind {
-                    QueueKind::Multi if self.multi_packet.is_stamping_enabled() => {
+                    QueueKind::Multi if is_stamping => {
                         self.emit_multi_packet_frame(frame, out);
                     }
                     _ => {
@@ -144,8 +148,11 @@ where
                 }
             }
             QueueKind::Multi => {
-                let result = match self.multi_packet.channel_mut() {
-                    Some(rx) => rx.try_recv(),
+                let result = match self.active_output.multi_packet_mut() {
+                    Some(ctx) => match ctx.channel_mut() {
+                        Some(rx) => rx.try_recv(),
+                        None => return false,
+                    },
                     None => return false,
                 };
 
