@@ -16,7 +16,6 @@ mod shutdown;
 mod state;
 
 use std::{
-    fmt,
     net::SocketAddr,
     sync::{
         Arc,
@@ -28,6 +27,7 @@ use event::Event;
 use log::info;
 use multi_packet::MultiPacketContext;
 use state::ActorState;
+use thiserror::Error;
 use tokio::{sync::mpsc, time::Duration};
 use tokio_util::sync::CancellationToken;
 
@@ -99,32 +99,17 @@ impl<F> ConnectionChannels<F> {
 
 /// Error returned when attempting to set an active output source while
 /// another source is already active.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum ConnectionStateError {
     /// A multi-packet channel is currently active and must be cleared before
     /// setting a response stream.
+    #[error("cannot set response while a multi-packet channel is active")]
     MultiPacketActive,
     /// A response stream is currently active and must be cleared before
     /// setting a multi-packet channel.
+    #[error("cannot set multi-packet channel while a response stream is active")]
     ResponseActive,
 }
-
-impl fmt::Display for ConnectionStateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MultiPacketActive => write!(
-                f,
-                "cannot set response while a multi-packet channel is active"
-            ),
-            Self::ResponseActive => write!(
-                f,
-                "cannot set multi-packet channel while a response stream is active"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ConnectionStateError {}
 
 /// Active output source for the connection actor.
 ///
