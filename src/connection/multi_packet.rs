@@ -75,14 +75,7 @@ impl<F> MultiPacketContext<F> {
         self.stamp = stamp;
     }
 
-    pub(super) fn clear(&mut self) {
-        self.channel = None;
-        self.stamp = MultiPacketStamp::Disabled;
-    }
-
     pub(super) fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
-
-    pub(super) fn take_channel(&mut self) -> Option<mpsc::Receiver<F>> { self.channel.take() }
 
     /// Returns `true` if correlation stamping is enabled.
     pub(super) fn is_stamping_enabled(&self) -> bool {
@@ -95,6 +88,4 @@ impl<F> MultiPacketContext<F> {
             MultiPacketStamp::Disabled => None,
         }
     }
-
-    pub(super) fn is_active(&self) -> bool { self.channel.is_some() }
 }

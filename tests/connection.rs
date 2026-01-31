@@ -260,7 +260,7 @@ fn process_multi_packet_none_emits_end_frame(harness_factory: HarnessFactory) ->
             .with_stream_end(|_| Some(9)),
     )?;
     let (_tx, rx) = mpsc::channel(1);
-    harness.set_multi_queue(Some(rx));
+    harness.set_multi_queue(Some(rx))?;
 
     harness.process_multi_packet(None);
 
@@ -292,7 +292,7 @@ fn handle_multi_packet_closed_behaviour(
             .with_stream_end(move |_| terminator),
     )?;
     let (_tx, rx) = mpsc::channel(1);
-    harness.set_multi_queue(Some(rx));
+    harness.set_multi_queue(Some(rx))?;
 
     harness.handle_multi_packet_closed();
 
@@ -361,7 +361,7 @@ fn handle_multi_packet_closed_logs_reason(
     let (_tx, rx) = mpsc::channel(1);
     harness
         .actor_mut()
-        .set_multi_packet_with_correlation(Some(rx), Some(11));
+        .set_multi_packet_with_correlation(Some(rx), Some(11))?;
     logger.clear();
     harness.handle_multi_packet_closed();
     assert_reason_logged(&mut logger, Level::Info, "drained", Some(11));
@@ -383,7 +383,7 @@ fn try_opportunistic_drain_multi_disconnect_logs_reason(
     let (tx, rx) = mpsc::channel(1);
     harness
         .actor_mut()
-        .set_multi_packet_with_correlation(Some(rx), Some(12));
+        .set_multi_packet_with_correlation(Some(rx), Some(12))?;
     drop(tx);
     logger.clear();
     let drained = harness.try_drain_multi();
@@ -409,7 +409,7 @@ fn start_shutdown_logs_reason(
     let (_tx, rx) = mpsc::channel(1);
     harness
         .actor_mut()
-        .set_multi_packet_with_correlation(Some(rx), Some(13));
+        .set_multi_packet_with_correlation(Some(rx), Some(13))?;
     logger.clear();
     harness.start_shutdown();
     assert_reason_logged(&mut logger, Level::Info, "shutdown", Some(13));
@@ -429,7 +429,7 @@ fn try_opportunistic_drain_multi_disconnect_emits_terminator(
             .with_stream_end(|_| Some(5)),
     )?;
     let (tx, rx) = mpsc::channel(1);
-    harness.set_multi_queue(Some(rx));
+    harness.set_multi_queue(Some(rx))?;
     drop(tx);
 
     let drained = harness.try_drain_multi();

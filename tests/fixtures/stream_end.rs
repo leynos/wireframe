@@ -87,7 +87,9 @@ impl StreamEndWorld {
                     shutdown,
                     hooks,
                 );
-                actor.set_multi_packet(Some(rx));
+                actor
+                    .set_multi_packet(Some(rx))
+                    .map_err(|e| format!("set_multi_packet failed: {e}"))?;
                 actor
                     .run(&mut temp.frames)
                     .await
@@ -141,7 +143,8 @@ impl StreamEndWorld {
         let (tx, rx) = mpsc::channel(4);
         harness
             .actor_mut()
-            .set_multi_packet_with_correlation(Some(rx), Some(correlation_id));
+            .set_multi_packet_with_correlation(Some(rx), Some(correlation_id))
+            .map_err(|e| format!("set_multi_packet_with_correlation failed: {e}"))?;
         match mode {
             MultiPacketMode::Disconnect { send_frames } => {
                 if *send_frames {

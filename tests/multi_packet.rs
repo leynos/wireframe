@@ -99,7 +99,9 @@ async fn connection_actor_drains_multi_packet_channel(
 
     let (queues, handle, shutdown) = actor_components?;
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
-    actor.set_multi_packet(Some(rx));
+    actor
+        .set_multi_packet(Some(rx))
+        .map_err(|e| boxed_err("set_multi_packet error", e))?;
 
     let mut out = Vec::new();
     actor
@@ -134,7 +136,9 @@ async fn connection_actor_interleaves_multi_packet_and_priority_frames(
         max_high_before_low: 1,
         time_slice: None,
     });
-    actor.set_multi_packet(Some(multi_rx));
+    actor
+        .set_multi_packet(Some(multi_rx))
+        .map_err(|e| boxed_err("set_multi_packet error", e))?;
 
     let mut out = Vec::new();
     actor
@@ -154,7 +158,9 @@ async fn shutdown_completes_multi_packet_channel(
     let (queues, handle, shutdown) = actor_components?;
     let (tx, rx) = mpsc::channel(1);
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
-    actor.set_multi_packet(Some(rx));
+    actor
+        .set_multi_packet(Some(rx))
+        .map_err(|e| boxed_err("set_multi_packet error", e))?;
 
     let cancel = actor.shutdown_token();
 
@@ -188,7 +194,9 @@ async fn shutdown_during_active_multi_packet_send(
     let (queues, handle, shutdown) = actor_components?;
     let (tx, rx) = mpsc::channel(4);
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
-    actor.set_multi_packet(Some(rx));
+    actor
+        .set_multi_packet(Some(rx))
+        .map_err(|e| boxed_err("set_multi_packet error", e))?;
 
     let cancel = actor.shutdown_token();
 

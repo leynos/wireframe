@@ -80,7 +80,9 @@ async fn multi_packet_emits_end_frame(
         shutdown,
         hooks,
     );
-    actor.set_multi_packet(Some(rx));
+    actor
+        .set_multi_packet(Some(rx))
+        .map_err(|e| std::io::Error::other(format!("set_multi_packet: {e}")))?;
 
     let mut out = Vec::new();
     actor
@@ -121,7 +123,9 @@ async fn multi_packet_respects_no_terminator(
         shutdown,
         hooks,
     );
-    actor.set_multi_packet(Some(rx));
+    actor
+        .set_multi_packet(Some(rx))
+        .map_err(|e| std::io::Error::other(format!("set_multi_packet: {e}")))?;
 
     let mut out = Vec::new();
     actor
@@ -150,7 +154,9 @@ async fn multi_packet_empty_channel_emits_end(
         shutdown,
         hooks,
     );
-    actor.set_multi_packet(Some(rx));
+    actor
+        .set_multi_packet(Some(rx))
+        .map_err(|e| std::io::Error::other(format!("set_multi_packet: {e}")))?;
 
     let mut out = Vec::new();
     actor
@@ -188,7 +194,9 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
         shutdown,
         hooks,
     );
-    actor.set_multi_packet(Some(rx));
+    actor
+        .set_multi_packet(Some(rx))
+        .map_err(|e| std::io::Error::other(format!("set_multi_packet: {e}")))?;
 
     let mut out = Vec::new();
     actor

@@ -43,7 +43,9 @@ impl MultiPacketWorld {
         let shutdown = CancellationToken::new();
         let mut actor: ConnectionActor<_, ()> =
             ConnectionActor::new(queues, handle, None, shutdown);
-        actor.set_multi_packet(Some(rx));
+        actor
+            .set_multi_packet(Some(rx))
+            .map_err(|e| format!("set_multi_packet failed: {e}"))?;
 
         let mut frames = Vec::new();
         actor
