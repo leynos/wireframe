@@ -10,6 +10,7 @@ mod drain;
 mod event;
 mod frame;
 mod multi_packet;
+mod output;
 mod polling;
 mod response;
 mod shutdown;
@@ -26,6 +27,7 @@ use std::{
 use event::Event;
 use log::info;
 use multi_packet::MultiPacketContext;
+use output::{ActiveOutput, EventAvailability};
 use state::ActorState;
 use thiserror::Error;
 use tokio::{sync::mpsc, time::Duration};
@@ -109,122 +111,6 @@ pub enum ConnectionStateError {
     /// setting a multi-packet channel.
     #[error("cannot set multi-packet channel while a response stream is active")]
     ResponseActive,
-}
-
-/// Active output source for the connection actor.
-///
-/// At most one output source can be active at a time. This enum makes the
-/// mutual exclusion compile-time enforced rather than runtime-asserted.
-enum ActiveOutput<F, E> {
-    /// No output source is active.
-    None,
-    /// A streaming response is active.
-    Response(FrameStream<F, E>),
-    /// A multi-packet channel is active.
-    MultiPacket(MultiPacketContext<F>),
-}
-
-/// Result of shutting down an active output source.
-struct ShutdownResult {
-    /// Correlation ID of the multi-packet context, if any.
-    correlation_id: Option<u64>,
-    /// Whether the source should be marked as closed in `ActorState`.
-    source_closed: bool,
-    /// Whether `on_command_end` hook should be called.
-    call_on_command_end: bool,
-}
-
-/// Result of closing an active multi-packet channel.
-struct MultiPacketCloseResult {
-    /// Correlation ID of the multi-packet context, if any.
-    correlation_id: Option<u64>,
-}
-
-impl<F, E> ActiveOutput<F, E> {
-    /// Returns `true` if a streaming response is active.
-    fn is_response(&self) -> bool { matches!(self, Self::Response(_)) }
-
-    /// Returns `true` if a multi-packet channel is active.
-    fn is_multi_packet(&self) -> bool { matches!(self, Self::MultiPacket(_)) }
-
-    /// Returns a mutable reference to the multi-packet context if active.
-    fn multi_packet_mut(&mut self) -> Option<&mut MultiPacketContext<F>> {
-        match self {
-            Self::MultiPacket(ctx) => Some(ctx),
-            _ => Option::None,
-        }
-    }
-
-    /// Clears the response stream, leaving `None` in its place.
-    fn clear_response(&mut self) {
-        if matches!(self, Self::Response(_)) {
-            *self = Self::None;
-        }
-    }
-
-    /// Perform shutdown cleanup and return the result.
-    ///
-    /// This takes ownership of the active output, closes any receivers, and
-    /// returns metadata needed by the caller to complete shutdown handling.
-    fn shutdown(&mut self) -> ShutdownResult {
-        match std::mem::replace(self, Self::None) {
-            Self::MultiPacket(mut ctx) => {
-                let correlation_id = ctx.correlation_id();
-                let source_closed = if let Some(rx) = ctx.channel_mut() {
-                    rx.close();
-                    true
-                } else {
-                    false
-                };
-                ShutdownResult {
-                    correlation_id,
-                    source_closed,
-                    call_on_command_end: true,
-                }
-            }
-            Self::Response(_) => ShutdownResult {
-                correlation_id: None,
-                source_closed: true,
-                call_on_command_end: false,
-            },
-            Self::None => ShutdownResult {
-                correlation_id: None,
-                source_closed: false,
-                call_on_command_end: false,
-            },
-        }
-    }
-
-    /// Begin closing a multi-packet channel.
-    ///
-    /// This closes the receiver and returns the correlation ID for logging,
-    /// but does NOT clear the context yet. The caller must call `clear()` after
-    /// emitting any terminator frames that need correlation IDs applied.
-    fn close_multi_packet(&mut self) -> MultiPacketCloseResult {
-        let correlation_id = self.multi_packet_mut().and_then(|ctx| ctx.correlation_id());
-        if let Self::MultiPacket(ctx) = self
-            && let Some(rx) = ctx.channel_mut()
-        {
-            rx.close();
-        }
-        MultiPacketCloseResult { correlation_id }
-    }
-
-    /// Clear the active output to `None`.
-    fn clear(&mut self) { *self = Self::None; }
-}
-
-/// Availability flags for event sources polled by the connection actor.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "Availability flags are a natural fit for booleans; no state machine needed"
-)]
-#[derive(Clone, Copy)]
-struct EventAvailability {
-    high: bool,
-    low: bool,
-    multi_packet: bool,
-    response: bool,
 }
 
 impl Default for FairnessConfig {
