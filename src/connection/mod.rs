@@ -5,6 +5,8 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
+mod channels;
+mod counter;
 mod dispatch;
 mod drain;
 mod event;
@@ -16,14 +18,11 @@ mod response;
 mod shutdown;
 mod state;
 
-use std::{
-    net::SocketAddr,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::{net::SocketAddr, sync::Arc};
 
+pub use channels::ConnectionChannels;
+use counter::ActiveConnection;
+pub use counter::active_connection_count;
 use event::Event;
 use log::info;
 use multi_packet::MultiPacketContext;
@@ -32,32 +31,6 @@ use state::ActorState;
 use thiserror::Error;
 use tokio::{sync::mpsc, time::Duration};
 use tokio_util::sync::CancellationToken;
-
-/// Global gauge tracking active connections.
-static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
-
-/// RAII guard incrementing [`ACTIVE_CONNECTIONS`] on creation and
-/// decrementing it on drop.
-struct ActiveConnection;
-
-impl ActiveConnection {
-    fn new() -> Self {
-        ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
-        crate::metrics::inc_connections();
-        Self
-    }
-}
-
-impl Drop for ActiveConnection {
-    fn drop(&mut self) {
-        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::Relaxed);
-        crate::metrics::dec_connections();
-    }
-}
-
-/// Return the current number of active connections.
-#[must_use]
-pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
     app::Packet,
@@ -83,20 +56,6 @@ pub struct FairnessConfig {
     /// Optional time slice after which the low-priority queue is checked
     /// if high-priority traffic has been continuous.
     pub time_slice: Option<Duration>,
-}
-
-/// Bundles push queues with their shared handle for actor construction.
-pub struct ConnectionChannels<F> {
-    /// Receivers for high- and low-priority frames consumed by the actor.
-    pub queues: PushQueues<F>,
-    /// Handle cloned by producers to enqueue frames into the shared queues.
-    pub handle: PushHandle<F>,
-}
-
-impl<F> ConnectionChannels<F> {
-    /// Create a new bundle of push queues and their associated handle.
-    #[must_use]
-    pub fn new(queues: PushQueues<F>, handle: PushHandle<F>) -> Self { Self { queues, handle } }
 }
 
 /// Error returned when attempting to set an active output source while
@@ -156,20 +115,6 @@ pub struct ConnectionActor<F, E> {
     fragmenter: Option<Arc<Fragmenter>>,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
-}
-
-/// Context for drain operations containing mutable references to output and actor state.
-struct DrainContext<'a, F> {
-    out: &'a mut Vec<F>,
-    state: &'a mut ActorState,
-}
-
-/// Queue variants processed by the connection actor.
-#[derive(Clone, Copy)]
-enum QueueKind {
-    High,
-    Low,
-    Multi,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -237,10 +182,11 @@ where
             connection_id: None,
             peer_addr: None,
         };
-        let current = ACTIVE_CONNECTIONS.load(Ordering::Relaxed);
         info!(
             "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
-            current, actor.connection_id, actor.peer_addr
+            counter::current_count(),
+            actor.connection_id,
+            actor.peer_addr
         );
         actor.hooks.on_connection_setup(handle, &mut actor.ctx);
         actor

@@ -2,14 +2,22 @@
 
 use tokio::sync::mpsc::error::TryRecvError;
 
-use super::{
-    ConnectionActor,
-    DrainContext,
-    QueueKind,
-    multi_packet::MultiPacketTerminationReason,
-    state::ActorState,
-};
+use super::{ConnectionActor, multi_packet::MultiPacketTerminationReason, state::ActorState};
 use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
+
+/// Context for drain operations containing mutable references to output and actor state.
+pub(super) struct DrainContext<'a, F> {
+    pub(super) out: &'a mut Vec<F>,
+    pub(super) state: &'a mut ActorState,
+}
+
+/// Queue variants processed by the connection actor.
+#[derive(Clone, Copy)]
+pub(super) enum QueueKind {
+    High,
+    Low,
+    Multi,
+}
 
 impl<F, E> ConnectionActor<F, E>
 where

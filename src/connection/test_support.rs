@@ -9,8 +9,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ConnectionActor,
     ConnectionChannels,
-    DrainContext,
-    QueueKind,
+    drain::{DrainContext, QueueKind},
     multi_packet::MultiPacketTerminationReason,
     state::ActorState,
 };
