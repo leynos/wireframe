@@ -235,6 +235,7 @@ mod tests {
 
     #[fixture]
     fn harness() -> ActorHarness {
+        // Provides an ActorHarness for parameterised multi-queue state tests.
         ActorHarness::new().expect("build ActorHarness")
     }
 
