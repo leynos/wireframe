@@ -235,10 +235,12 @@ mod tests {
 
     use super::*;
 
+    type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
     #[fixture]
-    fn harness() -> ActorHarness {
+    fn harness() -> TestResult<ActorHarness> {
         // Provides an ActorHarness for parameterised multi-queue state tests.
-        ActorHarness::new().expect("build ActorHarness")
+        ActorHarness::new().map_err(Into::into)
     }
 
     #[rstest]
@@ -249,19 +251,19 @@ mod tests {
         #[case] install: bool,
         #[case] clear: bool,
         #[case] expected: bool,
-        mut harness: ActorHarness,
-    ) {
+        harness: TestResult<ActorHarness>,
+    ) -> TestResult<()> {
+        let mut harness = harness?;
         if install {
             let (_tx, rx) = mpsc::channel(1);
-            harness.set_multi_queue(Some(rx)).expect("set_multi_queue");
+            harness.set_multi_queue(Some(rx))?;
         }
         if clear {
-            harness.set_multi_queue(None).expect("clear multi_queue");
+            harness.set_multi_queue(None)?;
         }
-        assert_eq!(
-            harness.has_multi_queue(),
-            expected,
-            "multi-packet queue state mismatch"
-        );
+        if harness.has_multi_queue() != expected {
+            return Err("multi-packet queue state mismatch".into());
+        }
+        Ok(())
     }
 }
