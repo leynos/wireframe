@@ -5,56 +5,32 @@
 //! `biased` keyword ensures high-priority messages are processed before
 //! low-priority ones, with streamed responses handled last.
 
+mod channels;
+mod counter;
 mod dispatch;
 mod drain;
 mod event;
 mod frame;
 mod multi_packet;
+mod output;
 mod polling;
 mod response;
 mod shutdown;
 mod state;
 
-use std::{
-    net::SocketAddr,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::{net::SocketAddr, sync::Arc};
 
+pub use channels::ConnectionChannels;
+use counter::ActiveConnection;
+pub use counter::active_connection_count;
 use event::Event;
 use log::info;
 use multi_packet::MultiPacketContext;
+use output::{ActiveOutput, EventAvailability};
 use state::ActorState;
+use thiserror::Error;
 use tokio::{sync::mpsc, time::Duration};
 use tokio_util::sync::CancellationToken;
-
-/// Global gauge tracking active connections.
-static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
-
-/// RAII guard incrementing [`ACTIVE_CONNECTIONS`] on creation and
-/// decrementing it on drop.
-struct ActiveConnection;
-
-impl ActiveConnection {
-    fn new() -> Self {
-        ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
-        crate::metrics::inc_connections();
-        Self
-    }
-}
-
-impl Drop for ActiveConnection {
-    fn drop(&mut self) {
-        ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::Relaxed);
-        crate::metrics::dec_connections();
-    }
-}
-
-/// Return the current number of active connections.
-#[must_use]
-pub fn active_connection_count() -> u64 { ACTIVE_CONNECTIONS.load(Ordering::Relaxed) }
 
 use crate::{
     app::Packet,
@@ -82,18 +58,18 @@ pub struct FairnessConfig {
     pub time_slice: Option<Duration>,
 }
 
-/// Bundles push queues with their shared handle for actor construction.
-pub struct ConnectionChannels<F> {
-    /// Receivers for high- and low-priority frames consumed by the actor.
-    pub queues: PushQueues<F>,
-    /// Handle cloned by producers to enqueue frames into the shared queues.
-    pub handle: PushHandle<F>,
-}
-
-impl<F> ConnectionChannels<F> {
-    /// Create a new bundle of push queues and their associated handle.
-    #[must_use]
-    pub fn new(queues: PushQueues<F>, handle: PushHandle<F>) -> Self { Self { queues, handle } }
+/// Error returned when attempting to set an active output source while
+/// another source is already active.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
+pub enum ConnectionStateError {
+    /// A multi-packet channel is currently active and must be cleared before
+    /// setting a response stream.
+    #[error("cannot set response while a multi-packet channel is active")]
+    MultiPacketActive,
+    /// A response stream is currently active and must be cleared before
+    /// setting a multi-packet channel.
+    #[error("cannot set multi-packet channel while a response stream is active")]
+    ResponseActive,
 }
 
 impl Default for FairnessConfig {
@@ -125,11 +101,12 @@ impl Default for FairnessConfig {
 pub struct ConnectionActor<F, E> {
     high_rx: Option<mpsc::Receiver<F>>,
     low_rx: Option<mpsc::Receiver<F>>,
-    response: Option<FrameStream<F, E>>, // current streaming response
-    /// Optional multi-packet channel drained after low-priority frames.
-    /// This preserves fairness with queued sources.
+    /// Active output source: either a streaming response or a multi-packet channel.
+    ///
+    /// At most one output source can be active at a time. The multi-packet channel
+    /// is drained after low-priority frames to preserve fairness with queued sources.
     /// The actor emits the protocol terminator when the sender closes the channel.
-    multi_packet: MultiPacketContext<F>,
+    active_output: ActiveOutput<F, E>,
     shutdown: CancellationToken,
     counter: Option<ActiveConnection>,
     hooks: ProtocolHooks<F, E>,
@@ -138,20 +115,6 @@ pub struct ConnectionActor<F, E> {
     fragmenter: Option<Arc<Fragmenter>>,
     connection_id: Option<ConnectionId>,
     peer_addr: Option<SocketAddr>,
-}
-
-/// Context for drain operations containing mutable references to output and actor state.
-struct DrainContext<'a, F> {
-    out: &'a mut Vec<F>,
-    state: &'a mut ActorState,
-}
-
-/// Queue variants processed by the connection actor.
-#[derive(Clone, Copy)]
-enum QueueKind {
-    High,
-    Low,
-    Multi,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -202,11 +165,14 @@ where
         let ConnectionChannels { queues, handle } = channels;
         let ctx = ConnectionContext;
         let counter = ActiveConnection::new();
+        let active_output = match response {
+            Some(stream) => ActiveOutput::Response(stream),
+            None => ActiveOutput::None,
+        };
         let mut actor = Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
-            response,
-            multi_packet: MultiPacketContext::new(),
+            active_output,
             shutdown,
             counter: Some(counter),
             hooks,
@@ -216,10 +182,11 @@ where
             connection_id: None,
             peer_addr: None,
         };
-        let current = ACTIVE_CONNECTIONS.load(Ordering::Relaxed);
         info!(
             "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
-            current, actor.connection_id, actor.peer_addr
+            counter::current_count(),
+            actor.connection_id,
+            actor.peer_addr
         );
         actor.hooks.on_connection_setup(handle, &mut actor.ctx);
         actor
@@ -242,23 +209,44 @@ where
     }
 
     /// Set or replace the current streaming response.
-    pub fn set_response(&mut self, stream: Option<FrameStream<F, E>>) {
-        debug_assert!(
-            !self.multi_packet.is_active(),
-            concat!(
-                "ConnectionActor invariant violated: cannot set response while a ",
-                "multi_packet channel is active"
-            ),
-        );
-        self.response = stream;
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionStateError::MultiPacketActive`] if a multi-packet
+    /// channel is currently active.
+    pub fn set_response(
+        &mut self,
+        stream: Option<FrameStream<F, E>>,
+    ) -> Result<(), ConnectionStateError> {
+        if self.active_output.is_multi_packet() {
+            return Err(ConnectionStateError::MultiPacketActive);
+        }
+        self.active_output = match stream {
+            Some(s) => ActiveOutput::Response(s),
+            None => ActiveOutput::None,
+        };
+        Ok(())
     }
 
     /// Set or replace the current multi-packet response channel.
-    pub fn set_multi_packet(&mut self, channel: Option<mpsc::Receiver<F>>) {
-        self.set_multi_packet_with_correlation(channel, None);
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionStateError::ResponseActive`] if a response stream is
+    /// currently active.
+    pub fn set_multi_packet(
+        &mut self,
+        channel: Option<mpsc::Receiver<F>>,
+    ) -> Result<(), ConnectionStateError> {
+        self.set_multi_packet_with_correlation(channel, None)
     }
 
     /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionStateError::ResponseActive`] if a response stream is
+    /// currently active.
     ///
     /// # Examples
     ///
@@ -274,24 +262,27 @@ where
     /// # let shutdown = CancellationToken::new();
     /// # let mut actor = ConnectionActor::new(queues, handle, None, shutdown);
     /// # let (_tx, rx) = mpsc::channel(4);
-    /// actor.set_multi_packet_with_correlation(Some(rx), Some(7));
+    /// actor.set_multi_packet_with_correlation(Some(rx), Some(7))?;
+    /// # Ok::<(), wireframe::connection::ConnectionStateError>(())
     /// ```
     pub fn set_multi_packet_with_correlation(
         &mut self,
         channel: Option<mpsc::Receiver<F>>,
         correlation_id: Option<u64>,
-    ) {
-        debug_assert!(
-            self.response.is_none(),
-            concat!(
-                "ConnectionActor invariant violated: cannot set multi_packet while a ",
-                "response stream is active"
-            ),
-        );
-        self.multi_packet.install(channel, correlation_id);
+    ) -> Result<(), ConnectionStateError> {
+        if self.active_output.is_response() {
+            return Err(ConnectionStateError::ResponseActive);
+        }
+        self.active_output = match channel {
+            Some(rx) => {
+                let mut ctx = MultiPacketContext::new();
+                ctx.install(Some(rx), correlation_id);
+                ActiveOutput::MultiPacket(ctx)
+            }
+            None => ActiveOutput::None,
+        };
+        Ok(())
     }
-
-    fn clear_multi_packet(&mut self) { self.multi_packet.clear(); }
 
     /// Replace the low-priority queue used for tests.
     pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<F>>) { self.low_rx = queue; }
@@ -321,12 +312,10 @@ where
             return Ok(());
         }
 
-        debug_assert!(
-            usize::from(self.response.is_some()) + usize::from(self.multi_packet.is_active()) <= 1,
-            "ConnectionActor invariant violated: at most one of response or multi_packet may be \
-             active"
+        let mut state = ActorState::new(
+            self.active_output.is_response(),
+            self.active_output.is_multi_packet(),
         );
-        let mut state = ActorState::new(self.response.is_some(), self.multi_packet.is_active());
 
         while !state.is_done() {
             self.poll_sources(&mut state, out).await?;
@@ -337,6 +326,16 @@ where
         );
         let _ = self.counter.take();
         Ok(())
+    }
+
+    /// Compute which event sources are currently available for polling.
+    fn compute_availability(&self, state: &ActorState) -> EventAvailability {
+        EventAvailability {
+            high: self.high_rx.is_some(),
+            low: self.low_rx.is_some(),
+            multi_packet: self.active_output.is_multi_packet() && !state.is_shutting_down(),
+            response: self.active_output.is_response() && !state.is_shutting_down(),
+        }
     }
 
     /// Await the next ready event using biased priority ordering.
@@ -355,19 +354,25 @@ where
         reason = "tokio::select! expands to modulus operations internally"
     )]
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
-        let high_available = self.high_rx.is_some();
-        let low_available = self.low_rx.is_some();
-        let multi_available = self.multi_packet.is_active() && !state.is_shutting_down();
-        let resp_available = self.response.is_some() && !state.is_shutting_down();
+        let avail = self.compute_availability(state);
+
+        // Extract mutable references before the select! to satisfy the borrow
+        // checker. Only one of these can be Some due to the ActiveOutput enum
+        // invariant.
+        let (multi_rx, response_stream) = match &mut self.active_output {
+            ActiveOutput::MultiPacket(ctx) => (ctx.channel_mut(), None),
+            ActiveOutput::Response(stream) => (None, Some(stream)),
+            ActiveOutput::None => (None, None),
+        };
 
         tokio::select! {
             biased;
 
             () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
-            res = Self::poll_queue(self.high_rx.as_mut()), if high_available => Event::High(res),
-            res = Self::poll_queue(self.low_rx.as_mut()), if low_available => Event::Low(res),
-            res = Self::poll_queue(self.multi_packet.channel_mut()), if multi_available => Event::MultiPacket(res),
-            res = Self::poll_response(self.response.as_mut()), if resp_available => Event::Response(res),
+            res = Self::poll_queue(self.high_rx.as_mut()), if avail.high => Event::High(res),
+            res = Self::poll_queue(self.low_rx.as_mut()), if avail.low => Event::Low(res),
+            res = Self::poll_queue(multi_rx), if avail.multi_packet => Event::MultiPacket(res),
+            res = Self::poll_response(response_stream), if avail.response => Event::Response(res),
             else => Event::Idle,
         }
     }

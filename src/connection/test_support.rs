@@ -9,8 +9,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ConnectionActor,
     ConnectionChannels,
-    DrainContext,
-    QueueKind,
+    drain::{DrainContext, QueueKind},
     multi_packet::MultiPacketTerminationReason,
     state::ActorState,
 };
@@ -113,8 +112,16 @@ impl ActorHarness {
     }
 
     /// Replace the multi-packet receiver.
-    pub fn set_multi_queue(&mut self, queue: Option<mpsc::Receiver<u8>>) {
-        self.actor.set_multi_packet(queue);
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::connection::ConnectionStateError`] if a response stream
+    /// is currently active.
+    pub fn set_multi_queue(
+        &mut self,
+        queue: Option<mpsc::Receiver<u8>>,
+    ) -> Result<(), crate::connection::ConnectionStateError> {
+        self.actor.set_multi_packet(queue)
     }
 
     /// Returns `true` when the low-priority queue is still available.
@@ -123,7 +130,7 @@ impl ActorHarness {
 
     /// Returns `true` when the multi-packet queue is still available.
     #[must_use]
-    pub fn has_multi_queue(&self) -> bool { self.actor.multi_packet.is_active() }
+    pub fn has_multi_queue(&self) -> bool { self.actor.active_output.is_multi_packet() }
 
     /// Process a multi-packet poll result.
     pub fn process_multi_packet(&mut self, res: Option<u8>) {
@@ -221,43 +228,42 @@ pub async fn poll_queue_next(rx: Option<&mut mpsc::Receiver<u8>>) -> Option<u8> 
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the `ActorHarness` fixture using parameterised `rstest` cases.
+
+    use rstest::{fixture, rstest};
     use tokio::sync::mpsc;
 
     use super::*;
 
-    #[test]
-    fn has_multi_queue_false_by_default() {
-        let harness = ActorHarness::new().expect("build ActorHarness");
-        assert!(
-            !harness.has_multi_queue(),
-            "multi-packet queue should start inactive"
-        );
+    type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+    #[fixture]
+    fn harness() -> TestResult<ActorHarness> {
+        // Provides an ActorHarness for parameterised multi-queue state tests.
+        ActorHarness::new().map_err(Into::into)
     }
 
-    #[test]
-    fn has_multi_queue_true_after_install() {
-        let mut harness = ActorHarness::new().expect("build ActorHarness");
-        let (_tx, rx) = mpsc::channel(1);
-        harness.set_multi_queue(Some(rx));
-        assert!(
-            harness.has_multi_queue(),
-            "multi-packet queue should be active after install"
-        );
-    }
-
-    #[test]
-    fn has_multi_queue_false_after_clear() {
-        let mut harness = ActorHarness::new().expect("build ActorHarness");
-        let (_tx, rx) = mpsc::channel(1);
-        harness.set_multi_queue(Some(rx));
-        assert!(
-            harness.has_multi_queue(),
-            "multi-packet queue should be active after install"
-        );
-        harness.set_multi_queue(None);
-        assert!(
-            !harness.has_multi_queue(),
-            "multi-packet queue should be inactive after clear"
-        );
+    #[rstest]
+    #[case::default(false, false, false)]
+    #[case::install(true, false, true)]
+    #[case::clear(true, true, false)]
+    fn has_multi_queue_states(
+        #[case] install: bool,
+        #[case] clear: bool,
+        #[case] expected: bool,
+        harness: TestResult<ActorHarness>,
+    ) -> TestResult<()> {
+        let mut harness = harness?;
+        if install {
+            let (_tx, rx) = mpsc::channel(1);
+            harness.set_multi_queue(Some(rx))?;
+        }
+        if clear {
+            harness.set_multi_queue(None)?;
+        }
+        if harness.has_multi_queue() != expected {
+            return Err("multi-packet queue state mismatch".into());
+        }
+        Ok(())
     }
 }
