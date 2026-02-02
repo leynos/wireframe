@@ -74,9 +74,8 @@ impl std::ops::DerefMut for LoggerHandle {
 }
 
 /// rstest fixture returning a [`LoggerHandle`] for log assertions.
-#[allow(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
 #[fixture]
-pub fn logger() -> LoggerHandle { LoggerHandle::new() }
+pub fn logger() -> LoggerHandle {
+    // Acquire exclusive access to the global logger for test assertions
+    LoggerHandle::new()
+}

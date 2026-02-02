@@ -28,7 +28,11 @@ use wireframe::Response;
 /// the received variant and is attributed to the caller.
 #[must_use]
 #[track_caller]
-#[allow(ungated_async_fn_track_caller)] // track_caller on async is unstable
+// FIXME(#333): Remove when `track_caller` on async fns is stabilised.
+#[expect(
+    ungated_async_fn_track_caller,
+    reason = "track_caller on async fns is unstable"
+)]
 pub async fn collect_multi_packet<F, E>(resp: Response<F, E>) -> Vec<F> {
     match resp {
         Response::MultiPacket(mut rx) => {

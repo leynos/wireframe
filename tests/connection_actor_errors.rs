@@ -25,41 +25,21 @@ use wireframe_testing::{LoggerHandle, logger, push_expect};
 mod common;
 use common::TestResult;
 
-#[expect(
-    clippy::allow_attributes,
-    reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
-)]
-#[allow(
-    unfulfilled_lint_expectations,
-    reason = "rstest occasionally misses the expected lint for single-line fixtures on stable"
-)]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
 #[fixture]
 fn queues()
 -> Result<(PushQueues<u8>, wireframe::push::PushHandle<u8>), wireframe::push::PushConfigError> {
+    // Push queues with default capacities for error propagation tests
     PushQueues::<u8>::builder()
         .high_capacity(8)
         .low_capacity(8)
         .build()
 }
 
-#[expect(
-    clippy::allow_attributes,
-    reason = "rstest single-line fixtures need allow to avoid unfulfilled lint expectations"
-)]
-#[allow(
-    unfulfilled_lint_expectations,
-    reason = "rstest occasionally misses the expected lint for single-line fixtures on stable"
-)]
-#[expect(
-    unused_braces,
-    reason = "rustc false positive for single line rstest fixtures"
-)]
 #[fixture]
-fn shutdown_token() -> CancellationToken { CancellationToken::new() }
+fn shutdown_token() -> CancellationToken {
+    // Shutdown token for connection actor tests
+    CancellationToken::new()
+}
 
 #[rstest]
 #[tokio::test]
