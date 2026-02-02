@@ -22,7 +22,7 @@ pub use fragmenter::{FragmentBatch, FragmentFrame, Fragmenter};
 pub use header::FragmentHeader;
 pub use id::MessageId;
 pub use index::FragmentIndex;
-pub use packet::fragment_packet;
+pub use packet::{FragmentParts, Fragmentable, fragment_packet};
 pub use payload::{
     FRAGMENT_MAGIC,
     decode_fragment_payload,
