@@ -40,7 +40,7 @@ impl FragmentationState {
     }
 
     pub(crate) fn fragment<E: Packet>(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
-        crate::app::fragment_utils::fragment_packet(&self.fragmenter, packet)
+        crate::fragment::fragment_packet(&self.fragmenter, packet)
     }
 
     pub(crate) fn reassemble<E: Packet>(

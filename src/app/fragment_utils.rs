@@ -1,41 +1,7 @@
 //! Shared helpers for applying transport-level fragmentation to packets.
+//!
+//! This module re-exports [`fragment_packet`] from the canonical location in
+//! [`crate::fragment::packet`] to preserve backward compatibility.
 
-use crate::{
-    app::{Packet, PacketParts},
-    fragment::{FragmentationError, Fragmenter, encode_fragment_payload},
-};
-
-/// Fragment a packet using the provided fragmenter, returning one or more frames.
-///
-/// Small payloads that fit within the fragment cap are returned unchanged.
-///
-/// # Errors
-///
-/// Returns [`FragmentationError`] if fragmenting the payload fails or if
-/// encoding the fragment header and payload into an on-wire frame fails.
-pub fn fragment_packet<E: Packet>(
-    fragmenter: &Fragmenter,
-    packet: E,
-) -> Result<Vec<E>, FragmentationError> {
-    let parts = packet.into_parts();
-    let id = parts.id();
-    let correlation = parts.correlation_id();
-    let payload = parts.payload();
-
-    let batch = fragmenter.fragment_bytes(&payload)?;
-    if !batch.is_fragmented() {
-        return Ok(vec![E::from_parts(PacketParts::new(
-            id,
-            correlation,
-            payload,
-        ))]);
-    }
-
-    let mut frames = Vec::with_capacity(batch.len());
-    for fragment in batch {
-        let (header, payload) = fragment.into_parts();
-        let encoded = encode_fragment_payload(header, &payload)?;
-        frames.push(E::from_parts(PacketParts::new(id, correlation, encoded)));
-    }
-    Ok(frames)
-}
+// Re-export from canonical location for backward compatibility.
+pub use crate::fragment::fragment_packet;
