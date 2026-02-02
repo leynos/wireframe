@@ -8,7 +8,7 @@
 use tokio::time::{Duration, Instant};
 
 /// Configuration controlling fairness when draining push queues.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FairnessConfig {
     /// Number of consecutive high-priority frames to process before
     /// checking the low-priority queue.
