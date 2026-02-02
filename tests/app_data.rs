@@ -14,13 +14,13 @@ use wireframe::extractor::{
 
 #[fixture]
 fn request() -> MessageRequest {
-    // Default request for extractor tests
+    // Default request for shared state extraction tests
     MessageRequest::default()
 }
 
 #[fixture]
 fn empty_payload() -> Payload<'static> {
-    // Empty payload for extractor tests
+    // Empty payload for shared state extraction tests
     Payload::default()
 }
 

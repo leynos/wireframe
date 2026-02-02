@@ -28,7 +28,8 @@ use wireframe::Response;
 /// the received variant and is attributed to the caller.
 #[must_use]
 #[track_caller]
-// FIXME(#333): Remove when `track_caller` on async fns is stabilised.
+// FIXME: Remove when `track_caller` on async fns is stabilised.
+// Tracking: https://github.com/rust-lang/rust/issues/110011
 #[expect(
     ungated_async_fn_track_caller,
     reason = "track_caller on async fns is unstable"
