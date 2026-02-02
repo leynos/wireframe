@@ -29,9 +29,10 @@ use multi_packet::MultiPacketContext;
 use output::{ActiveOutput, EventAvailability};
 use state::ActorState;
 use thiserror::Error;
-use tokio::{sync::mpsc, time::Duration};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+pub use crate::fairness::FairnessConfig;
 use crate::{
     app::Packet,
     correlation::CorrelatableFrame,
@@ -42,21 +43,6 @@ use crate::{
     response::{FrameStream, WireframeError},
     session::ConnectionId,
 };
-
-/// Configuration controlling fairness when draining push queues.
-#[derive(Clone, Copy, Debug)]
-pub struct FairnessConfig {
-    /// Number of consecutive high-priority frames to process before
-    /// checking the low-priority queue.
-    ///
-    /// A zero value disables the counter and relies solely on
-    /// `time_slice` for fairness, preserving strict high-priority
-    /// ordering otherwise.
-    pub max_high_before_low: usize,
-    /// Optional time slice after which the low-priority queue is checked
-    /// if high-priority traffic has been continuous.
-    pub time_slice: Option<Duration>,
-}
 
 /// Error returned when attempting to set an active output source while
 /// another source is already active.
@@ -70,15 +56,6 @@ pub enum ConnectionStateError {
     /// setting a multi-packet channel.
     #[error("cannot set multi-packet channel while a response stream is active")]
     ResponseActive,
-}
-
-impl Default for FairnessConfig {
-    fn default() -> Self {
-        Self {
-            max_high_before_low: 8,
-            time_slice: None,
-        }
-    }
 }
 
 /// Actor driving outbound frame delivery for a connection.
