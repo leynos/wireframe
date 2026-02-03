@@ -11,6 +11,7 @@ pub mod fragmenter;
 pub mod header;
 pub mod id;
 pub mod index;
+pub mod packet;
 pub mod payload;
 pub mod reassembler;
 pub mod series;
@@ -21,6 +22,7 @@ pub use fragmenter::{FragmentBatch, FragmentFrame, Fragmenter};
 pub use header::FragmentHeader;
 pub use id::MessageId;
 pub use index::FragmentIndex;
+pub use packet::{FragmentParts, Fragmentable, fragment_packet};
 pub use payload::{
     FRAGMENT_MAGIC,
     decode_fragment_payload,

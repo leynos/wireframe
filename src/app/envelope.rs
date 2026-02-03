@@ -6,7 +6,11 @@
 //! [`crate::app::builder::WireframeApp`] for how envelopes are used when
 //! registering routes.
 
-use crate::{correlation::CorrelatableFrame, message::Message};
+use crate::{
+    correlation::CorrelatableFrame,
+    fragment::{FragmentParts, Fragmentable},
+    message::Message,
+};
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
 ///
@@ -241,5 +245,21 @@ impl From<PacketParts> for Envelope {
         let correlation_id = p.correlation_id();
         let payload = p.payload();
         Envelope::new(id, correlation_id, payload)
+    }
+}
+
+// Blanket implementation: any Packet is automatically Fragmentable.
+impl<T: Packet> Fragmentable for T {
+    fn into_fragment_parts(self) -> FragmentParts {
+        let parts = self.into_parts();
+        FragmentParts::new(parts.id(), parts.correlation_id(), parts.payload())
+    }
+
+    fn from_fragment_parts(parts: FragmentParts) -> Self {
+        T::from_parts(PacketParts::new(
+            parts.id(),
+            parts.correlation_id(),
+            parts.payload(),
+        ))
     }
 }
