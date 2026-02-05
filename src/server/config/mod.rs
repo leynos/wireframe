@@ -139,17 +139,17 @@ where
         /// Configure accept-loop backoff behaviour.
         ///
         /// The supplied configuration is passed to
-        /// [`BackoffConfig::normalised`] (`cfg.normalised()`) before being
+        /// [`BackoffConfig::normalized`] (`cfg.normalized()`) before being
         /// stored. Normalisation clamps `initial_delay` to at least 1 ms and no
         /// greater than `max_delay`. If `initial_delay` exceeds `max_delay`,
         /// the values are swapped. Normalisation applies any other adjustments
-        /// `BackoffConfig::normalised` defines so out-of-range values are
+        /// `BackoffConfig::normalized` defines so out-of-range values are
         /// corrected rather than preserved.
         ///
         /// Invariants:
         /// - `initial_delay` must be >= 1 ms
         /// - `initial_delay` must be <= `max_delay`
-        accept_backoff, backoff_config, cfg: BackoffConfig => cfg.normalised()
+        accept_backoff, backoff_config, cfg: BackoffConfig => cfg.normalized()
     );
 
     /// Returns the configured number of worker tasks for the server.

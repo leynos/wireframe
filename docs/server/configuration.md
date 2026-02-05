@@ -55,7 +55,7 @@ src/server/runtime.rs:221), immediately before the accept loop begins.
 
 The accept loop retries failed `accept()` calls using exponential backoff.
 `accept_backoff(cfg)` sets both bounds using a `BackoffConfig` value. The
-builder normalizes the supplied configuration via `BackoffConfig::normalised`,
+builder normalizes the supplied configuration via `BackoffConfig::normalized`,
 so out-of-range values are adjusted rather than preserved:
 
 - `initial_delay` – starting delay for the first retry, clamped to at least 1
