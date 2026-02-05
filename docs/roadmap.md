@@ -36,7 +36,7 @@ the request and response lifecycle.
 ### 1.3. Routing and handlers
 
 - [x] 1.3.1. Implement a basic routing mechanism to map requests to handler
-  functions (`src/app.rs`).
+  functions (`src/app/`).
 - [x] 1.3.2. Support handler functions with flexible, type-safe extractors
   (`src/extractor.rs`).
 
