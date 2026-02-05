@@ -276,7 +276,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use rstest::{fixture, rstest};
     use tokio::sync::mpsc::{self, error::TrySendError};

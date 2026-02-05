@@ -1,3 +1,4 @@
+#![cfg_attr(loom, allow(missing_docs))]
 #![cfg(not(loom))]
 //! Tests for `RequestParts` accessors and correlation inheritance.
 

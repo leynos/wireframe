@@ -12,6 +12,7 @@ pub mod codec;
 /// Result type alias re-exported for convenience when working with the
 /// application builder.
 pub use app::error::Result;
+#[cfg(not(loom))]
 pub mod client;
 pub mod serializer;
 pub use codec::{
@@ -32,6 +33,7 @@ pub use codec::{
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;
 pub mod correlation;
+#[cfg(not(loom))]
 pub mod extractor;
 mod fairness;
 pub mod fragment;
@@ -44,6 +46,7 @@ pub mod middleware;
 pub mod panic;
 pub mod preamble;
 pub mod push;
+#[cfg(not(loom))]
 pub mod request;
 pub mod response;
 pub mod rewind_stream;
@@ -53,6 +56,7 @@ pub mod session;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
 
+#[cfg(not(loom))]
 pub use client::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient};
 pub use connection::ConnectionActor;
 pub use correlation::CorrelatableFrame;
@@ -95,6 +99,7 @@ pub use message_assembler::{
     ParsedFrameHeader,
 };
 pub use metrics::{CODEC_ERRORS, CONNECTIONS_ACTIVE, Direction, ERRORS_TOTAL, FRAMES_PROCESSED};
+#[cfg(not(loom))]
 pub use request::{
     DEFAULT_BODY_CHANNEL_CAPACITY,
     RequestBodyReader,

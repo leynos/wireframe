@@ -1,3 +1,5 @@
+#![cfg_attr(loom, allow(missing_docs))]
+#![cfg(not(loom))]
 //! Integration tests for the wireframe client runtime.
 
 use futures::StreamExt;

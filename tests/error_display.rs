@@ -1,3 +1,4 @@
+#![cfg_attr(loom, allow(missing_docs))]
 #![cfg(not(loom))]
 //! Tests for Display and Error trait implementations on error types.
 //!

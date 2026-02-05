@@ -207,7 +207,7 @@ where
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use bytes::Bytes;
     use futures::StreamExt;

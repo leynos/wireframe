@@ -1,3 +1,5 @@
+#![cfg_attr(loom, allow(missing_docs))]
+#![cfg(not(loom))]
 //! Tests for shared example codecs.
 
 use std::{io, sync::Arc};
