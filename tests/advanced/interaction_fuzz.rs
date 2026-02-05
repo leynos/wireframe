@@ -1,3 +1,4 @@
+#![cfg_attr(loom, allow(missing_docs))]
 #![cfg(all(feature = "advanced-tests", not(loom)))]
 //! Advanced property-based fuzzing tests for push, stream, and protocol parsing.
 //!

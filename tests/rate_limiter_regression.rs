@@ -1,3 +1,4 @@
+#![cfg_attr(loom, allow(missing_docs))]
 #![cfg(not(loom))]
 //! Regression test for rate limiter token reservation behaviour.
 //!

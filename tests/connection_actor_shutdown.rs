@@ -1,3 +1,4 @@
+#![cfg_attr(loom, allow(missing_docs))]
 #![cfg(not(loom))]
 //! Shutdown and back-pressure tests for `ConnectionActor`.
 
