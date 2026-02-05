@@ -11,7 +11,7 @@ fn envelope_from_parts_round_trip() {
     let parts = rebuilt.into_parts();
     let id = parts.id();
     let correlation_id = parts.correlation_id();
-    let payload = parts.payload();
+    let payload = parts.into_payload();
     assert_eq!(id, 2);
     assert_eq!(correlation_id, Some(5));
     assert_eq!(payload, vec![1, 2]);

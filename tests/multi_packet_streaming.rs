@@ -137,7 +137,10 @@ async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()>
     let out = harness.run().await?;
 
     assert_eq!(out.len(), 3, "expected two frames plus terminator");
-    let payloads: Vec<Vec<u8>> = out.iter().map(|frame| parts(frame).payload()).collect();
+    let payloads: Vec<Vec<u8>> = out
+        .iter()
+        .map(|frame| parts(frame).into_payload())
+        .collect();
     assert_eq!(payloads.first(), Some(&vec![1]), "first payload mismatch");
     assert_eq!(
         payloads.get(1),

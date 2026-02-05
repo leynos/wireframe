@@ -92,7 +92,7 @@ impl Packet for CommonTestEnvelope {
         Self {
             id: parts.id(),
             correlation_id: parts.correlation_id(),
-            payload: parts.payload(),
+            payload: parts.into_payload(),
         }
     }
 }

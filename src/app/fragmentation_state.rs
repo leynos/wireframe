@@ -54,7 +54,7 @@ impl FragmentationState {
         let parts = packet.into_parts();
         let id = parts.id();
         let correlation = parts.correlation_id();
-        let payload = parts.payload();
+        let payload = parts.into_payload();
 
         match decode_fragment_payload(&payload) {
             Ok(Some((header, fragment_payload))) => {

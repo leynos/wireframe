@@ -123,7 +123,7 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
             "fragmenter must produce at least one fragment",
         ))?
         .into_parts();
-    let mut payload = parts.clone().payload();
+    let mut payload = parts.clone().into_payload();
     assert!(
         payload.starts_with(FRAGMENT_MAGIC),
         "expected fragment to start with marker"

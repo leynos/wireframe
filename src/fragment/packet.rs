@@ -38,8 +38,17 @@ impl FragmentParts {
     pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     /// Consume the parts and return the raw payload bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::fragment::FragmentParts;
+    ///
+    /// let parts = FragmentParts::new(1, None, vec![7, 8]);
+    /// assert_eq!(parts.into_payload(), vec![7, 8]);
+    /// ```
     #[must_use]
-    pub fn payload(self) -> Vec<u8> { self.payload }
+    pub fn into_payload(self) -> Vec<u8> { self.payload }
 }
 
 /// A packet that can be decomposed into parts and reconstructed for fragmentation.
@@ -74,7 +83,7 @@ pub fn fragment_packet<E: Fragmentable>(
     let parts = packet.into_fragment_parts();
     let id = parts.id();
     let correlation = parts.correlation_id();
-    let payload = parts.payload();
+    let payload = parts.into_payload();
 
     let batch = fragmenter.fragment_bytes(&payload)?;
     if !batch.is_fragmented() {

@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie
+.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie typecheck
 
 CRATE ?= wireframe
 CARGO ?= cargo
@@ -21,6 +21,9 @@ test-bdd: ## Run rstest-bdd tests only
 
 test: ## Run all tests (bdd + unit/integration)
 	RUSTFLAGS="-D warnings" $(CARGO) test --all-targets --all-features $(BUILD_JOBS)
+
+typecheck: ## Run a workspace typecheck
+	RUSTFLAGS="-D warnings" $(CARGO) check --all-targets --all-features $(BUILD_JOBS)
 
 # will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib
 target/%/lib$(CRATE).rlib: ## Build library in debug or release

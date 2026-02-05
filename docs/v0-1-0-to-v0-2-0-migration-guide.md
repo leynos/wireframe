@@ -1,7 +1,7 @@
 # v0.1.0 to v0.2.0 migration guide
 
-This guide highlights user-facing changes required when upgrading from v0.1.0
-to v0.2.0.
+This guide summarizes the breaking changes required when migrating from
+wireframe v0.1.0 to v0.2.0.
 
 ## Configuration builder naming update
 
@@ -15,4 +15,23 @@ Update any references accordingly, including documentation and code examples.
 
 ```rust
 let config = BackoffConfig::normalized(...);
+```
+
+## Payload accessors
+
+The consuming payload accessors were renamed to follow Rust idioms.
+
+- `PacketParts::payload(self)` has been removed. Use
+  `PacketParts::into_payload(self)` instead.
+- `FragmentParts::payload(self)` has been removed. Use
+  `FragmentParts::into_payload(self)` instead.
+
+```rust
+// Before
+let packet_payload = packet_parts.payload();
+let fragment_payload = fragment_parts.payload();
+
+// After
+let packet_payload = packet_parts.into_payload();
+let fragment_payload = fragment_parts.into_payload();
 ```
