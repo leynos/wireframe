@@ -1,3 +1,9 @@
+//! Unit tests for the fragmentation and reassembly subsystem.
+//!
+//! Covers `FragmentHeader` field access, `FragmentSeries` ordering and
+//! validation, `Fragmenter` splitting and message ID management, and
+//! `Reassembler` assembly with size limits and expiry handling.
+
 use std::{
     num::NonZeroUsize,
     time::{Duration, Instant},

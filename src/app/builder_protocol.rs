@@ -22,6 +22,11 @@ where
     /// The protocol defines hooks for connection setup, frame modification, and
     /// command completion. It is wrapped in an [`Arc`] and stored for later use
     /// by the connection actor.
+    ///
+    /// At present, the protocol must use `ProtocolError = ()`. This keeps the
+    /// protocol object safe for dynamic dispatch, maintains a uniform
+    /// interface across connections, and avoids leaking application-specific
+    /// error types into the builder API.
     #[must_use]
     pub fn with_protocol<P>(self, protocol: P) -> Self
     where
