@@ -3,17 +3,13 @@
 //! The application listens for incoming frames and simply echoes each
 //! envelope back to the client.
 
-use wireframe::{
-    app::Envelope,
-    serializer::BincodeSerializer,
-    server::{ServerError, WireframeServer},
-};
+use wireframe::{app::Envelope, serializer::BincodeSerializer, server::WireframeServer};
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 type EchoHandler =
     Arc<dyn Fn(&Envelope) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
 
-use std::{io, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{error::Error, net::SocketAddr, pin::Pin, sync::Arc};
 
 use tokio::signal;
 use tracing::{error, info};
@@ -28,14 +24,11 @@ fn echo_handler() -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
 fn build_app(handler: EchoHandler) -> wireframe::app::Result<App> { App::new()?.route(1, handler) }
 
 #[tokio::main]
-async fn main() -> Result<(), ServerError> {
+async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
 
     let handler: EchoHandler = Arc::new(|_: &Envelope| echo_handler());
-    build_app(handler.clone()).map_err(|err| {
-        error!("failed to build echo app: {err}");
-        ServerError::Bind(io::Error::other(err))
-    })?;
+    build_app(handler.clone()).inspect_err(|err| error!("failed to build echo app: {err}"))?;
 
     let factory = {
         let handler = Arc::clone(&handler);
@@ -48,9 +41,7 @@ async fn main() -> Result<(), ServerError> {
         }
     };
 
-    let addr: SocketAddr = "127.0.0.1:7878".parse().map_err(|err| {
-        ServerError::Bind(std::io::Error::new(std::io::ErrorKind::InvalidInput, err))
-    })?;
+    let addr: SocketAddr = "127.0.0.1:7878".parse()?;
     let server = WireframeServer::new(factory).bind(addr)?;
 
     server
