@@ -127,7 +127,7 @@ pub fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<
     let parts = env.clone().into_parts();
     let id = parts.id();
     let correlation = parts.correlation_id();
-    let payload = parts.payload();
+    let payload = parts.into_payload();
 
     if payload.len() <= fragmenter.max_fragment_size().get() {
         return Ok(vec![Envelope::new(id, correlation, payload)]);
@@ -180,7 +180,7 @@ pub async fn read_reassembled_response(
     while let Some(frame) = client.next().await {
         let bytes = frame?;
         let (env, _) = serializer.deserialize::<Envelope>(&bytes)?;
-        let payload = env.into_parts().payload();
+        let payload = env.into_parts().into_payload();
         match decode_fragment_payload(&payload)? {
             Some((header, fragment)) => {
                 if let Some(message) = reassembler.push(header, fragment)? {
@@ -204,7 +204,7 @@ pub fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope
     let tx = sender.clone();
     std::sync::Arc::new(move |env: &Envelope| {
         let tx = tx.clone();
-        let payload = env.clone().into_parts().payload();
+        let payload = env.clone().into_parts().into_payload();
         Box::pin(async move {
             assert!(
                 tx.send(payload).is_ok(),

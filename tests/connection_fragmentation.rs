@@ -68,7 +68,7 @@ async fn connection_actor_fragments_outbound_frames() -> TestResult {
     let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
     let mut assembled: Option<Vec<u8>> = None;
     for env in out {
-        let payload = env.into_parts().payload();
+        let payload = env.into_parts().into_payload();
         let Some((header, frag)) = decode_fragment_payload(&payload)? else {
             assembled = Some(payload);
             continue;
@@ -109,7 +109,7 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() ->
         .into_iter()
         .next()
         .ok_or("expected single frame but none found")?;
-    let payload_out = only.into_parts().payload();
+    let payload_out = only.into_parts().into_payload();
     match decode_fragment_payload(&payload_out)? {
         None => {}
         Some(_) => return Err("expected unfragmented payload".into()),

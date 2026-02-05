@@ -185,7 +185,7 @@ async fn custom_codec_round_trips_frames() {
         .deserialize::<Envelope>(&response_frame.payload)
         .expect("deserialize response");
     assert_eq!(response_env.correlation_id(), Some(7));
-    let response_payload = response_env.into_parts().payload();
+    let response_payload = response_env.into_parts().into_payload();
     assert_eq!(response_payload, b"ping".to_vec());
 }
 

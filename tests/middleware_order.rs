@@ -94,7 +94,7 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let (resp, _) = serializer.deserialize::<Envelope>(first)?;
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();
-    let payload = parts.payload();
+    let payload = parts.into_payload();
     assert_eq!(
         payload,
         [b'X', b'A', b'B', b'B', b'A'],

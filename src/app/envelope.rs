@@ -55,7 +55,7 @@ use crate::{
 ///         Self {
 ///             id: parts.id(),
 ///             correlation_id: parts.correlation_id(),
-///             payload: parts.payload(),
+///             payload: parts.into_payload(),
 ///             timestamp: 0,
 ///         }
 ///     }
@@ -192,10 +192,24 @@ impl PacketParts {
     /// use wireframe::app::PacketParts;
     ///
     /// let parts = PacketParts::new(1, None, vec![7, 8]);
-    /// assert_eq!(parts.payload(), vec![7, 8]);
+    /// assert_eq!(parts.into_payload(), vec![7, 8]);
     /// ```
     #[must_use]
-    pub fn payload(self) -> Vec<u8> { self.payload }
+    pub fn into_payload(self) -> Vec<u8> { self.payload }
+
+    /// Deprecated: use [`PacketParts::into_payload`] instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::app::PacketParts;
+    ///
+    /// let parts = PacketParts::new(1, None, vec![7, 8]);
+    /// assert_eq!(parts.into_payload(), vec![7, 8]);
+    /// ```
+    #[deprecated(since = "0.2.0", note = "Use `PacketParts::into_payload` instead.")]
+    #[must_use]
+    pub fn payload(self) -> Vec<u8> { self.into_payload() }
 
     /// Ensure a correlation identifier is present, inheriting from `source` if missing.
     ///
@@ -243,7 +257,7 @@ impl From<PacketParts> for Envelope {
     fn from(p: PacketParts) -> Self {
         let id = p.id();
         let correlation_id = p.correlation_id();
-        let payload = p.payload();
+        let payload = p.into_payload();
         Envelope::new(id, correlation_id, payload)
     }
 }
@@ -252,14 +266,14 @@ impl From<PacketParts> for Envelope {
 impl<T: Packet> Fragmentable for T {
     fn into_fragment_parts(self) -> FragmentParts {
         let parts = self.into_parts();
-        FragmentParts::new(parts.id(), parts.correlation_id(), parts.payload())
+        FragmentParts::new(parts.id(), parts.correlation_id(), parts.into_payload())
     }
 
     fn from_fragment_parts(parts: FragmentParts) -> Self {
         T::from_parts(PacketParts::new(
             parts.id(),
             parts.correlation_id(),
-            parts.payload(),
+            parts.into_payload(),
         ))
     }
 }

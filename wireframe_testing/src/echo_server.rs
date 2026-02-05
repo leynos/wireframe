@@ -36,7 +36,7 @@ pub fn process_frame(mode: ServerMode, bytes: &[u8]) -> Option<Vec<u8>> {
         ServerMode::Mismatch => {
             let wrong_id = envelope.correlation_id().map(|id| id.wrapping_add(999));
             let parts = envelope.into_parts();
-            Envelope::new(parts.id(), wrong_id, parts.payload())
+            Envelope::new(parts.id(), wrong_id, parts.into_payload())
         }
     };
 

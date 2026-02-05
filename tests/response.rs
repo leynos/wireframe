@@ -267,7 +267,7 @@ async fn process_stream_honours_buffer_capacity() -> TestResult {
     let (resp_env, _) = BincodeSerializer
         .deserialize::<Envelope>(frame)
         .map_err(|e| format!("deserialize failed: {e}"))?;
-    let resp_len = resp_env.into_parts().payload().len();
+    let resp_len = resp_env.into_parts().into_payload().len();
     assert_eq!(resp_len, payload.len());
     Ok(())
 }

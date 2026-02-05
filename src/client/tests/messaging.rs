@@ -153,7 +153,7 @@ async fn receive_envelope_returns_envelope_with_correlation_id() {
         "response should have the same correlation ID"
     );
     assert_eq!(response.id(), 42);
-    assert_eq!(response.into_parts().payload(), &[1, 2, 3]);
+    assert_eq!(response.into_parts().into_payload(), &[1, 2, 3]);
 
     server.abort();
 }
@@ -295,7 +295,7 @@ async fn round_trip_with_various_payload_sizes(#[case] payload: Vec<u8>) {
         .await
         .expect("call should succeed");
 
-    assert_eq!(response.into_parts().payload(), payload.as_slice());
+    assert_eq!(response.into_parts().into_payload(), payload.as_slice());
 
     server.abort();
 }

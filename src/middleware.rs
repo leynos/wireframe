@@ -333,7 +333,7 @@ impl<E: Packet> Service for RouteService<E> {
         (self.handler.as_ref())(&env).await;
         let parts = env.into_parts();
         let correlation_id = parts.correlation_id();
-        let payload = parts.payload();
+        let payload = parts.into_payload();
         Ok(ServiceResponse::new(payload, correlation_id))
     }
 }
