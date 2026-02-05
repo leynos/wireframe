@@ -253,7 +253,9 @@ where
         }
 
         // Signal readiness after all workers have been spawned.
-        if ready_tx.is_some_and(|tx| tx.send(()).is_err()) {
+        if let Some(tx) = ready_tx
+            && tx.send(()).is_err()
+        {
             warn!("Failed to send readiness signal: receiver dropped");
         }
 
