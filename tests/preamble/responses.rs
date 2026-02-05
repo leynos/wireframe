@@ -2,34 +2,31 @@
 
 use std::io;
 
+use rstest::rstest;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    sync::oneshot,
     time::{Duration, timeout},
 };
-use wireframe::server::WireframeServer;
+use wireframe::{app::WireframeApp, server::WireframeServer};
 
 use crate::{
     common::{TestResult, factory},
     support::{
         HotlinePreamble,
         channel_holder,
-        notify_holder,
         recv_within,
         server_with_handlers,
+        take_sender_io,
         with_running_server,
     },
 };
 
+#[rstest]
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
-async fn success_callback_can_write_response() -> TestResult {
-    let factory = factory();
-    let (response_tx, response_rx) = oneshot::channel();
+async fn success_callback_can_write_response(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) -> TestResult {
     let server = server_with_handlers(
         factory,
         |_, stream| {
@@ -42,30 +39,25 @@ async fn success_callback_can_write_response() -> TestResult {
         |_, _| Box::pin(async { Ok::<(), io::Error>(()) }),
     );
 
-    with_running_server(server, move |addr| async move {
+    with_running_server(server, |addr| async move {
         let mut stream = TcpStream::connect(addr).await?;
         let bytes = b"TRTPHOTL\x00\x01\x00\x02";
         stream.write_all(bytes).await?;
         let mut buf = [0u8; 3];
         stream.read_exact(&mut buf).await?;
-        let _ = response_tx.send(buf);
+        assert_eq!(&buf, b"ACK");
         Ok(())
     })
     .await?;
-    let buf = recv_within(Duration::from_secs(1), response_rx).await?;
-    assert_eq!(&buf, b"ACK");
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
-async fn failure_callback_can_write_response() -> TestResult {
-    let factory = factory();
+async fn failure_callback_can_write_response(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) -> TestResult {
     let (failure_holder, failure_rx) = channel_holder();
-    let (response_tx, response_rx) = oneshot::channel();
     let server = WireframeServer::new(factory)
         .with_preamble::<HotlinePreamble>()
         .on_preamble_decode_failure(move |_, stream| {
@@ -73,12 +65,14 @@ async fn failure_callback_can_write_response() -> TestResult {
             Box::pin(async move {
                 stream.write_all(b"ERR").await?;
                 stream.flush().await?;
-                notify_holder(&failure_holder)?;
+                if let Some(tx) = take_sender_io(&failure_holder)? {
+                    let _ = tx.send(());
+                }
                 Ok::<(), io::Error>(())
             })
         });
 
-    with_running_server(server, move |addr| async move {
+    with_running_server(server, |addr| async move {
         let mut stream = TcpStream::connect(addr).await?;
         stream.write_all(b"BAD").await?;
         stream.shutdown().await?;
@@ -86,12 +80,10 @@ async fn failure_callback_can_write_response() -> TestResult {
         let read = timeout(Duration::from_secs(1), stream.read_exact(&mut buf)).await;
         let result = read?;
         result?;
-        let _ = response_tx.send(buf);
+        assert_eq!(&buf, b"ERR");
+        recv_within(Duration::from_millis(200), failure_rx).await?;
         Ok(())
     })
     .await?;
-    let buf = recv_within(Duration::from_secs(1), response_rx).await?;
-    assert_eq!(&buf, b"ERR");
-    recv_within(Duration::from_millis(200), failure_rx).await?;
     Ok(())
 }
