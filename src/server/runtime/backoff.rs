@@ -49,12 +49,12 @@ impl BackoffConfig {
     ///     max_delay: Duration::from_millis(1),
     /// };
     ///
-    /// let normalised = cfg.normalised();
-    /// assert_eq!(normalised.initial_delay, Duration::from_millis(1));
-    /// assert_eq!(normalised.max_delay, Duration::from_millis(5));
+    /// let normalized = cfg.normalized();
+    /// assert_eq!(normalized.initial_delay, Duration::from_millis(1));
+    /// assert_eq!(normalized.max_delay, Duration::from_millis(5));
     /// ```
     #[must_use]
-    pub fn normalised(mut self) -> Self {
+    pub fn normalized(mut self) -> Self {
         self.initial_delay = self.initial_delay.max(Duration::from_millis(1));
         self.max_delay = self.max_delay.max(Duration::from_millis(1));
         if self.initial_delay > self.max_delay {
