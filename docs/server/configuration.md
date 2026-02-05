@@ -49,7 +49,7 @@ sequenceDiagram
 ```
 
 Readiness is signalled after all worker tasks have been spawned (at
-src/server/runtime.rs:221), immediately before the accept loop begins.
+src/server/runtime.rs:255), immediately before the accept loop begins.
 
 ## Accept loop backoff
 
