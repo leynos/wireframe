@@ -48,8 +48,8 @@ sequenceDiagram
   note over Ready,Caller: Send readiness signal when bound
 ```
 
-Readiness is signalled after all worker tasks have been spawned (at
-src/server/runtime.rs:255), immediately before the accept loop begins.
+Readiness is signalled after all worker tasks have been spawned in
+`WireframeServer::run_with_shutdown`, immediately before the accept loop begins.
 
 ## Accept loop backoff
 
