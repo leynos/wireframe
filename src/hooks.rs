@@ -19,10 +19,19 @@ use crate::{
 pub struct ConnectionContext;
 
 /// Trait encapsulating protocol-specific logic and callbacks.
+///
+/// `WireframeProtocol` allows a custom `ProtocolError` type, but
+/// [`crate::app::WireframeApp::with_protocol`] currently requires
+/// `ProtocolError = ()` so the protocol can be stored behind dynamic dispatch
+/// with a uniform interface. This constraint may be relaxed in a future
+/// release.
 pub trait WireframeProtocol: Send + Sync + 'static {
     /// Frame type written to the socket.
     type Frame: FrameLike;
     /// Custom error type for protocol operations.
+    ///
+    /// When installed via [`crate::app::WireframeApp::with_protocol`], this
+    /// must currently be `()`.
     type ProtocolError;
 
     /// Called once when a new connection is established. The provided
@@ -45,7 +54,7 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     ///
     /// impl WireframeProtocol for MyProtocol {
     ///     type Frame = Vec<u8>;
-    ///     type ProtocolError = String;
+    ///     type ProtocolError = ();
     ///
     ///     fn handle_error(&self, error: Self::ProtocolError, _ctx: &mut ConnectionContext) {
     ///         tracing::error!(error = %error, "protocol error");
@@ -81,7 +90,7 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     ///
     /// impl WireframeProtocol for MyProtocol {
     ///     type Frame = Vec<u8>;
-    ///     type ProtocolError = String;
+    ///     type ProtocolError = ();
     ///
     ///     fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
     ///         match error {
