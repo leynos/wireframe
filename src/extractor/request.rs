@@ -1,14 +1,12 @@
 //! Request context and payload buffer types for extractors.
 
 use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
 use super::SharedState;
-use crate::request::RequestBodyStream;
+use crate::{app_data_store::AppDataStore, request::RequestBodyStream};
 
 /// Request context passed to extractors.
 ///
@@ -20,9 +18,9 @@ pub struct MessageRequest {
     pub peer_addr: Option<SocketAddr>,
     /// Shared state values registered with the application.
     ///
-    /// Values are keyed by their [`TypeId`]. Registering additional
+    /// Values are keyed by their concrete type. Registering additional
     /// state of the same type will replace the previous entry.
-    pub(crate) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub(crate) app_data: AppDataStore,
     /// Optional streaming body for handlers that opt into streaming consumption.
     ///
     /// When present, the [`StreamingBody`](crate::extractor::StreamingBody)
@@ -85,10 +83,7 @@ impl MessageRequest {
     where
         T: Send + Sync + 'static,
     {
-        self.app_data
-            .get(&TypeId::of::<T>())
-            .and_then(|data| data.clone().downcast::<T>().ok())
-            .map(SharedState::from)
+        self.app_data.get::<T>().map(SharedState::from)
     }
 
     /// Insert shared state of type `T` into the request.
@@ -109,10 +104,7 @@ impl MessageRequest {
     where
         T: Send + Sync + 'static,
     {
-        self.app_data.insert(
-            TypeId::of::<T>(),
-            Arc::new(state) as Arc<dyn Any + Send + Sync>,
-        );
+        self.app_data.insert(state);
     }
 
     /// Set the streaming body for this request.

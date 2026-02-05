@@ -7,6 +7,13 @@
 /// parameter changes, struct update syntax (`..self`) cannot be used, so fields
 /// must be copied explicitly.
 ///
+/// Use this macro for small builders with a limited number of fields (five in
+/// this case) and single-field updates per method. For larger builders with
+/// many coordinated updates, prefer a dedicated helper method to keep the
+/// reconstruction logic centralised and easier to audit (see
+/// `WireframeApp::rebuild_with_params` and
+/// `docs/builder-pattern-conventions.md`).
+///
 /// The `lifecycle_hooks` field requires special handling because `LifecycleHooks<C>`
 /// is parameterized by the connection state type. When changing `S` or `P`, the
 /// hooks can be moved directly since `C` is unchanged. When changing `C` via

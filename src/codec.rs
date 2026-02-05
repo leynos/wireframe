@@ -23,6 +23,8 @@ use std::io;
 use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
+use crate::byte_order::read_network_u32;
+
 pub mod error;
 pub mod recovery;
 
@@ -182,15 +184,6 @@ impl Decoder for LengthDelimitedDecoder {
     }
 }
 
-/// Parse a u32 length prefix from a 4-byte big-endian array.
-#[expect(
-    clippy::big_endian_bytes,
-    reason = "Wire endianness is explicit; length-delimited codec uses big-endian."
-)]
-fn parse_length_header(bytes: [u8; LENGTH_HEADER_SIZE]) -> usize {
-    u32::from_be_bytes(bytes) as usize
-}
-
 /// Build the appropriate EOF error based on remaining buffer state.
 ///
 /// Determines whether the connection closed mid-header or mid-frame:
@@ -206,7 +199,7 @@ fn build_eof_error(src: &BytesMut) -> io::Error {
     let expected = src
         .get(..LENGTH_HEADER_SIZE)
         .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
-        .map(parse_length_header);
+        .map(|bytes| read_network_u32(bytes) as usize);
 
     match expected {
         Some(expected) => {

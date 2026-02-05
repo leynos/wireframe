@@ -7,6 +7,7 @@ use bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use wireframe::{
     FrameCodec,
+    byte_order::{read_network_u32, write_network_u32},
     codec::{EofError, LENGTH_HEADER_SIZE, LengthDelimitedFrameCodec},
 };
 
@@ -50,7 +51,7 @@ impl CodecErrorWorld {
     pub fn send_partial_frame_header_only(&mut self) {
         // Write a length prefix indicating 100 bytes, but don't write any payload
         // 4-byte big-endian length prefix
-        self.buffer.extend_from_slice(&[0x00, 0x00, 0x00, 0x64]); // 100 bytes expected
+        self.buffer.extend_from_slice(&write_network_u32(100)); // 100 bytes expected
     }
 
     /// Call `decode_eof` to simulate a clean close at frame boundary.
@@ -87,15 +88,11 @@ impl CodecErrorWorld {
     /// Extract the expected payload length from the buffer's length header.
     ///
     /// Returns 0 if the buffer doesn't contain a complete length header.
-    #[expect(
-        clippy::big_endian_bytes,
-        reason = "Wire protocol uses big-endian length prefix; this matches the codec."
-    )]
     fn extract_expected_length(&self) -> usize {
         self.buffer
             .get(..LENGTH_HEADER_SIZE)
             .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
-            .map_or(0, |bytes| u32::from_be_bytes(bytes) as usize)
+            .map_or(0, |bytes| read_network_u32(bytes) as usize)
     }
 
     /// Classify the EOF error type from the error message.

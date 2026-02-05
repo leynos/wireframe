@@ -1,10 +1,6 @@
 //! Core builder types for `WireframeApp`.
 
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::{OnceCell, mpsc};
 
@@ -16,6 +12,7 @@ use crate::{
         lifecycle::{ConnectionSetup, ConnectionTeardown},
         middleware_types::{Handler, Middleware},
     },
+    app_data_store::AppDataStore,
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
@@ -38,7 +35,7 @@ pub struct WireframeApp<
     pub(in crate::app) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
     pub(in crate::app) serializer: S,
-    pub(in crate::app) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub(in crate::app) app_data: AppDataStore,
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
     pub(in crate::app) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
     pub(in crate::app) protocol:
@@ -66,7 +63,7 @@ where
             routes: OnceCell::new(),
             middleware: Vec::new(),
             serializer: S::default(),
-            app_data: HashMap::new(),
+            app_data: AppDataStore::default(),
             on_connect: None,
             on_disconnect: None,
             protocol: None,
@@ -124,11 +121,15 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// This centralises the field-by-field reconstruction required when
-    /// transforming between different serializer or codec types.
+    /// The `WireframeApp` builder carries 13 fields that must be moved together
+    /// when swapping serializer or codec types. Centralising the reconstruction
+    /// here keeps the transitions consistent and avoids repeating the same
+    /// field list across each type-changing method. For smaller builders with
+    /// only a handful of fields and single-field updates, prefer the macro-based
+    /// pattern used by `WireframeClientBuilder`.
     #[expect(
         clippy::too_many_arguments,
-        reason = "internal helper grouping fields for type-transitioning builders"
+        reason = "Helper handles multi-field type transitions; see builder-pattern-conventions.md."
     )]
     pub(super) fn rebuild_with_params<S2, F2>(
         self,

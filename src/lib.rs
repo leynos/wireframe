@@ -7,11 +7,13 @@
 extern crate self as wireframe;
 
 pub mod app;
+pub mod app_data_store;
 pub mod byte_order;
 pub mod codec;
 /// Result type alias re-exported for convenience when working with the
 /// application builder.
 pub use app::error::Result;
+pub use app_data_store::AppDataStore;
 #[cfg(not(loom))]
 pub mod client;
 pub mod serializer;
