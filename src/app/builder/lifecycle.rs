@@ -1,11 +1,13 @@
-//! Connection lifecycle builder methods for [`WireframeApp`].
+//! Connection lifecycle hook configuration for `WireframeApp`.
 
 use std::{future::Future, sync::Arc};
 
-use tokio::sync::OnceCell;
-
-use super::{builder::WireframeApp, envelope::Packet, error::Result};
-use crate::{codec::FrameCodec, serializer::Serializer};
+use super::WireframeApp;
+use crate::{
+    app::{Packet, error::Result},
+    codec::FrameCodec,
+    serializer::Serializer,
+};
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
@@ -23,8 +25,8 @@ where
     /// # Type Parameters
     ///
     /// This method changes the connection state type parameter from `C` to `C2`.
-    /// This means that any subsequent builder methods will operate on the new connection state
-    /// type `C2`. Be aware of this type transition when chaining builder methods.
+    /// This means that any subsequent builder methods will operate on the new connection state type
+    /// `C2`. Be aware of this type transition when chaining builder methods.
     ///
     /// # Errors
     ///
@@ -41,7 +43,7 @@ where
     {
         Ok(WireframeApp {
             handlers: self.handlers,
-            routes: OnceCell::new(),
+            routes: tokio::sync::OnceCell::new(),
             middleware: self.middleware,
             serializer: self.serializer,
             app_data: self.app_data,

@@ -49,6 +49,9 @@ macro_rules! builder_callback {
 pub mod binding;
 pub mod preamble;
 
+#[cfg(test)]
+mod tests;
+
 impl<F, Ser, Ctx, E, Codec> WireframeServer<F, (), Unbound, Ser, Ctx, E, Codec>
 where
     F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,

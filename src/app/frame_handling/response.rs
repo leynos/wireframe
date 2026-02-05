@@ -1,0 +1,139 @@
+//! Response forwarding helpers for frame handling.
+
+use std::io;
+
+use bytes::Bytes;
+use futures::SinkExt;
+use log::warn;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+
+use crate::{
+    app::{
+        Envelope,
+        Packet,
+        PacketParts,
+        combined_codec::ConnectionCodec,
+        fragmentation_state::FragmentationState,
+    },
+    codec::FrameCodec,
+    middleware::{HandlerService, Service, ServiceRequest},
+    serializer::Serializer,
+};
+
+/// Forward a handler response, fragmenting if required, and write to the framed stream.
+pub(crate) async fn forward_response<S, E, W, F>(
+    env: Envelope,
+    service: &HandlerService<E>,
+    ctx: super::ResponseContext<'_, S, W, F>,
+) -> io::Result<()>
+where
+    S: Serializer + Send + Sync,
+    E: Packet,
+    W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+{
+    let request = ServiceRequest::new(env.payload, env.correlation_id);
+    let resp = match service.call(request).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            warn!(
+                "handler error: id={}, correlation_id={:?}, error={e:?}",
+                env.id, env.correlation_id
+            );
+            crate::metrics::inc_handler_errors();
+            return Ok(());
+        }
+    };
+
+    let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
+        .inherit_correlation(env.correlation_id);
+    let correlation_id = parts.correlation_id();
+    let Ok(responses) = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id) else {
+        return Ok(()); // already logged
+    };
+
+    for response in responses {
+        let Ok(bytes) = serialize_response(ctx.serializer, &response, env.id, correlation_id)
+        else {
+            break; // already logged
+        };
+
+        if send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response)
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+fn fragment_responses(
+    fragmentation: &mut Option<FragmentationState>,
+    parts: PacketParts,
+    id: u32,
+    correlation_id: Option<u64>,
+) -> io::Result<Vec<Envelope>> {
+    let envelope = Envelope::from_parts(parts);
+    match fragmentation.as_mut() {
+        Some(state) => match state.fragment(envelope) {
+            Ok(fragmented) => Ok(fragmented),
+            Err(err) => {
+                warn!(
+                    "failed to fragment response: id={id}, correlation_id={correlation_id:?}, \
+                     error={err:?}"
+                );
+                crate::metrics::inc_handler_errors();
+                Err(io::Error::other("fragmentation failed"))
+            }
+        },
+        None => Ok(vec![envelope]),
+    }
+}
+
+fn serialize_response<S: Serializer>(
+    serializer: &S,
+    response: &Envelope,
+    id: u32,
+    correlation_id: Option<u64>,
+) -> io::Result<Vec<u8>> {
+    match serializer.serialize(response) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => {
+            warn!(
+                "failed to serialize response: id={id}, correlation_id={correlation_id:?}, \
+                 error={e:?}"
+            );
+            crate::metrics::inc_handler_errors();
+            Err(io::Error::other("serialization failed"))
+        }
+    }
+}
+
+/// Send a response payload over the framed stream using codec-aware wrapping.
+///
+/// Wraps the raw payload bytes in the codec's native frame format via
+/// [`FrameCodec::wrap_payload`] before writing to the underlying stream.
+/// This ensures responses are encoded correctly for the configured protocol.
+pub(super) async fn send_response_payload<F, W>(
+    codec: &F,
+    framed: &mut Framed<W, ConnectionCodec<F>>,
+    payload: Bytes,
+    response: &Envelope,
+) -> io::Result<()>
+where
+    W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+{
+    let frame = codec.wrap_payload(payload);
+    if let Err(e) = framed.send(frame).await {
+        let id = response.id;
+        let correlation_id = response.correlation_id;
+        warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
+        crate::metrics::inc_handler_errors();
+        return Err(io::Error::other("send failed"));
+    }
+    Ok(())
+}
