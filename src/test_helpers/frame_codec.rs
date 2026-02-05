@@ -1,4 +1,4 @@
-//! Shared test frame codec fixtures for frame handling tests.
+//! Test frame codec fixtures shared across unit and integration tests.
 
 use std::{
     io,
@@ -10,15 +10,19 @@ use std::{
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
-use wireframe::codec::FrameCodec;
+
+use crate::codec::FrameCodec;
 
 /// Test frame that wraps payloads with a distinctive tag byte.
 #[derive(Clone, Debug)]
 pub struct TestFrame {
+    /// Tag byte stored in the frame header.
     pub tag: u8,
+    /// Payload bytes carried by the frame.
     pub payload: Vec<u8>,
 }
 
+/// Codec implementation that wraps payloads with a tagged test frame.
 #[derive(Clone, Debug)]
 pub struct TestCodec {
     max_frame_length: usize,
@@ -26,6 +30,8 @@ pub struct TestCodec {
 }
 
 impl TestCodec {
+    /// Create a new test codec with the given maximum frame length.
+    #[must_use]
     pub fn new(max_frame_length: usize) -> Self {
         Self {
             max_frame_length,
@@ -33,15 +39,20 @@ impl TestCodec {
         }
     }
 
+    /// Return how many payloads have been wrapped.
+    #[must_use]
     pub fn wraps(&self) -> usize { self.counter.load(Ordering::SeqCst) }
 }
 
+/// Adapter implementing the codec's encoder/decoder pair.
 #[derive(Clone, Debug)]
 pub struct TestAdapter {
     max_frame_length: usize,
 }
 
 impl TestAdapter {
+    /// Create a new adapter with the given maximum frame length.
+    #[must_use]
     pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
@@ -120,20 +131,4 @@ impl FrameCodec for TestCodec {
     fn correlation_id(frame: &Self::Frame) -> Option<u64> { Some(u64::from(frame.tag)) }
 
     fn max_frame_length(&self) -> usize { self.max_frame_length }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{TestAdapter, TestCodec, TestFrame};
-
-    #[test]
-    fn fixtures_are_constructible() {
-        let codec = TestCodec::new(8);
-        let _wraps = codec.wraps();
-        let _adapter = TestAdapter::new(8);
-        let _frame = TestFrame {
-            tag: 0,
-            payload: Vec::new(),
-        };
-    }
 }

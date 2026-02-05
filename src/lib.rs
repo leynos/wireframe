@@ -52,8 +52,6 @@ pub mod server;
 pub mod session;
 #[cfg(any(test, feature = "test-helpers"))]
 pub mod test_helpers;
-#[cfg(test)]
-pub(crate) mod tests;
 
 pub use client::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient};
 pub use connection::ConnectionActor;

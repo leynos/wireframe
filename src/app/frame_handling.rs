@@ -213,19 +213,19 @@ mod tests {
     use futures::StreamExt;
 
     use super::*;
-    use crate::{app::combined_codec::CombinedCodec, tests::fixtures::test_frame_codec};
+    use crate::{app::combined_codec::CombinedCodec, test_helpers::TestCodec};
 
     /// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
     #[tokio::test]
     async fn send_response_payload_wraps_with_codec() {
-        let codec = test_frame_codec::TestCodec::new(64);
+        let codec = TestCodec::new(64);
         let (client, server) = tokio::io::duplex(256);
         let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
         let mut framed = Framed::new(server, combined);
 
         let payload = vec![1, 2, 3, 4];
         let response = Envelope::new(1, Some(99), payload.clone());
-        send_response_payload::<test_frame_codec::TestCodec, _>(
+        send_response_payload::<TestCodec, _>(
             &codec,
             &mut framed,
             Bytes::from(payload.clone()),
@@ -254,20 +254,19 @@ mod tests {
     async fn response_context_holds_references() {
         use crate::serializer::BincodeSerializer;
 
-        let codec = test_frame_codec::TestCodec::new(64);
+        let codec = TestCodec::new(64);
         let (_client, server) = tokio::io::duplex(256);
         let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
         let mut framed = Framed::new(server, combined);
         let serializer = BincodeSerializer;
         let mut fragmentation: Option<FragmentationState> = None;
 
-        let ctx: ResponseContext<'_, BincodeSerializer, _, test_frame_codec::TestCodec> =
-            ResponseContext {
-                serializer: &serializer,
-                framed: &mut framed,
-                fragmentation: &mut fragmentation,
-                codec: &codec,
-            };
+        let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
+            serializer: &serializer,
+            framed: &mut framed,
+            fragmentation: &mut fragmentation,
+            codec: &codec,
+        };
 
         // Verify fields are accessible (compile-time check with runtime assertion)
         assert!(ctx.fragmentation.is_none());
@@ -276,7 +275,7 @@ mod tests {
     /// Verify `send_response_payload` returns error on send failure.
     #[tokio::test]
     async fn send_response_payload_returns_error_on_failure() {
-        let codec = test_frame_codec::TestCodec::new(4); // Small limit to trigger failure
+        let codec = TestCodec::new(4); // Small limit to trigger failure
         let (_client, server) = tokio::io::duplex(256);
         let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
         let mut framed = Framed::new(server, combined);
@@ -284,7 +283,7 @@ mod tests {
         // Payload exceeds max_frame_length, so encode will fail
         let oversized_payload = vec![0u8; 100];
         let response = Envelope::new(1, Some(99), oversized_payload.clone());
-        let result = send_response_payload::<test_frame_codec::TestCodec, _>(
+        let result = send_response_payload::<TestCodec, _>(
             &codec,
             &mut framed,
             Bytes::from(oversized_payload),
