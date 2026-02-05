@@ -52,6 +52,8 @@ pub mod preamble;
 fn default_worker_count() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
+#[cfg(test)]
+mod tests;
 
 impl<F, Ser, Ctx, E, Codec> WireframeServer<F, (), Unbound, Ser, Ctx, E, Codec>
 where

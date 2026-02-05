@@ -1,22 +1,9 @@
-//! Tests for codec recovery policies, hooks, and configuration.
+//! Tests for codec recovery policies.
 
-use std::{io, net::SocketAddr, time::Duration};
-
-use rstest::{fixture, rstest};
+use std::{io, time::Duration};
 
 use super::*;
-
-#[fixture]
-fn default_hook() -> DefaultRecoveryPolicy {
-    // Use the framework default hook for baseline policy assertions.
-    DefaultRecoveryPolicy
-}
-
-#[fixture]
-fn context() -> CodecErrorContext {
-    // These tests exercise hook behaviour without connection metadata.
-    CodecErrorContext::new()
-}
+use crate::codec::CodecError;
 
 #[test]
 fn recovery_policy_default_is_drop() {
@@ -37,47 +24,37 @@ fn context_builder_sets_fields() {
 
 #[test]
 fn context_with_peer_address() {
-    let addr: SocketAddr = "127.0.0.1:8080".parse().expect("valid test address");
+    let addr: std::net::SocketAddr = "127.0.0.1:8080".parse().expect("valid test address");
     let ctx = CodecErrorContext::new().with_peer_address(addr);
     assert_eq!(ctx.peer_address, Some(addr));
 }
 
-#[rstest]
-fn default_recovery_policy_delegates_to_error(
-    default_hook: DefaultRecoveryPolicy,
-    context: CodecErrorContext,
-) {
+#[test]
+fn default_recovery_policy_delegates_to_error() {
     use crate::codec::error::{EofError, FramingError};
+
+    let hook = DefaultRecoveryPolicy;
+    let ctx = CodecErrorContext::new();
 
     // Check various error types
     let err = CodecError::Framing(FramingError::OversizedFrame { size: 100, max: 50 });
-    assert_eq!(
-        default_hook.recovery_policy(&err, &context),
-        RecoveryPolicy::Drop
-    );
+    assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Drop);
 
     let err = CodecError::Io(io::Error::other("test"));
-    assert_eq!(
-        default_hook.recovery_policy(&err, &context),
-        RecoveryPolicy::Disconnect
-    );
+    assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
 
     let err = CodecError::Eof(EofError::CleanClose);
-    assert_eq!(
-        default_hook.recovery_policy(&err, &context),
-        RecoveryPolicy::Disconnect
-    );
+    assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
 }
 
-#[rstest]
-fn default_quarantine_duration_is_30_seconds(
-    default_hook: DefaultRecoveryPolicy,
-    context: CodecErrorContext,
-) {
-    let io_error = CodecError::Io(io::Error::other("test"));
+#[test]
+fn default_quarantine_duration_is_30_seconds() {
+    let hook = DefaultRecoveryPolicy;
+    let ctx = CodecErrorContext::new();
+    let err = CodecError::Io(io::Error::other("test"));
 
     assert_eq!(
-        default_hook.quarantine_duration(&io_error, &context),
+        hook.quarantine_duration(&err, &ctx),
         Duration::from_secs(30)
     );
 }
