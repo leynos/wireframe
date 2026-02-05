@@ -114,6 +114,18 @@ fn codec_error_converts_to_io_error_with_correct_kind(
     assert_eq!(io_err.kind(), expected_kind);
 }
 
+#[test]
+fn io_error_from_clean_close_preserves_eof_error() {
+    let io_err: io::Error = CodecError::Eof(EofError::CleanClose).into();
+    let inner = io_err
+        .get_ref()
+        .expect("expected inner error for clean close");
+    let eof = inner
+        .downcast_ref::<EofError>()
+        .expect("expected EofError to be preserved");
+    assert_eq!(*eof, EofError::CleanClose);
+}
+
 /// Parameterised test for `error_type()` category strings.
 ///
 /// Each case specifies:
