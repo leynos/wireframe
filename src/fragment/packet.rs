@@ -49,20 +49,6 @@ impl FragmentParts {
     /// ```
     #[must_use]
     pub fn into_payload(self) -> Vec<u8> { self.payload }
-
-    /// Deprecated: use [`FragmentParts::into_payload`] instead.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use wireframe::fragment::FragmentParts;
-    ///
-    /// let parts = FragmentParts::new(1, None, vec![7, 8]);
-    /// assert_eq!(parts.into_payload(), vec![7, 8]);
-    /// ```
-    #[deprecated(since = "0.2.0", note = "Use `FragmentParts::into_payload` instead.")]
-    #[must_use]
-    pub fn payload(self) -> Vec<u8> { self.into_payload() }
 }
 
 /// A packet that can be decomposed into parts and reconstructed for fragmentation.
