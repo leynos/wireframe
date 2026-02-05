@@ -10,10 +10,7 @@ use wireframe::{
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{decode_frames, encode_frame};
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{TestResult, decode_frames, encode_frame};
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 

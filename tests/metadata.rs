@@ -13,10 +13,7 @@ use wireframe::{
     frame::FrameMetadata,
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{TestSerializer, drive_with_bincode};
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{TestResult, TestSerializer, drive_with_bincode};
 
 type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelope>;
 

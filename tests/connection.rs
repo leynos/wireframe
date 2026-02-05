@@ -15,10 +15,7 @@ use wireframe::{
     connection::test_support::{ActorHarness, ActorStateHarness, poll_queue_next},
     hooks::ConnectionContext,
 };
-use wireframe_testing::{LoggerHandle, logger};
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{LoggerHandle, TestResult, logger};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HookCounts {

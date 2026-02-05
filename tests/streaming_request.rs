@@ -4,11 +4,9 @@
 //! These tests exercise back-pressure propagation and buffered-to-streaming
 //! fallback behaviour as specified in ADR 0002.
 
-mod common;
 use std::time::Duration;
 
 use bytes::Bytes;
-use common::TestResult;
 use futures::StreamExt;
 use rstest::rstest;
 use tokio::io::AsyncReadExt;
@@ -16,6 +14,7 @@ use wireframe::{
     extractor::StreamingBody,
     request::{RequestBodyReader, RequestBodyStream, RequestParts, body_channel},
 };
+use wireframe_testing::TestResult;
 
 #[rstest]
 #[tokio::test]

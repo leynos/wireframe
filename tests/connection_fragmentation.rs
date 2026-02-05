@@ -16,8 +16,7 @@ use wireframe::{
 
 const ROUTE_ID: u32 = 7;
 
-mod common;
-use common::TestResult;
+use wireframe_testing::TestResult;
 
 fn setup_fragmented_actor() -> TestResult<(
     ConnectionActor<Envelope, ()>,

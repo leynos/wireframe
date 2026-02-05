@@ -9,20 +9,18 @@ use tokio::{
     time::{Duration, timeout},
 };
 use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe_testing::{TestResult, factory};
 
-use crate::{
-    common::{TestResult, factory},
-    support::{
-        HotlinePreamble,
-        OtherPreamble,
-        channel_holder,
-        failure_cb,
-        recv_within,
-        server_with_handlers,
-        success_cb,
-        take_sender_io,
-        with_running_server,
-    },
+use crate::support::{
+    HotlinePreamble,
+    OtherPreamble,
+    channel_holder,
+    failure_cb,
+    recv_within,
+    server_with_handlers,
+    success_cb,
+    take_sender_io,
+    with_running_server,
 };
 
 #[derive(Clone, Copy)]

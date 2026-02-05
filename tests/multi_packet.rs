@@ -12,9 +12,7 @@ use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
     push::{PushHandle, PushQueues},
 };
-
-mod common;
-use common::TestResult;
+use wireframe_testing::TestResult;
 
 fn boxed_err<E: std::fmt::Debug>(
     context: &str,

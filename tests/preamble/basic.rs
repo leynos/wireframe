@@ -2,8 +2,9 @@
 
 use tokio::io::{AsyncWriteExt, duplex};
 use wireframe::preamble::read_preamble;
+use wireframe_testing::TestResult;
 
-use crate::{common::TestResult, support::HotlinePreamble};
+use crate::support::HotlinePreamble;
 
 #[tokio::test]
 #[expect(

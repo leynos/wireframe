@@ -7,9 +7,8 @@ use std::str::FromStr;
 
 use rstest::fixture;
 use wireframe::request::RequestParts;
-
 /// Re-export `TestResult` from common for use in steps.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
 
 /// Request identifier wrapper for test steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

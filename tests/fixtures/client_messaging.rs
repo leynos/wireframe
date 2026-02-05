@@ -17,10 +17,9 @@ use wireframe::{
     correlation::CorrelatableFrame,
     rewind_stream::RewindStream,
 };
-use wireframe_testing::{ServerMode, process_frame};
-
 /// `TestResult` for step definitions.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
+use wireframe_testing::{ServerMode, process_frame};
 
 /// Test world for client messaging scenarios.
 #[derive(Debug, Default)]

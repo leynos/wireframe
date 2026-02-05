@@ -14,9 +14,7 @@ use std::{
     },
 };
 
-mod common;
 use bytes::{Bytes, BytesMut};
-use common::TestResult;
 use futures::stream;
 use rstest::{fixture, rstest};
 use tokio_util::{
@@ -32,6 +30,7 @@ use wireframe::{
     push::{PushConfigError, PushQueues},
     serializer::BincodeSerializer,
 };
+use wireframe_testing::TestResult;
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope, VecFrameCodec>;
 type QueueResult =

@@ -20,6 +20,7 @@
 
 pub mod echo_server;
 pub mod helpers;
+pub mod integration_helpers;
 pub mod logging;
 pub mod multi_packet;
 
@@ -43,6 +44,7 @@ pub use helpers::{
     run_app,
     run_with_duplex_server,
 };
+pub use integration_helpers::{CommonTestEnvelope, TestApp, TestResult, factory, unused_listener};
 pub use logging::{LoggerHandle, logger};
 #[doc(inline)]
 pub use multi_packet::collect_multi_packet;
