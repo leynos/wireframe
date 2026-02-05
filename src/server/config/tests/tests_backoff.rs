@@ -57,14 +57,12 @@ fn test_accept_backoff_configuration_scenarios(
 ) {
     let server = WireframeServer::new(factory).accept_backoff(scenario.config);
     assert_eq!(
-        server.backoff_config.initial_delay,
-        scenario.expected_initial,
+        server.backoff_config.initial_delay, scenario.expected_initial,
         "scenario: {}",
         scenario.description
     );
     assert_eq!(
-        server.backoff_config.max_delay,
-        scenario.expected_max,
+        server.backoff_config.max_delay, scenario.expected_max,
         "scenario: {}",
         scenario.description
     );
@@ -180,14 +178,12 @@ fn test_backoff_validation_scenarios(
 ) {
     let server = WireframeServer::new(factory).accept_backoff(scenario.config);
     assert_eq!(
-        server.backoff_config.initial_delay,
-        scenario.expected_initial,
+        server.backoff_config.initial_delay, scenario.expected_initial,
         "scenario: {}",
         scenario.description
     );
     assert_eq!(
-        server.backoff_config.max_delay,
-        scenario.expected_max,
+        server.backoff_config.max_delay, scenario.expected_max,
         "scenario: {}",
         scenario.description
     );
