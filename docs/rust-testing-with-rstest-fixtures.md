@@ -1143,6 +1143,9 @@ for maintainability and scalability.
     (in the `tests/` directory), consider creating a common module within the
     `tests/` directory (e.g., `tests/common/fixtures.rs`) and re-exporting
     public fixtures.
+  - For integration helpers reused across multiple test crates, prefer
+    exporting them from the `wireframe_testing` crate so they compile once and
+    avoid per-test-crate lint suppressions.
   - Alternatively, define shared fixtures in the library crate itself (e.g., in
     `src/lib.rs` or `src/fixtures.rs` under `#[cfg(test)]`) and `use` them in
     integration tests.

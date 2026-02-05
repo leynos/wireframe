@@ -16,9 +16,7 @@ use wireframe::{
     client::WireframeClient,
     preamble::{read_preamble, write_preamble},
 };
-
-mod common;
-use common::TestResult;
+use wireframe_testing::TestResult;
 
 /// A simple preamble for testing.
 #[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::BorrowDecode)]

@@ -1,8 +1,6 @@
 #![cfg(not(loom))]
 //! Tests for connection preamble reading.
 
-mod common;
-
 #[path = "preamble/basic.rs"]
 mod basic;
 #[path = "preamble/callbacks.rs"]

@@ -14,8 +14,7 @@ use tokio::{
     time::{Duration, timeout},
 };
 use wireframe::{app::WireframeApp, server::WireframeServer};
-
-use crate::common::{TestResult, unused_listener};
+use wireframe_testing::{TestResult, unused_listener};
 
 #[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(crate) struct HotlinePreamble {
@@ -73,7 +72,7 @@ where
     Fut: std::future::Future<Output = TestResult>,
     B: FnOnce(std::net::SocketAddr) -> Fut,
 {
-    let listener = unused_listener();
+    let listener = unused_listener()?;
     let server = server.bind_existing_listener(listener)?;
     let addr = server
         .local_addr()

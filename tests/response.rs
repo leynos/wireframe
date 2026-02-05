@@ -16,10 +16,14 @@ use wireframe::{
     message::Message,
     serializer::BincodeSerializer,
 };
-use wireframe_testing::{decode_frames, decode_frames_with_max, encode_frame, run_app};
-
-mod common;
-use common::{TestApp, TestResult};
+use wireframe_testing::{
+    TestApp,
+    TestResult,
+    decode_frames,
+    decode_frames_with_max,
+    encode_frame,
+    run_app,
+};
 
 // Larger cap used for oversized frame tests.
 const LARGE_FRAME: usize = 16 * 1024 * 1024;

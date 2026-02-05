@@ -17,26 +17,27 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
-mod common;
 #[path = "fragment_transport/mod.rs"]
 mod fragment_transport;
 
-use common::{
-    TestResult,
-    fragment_helpers::{
-        CORRELATION,
-        ROUTE_ID,
-        TestError,
-        assert_handler_observed,
-        build_envelopes,
-        fragmentation_config,
-        make_app,
-        make_handler,
-        read_reassembled_response,
-        read_response_payload,
-        send_envelopes,
-        spawn_app,
-    },
+#[path = "common/fragment_helpers.rs"]
+mod fragment_helpers;
+
+use wireframe_testing::TestResult;
+
+use crate::fragment_helpers::{
+    CORRELATION,
+    ROUTE_ID,
+    TestError,
+    assert_handler_observed,
+    build_envelopes,
+    fragmentation_config,
+    make_app,
+    make_handler,
+    read_reassembled_response,
+    read_response_payload,
+    send_envelopes,
+    spawn_app,
 };
 
 /// Common helper for round-trip fragmentation tests.

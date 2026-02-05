@@ -7,9 +7,8 @@ use wireframe::{
     session::{ConnectionId, SessionRegistry},
 };
 
-mod common;
 mod support;
-use common::TestResult;
+use wireframe_testing::TestResult;
 
 #[fixture]
 fn registry() -> SessionRegistry<u8> {

@@ -7,10 +7,7 @@ use serial_test::serial;
 use tokio::time::{Duration, sleep, timeout};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use wireframe::{connection::ConnectionActor, push::PushQueues};
-use wireframe_testing::push_expect;
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{TestResult, push_expect};
 
 #[fixture]
 fn queues()

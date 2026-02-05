@@ -19,15 +19,14 @@ use wireframe::{
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{
+    CommonTestEnvelope,
     TEST_MAX_FRAME,
+    TestResult,
     decode_frames,
     new_test_codec,
     run_app,
     run_with_duplex_server,
 };
-
-mod common;
-use common::{CommonTestEnvelope, TestResult};
 
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;

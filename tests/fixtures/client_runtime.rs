@@ -18,9 +18,8 @@ use wireframe::{
     client::{ClientCodecConfig, ClientError, WireframeClient},
     rewind_stream::RewindStream,
 };
-
 /// `TestResult` for step definitions.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
 
 /// Test world exercising the wireframe client runtime.
 #[derive(Debug)]

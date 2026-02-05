@@ -20,10 +20,7 @@ use wireframe::{
     push::PushQueues,
     response::WireframeError,
 };
-use wireframe_testing::{LoggerHandle, logger, push_expect};
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{LoggerHandle, TestResult, logger, push_expect};
 
 #[fixture]
 fn queues()

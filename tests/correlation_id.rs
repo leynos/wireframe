@@ -14,9 +14,7 @@ use wireframe::{
     push::PushQueues,
     response::FrameStream,
 };
-
-mod common;
-use common::TestResult;
+use wireframe_testing::TestResult;
 
 #[tokio::test]
 #[expect(

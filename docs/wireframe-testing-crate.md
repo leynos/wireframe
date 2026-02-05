@@ -28,6 +28,7 @@ deterministically without external exporters.
 - `src/lib.rs` re-exports the public API.
 - `src/helpers.rs` provides in-memory drivers and codec-aware encode/decode
   helpers.
+- `src/integration_helpers.rs` exposes shared helpers for integration tests.
 - `src/observability.rs` implements the observability harness from ADR 006.
 - `src/logging.rs` retains the standalone `LoggerHandle` fixture.
 - `src/fixtures/` (or `src/codec_fixtures.rs`) stores reusable frame fixtures

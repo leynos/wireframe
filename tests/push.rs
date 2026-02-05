@@ -17,10 +17,7 @@ use wireframe::push::{
     PushPriority,
     PushQueues,
 };
-use wireframe_testing::{push_expect, recv_expect};
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{TestResult, push_expect, recv_expect};
 
 #[fixture]
 fn queues() -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {

@@ -25,9 +25,9 @@ use wireframe::message_assembler::{
     MessageKey,
     MessageSeriesError,
 };
-
 /// Re-export `TestResult` from common for use in steps.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
+
 use crate::scenarios::steps::FrameId;
 
 /// Configuration for message assembly state initialisation.

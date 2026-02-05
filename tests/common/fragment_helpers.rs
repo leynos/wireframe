@@ -25,8 +25,7 @@ use wireframe::{
     },
     serializer::BincodeSerializer,
 };
-
-use super::TestResult;
+use wireframe_testing::TestResult;
 
 /// Error type for fragment transport tests.
 #[derive(Debug, Error)]

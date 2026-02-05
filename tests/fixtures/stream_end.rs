@@ -15,10 +15,10 @@ use wireframe::{
     hooks::ProtocolHooks,
     response::FrameStream,
 };
+/// Re-export `TestResult` from common for use in steps.
+pub use wireframe_testing::TestResult;
 use wireframe_testing::{LoggerHandle, logger};
 
-/// Re-export `TestResult` from common for use in steps.
-pub use crate::common::TestResult;
 use crate::{build_small_queues, terminator::Terminator};
 
 /// Test world capturing frames and logs for stream termination scenarios.

@@ -7,9 +7,8 @@ mod decoder_ops;
 use bytes::BytesMut;
 use rstest::fixture;
 use wireframe::codec::{CodecError, EofError, FramingError, ProtocolError, RecoveryPolicy};
-
 /// `TestResult` for step definitions.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
 
 /// Codec error type for test scenarios.
 #[derive(Clone, Copy, Debug, Default)]

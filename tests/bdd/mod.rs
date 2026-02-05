@@ -6,10 +6,6 @@
 
 #![cfg(not(loom))]
 
-// Re-export common utilities from the parent tests directory
-#[path = "../common/mod.rs"]
-pub mod common;
-
 #[path = "../common/terminator.rs"]
 mod terminator;
 

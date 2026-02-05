@@ -24,10 +24,7 @@ use wireframe::{
     hooks::{ConnectionContext, ProtocolHooks},
     push::{PushHandle, PushQueues},
 };
-use wireframe_testing::{LoggerHandle, logger};
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{LoggerHandle, TestResult, logger};
 
 const STREAM_ID: u32 = 7;
 const TERMINATOR_ID: u32 = 255;

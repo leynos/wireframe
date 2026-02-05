@@ -12,10 +12,10 @@ use wireframe::{
     message_assembler::{FrameHeader, MessageAssembler, ParsedFrameHeader},
     test_helpers::TestAssembler,
 };
+/// `TestResult` for step definitions.
+pub use wireframe_testing::TestResult;
 
 use crate::TestApp;
-/// `TestResult` for step definitions.
-pub use crate::common::TestResult;
 
 /// Specification for first-frame header encoding used in tests.
 #[derive(Debug, Clone, Copy)]

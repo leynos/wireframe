@@ -23,9 +23,8 @@ use wireframe::{
     codec::FrameCodec,
     serializer::BincodeSerializer,
 };
-
 /// Re-export `TestResult` from common for use in steps.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
 
 #[derive(Debug)]
 struct SeqFrame {

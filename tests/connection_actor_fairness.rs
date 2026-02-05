@@ -13,10 +13,7 @@ use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
     push::PushQueues,
 };
-use wireframe_testing::push_expect;
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{TestResult, push_expect};
 
 #[fixture]
 fn queues() -> TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)> {

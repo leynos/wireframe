@@ -15,9 +15,7 @@ use std::sync::{
 
 use tokio::net::TcpListener;
 use wireframe::WireframeClient;
-
-mod common;
-use common::TestResult;
+use wireframe_testing::TestResult;
 
 /// Test that setup and teardown callbacks are both invoked for a full
 /// connection lifecycle.
