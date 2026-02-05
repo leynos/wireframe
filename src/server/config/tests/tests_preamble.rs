@@ -22,6 +22,18 @@ use crate::{
     },
 };
 
+async fn setup_tcp_connection() -> TcpStream {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let addr = listener.local_addr().expect("listener addr");
+    let _client = TcpStream::connect(addr)
+        .await
+        .expect("client connect failed");
+    let (stream, _) = listener.accept().await.expect("accept stream");
+    stream
+}
+
 #[rstest]
 fn test_with_preamble_type_conversion(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
@@ -79,6 +91,7 @@ async fn test_preamble_handler_registration(
     };
 
     assert_eq!(counter.load(Ordering::SeqCst), 0);
+    let mut stream = setup_tcp_connection().await;
     match handler {
         PreambleHandlerKind::Success => {
             assert!(server.on_preamble_success.is_some());
@@ -86,14 +99,6 @@ async fn test_preamble_handler_registration(
                 .on_preamble_success
                 .as_ref()
                 .expect("success handler missing");
-            let listener = TcpListener::bind("127.0.0.1:0")
-                .await
-                .expect("bind listener");
-            let addr = listener.local_addr().expect("listener addr");
-            let _client = TcpStream::connect(addr)
-                .await
-                .expect("client connect failed");
-            let (mut stream, _) = listener.accept().await.expect("accept stream");
             let preamble = TestPreamble {
                 id: 0,
                 message: String::new(),
@@ -108,14 +113,6 @@ async fn test_preamble_handler_registration(
                 .on_preamble_failure
                 .as_ref()
                 .expect("failure handler missing");
-            let listener = TcpListener::bind("127.0.0.1:0")
-                .await
-                .expect("bind listener");
-            let addr = listener.local_addr().expect("listener addr");
-            let _client = TcpStream::connect(addr)
-                .await
-                .expect("client connect failed");
-            let (mut stream, _) = listener.accept().await.expect("accept stream");
             handler(&DecodeError::UnexpectedEnd { additional: 0 }, &mut stream)
                 .await
                 .expect("handler failed");
