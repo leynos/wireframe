@@ -9,44 +9,65 @@ use crate::{
     server::{BackoffConfig, WireframeServer, test_util::factory},
 };
 
+#[derive(Debug)]
+struct BackoffScenario {
+    config: BackoffConfig,
+    expected_initial: Duration,
+    expected_max: Duration,
+    description: &'static str,
+}
+
 #[rstest]
 #[case::custom_backoff(
-    BackoffConfig {
-        initial_delay: Duration::from_millis(5),
-        max_delay: Duration::from_millis(500),
-    },
-    Duration::from_millis(5),
-    Duration::from_millis(500),
-    "custom backoff"
+    BackoffScenario {
+        config: BackoffConfig {
+            initial_delay: Duration::from_millis(5),
+            max_delay: Duration::from_millis(500),
+        },
+        expected_initial: Duration::from_millis(5),
+        expected_max: Duration::from_millis(500),
+        description: "custom backoff",
+    }
 )]
 #[case::custom_initial_delay(
-    BackoffConfig {
-        initial_delay: Duration::from_millis(20),
-        ..BackoffConfig::default()
-    },
-    Duration::from_millis(20),
-    Duration::from_secs(1),
-    "custom initial delay"
+    BackoffScenario {
+        config: BackoffConfig {
+            initial_delay: Duration::from_millis(20),
+            ..BackoffConfig::default()
+        },
+        expected_initial: Duration::from_millis(20),
+        expected_max: Duration::from_secs(1),
+        description: "custom initial delay",
+    }
 )]
 #[case::custom_max_delay(
-    BackoffConfig {
-        max_delay: Duration::from_millis(2000),
-        ..BackoffConfig::default()
-    },
-    Duration::from_millis(10),
-    Duration::from_millis(2000),
-    "custom max delay"
+    BackoffScenario {
+        config: BackoffConfig {
+            max_delay: Duration::from_millis(2000),
+            ..BackoffConfig::default()
+        },
+        expected_initial: Duration::from_millis(10),
+        expected_max: Duration::from_millis(2000),
+        description: "custom max delay",
+    }
 )]
 fn test_accept_backoff_configuration_scenarios(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    #[case] config: BackoffConfig,
-    #[case] expected_initial: Duration,
-    #[case] expected_max: Duration,
-    #[case] _description: &'static str,
+    #[case] scenario: BackoffScenario,
 ) {
-    let server = WireframeServer::new(factory).accept_backoff(config);
-    assert_eq!(server.backoff_config.initial_delay, expected_initial);
-    assert_eq!(server.backoff_config.max_delay, expected_max);
+    let server = WireframeServer::new(factory).accept_backoff(scenario.config);
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        scenario.expected_initial,
+        "scenario: {}",
+        scenario.description
+    );
+    assert_eq!(
+        server.backoff_config.max_delay,
+        scenario.expected_max,
+        "scenario: {}",
+        scenario.description
+    );
 }
 
 /// Behaviour test verifying exponential delay doubling and capping.
@@ -99,60 +120,77 @@ fn test_accept_exponential_backoff_doubles_and_caps() {
 
 #[rstest]
 #[case::clamp_initial_delay(
-    BackoffConfig {
-        initial_delay: Duration::ZERO,
-        ..BackoffConfig::default()
-    },
-    Duration::from_millis(1),
-    Duration::from_secs(1),
-    "clamp initial delay"
+    BackoffScenario {
+        config: BackoffConfig {
+            initial_delay: Duration::ZERO,
+            ..BackoffConfig::default()
+        },
+        expected_initial: Duration::from_millis(1),
+        expected_max: Duration::from_secs(1),
+        description: "clamp initial delay",
+    }
 )]
 #[case::swap_shorter_max(
-    BackoffConfig {
-        initial_delay: Duration::from_millis(100),
-        max_delay: Duration::from_millis(50),
-    },
-    Duration::from_millis(50),
-    Duration::from_millis(100),
-    "swap shorter max"
+    BackoffScenario {
+        config: BackoffConfig {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_millis(50),
+        },
+        expected_initial: Duration::from_millis(50),
+        expected_max: Duration::from_millis(100),
+        description: "swap shorter max",
+    }
 )]
 #[case::swap_with_default_max(
-    BackoffConfig {
-        initial_delay: Duration::from_secs(2),
-        max_delay: Duration::from_secs(1),
-    },
-    Duration::from_secs(1),
-    Duration::from_secs(2),
-    "swap with default max"
+    BackoffScenario {
+        config: BackoffConfig {
+            initial_delay: Duration::from_secs(2),
+            max_delay: Duration::from_secs(1),
+        },
+        expected_initial: Duration::from_secs(1),
+        expected_max: Duration::from_secs(2),
+        description: "swap with default max",
+    }
 )]
 #[case::swap_small_values(
-    BackoffConfig {
-        initial_delay: Duration::from_millis(5),
-        max_delay: Duration::from_millis(1),
-    },
-    Duration::from_millis(1),
-    Duration::from_millis(5),
-    "swap small values"
+    BackoffScenario {
+        config: BackoffConfig {
+            initial_delay: Duration::from_millis(5),
+            max_delay: Duration::from_millis(1),
+        },
+        expected_initial: Duration::from_millis(1),
+        expected_max: Duration::from_millis(5),
+        description: "swap small values",
+    }
 )]
 #[case::clamp_both_zero(
-    BackoffConfig {
-        initial_delay: Duration::ZERO,
-        max_delay: Duration::ZERO,
-    },
-    Duration::from_millis(1),
-    Duration::from_millis(1),
-    "clamp both zero"
+    BackoffScenario {
+        config: BackoffConfig {
+            initial_delay: Duration::ZERO,
+            max_delay: Duration::ZERO,
+        },
+        expected_initial: Duration::from_millis(1),
+        expected_max: Duration::from_millis(1),
+        description: "clamp both zero",
+    }
 )]
 fn test_backoff_validation_scenarios(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    #[case] config: BackoffConfig,
-    #[case] expected_initial: Duration,
-    #[case] expected_max: Duration,
-    #[case] _description: &'static str,
+    #[case] scenario: BackoffScenario,
 ) {
-    let server = WireframeServer::new(factory).accept_backoff(config);
-    assert_eq!(server.backoff_config.initial_delay, expected_initial);
-    assert_eq!(server.backoff_config.max_delay, expected_max);
+    let server = WireframeServer::new(factory).accept_backoff(scenario.config);
+    assert_eq!(
+        server.backoff_config.initial_delay,
+        scenario.expected_initial,
+        "scenario: {}",
+        scenario.description
+    );
+    assert_eq!(
+        server.backoff_config.max_delay,
+        scenario.expected_max,
+        "scenario: {}",
+        scenario.description
+    );
 }
 
 #[rstest]
