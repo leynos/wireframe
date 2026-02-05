@@ -98,28 +98,28 @@ impl CodecErrorWorld {
             .map_or(0, |bytes| u32::from_be_bytes(bytes) as usize)
     }
 
-    /// Classify the EOF error type from the error message.
+    /// Classify the EOF error type from the inner error.
     ///
     /// # Implementation Note
     ///
-    /// This method infers EOF type by checking if the error message contains
-    /// "header". This is fragile: if the upstream error message format changes,
-    /// this classification will silently produce incorrect results.
-    ///
-    /// When the buffer contains at least 4 bytes (a complete length header),
-    /// we extract the expected payload length from the big-endian u32 prefix.
-    ///
-    /// This approach is acceptable for test code where we control the error
-    /// messages, but would need a more robust solution (e.g., downcasting to
-    /// `CodecError`) if the underlying error type becomes available.
-    // FIXME(#418): Replace string-matching with downcasting when CodecError
-    // becomes available in the io::Error source chain.
+    /// The decoder wraps `EofError` inside `io::Error` for
+    /// `UnexpectedEof`. We downcast to recover the precise variant. If the
+    /// inner error is missing, fall back to inspecting the buffer length to
+    /// infer whether we stopped mid-header or mid-frame.
     fn classify_eof_error(&mut self, e: &std::io::Error) {
         if e.kind() != std::io::ErrorKind::UnexpectedEof {
             return;
         }
-        let msg = e.to_string();
-        self.detected_eof = Some(if msg.contains("header") {
+        let detected = e
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<EofError>())
+            .copied()
+            .unwrap_or_else(|| self.infer_eof_from_buffer());
+        self.detected_eof = Some(detected);
+    }
+
+    fn infer_eof_from_buffer(&self) -> EofError {
+        if self.buffer.len() < LENGTH_HEADER_SIZE {
             EofError::MidHeader {
                 bytes_received: self.buffer.len(),
                 header_size: LENGTH_HEADER_SIZE,
@@ -129,7 +129,7 @@ impl CodecErrorWorld {
                 bytes_received: self.buffer.len().saturating_sub(LENGTH_HEADER_SIZE),
                 expected: self.extract_expected_length(),
             }
-        });
+        }
     }
 
     /// Call `decode_eof` when buffer has incomplete data.
