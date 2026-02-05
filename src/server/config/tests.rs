@@ -302,7 +302,7 @@ fn backoff_sequence(initial: Duration, max: Duration, attempts: usize) -> Vec<Du
 
     for _ in 0..attempts {
         sequence.push(backoff);
-        backoff = std::cmp::min(backoff.saturating_mul(2), max);
+        backoff = std::cmp::min(backoff * 2, max);
     }
 
     sequence
