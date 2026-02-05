@@ -25,6 +25,17 @@ use crate::{
     },
 };
 
+fn is_connection_closed(read_res: std::io::Result<usize>) -> TestResult<bool> {
+    match read_res {
+        Ok(0) => Ok(true),
+        Ok(n) => {
+            Err(io::Error::other(format!("expected connection to close, read {n} bytes")).into())
+        }
+        Err(e) if e.kind() == io::ErrorKind::ConnectionReset => Ok(true),
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn timeout_success_handler(
     holder: Holder,
 ) -> impl for<'a> Fn(&'a HotlinePreamble, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>>
@@ -83,17 +94,7 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> Tes
         timeout(Duration::from_millis(500), stream.read_exact(&mut buf)).await??;
         let mut eof = [0u8; 1];
         let read = timeout(Duration::from_millis(200), stream.read(&mut eof)).await;
-        let closed = match read? {
-            Ok(0) => true,
-            Ok(n) => {
-                return Err(io::Error::other(format!(
-                    "expected connection to close, read {n} bytes"
-                ))
-                .into());
-            }
-            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => true,
-            Err(e) => return Err(e.into()),
-        };
+        let closed = is_connection_closed(read?)?;
         let _ = result_tx.send((buf, closed));
         Ok(())
     })
@@ -131,7 +132,7 @@ async fn preamble_timeout_allows_timely_preamble() -> TestResult {
             .is_ok();
 
         let mut buf = [0u8; 2];
-        stream.read_exact(&mut buf).await?;
+        timeout(Duration::from_millis(150), stream.read_exact(&mut buf)).await??;
         let _ = result_tx.send((buf, failure_fired));
         Ok(())
     })
