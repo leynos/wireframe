@@ -15,6 +15,10 @@ use crate::message_assembler::{
     ParsedFrameHeader,
 };
 
+pub mod frame_codec;
+
+pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
+
 /// Test-friendly message assembler implementation that shares parsing logic.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TestAssembler;

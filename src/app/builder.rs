@@ -22,7 +22,7 @@ use super::{
 use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     fragment::FragmentationConfig,
-    hooks::{ProtocolHooks, WireframeProtocol},
+    hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
     middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
@@ -225,150 +225,6 @@ where
         Ok(self)
     }
 
-    /// Register a callback invoked when a new connection is established.
-    ///
-    /// The callback can perform authentication or other setup tasks and
-    /// returns connection-specific state stored for the connection's
-    /// lifetime.
-    ///
-    /// # Type Parameters
-    ///
-    /// This method changes the connection state type parameter from `C` to `C2`.
-    /// This means that any subsequent builder methods will operate on the new connection state type
-    /// `C2`. Be aware of this type transition when chaining builder methods.
-    ///
-    /// # Errors
-    ///
-    /// This function always succeeds currently but uses [`Result`] for
-    /// consistency with other builder methods.
-    pub fn on_connection_setup<SetupFn, Fut, C2>(
-        self,
-        f: SetupFn,
-    ) -> Result<WireframeApp<S, C2, E, F>>
-    where
-        SetupFn: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = C2> + Send + 'static,
-        C2: Send + 'static,
-    {
-        Ok(WireframeApp {
-            handlers: self.handlers,
-            routes: OnceCell::new(),
-            middleware: self.middleware,
-            serializer: self.serializer,
-            app_data: self.app_data,
-            on_connect: Some(Arc::new(move || Box::pin(f()))),
-            on_disconnect: None,
-            protocol: self.protocol,
-            push_dlq: self.push_dlq,
-            codec: self.codec,
-            read_timeout_ms: self.read_timeout_ms,
-            fragmentation: self.fragmentation,
-            message_assembler: self.message_assembler,
-        })
-    }
-
-    /// Register a callback invoked when a connection is closed.
-    ///
-    /// The callback receives the connection state produced by
-    /// [`on_connection_setup`](Self::on_connection_setup).
-    ///
-    /// # Errors
-    ///
-    /// This function always succeeds currently but uses [`Result`] for
-    /// consistency with other builder methods.
-    pub fn on_connection_teardown<TeardownFn, Fut>(mut self, f: TeardownFn) -> Result<Self>
-    where
-        TeardownFn: Fn(C) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        self.on_disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
-        Ok(self)
-    }
-
-    /// Install a [`WireframeProtocol`] implementation.
-    ///
-    /// The protocol defines hooks for connection setup, frame modification, and
-    /// command completion. It is wrapped in an [`Arc`] and stored for later use
-    /// by the connection actor.
-    #[must_use]
-    pub fn with_protocol<P>(self, protocol: P) -> Self
-    where
-        P: WireframeProtocol<Frame = F::Frame, ProtocolError = ()> + 'static,
-    {
-        WireframeApp {
-            protocol: Some(Arc::new(protocol)),
-            ..self
-        }
-    }
-
-    /// Install a [`MessageAssembler`] implementation.
-    ///
-    /// The assembler parses protocol-specific frame headers to support
-    /// multi-frame request assembly once the inbound pipeline integrates it.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use wireframe::{
-    ///     app::WireframeApp,
-    ///     message_assembler::{MessageAssembler, ParsedFrameHeader},
-    /// };
-    ///
-    /// struct DemoAssembler;
-    ///
-    /// impl MessageAssembler for DemoAssembler {
-    ///     fn parse_frame_header(&self, _payload: &[u8]) -> Result<ParsedFrameHeader, std::io::Error> {
-    ///         Err(std::io::Error::new(
-    ///             std::io::ErrorKind::InvalidData,
-    ///             "unimplemented",
-    ///         ))
-    ///     }
-    /// }
-    ///
-    /// let app = WireframeApp::new()
-    ///     .expect("builder")
-    ///     .with_message_assembler(DemoAssembler);
-    /// let _ = app;
-    /// ```
-    #[must_use]
-    pub fn with_message_assembler(self, assembler: impl MessageAssembler + 'static) -> Self {
-        WireframeApp {
-            message_assembler: Some(Arc::new(assembler)),
-            ..self
-        }
-    }
-
-    /// Get the configured message assembler, if any.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use wireframe::{
-    ///     app::WireframeApp,
-    ///     message_assembler::{MessageAssembler, ParsedFrameHeader},
-    /// };
-    ///
-    /// struct DemoAssembler;
-    ///
-    /// impl MessageAssembler for DemoAssembler {
-    ///     fn parse_frame_header(&self, _payload: &[u8]) -> Result<ParsedFrameHeader, std::io::Error> {
-    ///         Err(std::io::Error::new(
-    ///             std::io::ErrorKind::InvalidData,
-    ///             "unimplemented",
-    ///         ))
-    ///     }
-    /// }
-    ///
-    /// let app = WireframeApp::new()
-    ///     .expect("builder")
-    ///     .with_message_assembler(DemoAssembler);
-    /// assert!(app.message_assembler().is_some());
-    /// ```
-    #[must_use]
-    pub fn message_assembler(&self) -> Option<&Arc<dyn MessageAssembler>> {
-        self.message_assembler.as_ref()
-    }
-
     /// Configure a Dead Letter Queue for dropped push frames.
     ///
     /// ```rust,no_run
@@ -390,27 +246,6 @@ where
             push_dlq: Some(dlq),
             ..self
         }
-    }
-
-    /// Get a clone of the configured protocol, if any.
-    ///
-    /// Returns `None` if no protocol was installed via [`with_protocol`](Self::with_protocol).
-    #[must_use]
-    pub fn protocol(
-        &self,
-    ) -> Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>> {
-        self.protocol.clone()
-    }
-
-    /// Return protocol hooks derived from the installed protocol.
-    ///
-    /// If no protocol is installed, returns default (no-op) hooks.
-    #[must_use]
-    pub fn protocol_hooks(&self) -> ProtocolHooks<F::Frame, ()> {
-        self.protocol
-            .as_ref()
-            .map(ProtocolHooks::from_protocol)
-            .unwrap_or_default()
     }
 
     /// Replace the serializer used for messages.

@@ -10,6 +10,8 @@
 
 mod builder;
 mod builder_defaults;
+mod builder_lifecycle;
+mod builder_protocol;
 mod combined_codec;
 mod connection;
 mod envelope;
