@@ -25,3 +25,13 @@ The consuming payload accessors were renamed to follow Rust idioms.
   `PacketParts::into_payload(self)` instead.
 - `FragmentParts::payload(self)` has been removed. Use
   `FragmentParts::into_payload(self)` instead.
+
+```rust
+// Before
+let packet_payload = packet_parts.payload();
+let fragment_payload = fragment_parts.payload();
+
+// After
+let packet_payload = packet_parts.into_payload();
+let fragment_payload = fragment_parts.into_payload();
+```
