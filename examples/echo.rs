@@ -3,11 +3,7 @@
 //! The application listens for incoming frames and simply echoes each
 //! envelope back to the client.
 
-use wireframe::{
-    app::Envelope,
-    serializer::BincodeSerializer,
-    server::WireframeServer,
-};
+use wireframe::{app::Envelope, serializer::BincodeSerializer, server::WireframeServer};
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 type EchoHandler =
@@ -32,8 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
 
     let handler: EchoHandler = Arc::new(|_: &Envelope| echo_handler());
-    build_app(handler.clone())
-        .inspect_err(|err| error!("failed to build echo app: {err}"))?;
+    build_app(handler.clone()).inspect_err(|err| error!("failed to build echo app: {err}"))?;
 
     let factory = {
         let handler = Arc::clone(&handler);
