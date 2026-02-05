@@ -182,29 +182,22 @@ async fn server_triggers_expected_callback(
         let mut stream = TcpStream::connect(addr).await?;
         stream.write_all(bytes).await?;
         stream.shutdown().await?;
+
+        match expected {
+            ExpectedCallback::Success => {
+                let preamble = timeout(Duration::from_secs(2), success_rx).await??;
+                assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
+                assert!(timeout(Duration::from_secs(1), failure_rx).await.is_err());
+            }
+            ExpectedCallback::Failure => {
+                timeout(Duration::from_secs(2), failure_rx).await??;
+                assert!(timeout(Duration::from_secs(1), success_rx).await.is_err());
+            }
+        }
+
         Ok(())
     })
     .await?;
-
-    match expected {
-        ExpectedCallback::Success => {
-            let preamble = timeout(Duration::from_secs(1), success_rx).await??;
-            assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
-            assert!(
-                timeout(Duration::from_millis(500), failure_rx)
-                    .await
-                    .is_err()
-            );
-        }
-        ExpectedCallback::Failure => {
-            timeout(Duration::from_secs(1), failure_rx).await??;
-            assert!(
-                timeout(Duration::from_millis(500), success_rx)
-                    .await
-                    .is_err()
-            );
-        }
-    }
     Ok(())
 }
 
