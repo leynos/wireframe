@@ -332,7 +332,27 @@ impl RecoveryConfig {
 mod tests {
     use std::io;
 
+    use rstest::{fixture, rstest};
+
     use super::*;
+
+    #[fixture]
+    fn default_hook() -> DefaultRecoveryPolicy {
+        let () = ();
+        DefaultRecoveryPolicy
+    }
+
+    #[fixture]
+    fn context() -> CodecErrorContext {
+        let () = ();
+        CodecErrorContext::new()
+    }
+
+    #[fixture]
+    fn io_error() -> CodecError {
+        let () = ();
+        CodecError::Io(io::Error::other("test"))
+    }
 
     #[test]
     fn recovery_policy_default_is_drop() {
@@ -358,32 +378,41 @@ mod tests {
         assert_eq!(ctx.peer_address, Some(addr));
     }
 
-    #[test]
-    fn default_recovery_policy_delegates_to_error() {
+    #[rstest]
+    fn default_recovery_policy_delegates_to_error(
+        default_hook: DefaultRecoveryPolicy,
+        context: CodecErrorContext,
+    ) {
         use super::super::error::{EofError, FramingError};
-
-        let hook = DefaultRecoveryPolicy;
-        let ctx = CodecErrorContext::new();
 
         // Check various error types
         let err = CodecError::Framing(FramingError::OversizedFrame { size: 100, max: 50 });
-        assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Drop);
+        assert_eq!(
+            default_hook.recovery_policy(&err, &context),
+            RecoveryPolicy::Drop
+        );
 
         let err = CodecError::Io(io::Error::other("test"));
-        assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
+        assert_eq!(
+            default_hook.recovery_policy(&err, &context),
+            RecoveryPolicy::Disconnect
+        );
 
         let err = CodecError::Eof(EofError::CleanClose);
-        assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
+        assert_eq!(
+            default_hook.recovery_policy(&err, &context),
+            RecoveryPolicy::Disconnect
+        );
     }
 
-    #[test]
-    fn default_quarantine_duration_is_30_seconds() {
-        let hook = DefaultRecoveryPolicy;
-        let ctx = CodecErrorContext::new();
-        let err = CodecError::Io(io::Error::other("test"));
-
+    #[rstest]
+    fn default_quarantine_duration_is_30_seconds(
+        default_hook: DefaultRecoveryPolicy,
+        context: CodecErrorContext,
+        io_error: CodecError,
+    ) {
         assert_eq!(
-            hook.quarantine_duration(&err, &ctx),
+            default_hook.quarantine_duration(&io_error, &context),
             Duration::from_secs(30)
         );
     }

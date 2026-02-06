@@ -11,6 +11,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use thiserror::Error;
+
 use crate::{message::Message as WireMessage, request::RequestBodyStream};
 
 /// Request context passed to extractors.
@@ -50,7 +52,8 @@ impl MessageRequest {
     ///
     /// use wireframe::extractor::MessageRequest;
     ///
-    /// let req = MessageRequest::new().with_peer_addr(Some("127.0.0.1:8080".parse().unwrap()));
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().expect("valid socket address");
+    /// let req = MessageRequest::new().with_peer_addr(Some(addr));
     /// assert!(req.peer_addr.is_some());
     /// ```
     #[must_use]
@@ -71,12 +74,14 @@ impl MessageRequest {
     ///     extractor::{MessageRequest, SharedState},
     /// };
     ///
-    /// let _app = WireframeApp::new().unwrap().app_data(5u32);
+    /// let _app = WireframeApp::new()
+    ///     .expect("failed to initialize app")
+    ///     .app_data(5u32);
     /// // The framework populates the request with application data.
     /// # let mut req = MessageRequest::default();
     /// # req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
-    /// assert_eq!(*val.unwrap(), 5);
+    /// assert_eq!(*val.expect("state should be available"), 5);
     /// ```
     #[must_use]
     pub fn state<T>(&self) -> Option<SharedState<T>>
@@ -101,7 +106,7 @@ impl MessageRequest {
     /// let mut req = MessageRequest::default();
     /// req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
-    /// assert_eq!(*val.unwrap(), 5);
+    /// assert_eq!(*val.expect("state should be available"), 5);
     /// ```
     pub fn insert_state<T>(&mut self, state: T)
     where
@@ -272,47 +277,22 @@ impl<T: Send + Sync> From<T> for SharedState<T> {
 ///
 /// This enum is marked `#[non_exhaustive]` so more variants may be added in
 /// the future without breaking changes.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ExtractError {
     /// No shared state of the requested type was found.
+    #[error("no shared state registered for {0}")]
     MissingState(&'static str),
     /// Failed to decode the message payload.
-    InvalidPayload(bincode::error::DecodeError),
+    #[error("failed to decode payload: {0}")]
+    InvalidPayload(#[source] bincode::error::DecodeError),
     /// No streaming body was available for this request.
     ///
     /// This occurs when:
     /// - The request was not configured for streaming consumption
     /// - The stream was already consumed by another extractor
+    #[error("no streaming body available for this request")]
     MissingBodyStream,
-}
-
-impl std::fmt::Display for ExtractError {
-    /// Formats the `ExtractError` for display purposes.
-    ///
-    /// Displays a descriptive message for missing shared state or payload decoding errors.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
-            Self::InvalidPayload(e) => write!(f, "failed to decode payload: {e}"),
-            Self::MissingBodyStream => {
-                write!(f, "no streaming body available for this request")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ExtractError {
-    /// Returns the underlying error if this is an `InvalidPayload` variant.
-    ///
-    /// # Returns
-    /// An optional reference to the underlying decode error, or `None` if not applicable.
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidPayload(e) => Some(e),
-            _ => None,
-        }
-    }
 }
 
 impl<T> FromMessageRequest for SharedState<T>
@@ -499,9 +479,10 @@ impl ConnectionInfo {
     ///
     /// use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
     ///
-    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().expect("valid socket address");
     /// let req = MessageRequest::new().with_peer_addr(Some(addr));
-    /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default()).unwrap();
+    /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default())
+    ///     .expect("connection info extraction should succeed");
     /// assert_eq!(info.peer_addr(), Some(addr));
     /// ```
     #[must_use]

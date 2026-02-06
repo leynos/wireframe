@@ -24,6 +24,8 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
+const INITIAL_READ_BUFFER_CAPACITY_LIMIT: usize = 64 * 1024;
+
 /// Reconstructs `WireframeClientBuilder` with one field updated to a new value.
 ///
 /// This macro reduces duplication in type-changing builder methods that need to
@@ -319,8 +321,11 @@ where
     /// ```
     /// use wireframe::client::WireframeClientBuilder;
     ///
-    /// let builder = WireframeClientBuilder::new().on_error(|err| async move {
-    ///     eprintln!("Client error: {err}");
+    /// let builder = WireframeClientBuilder::new().on_error(|err| {
+    ///     let message = err.to_string();
+    ///     async move {
+    ///         eprintln!("Client error: {message}");
+    ///     }
     /// });
     /// let _ = builder;
     /// ```
@@ -392,8 +397,10 @@ where
         let codec_config = self.codec_config;
         let codec = codec_config.build_codec();
         let mut framed = Framed::new(RewindStream::new(leftover, stream), codec);
-        let initial_read_buffer_capacity =
-            core::cmp::min(64 * 1024, codec_config.max_frame_length_value());
+        let initial_read_buffer_capacity = core::cmp::min(
+            INITIAL_READ_BUFFER_CAPACITY_LIMIT,
+            codec_config.max_frame_length_value(),
+        );
         framed
             .read_buffer_mut()
             .reserve(initial_read_buffer_capacity);

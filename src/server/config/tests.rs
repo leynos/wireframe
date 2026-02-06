@@ -15,7 +15,7 @@ use std::{
 };
 
 use bincode::error::DecodeError;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tokio::net::{TcpListener, TcpStream};
 
 use super::*;
@@ -42,6 +42,15 @@ fn expected_default_worker_count() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
 
+#[fixture]
+async fn connected_streams() -> io::Result<(TcpStream, TcpStream)> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let client = TcpStream::connect(addr).await?;
+    let (server, _) = listener.accept().await?;
+    Ok((client, server))
+}
+
 #[rstest]
 fn test_new_server_creation(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
     let server = WireframeServer::new(factory);
@@ -58,10 +67,10 @@ fn test_new_server_default_worker_count(
 
 #[rstest]
 fn test_workers_configuration(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
-    let mut server = WireframeServer::new(factory);
-    server = server.workers(4);
+    let server = WireframeServer::new(factory);
+    let server = server.workers(4);
     assert_eq!(server.worker_count(), 4);
-    server = server.workers(100);
+    let server = server.workers(100);
     assert_eq!(server.worker_count(), 100);
     assert_eq!(server.workers(0).worker_count(), 1);
 }
@@ -126,7 +135,8 @@ async fn test_local_addr_after_bind(
 async fn test_preamble_handler_registration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     #[case] handler: PreambleHandlerKind,
-) {
+    connected_streams: io::Result<(TcpStream, TcpStream)>,
+) -> io::Result<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
 
@@ -158,18 +168,9 @@ async fn test_preamble_handler_registration(
                 .on_preamble_success
                 .as_ref()
                 .expect("success handler missing");
-            let listener = TcpListener::bind("127.0.0.1:0")
-                .await
-                .expect("bind listener");
-            let addr = listener.local_addr().expect("listener addr");
-            let _client = TcpStream::connect(addr)
-                .await
-                .expect("client connect failed");
-            let (mut stream, _) = listener.accept().await.expect("accept stream");
+            let (_client, mut stream) = connected_streams?;
             let preamble = TestPreamble { id: 0, message: String::new() };
-            handler(&preamble, &mut stream)
-                .await
-                .expect("handler failed");
+            handler(&preamble, &mut stream).await?;
         }
         PreambleHandlerKind::Failure => {
             assert!(server.on_preamble_failure.is_some());
@@ -177,20 +178,12 @@ async fn test_preamble_handler_registration(
                 .on_preamble_failure
                 .as_ref()
                 .expect("failure handler missing");
-            let listener = TcpListener::bind("127.0.0.1:0")
-                .await
-                .expect("bind listener");
-            let addr = listener.local_addr().expect("listener addr");
-            let _client = TcpStream::connect(addr)
-                .await
-                .expect("client connect failed");
-            let (mut stream, _) = listener.accept().await.expect("accept stream");
-            handler(&DecodeError::UnexpectedEnd, &mut stream)
-                .await
-                .expect("handler failed");
+            let (_client, mut stream) = connected_streams?;
+            handler(&DecodeError::UnexpectedEnd, &mut stream).await?;
         }
     }
     assert_eq!(counter.load(Ordering::SeqCst), 1);
+    Ok(())
 }
 
 #[rstest]
@@ -235,8 +228,8 @@ async fn test_server_configuration_persistence(
 
 #[rstest]
 fn test_extreme_worker_counts(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
-    let mut server = WireframeServer::new(factory);
-    server = server.workers(usize::MAX);
+    let server = WireframeServer::new(factory);
+    let server = server.workers(usize::MAX);
     assert_eq!(server.worker_count(), usize::MAX);
     assert_eq!(server.workers(0).worker_count(), 1);
 }
