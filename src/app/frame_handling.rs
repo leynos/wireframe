@@ -239,14 +239,26 @@ mod tests {
         let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
         let framed = Framed::new(server, combined);
 
-        FramedHarness { codec, framed, client }
+        FramedHarness {
+            codec,
+            framed,
+            client,
+        }
     }
 
     #[fixture]
-    fn default_harness() -> FramedHarness { build_harness(64) }
+    fn default_harness() -> FramedHarness {
+        let harness = build_harness(64);
+        assert_eq!(harness.codec.max_frame_length(), 64);
+        harness
+    }
 
     #[fixture]
-    fn small_harness() -> FramedHarness { build_harness(4) }
+    fn small_harness() -> FramedHarness {
+        let harness = build_harness(4);
+        assert_eq!(harness.codec.max_frame_length(), 4);
+        harness
+    }
 
     /// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
     #[rstest]
@@ -265,8 +277,10 @@ mod tests {
 
         drop(default_harness.framed);
 
-        let combined_client =
-            CombinedCodec::new(default_harness.codec.decoder(), default_harness.codec.encoder());
+        let combined_client = CombinedCodec::new(
+            default_harness.codec.decoder(),
+            default_harness.codec.encoder(),
+        );
         let mut client_framed = Framed::new(default_harness.client, combined_client);
         let frame = client_framed
             .next()
@@ -306,9 +320,7 @@ mod tests {
     /// Verify `send_response_payload` returns error on send failure.
     #[rstest]
     #[tokio::test]
-    async fn send_response_payload_returns_error_on_failure(
-        mut small_harness: FramedHarness,
-    ) {
+    async fn send_response_payload_returns_error_on_failure(mut small_harness: FramedHarness) {
         // Payload exceeds max_frame_length, so encode will fail
         let oversized_payload = vec![0u8; 100];
         let response = Envelope::new(1, Some(99), oversized_payload.clone());
