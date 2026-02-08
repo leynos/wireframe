@@ -33,8 +33,8 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     ///
     /// Deserialises a message instance from a byte slice using the standard configuration.
     ///
-    /// Returns the deserialised message and the number of bytes consumed, or a [`DecodeError`] if
-    /// deserialisation fails.
+    /// Returns the deserialized message and the number of bytes consumed, or a [`DecodeError`] if
+    /// deserialization fails.
     ///
     /// # Examples
     ///

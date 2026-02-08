@@ -27,7 +27,7 @@ pub struct MessageRequest {
     ///
     /// Values are keyed by their [`TypeId`]. Registering additional
     /// state of the same type will replace the previous entry.
-    pub app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub(crate) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     /// Optional streaming body for handlers that opt into streaming consumption.
     ///
     /// When present, the [`StreamingBody`] extractor can take ownership of this
@@ -336,7 +336,7 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
 pub struct Message<T>(T);
 
 impl<T> Message<T> {
-    /// Consumes the extractor and returns the inner deserialised message value.
+    /// Consumes the extractor and returns the inner deserialized message value.
     #[must_use]
     pub fn into_inner(self) -> T { self.0 }
 }

@@ -49,6 +49,10 @@ macro_rules! builder_callback {
 pub mod binding;
 pub mod preamble;
 
+fn default_worker_count() -> usize {
+    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+}
+
 impl<F, Ser, Ctx, E, Codec> WireframeServer<F, (), Unbound, Ser, Ctx, E, Codec>
 where
     F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
@@ -75,7 +79,7 @@ where
     /// ```
     #[must_use]
     pub fn new(factory: F) -> Self {
-        let workers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        let workers = default_worker_count();
         Self {
             factory,
             workers,

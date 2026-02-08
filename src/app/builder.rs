@@ -13,7 +13,12 @@ use std::{
 use tokio::sync::{OnceCell, mpsc};
 
 use super::{
-    builder_defaults::{MAX_READ_TIMEOUT_MS, MIN_READ_TIMEOUT_MS, default_fragmentation},
+    builder_defaults::{
+        DEFAULT_READ_TIMEOUT_MS,
+        MAX_READ_TIMEOUT_MS,
+        MIN_READ_TIMEOUT_MS,
+        default_fragmentation,
+    },
     envelope::{Envelope, Packet},
     error::{Result, WireframeError},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -77,7 +82,7 @@ where
             protocol: None,
             push_dlq: None,
             codec,
-            read_timeout_ms: 100,
+            read_timeout_ms: DEFAULT_READ_TIMEOUT_MS,
             fragmentation: default_fragmentation(max_frame_length),
             message_assembler: None,
         }
@@ -314,7 +319,7 @@ where
 
 impl<S, C, E> WireframeApp<S, C, E, LengthDelimitedFrameCodec>
 where
-    S: Serializer + Default + Send + Sync,
+    S: Serializer + Send + Sync,
     C: Send + 'static,
     E: Packet,
 {

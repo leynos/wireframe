@@ -227,8 +227,7 @@ pub trait RecoveryPolicyHook: Send + Sync {
     ///
     /// The default implementation delegates to
     /// [`CodecError::default_recovery_policy`].
-    fn recovery_policy(&self, error: &CodecError, ctx: &CodecErrorContext) -> RecoveryPolicy {
-        let _ = ctx;
+    fn recovery_policy(&self, error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
         error.default_recovery_policy()
     }
 
@@ -274,7 +273,7 @@ impl RecoveryPolicyHook for DefaultRecoveryPolicy {}
 ///
 /// assert_eq!(config.max_consecutive_drops, 5);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoveryConfig {
     /// Maximum consecutive dropped frames before escalating to disconnect.
     ///

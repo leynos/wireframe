@@ -23,6 +23,7 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Tracks deserialization failures and enforces a per-connection limit.
 struct DeserFailureTracker<'a> {
     count: &'a mut u32,
     limit: u32,
@@ -37,7 +38,7 @@ impl<'a> DeserFailureTracker<'a> {
         context: &str,
         err: impl std::fmt::Debug,
     ) -> io::Result<()> {
-        *self.count += 1;
+        *self.count = self.count.saturating_add(1);
         warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
         crate::metrics::inc_deser_errors();
         if *self.count >= self.limit {
@@ -50,6 +51,7 @@ impl<'a> DeserFailureTracker<'a> {
     }
 }
 
+/// Context for writing handler responses to the framed stream.
 pub(crate) struct ResponseContext<'a, S, W, F>
 where
     S: Serializer + Send + Sync,
@@ -107,8 +109,10 @@ where
         Ok(resp) => resp,
         Err(e) => {
             warn!(
-                "handler error: id={}, correlation_id={:?}, error={e:?}",
-                env.id, env.correlation_id
+                "handler error: id={id}, correlation_id={correlation_id:?}, error={err:?}",
+                id = env.id,
+                correlation_id = env.correlation_id,
+                err = e
             );
             crate::metrics::inc_handler_errors();
             return Ok(());
@@ -118,9 +122,7 @@ where
     let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
         .inherit_correlation(env.correlation_id);
     let correlation_id = parts.correlation_id();
-    let Ok(responses) = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id) else {
-        return Ok(()); // already logged
-    };
+    let responses = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id)?;
 
     for response in responses {
         let Ok(bytes) = serialize_response(ctx.serializer, &response, env.id, correlation_id)
@@ -216,33 +218,56 @@ where
 mod tests {
     use bytes::Bytes;
     use futures::StreamExt;
+    use rstest::{fixture, rstest};
+    use tokio::io::DuplexStream;
 
     use super::*;
-    use crate::{app::combined_codec::CombinedCodec, test_helpers::TestCodec};
+    use crate::{
+        app::combined_codec::CombinedCodec,
+        test_helpers::{TestAdapter, TestCodec},
+    };
 
-    /// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
-    #[tokio::test]
-    async fn send_response_payload_wraps_with_codec() {
-        let codec = TestCodec::new(64);
+    struct FramedHarness {
+        codec: TestCodec,
+        framed: Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
+        client: DuplexStream,
+    }
+
+    fn build_harness(max_frame_length: usize) -> FramedHarness {
+        let codec = TestCodec::new(max_frame_length);
         let (client, server) = tokio::io::duplex(256);
         let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut framed = Framed::new(server, combined);
+        let framed = Framed::new(server, combined);
 
+        FramedHarness { codec, framed, client }
+    }
+
+    #[fixture]
+    fn default_harness() -> FramedHarness { build_harness(64) }
+
+    #[fixture]
+    fn small_harness() -> FramedHarness { build_harness(4) }
+
+    /// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
+    #[rstest]
+    #[tokio::test]
+    async fn send_response_payload_wraps_with_codec(mut default_harness: FramedHarness) {
         let payload = vec![1, 2, 3, 4];
         let response = Envelope::new(1, Some(99), payload.clone());
         send_response_payload::<TestCodec, _>(
-            &codec,
-            &mut framed,
+            &default_harness.codec,
+            &mut default_harness.framed,
             Bytes::from(payload.clone()),
             &response,
         )
         .await
         .expect("send should succeed");
 
-        drop(framed);
+        drop(default_harness.framed);
 
-        let combined_client = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut client_framed = Framed::new(client, combined_client);
+        let combined_client =
+            CombinedCodec::new(default_harness.codec.decoder(), default_harness.codec.encoder());
+        let mut client_framed = Framed::new(default_harness.client, combined_client);
         let frame = client_framed
             .next()
             .await
@@ -251,26 +276,27 @@ mod tests {
 
         assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
         assert_eq!(frame.payload, payload, "payload should match");
-        assert_eq!(codec.wraps(), 1, "wrap_payload should advance codec state");
+        assert_eq!(
+            default_harness.codec.wraps(),
+            1,
+            "wrap_payload should advance codec state"
+        );
     }
 
     /// Verify `ResponseContext` fields are accessible and usable.
+    #[rstest]
     #[tokio::test]
-    async fn response_context_holds_references() {
+    async fn response_context_holds_references(mut default_harness: FramedHarness) {
         use crate::serializer::BincodeSerializer;
 
-        let codec = TestCodec::new(64);
-        let (_client, server) = tokio::io::duplex(256);
-        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut framed = Framed::new(server, combined);
         let serializer = BincodeSerializer;
         let mut fragmentation: Option<FragmentationState> = None;
 
         let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
             serializer: &serializer,
-            framed: &mut framed,
+            framed: &mut default_harness.framed,
             fragmentation: &mut fragmentation,
-            codec: &codec,
+            codec: &default_harness.codec,
         };
 
         // Verify fields are accessible (compile-time check with runtime assertion)
@@ -278,19 +304,17 @@ mod tests {
     }
 
     /// Verify `send_response_payload` returns error on send failure.
+    #[rstest]
     #[tokio::test]
-    async fn send_response_payload_returns_error_on_failure() {
-        let codec = TestCodec::new(4); // Small limit to trigger failure
-        let (_client, server) = tokio::io::duplex(256);
-        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut framed = Framed::new(server, combined);
-
+    async fn send_response_payload_returns_error_on_failure(
+        mut small_harness: FramedHarness,
+    ) {
         // Payload exceeds max_frame_length, so encode will fail
         let oversized_payload = vec![0u8; 100];
         let response = Envelope::new(1, Some(99), oversized_payload.clone());
         let result = send_response_payload::<TestCodec, _>(
-            &codec,
-            &mut framed,
+            &small_harness.codec,
+            &mut small_harness.framed,
             Bytes::from(oversized_payload),
             &response,
         )
