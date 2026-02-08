@@ -164,6 +164,32 @@ where
         }
     }
 
+    /// Helper to rebuild the app when changing the connection state type.
+    pub(super) fn rebuild_with_connection_type<C2>(
+        self,
+        on_connect: Option<Arc<ConnectionSetup<C2>>>,
+        on_disconnect: Option<Arc<ConnectionTeardown<C2>>>,
+    ) -> WireframeApp<S, C2, E, F>
+    where
+        C2: Send + 'static,
+    {
+        WireframeApp {
+            handlers: self.handlers,
+            routes: OnceCell::new(),
+            middleware: self.middleware,
+            serializer: self.serializer,
+            app_data: self.app_data,
+            on_connect,
+            on_disconnect,
+            protocol: self.protocol,
+            push_dlq: self.push_dlq,
+            codec: self.codec,
+            read_timeout_ms: self.read_timeout_ms,
+            fragmentation: self.fragmentation,
+            message_assembler: self.message_assembler,
+        }
+    }
+
     /// Replace the frame codec used for framing I/O.
     ///
     /// This resets any installed protocol hooks because the frame type may
