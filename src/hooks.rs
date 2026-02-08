@@ -56,8 +56,8 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     ///     type Frame = Vec<u8>;
     ///     type ProtocolError = ();
     ///
-    ///     fn handle_error(&self, error: Self::ProtocolError, _ctx: &mut ConnectionContext) {
-    ///         tracing::error!(error = %error, "protocol error");
+    ///     fn handle_error(&self, _error: Self::ProtocolError, _ctx: &mut ConnectionContext) {
+    ///         tracing::error!("protocol error");
     ///         // Custom handling here
     ///     }
     /// }
