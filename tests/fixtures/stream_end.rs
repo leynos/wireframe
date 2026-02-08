@@ -15,7 +15,7 @@ use wireframe::{
     hooks::ProtocolHooks,
     response::FrameStream,
 };
-/// Re-export `TestResult` from common for use in steps.
+/// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 use wireframe_testing::{LoggerHandle, logger};
 

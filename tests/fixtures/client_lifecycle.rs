@@ -29,7 +29,7 @@ use wireframe::{
     preamble::{read_preamble, write_preamble},
     rewind_stream::RewindStream,
 };
-/// Re-export `TestResult` from common for use in steps.
+/// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 
 /// Preamble used for testing lifecycle with preamble.

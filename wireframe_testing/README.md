@@ -41,7 +41,7 @@ and a helper for binding to an unused local port.
 use wireframe::server::WireframeServer;
 use wireframe_testing::{CommonTestEnvelope, TestResult, factory, unused_listener};
 
-fn example() -> TestResult {
+fn example() -> TestResult<()> {
     let _envelope = CommonTestEnvelope {
         id: 1,
         correlation_id: Some(99),

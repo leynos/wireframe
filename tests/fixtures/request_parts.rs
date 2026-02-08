@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use rstest::fixture;
 use wireframe::request::RequestParts;
-/// Re-export `TestResult` from common for use in steps.
+/// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 
 /// Request identifier wrapper for test steps.

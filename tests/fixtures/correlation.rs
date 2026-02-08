@@ -14,7 +14,7 @@ use wireframe::{
     correlation::CorrelatableFrame,
     response::FrameStream,
 };
-/// Re-export `TestResult` from common for use in steps.
+/// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 
 // Import build_small_queues from parent module
