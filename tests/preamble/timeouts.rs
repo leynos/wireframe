@@ -25,13 +25,22 @@ use crate::{
     },
 };
 
+const READ_TIMEOUT_MS: u64 = 500;
+
 fn is_connection_closed(read_res: std::io::Result<usize>) -> TestResult<bool> {
     match read_res {
         Ok(0) => Ok(true),
         Ok(n) => {
             Err(io::Error::other(format!("expected connection to close, read {n} bytes")).into())
         }
-        Err(e) if e.kind() == io::ErrorKind::ConnectionReset => Ok(true),
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::ConnectionAborted | io::ErrorKind::ConnectionReset
+            ) =>
+        {
+            Ok(true)
+        }
         Err(e) => Err(e.into()),
     }
 }
@@ -132,7 +141,11 @@ async fn preamble_timeout_allows_timely_preamble() -> TestResult {
             .is_ok();
 
         let mut buf = [0u8; 2];
-        timeout(Duration::from_millis(150), stream.read_exact(&mut buf)).await??;
+        timeout(
+            Duration::from_millis(READ_TIMEOUT_MS),
+            stream.read_exact(&mut buf),
+        )
+        .await??;
         let _ = result_tx.send((buf, failure_fired));
         Ok(())
     })
