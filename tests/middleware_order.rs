@@ -1,8 +1,7 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Tests ensuring middleware registration order is reversed during execution.
 //!
 //! Verifies tags are applied in reverse to request and response bodies.
+#![cfg(not(loom))]
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};

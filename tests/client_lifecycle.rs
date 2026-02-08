@@ -1,4 +1,3 @@
-#![cfg_attr(loom, allow(missing_docs))]
 #![cfg(not(loom))]
 #![expect(
     clippy::excessive_nesting,

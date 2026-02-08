@@ -1,8 +1,7 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Tests for push queue routing and limits.
 //!
 //! They cover priority ordering, policy behaviour, and closed queue errors.
+#![cfg(not(loom))]
 
 mod support;
 

@@ -1,5 +1,3 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Integration tests for multi-packet streaming responses.
 //!
 //! These tests exercise the `ConnectionActor` end-to-end to emulate a client
@@ -7,6 +5,7 @@
 //! completion, abrupt producer disconnects, and interleaving with other
 //! responses to ensure correlation identifiers allow clients to demultiplex
 //! concurrent activity.
+#![cfg(not(loom))]
 
 use std::sync::{
     Arc,

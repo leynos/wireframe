@@ -1,8 +1,7 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Tests for extracting shared state from message requests.
 //!
 //! They verify successful extraction and error handling when state is missing.
+#![cfg(not(loom))]
 
 use rstest::{fixture, rstest};
 use wireframe::extractor::{

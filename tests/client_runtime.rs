@@ -1,6 +1,5 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Integration tests for the wireframe client runtime.
+#![cfg(not(loom))]
 
 use futures::StreamExt;
 use tokio::net::TcpListener;

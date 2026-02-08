@@ -1,6 +1,5 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Integration coverage for custom `FrameCodec` implementations.
+#![cfg(not(loom))]
 
 use std::{
     io,

@@ -1,9 +1,8 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Tests covering response serialization and framing logic.
 //!
 //! These verify normal encoding as well as error conditions like
 //! write failures and encode errors.
+#![cfg(not(loom))]
 
 use std::sync::Arc;
 

@@ -1,6 +1,5 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Tests for connection preamble reading.
+#![cfg(not(loom))]
 
 mod common;
 

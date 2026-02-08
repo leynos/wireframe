@@ -1,11 +1,10 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Regression test for rate limiter token reservation behaviour.
 //!
 //! Ensures that probing a pending push future with `now_or_never()` does not
 //! reserve limiter tokens in a way that starves subsequently polled tasks.
 //! The third push must succeed immediately after the refill window even if the
 //! second future is never polled again.
+#![cfg(not(loom))]
 
 use futures::FutureExt;
 use tokio::time::{self, Duration};

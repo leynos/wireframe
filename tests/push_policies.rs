@@ -1,6 +1,5 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Tests for push queue policy behaviour.
+#![cfg(not(loom))]
 
 mod support;
 

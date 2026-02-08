@@ -1,8 +1,7 @@
-#![cfg_attr(loom, allow(missing_docs))]
-#![cfg(not(loom))]
 //! Tests for message request extractors.
 //!
 //! Validate message parsing, connection info, and shared state behaviour.
+#![cfg(not(loom))]
 
 use std::net::SocketAddr;
 
