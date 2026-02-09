@@ -126,7 +126,9 @@ where
     let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
         .inherit_correlation(env.correlation_id);
     let correlation_id = parts.correlation_id();
-    let responses = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id)?;
+    let Ok(responses) = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id) else {
+        return Ok(()); // already logged
+    };
 
     for response in responses {
         let Ok(bytes) = serialize_response(ctx.serializer, &response, env.id, correlation_id)
@@ -134,10 +136,24 @@ where
             break; // already logged
         };
 
-        send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response).await?;
+        let send_result =
+            send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response)
+                .await;
+        match send_result {
+            Ok(()) => {}
+            Err(err) if should_drop_response_send_error(&err) => break, // already logged
+            Err(err) => return Err(err),
+        }
     }
 
     Ok(())
+}
+
+fn should_drop_response_send_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
+    )
 }
 
 fn fragment_responses(
@@ -213,7 +229,7 @@ where
         let correlation_id = response.correlation_id;
         warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
         crate::metrics::inc_handler_errors();
-        return Err(io::Error::other("send failed"));
+        return Err(e);
     }
     Ok(())
 }
@@ -222,7 +238,7 @@ where
 mod tests {
     use bytes::Bytes;
     use futures::StreamExt;
-    use rstest::{fixture, rstest};
+    use rstest::rstest;
     use tokio::io::DuplexStream;
 
     use super::*;
@@ -253,26 +269,16 @@ mod tests {
         }
     }
 
-    #[fixture]
-    fn default_harness() -> FramedHarness {
-        let harness = build_harness(64);
-        assert_eq!(harness.codec.max_frame_length(), 64);
-        harness
-    }
-
     #[rstest]
     #[case::ok(vec![1, 2, 3, 4], false)]
     #[case::oversized(vec![0u8; 100], true)]
     #[tokio::test]
-    async fn send_response_payload_behaviour(
-        #[case] payload: Vec<u8>,
-        #[case] expect_error: bool,
-        mut default_harness: FramedHarness,
-    ) {
+    async fn send_response_payload_behaviour(#[case] payload: Vec<u8>, #[case] expect_error: bool) {
+        let mut harness = build_harness(64);
         let response = Envelope::new(1, Some(99), payload.clone());
         let result = send_response_payload::<TestCodec, _>(
-            &default_harness.codec,
-            &mut default_harness.server_framed,
+            &harness.codec,
+            &mut harness.server_framed,
             Bytes::from(payload.clone()),
             &response,
         )
@@ -283,11 +289,17 @@ mod tests {
                 result.is_err(),
                 "expected send to fail for oversized payload"
             );
+            assert_eq!(
+                result
+                    .expect_err("oversized payload should return an error")
+                    .kind(),
+                io::ErrorKind::InvalidInput
+            );
             return;
         }
 
         result.expect("send should succeed");
-        let frame = default_harness
+        let frame = harness
             .client_framed
             .next()
             .await
@@ -297,7 +309,7 @@ mod tests {
         assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
         assert_eq!(frame.payload, payload, "payload should match");
         assert_eq!(
-            default_harness.codec.wraps(),
+            harness.codec.wraps(),
             1,
             "wrap_payload should advance codec state"
         );
@@ -306,17 +318,18 @@ mod tests {
     /// Verify `ResponseContext` fields are accessible and usable.
     #[rstest]
     #[tokio::test]
-    async fn response_context_holds_references(mut default_harness: FramedHarness) {
+    async fn response_context_holds_references() {
         use crate::serializer::BincodeSerializer;
 
         let serializer = BincodeSerializer;
         let mut fragmentation: Option<FragmentationState> = None;
+        let mut harness = build_harness(64);
 
         let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
             serializer: &serializer,
-            framed: &mut default_harness.server_framed,
+            framed: &mut harness.server_framed,
             fragmentation: &mut fragmentation,
-            codec: &default_harness.codec,
+            codec: &harness.codec,
         };
 
         // Verify fields are accessible (compile-time check with runtime assertion)
