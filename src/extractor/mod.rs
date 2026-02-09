@@ -11,7 +11,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{message::Message as WireMessage, request::RequestBodyStream};
+use thiserror::Error;
+
+use crate::request::RequestBodyStream;
+
+mod extractors;
+
+pub use extractors::{ConnectionInfo, Message, StreamingBody};
 
 /// Request context passed to extractors.
 ///
@@ -50,7 +56,8 @@ impl MessageRequest {
     ///
     /// use wireframe::extractor::MessageRequest;
     ///
-    /// let req = MessageRequest::new().with_peer_addr(Some("127.0.0.1:8080".parse().unwrap()));
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().expect("valid socket address");
+    /// let req = MessageRequest::new().with_peer_addr(Some(addr));
     /// assert!(req.peer_addr.is_some());
     /// ```
     #[must_use]
@@ -71,12 +78,14 @@ impl MessageRequest {
     ///     extractor::{MessageRequest, SharedState},
     /// };
     ///
-    /// let _app = WireframeApp::new().unwrap().app_data(5u32);
+    /// let _app = WireframeApp::new()
+    ///     .expect("failed to initialize app")
+    ///     .app_data(5u32);
     /// // The framework populates the request with application data.
     /// # let mut req = MessageRequest::default();
     /// # req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
-    /// assert_eq!(*val.unwrap(), 5);
+    /// assert_eq!(*val.expect("state should be available"), 5);
     /// ```
     #[must_use]
     pub fn state<T>(&self) -> Option<SharedState<T>>
@@ -101,7 +110,7 @@ impl MessageRequest {
     /// let mut req = MessageRequest::default();
     /// req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
-    /// assert_eq!(*val.unwrap(), 5);
+    /// assert_eq!(*val.expect("state should be available"), 5);
     /// ```
     pub fn insert_state<T>(&mut self, state: T)
     where
@@ -272,47 +281,22 @@ impl<T: Send + Sync> From<T> for SharedState<T> {
 ///
 /// This enum is marked `#[non_exhaustive]` so more variants may be added in
 /// the future without breaking changes.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ExtractError {
     /// No shared state of the requested type was found.
+    #[error("no shared state registered for {0}")]
     MissingState(&'static str),
     /// Failed to decode the message payload.
-    InvalidPayload(bincode::error::DecodeError),
+    #[error("failed to decode payload: {0}")]
+    InvalidPayload(#[source] bincode::error::DecodeError),
     /// No streaming body was available for this request.
     ///
     /// This occurs when:
     /// - The request was not configured for streaming consumption
     /// - The stream was already consumed by another extractor
+    #[error("no streaming body available for this request")]
     MissingBodyStream,
-}
-
-impl std::fmt::Display for ExtractError {
-    /// Formats the `ExtractError` for display purposes.
-    ///
-    /// Displays a descriptive message for missing shared state or payload decoding errors.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MissingState(ty) => write!(f, "no shared state registered for {ty}"),
-            Self::InvalidPayload(e) => write!(f, "failed to decode payload: {e}"),
-            Self::MissingBodyStream => {
-                write!(f, "no streaming body available for this request")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ExtractError {
-    /// Returns the underlying error if this is an `InvalidPayload` variant.
-    ///
-    /// # Returns
-    /// An optional reference to the underlying decode error, or `None` if not applicable.
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidPayload(e) => Some(e),
-            _ => None,
-        }
-    }
 }
 
 impl<T> FromMessageRequest for SharedState<T>
@@ -349,178 +333,4 @@ impl<T: Send + Sync> std::ops::Deref for SharedState<T> {
     /// assert_eq!(*shared, 42);
     /// ```
     fn deref(&self) -> &Self::Target { &self.0 }
-}
-
-/// Extractor that deserializes the message payload into `T`.
-#[derive(Debug, Clone)]
-pub struct Message<T>(T);
-
-impl<T> Message<T> {
-    /// Consumes the extractor and returns the inner deserialised message value.
-    #[must_use]
-    pub fn into_inner(self) -> T { self.0 }
-}
-
-impl<T> std::ops::Deref for Message<T> {
-    type Target = T;
-
-    /// Returns a reference to the inner value.
-    ///
-    /// This enables transparent access to the wrapped type via dereferencing.
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-
-impl<T> FromMessageRequest for Message<T>
-where
-    T: WireMessage,
-{
-    type Error = ExtractError;
-
-    /// Attempts to extract and deserialize a message of type `T` from the payload.
-    ///
-    /// Advances the payload by the number of bytes consumed during deserialization.
-    /// Returns an error if the payload cannot be decoded into the target type.
-    ///
-    /// # Returns
-    /// - `Ok(Self)`: The successfully extracted and deserialized message.
-    /// - `Err(ExtractError::InvalidPayload)`: If deserialization fails.
-    fn from_message_request(
-        _req: &MessageRequest,
-        payload: &mut Payload<'_>,
-    ) -> Result<Self, Self::Error> {
-        let (msg, consumed) = T::from_bytes(payload.data).map_err(ExtractError::InvalidPayload)?;
-        payload.advance(consumed);
-        Ok(Self(msg))
-    }
-}
-
-/// Extractor providing streaming access to the request body.
-///
-/// Unlike [`Payload`] which borrows buffered bytes, this extractor
-/// takes ownership of a streaming body channel. Handlers opting into
-/// streaming receive chunks incrementally via a [`RequestBodyStream`].
-///
-/// This type is the inbound counterpart to [`crate::Response::Stream`].
-///
-/// # Examples
-///
-/// ```
-/// use bytes::Bytes;
-/// use tokio::io::AsyncReadExt;
-/// use wireframe::{extractor::StreamingBody, request::body_channel};
-///
-/// # #[tokio::main]
-/// # async fn main() {
-/// let (tx, stream) = body_channel(4);
-///
-/// tokio::spawn(async move {
-///     let _ = tx.send(Ok(Bytes::from_static(b"payload"))).await;
-/// });
-///
-/// let body = StreamingBody::new(stream);
-/// let mut reader = body.into_reader();
-/// let mut buf = Vec::new();
-/// reader.read_to_end(&mut buf).await.expect("read body");
-/// assert_eq!(buf, b"payload");
-/// # }
-/// ```
-///
-/// [`RequestBodyStream`]: crate::request::RequestBodyStream
-pub struct StreamingBody {
-    stream: crate::request::RequestBodyStream,
-}
-
-impl StreamingBody {
-    /// Create a streaming body from the given stream.
-    ///
-    /// Typically constructed by the framework when a handler opts into
-    /// streaming request consumption.
-    #[must_use]
-    pub fn new(stream: crate::request::RequestBodyStream) -> Self { Self { stream } }
-
-    /// Consume the extractor and return the underlying stream.
-    ///
-    /// Use this when you need direct access to the stream for custom
-    /// processing with [`futures::StreamExt`] methods.
-    #[must_use]
-    pub fn into_stream(self) -> crate::request::RequestBodyStream { self.stream }
-
-    /// Convert to an [`AsyncRead`] adapter.
-    ///
-    /// Protocol crates can use this to feed streaming bytes into parsers
-    /// that operate on readers rather than streams.
-    ///
-    /// [`AsyncRead`]: tokio::io::AsyncRead
-    #[must_use]
-    pub fn into_reader(self) -> crate::request::RequestBodyReader {
-        crate::request::RequestBodyReader::new(self.stream)
-    }
-}
-
-impl std::fmt::Debug for StreamingBody {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StreamingBody").finish_non_exhaustive()
-    }
-}
-
-impl FromMessageRequest for StreamingBody {
-    type Error = ExtractError;
-
-    /// Extract the streaming body from the request.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ExtractError::MissingBodyStream`] if:
-    /// - The request was not configured for streaming consumption
-    /// - The stream was already consumed by another extractor
-    fn from_message_request(
-        req: &MessageRequest,
-        _payload: &mut Payload<'_>,
-    ) -> Result<Self, Self::Error> {
-        req.take_body_stream()
-            .map(Self::new)
-            .ok_or(ExtractError::MissingBodyStream)
-    }
-}
-
-/// Extractor providing peer connection metadata.
-#[derive(Debug, Clone, Copy)]
-pub struct ConnectionInfo {
-    peer_addr: Option<SocketAddr>,
-}
-
-impl ConnectionInfo {
-    /// Returns the peer's socket address for the current connection, if available.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::net::SocketAddr;
-    ///
-    /// use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
-    ///
-    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-    /// let req = MessageRequest::new().with_peer_addr(Some(addr));
-    /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default()).unwrap();
-    /// assert_eq!(info.peer_addr(), Some(addr));
-    /// ```
-    #[must_use]
-    pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
-}
-
-impl FromMessageRequest for ConnectionInfo {
-    type Error = std::convert::Infallible;
-
-    /// Extracts connection metadata from the message request.
-    ///
-    /// Returns a `ConnectionInfo` containing the peer's socket address, if available. This
-    /// extraction is infallible.
-    fn from_message_request(
-        req: &MessageRequest,
-        _payload: &mut Payload<'_>,
-    ) -> Result<Self, Self::Error> {
-        Ok(Self {
-            peer_addr: req.peer_addr,
-        })
-    }
 }

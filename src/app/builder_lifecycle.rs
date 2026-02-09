@@ -2,8 +2,6 @@
 
 use std::{future::Future, sync::Arc};
 
-use tokio::sync::OnceCell;
-
 use super::{builder::WireframeApp, envelope::Packet, error::Result};
 use crate::{codec::FrameCodec, serializer::Serializer};
 
@@ -39,21 +37,7 @@ where
         Fut: Future<Output = C2> + Send + 'static,
         C2: Send + 'static,
     {
-        Ok(WireframeApp {
-            handlers: self.handlers,
-            routes: OnceCell::new(),
-            middleware: self.middleware,
-            serializer: self.serializer,
-            app_data: self.app_data,
-            on_connect: Some(Arc::new(move || Box::pin(f()))),
-            on_disconnect: None,
-            protocol: self.protocol,
-            push_dlq: self.push_dlq,
-            codec: self.codec,
-            read_timeout_ms: self.read_timeout_ms,
-            fragmentation: self.fragmentation,
-            message_assembler: self.message_assembler,
-        })
+        Ok(self.rebuild_with_connection_type(Some(Arc::new(move || Box::pin(f()))), None))
     }
 
     /// Register a callback invoked when a connection is closed.

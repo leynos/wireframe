@@ -13,7 +13,12 @@ use std::{
 use tokio::sync::{OnceCell, mpsc};
 
 use super::{
-    builder_defaults::{MAX_READ_TIMEOUT_MS, MIN_READ_TIMEOUT_MS, default_fragmentation},
+    builder_defaults::{
+        DEFAULT_READ_TIMEOUT_MS,
+        MAX_READ_TIMEOUT_MS,
+        MIN_READ_TIMEOUT_MS,
+        default_fragmentation,
+    },
     envelope::{Envelope, Packet},
     error::{Result, WireframeError},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -77,7 +82,7 @@ where
             protocol: None,
             push_dlq: None,
             codec,
-            read_timeout_ms: 100,
+            read_timeout_ms: DEFAULT_READ_TIMEOUT_MS,
             fragmentation: default_fragmentation(max_frame_length),
             message_assembler: None,
         }
@@ -161,6 +166,32 @@ where
             read_timeout_ms: self.read_timeout_ms,
             fragmentation,
             message_assembler,
+        }
+    }
+
+    /// Helper to rebuild the app when changing the connection state type.
+    pub(super) fn rebuild_with_connection_type<C2>(
+        self,
+        on_connect: Option<Arc<ConnectionSetup<C2>>>,
+        on_disconnect: Option<Arc<ConnectionTeardown<C2>>>,
+    ) -> WireframeApp<S, C2, E, F>
+    where
+        C2: Send + 'static,
+    {
+        WireframeApp {
+            handlers: self.handlers,
+            routes: OnceCell::new(),
+            middleware: self.middleware,
+            serializer: self.serializer,
+            app_data: self.app_data,
+            on_connect,
+            on_disconnect,
+            protocol: self.protocol,
+            push_dlq: self.push_dlq,
+            codec: self.codec,
+            read_timeout_ms: self.read_timeout_ms,
+            fragmentation: self.fragmentation,
+            message_assembler: self.message_assembler,
         }
     }
 
@@ -288,7 +319,7 @@ where
 
 impl<S, C, E> WireframeApp<S, C, E, LengthDelimitedFrameCodec>
 where
-    S: Serializer + Default + Send + Sync,
+    S: Serializer + Send + Sync,
     C: Send + 'static,
     E: Packet,
 {
