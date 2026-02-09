@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for [`WireframeServer`] configuration.
+#![cfg(not(loom))]
 
 mod common;
 use common::{TestResult, factory, unused_listener};

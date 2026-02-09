@@ -1,4 +1,5 @@
 //! Tests for shared example codecs.
+#![cfg(not(loom))]
 
 use std::{io, sync::Arc};
 

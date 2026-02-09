@@ -1,8 +1,8 @@
-#![cfg(not(loom))]
 //! Integration tests for streaming request bodies.
 //!
 //! These tests exercise back-pressure propagation and buffered-to-streaming
 //! fallback behaviour as specified in ADR 0002.
+#![cfg(not(loom))]
 
 mod common;
 use std::time::Duration;

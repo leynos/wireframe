@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for connection preamble reading.
+#![cfg(not(loom))]
 
 mod common;
 

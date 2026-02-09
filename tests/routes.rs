@@ -1,7 +1,7 @@
-#![cfg(not(loom))]
 //! Tests for routing behaviour in `WireframeApp`.
 //!
 //! They validate handler invocation, echo responses, and sequential processing.
+#![cfg(not(loom))]
 
 mod common;
 

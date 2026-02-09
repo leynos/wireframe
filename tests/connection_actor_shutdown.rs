@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Shutdown and back-pressure tests for `ConnectionActor`.
+#![cfg(not(loom))]
 
 use futures::stream;
 use rstest::{fixture, rstest};

@@ -1,8 +1,8 @@
-#![cfg(not(loom))]
 //! Tests for streams generated with the `async-stream` crate.
 //!
 //! These ensure that a `ConnectionActor` correctly drains frames from an
 //! async-stream based `FrameStream`.
+#![cfg(not(loom))]
 
 use async_stream::try_stream;
 use rstest::rstest;

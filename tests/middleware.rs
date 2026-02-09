@@ -1,7 +1,7 @@
-#![cfg(not(loom))]
 //! Tests for middleware transformations.
 //!
 //! Confirm that a custom middleware can modify requests and responses.
+#![cfg(not(loom))]
 
 use async_trait::async_trait;
 use rstest::rstest;
