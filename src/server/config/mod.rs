@@ -49,9 +49,7 @@ macro_rules! builder_callback {
 pub mod binding;
 pub mod preamble;
 
-fn default_worker_count() -> usize {
-    super::default_worker_count()
-}
+fn default_worker_count() -> usize { super::default_worker_count() }
 #[cfg(test)]
 mod tests;
 
