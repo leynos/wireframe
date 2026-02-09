@@ -259,28 +259,33 @@ mod tests {
         harness
     }
 
-    #[fixture]
-    fn small_harness() -> FramedHarness {
-        let harness = build_harness(4);
-        assert_eq!(harness.codec.max_frame_length(), 4);
-        harness
-    }
-
-    /// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
     #[rstest]
+    #[case::ok(vec![1, 2, 3, 4], false)]
+    #[case::oversized(vec![0u8; 100], true)]
     #[tokio::test]
-    async fn send_response_payload_wraps_with_codec(mut default_harness: FramedHarness) {
-        let payload = vec![1, 2, 3, 4];
+    async fn send_response_payload_behaviour(
+        #[case] payload: Vec<u8>,
+        #[case] expect_error: bool,
+        mut default_harness: FramedHarness,
+    ) {
         let response = Envelope::new(1, Some(99), payload.clone());
-        send_response_payload::<TestCodec, _>(
+        let result = send_response_payload::<TestCodec, _>(
             &default_harness.codec,
             &mut default_harness.server_framed,
             Bytes::from(payload.clone()),
             &response,
         )
-        .await
-        .expect("send should succeed");
+        .await;
 
+        if expect_error {
+            assert!(
+                result.is_err(),
+                "expected send to fail for oversized payload"
+            );
+            return;
+        }
+
+        result.expect("send should succeed");
         let frame = default_harness
             .client_framed
             .next()
@@ -317,24 +322,5 @@ mod tests {
         assert!(ctx.fragmentation.is_none());
     }
 
-    /// Verify `send_response_payload` returns error on send failure.
-    #[rstest]
-    #[tokio::test]
-    async fn send_response_payload_returns_error_on_failure(mut small_harness: FramedHarness) {
-        // Payload exceeds max_frame_length, so encode will fail
-        let oversized_payload = vec![0u8; 100];
-        let response = Envelope::new(1, Some(99), oversized_payload.clone());
-        let result = send_response_payload::<TestCodec, _>(
-            &small_harness.codec,
-            &mut small_harness.server_framed,
-            Bytes::from(oversized_payload),
-            &response,
-        )
-        .await;
-
-        assert!(
-            result.is_err(),
-            "expected send to fail for oversized payload"
-        );
-    }
+    // Covered by `send_response_payload_behaviour` cases.
 }
