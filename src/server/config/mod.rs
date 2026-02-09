@@ -44,9 +44,9 @@ macro_rules! builder_callback {
 pub mod binding;
 pub mod preamble;
 
-fn default_worker_count() -> usize {
-    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
-}
+fn default_worker_count() -> usize { super::default_worker_count() }
+#[cfg(test)]
+mod tests;
 
 impl<F, Ser, Ctx, E, Codec> WireframeServer<F, (), Unbound, Ser, Ctx, E, Codec>
 where

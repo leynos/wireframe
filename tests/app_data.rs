@@ -41,7 +41,6 @@ fn missing_shared_state_returns_error(
     mut empty_payload: Payload<'static>,
 ) {
     let err = SharedState::<u32>::from_message_request(&request, &mut empty_payload)
-        .err()
-        .expect("missing state error expected");
+        .expect_err("missing state error expected");
     assert!(matches!(err, ExtractError::MissingState(_)));
 }

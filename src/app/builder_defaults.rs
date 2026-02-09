@@ -6,6 +6,7 @@ use crate::{codec::clamp_frame_length, fragment::FragmentationConfig};
 
 pub(super) const MIN_READ_TIMEOUT_MS: u64 = 1;
 pub(super) const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
+/// Default preamble read timeout in milliseconds.
 pub(super) const DEFAULT_READ_TIMEOUT_MS: u64 = 100;
 const DEFAULT_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_MESSAGE_SIZE_MULTIPLIER: usize = 16;

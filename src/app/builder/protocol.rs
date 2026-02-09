@@ -1,9 +1,10 @@
-//! Protocol configuration builder methods for [`WireframeApp`].
+//! Protocol and message assembly configuration for `WireframeApp`.
 
 use std::sync::Arc;
 
-use super::{builder::WireframeApp, envelope::Packet};
+use super::WireframeApp;
 use crate::{
+    app::Packet,
     codec::FrameCodec,
     hooks::{ProtocolHooks, WireframeProtocol},
     message_assembler::MessageAssembler,
@@ -75,6 +76,27 @@ where
         }
     }
 
+    /// Get a clone of the configured protocol, if any.
+    ///
+    /// Returns `None` if no protocol was installed via [`with_protocol`](Self::with_protocol).
+    #[must_use]
+    pub fn protocol(
+        &self,
+    ) -> Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>> {
+        self.protocol.clone()
+    }
+
+    /// Return protocol hooks derived from the installed protocol.
+    ///
+    /// If no protocol is installed, returns default (no-op) hooks.
+    #[must_use]
+    pub fn protocol_hooks(&self) -> ProtocolHooks<F::Frame, ()> {
+        self.protocol
+            .as_ref()
+            .map(ProtocolHooks::from_protocol)
+            .unwrap_or_default()
+    }
+
     /// Get the configured message assembler, if any.
     ///
     /// # Examples
@@ -104,26 +126,5 @@ where
     #[must_use]
     pub fn message_assembler(&self) -> Option<&Arc<dyn MessageAssembler>> {
         self.message_assembler.as_ref()
-    }
-
-    /// Get a clone of the configured protocol, if any.
-    ///
-    /// Returns `None` if no protocol was installed via [`with_protocol`](Self::with_protocol).
-    #[must_use]
-    pub fn protocol(
-        &self,
-    ) -> Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>> {
-        self.protocol.clone()
-    }
-
-    /// Return protocol hooks derived from the installed protocol.
-    ///
-    /// If no protocol is installed, returns default (no-op) hooks.
-    #[must_use]
-    pub fn protocol_hooks(&self) -> ProtocolHooks<F::Frame, ()> {
-        self.protocol
-            .as_ref()
-            .map(ProtocolHooks::from_protocol)
-            .unwrap_or_default()
     }
 }
