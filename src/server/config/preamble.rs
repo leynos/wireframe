@@ -8,16 +8,16 @@ use futures::future::BoxFuture;
 
 use super::WireframeServer;
 use crate::{
-    app::{Packet, WireframeApp},
+    app::Packet,
     codec::FrameCodec,
     preamble::Preamble,
     serializer::Serializer,
-    server::{PreambleSuccessHandler, ServerState},
+    server::{AppFactory, PreambleSuccessHandler, ServerState},
 };
 
 impl<F, T, S, Ser, Ctx, E, Codec> WireframeServer<F, T, S, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     S: ServerState,
     Ser: Serializer + Send + Sync,

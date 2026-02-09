@@ -1,57 +1,35 @@
 //! Connection handling for [`WireframeServer`].
 
-use std::{future::Future, io, net::SocketAddr, time::Duration};
+use std::{io, net::SocketAddr, time::Duration};
 
 use futures::FutureExt;
 use log::{error, warn};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    net::TcpStream,
-    time::timeout,
-};
+use tokio::{net::TcpStream, time::timeout};
 use tokio_util::task::TaskTracker;
 
 use crate::{
-    app::{Envelope, Packet, WireframeApp},
+    app::{Envelope, Packet},
     codec::FrameCodec,
     frame::FrameMetadata,
     preamble::{Preamble, read_preamble},
     rewind_stream::RewindStream,
     serializer::Serializer,
-    server::{PreambleFailure, PreambleHandler, runtime::PreambleHooks},
+    server::{AppFactory, PreambleFailure, PreambleHandler, runtime::PreambleHooks},
 };
 
-pub(super) trait ConnectionApp: Send + Sync + 'static {
-    fn handle_connection_result<W>(&self, stream: W) -> impl Future<Output = io::Result<()>> + Send
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static;
-}
-
-impl<S, C, E, Codec> ConnectionApp for WireframeApp<S, C, E, Codec>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    C: Send + 'static,
-    E: Packet + 'static,
-    Codec: FrameCodec,
-{
-    fn handle_connection_result<W>(&self, stream: W) -> impl Future<Output = io::Result<()>> + Send
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        WireframeApp::handle_connection_result(self, stream)
-    }
-}
-
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
-pub(super) fn spawn_connection_task<F, T, App>(
+pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
     stream: TcpStream,
     factory: F,
     hooks: PreambleHooks<T>,
     tracker: &TaskTracker,
 ) where
-    F: Fn() -> App + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
-    App: ConnectionApp,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet + 'static,
+    Codec: FrameCodec,
 {
     let peer_addr = match stream.peer_addr() {
         Ok(addr) => Some(addr),
@@ -74,15 +52,18 @@ pub(super) fn spawn_connection_task<F, T, App>(
     });
 }
 
-async fn process_stream<F, T, App>(
+async fn process_stream<F, T, Ser, Ctx, E, Codec>(
     mut stream: TcpStream,
     peer_addr: Option<SocketAddr>,
     factory: F,
     hooks: PreambleHooks<T>,
 ) where
-    F: Fn() -> App + Send + Sync + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
-    App: ConnectionApp,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet + 'static,
+    Codec: FrameCodec,
 {
     let PreambleHooks {
         on_success,
@@ -90,16 +71,36 @@ async fn process_stream<F, T, App>(
         timeout: preamble_timeout,
     } = hooks;
 
-    match read_preamble_with_timeout::<T>(&mut stream, preamble_timeout).await {
-        Ok((preamble, leftover)) => {
-            run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr).await;
-            let stream = RewindStream::new(leftover, stream);
-            if let Err(e) = (factory)().handle_connection_result(stream).await {
+    let (preamble, leftover) =
+        match read_preamble_with_timeout::<T>(&mut stream, preamble_timeout).await {
+            Ok(result) => result,
+            Err(err) => {
+                run_preamble_failure(on_failure.as_ref(), err, &mut stream, peer_addr).await;
+                return;
+            }
+        };
+
+    run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr).await;
+    let stream = RewindStream::new(leftover, stream);
+    handle_app_connection(&factory, stream).await;
+}
+
+async fn handle_app_connection<F, Ser, Ctx, E, Codec>(factory: &F, stream: RewindStream<TcpStream>)
+where
+    F: AppFactory<Ser, Ctx, E, Codec>,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet + 'static,
+    Codec: FrameCodec,
+{
+    match factory.build() {
+        Ok(app) => {
+            if let Err(e) = app.handle_connection_result(stream).await {
                 warn!("connection task error: {e:?}");
             }
         }
         Err(err) => {
-            run_preamble_failure(on_failure.as_ref(), err, &mut stream, peer_addr).await;
+            warn!("connection task error: failed to build app: {err}");
         }
     }
 }

@@ -74,6 +74,81 @@ pub type PreambleFailure = Arc<
         + 'static,
 >;
 
+/// Convert a factory output into a `Result` for a `WireframeApp`.
+pub trait FactoryResult<App> {
+    /// Error type returned when conversion fails.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Convert the value into a `Result`.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error produced while converting into the result form.
+    fn into_result(self) -> Result<App, Self::Error>;
+}
+
+impl<Ser, Ctx, E, Codec> FactoryResult<WireframeApp<Ser, Ctx, E, Codec>>
+    for WireframeApp<Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    type Error = std::convert::Infallible;
+
+    fn into_result(self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error> { Ok(self) }
+}
+
+impl<Ser, Ctx, E, Codec, Err> FactoryResult<WireframeApp<Ser, Ctx, E, Codec>>
+    for Result<WireframeApp<Ser, Ctx, E, Codec>, Err>
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+    Err: std::error::Error + Send + Sync + 'static,
+{
+    type Error = Err;
+
+    fn into_result(self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error> { self }
+}
+
+/// Factory trait for building `WireframeApp` instances used by the server.
+pub trait AppFactory<Ser, Ctx, E, Codec>: Send + Sync + Clone + 'static
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    /// Error type returned when the factory cannot construct an application.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Build an application instance for a new connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error raised by the factory while constructing the app.
+    fn build(&self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error>;
+}
+
+impl<F, R, Ser, Ctx, E, Codec> AppFactory<Ser, Ctx, E, Codec> for F
+where
+    F: Fn() -> R + Send + Sync + Clone + 'static,
+    R: FactoryResult<WireframeApp<Ser, Ctx, E, Codec>>,
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    type Error = R::Error;
+
+    fn build(&self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error> {
+        (self)().into_result()
+    }
+}
+
 /// Tokio-based server for [`WireframeApp`] instances.
 ///
 /// The server carries a typestate `S` indicating whether it is
@@ -113,7 +188,7 @@ pub struct WireframeServer<
     E = Envelope,
     Codec = LengthDelimitedFrameCodec,
 > where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     // `Preamble` covers types implementing `BorrowDecode` for any lifetime,
     // enabling decoding of borrowed data without external context.
     // `()` satisfies this bound via bincode's `BorrowDecode` support for unit,

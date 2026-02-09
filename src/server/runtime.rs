@@ -19,15 +19,16 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{
+    AppFactory,
     Bound,
     PreambleFailure,
     PreambleHandler,
     ServerError,
     WireframeServer,
-    connection::{ConnectionApp, spawn_connection_task},
+    connection::spawn_connection_task,
 };
 use crate::{
-    app::{Envelope, Packet, WireframeApp},
+    app::{Envelope, Packet},
     codec::FrameCodec,
     frame::FrameMetadata,
     preamble::Preamble,
@@ -104,7 +105,7 @@ impl<T> fmt::Debug for PreambleHooks<T> {
 
 impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     Ctx: Send + 'static,
@@ -321,15 +322,18 @@ where
 ///     .await;
 /// }
 /// ```
-pub(super) async fn accept_loop<F, T, L, App>(
+pub(super) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     listener: Arc<L>,
     factory: F,
     options: AcceptLoopOptions<T>,
 ) where
-    F: Fn() -> App + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
-    App: ConnectionApp,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet + 'static,
+    Codec: FrameCodec,
 {
     let AcceptLoopOptions {
         preamble,
@@ -362,17 +366,20 @@ pub(super) async fn accept_loop<F, T, L, App>(
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
-async fn accept_iteration<F, T, L, App>(
+async fn accept_iteration<F, T, L, Ser, Ctx, E, Codec>(
     listener: &Arc<L>,
     factory: &F,
     handles: &AcceptHandles<'_, T>,
     delay: Duration,
 ) -> Option<Duration>
 where
-    F: Fn() -> App + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
-    App: ConnectionApp,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet + 'static,
+    Codec: FrameCodec,
 {
     select! {
         biased;

@@ -9,16 +9,15 @@ use tokio::net::TcpListener;
 
 use super::{ServerState, Unbound, WireframeServer};
 use crate::{
-    app::{Packet, WireframeApp},
+    app::Packet,
     codec::FrameCodec,
     preamble::Preamble,
     serializer::Serializer,
-    server::{Bound, ServerError},
+    server::{AppFactory, Bound, ServerError},
 };
 
 /// Trait alias for wireframe factory functions.
-trait WireframeFactory<Ser, Ctx, E, Codec>:
-    Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static
+trait WireframeFactory<Ser, Ctx, E, Codec>: AppFactory<Ser, Ctx, E, Codec>
 where
     Ser: Serializer + Send + Sync,
     Ctx: Send + 'static,
@@ -28,7 +27,7 @@ where
 }
 impl<F, Ser, Ctx, E, Codec> WireframeFactory<Ser, Ctx, E, Codec> for F
 where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     Ser: Serializer + Send + Sync,
     Ctx: Send + 'static,
     E: Packet,

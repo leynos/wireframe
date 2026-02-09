@@ -25,7 +25,7 @@ use wireframe::{
     },
     serializer::BincodeSerializer,
 };
-use wireframe_testing::TestResult;
+pub type TestResult<T = ()> = Result<T, TestError>;
 
 /// Error type for fragment transport tests.
 #[derive(Debug, Error)]
@@ -190,7 +190,9 @@ pub async fn read_reassembled_response(
         }
     }
 
-    Err(TestError::Setup("response stream ended before reassembly completed").into())
+    Err(TestError::Setup(
+        "response stream ended before reassembly completed",
+    ))
 }
 
 /// Create a handler that forwards received payloads to an unbounded channel.
@@ -277,8 +279,7 @@ pub async fn assert_handler_observed(
     if observed != expected {
         return Err(TestError::Assertion(format!(
             "observed payload mismatch: expected {expected:?}, got {observed:?}"
-        ))
-        .into());
+        )));
     }
     Ok(())
 }

@@ -13,13 +13,8 @@ use core::marker::PhantomData;
 
 use tokio::sync::oneshot;
 
-use super::{BackoffConfig, ServerState, Unbound, WireframeServer};
-use crate::{
-    app::{Packet, WireframeApp},
-    codec::FrameCodec,
-    preamble::Preamble,
-    serializer::Serializer,
-};
+use super::{AppFactory, BackoffConfig, ServerState, Unbound, WireframeServer};
+use crate::{app::Packet, codec::FrameCodec, preamble::Preamble, serializer::Serializer};
 
 macro_rules! builder_setter {
     ($(#[$meta:meta])* $fn:ident, $field:ident, $arg:ident: $ty:ty => $assign:expr) => {
@@ -51,7 +46,7 @@ pub mod preamble;
 
 impl<F, Ser, Ctx, E, Codec> WireframeServer<F, (), Unbound, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     Ser: Serializer + Send + Sync,
     Ctx: Send + 'static,
     E: Packet,
@@ -93,7 +88,7 @@ where
 
 impl<F, T, S, Ser, Ctx, E, Codec> WireframeServer<F, T, S, Ser, Ctx, E, Codec>
 where
-    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     S: ServerState,
     Ser: Serializer + Send + Sync,

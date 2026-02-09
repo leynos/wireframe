@@ -8,6 +8,7 @@
 use std::net::TcpListener as StdTcpListener;
 
 use rstest::fixture;
+use thiserror::Error;
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
     correlation::CorrelatableFrame,
@@ -34,7 +35,7 @@ use wireframe::{
 /// }
 /// ```
 #[must_use]
-pub fn unused_listener() -> std::io::Result<StdTcpListener> { StdTcpListener::bind("localhost:0") }
+pub fn unused_listener() -> TestResult<StdTcpListener> { Ok(StdTcpListener::bind("localhost:0")?) }
 
 /// Shared test envelope type for integration tests.
 ///
@@ -88,6 +89,25 @@ impl CommonTestEnvelope {
             payload,
         }
     }
+
+    /// Create a new test envelope with an identifier and no payload.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe_testing::CommonTestEnvelope;
+    ///
+    /// let envelope = CommonTestEnvelope::with_id(7);
+    /// assert_eq!(envelope.payload, Vec::<u8>::new());
+    /// ```
+    #[must_use]
+    pub fn with_id(id: u32) -> Self {
+        Self {
+            id,
+            correlation_id: None,
+            payload: Vec::new(),
+        }
+    }
 }
 
 impl CorrelatableFrame for CommonTestEnvelope {
@@ -117,8 +137,81 @@ impl Packet for CommonTestEnvelope {
 /// Default app type used by integration test suites.
 pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
+/// Error type for integration test helpers.
+#[derive(Debug, Error)]
+pub enum TestError {
+    /// IO error surfaced while exercising test utilities.
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    /// Assertion or other message-driven failure.
+    #[error("{0}")]
+    Msg(String),
+    #[error(transparent)]
+    Wireframe(#[from] wireframe::app::WireframeError),
+    #[error(transparent)]
+    Client(#[from] wireframe::client::ClientError),
+    #[error(transparent)]
+    Server(#[from] wireframe::server::ServerError),
+    #[error(transparent)]
+    Push(#[from] wireframe::push::PushError),
+    #[error(transparent)]
+    PushConfig(#[from] wireframe::push::PushConfigError),
+    #[error(transparent)]
+    ConnectionState(#[from] wireframe::connection::ConnectionStateError),
+    #[error(transparent)]
+    Reassembly(#[from] wireframe::ReassemblyError),
+    #[error(transparent)]
+    Fragmentation(#[from] wireframe::FragmentationError),
+    #[error(transparent)]
+    Codec(#[from] wireframe::codec::CodecError),
+    #[error(transparent)]
+    Encode(#[from] bincode::error::EncodeError),
+    #[error(transparent)]
+    Decode(#[from] bincode::error::DecodeError),
+    #[error(transparent)]
+    Join(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    Timeout(#[from] tokio::time::error::Elapsed),
+    #[error(transparent)]
+    OneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
+    #[error(transparent)]
+    OneshotTryRecv(#[from] tokio::sync::oneshot::error::TryRecvError),
+    #[error(transparent)]
+    MpscTryRecv(#[from] tokio::sync::mpsc::error::TryRecvError),
+    #[error(transparent)]
+    ParseInt(#[from] std::num::ParseIntError),
+    #[error(transparent)]
+    TryFromInt(#[from] std::num::TryFromIntError),
+    #[error(transparent)]
+    Utf8(#[from] std::str::Utf8Error),
+    #[error(transparent)]
+    FromUtf8(#[from] std::string::FromUtf8Error),
+    #[error(transparent)]
+    AddrParse(#[from] std::net::AddrParseError),
+}
+
+impl From<String> for TestError {
+    fn from(value: String) -> Self { Self::Msg(value) }
+}
+
+impl From<&str> for TestError {
+    fn from(value: &str) -> Self { Self::Msg(value.to_string()) }
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {
+    fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self { Self::Msg(err.to_string()) }
+}
+
+impl<T> From<tokio::sync::mpsc::error::TrySendError<T>> for TestError {
+    fn from(err: tokio::sync::mpsc::error::TrySendError<T>) -> Self { Self::Msg(err.to_string()) }
+}
+
+impl From<Box<dyn std::error::Error + Send + Sync>> for TestError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self { Self::Msg(err.to_string()) }
+}
+
 /// Shared result type for integration tests.
-pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+pub type TestResult<T = ()> = Result<T, TestError>;
 
 /// Default `WireframeApp` factory for integration tests.
 ///
@@ -172,6 +265,16 @@ mod tests {
         let rebuilt = CommonTestEnvelope::from_parts(env.clone().into_parts());
         if rebuilt != env {
             return Err("expected envelope to round trip via parts".into());
+        }
+        let empty = CommonTestEnvelope::with_id(5);
+        if empty.id != 5 {
+            return Err("expected id to be set".into());
+        }
+        if empty.correlation_id.is_some() {
+            return Err("expected no correlation id".into());
+        }
+        if !empty.payload.is_empty() {
+            return Err("expected empty payload".into());
         }
         Ok(())
     }

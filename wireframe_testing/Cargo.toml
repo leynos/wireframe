@@ -15,6 +15,7 @@ tokio = { version = "1", features = ["macros", "rt", "io-util"] }
 wireframe = { version = "0.2.0", path = ".." }
 bincode = "^2.0"
 bytes = "^1.0"
+thiserror = "2.0.16"
 rstest = "0.18.2"
 logtest = "2"
 log = "0.4"

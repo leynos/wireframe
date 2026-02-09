@@ -23,12 +23,11 @@ mod fragment_transport;
 #[path = "common/fragment_helpers.rs"]
 mod fragment_helpers;
 
-use wireframe_testing::TestResult;
-
 use crate::fragment_helpers::{
     CORRELATION,
     ROUTE_ID,
     TestError,
+    TestResult,
     assert_handler_observed,
     build_envelopes,
     fragmentation_config,
@@ -65,8 +64,7 @@ async fn run_round_trip_test(
     if response != payload {
         return Err(TestError::Assertion(format!(
             "response payload mismatch: expected {payload:?}, got {response:?}"
-        ))
-        .into());
+        )));
     }
 
     server.await??;
@@ -94,8 +92,7 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     if decode_fragment_payload(&response)?.is_some() {
         return Err(TestError::Assertion(
             "small payload should pass through unfragmented".to_string(),
-        )
-        .into());
+        ));
     }
 
     Ok(())
@@ -131,8 +128,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     if observed != payload {
         return Err(TestError::Assertion(format!(
             "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        ))
-        .into());
+        )));
     }
 
     client.get_mut().shutdown().await?;
@@ -144,8 +140,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     if decode_fragment_payload(&response)?.is_some() {
         return Err(TestError::Assertion(
             "expected no fragmentation when fragmentation is disabled".to_string(),
-        )
-        .into());
+        ));
     }
 
     server.await??;

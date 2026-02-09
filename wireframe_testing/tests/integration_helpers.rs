@@ -10,18 +10,14 @@ use wireframe_testing::{CommonTestEnvelope, TestResult, factory, unused_listener
 const ROUTE_ID: u32 = 7;
 
 #[tokio::test]
-#[expect(
-    clippy::expect_used,
-    reason = "route registration should fail loudly in integration helper tests"
-)]
 async fn integration_helpers_round_trip() -> TestResult {
     let base_factory = factory();
     let handler = Arc::new(|_env: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) });
 
-    let server = WireframeServer::new(move || {
+    let server = WireframeServer::new(move || -> TestResult<_> {
         let app = base_factory();
-        app.route(ROUTE_ID, handler.clone())
-            .expect("route registration should succeed")
+        let app = app.route(ROUTE_ID, handler.clone())?;
+        Ok(app)
     })
     .workers(1);
 

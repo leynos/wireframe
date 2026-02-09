@@ -11,12 +11,12 @@ use tokio::{
     time::{sleep, timeout},
 };
 use wireframe::{app::Envelope, fragment::Fragmenter};
-use wireframe_testing::TestResult;
 
 use crate::fragment_helpers::{
     CORRELATION,
     ROUTE_ID,
     TestError,
+    TestResult,
     fragment_envelope,
     fragmentation_config_with_timeout,
     make_app,
