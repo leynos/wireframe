@@ -1,4 +1,4 @@
-//! Message extractor for deserialised payloads.
+//! Message extractor for deserialized payloads.
 
 use super::{ExtractError, FromMessageRequest, MessageRequest, Payload};
 use crate::message::Message as WireMessage;
@@ -8,7 +8,7 @@ use crate::message::Message as WireMessage;
 pub struct Message<T>(T);
 
 impl<T> Message<T> {
-    /// Consumes the extractor and returns the inner deserialised message value.
+    /// Consumes the extractor and returns the inner deserialized message value.
     #[must_use]
     pub fn into_inner(self) -> T { self.0 }
 }

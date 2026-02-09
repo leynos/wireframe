@@ -12,6 +12,7 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Tracks deserialization failures and enforces a maximum error threshold.
 pub(super) struct DeserFailureTracker<'a> {
     count: &'a mut u32,
     limit: u32,
@@ -26,7 +27,7 @@ impl<'a> DeserFailureTracker<'a> {
         context: &str,
         err: impl std::fmt::Debug,
     ) -> io::Result<()> {
-        *self.count += 1;
+        *self.count = (*self.count).saturating_add(1);
         warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
         crate::metrics::inc_deser_errors();
         if *self.count >= self.limit {
@@ -39,6 +40,7 @@ impl<'a> DeserFailureTracker<'a> {
     }
 }
 
+/// Bundles shared dependencies for response forwarding.
 pub(crate) struct ResponseContext<'a, S, W, F>
 where
     S: Serializer + Send + Sync,

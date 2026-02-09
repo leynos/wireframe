@@ -2,8 +2,22 @@
 
 use std::{io, time::Duration};
 
+use rstest::{fixture, rstest};
+
 use super::*;
 use crate::codec::CodecError;
+
+#[fixture]
+fn default_hook() -> DefaultRecoveryPolicy {
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    DefaultRecoveryPolicy
+}
+
+#[fixture]
+fn default_ctx() -> CodecErrorContext {
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    CodecErrorContext::new()
+}
 
 #[test]
 fn recovery_policy_default_is_drop() {
@@ -29,32 +43,42 @@ fn context_with_peer_address() {
     assert_eq!(ctx.peer_address, Some(addr));
 }
 
-#[test]
-fn default_recovery_policy_delegates_to_error() {
+#[rstest]
+fn default_recovery_policy_delegates_to_error(
+    default_hook: DefaultRecoveryPolicy,
+    default_ctx: CodecErrorContext,
+) {
     use crate::codec::error::{EofError, FramingError};
-
-    let hook = DefaultRecoveryPolicy;
-    let ctx = CodecErrorContext::new();
 
     // Check various error types
     let err = CodecError::Framing(FramingError::OversizedFrame { size: 100, max: 50 });
-    assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Drop);
+    assert_eq!(
+        default_hook.recovery_policy(&err, &default_ctx),
+        RecoveryPolicy::Drop
+    );
 
     let err = CodecError::Io(io::Error::other("test"));
-    assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
+    assert_eq!(
+        default_hook.recovery_policy(&err, &default_ctx),
+        RecoveryPolicy::Disconnect
+    );
 
     let err = CodecError::Eof(EofError::CleanClose);
-    assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
+    assert_eq!(
+        default_hook.recovery_policy(&err, &default_ctx),
+        RecoveryPolicy::Disconnect
+    );
 }
 
-#[test]
-fn default_quarantine_duration_is_30_seconds() {
-    let hook = DefaultRecoveryPolicy;
-    let ctx = CodecErrorContext::new();
+#[rstest]
+fn default_quarantine_duration_is_30_seconds(
+    default_hook: DefaultRecoveryPolicy,
+    default_ctx: CodecErrorContext,
+) {
     let err = CodecError::Io(io::Error::other("test"));
 
     assert_eq!(
-        hook.quarantine_duration(&err, &ctx),
+        default_hook.quarantine_duration(&err, &default_ctx),
         Duration::from_secs(30)
     );
 }

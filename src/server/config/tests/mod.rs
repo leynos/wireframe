@@ -16,8 +16,3 @@ enum PreambleHandlerKind {
     Success,
     Failure,
 }
-
-fn expected_default_worker_count() -> usize {
-    // Mirror the default worker logic to keep tests aligned with `WireframeServer::new`.
-    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
-}

@@ -20,7 +20,7 @@ use std::time::Duration;
 ///
 /// assert_eq!(config.max_consecutive_drops, 5);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoveryConfig {
     /// Maximum consecutive dropped frames before escalating to disconnect.
     ///

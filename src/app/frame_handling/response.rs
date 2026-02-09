@@ -38,8 +38,9 @@ where
         Ok(resp) => resp,
         Err(e) => {
             warn!(
-                "handler error: id={}, correlation_id={:?}, error={e:?}",
-                env.id, env.correlation_id
+                "handler error: id={id}, correlation_id={correlation_id:?}, error={e:?}",
+                id = env.id,
+                correlation_id = env.correlation_id
             );
             crate::metrics::inc_handler_errors();
             return Ok(());
@@ -49,22 +50,11 @@ where
     let parts = PacketParts::new(env.id, resp.correlation_id(), resp.into_inner())
         .inherit_correlation(env.correlation_id);
     let correlation_id = parts.correlation_id();
-    let Ok(responses) = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id) else {
-        return Ok(()); // already logged
-    };
+    let responses = fragment_responses(ctx.fragmentation, parts, env.id, correlation_id)?;
 
     for response in responses {
-        let Ok(bytes) = serialize_response(ctx.serializer, &response, env.id, correlation_id)
-        else {
-            break; // already logged
-        };
-
-        if send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response)
-            .await
-            .is_err()
-        {
-            break;
-        }
+        let bytes = serialize_response(ctx.serializer, &response, env.id, correlation_id)?;
+        send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response).await?;
     }
 
     Ok(())
@@ -82,8 +72,13 @@ fn fragment_responses(
             Ok(fragmented) => Ok(fragmented),
             Err(err) => {
                 warn!(
-                    "failed to fragment response: id={id}, correlation_id={correlation_id:?}, \
-                     error={err:?}"
+                    concat!(
+                        "failed to fragment response: id={id}, correlation_id={correlation_id:?}, ",
+                        "error={err:?}"
+                    ),
+                    id = id,
+                    correlation_id = correlation_id,
+                    err = err
                 );
                 crate::metrics::inc_handler_errors();
                 Err(io::Error::other("fragmentation failed"))
@@ -103,8 +98,13 @@ fn serialize_response<S: Serializer>(
         Ok(bytes) => Ok(bytes),
         Err(e) => {
             warn!(
-                "failed to serialize response: id={id}, correlation_id={correlation_id:?}, \
-                 error={e:?}"
+                concat!(
+                    "failed to serialize response: id={id}, correlation_id={correlation_id:?}, ",
+                    "error={e:?}"
+                ),
+                id = id,
+                correlation_id = correlation_id,
+                e = e
             );
             crate::metrics::inc_handler_errors();
             Err(io::Error::other("serialization failed"))

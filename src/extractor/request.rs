@@ -22,7 +22,7 @@ pub struct MessageRequest {
     ///
     /// Values are keyed by their [`TypeId`]. Registering additional
     /// state of the same type will replace the previous entry.
-    pub app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub(crate) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     /// Optional streaming body for handlers that opt into streaming consumption.
     ///
     /// When present, the [`StreamingBody`](crate::extractor::StreamingBody)
@@ -48,7 +48,9 @@ impl MessageRequest {
     ///
     /// use wireframe::extractor::MessageRequest;
     ///
-    /// let req = MessageRequest::new().with_peer_addr(Some("127.0.0.1:8080".parse().unwrap()));
+    /// let req = MessageRequest::new().with_peer_addr(Some(
+    ///     "127.0.0.1:8080".parse().expect("valid socket address"),
+    /// ));
     /// assert!(req.peer_addr.is_some());
     /// ```
     #[must_use]
@@ -69,12 +71,14 @@ impl MessageRequest {
     ///     extractor::{MessageRequest, SharedState},
     /// };
     ///
-    /// let _app = WireframeApp::new().unwrap().app_data(5u32);
+    /// let _app = WireframeApp::new()
+    ///     .expect("failed to initialize app")
+    ///     .app_data(5u32);
     /// // The framework populates the request with application data.
     /// # let mut req = MessageRequest::default();
     /// # req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
-    /// assert_eq!(*val.unwrap(), 5);
+    /// assert_eq!(*val.expect("shared state missing"), 5);
     /// ```
     #[must_use]
     pub fn state<T>(&self) -> Option<SharedState<T>>
@@ -99,7 +103,7 @@ impl MessageRequest {
     /// let mut req = MessageRequest::default();
     /// req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
-    /// assert_eq!(*val.unwrap(), 5);
+    /// assert_eq!(*val.expect("shared state missing"), 5);
     /// ```
     pub fn insert_state<T>(&mut self, state: T)
     where

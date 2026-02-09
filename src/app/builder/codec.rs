@@ -53,7 +53,7 @@ where
 
 impl<S, C, E> WireframeApp<S, C, E, LengthDelimitedFrameCodec>
 where
-    S: Serializer + Default + Send + Sync,
+    S: Serializer + Send + Sync,
     C: Send + 'static,
     E: Packet,
 {

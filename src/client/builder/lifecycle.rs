@@ -110,8 +110,11 @@ where
     /// ```
     /// use wireframe::client::WireframeClientBuilder;
     ///
-    /// let builder = WireframeClientBuilder::new().on_error(|err| async move {
-    ///     eprintln!("Client error: {err}");
+    /// let builder = WireframeClientBuilder::new().on_error(|err| {
+    ///     let message = err.to_string();
+    ///     async move {
+    ///         eprintln!("Client error: {message}");
+    ///     }
     /// });
     /// let _ = builder;
     /// ```

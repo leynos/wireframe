@@ -17,6 +17,10 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
+pub(crate) fn default_worker_count() -> usize {
+    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+}
+
 /// Handler invoked when a connection preamble decodes successfully.
 ///
 /// Implementors may perform asynchronous I/O on the provided stream before the

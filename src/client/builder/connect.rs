@@ -13,6 +13,8 @@ use crate::{
     serializer::Serializer,
 };
 
+const INITIAL_READ_BUFFER_CAPACITY: usize = 64 * 1024;
+
 impl<S, P, C> WireframeClientBuilder<S, P, C>
 where
     S: Serializer + Send + Sync,
@@ -70,8 +72,10 @@ where
         let codec_config = self.codec_config;
         let codec = codec_config.build_codec();
         let mut framed = Framed::new(RewindStream::new(leftover, stream), codec);
-        let initial_read_buffer_capacity =
-            core::cmp::min(64 * 1024, codec_config.max_frame_length_value());
+        let initial_read_buffer_capacity = core::cmp::min(
+            INITIAL_READ_BUFFER_CAPACITY,
+            codec_config.max_frame_length_value(),
+        );
         framed
             .read_buffer_mut()
             .reserve(initial_read_buffer_capacity);

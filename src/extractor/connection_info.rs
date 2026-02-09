@@ -20,9 +20,10 @@ impl ConnectionInfo {
     ///
     /// use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
     ///
-    /// let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    /// let addr: SocketAddr = "127.0.0.1:8080".parse().expect("valid socket address");
     /// let req = MessageRequest::new().with_peer_addr(Some(addr));
-    /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default()).unwrap();
+    /// let info = ConnectionInfo::from_message_request(&req, &mut Payload::default())
+    ///     .expect("connection info extraction should succeed");
     /// assert_eq!(info.peer_addr(), Some(addr));
     /// ```
     #[must_use]

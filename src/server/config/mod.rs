@@ -50,7 +50,7 @@ pub mod binding;
 pub mod preamble;
 
 fn default_worker_count() -> usize {
-    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+    super::default_worker_count()
 }
 #[cfg(test)]
 mod tests;

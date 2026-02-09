@@ -63,8 +63,8 @@ async fn test_server_configuration_persistence(
 
 #[rstest]
 fn test_extreme_worker_counts(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
-    let mut server = WireframeServer::new(factory);
-    server = server.workers(usize::MAX);
+    let server = WireframeServer::new(factory);
+    let server = server.workers(usize::MAX);
     assert_eq!(server.worker_count(), usize::MAX);
     assert_eq!(server.workers(0).worker_count(), 1);
 }

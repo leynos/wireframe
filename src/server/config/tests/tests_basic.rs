@@ -2,11 +2,11 @@
 
 use rstest::rstest;
 
-use super::expected_default_worker_count;
 use crate::{
     app::WireframeApp,
     server::{
         WireframeServer,
+        default_worker_count,
         test_util::{bind_server, factory, free_listener, listener_addr},
     },
 };
@@ -14,7 +14,8 @@ use crate::{
 #[rstest]
 fn test_new_server_creation(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
     let server = WireframeServer::new(factory);
-    assert!(server.worker_count() >= 1 && server.local_addr().is_none());
+    assert!(server.worker_count() >= 1);
+    assert!(server.local_addr().is_none());
 }
 
 #[rstest]
@@ -22,15 +23,15 @@ fn test_new_server_default_worker_count(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
     let server = WireframeServer::new(factory);
-    assert_eq!(server.worker_count(), expected_default_worker_count());
+    assert_eq!(server.worker_count(), default_worker_count());
 }
 
 #[rstest]
 fn test_workers_configuration(factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static) {
-    let mut server = WireframeServer::new(factory);
-    server = server.workers(4);
+    let server = WireframeServer::new(factory);
+    let server = server.workers(4);
     assert_eq!(server.worker_count(), 4);
-    server = server.workers(100);
+    let server = server.workers(100);
     assert_eq!(server.worker_count(), 100);
     assert_eq!(server.workers(0).worker_count(), 1);
 }

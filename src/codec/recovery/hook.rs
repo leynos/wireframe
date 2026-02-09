@@ -49,8 +49,7 @@ pub trait RecoveryPolicyHook: Send + Sync {
     ///
     /// The default implementation delegates to
     /// [`CodecError::default_recovery_policy`].
-    fn recovery_policy(&self, error: &CodecError, ctx: &CodecErrorContext) -> RecoveryPolicy {
-        let _ = ctx;
+    fn recovery_policy(&self, error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
         error.default_recovery_policy()
     }
 

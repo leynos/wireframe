@@ -7,6 +7,8 @@ use std::sync::{
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::StreamExt;
+use rstest::{fixture, rstest};
+use tokio::io::DuplexStream;
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::{ResponseContext, response::send_response_payload};
@@ -15,13 +17,14 @@ use crate::{
     codec::FrameCodec,
 };
 
-/// Test codec that wraps payloads with a distinctive tag byte.
+/// Test frame carrying a tag byte and payload.
 #[derive(Clone, Debug)]
 struct TestFrame {
     tag: u8,
     payload: Vec<u8>,
 }
 
+/// Test codec that wraps payloads with a distinctive tag byte.
 #[derive(Clone, Debug)]
 struct TestCodec {
     max_frame_length: usize,
@@ -126,13 +129,46 @@ impl FrameCodec for TestCodec {
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
 
-/// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
-#[tokio::test]
-async fn send_response_payload_wraps_with_codec() {
-    let codec = TestCodec::new(64);
+struct TestHarness {
+    codec: TestCodec,
+    framed: tokio_util::codec::Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
+    client: DuplexStream,
+}
+
+#[fixture]
+fn harness() -> TestHarness {
+    let max_frame_length = 64;
+    build_harness(max_frame_length)
+}
+
+#[fixture]
+fn small_harness() -> TestHarness {
+    let max_frame_length = 4;
+    build_harness(max_frame_length)
+}
+
+fn build_harness(max_frame_length: usize) -> TestHarness {
+    let codec = TestCodec::new(max_frame_length);
     let (client, server) = tokio::io::duplex(256);
     let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-    let mut framed = tokio_util::codec::Framed::new(server, combined);
+    let framed = tokio_util::codec::Framed::new(server, combined);
+
+    TestHarness {
+        codec,
+        framed,
+        client,
+    }
+}
+
+/// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
+#[rstest]
+#[tokio::test]
+async fn send_response_payload_wraps_with_codec(harness: TestHarness) {
+    let TestHarness {
+        codec,
+        mut framed,
+        client,
+    } = harness;
 
     let payload = vec![1, 2, 3, 4];
     let response = Envelope::new(1, Some(99), payload.clone());
@@ -161,14 +197,16 @@ async fn send_response_payload_wraps_with_codec() {
 }
 
 /// Verify `ResponseContext` fields are accessible and usable.
+#[rstest]
 #[tokio::test]
-async fn response_context_holds_references() {
+async fn response_context_holds_references(harness: TestHarness) {
     use crate::serializer::BincodeSerializer;
 
-    let codec = TestCodec::new(64);
-    let (_client, server) = tokio::io::duplex(256);
-    let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-    let mut framed = tokio_util::codec::Framed::new(server, combined);
+    let TestHarness {
+        codec,
+        mut framed,
+        client: _client,
+    } = harness;
     let serializer = BincodeSerializer;
     let mut fragmentation: Option<FragmentationState> = None;
 
@@ -184,12 +222,14 @@ async fn response_context_holds_references() {
 }
 
 /// Verify `send_response_payload` returns error on send failure.
+#[rstest]
 #[tokio::test]
-async fn send_response_payload_returns_error_on_failure() {
-    let codec = TestCodec::new(4); // Small limit to trigger failure
-    let (_client, server) = tokio::io::duplex(256);
-    let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-    let mut framed = tokio_util::codec::Framed::new(server, combined);
+async fn send_response_payload_returns_error_on_failure(small_harness: TestHarness) {
+    let TestHarness {
+        codec,
+        mut framed,
+        client: _client,
+    } = small_harness;
 
     // Payload exceeds max_frame_length, so encode will fail
     let oversized_payload = vec![0u8; 100];
