@@ -45,7 +45,7 @@ async fn success_callback_can_write_response() -> TestResult {
         let bytes = b"TRTPHOTL\x00\x01\x00\x02";
         stream.write_all(bytes).await?;
         let mut buf = [0u8; 3];
-        stream.read_exact(&mut buf).await?;
+        timeout(Duration::from_secs(1), stream.read_exact(&mut buf)).await??;
         let _ = response_tx.send(buf);
         Ok(())
     })

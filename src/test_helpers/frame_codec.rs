@@ -13,7 +13,7 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use crate::codec::FrameCodec;
 
-/// Test frame that wraps payloads with a distinctive tag byte.
+/// Test frame used by `TestCodec`, wrapping payloads with a distinctive tag byte.
 #[derive(Clone, Debug)]
 pub struct TestFrame {
     /// Tag byte stored in the frame header.

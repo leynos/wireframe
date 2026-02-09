@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for [`WireframeServer`] configuration.
+#![cfg(not(loom))]
 
 use wireframe::server::WireframeServer;
 use wireframe_testing::{TestResult, factory, unused_listener};

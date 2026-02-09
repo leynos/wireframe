@@ -1,5 +1,5 @@
-#![cfg(not(loom))]
 //! Tests for connection preamble reading.
+#![cfg(not(loom))]
 
 #[path = "preamble/basic.rs"]
 mod basic;

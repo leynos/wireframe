@@ -1,4 +1,5 @@
 //! Integration coverage for custom `FrameCodec` implementations.
+#![cfg(not(loom))]
 
 use std::{
     io,

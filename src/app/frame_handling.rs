@@ -23,6 +23,9 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Tracks consecutive deserialization failures and enforces a per-connection limit.
+///
+/// The counter increments on each failure; reaching `limit` terminates processing.
 struct DeserFailureTracker<'a> {
     count: &'a mut u32,
     limit: u32,
@@ -37,7 +40,7 @@ impl<'a> DeserFailureTracker<'a> {
         context: &str,
         err: impl std::fmt::Debug,
     ) -> io::Result<()> {
-        *self.count += 1;
+        *self.count = self.count.saturating_add(1);
         warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
         crate::metrics::inc_deser_errors();
         if *self.count >= self.limit {
@@ -50,6 +53,9 @@ impl<'a> DeserFailureTracker<'a> {
     }
 }
 
+/// Context for writing handler responses to the framed stream.
+///
+/// Carries the serializer, codec, and mutable framing state for a connection.
 pub(crate) struct ResponseContext<'a, S, W, F>
 where
     S: Serializer + Send + Sync,
@@ -107,8 +113,10 @@ where
         Ok(resp) => resp,
         Err(e) => {
             warn!(
-                "handler error: id={}, correlation_id={:?}, error={e:?}",
-                env.id, env.correlation_id
+                "handler error: id={id}, correlation_id={correlation_id:?}, error={error:?}",
+                id = env.id,
+                correlation_id = env.correlation_id,
+                error = e
             );
             crate::metrics::inc_handler_errors();
             return Ok(());
@@ -128,15 +136,24 @@ where
             break; // already logged
         };
 
-        if send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response)
-            .await
-            .is_err()
-        {
-            break;
+        let send_result =
+            send_response_payload::<F, W>(ctx.codec, ctx.framed, Bytes::from(bytes), &response)
+                .await;
+        match send_result {
+            Ok(()) => {}
+            Err(err) if should_drop_response_send_error(&err) => break, // already logged
+            Err(err) => return Err(err),
         }
     }
 
     Ok(())
+}
+
+fn should_drop_response_send_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
+    )
 }
 
 fn fragment_responses(
@@ -151,8 +168,13 @@ fn fragment_responses(
             Ok(fragmented) => Ok(fragmented),
             Err(err) => {
                 warn!(
-                    "failed to fragment response: id={id}, correlation_id={correlation_id:?}, \
-                     error={err:?}"
+                    concat!(
+                        "failed to fragment response: id={id}, correlation_id={correlation_id:?}, ",
+                        "error={err:?}"
+                    ),
+                    id = id,
+                    correlation_id = correlation_id,
+                    err = err
                 );
                 crate::metrics::inc_handler_errors();
                 Err(io::Error::other("fragmentation failed"))
@@ -172,8 +194,13 @@ fn serialize_response<S: Serializer>(
         Ok(bytes) => Ok(bytes),
         Err(e) => {
             warn!(
-                "failed to serialize response: id={id}, correlation_id={correlation_id:?}, \
-                 error={e:?}"
+                concat!(
+                    "failed to serialize response: id={id}, correlation_id={correlation_id:?}, ",
+                    "error={e:?}"
+                ),
+                id = id,
+                correlation_id = correlation_id,
+                e = e
             );
             crate::metrics::inc_handler_errors();
             Err(io::Error::other("serialization failed"))
@@ -202,43 +229,89 @@ where
         let correlation_id = response.correlation_id;
         warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
         crate::metrics::inc_handler_errors();
-        return Err(io::Error::other("send failed"));
+        return Err(e);
     }
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
+    //! Tests for frame handling helpers and response sending.
+
     use bytes::Bytes;
     use futures::StreamExt;
+    use rstest::{fixture, rstest};
+    use tokio::io::DuplexStream;
 
     use super::*;
-    use crate::{app::combined_codec::CombinedCodec, test_helpers::TestCodec};
+    use crate::{
+        app::combined_codec::CombinedCodec,
+        test_helpers::{TestAdapter, TestCodec},
+    };
 
-    /// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
-    #[tokio::test]
-    async fn send_response_payload_wraps_with_codec() {
-        let codec = TestCodec::new(64);
+    struct FramedHarness {
+        codec: TestCodec,
+        server_framed: Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
+        client_framed: Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
+    }
+
+    fn build_harness(max_frame_length: usize) -> FramedHarness {
+        let codec = TestCodec::new(max_frame_length);
+        let client_codec = TestCodec::new(max_frame_length);
         let (client, server) = tokio::io::duplex(256);
-        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut framed = Framed::new(server, combined);
+        let server_codec = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let client_codec = CombinedCodec::new(client_codec.decoder(), client_codec.encoder());
+        let server_framed = Framed::new(server, server_codec);
+        let client_framed = Framed::new(client, client_codec);
 
-        let payload = vec![1, 2, 3, 4];
+        FramedHarness {
+            codec,
+            server_framed,
+            client_framed,
+        }
+    }
+
+    #[fixture]
+    fn harness() -> FramedHarness {
+        // Keep fixture setup explicit to avoid duplicated per-test harness creation.
+        build_harness(64)
+    }
+
+    #[rstest]
+    #[case::ok(vec![1, 2, 3, 4], false)]
+    #[case::oversized(vec![0u8; 100], true)]
+    #[tokio::test]
+    async fn send_response_payload_behaviour(
+        #[case] payload: Vec<u8>,
+        #[case] expect_error: bool,
+        mut harness: FramedHarness,
+    ) {
         let response = Envelope::new(1, Some(99), payload.clone());
-        send_response_payload::<TestCodec, _>(
-            &codec,
-            &mut framed,
+        let result = send_response_payload::<TestCodec, _>(
+            &harness.codec,
+            &mut harness.server_framed,
             Bytes::from(payload.clone()),
             &response,
         )
-        .await
-        .expect("send should succeed");
+        .await;
 
-        drop(framed);
+        if expect_error {
+            assert!(
+                result.is_err(),
+                "expected send to fail for oversized payload"
+            );
+            assert_eq!(
+                result
+                    .expect_err("oversized payload should return an error")
+                    .kind(),
+                io::ErrorKind::InvalidInput
+            );
+            return;
+        }
 
-        let combined_client = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut client_framed = Framed::new(client, combined_client);
-        let frame = client_framed
+        result.expect("send should succeed");
+        let frame = harness
+            .client_framed
             .next()
             .await
             .expect("expected a frame")
@@ -246,54 +319,32 @@ mod tests {
 
         assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
         assert_eq!(frame.payload, payload, "payload should match");
-        assert_eq!(codec.wraps(), 1, "wrap_payload should advance codec state");
+        assert_eq!(
+            harness.codec.wraps(),
+            1,
+            "wrap_payload should advance codec state"
+        );
     }
 
     /// Verify `ResponseContext` fields are accessible and usable.
+    #[rstest]
     #[tokio::test]
-    async fn response_context_holds_references() {
+    async fn response_context_holds_references(mut harness: FramedHarness) {
         use crate::serializer::BincodeSerializer;
 
-        let codec = TestCodec::new(64);
-        let (_client, server) = tokio::io::duplex(256);
-        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut framed = Framed::new(server, combined);
         let serializer = BincodeSerializer;
         let mut fragmentation: Option<FragmentationState> = None;
 
         let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
             serializer: &serializer,
-            framed: &mut framed,
+            framed: &mut harness.server_framed,
             fragmentation: &mut fragmentation,
-            codec: &codec,
+            codec: &harness.codec,
         };
 
         // Verify fields are accessible (compile-time check with runtime assertion)
         assert!(ctx.fragmentation.is_none());
     }
 
-    /// Verify `send_response_payload` returns error on send failure.
-    #[tokio::test]
-    async fn send_response_payload_returns_error_on_failure() {
-        let codec = TestCodec::new(4); // Small limit to trigger failure
-        let (_client, server) = tokio::io::duplex(256);
-        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut framed = Framed::new(server, combined);
-
-        // Payload exceeds max_frame_length, so encode will fail
-        let oversized_payload = vec![0u8; 100];
-        let response = Envelope::new(1, Some(99), oversized_payload.clone());
-        let result = send_response_payload::<TestCodec, _>(
-            &codec,
-            &mut framed,
-            Bytes::from(oversized_payload),
-            &response,
-        )
-        .await;
-
-        assert!(
-            result.is_err(),
-            "expected send to fail for oversized payload"
-        );
-    }
+    // Covered by `send_response_payload_behaviour` cases.
 }

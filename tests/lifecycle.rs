@@ -1,7 +1,7 @@
-#![cfg(not(loom))]
 //! Tests for connection lifecycle callbacks.
 //!
 //! They check setup, teardown, and state propagation through helper utilities.
+#![cfg(not(loom))]
 
 use std::{
     future::Future,
