@@ -283,7 +283,7 @@ where
 /// # Parameters
 ///
 /// - `listener`: Source of incoming TCP connections.
-/// - `factory`: Creates a fresh [`WireframeApp`] for each connection.
+/// - `factory`: [`AppFactory`] that creates a fresh [`WireframeApp`] for each connection.
 /// - `preamble`: Preamble handlers and timeout configuration.
 /// - `shutdown`: Signal used to stop the accept loop.
 /// - `tracker`: Task tracker used for graceful shutdown.
@@ -291,7 +291,7 @@ where
 ///
 /// # Type Parameters
 ///
-/// - `F`: Factory function that creates [`WireframeApp`] instances.
+/// - `F`: [`AppFactory`] implementation that creates [`WireframeApp`] instances.
 /// - `T`: Preamble type for connection handshaking.
 /// - `L`: Listener type implementing [`AcceptListener`].
 ///

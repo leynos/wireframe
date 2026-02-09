@@ -42,7 +42,7 @@ async fn integration_helpers_round_trip() -> TestResult {
     if response.id != ROUTE_ID {
         return Err(format!("unexpected response id: {}", response.id).into());
     }
-    if response.payload != vec![1, 2, 3] {
+    if response.payload.as_slice() != [1, 2, 3] {
         return Err("response payload mismatch".into());
     }
     if response.correlation_id.is_none() {
