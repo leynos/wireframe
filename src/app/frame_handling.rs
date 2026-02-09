@@ -23,7 +23,9 @@ use crate::{
     serializer::Serializer,
 };
 
-/// Tracks deserialization failures and enforces a per-connection limit.
+/// Tracks consecutive deserialization failures and enforces a per-connection limit.
+///
+/// The counter increments on each failure; reaching `limit` terminates processing.
 struct DeserFailureTracker<'a> {
     count: &'a mut u32,
     limit: u32,
@@ -52,6 +54,8 @@ impl<'a> DeserFailureTracker<'a> {
 }
 
 /// Context for writing handler responses to the framed stream.
+///
+/// Carries the serializer, codec, and mutable framing state for a connection.
 pub(crate) struct ResponseContext<'a, S, W, F>
 where
     S: Serializer + Send + Sync,
@@ -109,10 +113,10 @@ where
         Ok(resp) => resp,
         Err(e) => {
             warn!(
-                "handler error: id={id}, correlation_id={correlation_id:?}, error={err:?}",
+                "handler error: id={id}, correlation_id={correlation_id:?}, error={error:?}",
                 id = env.id,
                 correlation_id = env.correlation_id,
-                err = e
+                error = e
             );
             crate::metrics::inc_handler_errors();
             return Ok(());
@@ -229,20 +233,22 @@ mod tests {
 
     struct FramedHarness {
         codec: TestCodec,
-        framed: Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
-        client: DuplexStream,
+        server_framed: Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
+        client_framed: Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
     }
 
     fn build_harness(max_frame_length: usize) -> FramedHarness {
         let codec = TestCodec::new(max_frame_length);
         let (client, server) = tokio::io::duplex(256);
-        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let framed = Framed::new(server, combined);
+        let server_codec = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let client_codec = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let server_framed = Framed::new(server, server_codec);
+        let client_framed = Framed::new(client, client_codec);
 
         FramedHarness {
             codec,
-            framed,
-            client,
+            server_framed,
+            client_framed,
         }
     }
 
@@ -268,21 +274,15 @@ mod tests {
         let response = Envelope::new(1, Some(99), payload.clone());
         send_response_payload::<TestCodec, _>(
             &default_harness.codec,
-            &mut default_harness.framed,
+            &mut default_harness.server_framed,
             Bytes::from(payload.clone()),
             &response,
         )
         .await
         .expect("send should succeed");
 
-        drop(default_harness.framed);
-
-        let combined_client = CombinedCodec::new(
-            default_harness.codec.decoder(),
-            default_harness.codec.encoder(),
-        );
-        let mut client_framed = Framed::new(default_harness.client, combined_client);
-        let frame = client_framed
+        let frame = default_harness
+            .client_framed
             .next()
             .await
             .expect("expected a frame")
@@ -308,7 +308,7 @@ mod tests {
 
         let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
             serializer: &serializer,
-            framed: &mut default_harness.framed,
+            framed: &mut default_harness.server_framed,
             fragmentation: &mut fragmentation,
             codec: &default_harness.codec,
         };
@@ -326,7 +326,7 @@ mod tests {
         let response = Envelope::new(1, Some(99), oversized_payload.clone());
         let result = send_response_payload::<TestCodec, _>(
             &small_harness.codec,
-            &mut small_harness.framed,
+            &mut small_harness.server_framed,
             Bytes::from(oversized_payload),
             &response,
         )
