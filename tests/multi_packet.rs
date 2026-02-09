@@ -1,7 +1,7 @@
 //! Tests for multi-packet responses using channels.
 #![cfg(not(loom))]
 
-use std::{error::Error, time::Duration};
+use std::time::Duration;
 
 use futures::TryStreamExt;
 use rstest::{fixture, rstest};
@@ -12,15 +12,10 @@ use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
     push::{PushHandle, PushQueues},
 };
+use wireframe_testing::{TestError, TestResult};
 
-mod common;
-use common::TestResult;
-
-fn boxed_err<E: std::fmt::Debug>(
-    context: &str,
-    err: E,
-) -> Box<dyn std::error::Error + Send + Sync> {
-    format!("{context}: {err:?}").into()
+fn boxed_err<E: std::fmt::Debug>(context: &str, err: E) -> TestError {
+    TestError::Msg(format!("{context}: {err:?}"))
 }
 
 #[derive(PartialEq, Debug)]
@@ -61,7 +56,7 @@ async fn multi_packet_drains_all_messages(count: usize) -> TestResult {
         for i in 0..count {
             tx.send(TestMsg(u8::try_from(i)?)).await?;
         }
-        Ok::<_, Box<dyn Error + Send + Sync>>(())
+        Ok::<_, TestError>(())
     });
     let resp: Response<TestMsg, ()> = Response::MultiPacket(rx);
     let received = drain_all(resp.into_stream()).await?;
@@ -170,7 +165,7 @@ async fn shutdown_completes_multi_packet_channel(
             .run(&mut out)
             .await
             .map_err(|e| boxed_err("connection actor error", e))?;
-        Ok::<_, Box<dyn Error + Send + Sync>>(out)
+        Ok::<_, TestError>(out)
     });
 
     yield_now().await;
@@ -206,7 +201,7 @@ async fn shutdown_during_active_multi_packet_send(
             .run(&mut out)
             .await
             .map_err(|e| boxed_err("connection actor error", e))?;
-        Ok::<_, Box<dyn Error + Send + Sync>>(out)
+        Ok::<_, TestError>(out)
     });
 
     tx.send(1).await?;

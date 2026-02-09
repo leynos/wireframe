@@ -22,9 +22,8 @@ use wireframe::{
     preamble::{read_preamble, write_preamble},
     rewind_stream::RewindStream,
 };
-
 /// `TestResult` for step definitions.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
 
 /// Preamble used for testing.
 #[derive(Debug, Clone, PartialEq, Eq, Default, bincode::Encode, bincode::BorrowDecode)]

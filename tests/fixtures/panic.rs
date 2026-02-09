@@ -8,10 +8,9 @@ use std::net::SocketAddr;
 use rstest::fixture;
 use tokio::{net::TcpStream, sync::oneshot};
 use wireframe::server::WireframeServer;
-
 /// `TestResult` for step definitions.
-pub use crate::common::TestResult;
-use crate::common::{TestApp, unused_listener};
+pub use wireframe_testing::TestResult;
+use wireframe_testing::{TestApp, unused_listener};
 
 #[derive(Debug)]
 struct PanicServer {
@@ -31,7 +30,7 @@ impl PanicServer {
                 .and_then(|app| app.on_connection_setup(|| async { panic!("boom") }))
                 .expect("failed to build panic app")
         };
-        let listener = unused_listener();
+        let listener = unused_listener()?;
         let server = WireframeServer::new(factory)
             .workers(1)
             .bind_existing_listener(listener)?;

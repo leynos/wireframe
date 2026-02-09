@@ -9,17 +9,15 @@ use tokio::{
     time::{Duration, timeout},
 };
 use wireframe::server::WireframeServer;
+use wireframe_testing::{TestResult, factory};
 
-use crate::{
-    common::{TestResult, factory},
-    support::{
-        HotlinePreamble,
-        channel_holder,
-        notify_holder,
-        recv_within,
-        server_with_handlers,
-        with_running_server,
-    },
+use crate::support::{
+    HotlinePreamble,
+    channel_holder,
+    notify_holder,
+    recv_within,
+    server_with_handlers,
+    with_running_server,
 };
 
 #[tokio::test]

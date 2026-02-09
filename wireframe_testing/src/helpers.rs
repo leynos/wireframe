@@ -575,6 +575,7 @@ where
 mod tests {
     use std::sync::Arc;
 
+    use futures::future::BoxFuture;
     use wireframe::{
         Serializer,
         app::{Envelope, WireframeApp},
@@ -585,7 +586,8 @@ mod tests {
 
     #[tokio::test]
     async fn run_app_rejects_zero_capacity() {
-        let app = WireframeApp::new().expect("failed to create app");
+        let app: WireframeApp<BincodeSerializer, (), Envelope> =
+            WireframeApp::new().expect("failed to create app");
         let err = run_app(app, vec![], Some(0))
             .await
             .expect_err("capacity of zero should error");
@@ -594,7 +596,8 @@ mod tests {
 
     #[tokio::test]
     async fn run_app_rejects_excess_capacity() {
-        let app = WireframeApp::new().expect("failed to create app");
+        let app: WireframeApp<BincodeSerializer, (), Envelope> =
+            WireframeApp::new().expect("failed to create app");
         let err = run_app(app, vec![], Some(MAX_CAPACITY + 1))
             .await
             .expect_err("capacity beyond max should error");
@@ -603,7 +606,14 @@ mod tests {
 
     #[tokio::test]
     async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
-        let app = WireframeApp::new()?.route(1, Arc::new(|_: &Envelope| Box::pin(async {})))?;
+        let app: WireframeApp<BincodeSerializer, (), Envelope> =
+            WireframeApp::new().expect("failed to create app");
+        let app = app
+            .route(
+                1,
+                Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) }),
+            )
+            .expect("route registration should succeed");
         let serializer = BincodeSerializer::default();
         let payload = vec![1_u8, 2, 3];
         let env = Envelope::new(1, Some(7), payload.clone());
@@ -619,7 +629,11 @@ mod tests {
         let (decoded, _) = serializer
             .deserialize::<Envelope>(first)
             .expect("failed to deserialise envelope");
-        assert_eq!(decoded.payload, payload, "payload mismatch");
+        assert_eq!(
+            decoded.payload_bytes(),
+            payload.as_slice(),
+            "payload mismatch"
+        );
         Ok(())
     }
 }

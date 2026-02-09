@@ -1,9 +1,8 @@
 //! Tests for [`WireframeServer`] configuration.
 #![cfg(not(loom))]
 
-mod common;
-use common::{TestResult, factory, unused_listener};
 use wireframe::server::WireframeServer;
+use wireframe_testing::{TestResult, factory, unused_listener};
 
 #[test]
 fn default_worker_count_matches_cpu_count() -> TestResult {
@@ -65,7 +64,7 @@ async fn readiness_receiver_dropped() -> TestResult {
         time::{Duration, sleep},
     };
 
-    let listener = unused_listener();
+    let listener = unused_listener()?;
     let server = WireframeServer::new(factory())
         .workers(1)
         .bind_existing_listener(listener)

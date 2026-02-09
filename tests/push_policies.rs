@@ -10,10 +10,7 @@ use rstest::{fixture, rstest};
 use serial_test::serial;
 use tokio::sync::mpsc;
 use wireframe::push::{PushPolicy, PushPriority, PushQueuesBuilder};
-use wireframe_testing::{LoggerHandle, logger};
-
-mod common;
-use common::TestResult;
+use wireframe_testing::{LoggerHandle, TestResult, logger};
 
 #[fixture]
 fn builder() -> PushQueuesBuilder<u8> {

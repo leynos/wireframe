@@ -21,9 +21,8 @@ use wireframe::fragment::{
     Reassembler,
     ReassemblyError,
 };
-
 /// `TestResult` for step definitions.
-pub use crate::common::TestResult;
+pub use wireframe_testing::TestResult;
 
 /// Test world tracking fragmentation state across behavioural scenarios.
 #[derive(Debug)]

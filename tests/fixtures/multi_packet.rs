@@ -9,10 +9,10 @@ use rstest::fixture;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
 use wireframe::{Response, connection::ConnectionActor};
+/// Re-export `TestResult` from `wireframe_testing` for use in steps.
+pub use wireframe_testing::TestResult;
 
 use crate::build_small_queues;
-/// Re-export `TestResult` from common for use in steps.
-pub use crate::common::TestResult;
 
 #[derive(Debug)]
 struct WireframeRunError(wireframe::WireframeError);

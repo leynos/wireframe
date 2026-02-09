@@ -11,18 +11,16 @@ use tokio::{
     time::{Duration, timeout},
 };
 use wireframe::server::WireframeServer;
+use wireframe_testing::{TestResult, factory};
 
-use crate::{
-    common::{TestResult, factory},
-    support::{
-        Holder,
-        HotlinePreamble,
-        channel_holder,
-        failure_cb,
-        notify_holder,
-        recv_within,
-        with_running_server,
-    },
+use crate::support::{
+    Holder,
+    HotlinePreamble,
+    channel_holder,
+    failure_cb,
+    notify_holder,
+    recv_within,
+    with_running_server,
 };
 
 const READ_TIMEOUT_MS: u64 = 500;

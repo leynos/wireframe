@@ -31,6 +31,32 @@ async fn drives_app() -> std::io::Result<()> {
 }
 ```
 
+## Integration helpers
+
+The `integration_helpers` module provides shared building blocks for
+integration tests, including a default envelope type, an app factory fixture,
+and a helper for binding to an unused local port.
+
+```rust,no_run
+use wireframe::server::WireframeServer;
+use wireframe_testing::{CommonTestEnvelope, TestResult, factory, unused_listener};
+
+fn example() -> TestResult<()> {
+    let _envelope = CommonTestEnvelope {
+        id: 1,
+        correlation_id: Some(99),
+        payload: vec![1, 2, 3],
+    };
+
+    let listener = unused_listener()?;
+    let _server = WireframeServer::new(factory())
+        .workers(1)
+        .bind_existing_listener(listener)?;
+
+    Ok(())
+}
+```
+
 ## Running the tests
 
 - `cargo test -p wireframe_testing`

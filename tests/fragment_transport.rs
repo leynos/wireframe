@@ -17,26 +17,26 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
-mod common;
 #[path = "fragment_transport/mod.rs"]
 mod fragment_transport;
 
-use common::{
+#[path = "common/fragment_helpers.rs"]
+mod fragment_helpers;
+
+use crate::fragment_helpers::{
+    CORRELATION,
+    ROUTE_ID,
+    TestError,
     TestResult,
-    fragment_helpers::{
-        CORRELATION,
-        ROUTE_ID,
-        TestError,
-        assert_handler_observed,
-        build_envelopes,
-        fragmentation_config,
-        make_app,
-        make_handler,
-        read_reassembled_response,
-        read_response_payload,
-        send_envelopes,
-        spawn_app,
-    },
+    assert_handler_observed,
+    build_envelopes,
+    fragmentation_config,
+    make_app,
+    make_handler,
+    read_reassembled_response,
+    read_response_payload,
+    send_envelopes,
+    spawn_app,
 };
 
 /// Common helper for round-trip fragmentation tests.
@@ -64,8 +64,7 @@ async fn run_round_trip_test(
     if response != payload {
         return Err(TestError::Assertion(format!(
             "response payload mismatch: expected {payload:?}, got {response:?}"
-        ))
-        .into());
+        )));
     }
 
     server.await??;
@@ -93,8 +92,7 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     if decode_fragment_payload(&response)?.is_some() {
         return Err(TestError::Assertion(
             "small payload should pass through unfragmented".to_string(),
-        )
-        .into());
+        ));
     }
 
     Ok(())
@@ -130,8 +128,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     if observed != payload {
         return Err(TestError::Assertion(format!(
             "observed payload mismatch: expected {payload:?}, got {observed:?}"
-        ))
-        .into());
+        )));
     }
 
     client.get_mut().shutdown().await?;
@@ -143,8 +140,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     if decode_fragment_payload(&response)?.is_some() {
         return Err(TestError::Assertion(
             "expected no fragmentation when fragmentation is disabled".to_string(),
-        )
-        .into());
+        ));
     }
 
     server.await??;

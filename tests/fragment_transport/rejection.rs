@@ -13,18 +13,16 @@ use wireframe::{
     fragment::{FRAGMENT_MAGIC, FragmentationConfig, Fragmenter},
 };
 
-use crate::common::{
+use crate::fragment_helpers::{
+    CORRELATION,
+    ROUTE_ID,
+    TestError,
     TestResult,
-    fragment_helpers::{
-        CORRELATION,
-        ROUTE_ID,
-        TestError,
-        fragment_envelope,
-        fragmentation_config,
-        make_app,
-        send_envelopes,
-        spawn_app,
-    },
+    fragment_envelope,
+    fragmentation_config,
+    make_app,
+    send_envelopes,
+    spawn_app,
 };
 
 /// Test setup holding client, server, fragments, and receiver channel.
@@ -78,7 +76,7 @@ where
     tokio::io::AsyncWriteExt::shutdown(client.get_mut()).await?;
 
     if let Ok(Some(_)) = timeout(Duration::from_millis(200), rx.recv()).await {
-        return Err(TestError::Assertion(rejection_message.to_string()).into());
+        return Err(TestError::Assertion(rejection_message.to_string()));
     }
 
     drop(client);
@@ -93,7 +91,7 @@ type FragmentMutator = fn(Vec<Envelope>) -> TestResult<Vec<Envelope>>;
 /// Mutate fragments by swapping the first two (out-of-order delivery).
 fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     if fragments.len() < 2 {
-        return Err(TestError::Setup("expected at least two fragments").into());
+        return Err(TestError::Setup("expected at least two fragments"));
     }
 
     fragments.swap(0, 1);
@@ -143,7 +141,7 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
             payload,
         ));
     } else {
-        return Err(TestError::Setup("fragment list unexpectedly empty").into());
+        return Err(TestError::Setup("fragment list unexpectedly empty"));
     }
     fragments.truncate(1);
     Ok(fragments)

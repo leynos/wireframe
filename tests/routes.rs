@@ -3,20 +3,19 @@
 //! They validate handler invocation, echo responses, and sequential processing.
 #![cfg(not(loom))]
 
-mod common;
-
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
 use bytes::BytesMut;
-use common::{CommonTestEnvelope, TestResult};
 use rstest::rstest;
 use tokio_util::codec::Encoder;
 use wireframe::{Serializer, app::Packet, message::Message, serializer::BincodeSerializer};
 use wireframe_testing::{
+    CommonTestEnvelope,
     TEST_MAX_FRAME,
+    TestResult,
     decode_frames,
     drive_with_bincode,
     drive_with_frames,
