@@ -100,7 +100,11 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> Tes
         let mut stream = TcpStream::connect(addr).await?;
         recv_within(Duration::from_secs(1), failure_rx).await?;
         let mut buf = [0u8; 3];
-        timeout(Duration::from_millis(500), stream.read_exact(&mut buf)).await??;
+        timeout(
+            Duration::from_millis(READ_TIMEOUT_MS),
+            stream.read_exact(&mut buf),
+        )
+        .await??;
         let mut eof = [0u8; 1];
         let read = timeout(Duration::from_millis(200), stream.read(&mut eof)).await;
         let closed = is_connection_closed(read?)?;
