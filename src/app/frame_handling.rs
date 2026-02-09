@@ -236,9 +236,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Tests for frame handling helpers and response sending.
+
     use bytes::Bytes;
     use futures::StreamExt;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
     use tokio::io::DuplexStream;
 
     use super::*;
@@ -269,12 +271,21 @@ mod tests {
         }
     }
 
+    #[fixture]
+    fn harness() -> FramedHarness {
+        // Keep fixture setup explicit to avoid duplicated per-test harness creation.
+        build_harness(64)
+    }
+
     #[rstest]
     #[case::ok(vec![1, 2, 3, 4], false)]
     #[case::oversized(vec![0u8; 100], true)]
     #[tokio::test]
-    async fn send_response_payload_behaviour(#[case] payload: Vec<u8>, #[case] expect_error: bool) {
-        let mut harness = build_harness(64);
+    async fn send_response_payload_behaviour(
+        #[case] payload: Vec<u8>,
+        #[case] expect_error: bool,
+        mut harness: FramedHarness,
+    ) {
         let response = Envelope::new(1, Some(99), payload.clone());
         let result = send_response_payload::<TestCodec, _>(
             &harness.codec,
@@ -318,12 +329,11 @@ mod tests {
     /// Verify `ResponseContext` fields are accessible and usable.
     #[rstest]
     #[tokio::test]
-    async fn response_context_holds_references() {
+    async fn response_context_holds_references(mut harness: FramedHarness) {
         use crate::serializer::BincodeSerializer;
 
         let serializer = BincodeSerializer;
         let mut fragmentation: Option<FragmentationState> = None;
-        let mut harness = build_harness(64);
 
         let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
             serializer: &serializer,
