@@ -239,9 +239,10 @@ mod tests {
 
     fn build_harness(max_frame_length: usize) -> FramedHarness {
         let codec = TestCodec::new(max_frame_length);
+        let client_codec = TestCodec::new(max_frame_length);
         let (client, server) = tokio::io::duplex(256);
         let server_codec = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let client_codec = CombinedCodec::new(codec.decoder(), codec.encoder());
+        let client_codec = CombinedCodec::new(client_codec.decoder(), client_codec.encoder());
         let server_framed = Framed::new(server, server_codec);
         let client_framed = Framed::new(client, client_codec);
 

@@ -331,27 +331,9 @@ impl RecoveryConfig {
 mod tests {
     use std::io;
 
-    use rstest::{fixture, rstest};
+    use rstest::rstest;
 
     use super::*;
-
-    #[fixture]
-    fn default_hook() -> DefaultRecoveryPolicy {
-        let () = ();
-        DefaultRecoveryPolicy
-    }
-
-    #[fixture]
-    fn context() -> CodecErrorContext {
-        let () = ();
-        CodecErrorContext::new()
-    }
-
-    #[fixture]
-    fn io_error() -> CodecError {
-        let () = ();
-        CodecError::Io(io::Error::other("test"))
-    }
 
     #[test]
     fn recovery_policy_default_is_drop() {
@@ -378,11 +360,10 @@ mod tests {
     }
 
     #[rstest]
-    fn default_recovery_policy_delegates_to_error(
-        default_hook: DefaultRecoveryPolicy,
-        context: CodecErrorContext,
-    ) {
+    fn default_recovery_policy_delegates_to_error() {
         use super::super::error::{EofError, FramingError};
+        let default_hook = DefaultRecoveryPolicy;
+        let context = CodecErrorContext::new();
 
         // Check various error types
         let err = CodecError::Framing(FramingError::OversizedFrame { size: 100, max: 50 });
@@ -405,11 +386,11 @@ mod tests {
     }
 
     #[rstest]
-    fn default_quarantine_duration_is_30_seconds(
-        default_hook: DefaultRecoveryPolicy,
-        context: CodecErrorContext,
-        io_error: CodecError,
-    ) {
+    fn default_quarantine_duration_is_30_seconds() {
+        let default_hook = DefaultRecoveryPolicy;
+        let context = CodecErrorContext::new();
+        let io_error = CodecError::Io(io::Error::other("test"));
+
         assert_eq!(
             default_hook.quarantine_duration(&io_error, &context),
             Duration::from_secs(30)

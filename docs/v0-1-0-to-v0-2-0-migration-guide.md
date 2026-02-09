@@ -1,7 +1,7 @@
 # v0.1.0 to v0.2.0 migration guide
 
-This guide summarizes the breaking changes you need to address when migrating
-from wireframe v0.1.0 to v0.2.0.
+This guide summarizes the breaking changes that must be addressed when
+migrating from wireframe v0.1.0 to v0.2.0.
 
 ## Configuration builder naming update
 

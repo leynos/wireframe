@@ -37,6 +37,22 @@ enum PreambleHandlerKind {
     Failure,
 }
 
+fn assert_local_addr_matches_listener<F, T, S, Ser, Ctx, E, Codec>(
+    server: WireframeServer<F, T, S, Ser, Ctx, E, Codec>,
+    expected: std::net::SocketAddr,
+) where
+    F: Fn() -> WireframeApp<Ser, Ctx, E, Codec> + Send + Sync + Clone + 'static,
+    T: crate::preamble::Preamble,
+    S: crate::server::ServerState,
+    Ser: crate::serializer::Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: crate::app::Packet,
+    Codec: crate::codec::FrameCodec,
+{
+    let local_addr = server.local_addr().expect("local address missing");
+    assert_eq!(local_addr, expected);
+}
+
 #[fixture]
 async fn connected_streams() -> io::Result<(TcpStream, TcpStream)> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -98,12 +114,10 @@ async fn test_bind_success(
     free_listener: std::net::TcpListener,
 ) {
     let expected = listener_addr(&free_listener);
-    let local_addr = WireframeServer::new(factory)
+    let server = WireframeServer::new(factory)
         .bind_existing_listener(free_listener)
-        .expect("Failed to bind")
-        .local_addr()
-        .expect("local address missing");
-    assert_eq!(local_addr, expected);
+        .expect("Failed to bind");
+    assert_local_addr_matches_listener(server, expected);
 }
 
 #[rstest]
@@ -118,10 +132,8 @@ async fn test_local_addr_after_bind(
     free_listener: std::net::TcpListener,
 ) {
     let expected = listener_addr(&free_listener);
-    let local_addr = bind_server(factory, free_listener)
-        .local_addr()
-        .expect("local address missing");
-    assert_eq!(local_addr, expected);
+    let server = bind_server(factory, free_listener);
+    assert_local_addr_matches_listener(server, expected);
 }
 
 #[rstest]
