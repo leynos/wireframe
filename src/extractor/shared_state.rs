@@ -8,6 +8,12 @@ use super::{ExtractError, FromMessageRequest, MessageRequest, Payload};
 #[derive(Clone)]
 pub struct SharedState<T: Send + Sync>(Arc<T>);
 
+impl<T: Send + Sync> std::fmt::Debug for SharedState<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedState").finish_non_exhaustive()
+    }
+}
+
 impl<T: Send + Sync> From<Arc<T>> for SharedState<T> {
     fn from(inner: Arc<T>) -> Self { Self(inner) }
 }

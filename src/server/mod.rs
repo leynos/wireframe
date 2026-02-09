@@ -17,6 +17,7 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
+/// Compute the default worker count from available CPU parallelism.
 pub(crate) fn default_worker_count() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }

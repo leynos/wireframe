@@ -23,6 +23,7 @@ use crate::{
         test_util::{TestPreamble, factory, server_with_preamble},
     },
 };
+
 #[rstest]
 fn test_with_preamble_type_conversion(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,

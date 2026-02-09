@@ -2,22 +2,11 @@
 
 use std::{io, time::Duration};
 
-use rstest::{fixture, rstest};
-
 use super::*;
-use crate::codec::CodecError;
-
-#[fixture]
-fn default_hook() -> DefaultRecoveryPolicy {
-    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
-    DefaultRecoveryPolicy
-}
-
-#[fixture]
-fn default_ctx() -> CodecErrorContext {
-    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
-    CodecErrorContext::new()
-}
+use crate::codec::{
+    CodecError,
+    error::{EofError, FramingError},
+};
 
 #[test]
 fn recovery_policy_default_is_drop() {
@@ -43,12 +32,10 @@ fn context_with_peer_address() {
     assert_eq!(ctx.peer_address, Some(addr));
 }
 
-#[rstest]
-fn default_recovery_policy_delegates_to_error(
-    default_hook: DefaultRecoveryPolicy,
-    default_ctx: CodecErrorContext,
-) {
-    use crate::codec::error::{EofError, FramingError};
+#[test]
+fn default_recovery_policy_delegates_to_error() {
+    let default_hook = DefaultRecoveryPolicy;
+    let default_ctx = CodecErrorContext::new();
 
     // Check various error types
     let err = CodecError::Framing(FramingError::OversizedFrame { size: 100, max: 50 });
@@ -70,11 +57,10 @@ fn default_recovery_policy_delegates_to_error(
     );
 }
 
-#[rstest]
-fn default_quarantine_duration_is_30_seconds(
-    default_hook: DefaultRecoveryPolicy,
-    default_ctx: CodecErrorContext,
-) {
+#[test]
+fn default_quarantine_duration_is_30_seconds() {
+    let default_hook = DefaultRecoveryPolicy;
+    let default_ctx = CodecErrorContext::new();
     let err = CodecError::Io(io::Error::other("test"));
 
     assert_eq!(

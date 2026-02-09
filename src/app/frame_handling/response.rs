@@ -81,7 +81,7 @@ fn fragment_responses(
                     err = err
                 );
                 crate::metrics::inc_handler_errors();
-                Err(io::Error::other("fragmentation failed"))
+                Err(io::Error::other(err))
             }
         },
         None => Ok(vec![envelope]),
@@ -107,7 +107,7 @@ fn serialize_response<S: Serializer>(
                 e = e
             );
             crate::metrics::inc_handler_errors();
-            Err(io::Error::other("serialization failed"))
+            Err(io::Error::other(e))
         }
     }
 }
@@ -133,7 +133,7 @@ where
         let correlation_id = response.correlation_id;
         warn!("failed to send response: id={id}, correlation_id={correlation_id:?}, error={e:?}");
         crate::metrics::inc_handler_errors();
-        return Err(io::Error::other("send failed"));
+        return Err(io::Error::other(e));
     }
     Ok(())
 }
