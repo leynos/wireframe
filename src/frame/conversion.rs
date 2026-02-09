@@ -2,19 +2,11 @@
 use std::io;
 
 use super::format::Endianness;
+use crate::byte_order::read_network_u64;
 
 pub(crate) const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 pub(crate) const ERR_FRAME_TOO_LARGE: &str = "frame too large";
 pub(crate) const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
-
-#[inline]
-fn u64_from_be_bytes(bytes: [u8; 8]) -> u64 {
-    #[expect(
-        clippy::big_endian_bytes,
-        reason = "Wire endianness is explicit; from_be_bytes keeps decoding host-independent."
-    )]
-    u64::from_be_bytes(bytes)
-}
 
 #[inline]
 fn u64_from_le_bytes(bytes: [u8; 8]) -> u64 {
@@ -88,7 +80,7 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     // using explicit conversion helpers keeps decoding deterministic on any host
     // CPU.
     let val = match endianness {
-        Endianness::Big => u64_from_be_bytes(buf),
+        Endianness::Big => read_network_u64(buf),
         Endianness::Little => u64_from_le_bytes(buf),
     };
     Ok(val)

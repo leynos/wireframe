@@ -4,11 +4,7 @@
 //! convenience methods to register handlers and lifecycle hooks, and
 //! serializes messages using a configurable serializer.
 
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::{OnceCell, mpsc};
 
@@ -20,6 +16,7 @@ use super::{
     middleware_types::{Handler, Middleware},
 };
 use crate::{
+    app_data_store::AppDataStore,
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     fragment::FragmentationConfig,
     hooks::WireframeProtocol,
@@ -43,7 +40,7 @@ pub struct WireframeApp<
     pub(super) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
     pub(super) middleware: Vec<Box<dyn Middleware<E>>>,
     pub(super) serializer: S,
-    pub(super) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub(super) app_data: AppDataStore,
     pub(super) on_connect: Option<Arc<ConnectionSetup<C>>>,
     pub(super) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
     pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
@@ -71,7 +68,7 @@ where
             routes: OnceCell::new(),
             middleware: Vec::new(),
             serializer: S::default(),
-            app_data: HashMap::new(),
+            app_data: AppDataStore::default(),
             on_connect: None,
             on_disconnect: None,
             protocol: None,
@@ -129,11 +126,15 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// This centralises the field-by-field reconstruction required when
-    /// transforming between different serializer or codec types.
+    /// The `WireframeApp` builder carries 13 fields that must be moved together
+    /// when swapping serializer or codec types. Centralizing the reconstruction
+    /// here keeps the transitions consistent and avoids repeating the same
+    /// field list across each type-changing method. For smaller builders with
+    /// only a handful of fields and single-field updates, prefer the macro-based
+    /// pattern used by `WireframeClientBuilder`.
     #[expect(
         clippy::too_many_arguments,
-        reason = "internal helper grouping fields for type-transitioning builders"
+        reason = "Helper handles multi-field type transitions; see builder-pattern-conventions.md."
     )]
     fn rebuild_with_params<S2, F2>(
         self,
@@ -204,10 +205,7 @@ where
     where
         T: Send + Sync + 'static,
     {
-        self.app_data.insert(
-            TypeId::of::<T>(),
-            Arc::new(state) as Arc<dyn Any + Send + Sync>,
-        );
+        self.app_data.insert(state);
         self
     }
 

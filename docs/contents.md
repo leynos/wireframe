@@ -57,6 +57,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 
 - [Refactoring guide](complexity-antipatterns-and-refactoring-strategies.md)
   Strategies for taming code complexity and refactoring.
+- [Builder pattern conventions](builder-pattern-conventions.md) Guidance for
+  type-transitioning builders and reconstruction patterns.
 - [Documentation style guide](documentation-style-guide.md) Conventions for
   writing project documentation.
 - [Server configuration](server/configuration.md) Tuning accept loop backoff
