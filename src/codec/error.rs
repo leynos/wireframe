@@ -301,9 +301,6 @@ impl From<CodecError> for io::Error {
             CodecError::Io(e) => e,
             CodecError::Framing(e) => io::Error::new(io::ErrorKind::InvalidData, e),
             CodecError::Protocol(e) => io::Error::new(io::ErrorKind::InvalidData, e),
-            CodecError::Eof(EofError::CleanClose) => {
-                io::Error::new(io::ErrorKind::UnexpectedEof, "connection closed")
-            }
             CodecError::Eof(e) => io::Error::new(io::ErrorKind::UnexpectedEof, e),
         }
     }
