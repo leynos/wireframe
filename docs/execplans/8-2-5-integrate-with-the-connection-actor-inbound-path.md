@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 No `PLANS.md` exists in this repository as of 2026-02-12.
 
@@ -84,20 +84,22 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 ## Progress
 
 - [x] (2026-02-12 00:00Z) Drafted ExecPlan for roadmap items 8.2.5 and 8.2.6.
-- [ ] Confirm and document the exact inbound integration seam in
+- [x] Confirmed and documented the exact inbound integration seam in
       `src/app/connection.rs` and `src/app/frame_handling/`.
-- [ ] Upgrade behavioural test dependencies to `rstest-bdd` v0.5.0 and restore
+- [x] Upgraded behavioural test dependencies to `rstest-bdd` v0.5.0 and
+      restored
       green compilation.
-- [ ] Implement message assembly application after transport reassembly.
-- [ ] Add `rstest` unit tests for interleaving, ordering violations, and
+- [x] Implemented message assembly application after transport reassembly.
+- [x] Added `rstest` unit tests for interleaving, ordering violations, and
       timeout purging in the inbound runtime path.
-- [ ] Add `rstest-bdd` v0.5.0 behavioural tests that exercise the same runtime
+- [x] Added `rstest-bdd` v0.5.0 behavioural tests that exercise the same
+      runtime
       behaviours through the test harness.
-- [ ] Update design docs and `docs/users-guide.md` for the new integrated
+- [x] Updated design docs and `docs/users-guide.md` for the new integrated
       behaviour.
-- [ ] Mark roadmap entries 8.2.5 and 8.2.6 as done.
-- [ ] Run full quality gates (`fmt`, markdown lint, Rust format check, lint,
-      tests) and capture logs with `tee`.
+- [x] Marked roadmap entries 8.2.5 and 8.2.6 as done.
+- [x] Ran full quality gates (`fmt`, markdown lint, Rust format check, lint,
+      tests) and captured logs with `tee`.
 
 ## Surprises & discoveries
 
@@ -115,6 +117,12 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 - Observation: the workspace currently pins `rstest-bdd = "0.4.0"` in
   `Cargo.toml`. Evidence: `Cargo.toml` dev-dependencies. Impact: this feature
   must include the requested upgrade to v0.5.0.
+
+- Observation: adding the new assembly unit coverage to
+  `src/app/frame_handling/tests.rs` pushed the file past the repository's
+  400-line guidance. Evidence: local line-count check during implementation.
+  Impact: extracted inbound-assembly tests to
+  `src/app/frame_handling/assembly_tests.rs` to keep files maintainable.
 
 ## Decision log
 
@@ -136,26 +144,34 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 
 ## Outcomes & retrospective
 
-Not started yet.
+Completed.
+
+- Inbound runtime now applies message assembly after transport reassembly in
+  `src/app/connection.rs` via `src/app/frame_handling/assembly.rs`.
+- Failure handling is unified with the existing deserialization-failure policy
+  for parse, continuity, and declared-length errors.
+- Unit coverage includes interleaving, ordering violations, and timeout purge
+  in `src/app/frame_handling/assembly_tests.rs`.
+- Behavioural coverage includes the same scenarios through
+  `tests/features/message_assembly_inbound.feature` and associated steps and
+  fixtures.
+- Documentation and roadmap were updated to remove stale caveats and mark
+  8.2.5/8.2.6 complete.
+- Quality gates passed with `tee` logs:
+  `/tmp/wireframe-make-fmt.log`, `/tmp/wireframe-make-markdownlint.log`,
+  `/tmp/wireframe-make-check-fmt.log`, `/tmp/wireframe-make-lint.log`,
+  `/tmp/wireframe-make-test.log`, `/tmp/wireframe-make-nixie.log`.
 
 ## Context and orientation
 
-The current inbound runtime pipeline is implemented in `src/app/connection.rs`:
+The inbound runtime pipeline in `src/app/connection.rs` is now:
 
 - `decode_envelope` converts codec frames into `Envelope` values.
 - `frame_handling::reassemble_if_needed` applies transport-level fragment
   reassembly (`src/app/frame_handling/reassembly.rs`).
-- Completed envelopes are dispatched directly to handlers via
+- `frame_handling::assemble_if_needed` applies protocol-level assembly.
+- Completed envelopes are dispatched to handlers via
   `frame_handling::forward_response`.
-
-`MessageAssembler` support exists but is not wired into this pipeline:
-
-- Hook trait and header model: `src/message_assembler/mod.rs` and
-  `src/message_assembler/header.rs`.
-- Multiplexing and continuity state machine: `src/message_assembler/state.rs`
-  and `src/message_assembler/series.rs`.
-- Builder configuration surface: `WireframeApp::with_message_assembler` in
-  `src/app/builder/protocol.rs`.
 
 Design references that must stay aligned:
 

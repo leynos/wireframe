@@ -485,9 +485,12 @@ let _app = WireframeApp::new()
     .with_message_assembler(DemoAssembler);
 ```
 
-Note: the hook is stored on the application today but is wired into the inbound
-connection path in roadmap item 8.2.5. Until that integration lands, protocol
-crates can use the trait for shared parsing logic and tests.
+When configured, this hook now runs on the inbound connection path after
+transport fragmentation reassembly and before handler dispatch. Incomplete
+assemblies remain buffered per message key until completion or timeout eviction.
+
+Message-assembly parsing and continuity failures are treated as inbound
+deserialization failures and follow the existing failure threshold policy.
 
 `WireframeApp::message_assembler` returns the configured hook as an
 `Option<&Arc<dyn MessageAssembler>>` if you need to access it directly.

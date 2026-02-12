@@ -135,6 +135,18 @@ sequenceDiagram
   end
 ```
 
+#### Implementation decisions (2026-02-12)
+
+- The inbound integration seam for this ADR is `src/app/connection.rs` and
+  `src/app/frame_handling/`, not `src/connection/`, because inbound decode and
+  dispatch already occur in the app-layer connection loop.
+- Message-assembly parsing, length, and continuity violations are treated as
+  inbound deserialization failures and therefore use the same threshold-based
+  invalid-data policy as other malformed inbound input.
+- Idle timeout ticks purge expired entries from both transport fragmentation
+  and message-assembly state, so stale partial assemblies do not linger across
+  long-lived connections.
+
 At a minimum, the hook must allow a protocol to provide:
 
 - a per-frame header parser (including “first frame” versus “continuation
