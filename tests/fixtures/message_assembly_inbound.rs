@@ -16,6 +16,28 @@ use wireframe::{
 };
 pub use wireframe_testing::TestResult;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MessageKey(pub u64);
+
+impl From<u64> for MessageKey {
+    fn from(value: u64) -> Self { Self(value) }
+}
+
+impl From<MessageKey> for u64 {
+    fn from(value: MessageKey) -> Self { value.0 }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FrameSequence(pub u32);
+
+impl From<u32> for FrameSequence {
+    fn from(value: u32) -> Self { Self(value) }
+}
+
+impl From<FrameSequence> for u32 {
+    fn from(value: FrameSequence) -> Self { value.0 }
+}
+
 const ROUTE_ID: u32 = 77;
 const CORRELATION_ID: Option<u64> = Some(5);
 const BUFFER_CAPACITY: usize = 512;
@@ -135,21 +157,31 @@ impl MessageAssemblyInboundWorld {
         Ok(())
     }
 
-    pub fn send_first_frame(&mut self, key: u64, body: &str) -> TestResult {
-        self.send_payload(first_frame_payload(key, body.as_bytes(), false, None))
+    pub fn send_first_frame(&mut self, key: impl Into<MessageKey>, body: &str) -> TestResult {
+        let key = key.into();
+        self.send_payload(first_frame_payload(key.0, body.as_bytes(), false, None))
     }
 
-    pub fn send_continuation_frame(&mut self, key: u64, sequence: u32, body: &str) -> TestResult {
-        self.send_continuation_frame_impl(key, sequence, body, false)
+    pub fn send_continuation_frame(
+        &mut self,
+        key: impl Into<MessageKey>,
+        sequence: impl Into<FrameSequence>,
+        body: &str,
+    ) -> TestResult {
+        let key = key.into();
+        let sequence = sequence.into();
+        self.send_continuation_frame_impl(key.0, sequence.0, body, false)
     }
 
     pub fn send_final_continuation_frame(
         &mut self,
-        key: u64,
-        sequence: u32,
+        key: impl Into<MessageKey>,
+        sequence: impl Into<FrameSequence>,
         body: &str,
     ) -> TestResult {
-        self.send_continuation_frame_impl(key, sequence, body, true)
+        let key = key.into();
+        let sequence = sequence.into();
+        self.send_continuation_frame_impl(key.0, sequence.0, body, true)
     }
 
     #[expect(
