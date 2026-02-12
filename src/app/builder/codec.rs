@@ -58,10 +58,15 @@ where
 {
     /// Set the initial buffer capacity for framed reads.
     /// Clamped between 64 bytes and 16 MiB.
+    ///
+    /// This also clears any previously configured fragmentation settings.
+    /// Re-enable fragmentation explicitly with [`WireframeApp::enable_fragmentation`]
+    /// (or [`WireframeApp::fragmentation`]) after changing the frame budget.
     #[must_use]
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
         let capacity = clamp_frame_length(capacity);
         self.codec = LengthDelimitedFrameCodec::new(capacity);
+        self.fragmentation = None;
         self
     }
 }

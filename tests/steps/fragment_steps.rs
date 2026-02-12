@@ -194,10 +194,19 @@ fn then_reassembly_out_of_order(fragment_world: &mut FragmentWorld) -> TestResul
     Ok(())
 }
 
-#[then("the reassembler is buffering {expected:usize} messages")]
-fn then_buffered_messages(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
+fn assert_buffered_messages(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
     fragment_world.assert_buffered_messages(expected)?;
     Ok(())
+}
+
+#[then("the reassembler is buffering {expected:usize} message")]
+fn then_buffered_message(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
+    assert_buffered_messages(fragment_world, expected)
+}
+
+#[then("the reassembler is buffering {expected:usize} messages")]
+fn then_buffered_messages(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
+    assert_buffered_messages(fragment_world, expected)
 }
 
 #[then("message {message:u64} is evicted")]

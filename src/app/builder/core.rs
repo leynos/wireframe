@@ -162,30 +162,46 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rstest::{fixture, rstest};
+
     use super::WireframeApp;
     use crate::{app::Envelope, codec::LengthDelimitedFrameCodec, serializer::BincodeSerializer};
 
-    #[test]
-    fn builder_defaults_fragmentation_to_disabled() {
-        let app = WireframeApp::<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>::new()
-            .expect("build app");
+    type TestApp = WireframeApp<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>;
+
+    #[fixture]
+    fn app_builder() -> TestApp {
+        let app = TestApp::new().expect("build app");
+        assert!(
+            app.fragmentation.is_none(),
+            "fixture expects default fragmentation disabled"
+        );
+        app
+    }
+
+    #[rstest]
+    fn builder_defaults_fragmentation_to_disabled(app_builder: TestApp) {
+        let app = app_builder;
         assert!(app.fragmentation.is_none());
     }
 
-    #[test]
-    fn enable_fragmentation_requires_explicit_opt_in() {
-        let app = WireframeApp::<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>::new()
-            .expect("build app")
-            .enable_fragmentation();
+    #[rstest]
+    fn enable_fragmentation_requires_explicit_opt_in(app_builder: TestApp) {
+        let app = app_builder.enable_fragmentation();
         assert!(app.fragmentation.is_some());
     }
 
-    #[test]
-    fn with_codec_clears_fragmentation_to_require_reconfiguration() {
-        let app = WireframeApp::<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>::new()
-            .expect("build app")
+    #[rstest]
+    fn with_codec_clears_fragmentation_to_require_reconfiguration(app_builder: TestApp) {
+        let app = app_builder
             .enable_fragmentation()
             .with_codec(LengthDelimitedFrameCodec::new(2048));
+        assert!(app.fragmentation.is_none());
+    }
+
+    #[rstest]
+    fn buffer_capacity_clears_fragmentation_to_require_reconfiguration(app_builder: TestApp) {
+        let app = app_builder.enable_fragmentation().buffer_capacity(2048);
         assert!(app.fragmentation.is_none());
     }
 }

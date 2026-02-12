@@ -181,7 +181,14 @@ impl Reassembler {
                         vacant.insert(PartialMessage::new(series, payload, now));
                         Ok(None)
                     }
-                    FragmentStatus::Duplicate => Ok(None),
+                    FragmentStatus::Duplicate => {
+                        debug_assert!(
+                            false,
+                            "newly created FragmentSeries starts at index 0; a first fragment \
+                             cannot be duplicate"
+                        );
+                        Ok(None)
+                    }
                     FragmentStatus::Complete => Ok(Some(ReassembledMessage::new(
                         header.message_id(),
                         payload.to_vec(),

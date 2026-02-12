@@ -25,21 +25,21 @@ use super::{
 pub enum FragmentAdapterError {
     /// Fragment payload marker/header decoding failed.
     #[error("decode error: {0}")]
-    Decode(DecodeError),
+    Decode(#[from] DecodeError),
     /// Reassembly ordering or size validation failed.
     #[error("reassembly error: {0}")]
-    Reassembly(ReassemblyError),
+    Reassembly(#[from] ReassemblyError),
 }
 
 /// Adapter contract for transport-level fragmentation and reassembly.
-pub trait FragmentAdapter<E: Fragmentable>: Send + Sync {
+pub trait FragmentAdapter: Send + Sync {
     /// Attempt to fragment a packet for outbound transport.
     ///
     /// # Errors
     ///
     /// Returns [`FragmentationError`] when payload chunking or header encoding
     /// fails.
-    fn fragment(&self, packet: E) -> Result<Vec<E>, FragmentationError>;
+    fn fragment<E: Fragmentable>(&self, packet: E) -> Result<Vec<E>, FragmentationError>;
 
     /// Attempt to reassemble an inbound packet.
     ///
@@ -51,7 +51,8 @@ pub trait FragmentAdapter<E: Fragmentable>: Send + Sync {
     ///
     /// Returns [`FragmentAdapterError`] when fragment decoding fails or when
     /// ordering and size guarantees are violated.
-    fn reassemble(&mut self, packet: E) -> Result<Option<E>, FragmentAdapterError>;
+    fn reassemble<E: Fragmentable>(&mut self, packet: E)
+    -> Result<Option<E>, FragmentAdapterError>;
 
     /// Purge stale partial reassembly state.
     ///
@@ -76,48 +77,13 @@ impl DefaultFragmentAdapter {
         }
     }
 
-    fn fragment_inner<E: Fragmentable>(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
-        fragment_packet(&self.fragmenter, packet)
-    }
-
-    fn reassemble_inner<E: Fragmentable>(
-        &mut self,
-        packet: E,
-    ) -> Result<Option<E>, FragmentAdapterError> {
-        let parts = packet.into_fragment_parts();
-        let id = parts.id();
-        let correlation_id = parts.correlation_id();
-        let payload = parts.into_payload();
-
-        match decode_fragment_payload(&payload) {
-            Ok(Some((header, fragment_payload))) => {
-                match self.reassembler.push(header, fragment_payload) {
-                    Ok(Some(message)) => {
-                        let rebuilt =
-                            FragmentParts::new(id, correlation_id, message.into_payload());
-                        Ok(Some(E::from_fragment_parts(rebuilt)))
-                    }
-                    Ok(None) => Ok(None),
-                    Err(err) => Err(FragmentAdapterError::Reassembly(err)),
-                }
-            }
-            Ok(None) => {
-                let passthrough = FragmentParts::new(id, correlation_id, payload);
-                Ok(Some(E::from_fragment_parts(passthrough)))
-            }
-            Err(err) => Err(FragmentAdapterError::Decode(err)),
-        }
-    }
-
-    fn purge_expired_inner(&mut self) -> Vec<MessageId> { self.reassembler.purge_expired() }
-
     /// Fragment outbound packet data.
     ///
     /// # Errors
     ///
     /// Returns [`FragmentationError`] when fragment emission fails.
     pub fn fragment<E: Fragmentable>(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
-        self.fragment_inner(packet)
+        fragment_packet(&self.fragmenter, packet)
     }
 
     /// Reassemble inbound packet data.
@@ -129,21 +95,40 @@ impl DefaultFragmentAdapter {
         &mut self,
         packet: E,
     ) -> Result<Option<E>, FragmentAdapterError> {
-        self.reassemble_inner(packet)
+        let parts = packet.into_fragment_parts();
+        let id = parts.id();
+        let correlation_id = parts.correlation_id();
+        let payload = parts.into_payload();
+
+        if let Some((header, fragment_payload)) = decode_fragment_payload(&payload)? {
+            match self.reassembler.push(header, fragment_payload)? {
+                Some(message) => {
+                    let rebuilt = FragmentParts::new(id, correlation_id, message.into_payload());
+                    Ok(Some(E::from_fragment_parts(rebuilt)))
+                }
+                None => Ok(None),
+            }
+        } else {
+            let passthrough = FragmentParts::new(id, correlation_id, payload);
+            Ok(Some(E::from_fragment_parts(passthrough)))
+        }
     }
 
     /// Purge stale reassembly entries and return evicted identifiers.
-    pub fn purge_expired(&mut self) -> Vec<MessageId> { self.purge_expired_inner() }
+    pub fn purge_expired(&mut self) -> Vec<MessageId> { self.reassembler.purge_expired() }
 }
 
-impl<E: Fragmentable> FragmentAdapter<E> for DefaultFragmentAdapter {
-    fn fragment(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
-        self.fragment_inner(packet)
+impl FragmentAdapter for DefaultFragmentAdapter {
+    fn fragment<E: Fragmentable>(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
+        DefaultFragmentAdapter::fragment(self, packet)
     }
 
-    fn reassemble(&mut self, packet: E) -> Result<Option<E>, FragmentAdapterError> {
-        self.reassemble_inner(packet)
+    fn reassemble<E: Fragmentable>(
+        &mut self,
+        packet: E,
+    ) -> Result<Option<E>, FragmentAdapterError> {
+        DefaultFragmentAdapter::reassemble(self, packet)
     }
 
-    fn purge_expired(&mut self) -> Vec<MessageId> { self.purge_expired_inner() }
+    fn purge_expired(&mut self) -> Vec<MessageId> { DefaultFragmentAdapter::purge_expired(self) }
 }

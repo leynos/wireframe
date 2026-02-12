@@ -209,8 +209,8 @@ Documentation currently needing alignment:
   contract, duplicate/out-of-order policy, purge ownership, opt-in semantics).
 - `docs/multi-packet-and-streaming-responses-design.md` (layer composition
   order references).
-- `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-
-  maturity.md` (hardening narrative alignment).
+- `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`
+  (hardening narrative alignment).
 - `docs/hardening-wireframe-a-guide-to-production-resilience.md` (hardening
   narrative alignment).
 - `docs/users-guide.md` (public configuration surface and behaviour changes).
@@ -302,7 +302,7 @@ Go/no-go:
 7. Update documentation and roadmap:
    `docs/generic-message-fragmentation-and-re-assembly-design.md`,
    `docs/multi-packet-and-streaming-responses-design.md`,
-   `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability- maturity.md`,
+   `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`,
     `docs/hardening-wireframe-a-guide-to-production-resilience.md`,
    `docs/users-guide.md`, and `docs/roadmap.md`.
 
@@ -383,12 +383,15 @@ Validation evidence logs:
 
 Target public interface shape (exact naming may be adjusted during Stage A):
 
-    pub trait FragmentAdapter<E: crate::app::Packet>: Send + Sync {
-        type Error: std::error::Error + Send + Sync + 'static;
-
-        fn fragment(&self, packet: E)
-            -> Result<Vec<E>, crate::fragment::FragmentationError>;
-        fn reassemble(&mut self, packet: E) -> Result<Option<E>, Self::Error>;
+    pub trait FragmentAdapter: Send + Sync {
+        fn fragment<E: crate::fragment::Fragmentable>(
+            &self,
+            packet: E,
+        ) -> Result<Vec<E>, crate::fragment::FragmentationError>;
+        fn reassemble<E: crate::fragment::Fragmentable>(
+            &mut self,
+            packet: E,
+        ) -> Result<Option<E>, crate::fragment::FragmentAdapterError>;
         fn purge_expired(&mut self) -> Vec<crate::fragment::MessageId>;
     }
 

@@ -61,7 +61,7 @@ impl FragmentSeries {
     /// Returns [`FragmentError::MessageMismatch`] when the fragment belongs to
     /// a different message, [`FragmentError::IndexMismatch`] when the fragment
     /// arrives ahead of the expected index, [`FragmentError::SeriesComplete`]
-    /// when the series already consumed a final fragment, and
+    /// when a non-duplicate fragment arrives after completion, and
     /// [`FragmentError::IndexOverflow`] when the fragment index cannot advance
     /// further.
     ///
@@ -75,12 +75,12 @@ impl FragmentSeries {
             });
         }
 
-        if self.complete {
-            return Err(FragmentError::SeriesComplete);
-        }
-
         if fragment.fragment_index() < self.next_index {
             return Ok(FragmentStatus::Duplicate);
+        }
+
+        if self.complete {
+            return Err(FragmentError::SeriesComplete);
         }
 
         if fragment.fragment_index() > self.next_index {

@@ -256,8 +256,16 @@ async fn interleaved_fragment_streams_reassemble_independently() -> TestResult {
     client.flush().await?;
     client.get_mut().shutdown().await?;
 
-    let response_a = read_reassembled_response(&mut client, &config).await?;
-    let response_b = read_reassembled_response(&mut client, &config).await?;
+    let response_a = timeout(
+        Duration::from_secs(1),
+        read_reassembled_response(&mut client, &config),
+    )
+    .await??;
+    let response_b = timeout(
+        Duration::from_secs(1),
+        read_reassembled_response(&mut client, &config),
+    )
+    .await??;
     let mut observed_responses = vec![response_a, response_b];
     observed_responses.sort();
     let mut expected_payloads = vec![payload_a.clone(), payload_b.clone()];

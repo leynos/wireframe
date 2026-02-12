@@ -106,7 +106,10 @@ and a 100 ms read timeout. Clamp the length-delimited limit with
 `buffer_capacity` (length-delimited only), swap codecs with `with_codec`, and
 override the serializer with `with_serializer` when a different encoding
 strategy is required.[^3][^4] Custom protocols implement `FrameCodec` to
-describe their framing rules.
+describe their framing rules. Changing frame budgets with `buffer_capacity` or
+swapping codecs with `with_codec` clears fragmentation settings, so call
+`enable_fragmentation()` (or `fragmentation(Some(cfg))`) again when transport
+fragmentation is required.
 
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
@@ -138,13 +141,14 @@ A codec implementation must:
   budget used by `enable_fragmentation`.
 
 Install a custom codec with `with_codec`. The builder disables fragmentation
-when codecs change, so explicitly call `enable_fragmentation()` (or
-`fragmentation(Some(cfg))`) afterwards when transport fragmentation is
-required. Wireframe clones the codec per connection, so stateful codecs should
-ensure `Clone` produces an independent state (for example, reset sequence
-counters) when per-connection isolation is required. When a framed stream is
-already available, use `send_response_framed_with_codec`, so responses pass
-through `FrameCodec::wrap_payload`.
+when codecs or the length-delimited frame budget change, so explicitly call
+`enable_fragmentation()` (or `fragmentation(Some(cfg))`) afterwards when
+transport fragmentation is required. Wireframe clones the codec per connection,
+so stateful codecs should ensure `Clone` produces an independent state (for
+example, reset sequence counters) when per-connection isolation is required.
+When a framed stream is already available, use
+`send_response_framed_with_codec`, so responses pass through
+`FrameCodec::wrap_payload`.
 
 Assume `MyCodec` implements `FrameCodec`:
 
