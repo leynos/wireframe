@@ -1,4 +1,4 @@
-//! Fragment rejection tests for malformed, out-of-order, and duplicate fragments.
+//! Fragment rejection tests for malformed and out-of-order fragments.
 //!
 //! Verifies that the fragment transport layer correctly rejects invalid fragment
 //! sequences and prevents them from reaching the application handler.
@@ -98,16 +98,6 @@ fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>
     Ok(fragments)
 }
 
-/// Mutate fragments by duplicating the first fragment.
-fn mutate_duplicate(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
-    let duplicate = fragments
-        .first()
-        .cloned()
-        .ok_or(TestError::Setup("fragmenter produced no fragments"))?;
-    fragments.insert(1, duplicate);
-    Ok(fragments)
-}
-
 /// Mutate fragments by truncating the header of the first fragment.
 #[expect(
     clippy::panic_in_result_fn,
@@ -151,10 +141,6 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
 #[case::out_of_order(
     mutate_out_of_order,
     "handler should not receive out-of-order fragments"
-)]
-#[case::duplicate(
-    mutate_duplicate,
-    "handler should not receive after duplicate fragment"
 )]
 #[case::malformed(mutate_malformed_header, "malformed fragment header is rejected")]
 #[tokio::test]

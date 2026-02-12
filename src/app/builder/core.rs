@@ -10,7 +10,7 @@ use tokio::sync::{OnceCell, mpsc};
 
 use crate::{
     app::{
-        builder_defaults::{DEFAULT_READ_TIMEOUT_MS, default_fragmentation},
+        builder_defaults::DEFAULT_READ_TIMEOUT_MS,
         envelope::{Envelope, Packet},
         error::Result,
         lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -61,7 +61,6 @@ where
     /// default serializer and no lifecycle hooks.
     fn default() -> Self {
         let codec = F::default();
-        let max_frame_length = codec.max_frame_length();
         Self {
             handlers: HashMap::new(),
             routes: OnceCell::new(),
@@ -74,7 +73,7 @@ where
             push_dlq: None,
             codec,
             read_timeout_ms: DEFAULT_READ_TIMEOUT_MS,
-            fragmentation: default_fragmentation(max_frame_length),
+            fragmentation: None,
             message_assembler: None,
         }
     }
@@ -158,5 +157,35 @@ where
             fragmentation,
             message_assembler,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WireframeApp;
+    use crate::{app::Envelope, codec::LengthDelimitedFrameCodec, serializer::BincodeSerializer};
+
+    #[test]
+    fn builder_defaults_fragmentation_to_disabled() {
+        let app = WireframeApp::<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>::new()
+            .expect("build app");
+        assert!(app.fragmentation.is_none());
+    }
+
+    #[test]
+    fn enable_fragmentation_requires_explicit_opt_in() {
+        let app = WireframeApp::<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>::new()
+            .expect("build app")
+            .enable_fragmentation();
+        assert!(app.fragmentation.is_some());
+    }
+
+    #[test]
+    fn with_codec_clears_fragmentation_to_require_reconfiguration() {
+        let app = WireframeApp::<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>::new()
+            .expect("build app")
+            .enable_fragmentation()
+            .with_codec(LengthDelimitedFrameCodec::new(2048));
+        assert!(app.fragmentation.is_none());
     }
 }

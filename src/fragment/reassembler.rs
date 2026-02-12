@@ -157,6 +157,7 @@ impl Reassembler {
                         payload,
                         false,
                     ),
+                    Ok(FragmentStatus::Duplicate) => Ok(None),
                     Ok(FragmentStatus::Complete) => Self::append_and_maybe_complete(
                         self.max_message_size,
                         occupied,
@@ -180,6 +181,7 @@ impl Reassembler {
                         vacant.insert(PartialMessage::new(series, payload, now));
                         Ok(None)
                     }
+                    FragmentStatus::Duplicate => Ok(None),
                     FragmentStatus::Complete => Ok(Some(ReassembledMessage::new(
                         header.message_id(),
                         payload.to_vec(),

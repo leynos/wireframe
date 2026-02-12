@@ -1,7 +1,7 @@
 //! Module organization for fragment transport integration tests.
 //!
 //! Splits tests by concern:
-//! - `rejection`: Tests for malformed, duplicate, and out-of-order fragments
+//! - `rejection`: Tests for malformed and out-of-order fragments
 //! - `eviction`: Tests for reassembly timeout and eviction behaviour
 
 pub mod eviction;

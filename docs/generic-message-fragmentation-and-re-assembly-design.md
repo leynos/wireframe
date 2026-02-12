@@ -40,9 +40,10 @@ The implementation must satisfy the following core requirements:
 
 ## 3. Core architecture: the `FragmentAdapter`
 
-The feature will be implemented as a codec middleware called `FragmentAdapter`.
-It is instantiated with a protocol-specific `FragmentStrategy` and wraps any
-subsequent codecs in the chain.
+The feature is exposed as a public `FragmentAdapter` trait plus a default
+implementation (`DefaultFragmentAdapter`) that wraps `Fragmenter` and
+`Reassembler`. Protocol-specific stacks can still layer additional strategy
+codecs around this adaptor.
 
 ```plaintext
 Socket I/O ↔ [Compression] ↔ FragmentAdapter ↔ Router/Handlers
@@ -71,8 +72,15 @@ use dashmap::DashMap;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
 
-pub struct FragmentAdapter<S: FragmentStrategy> {
-    strategy: S,
+pub trait FragmentAdapter<E: Fragmentable> {
+    fn fragment(&self, packet: E) -> Result<Vec<E>, FragmentationError>;
+    fn reassemble(&mut self, packet: E) -> Result<Option<E>, FragmentAdapterError>;
+    fn purge_expired(&mut self) -> Vec<MessageId>;
+}
+
+pub struct DefaultFragmentAdapter {
+    fragmenter: Fragmenter,
+    reassembler: Reassembler,
     /// Hard cap on the size of a reassembled logical message.
     max_message_size: usize,
     /// Timeout for completing a partial message reassembly.
@@ -164,16 +172,21 @@ configuration requires updating this section alongside the code. The
 length-delimited codec therefore observes one frame per fragment; the encoded
 body is bounded by `fragment_payload_cap + fragment_overhead`.
 
-`WireframeApp` and `ConnectionActor` enable this adaptor by default when a
-frame budget is available. Defaults derive `fragment_payload_cap` from
-`buffer_capacity`, cap reassembled messages at 16× that budget, and evict
-partial assemblies after 30 seconds.
+`WireframeApp` keeps fragmentation disabled by default and now requires
+explicit configuration via `enable_fragmentation()` or
+`fragmentation(Some(cfg))`. When enabled, defaults derive
+`fragment_payload_cap` from `buffer_capacity`, cap reassembled messages at 16×
+that budget, and use a 30-second expiry window.
 
-## 4. Public API: the `FragmentStrategy` trait
+## 4. Public API: `FragmentAdapter` and `FragmentStrategy`
 
-The power and flexibility of this feature come from the `FragmentStrategy`
-trait. Protocol implementers will provide a type that implements this trait to
-inject their specific fragmentation rules into the generic `FragmentAdapter`.
+The `FragmentAdapter` contract defines lifecycle ownership for fragmentation
+and reassembly, including purge control. `WireframeApp` drives purge scheduling
+on read-timeout ticks, while external callers can drive eviction manually
+through `FragmentAdapter::purge_expired`.
+
+The `FragmentStrategy` trait remains the protocol-specific extension point for
+parsing and encoding strategy headers when protocols need custom wire layouts.
 
 ### 4.1 Trait Definition
 
@@ -306,9 +319,10 @@ against errors and attacks.
 
    - **Continuing Message (**`.get_mut()`**):**
 
-     - The `last_sequence` is checked to ensure fragments are monotonic. An
-       out-of-order fragment results in an error and the `PartialMessage` being
-       dropped.
+     - The `last_sequence` is checked to ensure fragments are monotonic.
+       Duplicate fragments (repeated indices) are suppressed, while
+       out-of-order fragments (indices ahead of the expected position) result
+       in an error and the `PartialMessage` being dropped.
 
      - The buffer's potential new size is checked against `max_message_size`.
        Exceeding this limit results in an error.
@@ -319,11 +333,10 @@ against errors and attacks.
      extracted from the `PartialMessage`, the entry is removed from the map,
      then pass the complete logical frame down the codec chain.
 
-4. **Timeout handling:** Run a background task within the
-   `FragmentAdapter` that periodically iterates over the re‑assembly buffers,
-   checks each `PartialMessage`’s `started_at` timestamp, and removes any entry
-   that has exceeded the re‑assembly timeout, emitting a `WARN`‑level `tracing`
-   event.
+4. **Timeout handling:** Purge ownership is explicit. Callers invoke
+   `FragmentAdapter::purge_expired()` according to their scheduling policy.
+   `WireframeApp` invokes this on read-timeout ticks; protocol harnesses and
+   tests can invoke it directly to drive deterministic eviction.
 
 ### 5.2 Outbound path (fragmentation)
 
@@ -401,6 +414,15 @@ This feature is designed as a foundational layer that other features build upon.
   drops the partial buffer when ordering breaks, enforces a configurable
   `max_message_size`, and exposes caller-driven timeout purging. This prevents
   abandoned assemblies from exhausting memory.
+- Added an explicit duplicate-handling policy for active series: duplicate
+  fragment indices are suppressed and do not append payload bytes, while
+  out-of-order indices still fail reassembly and clear partial state.
+- Changed app-level fragmentation configuration to explicit opt-in. Builders no
+  longer auto-enable fragmentation; callers must use `enable_fragmentation()`
+  or `fragmentation(Some(cfg))`.
+- Assigned purge scheduling ownership to the adaptor caller via
+  `FragmentAdapter::purge_expired()`. `WireframeApp` drives this on timeout
+  ticks, and external callers can schedule purges directly.
 
 ## 9. Composition with streaming requests and MessageAssembler
 

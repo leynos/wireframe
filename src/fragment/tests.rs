@@ -75,6 +75,18 @@ fn series_rejects_out_of_order_fragment() {
 }
 
 #[test]
+fn series_suppresses_duplicate_fragment() {
+    let mut series = FragmentSeries::new(MessageId::new(7));
+    let first = FragmentHeader::new(MessageId::new(7), FragmentIndex::zero(), false);
+    let duplicate = FragmentHeader::new(MessageId::new(7), FragmentIndex::zero(), false);
+    let final_fragment = FragmentHeader::new(MessageId::new(7), FragmentIndex::new(1), true);
+
+    assert_eq!(series.accept(first), Ok(FragmentStatus::Incomplete));
+    assert_eq!(series.accept(duplicate), Ok(FragmentStatus::Duplicate));
+    assert_eq!(series.accept(final_fragment), Ok(FragmentStatus::Complete));
+}
+
+#[test]
 fn series_rejects_after_completion() {
     let mut series = FragmentSeries::new(MessageId::new(1));
     let first = FragmentHeader::new(MessageId::new(1), FragmentIndex::zero(), true);
@@ -149,6 +161,27 @@ fn fragmenter_handles_empty_payload() {
 
 #[derive(Debug, Encode, BorrowDecode)]
 struct DummyMessage(Vec<u8>);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TestPacket {
+    id: u32,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
+}
+
+impl Fragmentable for TestPacket {
+    fn into_fragment_parts(self) -> FragmentParts {
+        FragmentParts::new(self.id, self.correlation_id, self.payload)
+    }
+
+    fn from_fragment_parts(parts: FragmentParts) -> Self {
+        Self {
+            id: parts.id(),
+            correlation_id: parts.correlation_id(),
+            payload: parts.into_payload(),
+        }
+    }
+}
 
 fn assert_fragment(batch: &FragmentBatch, index: usize, payload: &[u8], is_last: bool) {
     let fragment = batch
@@ -230,6 +263,31 @@ fn fragmenter_returns_error_for_out_of_bounds_slice() {
         }
         other => panic!("expected SliceBounds, got {other:?}"),
     }
+}
+
+#[test]
+fn default_fragment_adapter_exposes_purge_api() {
+    let config = FragmentationConfig {
+        fragment_payload_cap: NonZeroUsize::new(8).expect("non-zero"),
+        max_message_size: NonZeroUsize::new(16).expect("non-zero"),
+        reassembly_timeout: Duration::ZERO,
+    };
+    let mut adapter = DefaultFragmentAdapter::new(config);
+    let header = FragmentHeader::new(MessageId::new(81), FragmentIndex::zero(), false);
+    let encoded_payload = encode_fragment_payload(header, &[1_u8, 2]).expect("encode fragment");
+    let packet = TestPacket {
+        id: 42,
+        correlation_id: Some(7),
+        payload: encoded_payload,
+    };
+
+    assert!(
+        adapter
+            .reassemble(packet)
+            .expect("adapter should accept first fragment")
+            .is_none()
+    );
+    assert_eq!(adapter.purge_expired(), vec![MessageId::new(81)]);
 }
 
 #[test]
@@ -323,6 +381,50 @@ fn reassembler_rejects_out_of_order_and_drops_partial() {
         ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
     ));
     assert_eq!(reassembler.buffered_len(), 0);
+}
+
+#[test]
+fn reassembler_suppresses_duplicate_fragment() {
+    let mut reassembler = setup_reassembler_with_first_fragment(31, [1_u8, 2]);
+    let duplicate = FragmentHeader::new(MessageId::new(31), FragmentIndex::zero(), false);
+    let final_fragment = FragmentHeader::new(MessageId::new(31), FragmentIndex::new(1), true);
+
+    assert!(
+        reassembler
+            .push(duplicate, [9_u8, 9])
+            .expect("duplicate fragment should be suppressed")
+            .is_none()
+    );
+    assert_eq!(reassembler.buffered_len(), 1);
+
+    let complete = reassembler
+        .push(final_fragment, [3_u8])
+        .expect("final fragment should complete message")
+        .expect("message should be complete");
+    assert_eq!(complete.payload(), &[1, 2, 3]);
+}
+
+#[test]
+fn reassembler_accepts_zero_length_fragments() {
+    let mut reassembler = Reassembler::new(
+        NonZeroUsize::new(8).expect("non-zero"),
+        Duration::from_secs(10),
+    );
+    let first = FragmentHeader::new(MessageId::new(44), FragmentIndex::zero(), false);
+    let second = FragmentHeader::new(MessageId::new(44), FragmentIndex::new(1), true);
+
+    assert!(
+        reassembler
+            .push(first, [])
+            .expect("empty fragment should be accepted")
+            .is_none()
+    );
+
+    let complete = reassembler
+        .push(second, [7_u8, 8])
+        .expect("final fragment should complete message")
+        .expect("message should be complete");
+    assert_eq!(complete.payload(), &[7, 8]);
 }
 
 #[test]

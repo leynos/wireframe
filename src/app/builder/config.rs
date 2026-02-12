@@ -6,7 +6,7 @@ use super::WireframeApp;
 use crate::{
     app::{
         Packet,
-        builder_defaults::{MAX_READ_TIMEOUT_MS, MIN_READ_TIMEOUT_MS},
+        builder_defaults::{MAX_READ_TIMEOUT_MS, MIN_READ_TIMEOUT_MS, default_fragmentation},
     },
     codec::FrameCodec,
     fragment::FragmentationConfig,
@@ -34,6 +34,17 @@ where
     #[must_use]
     pub fn fragmentation(mut self, config: Option<FragmentationConfig>) -> Self {
         self.fragmentation = config;
+        self
+    }
+
+    /// Enable transport fragmentation using codec-derived defaults.
+    ///
+    /// The derived settings are bounded by the current frame codec budget.
+    /// Call this after `with_codec` or `buffer_capacity` so defaults align with
+    /// the final frame length.
+    #[must_use]
+    pub fn enable_fragmentation(mut self) -> Self {
+        self.fragmentation = default_fragmentation(self.codec.max_frame_length());
         self
     }
 

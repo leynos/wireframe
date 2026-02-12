@@ -61,7 +61,10 @@ pub use client::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient}
 pub use connection::ConnectionActor;
 pub use correlation::CorrelatableFrame;
 pub use fragment::{
+    DefaultFragmentAdapter,
     FRAGMENT_MAGIC,
+    FragmentAdapter,
+    FragmentAdapterError,
     FragmentBatch,
     FragmentError,
     FragmentFrame,

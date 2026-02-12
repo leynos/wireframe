@@ -2,7 +2,7 @@
 
 use super::WireframeApp;
 use crate::{
-    app::{Packet, builder_defaults::default_fragmentation},
+    app::Packet,
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     serializer::Serializer,
 };
@@ -17,17 +17,16 @@ where
     /// Replace the frame codec used for framing I/O.
     ///
     /// This resets any installed protocol hooks because the frame type may
-    /// change across codecs. Fragmentation configuration is reset to the
-    /// codec-derived default.
+    /// change across codecs. Fragmentation is disabled so callers can
+    /// reconfigure explicitly for the new frame budget.
     #[must_use]
     pub fn with_codec<F2: FrameCodec>(mut self, codec: F2) -> WireframeApp<S, C, E, F2>
     where
         S: Default,
     {
-        let fragmentation = default_fragmentation(codec.max_frame_length());
         let serializer = std::mem::take(&mut self.serializer);
         let message_assembler = self.message_assembler.take();
-        self.rebuild_with_params(serializer, codec, None, fragmentation, message_assembler)
+        self.rebuild_with_params(serializer, codec, None, None, message_assembler)
     }
 
     /// Replace the serializer used for messages.
@@ -63,7 +62,6 @@ where
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
         let capacity = clamp_frame_length(capacity);
         self.codec = LengthDelimitedFrameCodec::new(capacity);
-        self.fragmentation = default_fragmentation(capacity);
         self
     }
 }

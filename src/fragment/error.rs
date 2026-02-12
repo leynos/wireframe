@@ -16,6 +16,8 @@ use super::{FragmentIndex, MessageId};
 pub enum FragmentStatus {
     /// The logical message still expects more fragments.
     Incomplete,
+    /// The fragment duplicated data that was already accepted and was ignored.
+    Duplicate,
     /// The fragment completed the logical message.
     Complete,
 }

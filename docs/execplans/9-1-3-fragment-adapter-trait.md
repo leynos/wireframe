@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 No `PLANS.md` exists in this repository as of 2026-02-12.
 
@@ -87,14 +87,21 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-02-12 00:00Z) Draft ExecPlan for roadmap item 9.2.1.
-- [ ] Finalize `FragmentAdapter` API contract and error taxonomy updates.
-- [ ] Make fragmentation opt-in on `WireframeApp` builder defaults.
-- [ ] Expose public purge API and wire it through adapter implementation.
-- [ ] Implement duplicate suppression and out-of-order handling policy.
-- [ ] Define zero-length fragment behaviour and index-overflow handling.
-- [ ] Add/upgrade unit, integration, and behavioural tests.
-- [ ] Update design docs, user guide, and roadmap checkboxes.
-- [ ] Run formatting, lint, and full test gates.
+- [x] (2026-02-12 00:25Z) Finalize `FragmentAdapter` API contract and error
+  taxonomy updates.
+- [x] (2026-02-12 00:37Z) Make fragmentation opt-in on `WireframeApp` builder
+  defaults.
+- [x] (2026-02-12 00:42Z) Expose public purge API and wire it through adapter
+  implementation.
+- [x] (2026-02-12 01:03Z) Implement duplicate suppression and out-of-order
+  handling policy.
+- [x] (2026-02-12 01:11Z) Define zero-length fragment behaviour and
+  index-overflow handling.
+- [x] (2026-02-12 01:35Z) Add/upgrade unit, integration, and behavioural
+  tests.
+- [x] (2026-02-12 02:00Z) Update design docs, user guide, and roadmap
+  checkboxes.
+- [x] (2026-02-12 02:20Z) Run formatting, lint, and full test gates.
 
 ## Surprises & Discoveries
 
@@ -109,6 +116,12 @@ Success is observable when:
   at the top of that document. Impact: behavioural testing updates for this
   feature should follow `docs/rstest-bdd-users-guide.md` conventions and
   version updates.
+
+- Observation: the first version of the interleaved transport integration test
+  assumed deterministic response ordering and intermittently timed out.
+  Evidence: `tests/fragment_transport.rs` failures during local `make test`
+  runs. Impact: the assertion strategy was changed to drain both responses and
+  compare an order-independent payload set, which matches scheduler reality.
 
 ## Decision Log
 
@@ -127,9 +140,40 @@ Success is observable when:
   true out-of-order delivery should fail deterministically and clear partial
   state. Date/Author: 2026-02-12 / Codex.
 
+- Decision: make `with_codec(...)` clear fragmentation state and require a
+  fresh explicit `enable_fragmentation()` call. Rationale: fragmentation
+  settings depend on codec max-frame details; retaining old settings after
+  codec replacement can silently produce mismatched thresholds. Date/Author:
+  2026-02-12 / Codex.
+
 ## Outcomes & Retrospective
 
-To be completed when implementation finishes.
+Implemented outcomes:
+
+- Added a public `FragmentAdapter` trait and `DefaultFragmentAdapter`
+  implementation in `src/fragment/adapter.rs`, and exported them through
+  `src/fragment/mod.rs` and `src/lib.rs`.
+- Shifted runtime integration to the new adapter contract while preserving app
+  call-site behaviour through the `src/app/fragmentation_state.rs` alias layer.
+- Made fragmentation opt-in by default in `WireframeApp` builder construction
+  and introduced `enable_fragmentation()` for explicit activation.
+- Added caller-driven purge access through the adapter API and documented purge
+  ownership in design and user docs.
+- Defined duplicate suppression as non-fatal (`Duplicate`) and preserved
+  out-of-order rejection semantics with deterministic state cleanup.
+- Added/updated coverage for opt-in defaults, interleaved reassembly, duplicate
+  suppression, out-of-order fragments, zero-length fragments, and index
+  overflow across unit, integration, and behavioural test suites.
+- Updated roadmap 9.2.1 and companion design/user documents to reflect final
+  behaviour and composition order.
+
+Retrospective:
+
+- Separating duplicate from out-of-order outcomes reduced ambiguity in both code
+  and tests and made policy documentation straightforward.
+- Explicit opt-in defaults prevent hidden transport costs for users that do not
+  need fragmentation, but this increases migration burden for existing builder
+  call sites; the new builder tests now guard this contract.
 
 ## Context and orientation
 
@@ -326,15 +370,14 @@ resume feature-specific edits.
 
 ## Artifacts and notes
 
-Populate this section during implementation with log paths and short evidence
-snippets, for example:
+Validation evidence logs:
 
-- `/tmp/wireframe-fmt.log`
-- `/tmp/wireframe-markdownlint.log`
-- `/tmp/wireframe-check-fmt.log`
-- `/tmp/wireframe-lint.log`
-- `/tmp/wireframe-test-bdd.log`
-- `/tmp/wireframe-test.log`
+- `/tmp/wireframe-fmt.log` (`make fmt`)
+- `/tmp/wireframe-markdownlint.log` (`make markdownlint`)
+- `/tmp/wireframe-check-fmt.log` (`make check-fmt`)
+- `/tmp/wireframe-lint.log` (`make lint`)
+- `/tmp/wireframe-test-bdd.log` (`make test-bdd`)
+- `/tmp/wireframe-test.log` (`make test`)
 
 ## Interfaces and dependencies
 
@@ -361,3 +404,7 @@ These remain `dev-dependencies` only.
 Initial draft created for roadmap item 9.2.1 with explicit constraints,
 tolerances, staged implementation flow, and required testing/documentation
 updates.
+
+Completed update: plan status advanced to COMPLETE, required milestones were
+checked off, outcomes and policy decisions were recorded, and artefacts were
+captured for reproducibility.

@@ -134,17 +134,17 @@ A codec implementation must:
 - Provide `correlation_id` when the protocol stores it outside the payload;
   Wireframe only uses this hook when the deserialized envelope is missing a
   correlation identifier.
-- Report `max_frame_length`, which clamps inbound frames and seeds default
-  fragmentation limits.
+- Report `max_frame_length`, which clamps inbound frames and determines the
+  budget used by `enable_fragmentation`.
 
-Install a custom codec with `with_codec`. The builder resets fragmentation to
-the codec-derived defaults, so override fragmentation afterwards if the
-protocol uses a different budget. Wireframe clones the codec per connection, so
-stateful codecs should ensure `Clone` produces an independent state (for
-example, reset sequence counters) when per-connection isolation is required.
-When a framed stream is already available, use
-`send_response_framed_with_codec`, so responses pass through
-`FrameCodec::wrap_payload`.
+Install a custom codec with `with_codec`. The builder disables fragmentation
+when codecs change, so explicitly call `enable_fragmentation()` (or
+`fragmentation(Some(cfg))`) afterwards when transport fragmentation is
+required. Wireframe clones the codec per connection, so stateful codecs should
+ensure `Clone` produces an independent state (for example, reset sequence
+counters) when per-connection isolation is required. When a framed stream is
+already available, use `send_response_framed_with_codec`, so responses pass
+through `FrameCodec::wrap_payload`.
 
 Assume `MyCodec` implements `FrameCodec`:
 
@@ -827,13 +827,17 @@ async fn main() -> Result<(), SendError> {
 
 ## Message fragmentation
 
-`WireframeApp` now fragments oversized payloads automatically. The builder
-derives a `FragmentationConfig` from the active frame codec's maximum frame
-length (the default length-delimited codec uses `buffer_capacity`): any payload
-that will not fit into a single frame is split into fragments carrying a
+`WireframeApp` keeps transport fragmentation disabled by default. Enable it
+explicitly with `enable_fragmentation()` or provide a bespoke
+`FragmentationConfig` using `fragmentation(Some(cfg))`. When enabled, payloads
+that exceed the frame budget are split into fragments carrying a
 `FragmentHeader` (`message_id`, `fragment_index`, `is_last_fragment`) wrapped
 with the `FRAG` marker. The connection reassembles fragments before invoking
 handlers, so handlers continue to work with complete `Envelope` values.[^6]
+
+Layering order is fixed. Outbound processing runs serializer → fragmentation →
+codec wrapping. Inbound processing runs codec decode → fragment reassembly →
+deserialization.
 
 Fragmented messages enforce two guards: `max_message_size` caps the total
 reassembled payload, and `reassembly_timeout` evicts stale partial messages.
@@ -854,15 +858,16 @@ let cfg = FragmentationConfig::for_frame_budget(
 ).expect("frame budget too small for fragments");
 
 let app = WireframeApp::new()?
+    .enable_fragmentation()
     .fragmentation(Some(cfg))
     .route(42, handler)?;
 ```
 
-Set `fragmentation(None)` when the transport already supports large frames, or
-when fragmentation should be deferred to an upstream gateway. The
-`ConnectionActor` mirrors the same behaviour for push traffic and streaming
-responses through `enable_fragmentation`, ensuring client-visible frames follow
-the same format.
+Call `fragmentation(None)` to keep fragmentation disabled after explicit
+configuration (for example, when the transport already supports large frames or
+fragmentation is delegated to an upstream gateway). The `ConnectionActor`
+mirrors the same behaviour for push traffic and streaming responses through
+`enable_fragmentation`, ensuring client-visible frames follow the same format.
 
 ## Protocol hooks
 

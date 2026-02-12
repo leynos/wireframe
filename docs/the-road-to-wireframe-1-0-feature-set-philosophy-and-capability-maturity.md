@@ -292,6 +292,9 @@ Rust's ownership model and `Drop` trait are the foundation of resource safety.
     Budgets are configured on the `WireframeApp` instance via a builder method
     (for example `memory_budgets(...)`). If budgets are not set explicitly,
     defaults are derived from `buffer_capacity`.
+    Transport fragmentation itself is opt-in on the builder (`enable_fragmentation()`
+    or `fragmentation(Some(cfg))`) so protocols that do not require
+    fragmentation keep zero additional buffering overhead.
 
   - **Back-pressure and Hard Caps:** When budgets are approached, Wireframe
     applies back-pressure by pausing further reads and assembly work (soft

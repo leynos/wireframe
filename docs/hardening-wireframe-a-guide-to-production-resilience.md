@@ -312,12 +312,13 @@ fragmentation layer must be hardened.
   assemblies, which are purged if they are not completed within the time limit
   (e.g., 30 seconds).
 
-`WireframeApp` enables these guards by default via
-`default_fragmentation(buffer_capacity)`, which builds a `FragmentationConfig`
-from the connection's `buffer_capacity`. The fragment payload cap matches the
-usable frame budget, `max_message_size` defaults to 16× `buffer_capacity`, and
-partial assemblies are purged after 30 seconds. Applications can override or
-disable these defaults via `fragmentation(...)`.
+`WireframeApp` keeps fragmentation disabled by default. Applications opt in via
+`enable_fragmentation()` (codec-derived defaults) or `fragmentation(Some(cfg))`
+(explicit values). Defaults derive `fragment_payload_cap` from
+`buffer_capacity`, set `max_message_size` to 16× `buffer_capacity`, and use a
+30-second timeout. Purge scheduling is caller-owned through
+`FragmentAdapter::purge_expired()`; `WireframeApp` invokes it on read-timeout
+ticks, while custom runtimes can drive eviction explicitly.
 
 ## 5. Advanced Resilience Patterns
 
