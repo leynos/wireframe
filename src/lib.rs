@@ -57,7 +57,14 @@ pub mod session;
 pub mod test_helpers;
 
 #[cfg(not(loom))]
-pub use client::{ClientCodecConfig, ClientError, SocketOptions, WireframeClient};
+pub use client::{
+    ClientCodecConfig,
+    ClientError,
+    ClientProtocolError,
+    ClientWireframeError,
+    SocketOptions,
+    WireframeClient,
+};
 pub use connection::ConnectionActor;
 pub use correlation::CorrelatableFrame;
 pub use fragment::{

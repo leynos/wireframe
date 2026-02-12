@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 No `PLANS.md` file exists in the repository root at the time of writing.
 
@@ -74,16 +74,23 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-02-12 08:59Z) Draft ExecPlan for roadmap item `10.2.2`.
-- [ ] Confirm final client error surface and mapping strategy.
-- [ ] Implement `WireframeError` mapping in client runtime/message pipeline.
-- [ ] Add/adjust unit tests (`rstest`) for decode and transport mappings.
-- [ ] Add integration tests for multi-message-type round trips.
-- [ ] Upgrade behavioural test dependencies to `rstest-bdd` `0.5.0` and extend
-      scenarios.
-- [ ] Update `docs/wireframe-client-design.md` with design decisions.
-- [ ] Update `docs/users-guide.md` with public interface guidance.
-- [ ] Mark roadmap entry `10.2.2` done in `docs/roadmap.md`.
-- [ ] Run formatting, lint, and full test gates.
+- [x] (2026-02-12 09:13Z) Confirm final client error surface and mapping
+      strategy.
+- [x] (2026-02-12 09:15Z) Implement `WireframeError` mapping in client
+      runtime/message pipeline.
+- [x] (2026-02-12 09:18Z) Add/adjust unit tests (`rstest`) for decode and
+      transport mappings.
+- [x] (2026-02-12 09:20Z) Add integration tests for multi-message-type
+      round trips.
+- [x] (2026-02-12 09:23Z) Upgrade behavioural test dependencies to
+      `rstest-bdd` `0.5.0` and extend scenarios.
+- [x] (2026-02-12 09:24Z) Update `docs/wireframe-client-design.md` with design
+      decisions.
+- [x] (2026-02-12 09:25Z) Update `docs/users-guide.md` with public interface
+      guidance.
+- [x] (2026-02-12 09:25Z) Mark roadmap entry `10.2.2` done in
+      `docs/roadmap.md`.
+- [x] (2026-02-12 09:31Z) Run formatting, lint, and full test gates.
 
 ## Surprises & Discoveries
 
@@ -102,6 +109,12 @@ Success is observable when:
   historical-only and directs readers to `docs/rstest-bdd-users-guide.md`.
   Evidence: Note at top of the Cucumber document. Impact: implementation
   guidance should follow the rstest-bdd guide.
+
+- Observation: `clippy::expect_used` enforcement still applies to helper
+  functions in integration tests even when test bodies use `expect`. Evidence:
+  `make lint` failed in `tests/client_runtime.rs` until helper functions were
+  refactored to return `Result`. Impact: New helper functions in integration
+  tests should return `Result` and avoid `expect` internally.
 
 ## Decision Log
 
@@ -123,7 +136,17 @@ Success is observable when:
 
 ## Outcomes & retrospective
 
-Not started. Fill in after implementation and validation complete.
+Implemented `10.2.2` end-to-end.
+
+- Request/response decode and transport failures now map through
+  `ClientError::Wireframe(...)` backed by `WireframeError` variants.
+- Unit, integration, and behavioural coverage now assert this mapping.
+- Integration tests now round-trip multiple message types through a sample
+  server.
+- Behavioural tests were upgraded to `rstest-bdd` `0.5.0` and extended with a
+  decode-mapping scenario.
+- Client design and user documentation were updated with migration guidance.
+- `docs/roadmap.md` marks `10.2.2` complete.
 
 ## Context and orientation
 
@@ -136,8 +159,9 @@ The client runtime currently has two layers:
 
 Current failure modelling:
 
-- `src/client/error.rs` exposes direct variants such as `Io`, `Deserialize`,
-  and `Disconnected`.
+- `src/client/error.rs` maps request/response transport failures to
+  `ClientError::Wireframe(WireframeError::Io(_))` and decode failures to
+  `ClientError::Wireframe(WireframeError::Protocol( ClientProtocolError::Deserialize(_)))`.
 - `src/response.rs` already defines generic `WireframeError<E>` with `Io`,
   `Protocol`, and `Codec` variants.
 
@@ -305,5 +329,5 @@ Dependency outcome:
 
 ## Revision note
 
-Initial draft created for roadmap item `10.2.2`, including implementation
-stages, risk controls, quality gates, and documentation obligations.
+Updated from draft to complete after implementation, test suite expansion,
+documentation updates, and successful validation gates.

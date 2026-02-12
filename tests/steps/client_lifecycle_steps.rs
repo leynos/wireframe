@@ -112,8 +112,8 @@ fn then_preamble_success_invoked(client_lifecycle_world: &mut ClientLifecycleWor
     Ok(())
 }
 
-#[then("the client error is Disconnected")]
-fn then_client_error_is_disconnected(
+#[then("the client error is a Wireframe transport error")]
+fn then_client_error_is_wireframe_transport_error(
     client_lifecycle_world: &mut ClientLifecycleWorld,
 ) -> TestResult {
     let last_error = client_lifecycle_world
@@ -121,7 +121,10 @@ fn then_client_error_is_disconnected(
         .ok_or("expected a captured client error in world.last_error")?;
 
     match last_error {
-        wireframe::ClientError::Disconnected => Ok(()),
-        other => Err(format!("expected ClientError::Disconnected, got {other:?}").into()),
+        wireframe::ClientError::Wireframe(wireframe::WireframeError::Io(_)) => Ok(()),
+        other => Err(format!(
+            "expected ClientError::Wireframe(WireframeError::Io(_)), got {other:?}"
+        )
+        .into()),
     }
 }

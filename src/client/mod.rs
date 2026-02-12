@@ -24,7 +24,7 @@ mod socket_option_methods;
 pub use builder::WireframeClientBuilder;
 pub use codec_config::ClientCodecConfig;
 pub use config::SocketOptions;
-pub use error::ClientError;
+pub use error::{ClientError, ClientProtocolError, ClientWireframeError};
 pub use hooks::{
     ClientConnectionSetupHandler,
     ClientConnectionTeardownHandler,

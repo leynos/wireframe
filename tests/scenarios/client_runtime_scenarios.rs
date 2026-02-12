@@ -19,3 +19,11 @@ fn client_runtime_send_receive(client_runtime_world: ClientRuntimeWorld) {
 fn client_runtime_oversize_error(client_runtime_world: ClientRuntimeWorld) {
     let _ = client_runtime_world;
 }
+
+#[scenario(
+    path = "tests/features/client_runtime.feature",
+    name = "Client maps malformed responses to decode protocol errors"
+)]
+fn client_runtime_decode_error_mapping(client_runtime_world: ClientRuntimeWorld) {
+    let _ = client_runtime_world;
+}

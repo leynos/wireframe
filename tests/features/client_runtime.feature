@@ -9,4 +9,10 @@ Feature: Wireframe client runtime
     Given a wireframe echo server allowing frames up to 64 bytes
     And a wireframe client configured with max frame length 1024
     When the client sends an oversized payload of 128 bytes
-    Then the client reports a framing error
+    Then the client reports a Wireframe transport error
+
+  Scenario: Client maps malformed responses to decode protocol errors
+    Given a wireframe server that replies with malformed payloads
+    And a wireframe client configured with max frame length 1024
+    When the client sends a payload of 128 bytes expecting decode failure
+    Then the client reports a Wireframe decode protocol error
