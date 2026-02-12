@@ -140,12 +140,7 @@ impl MessageAssemblyInboundWorld {
     }
 
     pub fn send_continuation_frame(&mut self, key: u64, sequence: u32, body: &str) -> TestResult {
-        self.send_payload(continuation_frame_payload(
-            key,
-            sequence,
-            body.as_bytes(),
-            false,
-        ))
+        self.send_continuation_frame_impl(key, sequence, body, false)
     }
 
     pub fn send_final_continuation_frame(
@@ -154,11 +149,25 @@ impl MessageAssemblyInboundWorld {
         sequence: u32,
         body: &str,
     ) -> TestResult {
+        self.send_continuation_frame_impl(key, sequence, body, true)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "helper signature is explicitly required by the inbound assembly refactor task"
+    )]
+    fn send_continuation_frame_impl(
+        &mut self,
+        key: u64,
+        sequence: u32,
+        body: &str,
+        is_last: bool,
+    ) -> TestResult {
         self.send_payload(continuation_frame_payload(
             key,
             sequence,
             body.as_bytes(),
-            true,
+            is_last,
         ))
     }
 
