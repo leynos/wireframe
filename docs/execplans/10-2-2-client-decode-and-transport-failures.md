@@ -29,7 +29,7 @@ Success is observable when:
 
 ## Constraints
 
-- Keep the existing client framing and serialisation flow intact in
+- Keep the existing client framing and serialization flow intact in
   `src/client/runtime.rs` and `src/client/messaging.rs`; only error mapping and
   tests/docs should change.
 - Preserve preamble and lifecycle hook behaviour; this plan does not alter
@@ -97,7 +97,7 @@ Success is observable when:
 - Observation: Decode and connection-close mapping currently happens in
   `src/client/messaging.rs::receive_internal`, not in `src/client/runtime.rs`.
   Evidence: `receive()` and `receive_envelope()` both delegate to
-  `receive_internal()`. Impact: Centralised mapping change can cover raw and
+  `receive_internal()`. Impact: Centralized mapping change can cover raw and
   envelope APIs together.
 
 - Observation: Behavioural tests already use `rstest-bdd`, but repository pins
@@ -123,7 +123,7 @@ Success is observable when:
   aligns client and server failure semantics and matches roadmap item `10.2.2`
   intent. Date/Author: 2026-02-12 / Codex
 
-- Decision: Keep preamble/serialisation/correlation mismatch failures as
+- Decision: Keep preamble/serialization/correlation mismatch failures as
   explicit `ClientError` variants, while mapping request/response pipeline
   decode and transport failures through `WireframeError`. Rationale: preserves
   targeted semantics for existing non-pipeline error paths and limits API
@@ -226,7 +226,7 @@ same change-set.
 2. Implement pipeline error mapping in `src/client/error.rs` and
    `src/client/messaging.rs`. Keep mapping rules explicit:
    - transport I/O -> `WireframeError::Io`
-   - decode/deserialisation/closed-peer during receive pipeline ->
+   - decode/deserialization/closed-peer during receive pipeline ->
      `WireframeError::Protocol(...)`
 
 3. Add `rstest`-driven unit coverage in `src/client/tests/error_handling.rs`

@@ -68,7 +68,7 @@ deserializes the response type.
 
 #### Request/response error mapping
 
-Client request/response failures are mapped to `WireframeError` variants so
+Client request/response failures are mapped to `WireframeError` variants, so
 client and server semantics stay aligned:
 
 - Transport failures (socket closure, read/write failures) surface as
