@@ -13,7 +13,7 @@ No `PLANS.md` file exists in the repository root at the time of writing.
 Phase `10.2.2` closes a contract gap in the client request/response pipeline.
 Today, client decode and transport failures are surfaced as direct
 `ClientError` variants. This work makes those failures flow through
-`WireframeError` variants so client behaviour matches the server-side error
+`WireframeError` variants, so client behaviour matches the server-side error
 model (`transport` vs `protocol/decode`).
 
 Success is observable when:

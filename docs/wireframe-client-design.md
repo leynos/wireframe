@@ -74,7 +74,7 @@ client and server semantics stay aligned:
 - Transport failures (socket closure, read/write failures) surface as
   `ClientError::Wireframe(WireframeError::Io(_))`.
 - Decode failures after a frame is received surface as
-  `ClientError::Wireframe(WireframeError::Protocol( ClientProtocolError::Deserialize(_)))`.
+  `ClientError::Wireframe(WireframeError::Protocol(ClientProtocolError::Deserialize(_)))`.
 
 This mapping applies to `receive`, `call`, and envelope-aware receive/call
 methods. Serialization failures remain explicit as `ClientError::Serialize(_)`
