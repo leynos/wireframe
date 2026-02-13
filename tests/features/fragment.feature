@@ -82,7 +82,7 @@ Feature: Fragment metadata enforcement
     And fragment 0 for message 25 with 2 bytes arrives marked non-final
     Then no message has been reassembled yet
     And the reassembler is buffering 1 message
-    When fragment 1 for message 25 with 1 bytes arrives marked final
+    When fragment 1 for message 25 with 1 byte arrives marked final
     Then the reassembler outputs a payload of 3 bytes
     And the reassembler is buffering 0 messages
 
@@ -99,6 +99,6 @@ Feature: Fragment metadata enforcement
     And fragment 1 for message 27 with 2 bytes arrives marked final
     Then the reassembler outputs a payload of 5 bytes
     And the reassembler is buffering 1 message
-    When fragment 1 for message 28 with 1 bytes arrives marked final
+    When fragment 1 for message 28 with 1 byte arrives marked final
     Then the reassembler outputs a payload of 5 bytes
     And the reassembler is buffering 0 messages

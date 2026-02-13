@@ -111,11 +111,10 @@ Success is observable when:
   versus `docs/roadmap.md` section 9.2. Impact: this milestone must include
   design-document corrections, not only code/test edits.
 
-- Observation: `docs/behavioural-testing-in-rust-with-cucumber.md` is
-  historical and explicitly points to `rstest-bdd` guidance. Evidence: banner
-  at the top of that document. Impact: behavioural testing updates for this
-  feature should follow `docs/rstest-bdd-users-guide.md` conventions and
-  version updates.
+- Observation: behavioural testing guidance for this repository now lives in
+  `docs/rstest-bdd-users-guide.md`. Evidence: current testing policy and
+  roadmap requirements for `rstest-bdd`. Impact: behavioural testing updates
+  for this feature should follow that guide's conventions and version updates.
 
 - Observation: the first version of the interleaved transport integration test
   assumed deterministic response ordering and intermittently timed out.

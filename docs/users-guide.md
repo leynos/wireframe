@@ -862,7 +862,6 @@ let cfg = FragmentationConfig::for_frame_budget(
 ).expect("frame budget too small for fragments");
 
 let app = WireframeApp::new()?
-    .enable_fragmentation()
     .fragmentation(Some(cfg))
     .route(42, handler)?;
 ```

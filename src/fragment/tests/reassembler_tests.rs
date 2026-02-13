@@ -6,6 +6,7 @@ use std::{
 };
 
 use bincode::{BorrowDecode, Encode};
+use rstest::{fixture, rstest};
 
 use crate::fragment::{
     FragmentError,
@@ -18,9 +19,10 @@ use crate::fragment::{
     ReassemblyError,
 };
 
-fn setup_reassembler_with_first_fragment(
-    message_id: u64,
-    first_payload: impl AsRef<[u8]>,
+#[fixture]
+fn reassembler_with_first_fragment(
+    #[default(1)] message_id: u64,
+    #[default(&[])] first_payload: &'static [u8],
 ) -> Reassembler {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(8).expect("non-zero"),
@@ -100,50 +102,53 @@ fn reassembler_returns_single_fragment_immediately() {
     assert_eq!(reassembler.buffered_len(), 0);
 }
 
-#[test]
-fn reassembler_accumulates_ordered_fragments() {
-    let mut reassembler = setup_reassembler_with_first_fragment(2, [5_u8, 6, 7]);
+#[rstest]
+fn reassembler_accumulates_ordered_fragments(
+    #[with(2, &[5_u8, 6, 7])] mut reassembler_with_first_fragment: Reassembler,
+) {
     let final_fragment = FragmentHeader::new(MessageId::new(2), FragmentIndex::new(1), true);
 
-    let complete = reassembler
+    let complete = reassembler_with_first_fragment
         .push(final_fragment, [8_u8, 9])
         .expect("final fragment accepted")
         .expect("message should complete");
 
     assert_eq!(complete.payload(), &[5, 6, 7, 8, 9]);
-    assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler_with_first_fragment.buffered_len(), 0);
 }
 
-#[test]
-fn reassembler_rejects_out_of_order_and_drops_partial() {
-    let mut reassembler = setup_reassembler_with_first_fragment(3, [1_u8, 2]);
+#[rstest]
+fn reassembler_rejects_out_of_order_and_drops_partial(
+    #[with(3, &[1_u8, 2])] mut reassembler_with_first_fragment: Reassembler,
+) {
     let skipped = FragmentHeader::new(MessageId::new(3), FragmentIndex::new(2), true);
 
-    let err = reassembler
+    let err = reassembler_with_first_fragment
         .push(skipped, [3_u8])
         .expect_err("out-of-order fragment must be rejected");
     assert!(matches!(
         err,
         ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
     ));
-    assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler_with_first_fragment.buffered_len(), 0);
 }
 
-#[test]
-fn reassembler_suppresses_duplicate_fragment() {
-    let mut reassembler = setup_reassembler_with_first_fragment(31, [1_u8, 2]);
+#[rstest]
+fn reassembler_suppresses_duplicate_fragment(
+    #[with(31, &[1_u8, 2])] mut reassembler_with_first_fragment: Reassembler,
+) {
     let duplicate = FragmentHeader::new(MessageId::new(31), FragmentIndex::zero(), false);
     let final_fragment = FragmentHeader::new(MessageId::new(31), FragmentIndex::new(1), true);
 
     assert!(
-        reassembler
+        reassembler_with_first_fragment
             .push(duplicate, [9_u8, 9])
             .expect("duplicate fragment should be suppressed")
             .is_none()
     );
-    assert_eq!(reassembler.buffered_len(), 1);
+    assert_eq!(reassembler_with_first_fragment.buffered_len(), 1);
 
-    let complete = reassembler
+    let complete = reassembler_with_first_fragment
         .push(final_fragment, [3_u8])
         .expect("final fragment should complete message")
         .expect("message should be complete");

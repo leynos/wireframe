@@ -147,6 +147,7 @@ fn when_reassembler_fragment_non_final(
 #[when(
     "fragment {index:u32} for message {message:u64} with {len:usize} bytes arrives marked final"
 )]
+#[when("fragment {index:u32} for message {message:u64} with {len:usize} byte arrives marked final")]
 fn when_reassembler_fragment_final(
     fragment_world: &mut FragmentWorld,
     index: u32,
