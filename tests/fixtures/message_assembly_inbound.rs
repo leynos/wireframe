@@ -65,6 +65,25 @@ impl fmt::Debug for MessageAssemblyInboundWorld {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ContinuationFrameParams<'a> {
+    key: u64,
+    sequence: u32,
+    body: &'a str,
+    is_last: bool,
+}
+
+impl<'a> ContinuationFrameParams<'a> {
+    fn new(key: u64, sequence: u32, body: &'a str, is_last: bool) -> Self {
+        Self {
+            key,
+            sequence,
+            body,
+            is_last,
+        }
+    }
+}
+
 impl Default for MessageAssemblyInboundWorld {
     fn default() -> Self {
         match tokio::runtime::Runtime::new() {
@@ -170,7 +189,8 @@ impl MessageAssemblyInboundWorld {
     ) -> TestResult {
         let key = key.into();
         let sequence = sequence.into();
-        self.send_continuation_frame_impl(key.0, sequence.0, body, false)
+        let params = ContinuationFrameParams::new(key.0, sequence.0, body, false);
+        self.send_continuation_frame_impl(params)
     }
 
     pub fn send_final_continuation_frame(
@@ -181,20 +201,17 @@ impl MessageAssemblyInboundWorld {
     ) -> TestResult {
         let key = key.into();
         let sequence = sequence.into();
-        self.send_continuation_frame_impl(key.0, sequence.0, body, true)
+        let params = ContinuationFrameParams::new(key.0, sequence.0, body, true);
+        self.send_continuation_frame_impl(params)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "helper signature is explicitly required by the inbound assembly refactor task"
-    )]
-    fn send_continuation_frame_impl(
-        &mut self,
-        key: u64,
-        sequence: u32,
-        body: &str,
-        is_last: bool,
-    ) -> TestResult {
+    fn send_continuation_frame_impl(&mut self, params: ContinuationFrameParams<'_>) -> TestResult {
+        let ContinuationFrameParams {
+            key,
+            sequence,
+            body,
+            is_last,
+        } = params;
         self.send_payload(continuation_frame_payload(
             key,
             sequence,
