@@ -118,7 +118,7 @@ default), enforces per-frame read timeouts, and writes responses. Serialization
 helpers `send_response` and `send_response_framed` (or
 `send_response_framed_with_codec` for custom codecs) return typed `SendError`
 variants when encoding or I/O fails, and the connection closes after ten
-consecutive deserialization errors.[^6][^7]
+consecutive deserialisation errors.[^6][^7]
 
 ### Custom frame codecs
 
@@ -338,7 +338,7 @@ that meets the trait bounds.[^4]
 
 When `FrameMetadata::parse` succeeds, the framework extracts identifiers from
 metadata without deserializing the payload. If parsing fails, it falls back to
-full deserialization.[^9][^6] Application messages implement the `Message`
+full deserialisation.[^9][^6] Application messages implement the `Message`
 trait, gaining `to_bytes` and `from_bytes` helpers that use bincode with the
 standard configuration.[^10]
 
@@ -841,7 +841,7 @@ handlers, so handlers continue to work with complete `Envelope` values.[^6]
 
 Layering order is fixed. Outbound processing runs serializer → fragmentation →
 codec wrapping. Inbound processing runs codec decode → fragment reassembly →
-deserialization.
+deserialisation.
 
 Fragmented messages enforce two guards: `max_message_size` caps the total
 reassembled payload, and `reassembly_timeout` evicts stale partial messages.

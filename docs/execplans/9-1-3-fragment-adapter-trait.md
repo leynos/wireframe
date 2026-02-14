@@ -15,10 +15,10 @@ integration still has open hardening gaps called out by roadmap item 9.2.1:
 fragmentation is enabled by default, duplicate versus out-of-order handling is
 not explicit, purge scheduling ownership is implicit, and there is no public
 fragment-adapter abstraction tying these rules together. This plan introduces a
-public `FragmentAdapter` trait and aligns runtime behaviour so fragmentation is
-explicitly opt-in, purge control is public, duplicate and out-of-order policies
-are deterministic, and edge cases (zero-length fragments and index overflow)
-are defined and tested.
+public `FragmentAdapter` trait and aligns runtime behaviour, so fragmentation
+is explicitly opt-in, purge control is public, duplicate and out-of-order
+policies are deterministic, and edge cases (zero-length fragments and index
+overflow) are defined and tested.
 
 Success is observable when:
 
@@ -222,7 +222,7 @@ Documentation currently needing alignment:
 Define the `FragmentAdapter` public contract in `src/fragment`, including purge
 methods and explicit result/error shapes for duplicate suppression,
 out-of-order fragments, zero-length fragments, and overflow paths. Update the
-fragmentation design document first so code follows an agreed contract.
+fragmentation design document first, so code follows an agreed contract.
 
 Go/no-go:
 
@@ -234,7 +234,7 @@ Go/no-go:
 
 Implement the default adapter using existing `Fragmenter` + `Reassembler`
 logic, then switch app frame handling to use the adapter contract. Change
-builder defaults so fragmentation is disabled unless explicitly configured.
+builder defaults, so fragmentation is disabled unless explicitly configured.
 Update builder docs/comments and any helper defaults that currently turn
 fragmentation on implicitly.
 
@@ -349,7 +349,7 @@ Acceptance is complete when all statements below are true:
   reassemble correctly.
 - Behavioural coverage: `rstest-bdd` scenarios validate fragment-series policy
   and any new public behaviour, running under v0.5.0 dependencies.
-- Documentation parity: users guide and design docs describe the same behaviour
+- Documentation parity: user guide and design docs describe the same behaviour
   that tests verify.
 - Roadmap update: `docs/roadmap.md` item 9.2.1 and all requested sub-items are
   checked as done.
