@@ -50,7 +50,7 @@ Success is observable when:
 - Dependencies: if work requires dependencies besides `rstest-bdd` /
   `rstest-bdd-macros` version alignment, stop and escalate.
 - Iterations: if the same failing gate (`fmt`, `lint`, or `test`) fails 3 times
-  in a row without net progress, pause and document the blocker.
+  in a row without net progress, pause, and document the blocker.
 - Ambiguity: if `decode` errors cannot be cleanly modelled as protocol-level
   errors in `WireframeError`, stop and present alternatives.
 
