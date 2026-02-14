@@ -49,8 +49,8 @@ Success is observable when:
   stop and record options in `Decision Log`.
 - Dependencies: if work requires dependencies besides `rstest-bdd` /
   `rstest-bdd-macros` version alignment, stop and escalate.
-- Iterations: if the same failing gate (`fmt`, `lint`, `test`) fails 3 times in
-  a row without net progress, pause and document the blocker.
+- Iterations: if the same failing gate (`fmt`, `lint`, or `test`) fails 3 times
+  in a row without net progress, pause and document the blocker.
 - Ambiguity: if `decode` errors cannot be cleanly modelled as protocol-level
   errors in `WireframeError`, stop and present alternatives.
 
@@ -121,18 +121,18 @@ Success is observable when:
 - Decision: Model decode and transport failures through `WireframeError`
   variants and expose that mapping from client runtime errors. Rationale:
   aligns client and server failure semantics and matches roadmap item `10.2.2`
-  intent. Date/Author: 2026-02-12 / Codex
+  intent. Date/Author: 2026-02-12 / Codex.
 
 - Decision: Keep preamble/serialization/correlation mismatch failures as
   explicit `ClientError` variants, while mapping request/response pipeline
   decode and transport failures through `WireframeError`. Rationale: preserves
   targeted semantics for existing non-pipeline error paths and limits API
-  churn. Date/Author: 2026-02-12 / Codex
+  churn. Date/Author: 2026-02-12 / Codex.
 
 - Decision: Record design updates in `docs/wireframe-client-design.md`.
   Rationale: this is the canonical client architecture/design document and is
   the most relevant place to capture pipeline error semantics. Date/Author:
-  2026-02-12 / Codex
+  2026-02-12 / Codex.
 
 ## Outcomes & retrospective
 
