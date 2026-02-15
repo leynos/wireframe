@@ -25,7 +25,7 @@ Success is observable when:
 - `WireframeApp::new()` no longer fragments unless the caller explicitly opts
   in.
 - a public fragment adapter API exists and exposes purge control.
-- interleaved fragment streams reassemble correctly while duplicate and
+- interleaved fragment streams reassemble correctly, while duplicate and
   out-of-order series follow documented policies.
 - unit tests (`rstest`), integration tests, and behavioural tests
   (`rstest-bdd` v0.5.0) cover the new rules.
@@ -42,8 +42,9 @@ Success is observable when:
 - Use `rstest-bdd` v0.5.0 for behavioural test coverage required by this
   feature.
 - Update `docs/users-guide.md` for any public API change made by this work.
-- Record decisions in `docs/generic-message-fragmentation-and-re-assembly-
-  design.md` (and companion docs when composition guidance changes).
+- Record decisions in the fragmentation design document
+  `docs/generic-message-fragmentation-and-re-assembly-design.md` (and companion
+  docs when composition guidance changes).
 
 ## Tolerances (exception triggers)
 
