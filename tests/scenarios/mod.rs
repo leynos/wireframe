@@ -22,3 +22,4 @@ mod multi_packet_scenarios;
 mod panic_scenarios;
 mod request_parts_scenarios;
 mod stream_end_scenarios;
+mod unified_codec_scenarios;

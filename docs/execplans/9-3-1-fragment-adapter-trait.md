@@ -144,13 +144,13 @@ A library consumer can observe success by:
 - [x] (2026-02-15 00:30Z) Stage A: research and design the unification
   boundary.
 - [x] (2026-02-15 01:00Z) Stage B: created `src/app/codec_driver.rs` with
-  `FramePipeline` struct. Handles outbound fragmentation and metrics.
-  All existing tests pass.
+  `FramePipeline` struct. Handles outbound fragmentation and metrics. All
+  existing tests pass.
 - [x] (2026-02-15 01:30Z) Stage C: updated `frame_handling/core.rs`,
   `frame_handling/response.rs`, `frame_handling/reassembly.rs`, and
-  `frame_handling/tests.rs` to use `FramePipeline`. Responses now
-  route through the pipeline (fragment → metrics → serialize → send).
-  All gates pass (fmt, lint, test).
+  `frame_handling/tests.rs` to use `FramePipeline`. Responses now route through
+  the pipeline (fragment → metrics → serialize → send). All gates pass (fmt,
+  lint, test).
 - [ ] Stage D: remove duplicate codec construction.
 - [ ] Stage E: add integration and back-pressure tests.
 - [ ] Stage F: add BDD behavioural tests.
@@ -169,15 +169,14 @@ A library consumer can observe success by:
   driver after the actor produces output, not inside the actor.
 
 - Observation: the `WireframeApp.protocol` field stores
-  `WireframeProtocol<Frame = F::Frame, ...>`, where `F::Frame` varies by
-  codec (e.g. `Bytes` for `LengthDelimitedFrameCodec`). However,
-  `FramePipeline` operates at the `Envelope` level. Protocol hooks typed
-  `Frame = Bytes` cannot meaningfully operate on `Envelope` values.
-  Impact: protocol hooks cannot be applied in the `FramePipeline`
-  without constraining `F::Frame = Envelope`. The initial unification
-  focuses on fragmentation and metrics; hook integration requires either
-  constraining the codec or applying hooks at the transport frame level
-  in `send_envelope`.
+  `WireframeProtocol<Frame = F::Frame, ...>`, where `F::Frame` varies by codec
+  (e.g. `Bytes` for `LengthDelimitedFrameCodec`). However, `FramePipeline`
+  operates at the `Envelope` level. Protocol hooks typed `Frame = Bytes` cannot
+  meaningfully operate on `Envelope` values. Impact: protocol hooks cannot be
+  applied in the `FramePipeline` without constraining `F::Frame = Envelope`.
+  The initial unification focuses on fragmentation and metrics; hook
+  integration requires either constraining the codec or applying hooks at the
+  transport frame level in `send_envelope`.
 
 ## Decision log
 
@@ -210,24 +209,23 @@ A library consumer can observe success by:
   Date/Author: 2026-02-15 / Codex.
 
 - Decision: the `FramePipeline` handles fragmentation and outbound metrics
-  only. Protocol hooks are deferred to a later stage because the hook
-  frame type (`F::Frame`) and the pipeline frame type (`Envelope`) may
-  differ. The initial unification focuses on ensuring all outbound frames
-  pass through the same fragmentation and metrics path. Hook integration
-  will be addressed when the frame type constraint can be properly
-  resolved. Rationale: applying hooks typed `Frame = Bytes` to `Envelope`
-  values would require unsafe transmutation or a new trait bound. Neither
-  is acceptable under current constraints. Date/Author: 2026-02-15 /
-  Codex.
+  only. Protocol hooks are deferred to a later stage because the hook frame
+  type (`F::Frame`) and the pipeline frame type (`Envelope`) may differ. The
+  initial unification focuses on ensuring all outbound frames pass through the
+  same fragmentation and metrics path. Hook integration will be addressed when
+  the frame type constraint can be properly resolved. Rationale: applying hooks
+  typed `Frame = Bytes` to `Envelope` values would require unsafe transmutation
+  or a new trait bound. Neither is acceptable under current constraints.
+  Date/Author: 2026-02-15 / Codex.
 
 - Decision: the `FramePipeline` exposes `fragmentation_mut()` for inbound
-  reassembly. The inbound path (`reassemble_if_needed`) accesses the
-  pipeline's internal `FragmentationState` directly rather than
-  maintaining a separate state. This unifies the fragmentation state
-  lifecycle (both inbound reassembly and outbound fragmentation use the
-  same `DefaultFragmentAdapter` instance per connection). Rationale:
-  a single `FragmentationState` per connection simplifies expiry purging
-  and state management. Date/Author: 2026-02-15 / Codex.
+  reassembly. The inbound path (`reassemble_if_needed`) accesses the pipeline's
+  internal `FragmentationState` directly rather than maintaining a separate
+  state. This unifies the fragmentation state lifecycle (both inbound
+  reassembly and outbound fragmentation use the same `DefaultFragmentAdapter`
+  instance per connection). Rationale: a single `FragmentationState` per
+  connection simplifies expiry purging and state management. Date/Author:
+  2026-02-15 / Codex.
 
 ## Outcomes & retrospective
 
