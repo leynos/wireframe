@@ -7,7 +7,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 use crate::{
-    app::{combined_codec::ConnectionCodec, fragmentation_state::FragmentationState},
+    app::{codec_driver::FramePipeline, combined_codec::ConnectionCodec},
     codec::FrameCodec,
     serializer::Serializer,
 };
@@ -49,6 +49,6 @@ where
 {
     pub(crate) serializer: &'a S,
     pub(crate) framed: &'a mut Framed<W, ConnectionCodec<F>>,
-    pub(crate) fragmentation: &'a mut Option<FragmentationState>,
+    pub(crate) pipeline: &'a mut FramePipeline,
     pub(crate) codec: &'a F,
 }

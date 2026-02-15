@@ -13,15 +13,14 @@ use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
 use super::{
     builder::WireframeApp,
+    codec_driver::FramePipeline,
     combined_codec::{CombinedCodec, ConnectionCodec},
     envelope::{Envelope, Packet},
     error::SendError,
-    fragmentation_state::FragmentationState,
     frame_handling,
 };
 use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
-    fragment::FragmentationConfig,
     frame::FrameMetadata,
     message::Message,
     message_assembler::MessageAssemblyState,
@@ -30,15 +29,12 @@ use crate::{
 };
 
 fn purge_expired(
-    fragmentation: &mut Option<FragmentationState>,
+    pipeline: &mut FramePipeline,
     message_assembly: &mut Option<MessageAssemblyState>,
 ) {
-    if let Some(frag) = fragmentation.as_mut() {
-        frag.purge_expired();
-    }
+    pipeline.purge_expired();
     frame_handling::purge_expired_assemblies(message_assembly);
 }
-
 /// Maximum consecutive deserialization failures before closing a connection.
 const MAX_DESER_FAILURES: u32 = 10;
 
@@ -52,7 +48,7 @@ where
     framed: &'a mut Framed<W, ConnectionCodec<F>>,
     deser_failures: &'a mut u32,
     routes: &'a HashMap<u32, HandlerService<E>>,
-    fragmentation: &'a mut Option<FragmentationState>,
+    pipeline: &'a mut FramePipeline,
     message_assembly: &'a mut Option<MessageAssemblyState>,
 }
 
@@ -63,8 +59,6 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    fn fragmentation_config(&self) -> Option<FragmentationConfig> { self.fragmentation }
-
     /// Serialize `msg` and write it to `stream` using the configured codec.
     ///
     /// # Errors
@@ -259,7 +253,7 @@ where
         }
         framed.read_buffer_mut().reserve(max_frame_length);
         let mut deser_failures = 0u32;
-        let mut fragmentation = self.fragmentation_config().map(FragmentationState::new);
+        let mut pipeline = FramePipeline::new(self.fragmentation);
         let mut message_assembly = self.message_assembler.as_ref().map(|_| {
             frame_handling::new_message_assembly_state(self.fragmentation, requested_frame_length)
         });
@@ -274,7 +268,7 @@ where
                             framed: &mut framed,
                             deser_failures: &mut deser_failures,
                             routes,
-                            fragmentation: &mut fragmentation,
+                            pipeline: &mut pipeline,
                             message_assembly: &mut message_assembly,
                         },
                         &codec,
@@ -285,7 +279,7 @@ where
                 Ok(None) => break,
                 Err(_) => {
                     debug!("read timeout elapsed; continuing to wait for next frame");
-                    purge_expired(&mut fragmentation, &mut message_assembly);
+                    purge_expired(&mut pipeline, &mut message_assembly);
                 }
             }
         }
@@ -306,7 +300,7 @@ where
             framed,
             deser_failures,
             routes,
-            fragmentation,
+            pipeline,
             message_assembly,
         } = ctx;
 
@@ -321,7 +315,7 @@ where
             return Ok(());
         };
         let Some(env) = frame_handling::reassemble_if_needed(
-            fragmentation,
+            pipeline,
             deser_failures,
             env,
             MAX_DESER_FAILURES,
@@ -351,7 +345,7 @@ where
                 frame_handling::ResponseContext::<S, W, F> {
                     serializer: &self.serializer,
                     framed,
-                    fragmentation,
+                    pipeline,
                     codec,
                 },
             )

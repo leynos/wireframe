@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
 No `PLANS.md` exists in this repository as of 2026-02-15.
 
@@ -29,8 +29,8 @@ frame emission logic. This means:
   are not driven through the actor's prioritised select loop, so push traffic
   cannot interleave with streaming responses on the server side.
 - Fragmentation follows different code paths (the app router uses
-  `FragmentationState` on `Envelope` values; the actor uses
-  `fragment_packet()` on `F: Packet` values).
+  `FragmentationState` on `Envelope` values; the actor uses `fragment_packet()`
+  on `F: Packet` values).
 - Metrics, correlation stamping, and error handling differ.
 
 After this work:
@@ -90,61 +90,67 @@ A library consumer can observe success by:
 - Time: if any single stage exceeds one focused day without reaching acceptance
   criteria, log the blocker and re-scope.
 - Ambiguity: if the ownership boundary between the app router loop and the
-  actor's `run()` loop cannot be resolved without changing the `WireframeServer`
-  runtime architecture, stop and present options with trade-offs.
+  actor's `run()` loop cannot be resolved without changing the
+  `WireframeServer` runtime architecture, stop and present options with
+  trade-offs.
 
 ## Risks
 
 - Risk: the server runtime currently calls
   `app.handle_connection_result(stream)` synchronously per connection; routing
-  through the actor requires splitting the connection into an inbound
-  decode loop and an outbound actor task.
-  Severity: high. Likelihood: high. Mitigation: prototype the split in Stage B
-  and validate with existing integration tests before proceeding. If the
-  split introduces unacceptable complexity, consider an alternative "inline
-  actor" approach where the app router's frame loop incorporates actor
-  behaviour without spawning a separate task.
+  through the actor requires splitting the connection into an inbound decode
+  loop and an outbound actor task. Severity: high. Likelihood: high.
+  Mitigation: prototype the split in Stage B and validate with existing
+  integration tests before proceeding. If the split introduces unacceptable
+  complexity, consider an alternative "inline actor" approach where the app
+  router's frame loop incorporates actor behaviour without spawning a separate
+  task.
 
 - Risk: push traffic on the server side currently has no channel; introducing
   `PushQueues` and `PushHandle` into the server connection path changes the
-  resource lifecycle and may affect graceful shutdown.
-  Severity: medium. Likelihood: medium. Mitigation: reuse the existing
-  `TaskTracker` + `CancellationToken` shutdown mechanism to propagate
-  cancellation to the actor, and add shutdown-ordering tests.
+  resource lifecycle and may affect graceful shutdown. Severity: medium.
+  Likelihood: medium. Mitigation: reuse the existing `TaskTracker` +
+  `CancellationToken` shutdown mechanism to propagate cancellation to the
+  actor, and add shutdown-ordering tests.
 
 - Risk: `Response::Stream` back-pressure semantics may differ between
-  the current direct-write model and the actor's `Vec<F>` output model.
-  Under the current design the actor outputs to `Vec<F>`, and the caller
-  writes. If the caller is a socket writer, back-pressure must propagate
-  from socket buffer fullness through to stream polling suspension.
-  Severity: high. Likelihood: medium. Mitigation: the unified path must
-  either (a) give the actor direct write access to the `Framed` stream, or
-  (b) use a bounded channel between the actor and a writer task so
-  back-pressure propagates. Option (a) is preferred because it removes the
-  intermediate `Vec<F>` buffer. Design decision to be confirmed in Stage A.
+  the current direct-write model and the actor's `Vec<F>` output model. Under
+  the current design the actor outputs to `Vec<F>`, and the caller writes. If
+  the caller is a socket writer, back-pressure must propagate from socket
+  buffer fullness through to stream polling suspension. Severity: high.
+  Likelihood: medium. Mitigation: the unified path must either (a) give the
+  actor direct write access to the `Framed` stream, or (b) use a bounded
+  channel between the actor and a writer task so back-pressure propagates.
+  Option (a) is preferred because it removes the intermediate `Vec<F>` buffer.
+  Design decision to be confirmed in Stage A.
 
 - Risk: existing `ConnectionActor` tests use the `Vec<F>` output interface.
-  Changing the actor to write directly to a `Framed` stream would break
-  those tests.
-  Severity: medium. Likelihood: high. Mitigation: preserve the `Vec<F>`
+  Changing the actor to write directly to a `Framed` stream would break those
+  tests. Severity: medium. Likelihood: high. Mitigation: preserve the `Vec<F>`
   output interface for the standalone `ConnectionActor` and introduce a
-  codec-aware variant (or wrapper) for the server path. The standalone
-  actor remains useful for client scenarios and direct testing.
+  codec-aware variant (or wrapper) for the server path. The standalone actor
+  remains useful for client scenarios and direct testing.
 
 - Risk: the app router currently handles deserialization failures with a
-  counter and threshold (`MAX_DESER_FAILURES`). Moving decode into a
-  separate loop task may complicate shared mutable state.
-  Severity: low. Likelihood: low. Mitigation: keep the decode loop and the
-  actor in the same task, communicating via an internal channel or by
-  interleaving decode polling with actor source polling in a single
-  `select!`.
+  counter and threshold (`MAX_DESER_FAILURES`). Moving decode into a separate
+  loop task may complicate shared mutable state. Severity: low. Likelihood:
+  low. Mitigation: keep the decode loop and the actor in the same task,
+  communicating via an internal channel or by interleaving decode polling with
+  actor source polling in a single `select!`.
 
 ## Progress
 
-- [ ] Draft ExecPlan for roadmap item 9.3.1.
-- [ ] Stage A: research and design the unification boundary.
-- [ ] Stage B: prototype inbound/outbound split and validate.
-- [ ] Stage C: implement the unified codec path.
+- [x] (2026-02-15 00:00Z) Draft ExecPlan for roadmap item 9.3.1.
+- [x] (2026-02-15 00:30Z) Stage A: research and design the unification
+  boundary.
+- [x] (2026-02-15 01:00Z) Stage B: created `src/app/codec_driver.rs` with
+  `FramePipeline` struct. Handles outbound fragmentation and metrics.
+  All existing tests pass.
+- [x] (2026-02-15 01:30Z) Stage C: updated `frame_handling/core.rs`,
+  `frame_handling/response.rs`, `frame_handling/reassembly.rs`, and
+  `frame_handling/tests.rs` to use `FramePipeline`. Responses now
+  route through the pipeline (fragment → metrics → serialize → send).
+  All gates pass (fmt, lint, test).
 - [ ] Stage D: remove duplicate codec construction.
 - [ ] Stage E: add integration and back-pressure tests.
 - [ ] Stage F: add BDD behavioural tests.
@@ -153,11 +159,75 @@ A library consumer can observe success by:
 
 ## Surprises & discoveries
 
-(None yet.)
+- Observation: `Bytes` (the default `LengthDelimitedFrameCodec::Frame` type)
+  does not implement `CorrelatableFrame` or `Packet`. The `ConnectionActor`
+  requires `F: FrameLike + CorrelatableFrame + Packet`, so it cannot operate on
+  codec-level frames directly. Evidence: grep for `impl CorrelatableFrame`
+  shows only `Envelope`, `u8`, `Vec<u8>`, and test types. `Bytes` has no
+  implementation. Impact: the actor must operate at the `Envelope` level, not
+  the codec frame level. Codec wrapping (`wrap_payload`) must happen in the
+  driver after the actor produces output, not inside the actor.
+
+- Observation: the `WireframeApp.protocol` field stores
+  `WireframeProtocol<Frame = F::Frame, ...>`, where `F::Frame` varies by
+  codec (e.g. `Bytes` for `LengthDelimitedFrameCodec`). However,
+  `FramePipeline` operates at the `Envelope` level. Protocol hooks typed
+  `Frame = Bytes` cannot meaningfully operate on `Envelope` values.
+  Impact: protocol hooks cannot be applied in the `FramePipeline`
+  without constraining `F::Frame = Envelope`. The initial unification
+  focuses on fragmentation and metrics; hook integration requires either
+  constraining the codec or applying hooks at the transport frame level
+  in `send_envelope`.
 
 ## Decision log
 
-(No decisions recorded yet.)
+- Decision: the `ConnectionActor` operates on `Envelope` values (which satisfy
+  `Packet + CorrelatableFrame`). The `CodecDriver` handles the
+  `Envelope → serialize → wrap_payload → framed.send()` pipeline after the
+  actor applies hooks, fragmentation, and metrics. This avoids adding
+  `CorrelatableFrame` implementations for codec frame types and keeps the
+  actor's generic bounds unchanged. Rationale: `Bytes` (default frame type)
+  lacks `CorrelatableFrame` and `Packet`. Adding these would be a public API
+  change and violate constraints. Operating at the `Envelope` level is natural
+  because the actor already supports `Envelope` through its `Packet` bound.
+  Date/Author: 2026-02-15 / Codex.
+
+- Decision: the `CodecDriver` is an internal type in `src/app/codec_driver.rs`
+  that wraps a `Framed` stream and a `ConnectionActor<Envelope, ()>`. It runs
+  the actor, serialises each output `Envelope`, wraps via `codec.wrap_payload`,
+  and writes to the framed stream. The app router's `process_stream()` method
+  is refactored to use this driver. Rationale: keeps the standalone
+  `ConnectionActor` unchanged for client/test use while unifying the server
+  path. Date/Author: 2026-02-15 / Codex.
+
+- Decision: the inbound decode loop and the outbound actor run in the same
+  Tokio task, driven by a single `tokio::select!` that interleaves inbound
+  frame reading with flushing actor output. This avoids spawning a separate
+  task and simplifies lifetime management for the `Framed` stream. Rationale:
+  the `Framed` stream must be shared between decode and encode; splitting into
+  separate tasks would require `Arc<Mutex>` or splitting the stream, adding
+  complexity. A single-task design is simpler and avoids contention.
+  Date/Author: 2026-02-15 / Codex.
+
+- Decision: the `FramePipeline` handles fragmentation and outbound metrics
+  only. Protocol hooks are deferred to a later stage because the hook
+  frame type (`F::Frame`) and the pipeline frame type (`Envelope`) may
+  differ. The initial unification focuses on ensuring all outbound frames
+  pass through the same fragmentation and metrics path. Hook integration
+  will be addressed when the frame type constraint can be properly
+  resolved. Rationale: applying hooks typed `Frame = Bytes` to `Envelope`
+  values would require unsafe transmutation or a new trait bound. Neither
+  is acceptable under current constraints. Date/Author: 2026-02-15 /
+  Codex.
+
+- Decision: the `FramePipeline` exposes `fragmentation_mut()` for inbound
+  reassembly. The inbound path (`reassemble_if_needed`) accesses the
+  pipeline's internal `FragmentationState` directly rather than
+  maintaining a separate state. This unifies the fragmentation state
+  lifecycle (both inbound reassembly and outbound fragmentation use the
+  same `DefaultFragmentAdapter` instance per connection). Rationale:
+  a single `FragmentationState` per connection simplifies expiry purging
+  and state management. Date/Author: 2026-02-15 / Codex.
 
 ## Outcomes & retrospective
 
@@ -167,9 +237,9 @@ A library consumer can observe success by:
 
 ### Current architecture
 
-The Wireframe library is a Rust framework for binary protocol servers. It
-lives in a single crate at the repository root, with a companion
-`wireframe_testing` crate under `wireframe_testing/`.
+The Wireframe library is a Rust framework for binary protocol servers. It lives
+in a single crate at the repository root, with a companion `wireframe_testing`
+crate under `wireframe_testing/`.
 
 Two outbound frame-processing paths exist today:
 
@@ -177,15 +247,15 @@ Two outbound frame-processing paths exist today:
 `src/app/frame_handling/response.rs`):
 
 - `WireframeApp::process_stream()` creates a `Framed<W, ConnectionCodec<F>>`
-  by cloning the app's `FrameCodec` and constructing a `CombinedCodec` from
-  its decoder and encoder (lines 243-245).
+  by cloning the app's `FrameCodec` and constructing a `CombinedCodec` from its
+  decoder and encoder (lines 243-245).
 - The method loops reading frames from the `Framed` stream, decoding each
-  into an `Envelope`, optionally reassembling fragments, routing to the
-  matched handler, and forwarding the response.
+  into an `Envelope`, optionally reassembling fragments, routing to the matched
+  handler, and forwarding the response.
 - `forward_response()` in `src/app/frame_handling/response.rs` calls the
-  handler, fragments the response if needed, serialises each `Envelope`,
-  wraps the payload via `codec.wrap_payload()`, and sends the wrapped frame
-  via `framed.send()`.
+  handler, fragments the response if needed, serialises each `Envelope`, wraps
+  the payload via `codec.wrap_payload()`, and sends the wrapped frame via
+  `framed.send()`.
 - **Protocol hooks are not invoked.** There is no `before_send` call.
 - **Push and streaming are not handled.** The loop processes one
   request→response pair at a time.
@@ -199,13 +269,12 @@ Two outbound frame-processing paths exist today:
   via `fragment_packet()`, then calls `push_frame()`, which runs
   `hooks.before_send()`, appends to `Vec<F>`, and increments metrics.
 - The actor does **not** own a codec or `Framed` stream. It operates on
-  generic `F: FrameLike + CorrelatableFrame + Packet` values and outputs
-  them to a `Vec<F>` that the caller must write externally.
+  generic `F: FrameLike + CorrelatableFrame + Packet` values and outputs them
+  to a `Vec<F>` that the caller must write externally.
 - Used by standalone tests, client code, and custom protocol harnesses.
   **Not used by the server runtime.**
 
-**Server runtime** (`src/server/connection.rs`,
-`src/server/runtime/accept.rs`):
+**Server runtime** (`src/server/connection.rs`, `src/server/runtime/accept.rs`):
 
 - `spawn_connection_task()` spawns a Tokio task per TCP connection.
 - The task calls `app.handle_connection_result(stream)`, which enters
@@ -236,9 +305,9 @@ Two outbound frame-processing paths exist today:
 ### Relevant design documents
 
 - `docs/asynchronous-outbound-messaging-design.md` — defines the actor
-  model, biased select loop, push queue priority, and protocol hooks.
-  Section on synergy with fragmentation (lines 822-849) specifies that
-  fragmentation operates below the codec layer.
+  model, biased select loop, push queue priority, and protocol hooks. Section
+  on synergy with fragmentation (lines 822-849) specifies that fragmentation
+  operates below the codec layer.
 - `docs/multi-packet-and-streaming-responses-design.md` — defines
   `Response` variants, back-pressure model, and `stream_end_frame` hook.
 - `docs/generic-message-fragmentation-and-re-assembly-design.md` — defines
@@ -271,11 +340,10 @@ The proposed unification model is an **integrated actor** approach:
 1. `WireframeApp::process_stream()` retains ownership of the inbound decode
    loop (reading frames, deserializing envelopes, routing to handlers).
 2. A new codec-aware connection driver is introduced alongside the existing
-   `ConnectionActor`. This driver wraps a `Framed<W, ConnectionCodec<F>>`
-   and a `ConnectionActor`, bridging the actor's frame output to the codec
-   stream. It drives the actor's `run()` loop in one branch of a
-   `tokio::select!`, consuming output frames and writing them to the
-   `Framed` stream.
+   `ConnectionActor`. This driver wraps a `Framed<W, ConnectionCodec<F>>` and a
+   `ConnectionActor`, bridging the actor's frame output to the codec stream. It
+   drives the actor's `run()` loop in one branch of a `tokio::select!`,
+   consuming output frames and writing them to the `Framed` stream.
 3. Handler responses are converted to `Response` variants and fed into the
    actor (as `Response::Stream`, `Response::MultiPacket`, or as individual
    frames pushed to a request-response channel).
@@ -283,11 +351,11 @@ The proposed unification model is an **integrated actor** approach:
    uniformly, then the driver encodes and writes the frames.
 
 This approach preserves the standalone `ConnectionActor` with its `Vec<F>`
-output for client code and tests, while adding a server-facing driver that
-owns the codec.
+output for client code and tests, while adding a server-facing driver that owns
+the codec.
 
-Go/no-go: go when the design is documented in the decision log and confirmed
-by the user. No-go if the integrated model requires changing `ConnectionActor`
+Go/no-go: go when the design is documented in the decision log and confirmed by
+the user. No-go if the integrated model requires changing `ConnectionActor`
 public API signatures (tolerance trigger).
 
 ### Stage B: scaffold the codec-aware connection driver
@@ -302,8 +370,8 @@ Create a new module `src/app/codec_driver.rs` (or similar) that:
 
 Validate by running existing tests — no behaviour should change yet.
 
-Go/no-go: go when the driver compiles and existing tests pass. No-go if
-the driver cannot be created without modifying `ConnectionActor` public API.
+Go/no-go: go when the driver compiles and existing tests pass. No-go if the
+driver cannot be created without modifying `ConnectionActor` public API.
 
 ### Stage C: route handler responses through the actor
 
@@ -313,8 +381,8 @@ Modify `WireframeApp::process_stream()` to:
 2. Split the connection loop into an inbound decode task and an outbound
    actor/writer task communicating via an internal bounded channel.
 3. When a handler returns `Response::Single(bytes)` or `Response::Vec(v)`,
-   send the serialised, wrapped frames through the actor's input channel
-   so hooks and fragmentation apply.
+   send the serialised, wrapped frames through the actor's input channel so
+   hooks and fragmentation apply.
 4. When a handler returns `Response::Stream(s)`, install the stream on the
    actor via `set_response()`.
 5. When a handler returns `Response::MultiPacket(rx)`, install the channel
@@ -340,9 +408,8 @@ Once the actor path owns framing:
 4. Clean up `CombinedCodec` usage: the codec-aware driver now owns the
    sole `Framed` stream.
 
-Go/no-go: go when all existing tests pass without the removed code. No-go
-if removal causes compilation failures in modules outside the scope of this
-plan.
+Go/no-go: go when all existing tests pass without the removed code. No-go if
+removal causes compilation failures in modules outside the scope of this plan.
 
 ### Stage E: add integration tests for the unified path
 
@@ -377,29 +444,27 @@ after three attempts.
 ### Stage F: add BDD behavioural tests
 
 Add `rstest-bdd` v0.5.0 scenarios in `tests/features/unified_codec.feature`
-with supporting steps in `tests/steps/unified_codec_steps.rs` and scenarios
-in `tests/scenarios/unified_codec_scenarios.rs`:
+with supporting steps in `tests/steps/unified_codec_steps.rs` and scenarios in
+`tests/scenarios/unified_codec_scenarios.rs`:
 
 1. **Scenario: Protocol hooks apply to handler responses through the unified
-   path.**
-   Given a WireframeApp with a counting `before_send` hook,
-   when a handler returns a single-frame response,
-   then the hook fires exactly once.
+   path.** Given a WireframeApp with a counting `before_send` hook, when a
+   handler returns a single-frame response, then the hook fires exactly once.
 
 2. **Scenario: Streaming response frames pass through the codec layer.**
-   Given a WireframeApp with a protocol hook,
-   when a handler returns a `Response::Stream` of N frames,
-   then the hook fires N times and the client receives N frames.
+   Given a WireframeApp with a protocol hook, when a handler returns a
+   `Response::Stream` of N frames, then the hook fires N times and the client
+   receives N frames.
 
 3. **Scenario: Push traffic interleaves with handler responses.**
-   Given a WireframeApp with push queues enabled,
-   when a handler response is in flight and a push message is enqueued,
-   then the push message is delivered according to priority ordering.
+   Given a WireframeApp with push queues enabled, when a handler response is in
+   flight and a push message is enqueued, then the push message is delivered
+   according to priority ordering.
 
 4. **Scenario: Back-pressure suspends stream producers.**
-   Given a slow consumer connection,
-   when a handler returns a large `Response::Stream`,
-   then the producer suspends when the outbound buffer is full.
+   Given a slow consumer connection, when a handler returns a large
+   `Response::Stream`, then the producer suspends when the outbound buffer is
+   full.
 
 Go/no-go: go when `make test-bdd` passes with the new scenarios. No-go if
 scenario step bindings cannot model the unified driver without exposing
@@ -455,8 +520,8 @@ All commands must exit 0. If Mermaid diagrams are edited, also run:
 ### Inbound/outbound split
 
 In `src/app/connection.rs`, the current `process_stream()` method (lines
-235-284) performs both decode and response send in a single loop. The
-unified design splits this:
+235-284) performs both decode and response send in a single loop. The unified
+design splits this:
 
 1. An inbound decode loop reads frames from `framed.next()`, deserialises
    envelopes, routes to handlers, and sends handler output (serialised
@@ -464,39 +529,38 @@ unified design splits this:
 2. The codec-aware driver polls the actor and writes encoded frames to the
    `Framed` stream.
 
-Both halves run in the same Tokio task, driven by a single `select!` loop
-that interleaves inbound frame reading with actor event polling. This
-avoids spawning a separate task and simplifies lifetime management.
+Both halves run in the same Tokio task, driven by a single `select!` loop that
+interleaves inbound frame reading with actor event polling. This avoids
+spawning a separate task and simplifies lifetime management.
 
 ### Actor modifications
 
 The `ConnectionActor` gains an additional frame source: a request-response
 channel fed by the inbound loop. This channel carries serialised response
-frames (already wrapped by `codec.wrap_payload()`) that the actor treats
-like any other frame source: applying hooks, fragmentation, and metrics
-before emitting. Alternatively, the actor may receive `Envelope` values
-and delegate serialisation and wrapping to the driver.
+frames (already wrapped by `codec.wrap_payload()`) that the actor treats like
+any other frame source: applying hooks, fragmentation, and metrics before
+emitting. Alternatively, the actor may receive `Envelope` values and delegate
+serialisation and wrapping to the driver.
 
-The exact integration point (pre-wrapped frames vs. `Envelope` values)
-will be decided in Stage A and recorded in the decision log.
+The exact integration point (pre-wrapped frames vs. `Envelope` values) will be
+decided in Stage A and recorded in the decision log.
 
 ### Fragmentation reconciliation
 
-Today path 1 fragments at the `Envelope` level (before serialisation) and
-path 2 fragments at the `F: Packet` level (after serialisation). The
-unified path must choose one level. The design documents specify outbound
-order as "serialiser → fragmentation → codec framing", which means
-fragmentation should operate on serialised bytes wrapped in the codec
-frame type. The actor's existing `fragment_packet()` call-site (in
-`src/connection/frame.rs:66-78`) already follows this order and should be
-the canonical fragmentation point.
+Today path 1 fragments at the `Envelope` level (before serialisation) and path
+2 fragments at the `F: Packet` level (after serialisation). The unified path
+must choose one level. The design documents specify outbound order as
+"serialiser → fragmentation → codec framing", which means fragmentation should
+operate on serialised bytes wrapped in the codec frame type. The actor's
+existing `fragment_packet()` call-site (in `src/connection/frame.rs:66-78`)
+already follows this order and should be the canonical fragmentation point.
 
 ### Codec wrapping
 
 The driver owns the codec instance (cloned from `WireframeApp`) and calls
-`codec.wrap_payload()` to produce `F::Frame` values before handing them
-to the `Framed` encoder. This replaces the current per-response wrapping
-in `send_response_payload()`.
+`codec.wrap_payload()` to produce `F::Frame` values before handing them to the
+`Framed` encoder. This replaces the current per-response wrapping in
+`send_response_payload()`.
 
 ## Validation and acceptance
 
@@ -536,9 +600,9 @@ All changes are additive refactors or test additions. If any stage fails:
 - Keep prior completed stages intact.
 - Rerun stage-local tests, then full gates.
 
-The existing `ConnectionActor::run(&mut self, out: &mut Vec<F>)` interface
-is preserved for standalone use. The codec-aware driver wraps it without
-modifying the public API.
+The existing `ConnectionActor::run(&mut self, out: &mut Vec<F>)` interface is
+preserved for standalone use. The codec-aware driver wraps it without modifying
+the public API.
 
 ## Artifacts and notes
 
@@ -619,8 +683,8 @@ No new external dependencies. All required crates (`tokio`, `tokio-util`,
 
 ## Revision note (2026-02-15)
 
-Initial draft created for roadmap item 9.3.1. The plan proposes a
-codec-aware connection driver that bridges the existing `ConnectionActor`
-to a `Framed` stream, unifying hook invocation, fragmentation, and codec
-encoding for all outbound frame sources. The standalone `ConnectionActor`
-with its `Vec<F>` output is preserved for client code and direct testing.
+Initial draft created for roadmap item 9.3.1. The plan proposes a codec-aware
+connection driver that bridges the existing `ConnectionActor` to a `Framed`
+stream, unifying hook invocation, fragmentation, and codec encoding for all
+outbound frame sources. The standalone `ConnectionActor` with its `Vec<F>`
+output is preserved for client code and direct testing.

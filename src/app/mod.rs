@@ -10,6 +10,7 @@
 
 mod builder;
 mod builder_defaults;
+mod codec_driver;
 mod combined_codec;
 mod connection;
 mod envelope;
