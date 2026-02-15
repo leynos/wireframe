@@ -1,10 +1,15 @@
 //! Unit tests for inbound message assembly integration.
 
-use std::{io, num::NonZeroUsize, sync::Arc, thread, time::Duration};
+use std::{
+    io,
+    num::NonZeroUsize,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use rstest::{fixture, rstest};
 
-use super::{AssemblyRuntime, assemble_if_needed, purge_expired_assemblies};
+use super::{AssemblyRuntime, assemble_if_needed};
 use crate::{
     app::Envelope,
     message_assembler::MessageAssemblyState,
@@ -204,8 +209,13 @@ fn inbound_assembly_timeout_purges_partial_state(
         .is_none()
     );
 
-    thread::sleep(Duration::from_millis(20));
-    purge_expired_assemblies(&mut message_assembly_state);
+    // Advance a synthetic clock well past the 5ms assembly timeout so the
+    // purge is deterministic and independent of real wall-clock scheduling.
+    let well_past_timeout = Instant::now() + Duration::from_secs(1);
+    message_assembly_state
+        .as_mut()
+        .expect("assembly state should exist")
+        .purge_expired_at(well_past_timeout);
 
     let continuation = inbound_envelope(
         5,
