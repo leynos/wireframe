@@ -1,5 +1,7 @@
 //! Unit tests for client streaming response APIs.
 
+use std::net::SocketAddr;
+
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use rstest::{fixture, rstest};
@@ -15,8 +17,13 @@ use crate::{
     correlation::CorrelatableFrame,
 };
 
+// Type aliases to reduce primitive obsession
+type CorrelationId = u64;
+type MessageId = u32;
+type Payload = Vec<u8>;
+
 /// Terminator message ID used by the test protocol.
-const TERMINATOR_ID: u32 = 0;
+const TERMINATOR_ID: MessageId = 0;
 
 /// A test envelope that treats `id == 0` as a stream terminator.
 #[derive(bincode::Decode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
@@ -51,7 +58,7 @@ impl Packet for TestStreamEnvelope {
 }
 
 impl TestStreamEnvelope {
-    fn data(id: u32, correlation_id: u64, payload: Vec<u8>) -> Self {
+    fn data(id: MessageId, correlation_id: CorrelationId, payload: Payload) -> Self {
         Self {
             id,
             correlation_id: Some(correlation_id),
@@ -59,7 +66,7 @@ impl TestStreamEnvelope {
         }
     }
 
-    fn terminator(correlation_id: u64) -> Self {
+    fn terminator(correlation_id: CorrelationId) -> Self {
         Self {
             id: TERMINATOR_ID,
             correlation_id: Some(correlation_id),
@@ -77,88 +84,108 @@ fn serialize_envelope(envelope: &TestStreamEnvelope) -> Bytes {
     )
 }
 
+// ---------------------------------------------------------------------------
+// Test infrastructure
+// ---------------------------------------------------------------------------
+
 /// Context for a streaming test: the server address and a handle to join the
-/// server task.
-struct StreamingTestServer {
-    addr: std::net::SocketAddr,
+/// server task. Automatically aborts the server on drop.
+struct TestServer {
+    addr: SocketAddr,
     handle: tokio::task::JoinHandle<()>,
 }
 
+impl Drop for TestServer {
+    fn drop(&mut self) { self.handle.abort(); }
+}
+
 /// Spawn a test server that sends a sequence of pre-built frames.
-async fn spawn_streaming_server(frames: Vec<TestStreamEnvelope>) -> StreamingTestServer {
+///
+/// When `close_without_terminator` is `true`, the connection is dropped after
+/// sending the frames (simulating an unexpected disconnect). When `false`, the
+/// frames are sent as-is — the caller is responsible for including a
+/// terminator in the `frames` vec when normal termination is desired.
+async fn spawn_test_server(
+    frames: Vec<TestStreamEnvelope>,
+    close_without_terminator: bool,
+) -> TestServer {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind listener");
     let addr = listener.local_addr().expect("listener addr");
 
     let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept client");
-        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
+        let (tcp, _) = listener.accept().await.expect("accept client");
+        let mut transport = Framed::new(tcp, LengthDelimitedCodec::new());
 
         // Read one request frame (the client's request), then send the
         // pre-built sequence.
         let _request = transport.next().await;
 
         for frame in &frames {
-            let bytes = serialize_envelope(frame);
-            if transport.send(bytes).await.is_err() {
+            let encoded = serialize_envelope(frame);
+            if transport.send(encoded).await.is_err() {
                 break;
             }
         }
-    });
 
-    StreamingTestServer { addr, handle }
-}
-
-/// Spawn a test server that sends frames then closes the connection without a
-/// terminator.
-async fn spawn_disconnect_server(frames: Vec<TestStreamEnvelope>) -> StreamingTestServer {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("listener addr");
-
-    let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept client");
-        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
-
-        let _request = transport.next().await;
-
-        for frame in &frames {
-            let bytes = serialize_envelope(frame);
-            if transport.send(bytes).await.is_err() {
-                break;
-            }
+        if close_without_terminator {
+            // Connection is dropped here — no terminator sent.
         }
-        // Connection is dropped here — no terminator sent.
     });
 
-    StreamingTestServer { addr, handle }
+    TestServer { addr, handle }
 }
 
 /// Spawn a test server that sends a frame with a mismatched correlation ID.
-async fn spawn_mismatch_server(wrong_correlation_id: u64) -> StreamingTestServer {
+async fn spawn_mismatch_server(wrong_correlation_id: CorrelationId) -> TestServer {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind listener");
     let addr = listener.local_addr().expect("listener addr");
 
     let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept client");
-        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
+        let (tcp, _) = listener.accept().await.expect("accept client");
+        let mut transport = Framed::new(tcp, LengthDelimitedCodec::new());
 
         let _request = transport.next().await;
 
         let bad_frame = TestStreamEnvelope::data(1, wrong_correlation_id, vec![99]);
-        let bytes = serialize_envelope(&bad_frame);
-        let _ = transport.send(bytes).await;
+        let encoded = serialize_envelope(&bad_frame);
+        let _ = transport.send(encoded).await;
     });
 
-    StreamingTestServer { addr, handle }
+    TestServer { addr, handle }
 }
 
+/// Create a connected `WireframeClient` for the given address.
+async fn create_test_client(
+    addr: SocketAddr,
+) -> WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<tokio::net::TcpStream>> {
+    WireframeClient::builder()
+        .connect(addr)
+        .await
+        .expect("connect client")
+}
+
+/// Spawn a test server with the given frames and return a connected client.
+async fn setup_streaming_test(
+    frames: Vec<TestStreamEnvelope>,
+) -> (
+    WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<tokio::net::TcpStream>>,
+    TestServer,
+) {
+    let server = spawn_test_server(frames, false).await;
+    let client = create_test_client(server.addr).await;
+    (client, server)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[fixture]
-fn correlation_id() -> u64 {
+fn correlation_id() -> CorrelationId {
     // Fixed test correlation identifier shared by all streaming tests.
     42
 }
@@ -173,11 +200,7 @@ async fn response_stream_yields_data_frames_in_order(correlation_id: u64) {
         TestStreamEnvelope::terminator(correlation_id),
     ];
 
-    let server = spawn_streaming_server(frames).await;
-    let mut client = WireframeClient::builder()
-        .connect(server.addr)
-        .await
-        .expect("connect client");
+    let (mut client, _server) = setup_streaming_test(frames).await;
 
     let request = TestStreamEnvelope::data(99, correlation_id, vec![]);
     let mut stream = client
@@ -194,8 +217,6 @@ async fn response_stream_yields_data_frames_in_order(correlation_id: u64) {
     assert_eq!(received.first().expect("frame 0").payload, vec![10]);
     assert_eq!(received.get(1).expect("frame 1").payload, vec![20]);
     assert_eq!(received.get(2).expect("frame 2").payload, vec![30]);
-
-    server.handle.abort();
 }
 
 #[rstest]
@@ -206,11 +227,7 @@ async fn response_stream_terminates_on_terminator(correlation_id: u64) {
         TestStreamEnvelope::terminator(correlation_id),
     ];
 
-    let server = spawn_streaming_server(frames).await;
-    let mut client = WireframeClient::builder()
-        .connect(server.addr)
-        .await
-        .expect("connect client");
+    let (mut client, _server) = setup_streaming_test(frames).await;
 
     let request = TestStreamEnvelope::data(99, correlation_id, vec![]);
     let mut stream = client
@@ -232,8 +249,6 @@ async fn response_stream_terminates_on_terminator(correlation_id: u64) {
     assert!(third.is_none(), "stream should remain terminated");
 
     assert!(stream.is_terminated(), "is_terminated should be true");
-
-    server.handle.abort();
 }
 
 #[rstest]
@@ -241,11 +256,7 @@ async fn response_stream_terminates_on_terminator(correlation_id: u64) {
 async fn response_stream_validates_correlation_id(correlation_id: u64) {
     let wrong_cid = correlation_id + 999;
     let server = spawn_mismatch_server(wrong_cid).await;
-
-    let mut client = WireframeClient::builder()
-        .connect(server.addr)
-        .await
-        .expect("connect client");
+    let mut client = create_test_client(server.addr).await;
 
     let mut request = TestStreamEnvelope::data(99, correlation_id, vec![]);
     request.set_correlation_id(Some(correlation_id));
@@ -263,8 +274,6 @@ async fn response_stream_validates_correlation_id(correlation_id: u64) {
         }
         other => panic!("expected StreamCorrelationMismatch, got {other:?}"),
     }
-
-    server.handle.abort();
 }
 
 #[rstest]
@@ -272,11 +281,7 @@ async fn response_stream_validates_correlation_id(correlation_id: u64) {
 async fn response_stream_handles_empty_stream(correlation_id: u64) {
     let frames = vec![TestStreamEnvelope::terminator(correlation_id)];
 
-    let server = spawn_streaming_server(frames).await;
-    let mut client = WireframeClient::builder()
-        .connect(server.addr)
-        .await
-        .expect("connect client");
+    let (mut client, _server) = setup_streaming_test(frames).await;
 
     let request = TestStreamEnvelope::data(99, correlation_id, vec![]);
     let mut stream = client
@@ -290,8 +295,6 @@ async fn response_stream_handles_empty_stream(correlation_id: u64) {
         first.is_none(),
         "empty stream should yield None immediately"
     );
-
-    server.handle.abort();
 }
 
 #[rstest]
@@ -302,11 +305,8 @@ async fn response_stream_handles_connection_close(correlation_id: u64) {
         TestStreamEnvelope::data(2, correlation_id, vec![20]),
     ];
 
-    let server = spawn_disconnect_server(frames).await;
-    let mut client = WireframeClient::builder()
-        .connect(server.addr)
-        .await
-        .expect("connect client");
+    let server = spawn_test_server(frames, true).await;
+    let mut client = create_test_client(server.addr).await;
 
     let request = TestStreamEnvelope::data(99, correlation_id, vec![]);
     let mut stream = client
@@ -326,8 +326,6 @@ async fn response_stream_handles_connection_close(correlation_id: u64) {
         matches!(third, Some(Err(ClientError::Wireframe(_)))),
         "should return a transport error on disconnect, got {third:?}"
     );
-
-    server.handle.abort();
 }
 
 #[rstest]
@@ -338,11 +336,7 @@ async fn call_streaming_sends_request_and_returns_stream(correlation_id: u64) {
         TestStreamEnvelope::terminator(correlation_id),
     ];
 
-    let server = spawn_streaming_server(frames).await;
-    let mut client = WireframeClient::builder()
-        .connect(server.addr)
-        .await
-        .expect("connect client");
+    let (mut client, _server) = setup_streaming_test(frames).await;
 
     // Use explicit correlation ID so server response matches.
     let request = TestStreamEnvelope::data(99, correlation_id, vec![]);
@@ -358,8 +352,6 @@ async fn call_streaming_sends_request_and_returns_stream(correlation_id: u64) {
 
     let end = stream.next().await;
     assert!(end.is_none(), "stream should terminate");
-
-    server.handle.abort();
 }
 
 #[rstest]
@@ -370,30 +362,30 @@ async fn call_streaming_auto_generates_correlation_id() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
 
-    let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept");
-        let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
+    let _server = TestServer {
+        addr,
+        handle: tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.expect("accept");
+            let mut transport = Framed::new(tcp, LengthDelimitedCodec::new());
 
-        // Read request, extract correlation ID.
-        if let Some(Ok(req_bytes)) = transport.next().await {
-            let (req, _): (TestStreamEnvelope, usize) = BincodeSerializer
-                .deserialize(&req_bytes)
-                .expect("deser request");
-            let cid = req.correlation_id().expect("request should have CID");
+            // Read request, extract correlation ID.
+            if let Some(Ok(req_bytes)) = transport.next().await {
+                let (req, _): (TestStreamEnvelope, usize) = BincodeSerializer
+                    .deserialize(&req_bytes)
+                    .expect("deser request");
+                let cid = req.correlation_id().expect("request should have CID");
 
-            // Send one data frame + terminator with matching CID.
-            let data = TestStreamEnvelope::data(1, cid, vec![42]);
-            let _ = transport.send(serialize_envelope(&data)).await;
+                // Send one data frame + terminator with matching CID.
+                let data = TestStreamEnvelope::data(1, cid, vec![42]);
+                let _ = transport.send(serialize_envelope(&data)).await;
 
-            let term = TestStreamEnvelope::terminator(cid);
-            let _ = transport.send(serialize_envelope(&term)).await;
-        }
-    });
+                let term = TestStreamEnvelope::terminator(cid);
+                let _ = transport.send(serialize_envelope(&term)).await;
+            }
+        }),
+    };
 
-    let mut client = WireframeClient::builder()
-        .connect(addr)
-        .await
-        .expect("connect");
+    let mut client = create_test_client(addr).await;
 
     // Send request without explicit correlation ID.
     let request = TestStreamEnvelope {
@@ -415,8 +407,6 @@ async fn call_streaming_auto_generates_correlation_id() {
 
     let end = stream.next().await;
     assert!(end.is_none(), "stream should terminate");
-
-    handle.abort();
 }
 
 #[rstest]
@@ -427,11 +417,7 @@ async fn receive_streaming_works_with_pre_sent_request(correlation_id: u64) {
         TestStreamEnvelope::terminator(correlation_id),
     ];
 
-    let server = spawn_streaming_server(frames).await;
-    let mut client = WireframeClient::builder()
-        .connect(server.addr)
-        .await
-        .expect("connect client");
+    let (mut client, _server) = setup_streaming_test(frames).await;
 
     // Send the request manually via send_envelope.
     let request = TestStreamEnvelope::data(99, correlation_id, vec![]);
@@ -445,6 +431,4 @@ async fn receive_streaming_works_with_pre_sent_request(correlation_id: u64) {
 
     let end = stream.next().await;
     assert!(end.is_none(), "stream should terminate");
-
-    server.handle.abort();
 }

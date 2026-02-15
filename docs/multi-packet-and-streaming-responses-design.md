@@ -645,6 +645,57 @@ call:
    and returns `None`.
 5. Otherwise yields `Ok(frame)`.
 
+<!-- Figure: ResponseStream poll_next control flow.
+     Accessible description for screen readers and editors that do not render
+     Mermaid diagrams:
+
+     The diagram is a top-down flowchart showing the decision tree inside
+     ResponseStream::poll_next.  Entry checks whether the stream is already
+     terminated; if so it returns None immediately.  Otherwise the underlying
+     Framed transport is polled.  Four outcomes branch from the poll result:
+     (1) Pending → return Poll::Pending;
+     (2) Ready(None) → set terminated, return Err(disconnected);
+     (3) Ready(Err) → set terminated, return Err(transport error);
+     (4) Ready(Ok(bytes)) → enter process_frame, which first attempts
+         deserialization (failure → set terminated, return Err(decode)).
+         On success it checks the correlation ID (mismatch → set terminated,
+         return Err(StreamCorrelationMismatch)), then checks
+         is_stream_terminator (true → set terminated, return None).
+         If none of those conditions apply it yields Ok(packet). -->
+
+```mermaid
+flowchart TD
+    A_start[poll_next called] --> B_checkTerminated{terminated?}
+    B_checkTerminated -- yes --> Z_returnNone[Return None]
+    B_checkTerminated -- no --> C_pollFramed[Poll client.framed.next]
+
+    C_pollFramed --> D_state{Result}
+
+    D_state -- Pending --> E_pending[Return Poll Pending]
+
+    D_state -- Ready None --> F_connClosed[Set terminated = true]
+    F_connClosed --> F1_error[Return Some Err ClientError_disconnected]
+
+    D_state -- Ready Err --> G_transportErr[Set terminated = true]
+    G_transportErr --> G1_error[Return Some Err ClientError_from_transport]
+
+    D_state -- Ready Ok bytes --> H_processFrame[process_frame bytes]
+
+    H_processFrame --> I_deserialize{deserialize ok?}
+    I_deserialize -- no --> J_decodeErr[Set terminated = true]
+    J_decodeErr --> J1_error[Return Some Err ClientError_decode]
+
+    I_deserialize -- yes --> K_checkCid{received_cid == Some expected_cid?}
+    K_checkCid -- no --> L_cidMismatch[Set terminated = true]
+    L_cidMismatch --> L1_error[Return Some Err StreamCorrelationMismatch]
+
+    K_checkCid -- yes --> M_checkTerminator{packet.is_stream_terminator?}
+    M_checkTerminator -- yes --> N_setTerminated[Set terminated = true]
+    N_setTerminated --> O_returnNone[Return None]
+
+    M_checkTerminator -- no --> P_yield[Return Some Ok packet]
+```
+
 Key design decisions:
 
 - **Concrete type, not boxed `FrameStream`.** Avoids dynamic dispatch and

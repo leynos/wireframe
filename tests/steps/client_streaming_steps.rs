@@ -1,8 +1,29 @@
 //! Step definitions for client streaming response behavioural tests.
 
+use std::{future::Future, pin::Pin};
+
 use rstest_bdd_macros::{given, then, when};
 
 use crate::fixtures::client_streaming::{ClientStreamingWorld, TestResult};
+
+/// Helper to abort existing server, restart with new configuration, and
+/// reconnect client.
+///
+/// The `server_starter` closure receives the world and returns a pinned
+/// future so the borrow can outlive the closure boundary.
+fn with_server_restart(
+    world: &mut ClientStreamingWorld,
+    server_starter: impl for<'a> FnOnce(
+        &'a mut ClientStreamingWorld,
+    ) -> Pin<Box<dyn Future<Output = TestResult> + 'a>>,
+) -> TestResult {
+    world.abort_server();
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        server_starter(world).await?;
+        world.connect_client().await
+    })
+}
 
 #[given("a streaming echo server")]
 fn given_streaming_server(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
@@ -18,11 +39,8 @@ fn given_streaming_server(client_streaming_world: &mut ClientStreamingWorld) -> 
 
 #[given("a streaming server that returns mismatched correlation IDs")]
 fn given_mismatch_server(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
-    client_streaming_world.abort_server();
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        client_streaming_world.start_mismatch_server().await?;
-        client_streaming_world.connect_client().await
+    with_server_restart(client_streaming_world, |world| {
+        Box::pin(world.start_mismatch_server())
     })
 }
 
@@ -31,13 +49,8 @@ fn given_disconnect_server(
     client_streaming_world: &mut ClientStreamingWorld,
     count: usize,
 ) -> TestResult {
-    client_streaming_world.abort_server();
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        client_streaming_world
-            .start_disconnect_server(count)
-            .await?;
-        client_streaming_world.connect_client().await
+    with_server_restart(client_streaming_world, |world| {
+        Box::pin(world.start_disconnect_server(count))
     })
 }
 
@@ -46,13 +59,11 @@ fn when_streaming_request_with_count(
     client_streaming_world: &mut ClientStreamingWorld,
     count: usize,
 ) -> TestResult {
-    // Restart the server with the correct frame count.
-    client_streaming_world.abort_server();
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        client_streaming_world.start_normal_server(count).await?;
-        client_streaming_world.connect_client().await?;
-        client_streaming_world.send_streaming_request().await
+    with_server_restart(client_streaming_world, |world| {
+        Box::pin(async move {
+            world.start_normal_server(count).await?;
+            world.send_streaming_request().await
+        })
     })
 }
 
