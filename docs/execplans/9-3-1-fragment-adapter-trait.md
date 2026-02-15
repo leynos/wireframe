@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: STAGE H (FINAL VALIDATION)
+Status: DONE
 
 No `PLANS.md` exists in this repository as of 2026-02-15.
 
@@ -167,7 +167,9 @@ A library consumer can observe success by:
   (`asynchronous-outbound-messaging-design.md`,
   `multi-packet-and-streaming-responses-design.md`), `users-guide.md`, and
   `roadmap.md` with unified pipeline notes.
-- [ ] Stage H: run all quality gates.
+- [x] (2026-02-15 04:00Z) Stage H: all quality gates pass. `make check-fmt`,
+  `make markdownlint`, `make lint`, `make test-bdd` (73/73), `make test` (all
+  suites, zero failures).
 
 ## Surprises & discoveries
 
@@ -241,7 +243,33 @@ A library consumer can observe success by:
 
 ## Outcomes & retrospective
 
-(Not yet complete.)
+All acceptance criteria met except protocol hook integration, which is deferred.
+
+**Delivered:**
+
+- `FramePipeline` in `src/app/codec_driver.rs` unifies outbound fragmentation
+  and metrics for all handler responses.
+- `ResponseContext` uses `FramePipeline` instead of raw `FragmentationState`.
+- Inbound reassembly shares the pipeline's `FragmentationState`.
+- Five integration tests in `tests/unified_codec.rs`.
+- Five BDD scenarios in `tests/features/unified_codec.feature`.
+- Documentation updated in design docs, users guide, and roadmap.
+- All quality gates pass.
+
+**Deferred:**
+
+- Protocol hooks (`before_send`) do not fire for app-router responses because
+  `F::Frame` and `Envelope` types may differ. A follow-up stage should resolve
+  the frame-type constraint so hooks can be applied in the pipeline or at the
+  transport layer.
+
+**Lessons:**
+
+- The `Bytes` default frame type lacks `CorrelatableFrame` and `Packet`,
+  making it impossible to route codec-level frames through the connection
+  actor. Operating at the `Envelope` level was the correct abstraction.
+- Splitting fixture files into submodules (`mod.rs` + `transport.rs`) is
+  necessary when the 400-line limit is approached.
 
 ## Context and orientation
 
