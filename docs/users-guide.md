@@ -879,6 +879,12 @@ fragmentation is delegated to an upstream gateway). The `ConnectionActor`
 mirrors the same behaviour for push traffic and streaming responses through
 `enable_fragmentation`, ensuring client-visible frames follow the same format.
 
+On the server side, a unified `FramePipeline` applies the same fragmentation
+logic to all outbound `Envelope` values — handler responses, streaming frames,
+and multi-packet channels — before serialisation and codec wrapping. This
+guarantees that a single connection-scoped `FragmentationState` manages both
+outbound fragmentation and inbound reassembly.
+
 ## Protocol hooks
 
 Install a custom protocol with `with_protocol`. `protocol_hooks()` converts the

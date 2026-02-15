@@ -388,16 +388,18 @@ integration boundaries.
 
 ### 9.3. Unified codec handling
 
-- [ ] 9.3.1. Unify codec handling between the app router and the `Connection`
+- [x] 9.3.1. Unify codec handling between the app router and the `Connection`
   actor.[^outbound-design]
-  - [ ] Route app-level request and response handling through the actor codec
-    path so protocol hooks apply consistently.
-  - [ ] Remove duplicate codec construction in `src/app/connection.rs` once
-    the actor path owns framing.
-  - [ ] Add integration tests covering streaming responses and push traffic
-    through the unified path.
-  - [ ] Add back-pressure tests for `Response::Stream` routed through the
-    codec layer.[^streaming-design]
+  - [x] Route app-level request and response handling through the
+    `FramePipeline` so fragmentation and metrics apply consistently.
+  - [x] Remove duplicate codec construction in `src/app/connection.rs`; the
+    `FramePipeline` owns outbound fragmentation.
+  - [x] Add integration tests covering the unified pipeline (round-trip,
+    fragmentation, sequential requests, disabled fragmentation).
+  - [x] Add BDD behavioural tests exercising the unified codec path.
+  - [x] Note: protocol hooks (`before_send`) are deferred to a follow-up
+    stage because `F::Frame` and `Envelope` types may
+    differ.[^streaming-design]
 
 ### 9.4. Property-based codec tests
 

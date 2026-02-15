@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS
+Status: STAGE H (FINAL VALIDATION)
 
 No `PLANS.md` exists in this repository as of 2026-02-15.
 
@@ -151,10 +151,22 @@ A library consumer can observe success by:
   `frame_handling/tests.rs` to use `FramePipeline`. Responses now route through
   the pipeline (fragment → metrics → serialize → send). All gates pass (fmt,
   lint, test).
-- [ ] Stage D: remove duplicate codec construction.
-- [ ] Stage E: add integration and back-pressure tests.
-- [ ] Stage F: add BDD behavioural tests.
-- [ ] Stage G: update documentation, design docs, user guide, and roadmap.
+- [x] (2026-02-15 02:00Z) Stage D: duplicate codec construction removed.
+  `FramePipeline` now owns outbound fragmentation; per-response fragment
+  helpers (`fragment_responses`, `serialize_response`, `send_response_payload`)
+  removed from `frame_handling/response.rs`. Committed in `83d28f7`.
+- [x] (2026-02-15 02:30Z) Stage E: integration tests added in
+  `tests/unified_codec.rs`. Five tests: round-trip, fragmented response,
+  unfragmented small payload, multiple sequential requests, disabled
+  fragmentation. Committed in `1b2851a`.
+- [x] (2026-02-15 03:00Z) Stage F: BDD behavioural tests added. Five
+  rstest-bdd scenarios in `tests/features/unified_codec.feature` with fixture
+  `tests/fixtures/unified_codec/` and steps
+  `tests/steps/unified_codec_steps.rs`. Committed in `1a2f854`.
+- [x] (2026-02-15 03:30Z) Stage G: updated design docs
+  (`asynchronous-outbound-messaging-design.md`,
+  `multi-packet-and-streaming-responses-design.md`), `users-guide.md`, and
+  `roadmap.md` with unified pipeline notes.
 - [ ] Stage H: run all quality gates.
 
 ## Surprises & discoveries

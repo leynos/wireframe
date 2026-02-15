@@ -834,6 +834,15 @@ features of the 1.0 release.
   the socket. The `PushHandle` and the application code that uses it remain
   completely unaware of fragmentation.
 
+- **Unified Codec Pipeline:** On the server side, the `FramePipeline`
+  (`src/app/codec_driver.rs`) applies outbound fragmentation and metrics to
+  every `Envelope` before it reaches the wire. Handler responses pass through
+  the pipeline before serialisation and codec wrapping, ensuring the same
+  fragmentation logic applies to both handler responses and push traffic.
+  Protocol hooks are applied at the connection-actor level and are currently
+  deferred for the app-router path pending resolution of the `F::Frame` vs
+  `Envelope` type constraint.
+
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.
 use wireframe::app::WireframeApp;
