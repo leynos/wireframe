@@ -170,7 +170,8 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
 
 - Parameterize `FrameHandlingContext` and `ResponseContext` over the codec.
 - Replace `LengthDelimitedCodec` usage with `FrameCodec` decoder/encoder calls.
-- Use `max_frame_length()` for buffer sizing and fragmentation defaults.
+- Use `max_frame_length()` for buffer sizing and explicit fragmentation
+  configuration helpers (`enable_fragmentation`).
 
 ### Phase 4: Update `WireframeServer`
 

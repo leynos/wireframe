@@ -147,6 +147,7 @@ fn when_reassembler_fragment_non_final(
 #[when(
     "fragment {index:u32} for message {message:u64} with {len:usize} bytes arrives marked final"
 )]
+#[when("fragment {index:u32} for message {message:u64} with {len:usize} byte arrives marked final")]
 fn when_reassembler_fragment_final(
     fragment_world: &mut FragmentWorld,
     index: u32,
@@ -194,10 +195,19 @@ fn then_reassembly_out_of_order(fragment_world: &mut FragmentWorld) -> TestResul
     Ok(())
 }
 
-#[then("the reassembler is buffering {expected:usize} messages")]
-fn then_buffered_messages(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
+fn assert_buffered_messages(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
     fragment_world.assert_buffered_messages(expected)?;
     Ok(())
+}
+
+#[then("the reassembler is buffering {expected:usize} message")]
+fn then_buffered_message(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
+    assert_buffered_messages(fragment_world, expected)
+}
+
+#[then("the reassembler is buffering {expected:usize} messages")]
+fn then_buffered_messages(fragment_world: &mut FragmentWorld, expected: usize) -> TestResult {
+    assert_buffered_messages(fragment_world, expected)
 }
 
 #[then("message {message:u64} is evicted")]

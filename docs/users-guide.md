@@ -106,7 +106,10 @@ and a 100 ms read timeout. Clamp the length-delimited limit with
 `buffer_capacity` (length-delimited only), swap codecs with `with_codec`, and
 override the serializer with `with_serializer` when a different encoding
 strategy is required.[^3][^4] Custom protocols implement `FrameCodec` to
-describe their framing rules.
+describe their framing rules. Changing frame budgets with `buffer_capacity` or
+swapping codecs with `with_codec` clears fragmentation settings, so call
+`enable_fragmentation()` (or `fragmentation(Some(cfg))`) again when transport
+fragmentation is required.
 
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
@@ -128,19 +131,20 @@ A codec implementation must:
 - Define a `Frame` type and paired decoder/encoder implementations that return
   `std::io::Error` on failure.
 - Return only the logical payload bytes from `frame_payload` so metadata parsing
-  and deserialisation run against the right buffer.
+  and deserialization run against the right buffer.
 - Wrap outbound payloads with `wrap_payload(&self, Bytes)`, adding any protocol
   headers or metadata required by the wire format.
 - Provide `correlation_id` when the protocol stores it outside the payload;
   Wireframe only uses this hook when the deserialized envelope is missing a
   correlation identifier.
-- Report `max_frame_length`, which clamps inbound frames and seeds default
-  fragmentation limits.
+- Report `max_frame_length`, which clamps inbound frames and determines the
+  budget used by `enable_fragmentation`.
 
-Install a custom codec with `with_codec`. The builder resets fragmentation to
-the codec-derived defaults, so override fragmentation afterwards if the
-protocol uses a different budget. Wireframe clones the codec per connection, so
-stateful codecs should ensure `Clone` produces an independent state (for
+Install a custom codec with `with_codec`. The builder disables fragmentation
+when codecs or the length-delimited frame budget change, so explicitly call
+`enable_fragmentation()` (or `fragmentation(Some(cfg))`) afterwards when
+transport fragmentation is required. Wireframe clones the codec per connection,
+so stateful codecs should ensure `Clone` produces an independent state (for
 example, reset sequence counters) when per-connection isolation is required.
 When a framed stream is already available, use
 `send_response_framed_with_codec`, so responses pass through
@@ -360,7 +364,7 @@ The standalone `Fragmenter` helper now slices oversized payloads into capped
 fragments while stamping the shared `MessageId` and sequential `FragmentIndex`.
 Each call returns a `FragmentBatch` that reports whether the message required
 fragmentation and yields individual `FragmentFrame` values for serialization or
-logging. This keeps transport experiments lightweight while the full adaptor
+logging. This keeps transport experiments lightweight while the full adapter
 layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
 failures or index overflows—so production code should bubble the error up or
 log it rather than unwrapping.
@@ -671,7 +675,7 @@ async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
 }
 ```
 
-The `RequestBodyReader` adaptor implements `AsyncRead`, allowing protocol
+The `RequestBodyReader` adapter implements `AsyncRead`, allowing protocol
 crates to reuse existing parsers. For raw stream access, use the
 `RequestBodyStream` directly with `StreamExt` methods:
 
@@ -827,13 +831,17 @@ async fn main() -> Result<(), SendError> {
 
 ## Message fragmentation
 
-`WireframeApp` now fragments oversized payloads automatically. The builder
-derives a `FragmentationConfig` from the active frame codec's maximum frame
-length (the default length-delimited codec uses `buffer_capacity`): any payload
-that will not fit into a single frame is split into fragments carrying a
+`WireframeApp` keeps transport fragmentation disabled by default. Enable it
+explicitly with `enable_fragmentation()` or provide a bespoke
+`FragmentationConfig` using `fragmentation(Some(cfg))`. When enabled, payloads
+that exceed the frame budget are split into fragments carrying a
 `FragmentHeader` (`message_id`, `fragment_index`, `is_last_fragment`) wrapped
 with the `FRAG` marker. The connection reassembles fragments before invoking
 handlers, so handlers continue to work with complete `Envelope` values.[^6]
+
+Layering order is fixed. Outbound processing runs serializer → fragmentation →
+codec wrapping. Inbound processing runs codec decode → fragment reassembly →
+deserialization.
 
 Fragmented messages enforce two guards: `max_message_size` caps the total
 reassembled payload, and `reassembly_timeout` evicts stale partial messages.
@@ -858,11 +866,11 @@ let app = WireframeApp::new()?
     .route(42, handler)?;
 ```
 
-Set `fragmentation(None)` when the transport already supports large frames, or
-when fragmentation should be deferred to an upstream gateway. The
-`ConnectionActor` mirrors the same behaviour for push traffic and streaming
-responses through `enable_fragmentation`, ensuring client-visible frames follow
-the same format.
+Call `fragmentation(None)` to keep fragmentation disabled after explicit
+configuration (for example, when the transport already supports large frames or
+fragmentation is delegated to an upstream gateway). The `ConnectionActor`
+mirrors the same behaviour for push traffic and streaming responses through
+`enable_fragmentation`, ensuring client-visible frames follow the same format.
 
 ## Protocol hooks
 
@@ -1313,7 +1321,7 @@ Phase out older message versions without breaking clients:
 - Emit version N on egress so clients observe a single schema.
 - Publish metrics and logs describing legacy usage to support operator
   dashboards.[^33][^8]
-- Remove adaptors once the sunset window ends.
+- Remove adapters once the sunset window ends.
 
 ```rust
 use std::sync::Arc;

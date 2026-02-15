@@ -80,3 +80,24 @@ async fn reassembler_evicts(fragment_world: FragmentWorld) { let _ = fragment_wo
 )]
 #[tokio::test(flavor = "current_thread")]
 async fn reassembler_out_of_order(fragment_world: FragmentWorld) { let _ = fragment_world; }
+
+#[scenario(
+    path = "tests/features/fragment.feature",
+    name = "Reassembler suppresses duplicate fragments"
+)]
+#[tokio::test(flavor = "current_thread")]
+async fn reassembler_duplicate(fragment_world: FragmentWorld) { let _ = fragment_world; }
+
+#[scenario(
+    path = "tests/features/fragment.feature",
+    name = "Reassembler handles zero-length fragments"
+)]
+#[tokio::test(flavor = "current_thread")]
+async fn reassembler_zero_length(fragment_world: FragmentWorld) { let _ = fragment_world; }
+
+#[scenario(
+    path = "tests/features/fragment.feature",
+    name = "Reassembler rebuilds interleaved messages"
+)]
+#[tokio::test(flavor = "current_thread")]
+async fn reassembler_interleaved(fragment_world: FragmentWorld) { let _ = fragment_world; }

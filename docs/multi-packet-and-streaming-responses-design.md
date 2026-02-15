@@ -427,6 +427,8 @@ not hang.
   `FragmentAdapter` will operate at a lower layer, transparently splitting any
   large frames yielded by the stream before they are written to the socket. The
   handler and streaming logic remain completely unaware of fragmentation.
+  Outbound order is serializer → fragmentation → codec framing; inbound order
+  is codec decode → fragment reassembly → deserialization.
 
 - **Streaming Request Bodies:** [ADR 0002][adr-0002] introduces first-class
   streaming request bodies as the inbound counterpart to streaming responses.

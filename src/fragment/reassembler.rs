@@ -157,6 +157,7 @@ impl Reassembler {
                         payload,
                         false,
                     ),
+                    Ok(FragmentStatus::Duplicate) => Ok(None),
                     Ok(FragmentStatus::Complete) => Self::append_and_maybe_complete(
                         self.max_message_size,
                         occupied,
@@ -178,6 +179,14 @@ impl Reassembler {
                 match status {
                     FragmentStatus::Incomplete => {
                         vacant.insert(PartialMessage::new(series, payload, now));
+                        Ok(None)
+                    }
+                    FragmentStatus::Duplicate => {
+                        debug_assert!(
+                            false,
+                            "newly created FragmentSeries starts at index 0; a first fragment \
+                             cannot be duplicate"
+                        );
                         Ok(None)
                     }
                     FragmentStatus::Complete => Ok(Some(ReassembledMessage::new(

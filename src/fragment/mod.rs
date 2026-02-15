@@ -5,6 +5,7 @@
 //! code small and easy to audit while still providing a cohesive API at the
 //! crate root.
 
+pub mod adapter;
 pub mod config;
 pub mod error;
 pub mod fragmenter;
@@ -16,6 +17,7 @@ pub mod payload;
 pub mod reassembler;
 pub mod series;
 
+pub use adapter::{DefaultFragmentAdapter, FragmentAdapter, FragmentAdapterError};
 pub use config::FragmentationConfig;
 pub use error::{FragmentError, FragmentStatus, FragmentationError, ReassemblyError};
 pub use fragmenter::{FragmentBatch, FragmentFrame, Fragmenter};

@@ -370,20 +370,20 @@ integration boundaries.
 
 ### 9.2. Fragment adaptor alignment
 
-- [ ] 9.2.1. Introduce a `FragmentAdapter` trait as described in the
+- [x] 9.2.1. Introduce a `FragmentAdapter` trait as described in the
   fragmentation design.[^fragmentation-design] Fragmentation behaviour must
   explicitly define duplicate handling, out-of-order policies, and ownership of
   purge scheduling.
-  - [ ] Make fragmentation opt-in by requiring explicit configuration on the
+  - [x] Make fragmentation opt-in by requiring explicit configuration on the
     `WireframeApp` builder.
-  - [ ] Expose a public purge API, so callers can drive timeout eviction.
-  - [ ] Document the composition order for codec, fragmentation, and
+  - [x] Expose a public purge API, so callers can drive timeout eviction.
+  - [x] Document the composition order for codec, fragmentation, and
     serialization layers.
-  - [ ] Define and implement duplicate suppression and out-of-order handling
+  - [x] Define and implement duplicate suppression and out-of-order handling
     for fragment series.
-  - [ ] Define and test zero-length fragment behaviour and fragment index
+  - [x] Define and test zero-length fragment behaviour and fragment index
     overflow handling.
-  - [ ] Add unit and integration tests for opt-in behaviour, interleaved
+  - [x] Add unit and integration tests for opt-in behaviour, interleaved
     reassembly, and duplicate and out-of-order fragments.
 
 ### 9.3. Unified codec handling

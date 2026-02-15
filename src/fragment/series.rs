@@ -60,9 +60,13 @@ impl FragmentSeries {
     ///
     /// Returns [`FragmentError::MessageMismatch`] when the fragment belongs to
     /// a different message, [`FragmentError::IndexMismatch`] when the fragment
-    /// arrives out of order, [`FragmentError::SeriesComplete`] when the series
-    /// already consumed a final fragment, and [`FragmentError::IndexOverflow`]
-    /// when the fragment index cannot advance further.
+    /// arrives ahead of the expected index, [`FragmentError::SeriesComplete`]
+    /// when a non-duplicate fragment arrives after completion, and
+    /// [`FragmentError::IndexOverflow`] when the fragment index cannot advance
+    /// further.
+    ///
+    /// When a fragment repeats an already accepted index, this method returns
+    /// [`FragmentStatus::Duplicate`] and leaves the series position unchanged.
     pub fn accept(&mut self, fragment: FragmentHeader) -> Result<FragmentStatus, FragmentError> {
         if fragment.message_id() != self.message_id {
             return Err(FragmentError::MessageMismatch {
@@ -71,11 +75,15 @@ impl FragmentSeries {
             });
         }
 
+        if fragment.fragment_index() < self.next_index {
+            return Ok(FragmentStatus::Duplicate);
+        }
+
         if self.complete {
             return Err(FragmentError::SeriesComplete);
         }
 
-        if fragment.fragment_index() != self.next_index {
+        if fragment.fragment_index() > self.next_index {
             return Err(FragmentError::IndexMismatch {
                 expected: self.next_index,
                 found: fragment.fragment_index(),
