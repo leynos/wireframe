@@ -1,6 +1,6 @@
 //! Unit tests for inbound message assembly integration.
 
-use std::{num::NonZeroUsize, sync::Arc, thread, time::Duration};
+use std::{io, num::NonZeroUsize, sync::Arc, thread, time::Duration};
 
 use bytes::{BufMut, BytesMut};
 use rstest::{fixture, rstest};
@@ -59,6 +59,21 @@ fn continuation_frame_payload(key: u64, sequence: u32, body: &[u8], is_last: boo
 
 fn inbound_envelope(id: u32, payload: Vec<u8>) -> Envelope { Envelope::new(id, Some(7), payload) }
 
+/// Test helper to process a frame through the assembly pipeline.
+fn process_assembly_frame(
+    assembler: &Arc<dyn crate::message_assembler::MessageAssembler>,
+    state: &mut Option<MessageAssemblyState>,
+    deser_failures: &mut u32,
+    envelope: Envelope,
+) -> io::Result<Option<Envelope>> {
+    assemble_if_needed(
+        AssemblyRuntime::new(Some(assembler), state),
+        deser_failures,
+        envelope,
+        10,
+    )
+}
+
 #[rstest]
 fn inbound_assembly_handles_interleaved_sequences(
     message_assembler: Arc<dyn crate::message_assembler::MessageAssembler>,
@@ -73,41 +88,41 @@ fn inbound_assembly_handles_interleaved_sequences(
     let key2_last = inbound_envelope(9, continuation_frame_payload(2, 1, b"B2", true));
 
     assert!(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+        process_assembly_frame(
+            &message_assembler,
+            &mut message_assembly_state,
             &mut deser_failures,
             key1_first,
-            10,
         )
         .expect("first key1 should process")
         .is_none()
     );
     assert!(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+        process_assembly_frame(
+            &message_assembler,
+            &mut message_assembly_state,
             &mut deser_failures,
             key2_first,
-            10,
         )
         .expect("first key2 should process")
         .is_none()
     );
 
-    let completed_a = assemble_if_needed(
-        AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+    let completed_a = process_assembly_frame(
+        &message_assembler,
+        &mut message_assembly_state,
         &mut deser_failures,
         key1_last,
-        10,
     )
     .expect("key1 completion should process")
     .expect("key1 should complete");
     assert_eq!(completed_a.payload_bytes(), b"A1A2");
 
-    let completed_b = assemble_if_needed(
-        AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+    let completed_b = process_assembly_frame(
+        &message_assembler,
+        &mut message_assembly_state,
         &mut deser_failures,
         key2_last,
-        10,
     )
     .expect("key2 completion should process")
     .expect("key2 should complete");
@@ -130,31 +145,31 @@ fn inbound_assembly_rejects_ordering_violations(
     let cont_seq2 = inbound_envelope(3, continuation_frame_payload(99, 2, b"gh", true));
 
     assert!(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+        process_assembly_frame(
+            &message_assembler,
+            &mut message_assembly_state,
             &mut deser_failures,
             first,
-            10,
         )
         .expect("first frame should process")
         .is_none()
     );
     assert!(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+        process_assembly_frame(
+            &message_assembler,
+            &mut message_assembly_state,
             &mut deser_failures,
             cont_seq1,
-            10,
         )
         .expect("first continuation should process")
         .is_none()
     );
     assert!(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+        process_assembly_frame(
+            &message_assembler,
+            &mut message_assembly_state,
             &mut deser_failures,
             cont_seq3,
-            10,
         )
         .expect("out-of-order continuation should be recoverable")
         .is_none()
@@ -164,11 +179,11 @@ fn inbound_assembly_rejects_ordering_violations(
         "ordering violation should count as one failure"
     );
 
-    let completed = assemble_if_needed(
-        AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+    let completed = process_assembly_frame(
+        &message_assembler,
+        &mut message_assembly_state,
         &mut deser_failures,
         cont_seq2,
-        10,
     )
     .expect("recovery continuation should process")
     .expect("message should complete after recovery");
@@ -185,11 +200,11 @@ fn inbound_assembly_timeout_purges_partial_state(
 
     let first = inbound_envelope(5, first_frame_payload(7, Some(4), b"ab", false));
     assert!(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+        process_assembly_frame(
+            &message_assembler,
+            &mut message_assembly_state,
             &mut deser_failures,
             first,
-            10,
         )
         .expect("first frame should process")
         .is_none()
@@ -200,11 +215,11 @@ fn inbound_assembly_timeout_purges_partial_state(
 
     let continuation = inbound_envelope(5, continuation_frame_payload(7, 1, b"cd", true));
     assert!(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut message_assembly_state),
+        process_assembly_frame(
+            &message_assembler,
+            &mut message_assembly_state,
             &mut deser_failures,
             continuation,
-            10,
         )
         .expect("continuation after purge should be recoverable")
         .is_none()
