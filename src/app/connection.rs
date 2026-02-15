@@ -24,14 +24,19 @@ use crate::{
     fragment::FragmentationConfig,
     frame::FrameMetadata,
     message::Message,
+    message_assembler::MessageAssemblyState,
     middleware::HandlerService,
     serializer::Serializer,
 };
 
-fn purge_expired(fragmentation: &mut Option<FragmentationState>) {
+fn purge_expired(
+    fragmentation: &mut Option<FragmentationState>,
+    message_assembly: &mut Option<MessageAssemblyState>,
+) {
     if let Some(frag) = fragmentation.as_mut() {
         frag.purge_expired();
     }
+    frame_handling::purge_expired_assemblies(message_assembly);
 }
 
 /// Maximum consecutive deserialization failures before closing a connection.
@@ -48,6 +53,7 @@ where
     deser_failures: &'a mut u32,
     routes: &'a HashMap<u32, HandlerService<E>>,
     fragmentation: &'a mut Option<FragmentationState>,
+    message_assembly: &'a mut Option<MessageAssemblyState>,
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -254,6 +260,9 @@ where
         framed.read_buffer_mut().reserve(max_frame_length);
         let mut deser_failures = 0u32;
         let mut fragmentation = self.fragmentation_config().map(FragmentationState::new);
+        let mut message_assembly = self.message_assembler.as_ref().map(|_| {
+            frame_handling::new_message_assembly_state(self.fragmentation, requested_frame_length)
+        });
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
@@ -266,6 +275,7 @@ where
                             deser_failures: &mut deser_failures,
                             routes,
                             fragmentation: &mut fragmentation,
+                            message_assembly: &mut message_assembly,
                         },
                         &codec,
                     )
@@ -275,7 +285,7 @@ where
                 Ok(None) => break,
                 Err(_) => {
                     debug!("read timeout elapsed; continuing to wait for next frame");
-                    purge_expired(&mut fragmentation);
+                    purge_expired(&mut fragmentation, &mut message_assembly);
                 }
             }
         }
@@ -297,14 +307,30 @@ where
             deser_failures,
             routes,
             fragmentation,
+            message_assembly,
         } = ctx;
 
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
-        let Some(env) = self.decode_envelope(frame, deser_failures)? else {
+        let Some(env) = frame_handling::decode_envelope::<F>(
+            self.parse_envelope(F::frame_payload(frame)),
+            frame,
+            deser_failures,
+            MAX_DESER_FAILURES,
+        )?
+        else {
             return Ok(());
         };
         let Some(env) = frame_handling::reassemble_if_needed(
             fragmentation,
+            deser_failures,
+            env,
+            MAX_DESER_FAILURES,
+        )?
+        else {
+            return Ok(());
+        };
+        let Some(env) = frame_handling::assemble_if_needed(
+            frame_handling::AssemblyRuntime::new(self.message_assembler.as_ref(), message_assembly),
             deser_failures,
             env,
             MAX_DESER_FAILURES,
@@ -333,51 +359,6 @@ where
         }
 
         Ok(())
-    }
-
-    /// Increment deserialization failures and close the connection if the threshold is exceeded.
-    fn handle_decode_failure(
-        deser_failures: &mut u32,
-        correlation_id: Option<u64>,
-        context: &str,
-        err: impl std::fmt::Debug,
-    ) -> Result<Option<Envelope>, io::Error> {
-        *deser_failures += 1;
-        warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
-        crate::metrics::inc_deser_errors();
-        if *deser_failures >= MAX_DESER_FAILURES {
-            warn!("closing connection after {deser_failures} deserialization failures: {context}");
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "too many deserialization failures",
-            ));
-        }
-        Ok(None)
-    }
-
-    fn decode_envelope(
-        &self,
-        frame: &F::Frame,
-        deser_failures: &mut u32,
-    ) -> Result<Option<Envelope>, io::Error> {
-        match self.parse_envelope(F::frame_payload(frame)) {
-            Ok((mut env, _)) => {
-                if env.correlation_id.is_none() {
-                    env.correlation_id = F::correlation_id(frame);
-                }
-                *deser_failures = 0;
-                Ok(Some(env))
-            }
-            Err(err) => {
-                let correlation_id = F::correlation_id(frame);
-                Self::handle_decode_failure(
-                    deser_failures,
-                    correlation_id,
-                    "failed to decode message",
-                    err,
-                )
-            }
-        }
     }
 }
 

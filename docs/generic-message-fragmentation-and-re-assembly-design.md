@@ -464,8 +464,9 @@ packet payloads and focuses on protocol continuity rules.
 Wireframe exposes the hook surface as
 `wireframe::message_assembler::MessageAssembler`, and applications register an
 implementation via `WireframeApp::with_message_assembler`. The hook is stored
-on the builder today and integrated into the inbound pipeline in roadmap item
-8.2.5.
+on the app instance and is applied in the inbound runtime pipeline in
+`WireframeApp` connection handling, after transport reassembly and before
+handler dispatch.
 
 ### 9.3 Memory budget integration
 
