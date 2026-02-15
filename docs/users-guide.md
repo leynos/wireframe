@@ -493,7 +493,7 @@ Message-assembly parsing and continuity failures are treated as inbound
 deserialization failures and follow the existing failure threshold policy.
 
 `WireframeApp::message_assembler` returns the configured hook as an
-`Option<&Arc<dyn MessageAssembler>>` if you need to access it directly.
+`Option<&Arc<dyn MessageAssembler>>` if direct access is required.
 
 #### Message key multiplexing (8.2.3)
 

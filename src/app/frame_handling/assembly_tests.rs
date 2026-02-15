@@ -2,11 +2,14 @@
 
 use std::{io, num::NonZeroUsize, sync::Arc, thread, time::Duration};
 
-use bytes::{BufMut, BytesMut};
 use rstest::{fixture, rstest};
 
 use super::{AssemblyRuntime, assemble_if_needed, purge_expired_assemblies};
-use crate::{app::Envelope, message_assembler::MessageAssemblyState, test_helpers::TestAssembler};
+use crate::{
+    app::Envelope,
+    message_assembler::MessageAssemblyState,
+    test_helpers::{self, TestAssembler},
+};
 
 #[fixture]
 fn message_assembler() -> Arc<dyn crate::message_assembler::MessageAssembler> {
@@ -19,42 +22,6 @@ fn message_assembly_state() -> MessageAssemblyState {
         NonZeroUsize::new(1024).unwrap_or(NonZeroUsize::MIN),
         Duration::from_millis(5),
     )
-}
-
-fn first_frame_payload(key: u64, total: Option<u32>, body: &[u8], is_last: bool) -> Vec<u8> {
-    let mut payload = BytesMut::new();
-    payload.put_u8(0x01);
-    let mut flags = 0u8;
-    if is_last {
-        flags |= 0b1;
-    }
-    if total.is_some() {
-        flags |= 0b10;
-    }
-    payload.put_u8(flags);
-    payload.put_u64(key);
-    payload.put_u16(0);
-    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
-    if let Some(total) = total {
-        payload.put_u32(total);
-    }
-    payload.extend_from_slice(body);
-    payload.to_vec()
-}
-
-fn continuation_frame_payload(key: u64, sequence: u32, body: &[u8], is_last: bool) -> Vec<u8> {
-    let mut payload = BytesMut::new();
-    payload.put_u8(0x02);
-    let mut flags = 0b10;
-    if is_last {
-        flags |= 0b1;
-    }
-    payload.put_u8(flags);
-    payload.put_u64(key);
-    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
-    payload.put_u32(sequence);
-    payload.extend_from_slice(body);
-    payload.to_vec()
 }
 
 fn inbound_envelope(id: u32, payload: Vec<u8>) -> Envelope { Envelope::new(id, Some(7), payload) }
@@ -82,10 +49,22 @@ fn inbound_assembly_handles_interleaved_sequences(
     let mut deser_failures = 0_u32;
     let mut message_assembly_state = Some(message_assembly_state);
 
-    let key1_first = inbound_envelope(9, first_frame_payload(1, Some(4), b"A1", false));
-    let key2_first = inbound_envelope(9, first_frame_payload(2, Some(4), b"B1", false));
-    let key1_last = inbound_envelope(9, continuation_frame_payload(1, 1, b"A2", true));
-    let key2_last = inbound_envelope(9, continuation_frame_payload(2, 1, b"B2", true));
+    let key1_first = inbound_envelope(
+        9,
+        test_helpers::first_frame_payload(1, b"A1", false, Some(4)),
+    );
+    let key2_first = inbound_envelope(
+        9,
+        test_helpers::first_frame_payload(2, b"B1", false, Some(4)),
+    );
+    let key1_last = inbound_envelope(
+        9,
+        test_helpers::continuation_frame_payload(1, 1, b"A2", true),
+    );
+    let key2_last = inbound_envelope(
+        9,
+        test_helpers::continuation_frame_payload(2, 1, b"B2", true),
+    );
 
     assert!(
         process_assembly_frame(
@@ -139,10 +118,22 @@ fn inbound_assembly_rejects_ordering_violations(
     let mut deser_failures = 0_u32;
     let mut message_assembly_state = Some(message_assembly_state);
 
-    let first = inbound_envelope(3, first_frame_payload(99, Some(6), b"ab", false));
-    let cont_seq1 = inbound_envelope(3, continuation_frame_payload(99, 1, b"cd", false));
-    let cont_seq3 = inbound_envelope(3, continuation_frame_payload(99, 3, b"ef", false));
-    let cont_seq2 = inbound_envelope(3, continuation_frame_payload(99, 2, b"gh", true));
+    let first = inbound_envelope(
+        3,
+        test_helpers::first_frame_payload(99, b"ab", false, Some(6)),
+    );
+    let cont_seq1 = inbound_envelope(
+        3,
+        test_helpers::continuation_frame_payload(99, 1, b"cd", false),
+    );
+    let cont_seq3 = inbound_envelope(
+        3,
+        test_helpers::continuation_frame_payload(99, 3, b"ef", false),
+    );
+    let cont_seq2 = inbound_envelope(
+        3,
+        test_helpers::continuation_frame_payload(99, 2, b"gh", true),
+    );
 
     assert!(
         process_assembly_frame(
@@ -198,7 +189,10 @@ fn inbound_assembly_timeout_purges_partial_state(
     let mut deser_failures = 0_u32;
     let mut message_assembly_state = Some(message_assembly_state);
 
-    let first = inbound_envelope(5, first_frame_payload(7, Some(4), b"ab", false));
+    let first = inbound_envelope(
+        5,
+        test_helpers::first_frame_payload(7, b"ab", false, Some(4)),
+    );
     assert!(
         process_assembly_frame(
             &message_assembler,
@@ -213,7 +207,10 @@ fn inbound_assembly_timeout_purges_partial_state(
     thread::sleep(Duration::from_millis(20));
     purge_expired_assemblies(&mut message_assembly_state);
 
-    let continuation = inbound_envelope(5, continuation_frame_payload(7, 1, b"cd", true));
+    let continuation = inbound_envelope(
+        5,
+        test_helpers::continuation_frame_payload(7, 1, b"cd", true),
+    );
     assert!(
         process_assembly_frame(
             &message_assembler,
@@ -228,4 +225,44 @@ fn inbound_assembly_timeout_purges_partial_state(
         deser_failures, 1,
         "continuation after timeout purge should count as missing first frame",
     );
+}
+
+#[rstest]
+fn assemble_if_needed_passes_through_when_assembler_is_none(
+    message_assembly_state: MessageAssemblyState,
+) {
+    let mut deser_failures = 0_u32;
+    let mut state = Some(message_assembly_state);
+
+    let envelope = inbound_envelope(9, test_helpers::first_frame_payload(1, b"A", true, Some(1)));
+    let result = assemble_if_needed(
+        AssemblyRuntime::new(None, &mut state),
+        &mut deser_failures,
+        envelope.clone(),
+        10,
+    )
+    .expect("assemble_if_needed should succeed");
+
+    assert_eq!(result.as_ref(), Some(&envelope));
+    assert_eq!(deser_failures, 0, "no failures when assembler is absent");
+}
+
+#[rstest]
+fn assemble_if_needed_passes_through_when_state_is_none(
+    message_assembler: Arc<dyn crate::message_assembler::MessageAssembler>,
+) {
+    let mut deser_failures = 0_u32;
+    let mut state: Option<MessageAssemblyState> = None;
+
+    let envelope = inbound_envelope(9, test_helpers::first_frame_payload(1, b"A", true, Some(1)));
+    let result = assemble_if_needed(
+        AssemblyRuntime::new(Some(&message_assembler), &mut state),
+        &mut deser_failures,
+        envelope.clone(),
+        10,
+    )
+    .expect("assemble_if_needed should succeed");
+
+    assert_eq!(result.as_ref(), Some(&envelope));
+    assert_eq!(deser_failures, 0, "no failures when state is absent");
 }

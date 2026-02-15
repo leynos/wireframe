@@ -19,7 +19,6 @@ where
             if env.correlation_id.is_none() {
                 env.correlation_id = F::correlation_id(frame);
             }
-            *deser_failures = 0;
             Ok(Some(env))
         }
         Err(err) => {

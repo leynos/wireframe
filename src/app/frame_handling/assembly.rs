@@ -130,7 +130,7 @@ pub(crate) fn assemble_if_needed(
             let Some(result) = process_first_frame(&mut context, &header, frame_bytes)? else {
                 return Ok(None);
             };
-            Ok(Some(envelope_from_assembled(
+            Ok(Some(Envelope::from_assembled(
                 env.id,
                 env.correlation_id,
                 &result,
@@ -139,7 +139,7 @@ pub(crate) fn assemble_if_needed(
         FrameHeader::Continuation(header) => {
             let result = process_continuation_frame(&mut context, &header, frame_bytes)?;
             Ok(result
-                .map(|assembled| envelope_from_assembled(env.id, env.correlation_id, &assembled)))
+                .map(|assembled| Envelope::from_assembled(env.id, env.correlation_id, &assembled)))
         }
     }
 }
@@ -150,26 +150,35 @@ struct AssemblyContext<'a, 'b> {
     correlation_id: Option<u64>,
 }
 
+impl AssemblyContext<'_, '_> {
+    /// Record a failure and return `Ok(None)` to continue processing.
+    fn fail_invalid_none(
+        &mut self,
+        context: &str,
+        err: impl std::fmt::Debug,
+    ) -> io::Result<Option<AssembledMessage>> {
+        self.failures.record(self.correlation_id, context, err)?;
+        Ok(None)
+    }
+}
+
 fn process_first_frame(
     context: &mut AssemblyContext<'_, '_>,
     header: &FirstFrameHeader,
     frame_bytes: &[u8],
 ) -> io::Result<Option<AssembledMessage>> {
     let Some(expected_len) = header.metadata_len.checked_add(header.body_len) else {
-        context.failures.record(
-            context.correlation_id,
+        return context.fail_invalid_none(
             "message assembly first frame length overflow",
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 "message assembly first-frame declared length overflow",
             ),
-        )?;
-        return Ok(None);
+        );
     };
 
     if frame_bytes.len() != expected_len {
-        context.failures.record(
-            context.correlation_id,
+        return context.fail_invalid_none(
             "message assembly first frame length mismatch",
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -178,44 +187,35 @@ fn process_first_frame(
                     frame_bytes.len()
                 ),
             ),
-        )?;
-        return Ok(None);
+        );
     }
 
     let Some((metadata, body)) = frame_bytes.split_at_checked(header.metadata_len) else {
-        context.failures.record(
-            context.correlation_id,
+        return context.fail_invalid_none(
             "message assembly first frame metadata split failed",
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 "message assembly first-frame metadata split failed",
             ),
-        )?;
-        return Ok(None);
+        );
     };
 
     let input = match FirstFrameInput::new(header, metadata.to_vec(), body) {
         Ok(input) => input,
         Err(err) => {
-            context.failures.record(
-                context.correlation_id,
+            return context.fail_invalid_none(
                 "message assembly first frame input validation failed",
                 io::Error::new(io::ErrorKind::InvalidData, err),
-            )?;
-            return Ok(None);
+            );
         }
     };
 
     match context.state.accept_first_frame(input) {
         Ok(result) => Ok(result),
-        Err(err) => {
-            context.failures.record(
-                context.correlation_id,
-                "message assembly first frame rejected",
-                io::Error::new(io::ErrorKind::InvalidData, err),
-            )?;
-            Ok(None)
-        }
+        Err(err) => context.fail_invalid_none(
+            "message assembly first frame rejected",
+            io::Error::new(io::ErrorKind::InvalidData, err),
+        ),
     }
 }
 
@@ -225,8 +225,7 @@ fn process_continuation_frame(
     frame_bytes: &[u8],
 ) -> io::Result<Option<AssembledMessage>> {
     if frame_bytes.len() != header.body_len {
-        context.failures.record(
-            context.correlation_id,
+        return context.fail_invalid_none(
             "message assembly continuation frame length mismatch",
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -236,33 +235,27 @@ fn process_continuation_frame(
                     frame_bytes.len()
                 ),
             ),
-        )?;
-        return Ok(None);
+        );
     }
 
     match context.state.accept_continuation_frame(header, frame_bytes) {
         Ok(result) => Ok(result),
-        Err(err) => {
-            context.failures.record(
-                context.correlation_id,
-                "message assembly continuation frame rejected",
-                io::Error::new(io::ErrorKind::InvalidData, err),
-            )?;
-            Ok(None)
-        }
+        Err(err) => context.fail_invalid_none(
+            "message assembly continuation frame rejected",
+            io::Error::new(io::ErrorKind::InvalidData, err),
+        ),
     }
 }
 
-fn envelope_from_assembled(
-    id: u32,
-    correlation_id: Option<u64>,
-    assembled: &AssembledMessage,
-) -> Envelope {
-    let metadata = assembled.metadata();
-    let body = assembled.body();
-    let mut payload = Vec::with_capacity(metadata.len().saturating_add(body.len()));
-    payload.extend_from_slice(metadata);
-    payload.extend_from_slice(body);
+impl Envelope {
+    /// Construct an envelope from a completed message assembly result.
+    fn from_assembled(id: u32, correlation_id: Option<u64>, assembled: &AssembledMessage) -> Self {
+        let metadata = assembled.metadata();
+        let body = assembled.body();
+        let mut payload = Vec::with_capacity(metadata.len().saturating_add(body.len()));
+        payload.extend_from_slice(metadata);
+        payload.extend_from_slice(body);
 
-    Envelope::new(id, correlation_id, payload)
+        Self::new(id, correlation_id, payload)
+    }
 }

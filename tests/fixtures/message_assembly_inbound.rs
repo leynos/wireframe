@@ -2,7 +2,6 @@
 
 use std::{fmt, future::Future, num::NonZeroUsize, time::Duration};
 
-use bytes::{BufMut, BytesMut};
 use futures::SinkExt;
 use rstest::fixture;
 use tokio::{io::DuplexStream, sync::mpsc, task::JoinHandle, time::timeout};
@@ -12,7 +11,7 @@ use wireframe::{
     app::{Envelope, Handler, WireframeApp},
     fragment::FragmentationConfig,
     serializer::BincodeSerializer,
-    test_helpers::TestAssembler,
+    test_helpers::{self, TestAssembler},
 };
 pub use wireframe_testing::TestResult;
 
@@ -178,7 +177,12 @@ impl MessageAssemblyInboundWorld {
 
     pub fn send_first_frame(&mut self, key: impl Into<MessageKey>, body: &str) -> TestResult {
         let key = key.into();
-        self.send_payload(first_frame_payload(key.0, body.as_bytes(), false, None))
+        self.send_payload(test_helpers::first_frame_payload(
+            key.0,
+            body.as_bytes(),
+            false,
+            None,
+        ))
     }
 
     pub fn send_continuation_frame(
@@ -212,7 +216,7 @@ impl MessageAssemblyInboundWorld {
             body,
             is_last,
         } = params;
-        self.send_payload(continuation_frame_payload(
+        self.send_payload(test_helpers::continuation_frame_payload(
             key,
             sequence,
             body.as_bytes(),
@@ -290,51 +294,15 @@ impl MessageAssemblyInboundWorld {
 
     fn collect_observed_for(&mut self, max_wait: Duration) -> TestResult {
         let mut observed_rx = self.observed_rx.take().ok_or("receiver not initialized")?;
-        let collected = self.block_on(async {
+        let result = self.block_on(async {
             let mut collected = Vec::new();
             while let Ok(Some(payload)) = timeout(max_wait, observed_rx.recv()).await {
                 collected.push(payload);
             }
             collected
-        })?;
-        self.observed_payloads.extend(collected);
+        });
         self.observed_rx = Some(observed_rx);
+        self.observed_payloads.extend(result?);
         Ok(())
     }
-}
-
-fn first_frame_payload(key: u64, body: &[u8], is_last: bool, total: Option<u32>) -> Vec<u8> {
-    let mut payload = BytesMut::new();
-    payload.put_u8(0x01);
-    let mut flags = 0u8;
-    if is_last {
-        flags |= 0b1;
-    }
-    if total.is_some() {
-        flags |= 0b10;
-    }
-    payload.put_u8(flags);
-    payload.put_u64(key);
-    payload.put_u16(0);
-    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
-    if let Some(total) = total {
-        payload.put_u32(total);
-    }
-    payload.extend_from_slice(body);
-    payload.to_vec()
-}
-
-fn continuation_frame_payload(key: u64, sequence: u32, body: &[u8], is_last: bool) -> Vec<u8> {
-    let mut payload = BytesMut::new();
-    payload.put_u8(0x02);
-    let mut flags = 0b10;
-    if is_last {
-        flags |= 0b1;
-    }
-    payload.put_u8(flags);
-    payload.put_u64(key);
-    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
-    payload.put_u32(sequence);
-    payload.extend_from_slice(body);
-    payload.to_vec()
 }

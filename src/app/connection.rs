@@ -339,6 +339,11 @@ where
             return Ok(());
         };
 
+        // Reset failure counter only after the entire inbound pipeline
+        // (decode, reassemble, assemble) succeeds, so that assembly-stage
+        // failures accumulate towards the threshold.
+        *deser_failures = 0;
+
         if let Some(service) = routes.get(&env.id) {
             frame_handling::forward_response(
                 env,

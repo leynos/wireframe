@@ -46,7 +46,7 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 ## Tolerances (exception triggers)
 
 - Scope: if implementation requires more than 18 files or more than 900 net
-  LOC, stop and escalate.
+  lines of code (LOC), stop and escalate.
 - Interface: if public API changes beyond removing the existing
   "not yet integrated" caveat are required, stop and escalate.
 - Dependencies: if work requires adding any crate beyond the planned
