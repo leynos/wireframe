@@ -85,7 +85,10 @@ impl<'a> ContinuationFrameParams<'a> {
 
 impl Default for MessageAssemblyInboundWorld {
     fn default() -> Self {
-        match tokio::runtime::Runtime::new() {
+        match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
             Ok(runtime) => Self {
                 runtime: Some(runtime),
                 runtime_error: None,
@@ -163,6 +166,10 @@ impl MessageAssemblyInboundWorld {
         let codec = app.length_codec();
         let (client_stream, server_stream) = tokio::io::duplex(2048);
         let client = Framed::new(client_stream, codec);
+
+        // Pause the tokio clock so that time-advance steps are deterministic
+        // and independent of real wall-clock scheduling.
+        self.block_on(async { tokio::time::pause() })?;
         let server = self
             .runtime()?
             .spawn(async move { app.handle_connection_result(server_stream).await });
@@ -225,7 +232,7 @@ impl MessageAssemblyInboundWorld {
     }
 
     pub fn wait_millis(&mut self, millis: u64) -> TestResult {
-        self.block_on(async { tokio::time::sleep(Duration::from_millis(millis)).await })?;
+        self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
         Ok(())
     }
 
