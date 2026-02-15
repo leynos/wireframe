@@ -18,8 +18,10 @@ mod hooks;
 mod messaging;
 mod preamble_builder;
 mod preamble_exchange;
+mod response_stream;
 mod runtime;
 mod socket_option_methods;
+mod streaming;
 
 pub use builder::WireframeClientBuilder;
 pub use codec_config::ClientCodecConfig;
@@ -30,6 +32,7 @@ pub use hooks::{
     ClientConnectionTeardownHandler,
     ClientErrorHandler,
 };
+pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;
 
 /// Handler invoked after the client successfully writes its preamble.

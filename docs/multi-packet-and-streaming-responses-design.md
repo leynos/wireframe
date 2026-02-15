@@ -45,6 +45,7 @@ duplex and capable framework.
 - [9. Alternatives considered](#9-alternatives-considered)
 - [10. Design decisions](#10-design-decisions)
 - [11. Streaming request bodies](#11-streaming-request-bodies)
+- [12. Client-side streaming consumption](#12-client-side-streaming-consumption)
 
 [sec-3]: #3-core-architecture-declarative-streaming
 
@@ -603,3 +604,89 @@ frames, duplicate frames) while Wireframe provides shared buffering machinery
 and limit enforcement. See [ADR 0002][adr-0002] for the complete specification.
 
 [adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+
+## 12. Client-side streaming consumption
+
+Sections 3–6 document how the **server** produces streaming and multi-packet
+responses. This section describes the symmetric **client** machinery that
+consumes those responses, completing design goal **G5**.
+
+### 12.1 Terminator detection via `Packet::is_stream_terminator`
+
+The server emits a terminator frame via the `stream_end_frame` protocol hook.
+The client must detect that frame to know when to stop reading. Rather than
+introducing a new trait or a closure parameter, the `Packet` trait gains a
+method with a backward-compatible default:
+
+```rust
+fn is_stream_terminator(&self) -> bool { false }
+```
+
+Protocol implementations override this to match their terminator format (for
+example, `self.id == 0`). The approach was chosen over alternatives because:
+
+- **Single abstraction.** `Packet` already models the protocol frame; adding
+  terminator knowledge avoids a parallel hierarchy.
+- **Backward-compatible.** The `false` default means existing `Packet`
+  implementations compile without changes.
+- **Symmetric.** Server produces terminators (`stream_end_frame`); client
+  detects them (`is_stream_terminator`). The two hooks mirror each other.
+
+### 12.2 `ResponseStream` type
+
+`ResponseStream<'a, P, S, T, C>` implements `futures::Stream` and borrows the
+`WireframeClient` exclusively for the duration of the stream. Each `poll_next`
+call:
+
+1. Reads the next length-delimited frame from the transport.
+2. Deserializes it into `P` using the client's configured serializer.
+3. Validates the correlation identifier against the expected value.
+4. Checks `is_stream_terminator()` — if true, marks the stream as terminated
+   and returns `None`.
+5. Otherwise yields `Ok(frame)`.
+
+Key design decisions:
+
+- **Concrete type, not boxed `FrameStream`.** Avoids dynamic dispatch and
+  lets the borrow checker enforce that only one stream is active at a time.
+- **`&mut self` borrowing, not transport splitting.** Splitting `Framed` into
+  read and write halves would complicate the API for marginal benefit. Callers
+  already cannot do concurrent operations on `&mut self`, so the exclusive
+  borrow is natural.
+- **Terminator not yielded.** The terminator frame is swallowed by
+  `ResponseStream` and the stream returns `None`, matching the server's
+  behaviour where `on_command_end` is internal machinery.
+
+### 12.3 Client streaming API surface
+
+Two methods are exposed on `WireframeClient`:
+
+- `call_streaming<P>(request) -> Result<ResponseStream, ClientError>` — sends
+  the request, auto-generates a correlation identifier if the request does not
+  carry one, and returns a `ResponseStream`. This is the high-level API for the
+  common case.
+- `receive_streaming<P>(correlation_id) -> ResponseStream` — returns a stream
+  for a pre-sent request. This is the low-level API for callers who need to
+  send the request separately (for example, via `send_envelope`).
+
+### 12.4 Error handling
+
+`ResponseStream` surfaces three categories of error:
+
+| Error variant                            | Trigger                            |
+| ---------------------------------------- | ---------------------------------- |
+| `ClientError::Wireframe`                 | Transport or decode failure        |
+| `ClientError::StreamCorrelationMismatch` | Frame carries wrong correlation ID |
+| `ClientError::StreamTerminated`          | Polling after the stream has ended |
+
+Correlation validation is performed on every frame before it is yielded to the
+consumer. A mismatch terminates the stream immediately, because mixed
+correlation traffic indicates a protocol violation that cannot be recovered.
+
+### 12.5 Back-pressure
+
+No explicit flow-control messages are needed. TCP flow control provides natural
+back-pressure: if the client reads slowly, the receive buffer fills, the
+server's send buffer fills, write operations suspend, and the server stops
+polling its response stream or channel. This is consistent with the server-side
+back-pressure architecture described in Section 3.1.

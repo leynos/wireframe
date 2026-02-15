@@ -54,6 +54,29 @@ pub enum ClientError {
         /// The correlation ID received in the response.
         received: Option<u64>,
     },
+    /// A frame within a streaming response carried a correlation ID that does
+    /// not match the request.
+    ///
+    /// This error is returned by
+    /// [`ResponseStream`](crate::client::ResponseStream) when a data frame
+    /// or terminator arrives with an unexpected correlation identifier.
+    #[error(
+        "correlation ID mismatch in streaming response: expected {expected:?}, received \
+         {received:?}"
+    )]
+    StreamCorrelationMismatch {
+        /// The correlation ID sent with the request.
+        expected: Option<u64>,
+        /// The correlation ID received in the response frame.
+        received: Option<u64>,
+    },
+    /// The streaming response has already been terminated.
+    ///
+    /// Returned when the caller attempts to read from a
+    /// [`ResponseStream`](crate::client::ResponseStream) after the
+    /// end-of-stream terminator has been received.
+    #[error("streaming response already terminated")]
+    StreamTerminated,
 }
 
 impl ClientError {

@@ -7,6 +7,7 @@ pub mod client_lifecycle;
 pub mod client_messaging;
 pub mod client_preamble;
 pub mod client_runtime;
+pub mod client_streaming;
 pub mod codec_error;
 pub mod codec_stateful;
 pub mod correlation;
