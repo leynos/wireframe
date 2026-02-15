@@ -113,7 +113,10 @@ where
     /// returned.
     ///
     /// # Errors
-    /// Returns [`ClientError`] if serialization or I/O fails.
+    /// Returns [`ClientError`] if serialization fails or transport I/O fails.
+    /// Transport failures are surfaced through
+    /// [`crate::WireframeError::Io`] within
+    /// [`ClientError::Wireframe`](super::ClientError::Wireframe).
     ///
     /// # Examples
     ///
@@ -157,7 +160,9 @@ where
     ///
     /// # Errors
     /// Returns [`ClientError`] if the connection closes, decoding fails, or I/O
-    /// errors occur.
+    /// errors occur. Transport failures are surfaced through
+    /// [`crate::WireframeError::Io`], while decode failures are surfaced
+    /// through [`crate::WireframeError::Protocol`].
     ///
     /// # Examples
     ///
@@ -188,7 +193,9 @@ where
     ///
     /// # Errors
     /// Returns [`ClientError`] if the request cannot be sent or the response
-    /// cannot be decoded.
+    /// cannot be decoded. Transport failures are surfaced through
+    /// [`crate::WireframeError::Io`], while decode failures are surfaced
+    /// through [`crate::WireframeError::Protocol`].
     ///
     /// # Examples
     ///

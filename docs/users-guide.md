@@ -1153,6 +1153,42 @@ match client.call_correlated(request).await {
 }
 ```
 
+### Client request/response error mapping
+
+Client request/response operations (`receive`, `call`, `receive_envelope`, and
+`call_correlated`) map transport and decode failures to `WireframeError`
+variants exposed through `ClientError::Wireframe`:
+
+- Transport failures map to `WireframeError::Io`.
+- Decode failures map to `WireframeError::Protocol` with
+  `ClientProtocolError::Deserialize`.
+
+```rust,ignore
+use wireframe::{
+    ClientError,
+    ClientProtocolError,
+    WireframeError,
+};
+
+match client.call(&request).await {
+    Ok(response) => {
+        // Handle successful response.
+    }
+    Err(ClientError::Wireframe(WireframeError::Io(err))) => {
+        eprintln!("transport failure: {err}");
+    }
+    Err(ClientError::Wireframe(WireframeError::Protocol(
+        ClientProtocolError::Deserialize(err),
+    ))) => {
+        eprintln!("decode failure: {err}");
+    }
+    Err(other) => {
+        // Handle serialize/preamble/correlation failures.
+        eprintln!("other client error: {other}");
+    }
+}
+```
+
 ## Push queues and connection actors
 
 Background work interacts with connections through `PushQueues`. The fluent

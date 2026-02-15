@@ -76,7 +76,10 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`ClientError`] if serialization or I/O fails.
+    /// Returns [`ClientError`] if serialization or transport I/O fails.
+    /// Transport failures are surfaced through
+    /// [`crate::WireframeError::Io`] within
+    /// [`ClientError::Wireframe`](super::ClientError::Wireframe).
     ///
     /// # Examples
     ///
@@ -132,7 +135,9 @@ where
     /// # Errors
     ///
     /// Returns [`ClientError`] if the connection closes, decoding fails, or I/O
-    /// errors occur.
+    /// errors occur. Transport failures are surfaced through
+    /// [`crate::WireframeError::Io`], while decode failures are surfaced
+    /// through [`crate::WireframeError::Protocol`].
     ///
     /// # Examples
     ///
@@ -167,7 +172,7 @@ where
     ///
     /// Returns [`ClientError::CorrelationMismatch`] if the response correlation
     /// ID does not match the request. Returns other [`ClientError`] variants
-    /// for serialization, deserialization, or I/O failures.
+    /// for serialization, decode, or transport failures.
     ///
     /// # Examples
     ///
@@ -207,7 +212,7 @@ where
     /// Internal helper for receiving and deserializing a frame.
     pub(crate) async fn receive_internal<R: Message>(&mut self) -> Result<R, ClientError> {
         let Some(frame) = self.framed.next().await else {
-            let err = ClientError::Disconnected;
+            let err = ClientError::disconnected();
             self.invoke_error_hook(&err).await;
             return Err(err);
         };
@@ -222,7 +227,7 @@ where
         let (message, _consumed) = match self.serializer.deserialize(&bytes) {
             Ok(result) => result,
             Err(e) => {
-                let err = ClientError::Deserialize(e);
+                let err = ClientError::decode(e);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }

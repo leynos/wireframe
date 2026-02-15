@@ -20,7 +20,8 @@ use super::helpers::{
     test_with_client,
 };
 use crate::{
-    client::{ClientError, WireframeClient, WireframeClientBuilder},
+    WireframeError,
+    client::{ClientError, ClientProtocolError, WireframeClient, WireframeClientBuilder},
     rewind_stream::RewindStream,
 };
 
@@ -113,7 +114,12 @@ async fn error_callback_invoked_on_deserialize_error() {
     // Try to receive - should fail with deserialization error and invoke error hook
     let result: Result<Vec<u8>, ClientError> = client.receive().await;
     assert!(
-        matches!(result, Err(ClientError::Deserialize(_))),
+        matches!(
+            result,
+            Err(ClientError::Wireframe(WireframeError::Protocol(
+                ClientProtocolError::Deserialize(_)
+            )))
+        ),
         "receive should fail with deserialization error"
     );
 
@@ -156,14 +162,14 @@ async fn error_callback_invoked_on_send_io_error() {
     for _ in 0..5 {
         tokio::time::sleep(delay).await;
         result = client.send(&TestMessage(vec![0u8; 1024])).await;
-        if matches!(result, Err(ClientError::Io(_))) {
+        if matches!(result, Err(ClientError::Wireframe(WireframeError::Io(_)))) {
             break;
         }
         delay *= 2;
     }
 
     assert!(
-        matches!(result, Err(ClientError::Io(_))),
+        matches!(result, Err(ClientError::Wireframe(WireframeError::Io(_)))),
         "send should fail with I/O error after disconnect"
     );
 

@@ -8,6 +8,7 @@ use std::{
     net::SocketAddr,
 };
 
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use log::warn;
 use rstest::fixture;
@@ -15,7 +16,8 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     BincodeSerializer,
-    client::{ClientCodecConfig, ClientError, WireframeClient},
+    WireframeError,
+    client::{ClientCodecConfig, ClientError, ClientProtocolError, WireframeClient},
     rewind_stream::RewindStream,
 };
 /// `TestResult` for step definitions.
@@ -131,6 +133,40 @@ impl ClientRuntimeWorld {
         Ok(())
     }
 
+    /// Start a server that always sends malformed response bytes.
+    ///
+    /// # Errors
+    /// Returns an error if binding or spawning the server fails.
+    pub fn start_malformed_response_server(&self) -> TestResult {
+        let listener = self.block_on(async { TcpListener::bind("127.0.0.1:0").await })??;
+        let addr = listener.local_addr()?;
+        let handle = self.runtime()?.spawn(async move {
+            let Ok((stream, _)) = listener.accept().await else {
+                warn!("client runtime malformed server failed to accept connection");
+                return;
+            };
+            let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
+            let Some(result) = framed.next().await else {
+                warn!("client runtime malformed server closed before receiving a frame");
+                return;
+            };
+            let Ok(_frame) = result else {
+                warn!("client runtime malformed server failed to decode request frame");
+                return;
+            };
+            if let Err(err) = framed
+                .send(Bytes::from_static(&[0xff, 0xff, 0xff, 0xff]))
+                .await
+            {
+                warn!("client runtime malformed server failed to send invalid frame: {err:?}");
+            }
+        });
+
+        self.addr.set(Some(addr));
+        *self.server.borrow_mut() = Some(handle);
+        Ok(())
+    }
+
     /// Connect a client using the specified maximum frame length.
     ///
     /// # Errors
@@ -207,15 +243,43 @@ impl ClientRuntimeWorld {
         Ok(())
     }
 
-    /// Verify that a client error was captured.
+    /// Verify that the recorded error is a transport `WireframeError`.
     ///
     /// # Errors
-    /// Returns an error if no failure was observed.
-    pub fn verify_error(&self) -> TestResult {
+    /// Returns an error if no failure was observed or the error variant differs.
+    pub fn verify_transport_wireframe_error(&self) -> TestResult {
         let error_ref = self.last_error.borrow();
-        error_ref
+        let err = error_ref
             .as_ref()
             .ok_or("expected client error was not captured")?;
+        if !matches!(err, ClientError::Wireframe(WireframeError::Io(_))) {
+            return Err(format!("expected transport WireframeError::Io, got {err:?}").into());
+        }
+        self.await_server()?;
+        Ok(())
+    }
+
+    /// Verify that the recorded error is a decode `WireframeError`.
+    ///
+    /// # Errors
+    /// Returns an error if no failure was observed or the error variant differs.
+    pub fn verify_decode_wireframe_error(&self) -> TestResult {
+        let error_ref = self.last_error.borrow();
+        let err = error_ref
+            .as_ref()
+            .ok_or("expected client error was not captured")?;
+        if !matches!(
+            err,
+            ClientError::Wireframe(WireframeError::Protocol(ClientProtocolError::Deserialize(
+                _
+            )))
+        ) {
+            return Err(format!(
+                "expected decode WireframeError::Protocol(ClientProtocolError::Deserialize(_)), \
+                 got {err:?}"
+            )
+            .into());
+        }
         self.await_server()?;
         Ok(())
     }

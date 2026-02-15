@@ -14,6 +14,7 @@ use wireframe_testing::{ServerMode, process_frame};
 
 use crate::{
     WireframeClient,
+    WireframeError,
     app::{Envelope, Packet},
     client::ClientError,
     correlation::CorrelatableFrame,
@@ -301,7 +302,7 @@ async fn round_trip_with_various_payload_sizes(#[case] payload: Vec<u8>) {
 }
 
 #[tokio::test]
-async fn receive_envelope_returns_disconnected_on_closed_connection() {
+async fn receive_envelope_maps_closed_connection_to_transport_wireframe_error() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind listener");
@@ -322,7 +323,7 @@ async fn receive_envelope_returns_disconnected_on_closed_connection() {
 
     let result: Result<Envelope, ClientError> = client.receive_envelope().await;
     assert!(
-        matches!(result, Err(ClientError::Disconnected)),
-        "expected Disconnected error"
+        matches!(result, Err(ClientError::Wireframe(WireframeError::Io(_)))),
+        "expected transport error mapped to WireframeError::Io"
     );
 }

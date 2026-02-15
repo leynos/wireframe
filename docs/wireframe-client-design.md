@@ -66,6 +66,20 @@ Internally, this uses the `Serializer` to encode the request, sends it through
 the length‑delimited codec, then waits for a frame, decodes it, and
 deserializes the response type.
 
+#### Request/response error mapping
+
+Client request/response failures are mapped to `WireframeError` variants, so
+client and server semantics stay aligned:
+
+- Transport failures (socket closure, read/write failures) surface as
+  `ClientError::Wireframe(WireframeError::Io(_))`.
+- Decode failures after a frame is received surface as
+  `ClientError::Wireframe(WireframeError::Protocol(ClientProtocolError::Deserialize(_)))`.
+
+This mapping applies to `receive`, `call`, and envelope-aware receive/call
+methods. Serialization failures remain explicit as `ClientError::Serialize(_)`
+because they occur before the transport layer is used.
+
 ### Implementation decisions
 
 - `connect` accepts a `SocketAddr` so the client can create a `TcpSocket` and
