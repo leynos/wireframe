@@ -23,7 +23,7 @@ use dashmap::DashMap;
 ///
 /// # Examples
 ///
-/// ```rust,no_run
+/// ```rust
 /// use wireframe::AppDataStore;
 ///
 /// let store = AppDataStore::default();
@@ -47,7 +47,7 @@ impl AppDataStore {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::AppDataStore;
     ///
     /// let store = AppDataStore::default();
@@ -71,7 +71,7 @@ impl AppDataStore {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::AppDataStore;
     ///
     /// let store = AppDataStore::default();
