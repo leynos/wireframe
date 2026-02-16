@@ -1,6 +1,6 @@
 //! Codec and serializer configuration for `WireframeApp`.
 
-use super::WireframeApp;
+use super::{WireframeApp, core::RebuildParams};
 use crate::{
     app::Packet,
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
@@ -26,7 +26,13 @@ where
     {
         let serializer = std::mem::take(&mut self.serializer);
         let message_assembler = self.message_assembler.take();
-        self.rebuild_with_params(serializer, codec, None, None, message_assembler)
+        self.rebuild_with_params(RebuildParams {
+            serializer,
+            codec,
+            protocol: None,
+            fragmentation: None,
+            message_assembler,
+        })
     }
 
     /// Replace the serializer used for messages.
@@ -40,13 +46,13 @@ where
         let protocol = self.protocol.take();
         let fragmentation = self.fragmentation.take();
         let message_assembler = self.message_assembler.take();
-        self.rebuild_with_params(
+        self.rebuild_with_params(RebuildParams {
             serializer,
             codec,
             protocol,
             fragmentation,
             message_assembler,
-        )
+        })
     }
 }
 

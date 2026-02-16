@@ -62,7 +62,7 @@ fn connection_info_reports_peer(mut request: MessageRequest, mut empty_payload: 
 /// Inserts an `Arc<u8>` into the request's shared state, extracts it using the `SharedState`
 /// extractor, and asserts that the extracted value matches the original.
 #[rstest]
-fn shared_state_extractor(mut request: MessageRequest, mut empty_payload: Payload<'static>) {
+fn shared_state_extractor(request: MessageRequest, mut empty_payload: Payload<'static>) {
     request.insert_state(42u8);
 
     let state =

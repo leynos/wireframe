@@ -1,14 +1,9 @@
 //! Request context and payload buffer types for extractors.
 
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::{net::SocketAddr, sync::Mutex};
 
 use super::SharedState;
-use crate::request::RequestBodyStream;
+use crate::{app_data_store::AppDataStore, request::RequestBodyStream};
 
 /// Request context passed to extractors.
 ///
@@ -20,9 +15,9 @@ pub struct MessageRequest {
     pub peer_addr: Option<SocketAddr>,
     /// Shared state values registered with the application.
     ///
-    /// Values are keyed by their [`TypeId`]. Registering additional
+    /// Values are keyed by their concrete type. Registering additional
     /// state of the same type will replace the previous entry.
-    pub(crate) app_data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub(crate) app_data: AppDataStore,
     /// Optional streaming body for handlers that opt into streaming consumption.
     ///
     /// When present, the [`StreamingBody`](crate::extractor::StreamingBody)
@@ -75,7 +70,7 @@ impl MessageRequest {
     ///     .expect("failed to initialize app")
     ///     .app_data(5u32);
     /// // The framework populates the request with application data.
-    /// # let mut req = MessageRequest::default();
+    /// # let req = MessageRequest::default();
     /// # req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
     /// assert_eq!(*val.expect("shared state missing"), 5);
@@ -85,10 +80,7 @@ impl MessageRequest {
     where
         T: Send + Sync + 'static,
     {
-        self.app_data
-            .get(&TypeId::of::<T>())
-            .and_then(|data| data.clone().downcast::<T>().ok())
-            .map(SharedState::from)
+        self.app_data.get::<T>().map(SharedState::from)
     }
 
     /// Insert shared state of type `T` into the request.
@@ -100,19 +92,16 @@ impl MessageRequest {
     /// ```rust
     /// use wireframe::extractor::{MessageRequest, SharedState};
     ///
-    /// let mut req = MessageRequest::default();
+    /// let req = MessageRequest::default();
     /// req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
     /// assert_eq!(*val.expect("shared state missing"), 5);
     /// ```
-    pub fn insert_state<T>(&mut self, state: T)
+    pub fn insert_state<T>(&self, state: T)
     where
         T: Send + Sync + 'static,
     {
-        self.app_data.insert(
-            TypeId::of::<T>(),
-            Arc::new(state) as Arc<dyn Any + Send + Sync>,
-        );
+        self.app_data.insert(state);
     }
 
     /// Set the streaming body for this request.

@@ -1,7 +1,5 @@
 //! Shared state configuration for `WireframeApp`.
 
-use std::{any::TypeId, sync::Arc};
-
 use super::WireframeApp;
 use crate::{app::Packet, codec::FrameCodec, serializer::Serializer};
 
@@ -17,14 +15,11 @@ where
     /// The value can later be retrieved using [`crate::extractor::SharedState`]. Registering
     /// another value of the same type overwrites the previous one.
     #[must_use]
-    pub fn app_data<T>(mut self, state: T) -> Self
+    pub fn app_data<T>(self, state: T) -> Self
     where
         T: Send + Sync + 'static,
     {
-        self.app_data.insert(
-            TypeId::of::<T>(),
-            Arc::new(state) as Arc<dyn std::any::Any + Send + Sync>,
-        );
+        self.app_data.insert(state);
         self
     }
 }
