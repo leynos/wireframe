@@ -505,6 +505,7 @@ different logical messages arrive on the same connection:
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::message_assembler::{
     ContinuationFrameHeader,
+    EnvelopeId,
     EnvelopeRouting,
     FirstFrameHeader,
     FirstFrameInput,
@@ -526,7 +527,7 @@ let first1 = FirstFrameHeader {
     total_body_len: Some(15),
     is_last: false,
 };
-let routing1 = EnvelopeRouting { envelope_id: 1, correlation_id: None };
+let routing1 = EnvelopeRouting { envelope_id: EnvelopeId(1), correlation_id: None };
 let input1 = FirstFrameInput::new(&first1, routing1, vec![], b"hello")
     .expect("header lengths match");
 state.accept_first_frame(input1)?;
@@ -539,7 +540,7 @@ let first2 = FirstFrameHeader {
     total_body_len: None,
     is_last: false,
 };
-let routing2 = EnvelopeRouting { envelope_id: 2, correlation_id: None };
+let routing2 = EnvelopeRouting { envelope_id: EnvelopeId(2), correlation_id: None };
 let input2 = FirstFrameInput::new(&first2, routing2, vec![], b"world")
     .expect("header lengths match");
 state.accept_first_frame(input2)?;

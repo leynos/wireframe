@@ -58,6 +58,7 @@ impl PartialAssembly {
 ///
 /// use wireframe::message_assembler::{
 ///     ContinuationFrameHeader,
+///     EnvelopeId,
 ///     EnvelopeRouting,
 ///     FirstFrameHeader,
 ///     FirstFrameInput,
@@ -80,7 +81,7 @@ impl PartialAssembly {
 ///     is_last: false,
 /// };
 /// let routing = EnvelopeRouting {
-///     envelope_id: 1,
+///     envelope_id: EnvelopeId(1),
 ///     correlation_id: None,
 /// };
 /// let input = FirstFrameInput::new(&first, routing, vec![0x01, 0x02], b"hello")

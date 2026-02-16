@@ -8,6 +8,30 @@ use thiserror::Error;
 
 use super::{FirstFrameHeader, MessageKey};
 
+/// Envelope identifier from the enclosing transport frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct EnvelopeId(pub u32);
+
+impl From<u32> for EnvelopeId {
+    fn from(value: u32) -> Self { Self(value) }
+}
+
+impl From<EnvelopeId> for u32 {
+    fn from(value: EnvelopeId) -> Self { value.0 }
+}
+
+/// Correlation identifier from the enclosing transport frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CorrelationId(pub u64);
+
+impl From<u64> for CorrelationId {
+    fn from(value: u64) -> Self { Self(value) }
+}
+
+impl From<CorrelationId> for u64 {
+    fn from(value: CorrelationId) -> Self { value.0 }
+}
+
 /// Routing metadata from the transport envelope that carried a first frame.
 ///
 /// Captured at first-frame time so the completed [`AssembledMessage`] can
@@ -17,9 +41,9 @@ use super::{FirstFrameHeader, MessageKey};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EnvelopeRouting {
     /// Envelope identifier from the enclosing transport frame.
-    pub envelope_id: u32,
+    pub envelope_id: EnvelopeId,
     /// Correlation identifier from the enclosing transport frame.
-    pub correlation_id: Option<u64>,
+    pub correlation_id: Option<CorrelationId>,
 }
 
 /// Input data for a first frame.
@@ -32,6 +56,8 @@ pub struct EnvelopeRouting {
 ///
 /// ```
 /// use wireframe::message_assembler::{
+///     CorrelationId,
+///     EnvelopeId,
 ///     EnvelopeRouting,
 ///     FirstFrameHeader,
 ///     FirstFrameInput,
@@ -46,13 +72,13 @@ pub struct EnvelopeRouting {
 ///     is_last: false,
 /// };
 /// let routing = EnvelopeRouting {
-///     envelope_id: 42,
-///     correlation_id: Some(7),
+///     envelope_id: EnvelopeId(42),
+///     correlation_id: Some(CorrelationId(7)),
 /// };
 /// let input = FirstFrameInput::new(&header, routing, vec![0x01, 0x02], b"hello")
 ///     .expect("header lengths match payload sizes");
 /// assert_eq!(input.header.message_key, MessageKey(1));
-/// assert_eq!(input.routing.envelope_id, 42);
+/// assert_eq!(input.routing.envelope_id, EnvelopeId(42));
 /// ```
 #[derive(Debug)]
 pub struct FirstFrameInput<'a> {
@@ -130,18 +156,24 @@ impl<'a> FirstFrameInput<'a> {
 /// # Examples
 ///
 /// ```
-/// use wireframe::message_assembler::{AssembledMessage, EnvelopeRouting, MessageKey};
+/// use wireframe::message_assembler::{
+///     AssembledMessage,
+///     CorrelationId,
+///     EnvelopeId,
+///     EnvelopeRouting,
+///     MessageKey,
+/// };
 ///
 /// // Normally obtained from MessageAssemblyState::accept_first_frame or
 /// // accept_continuation_frame when a message completes.
 /// let routing = EnvelopeRouting {
-///     envelope_id: 42,
-///     correlation_id: Some(7),
+///     envelope_id: EnvelopeId(42),
+///     correlation_id: Some(CorrelationId(7)),
 /// };
 /// let msg = AssembledMessage::new(MessageKey(1), routing, vec![0x01], vec![0x02, 0x03]);
 /// assert_eq!(msg.message_key(), MessageKey(1));
-/// assert_eq!(msg.routing().envelope_id, 42);
-/// assert_eq!(msg.routing().correlation_id, Some(7));
+/// assert_eq!(msg.routing().envelope_id, EnvelopeId(42));
+/// assert_eq!(msg.routing().correlation_id, Some(CorrelationId(7)));
 /// assert_eq!(msg.metadata(), &[0x01]);
 /// assert_eq!(msg.body(), &[0x02, 0x03]);
 /// ```

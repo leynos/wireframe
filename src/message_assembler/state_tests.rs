@@ -9,6 +9,8 @@ use rstest::{fixture, rstest};
 
 use crate::message_assembler::{
     AssembledMessage,
+    CorrelationId,
+    EnvelopeId,
     EnvelopeRouting,
     FirstFrameHeader,
     FirstFrameInput,
@@ -290,8 +292,8 @@ fn completed_assembly_preserves_first_frame_routing_metadata(
     #[from(state_with_defaults)] mut state: MessageAssemblyState,
 ) {
     let routing = EnvelopeRouting {
-        envelope_id: 42,
-        correlation_id: Some(99),
+        envelope_id: EnvelopeId(42),
+        correlation_id: Some(CorrelationId(99)),
     };
     let first = first_header(1, 5, false);
     state
@@ -308,12 +310,12 @@ fn completed_assembly_preserves_first_frame_routing_metadata(
 
     assert_eq!(
         msg.routing().envelope_id,
-        42,
+        EnvelopeId(42),
         "envelope_id should come from first frame"
     );
     assert_eq!(
         msg.routing().correlation_id,
-        Some(99),
+        Some(CorrelationId(99)),
         "correlation_id should come from first frame"
     );
 }
@@ -324,8 +326,8 @@ fn interleaved_assemblies_preserve_distinct_routing_metadata(
 ) {
     // Start assembly for key 1 with envelope_id=10, correlation_id=100
     let routing1 = EnvelopeRouting {
-        envelope_id: 10,
-        correlation_id: Some(100),
+        envelope_id: EnvelopeId(10),
+        correlation_id: Some(CorrelationId(100)),
     };
     let first1 = first_header(1, 2, false);
     state
@@ -336,8 +338,8 @@ fn interleaved_assemblies_preserve_distinct_routing_metadata(
 
     // Start assembly for key 2 with envelope_id=20, correlation_id=200
     let routing2 = EnvelopeRouting {
-        envelope_id: 20,
-        correlation_id: Some(200),
+        envelope_id: EnvelopeId(20),
+        correlation_id: Some(CorrelationId(200)),
     };
     let first2 = first_header(2, 2, false);
     state
@@ -353,8 +355,8 @@ fn interleaved_assemblies_preserve_distinct_routing_metadata(
         .expect("continuation 1")
         .expect("message 1 should complete");
 
-    assert_eq!(msg1.routing().envelope_id, 10);
-    assert_eq!(msg1.routing().correlation_id, Some(100));
+    assert_eq!(msg1.routing().envelope_id, EnvelopeId(10));
+    assert_eq!(msg1.routing().correlation_id, Some(CorrelationId(100)));
     assert_eq!(msg1.body(), b"A1A2");
 
     // Complete key 2
@@ -364,8 +366,8 @@ fn interleaved_assemblies_preserve_distinct_routing_metadata(
         .expect("continuation 2")
         .expect("message 2 should complete");
 
-    assert_eq!(msg2.routing().envelope_id, 20);
-    assert_eq!(msg2.routing().correlation_id, Some(200));
+    assert_eq!(msg2.routing().envelope_id, EnvelopeId(20));
+    assert_eq!(msg2.routing().correlation_id, Some(CorrelationId(200)));
     assert_eq!(msg2.body(), b"B1B2");
 }
 

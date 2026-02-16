@@ -127,8 +127,8 @@ pub(crate) fn assemble_if_needed(
     };
 
     let routing = EnvelopeRouting {
-        envelope_id: env.id,
-        correlation_id: env.correlation_id,
+        envelope_id: env.id.into(),
+        correlation_id: env.correlation_id.map(Into::into),
     };
 
     match parsed.into_header() {
@@ -263,6 +263,10 @@ impl Envelope {
         payload.extend_from_slice(metadata);
         payload.extend_from_slice(body);
 
-        Self::new(routing.envelope_id, routing.correlation_id, payload)
+        Self::new(
+            routing.envelope_id.into(),
+            routing.correlation_id.map(Into::into),
+            payload,
+        )
     }
 }

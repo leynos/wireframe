@@ -15,6 +15,9 @@ use wireframe::{
 };
 pub use wireframe_testing::TestResult;
 
+/// Protocol-level message key identifying a logical message stream.
+///
+/// Wraps a `u64` so step definitions can parse it from feature-file parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MessageKey(pub u64);
 
@@ -26,6 +29,9 @@ impl From<MessageKey> for u64 {
     fn from(value: MessageKey) -> Self { value.0 }
 }
 
+/// Continuation-frame sequence number for ordering validation.
+///
+/// Wraps a `u32` so step definitions can parse it from feature-file parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FrameSequence(pub u32);
 
@@ -113,6 +119,7 @@ impl Default for MessageAssemblyInboundWorld {
     }
 }
 
+/// Construct a default [`MessageAssemblyInboundWorld`] for rstest injection.
 // rustfmt collapses simple fixtures into one line, which triggers unused_braces.
 #[rustfmt::skip]
 #[fixture]
@@ -140,6 +147,16 @@ impl MessageAssemblyInboundWorld {
         Ok(self.runtime()?.block_on(future))
     }
 
+    /// Build and start a `WireframeApp` with message assembly enabled.
+    ///
+    /// Pauses the Tokio clock so that subsequent `wait_millis` calls advance
+    /// time deterministically. The handler forwards received payloads to an
+    /// internal channel for later assertion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the fragmentation config, app builder, or runtime
+    /// initialisation fails.
     pub fn start_app(&mut self, timeout_ms: u64) -> TestResult {
         let message_limit =
             NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)).unwrap_or(NonZeroUsize::MIN);
@@ -184,6 +201,11 @@ impl MessageAssemblyInboundWorld {
         Ok(())
     }
 
+    /// Serialize and send a first frame for the given message `key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client is not initialised or the send fails.
     pub fn send_first_frame(&mut self, key: impl Into<MessageKey>, body: &str) -> TestResult {
         let key = key.into();
         self.send_payload(test_helpers::first_frame_payload(
@@ -194,6 +216,11 @@ impl MessageAssemblyInboundWorld {
         ))
     }
 
+    /// Serialize and send a non-final continuation frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client is not initialised or the send fails.
     pub fn send_continuation_frame(
         &mut self,
         key: impl Into<MessageKey>,
@@ -206,6 +233,11 @@ impl MessageAssemblyInboundWorld {
         self.send_continuation_frame_impl(params)
     }
 
+    /// Serialize and send a final continuation frame that completes assembly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client is not initialised or the send fails.
     pub fn send_final_continuation_frame(
         &mut self,
         key: impl Into<MessageKey>,
@@ -233,11 +265,24 @@ impl MessageAssemblyInboundWorld {
         ))
     }
 
+    /// Advance the paused Tokio clock by `millis` milliseconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the runtime is unavailable.
     pub fn wait_millis(&mut self, millis: u64) -> TestResult {
         self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
         Ok(())
     }
 
+    /// Assert that the handler has received a payload matching `expected`.
+    ///
+    /// Collects observed payloads for up to
+    /// [`PAYLOAD_COLLECT_TIMEOUT_MS`] before checking.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the expected payload was not observed.
     pub fn assert_received_payload(&mut self, expected: &str) -> TestResult {
         self.collect_observed_for(Duration::from_millis(PAYLOAD_COLLECT_TIMEOUT_MS))?;
         let expected = expected.as_bytes();
@@ -256,6 +301,14 @@ impl MessageAssemblyInboundWorld {
         .into())
     }
 
+    /// Assert that exactly `expected_count` payloads have been received.
+    ///
+    /// Collects observed payloads for up to [`COUNT_COLLECT_TIMEOUT_MS`]
+    /// before checking.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the count does not match.
     pub fn assert_received_count(&mut self, expected_count: usize) -> TestResult {
         self.collect_observed_for(Duration::from_millis(COUNT_COLLECT_TIMEOUT_MS))?;
         let actual = self.observed_payloads.len();
@@ -265,6 +318,11 @@ impl MessageAssemblyInboundWorld {
         Err(format!("expected {expected_count} payloads, got {actual}").into())
     }
 
+    /// Assert that no send error has been recorded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error containing the recorded send error message.
     pub fn assert_no_send_error(&self) -> TestResult {
         if self.last_send_error.is_none() {
             return Ok(());
@@ -273,11 +331,11 @@ impl MessageAssemblyInboundWorld {
     }
 
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
-        let mut client = self.client.take().ok_or("client not initialized")?;
         let envelope = Envelope::new(ROUTE_ID, CORRELATION_ID, payload);
         let serializer = BincodeSerializer;
         let frame = serializer.serialize(&envelope)?;
 
+        let mut client = self.client.take().ok_or("client not initialized")?;
         let send_result = self.block_on(async {
             client.send(frame.into()).await?;
             client.flush().await?;
