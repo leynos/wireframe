@@ -9,6 +9,7 @@ use rstest::{fixture, rstest};
 
 use crate::message_assembler::{
     AssembledMessage,
+    EnvelopeRouting,
     FirstFrameHeader,
     FirstFrameInput,
     MessageAssemblyError,
@@ -43,7 +44,13 @@ fn state_tracks_single_message_assembly(
         total_body_len: Some(10),
         is_last: false,
     };
-    let input = FirstFrameInput::new(&first, vec![0x01, 0x02], b"hello").expect("valid input");
+    let input = FirstFrameInput::new(
+        &first,
+        EnvelopeRouting::default(),
+        vec![0x01, 0x02],
+        b"hello",
+    )
+    .expect("valid input");
     let result = state.accept_first_frame(input).expect("accept first frame");
     assert!(result.is_none());
     assert_eq!(state.buffered_count(), 1);
@@ -66,13 +73,19 @@ fn state_tracks_multiple_interleaved_messages(
     // Start message 1
     let first1 = first_header(1, 2, false);
     state
-        .accept_first_frame(FirstFrameInput::new(&first1, vec![], b"A1").expect("valid input"))
+        .accept_first_frame(
+            FirstFrameInput::new(&first1, EnvelopeRouting::default(), vec![], b"A1")
+                .expect("valid input"),
+        )
         .expect("first frame 1");
 
     // Start message 2
     let first2 = first_header(2, 2, false);
     state
-        .accept_first_frame(FirstFrameInput::new(&first2, vec![], b"B1").expect("valid input"))
+        .accept_first_frame(
+            FirstFrameInput::new(&first2, EnvelopeRouting::default(), vec![], b"B1")
+                .expect("valid input"),
+        )
         .expect("first frame 2");
 
     assert_eq!(state.buffered_count(), 2);
@@ -118,12 +131,18 @@ fn state_rejects_duplicate_first_frame(
 ) {
     let first = first_header(1, 5, false);
     state
-        .accept_first_frame(FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"))
+        .accept_first_frame(
+            FirstFrameInput::new(&first, EnvelopeRouting::default(), vec![], b"hello")
+                .expect("valid input"),
+        )
         .expect("first frame");
 
     // Try duplicate first frame
     let err = state
-        .accept_first_frame(FirstFrameInput::new(&first, vec![], b"again").expect("valid input"))
+        .accept_first_frame(
+            FirstFrameInput::new(&first, EnvelopeRouting::default(), vec![], b"again")
+                .expect("valid input"),
+        )
         .expect_err("should reject duplicate");
     assert!(matches!(
         err,
@@ -173,7 +192,8 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
             params.continuation_body_len.is_none(),
         ),
     };
-    let input = FirstFrameInput::new(&first, vec![], &first_body).expect("valid input");
+    let input = FirstFrameInput::new(&first, EnvelopeRouting::default(), vec![], &first_body)
+        .expect("valid input");
 
     match params.continuation_body_len {
         None => {
@@ -225,7 +245,8 @@ fn state_purges_expired_assemblies() {
     let first = first_header(1, 5, false);
     state
         .accept_first_frame_at(
-            FirstFrameInput::new(&first, vec![], b"hello").expect("valid input"),
+            FirstFrameInput::new(&first, EnvelopeRouting::default(), vec![], b"hello")
+                .expect("valid input"),
             now,
         )
         .expect("accept first frame");
@@ -252,7 +273,8 @@ fn state_returns_single_frame_message_immediately(
     };
     let msg = state
         .accept_first_frame(
-            FirstFrameInput::new(&first, vec![0xaa], b"hello").expect("valid input"),
+            FirstFrameInput::new(&first, EnvelopeRouting::default(), vec![0xaa], b"hello")
+                .expect("valid input"),
         )
         .expect("accept first frame")
         .expect("single frame should complete");
@@ -263,9 +285,98 @@ fn state_returns_single_frame_message_immediately(
     assert_eq!(state.buffered_count(), 0);
 }
 
+#[rstest]
+fn completed_assembly_preserves_first_frame_routing_metadata(
+    #[from(state_with_defaults)] mut state: MessageAssemblyState,
+) {
+    let routing = EnvelopeRouting {
+        envelope_id: 42,
+        correlation_id: Some(99),
+    };
+    let first = first_header(1, 5, false);
+    state
+        .accept_first_frame(
+            FirstFrameInput::new(&first, routing, vec![], b"hello").expect("valid input"),
+        )
+        .expect("first frame");
+
+    let cont = continuation_header(1, 1, 5, true);
+    let msg = state
+        .accept_continuation_frame(&cont, b"world")
+        .expect("accept continuation")
+        .expect("message should complete");
+
+    assert_eq!(
+        msg.routing().envelope_id,
+        42,
+        "envelope_id should come from first frame"
+    );
+    assert_eq!(
+        msg.routing().correlation_id,
+        Some(99),
+        "correlation_id should come from first frame"
+    );
+}
+
+#[rstest]
+fn interleaved_assemblies_preserve_distinct_routing_metadata(
+    #[from(state_with_defaults)] mut state: MessageAssemblyState,
+) {
+    // Start assembly for key 1 with envelope_id=10, correlation_id=100
+    let routing1 = EnvelopeRouting {
+        envelope_id: 10,
+        correlation_id: Some(100),
+    };
+    let first1 = first_header(1, 2, false);
+    state
+        .accept_first_frame(
+            FirstFrameInput::new(&first1, routing1, vec![], b"A1").expect("valid input"),
+        )
+        .expect("first frame 1");
+
+    // Start assembly for key 2 with envelope_id=20, correlation_id=200
+    let routing2 = EnvelopeRouting {
+        envelope_id: 20,
+        correlation_id: Some(200),
+    };
+    let first2 = first_header(2, 2, false);
+    state
+        .accept_first_frame(
+            FirstFrameInput::new(&first2, routing2, vec![], b"B1").expect("valid input"),
+        )
+        .expect("first frame 2");
+
+    // Complete key 1
+    let cont1 = continuation_header(1, 1, 2, true);
+    let msg1 = state
+        .accept_continuation_frame(&cont1, b"A2")
+        .expect("continuation 1")
+        .expect("message 1 should complete");
+
+    assert_eq!(msg1.routing().envelope_id, 10);
+    assert_eq!(msg1.routing().correlation_id, Some(100));
+    assert_eq!(msg1.body(), b"A1A2");
+
+    // Complete key 2
+    let cont2 = continuation_header(2, 1, 2, true);
+    let msg2 = state
+        .accept_continuation_frame(&cont2, b"B2")
+        .expect("continuation 2")
+        .expect("message 2 should complete");
+
+    assert_eq!(msg2.routing().envelope_id, 20);
+    assert_eq!(msg2.routing().correlation_id, Some(200));
+    assert_eq!(msg2.body(), b"B1B2");
+}
+
 #[test]
 fn assembled_message_into_body() {
-    let msg = AssembledMessage::new(MessageKey(1), vec![0x01], vec![0x02, 0x03]);
+    let msg = AssembledMessage::new(
+        MessageKey(1),
+        EnvelopeRouting::default(),
+        vec![0x01],
+        vec![0x02, 0x03],
+    );
     let body = msg.into_body();
     assert_eq!(body, vec![0x02, 0x03]);
 }

@@ -12,6 +12,7 @@ use crate::{
     message_assembler::{
         AssembledMessage,
         ContinuationFrameHeader,
+        EnvelopeRouting,
         FirstFrameHeader,
         FirstFrameInput,
         FrameHeader,
@@ -125,21 +126,22 @@ pub(crate) fn assemble_if_needed(
         correlation_id,
     };
 
+    let routing = EnvelopeRouting {
+        envelope_id: env.id,
+        correlation_id: env.correlation_id,
+    };
+
     match parsed.into_header() {
         FrameHeader::First(header) => {
-            let Some(result) = process_first_frame(&mut context, &header, frame_bytes)? else {
+            let Some(result) = process_first_frame(&mut context, &header, frame_bytes, routing)?
+            else {
                 return Ok(None);
             };
-            Ok(Some(Envelope::from_assembled(
-                env.id,
-                env.correlation_id,
-                &result,
-            )))
+            Ok(Some(Envelope::from_assembled(&result)))
         }
         FrameHeader::Continuation(header) => {
             let result = process_continuation_frame(&mut context, &header, frame_bytes)?;
-            Ok(result
-                .map(|assembled| Envelope::from_assembled(env.id, env.correlation_id, &assembled)))
+            Ok(result.map(|assembled| Envelope::from_assembled(&assembled)))
         }
     }
 }
@@ -166,6 +168,7 @@ fn process_first_frame(
     context: &mut AssemblyContext<'_, '_>,
     header: &FirstFrameHeader,
     frame_bytes: &[u8],
+    routing: EnvelopeRouting,
 ) -> io::Result<Option<AssembledMessage>> {
     let Some(expected_len) = header.metadata_len.checked_add(header.body_len) else {
         return context.fail_invalid_none(
@@ -200,7 +203,7 @@ fn process_first_frame(
         );
     };
 
-    let input = match FirstFrameInput::new(header, metadata.to_vec(), body) {
+    let input = match FirstFrameInput::new(header, routing, metadata.to_vec(), body) {
         Ok(input) => input,
         Err(err) => {
             return context.fail_invalid_none(
@@ -249,13 +252,17 @@ fn process_continuation_frame(
 
 impl Envelope {
     /// Construct an envelope from a completed message assembly result.
-    fn from_assembled(id: u32, correlation_id: Option<u64>, assembled: &AssembledMessage) -> Self {
+    ///
+    /// Uses the [`EnvelopeRouting`] stored in the assembled message, which
+    /// originates from the first frame.
+    fn from_assembled(assembled: &AssembledMessage) -> Self {
+        let routing = assembled.routing();
         let metadata = assembled.metadata();
         let body = assembled.body();
         let mut payload = Vec::with_capacity(metadata.len().saturating_add(body.len()));
         payload.extend_from_slice(metadata);
         payload.extend_from_slice(body);
 
-        Self::new(id, correlation_id, payload)
+        Self::new(routing.envelope_id, routing.correlation_id, payload)
     }
 }

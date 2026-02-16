@@ -17,6 +17,7 @@ use rstest::fixture;
 use wireframe::message_assembler::{
     AssembledMessage,
     ContinuationFrameHeader,
+    EnvelopeRouting,
     FirstFrameHeader,
     FirstFrameInput,
     FrameSequence,
@@ -142,8 +143,13 @@ impl MessageAssemblyWorld {
         let Some(now) = self.current_time else {
             return Err("time not set".into());
         };
-        let input = FirstFrameInput::new(&pending.header, pending.metadata, &pending.body)
-            .map_err(|e| format!("invalid input: {e}"))?;
+        let input = FirstFrameInput::new(
+            &pending.header,
+            EnvelopeRouting::default(),
+            pending.metadata,
+            &pending.body,
+        )
+        .map_err(|e| format!("invalid input: {e}"))?;
         self.last_result = Some(state.accept_first_frame_at(input, now));
         if let Some(Ok(Some(msg))) = &self.last_result {
             self.completed_messages.push(msg.clone());
@@ -165,8 +171,13 @@ impl MessageAssemblyWorld {
         };
 
         while let Some(pending) = self.pending_first_frames.pop_front() {
-            let input = FirstFrameInput::new(&pending.header, pending.metadata, &pending.body)
-                .map_err(|e| format!("invalid input: {e}"))?;
+            let input = FirstFrameInput::new(
+                &pending.header,
+                EnvelopeRouting::default(),
+                pending.metadata,
+                &pending.body,
+            )
+            .map_err(|e| format!("invalid input: {e}"))?;
             let result = state.accept_first_frame_at(input, now);
             if let Ok(Some(msg)) = &result {
                 self.completed_messages.push(msg.clone());

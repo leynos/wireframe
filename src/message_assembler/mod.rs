@@ -39,7 +39,7 @@ pub use header::{
 };
 pub use series::MessageSeries;
 pub use state::MessageAssemblyState;
-pub use types::{AssembledMessage, FirstFrameInput, FirstFrameInputError};
+pub use types::{AssembledMessage, EnvelopeRouting, FirstFrameInput, FirstFrameInputError};
 
 /// Hook trait for protocol-specific multi-frame request parsing.
 ///

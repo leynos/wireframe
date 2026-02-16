@@ -40,6 +40,8 @@ impl From<FrameSequence> for u32 {
 const ROUTE_ID: u32 = 77;
 const CORRELATION_ID: Option<u64> = Some(5);
 const BUFFER_CAPACITY: usize = 512;
+const PAYLOAD_COLLECT_TIMEOUT_MS: u64 = 200;
+const COUNT_COLLECT_TIMEOUT_MS: u64 = 120;
 
 /// Runtime-backed fixture that drives inbound message assembly through
 /// `WireframeApp::handle_connection_result`.
@@ -237,7 +239,7 @@ impl MessageAssemblyInboundWorld {
     }
 
     pub fn assert_received_payload(&mut self, expected: &str) -> TestResult {
-        self.collect_observed_for(Duration::from_millis(200))?;
+        self.collect_observed_for(Duration::from_millis(PAYLOAD_COLLECT_TIMEOUT_MS))?;
         let expected = expected.as_bytes();
         if self
             .observed_payloads
@@ -255,7 +257,7 @@ impl MessageAssemblyInboundWorld {
     }
 
     pub fn assert_received_count(&mut self, expected_count: usize) -> TestResult {
-        self.collect_observed_for(Duration::from_millis(120))?;
+        self.collect_observed_for(Duration::from_millis(COUNT_COLLECT_TIMEOUT_MS))?;
         let actual = self.observed_payloads.len();
         if actual == expected_count {
             return Ok(());
