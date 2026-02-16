@@ -117,6 +117,7 @@ fn codec_error_converts_to_io_error_with_correct_kind(
 #[test]
 fn io_error_from_clean_close_preserves_eof_error() {
     let io_err: io::Error = CodecError::Eof(EofError::CleanClose).into();
+    assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
     let inner = io_err
         .get_ref()
         .expect("expected inner error for clean close");
@@ -124,6 +125,35 @@ fn io_error_from_clean_close_preserves_eof_error() {
         .downcast_ref::<EofError>()
         .expect("expected EofError to be preserved");
     assert_eq!(*eof, EofError::CleanClose);
+}
+
+#[test]
+fn io_error_from_eof_variants_preserves_eof_error() {
+    let variants = [
+        EofError::CleanClose,
+        EofError::MidFrame {
+            bytes_received: 3,
+            expected: 9,
+        },
+        EofError::MidHeader {
+            bytes_received: 2,
+            header_size: 4,
+        },
+    ];
+
+    for variant in variants {
+        let io_err: io::Error = CodecError::Eof(variant).into();
+
+        assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
+
+        let inner = io_err
+            .get_ref()
+            .unwrap_or_else(|| panic!("expected inner error for {variant:?}"));
+        let eof = inner
+            .downcast_ref::<EofError>()
+            .unwrap_or_else(|| panic!("expected EofError for {variant:?}"));
+        assert_eq!(*eof, variant);
+    }
 }
 
 /// Parameterised test for `error_type()` category strings.

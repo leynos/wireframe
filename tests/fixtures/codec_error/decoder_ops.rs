@@ -112,10 +112,20 @@ impl CodecErrorWorld {
         }
         let detected = e
             .get_ref()
-            .and_then(|inner| inner.downcast_ref::<EofError>())
-            .copied()
+            .and_then(Self::find_eof_error)
             .unwrap_or_else(|| self.infer_eof_from_buffer());
         self.detected_eof = Some(detected);
+    }
+
+    fn find_eof_error(error: &(dyn std::error::Error + Send + Sync + 'static)) -> Option<EofError> {
+        let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error);
+        while let Some(err) = current {
+            if let Some(eof) = err.downcast_ref::<EofError>() {
+                return Some(*eof);
+            }
+            current = err.source();
+        }
+        None
     }
 
     fn infer_eof_from_buffer(&self) -> EofError {
@@ -217,6 +227,116 @@ impl CodecErrorWorld {
             Ok(())
         } else {
             Err(format!("expected InvalidData error, got {:?}", err.kind()).into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::{BufMut, BytesMut};
+
+    use super::*;
+
+    fn make_world_with_buffer<F>(fill: F) -> CodecErrorWorld
+    where
+        F: FnOnce(&mut BytesMut),
+    {
+        let mut world = CodecErrorWorld::default();
+        let mut buffer = BytesMut::new();
+        fill(&mut buffer);
+        world.buffer = buffer;
+        world
+    }
+
+    #[test]
+    fn classify_eof_error_uses_inner_eof_error_variant() {
+        let variants = [
+            EofError::CleanClose,
+            EofError::MidHeader {
+                bytes_received: 1,
+                header_size: LENGTH_HEADER_SIZE,
+            },
+            EofError::MidFrame {
+                bytes_received: 2,
+                expected: 3,
+            },
+        ];
+
+        for variant in variants {
+            let io_err = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, variant);
+            let mut world = CodecErrorWorld::default();
+
+            world.classify_eof_error(&io_err);
+
+            assert_eq!(world.detected_eof, Some(variant));
+        }
+    }
+
+    #[test]
+    fn classify_eof_error_falls_back_to_buffer_classification() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "not an eof error");
+        let mut world = make_world_with_buffer(|buf| {
+            buf.extend_from_slice(&[0x01, 0x02]);
+        });
+        let expected = world.infer_eof_from_buffer();
+
+        world.classify_eof_error(&io_err);
+
+        assert_eq!(world.detected_eof, Some(expected));
+    }
+
+    #[test]
+    fn classify_eof_error_ignores_non_unexpected_eof() {
+        let io_err = std::io::Error::other("other error");
+        let mut world = CodecErrorWorld {
+            detected_eof: Some(EofError::CleanClose),
+            ..CodecErrorWorld::default()
+        };
+
+        world.classify_eof_error(&io_err);
+
+        assert_eq!(world.detected_eof, Some(EofError::CleanClose));
+    }
+
+    #[test]
+    fn infer_eof_from_buffer_reports_mid_header() {
+        let world = make_world_with_buffer(|buf| {
+            buf.extend_from_slice(&[0x01, 0x02]);
+        });
+
+        match world.infer_eof_from_buffer() {
+            EofError::MidHeader {
+                bytes_received,
+                header_size,
+            } => {
+                assert_eq!(bytes_received, 2);
+                assert_eq!(header_size, LENGTH_HEADER_SIZE);
+            }
+            other => panic!("expected MidHeader, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn infer_eof_from_buffer_reports_mid_frame() {
+        let expected_len: u32 = 42;
+        let expected_usize = usize::try_from(expected_len).expect("expected length fits in usize");
+        let world = make_world_with_buffer(|buf| {
+            buf.put_u32(expected_len);
+            buf.extend_from_slice(&[0x11, 0x22]);
+        });
+
+        match world.infer_eof_from_buffer() {
+            EofError::MidFrame {
+                bytes_received,
+                expected,
+            } => {
+                assert_eq!(
+                    bytes_received,
+                    world.buffer.len().saturating_sub(LENGTH_HEADER_SIZE)
+                );
+                assert_eq!(expected, expected_usize);
+            }
+            other => panic!("expected MidFrame, got {other:?}"),
         }
     }
 }
