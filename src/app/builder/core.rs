@@ -119,8 +119,7 @@ where
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     pub(super) serializer: S2,
     pub(super) codec: F2,
-    pub(super) protocol:
-        Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
+    pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
     pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
 }

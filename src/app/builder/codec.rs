@@ -1,6 +1,6 @@
 //! Codec and serializer configuration for `WireframeApp`.
 
-use super::{core::RebuildParams, WireframeApp};
+use super::{WireframeApp, core::RebuildParams};
 use crate::{
     app::Packet,
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},

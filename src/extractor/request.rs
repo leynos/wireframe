@@ -1,9 +1,6 @@
 //! Request context and payload buffer types for extractors.
 
-use std::{
-    net::SocketAddr,
-    sync::Mutex,
-};
+use std::{net::SocketAddr, sync::Mutex};
 
 use super::SharedState;
 use crate::{app_data_store::AppDataStore, request::RequestBodyStream};

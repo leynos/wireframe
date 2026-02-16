@@ -136,11 +136,18 @@ impl AppDataStore {
 }
 
 #[cfg(test)]
+#[expect(
+    unused_braces,
+    reason = "rstest fixture macro expansion triggers unused_braces with rustfmt single-line \
+              bodies"
+)]
 mod tests {
     use std::{
         sync::{Arc, Barrier},
         thread,
     };
+
+    use rstest::{fixture, rstest};
 
     use super::AppDataStore;
 
@@ -150,25 +157,29 @@ mod tests {
         value: u32,
     }
 
+    #[fixture]
+    fn empty_store() -> AppDataStore { AppDataStore::default() }
+
     fn assert_send_sync<T: Send + Sync>() {}
 
-    #[test]
-    fn insert_and_get_multiple_types() {
-        let store = AppDataStore::default();
-        store.insert(12u32);
-        store.insert("hello".to_string());
-        store.insert(CustomState {
+    #[rstest]
+    fn insert_and_get_multiple_types(empty_store: AppDataStore) {
+        empty_store.insert(12u32);
+        empty_store.insert("hello".to_string());
+        empty_store.insert(CustomState {
             label: "alpha",
             value: 7,
         });
 
-        let number = store.get::<u32>().expect("u32 should be present");
+        let number = empty_store.get::<u32>().expect("u32 should be present");
         assert_eq!(*number, 12);
 
-        let text = store.get::<String>().expect("String should be present");
+        let text = empty_store
+            .get::<String>()
+            .expect("String should be present");
         assert_eq!(text.as_str(), "hello");
 
-        let custom = store
+        let custom = empty_store
             .get::<CustomState>()
             .expect("CustomState should be present");
         assert_eq!(
@@ -180,51 +191,46 @@ mod tests {
         );
     }
 
-    #[test]
-    fn insert_overwrites_existing_value() {
-        let store = AppDataStore::default();
-        store.insert(10u32);
-        store.insert(20u32);
+    #[rstest]
+    fn insert_overwrites_existing_value(empty_store: AppDataStore) {
+        empty_store.insert(10u32);
+        empty_store.insert(20u32);
 
-        let number = store.get::<u32>().expect("u32 should be present");
+        let number = empty_store.get::<u32>().expect("u32 should be present");
         assert_eq!(*number, 20);
     }
 
-    #[test]
-    fn missing_type_returns_none() {
-        let store = AppDataStore::default();
-        assert!(store.get::<u32>().is_none());
+    #[rstest]
+    fn missing_type_returns_none(empty_store: AppDataStore) {
+        assert!(empty_store.get::<u32>().is_none());
     }
 
-    #[test]
-    fn contains_returns_true_for_present_type() {
-        let store = AppDataStore::default();
-        assert!(!store.contains::<u32>());
-        store.insert(42u32);
-        assert!(store.contains::<u32>());
+    #[rstest]
+    fn contains_returns_true_for_present_type(empty_store: AppDataStore) {
+        assert!(!empty_store.contains::<u32>());
+        empty_store.insert(42u32);
+        assert!(empty_store.contains::<u32>());
     }
 
-    #[test]
-    fn remove_returns_and_deletes_value() {
-        let store = AppDataStore::default();
-        store.insert(42u32);
-        let removed = store.remove::<u32>().expect("u32 should be present");
+    #[rstest]
+    fn remove_returns_and_deletes_value(empty_store: AppDataStore) {
+        empty_store.insert(42u32);
+        let removed = empty_store.remove::<u32>().expect("u32 should be present");
         assert_eq!(*removed, 42);
-        assert!(store.get::<u32>().is_none());
+        assert!(empty_store.get::<u32>().is_none());
     }
 
-    #[test]
-    fn remove_returns_none_for_absent_type() {
-        let store = AppDataStore::default();
-        assert!(store.remove::<u32>().is_none());
+    #[rstest]
+    fn remove_returns_none_for_absent_type(empty_store: AppDataStore) {
+        assert!(empty_store.remove::<u32>().is_none());
     }
 
     #[test]
     fn store_is_send_and_sync() { assert_send_sync::<AppDataStore>(); }
 
-    #[test]
-    fn concurrent_insert_and_get() {
-        let store = Arc::new(AppDataStore::default());
+    #[rstest]
+    fn concurrent_insert_and_get(empty_store: AppDataStore) {
+        let store = Arc::new(empty_store);
         let barrier = Arc::new(Barrier::new(3));
 
         let handles: Vec<_> = vec![
@@ -277,9 +283,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn concurrent_overwrite_converges() {
-        let store = Arc::new(AppDataStore::default());
+    #[rstest]
+    fn concurrent_overwrite_converges(empty_store: AppDataStore) {
+        let store = Arc::new(empty_store);
         let thread_count = 8;
         let barrier = Arc::new(Barrier::new(thread_count));
 

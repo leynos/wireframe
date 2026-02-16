@@ -120,6 +120,8 @@ pub fn read_network_u64(bytes: [u8; 8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::{
         read_network_u16,
         read_network_u32,
@@ -129,27 +131,33 @@ mod tests {
         write_network_u64,
     };
 
-    #[test]
-    fn u16_round_trip() {
-        let value = 0x1234;
-        let bytes = write_network_u16(value);
-        assert_eq!(bytes, [0x12, 0x34]);
-        assert_eq!(read_network_u16(bytes), value);
-    }
-
-    #[test]
-    fn u32_round_trip() {
-        let value = 0x1234_5678;
-        let bytes = write_network_u32(value);
-        assert_eq!(bytes, [0x12, 0x34, 0x56, 0x78]);
-        assert_eq!(read_network_u32(bytes), value);
-    }
-
-    #[test]
-    fn u64_round_trip() {
-        let value = 0x1122_3344_5566_7788;
-        let bytes = write_network_u64(value);
-        assert_eq!(bytes, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
-        assert_eq!(read_network_u64(bytes), value);
+    /// Verify that each network-order write/read pair round-trips correctly.
+    #[rstest]
+    #[case::u16(
+        0x1234u64,
+        &write_network_u16(0x1234)[..],
+        &[0x12, 0x34],
+        u64::from(read_network_u16([0x12, 0x34]))
+    )]
+    #[case::u32(
+        0x1234_5678u64,
+        &write_network_u32(0x1234_5678)[..],
+        &[0x12, 0x34, 0x56, 0x78],
+        u64::from(read_network_u32([0x12, 0x34, 0x56, 0x78]))
+    )]
+    #[case::u64(
+        0x1122_3344_5566_7788u64,
+        &write_network_u64(0x1122_3344_5566_7788)[..],
+        &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
+        read_network_u64([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88])
+    )]
+    fn network_byte_order_round_trip(
+        #[case] value: u64,
+        #[case] written: &[u8],
+        #[case] expected_bytes: &[u8],
+        #[case] read_back: u64,
+    ) {
+        assert_eq!(written, expected_bytes);
+        assert_eq!(read_back, value);
     }
 }
