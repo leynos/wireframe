@@ -233,6 +233,8 @@ impl CodecErrorWorld {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for decoder ops EOF classification and buffer inference behaviour.
+
     use bytes::BufMut;
     use rstest::{fixture, rstest};
 
