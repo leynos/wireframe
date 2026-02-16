@@ -26,7 +26,7 @@ fn empty_payload() -> Payload<'static> {
 
 #[rstest]
 fn shared_state_extractor_returns_data(
-    mut request: MessageRequest,
+    request: MessageRequest,
     mut empty_payload: Payload<'static>,
 ) {
     request.insert_state(5u32);

@@ -2,7 +2,12 @@
 use std::io;
 
 use super::format::Endianness;
-use crate::byte_order::read_network_u64;
+use crate::byte_order::{
+    read_network_u64,
+    write_network_u16,
+    write_network_u32,
+    write_network_u64,
+};
 
 pub(crate) const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
 pub(crate) const ERR_FRAME_TOO_LARGE: &str = "frame too large";
@@ -108,21 +113,42 @@ fn convert_len_to_value(len: usize, size: usize) -> io::Result<u64> {
 }
 
 /// Write a u64 into `prefix` according to the specified endianness.
+///
+/// For big-endian, the function delegates to the typed network-order write
+/// helpers mirroring how the read path delegates to `read_network_u64`.
 fn write_bytes_with_endianness(value: u64, endianness: Endianness, prefix: &mut [u8]) {
     let size = prefix.len();
     match endianness {
-        Endianness::Big => {
-            for (i, byte) in prefix.iter_mut().enumerate() {
-                let shift = 8 * (size - 1 - i);
-                *byte = ((value >> shift) & 0xff) as u8;
-            }
-        }
-        Endianness::Little => {
-            for (i, byte) in prefix.iter_mut().enumerate() {
-                let shift = 8 * i;
-                *byte = ((value >> shift) & 0xff) as u8;
-            }
-        }
+        Endianness::Big => write_big_endian_prefix(value, size, prefix),
+        Endianness::Little => write_little_endian_prefix(value, prefix),
+    }
+}
+
+/// Encode `value` into `prefix` in network (big-endian) byte order.
+///
+/// Delegates to the typed `write_network_*` helpers so the encode and
+/// decode paths share the same lint-suppressed conversion point.
+/// Callers guarantee the value fits in the requested prefix size via
+/// `checked_prefix_cast` in `convert_len_to_value`.
+fn write_big_endian_prefix(value: u64, size: usize, prefix: &mut [u8]) {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "caller validates value fits in prefix via checked_prefix_cast"
+    )]
+    match size {
+        1 => prefix.copy_from_slice(&[value as u8]),
+        2 => prefix.copy_from_slice(&write_network_u16(value as u16)),
+        4 => prefix.copy_from_slice(&write_network_u32(value as u32)),
+        8 => prefix.copy_from_slice(&write_network_u64(value)),
+        _ => debug_assert!(false, "size validated upstream to be 1, 2, 4, or 8"),
+    }
+}
+
+/// Encode `value` into `prefix` in little-endian byte order.
+fn write_little_endian_prefix(value: u64, prefix: &mut [u8]) {
+    for (i, byte) in prefix.iter_mut().enumerate() {
+        let shift = 8 * i;
+        *byte = ((value >> shift) & 0xff) as u8;
     }
 }
 

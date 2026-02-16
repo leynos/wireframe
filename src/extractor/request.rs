@@ -73,7 +73,7 @@ impl MessageRequest {
     ///     .expect("failed to initialize app")
     ///     .app_data(5u32);
     /// // The framework populates the request with application data.
-    /// # let mut req = MessageRequest::default();
+    /// # let req = MessageRequest::default();
     /// # req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
     /// assert_eq!(*val.expect("shared state missing"), 5);
@@ -95,12 +95,12 @@ impl MessageRequest {
     /// ```rust
     /// use wireframe::extractor::{MessageRequest, SharedState};
     ///
-    /// let mut req = MessageRequest::default();
+    /// let req = MessageRequest::default();
     /// req.insert_state(5u32);
     /// let val: Option<SharedState<u32>> = req.state();
     /// assert_eq!(*val.expect("shared state missing"), 5);
     /// ```
-    pub fn insert_state<T>(&mut self, state: T)
+    pub fn insert_state<T>(&self, state: T)
     where
         T: Send + Sync + 'static,
     {

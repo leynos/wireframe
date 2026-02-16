@@ -112,6 +112,19 @@ where
     }
 }
 
+/// Groups the type-changing parameters for [`WireframeApp::rebuild_with_params`].
+///
+/// Consolidates serializer, codec, protocol, fragmentation, and message
+/// assembler into a single value to keep the rebuild signature concise.
+pub(super) struct RebuildParams<S2, F2: FrameCodec> {
+    pub(super) serializer: S2,
+    pub(super) codec: F2,
+    pub(super) protocol:
+        Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
+    pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
+}
+
 impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
     S: Serializer + Send + Sync,
@@ -127,17 +140,9 @@ where
     /// field list across each type-changing method. For smaller builders with
     /// only a handful of fields and single-field updates, prefer the macro-based
     /// pattern used by `WireframeClientBuilder`.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Helper handles multi-field type transitions; see builder-pattern-conventions.md."
-    )]
     pub(super) fn rebuild_with_params<S2, F2>(
         self,
-        serializer: S2,
-        codec: F2,
-        protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
-        fragmentation: Option<crate::fragment::FragmentationConfig>,
-        message_assembler: Option<Arc<dyn MessageAssembler>>,
+        params: RebuildParams<S2, F2>,
     ) -> WireframeApp<S2, C, E, F2>
     where
         S2: Serializer + Send + Sync,
@@ -147,16 +152,16 @@ where
             handlers: self.handlers,
             routes: OnceCell::new(),
             middleware: self.middleware,
-            serializer,
+            serializer: params.serializer,
             app_data: self.app_data,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
-            protocol,
+            protocol: params.protocol,
             push_dlq: self.push_dlq,
-            codec,
+            codec: params.codec,
             read_timeout_ms: self.read_timeout_ms,
-            fragmentation,
-            message_assembler,
+            fragmentation: params.fragmentation,
+            message_assembler: params.message_assembler,
         }
     }
 }
