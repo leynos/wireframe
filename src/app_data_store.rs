@@ -138,10 +138,12 @@ impl AppDataStore {
 #[cfg(test)]
 #[expect(
     unused_braces,
-    reason = "rstest fixture macro expansion triggers unused_braces with rustfmt single-line \
-              bodies"
+    reason = "rstest fixture proc-macro consumes item-level attributes before clippy sees them"
 )]
 mod tests {
+    //! Unit tests for [`AppDataStore`] covering insertion, retrieval,
+    //! removal, containment checks, and concurrent access.
+
     use std::{
         sync::{Arc, Barrier},
         thread,

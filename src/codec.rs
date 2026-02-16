@@ -199,7 +199,7 @@ fn build_eof_error(src: &BytesMut) -> io::Error {
     let expected = src
         .get(..LENGTH_HEADER_SIZE)
         .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
-        .map(|bytes| read_network_u32(bytes) as usize);
+        .and_then(|bytes| usize::try_from(read_network_u32(bytes)).ok());
 
     match expected {
         Some(expected) => {

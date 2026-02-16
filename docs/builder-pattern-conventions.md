@@ -23,5 +23,5 @@ Use a macro when:
 - `WireframeApp::rebuild_with_params` centralizes reconstruction for the
   13-field server builder and keeps coordinated updates for serializer, codec,
   protocol, and fragmentation together.
-- `builder_field_update!` in `src/client/builder.rs` covers the five-field
+- `builder_field_update!` in `src/client/builder/mod.rs` covers the five-field
   client builder, where each type change updates one field at a time.

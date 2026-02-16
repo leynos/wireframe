@@ -120,6 +120,8 @@ pub fn read_network_u64(bytes: [u8; 8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    //! Round-trip tests for network byte-order conversion helpers.
+
     use rstest::rstest;
 
     use super::{
