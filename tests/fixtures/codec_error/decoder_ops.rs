@@ -233,78 +233,67 @@ impl CodecErrorWorld {
 
 #[cfg(test)]
 mod tests {
-    use bytes::{BufMut, BytesMut};
+    use bytes::BufMut;
+    use rstest::{fixture, rstest};
 
     use super::*;
 
-    fn make_world_with_buffer<F>(fill: F) -> CodecErrorWorld
-    where
-        F: FnOnce(&mut BytesMut),
-    {
+    #[fixture]
+    fn codec_error_world() -> CodecErrorWorld {
         let mut world = CodecErrorWorld::default();
-        let mut buffer = BytesMut::new();
-        fill(&mut buffer);
-        world.buffer = buffer;
+        world.reset_codec_state();
         world
     }
 
-    #[test]
-    fn classify_eof_error_uses_inner_eof_error_variant() {
-        let variants = [
-            EofError::CleanClose,
-            EofError::MidHeader {
-                bytes_received: 1,
-                header_size: LENGTH_HEADER_SIZE,
-            },
-            EofError::MidFrame {
-                bytes_received: 2,
-                expected: 3,
-            },
-        ];
+    #[rstest]
+    #[case::clean_close(EofError::CleanClose)]
+    #[case::mid_header(EofError::MidHeader {
+        bytes_received: 1,
+        header_size: LENGTH_HEADER_SIZE,
+    })]
+    #[case::mid_frame(EofError::MidFrame {
+        bytes_received: 2,
+        expected: 3,
+    })]
+    fn classify_eof_error_uses_inner_eof_error_variant(
+        #[case] variant: EofError,
+        mut codec_error_world: CodecErrorWorld,
+    ) {
+        let io_err = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, variant);
 
-        for variant in variants {
-            let io_err = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, variant);
-            let mut world = CodecErrorWorld::default();
+        codec_error_world.classify_eof_error(&io_err);
 
-            world.classify_eof_error(&io_err);
-
-            assert_eq!(world.detected_eof, Some(variant));
-        }
+        assert_eq!(codec_error_world.detected_eof, Some(variant));
     }
 
-    #[test]
-    fn classify_eof_error_falls_back_to_buffer_classification() {
+    #[rstest]
+    fn classify_eof_error_falls_back_to_buffer_classification(
+        mut codec_error_world: CodecErrorWorld,
+    ) {
         let io_err = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "not an eof error");
-        let mut world = make_world_with_buffer(|buf| {
-            buf.extend_from_slice(&[0x01, 0x02]);
-        });
-        let expected = world.infer_eof_from_buffer();
+        codec_error_world.buffer.extend_from_slice(&[0x01, 0x02]);
+        let expected = codec_error_world.infer_eof_from_buffer();
 
-        world.classify_eof_error(&io_err);
+        codec_error_world.classify_eof_error(&io_err);
 
-        assert_eq!(world.detected_eof, Some(expected));
+        assert_eq!(codec_error_world.detected_eof, Some(expected));
     }
 
-    #[test]
-    fn classify_eof_error_ignores_non_unexpected_eof() {
+    #[rstest]
+    fn classify_eof_error_ignores_non_unexpected_eof(mut codec_error_world: CodecErrorWorld) {
         let io_err = std::io::Error::other("other error");
-        let mut world = CodecErrorWorld {
-            detected_eof: Some(EofError::CleanClose),
-            ..CodecErrorWorld::default()
-        };
+        codec_error_world.detected_eof = Some(EofError::CleanClose);
 
-        world.classify_eof_error(&io_err);
+        codec_error_world.classify_eof_error(&io_err);
 
-        assert_eq!(world.detected_eof, Some(EofError::CleanClose));
+        assert_eq!(codec_error_world.detected_eof, Some(EofError::CleanClose));
     }
 
-    #[test]
-    fn infer_eof_from_buffer_reports_mid_header() {
-        let world = make_world_with_buffer(|buf| {
-            buf.extend_from_slice(&[0x01, 0x02]);
-        });
+    #[rstest]
+    fn infer_eof_from_buffer_reports_mid_header(mut codec_error_world: CodecErrorWorld) {
+        codec_error_world.buffer.extend_from_slice(&[0x01, 0x02]);
 
-        match world.infer_eof_from_buffer() {
+        match codec_error_world.infer_eof_from_buffer() {
             EofError::MidHeader {
                 bytes_received,
                 header_size,
@@ -316,23 +305,24 @@ mod tests {
         }
     }
 
-    #[test]
-    fn infer_eof_from_buffer_reports_mid_frame() {
+    #[rstest]
+    fn infer_eof_from_buffer_reports_mid_frame(mut codec_error_world: CodecErrorWorld) {
         let expected_len: u32 = 42;
         let expected_usize = usize::try_from(expected_len).expect("expected length fits in usize");
-        let world = make_world_with_buffer(|buf| {
-            buf.put_u32(expected_len);
-            buf.extend_from_slice(&[0x11, 0x22]);
-        });
+        codec_error_world.buffer.put_u32(expected_len);
+        codec_error_world.buffer.extend_from_slice(&[0x11, 0x22]);
 
-        match world.infer_eof_from_buffer() {
+        match codec_error_world.infer_eof_from_buffer() {
             EofError::MidFrame {
                 bytes_received,
                 expected,
             } => {
                 assert_eq!(
                     bytes_received,
-                    world.buffer.len().saturating_sub(LENGTH_HEADER_SIZE)
+                    codec_error_world
+                        .buffer
+                        .len()
+                        .saturating_sub(LENGTH_HEADER_SIZE)
                 );
                 assert_eq!(expected, expected_usize);
             }
