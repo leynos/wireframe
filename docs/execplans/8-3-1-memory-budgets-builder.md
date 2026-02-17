@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 No `PLANS.md` exists in this repository as of 2026-02-17.
 
@@ -83,13 +83,17 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-02-17 00:49Z) Drafted ExecPlan for roadmap item `8.3.1`.
-- [ ] Introduce memory budget configuration type and WireframeApp storage.
-- [ ] Add `WireframeApp::memory_budgets(...)` builder method.
-- [ ] Add/extend unit tests with `rstest` for defaults and composition.
-- [ ] Add/extend behavioural tests with `rstest-bdd` v0.5.0.
-- [ ] Update design doc(s) and `docs/users-guide.md`.
-- [ ] Mark `docs/roadmap.md` item `8.3.1` as done.
-- [ ] Run full quality gates and capture logs with `tee`.
+- [x] (2026-02-17 22:31Z) Added `MemoryBudgets` type and threaded optional
+      `memory_budgets` state through `WireframeApp` storage/rebuild paths.
+- [x] (2026-02-17 22:31Z) Added `WireframeApp::memory_budgets(...)` builder
+      method in `src/app/builder/config.rs`.
+- [x] (2026-02-17 22:31Z) Added `rstest` unit tests for defaults, setter
+      behaviour, and composition with `with_codec`/`serializer`.
+- [x] (2026-02-17 22:31Z) Added `rstest-bdd` feature, fixture, steps, and
+      scenarios for memory-budget configuration behaviour.
+- [x] (2026-02-17 22:31Z) Updated `docs/adr-002-...`, `docs/users-guide.md`,
+      and marked `docs/roadmap.md` item `8.3.1` as done.
+- [x] (2026-02-17 22:31Z) Ran full quality gates with `tee` logs.
 
 ## Surprises & Discoveries
 
@@ -111,6 +115,12 @@ Success is observable when:
   implementation should follow rstest-bdd patterns, while still keeping the
   historical reference document consistent.
 
+- Observation: strict clippy configuration rejects structs whose fields share a
+  common prefix or suffix. Evidence: `make lint` failures from
+  `clippy::struct-field-names` while introducing `MemoryBudgets`. Impact:
+  internal field names were revised to mixed names while preserving public
+  getter names and API semantics.
+
 ## Decision Log
 
 - Decision: introduce a dedicated `MemoryBudgets` value type and pass it into
@@ -124,9 +134,24 @@ Success is observable when:
   aligns with roadmap sequencing and avoids mixing behavioural changes across
   milestones. Date/Author: 2026-02-17 / Codex.
 
+- Decision: avoid lint suppressions for field-name warnings and instead rename
+  internal fields to satisfy `clippy::struct-field-names`. Rationale: project
+  policy requires keeping lints strict unless suppression is a last resort.
+  Date/Author: 2026-02-17 / Codex.
+
 ## Outcomes & Retrospective
 
-Not started.
+Completed.
+
+- `MemoryBudgets` was added as a dedicated public app configuration value with
+  non-zero byte caps and documented accessors.
+- `WireframeApp` now stores optional memory budgets and exposes
+  `memory_budgets(...)` as a fluent builder method.
+- Type-changing builder paths preserve configured budgets.
+- New `rstest` unit tests and `rstest-bdd` behavioural scenarios validate the
+  configuration surface.
+- Documentation was updated and roadmap item `8.3.1` was marked done.
+- Full quality gates passed with captured logs.
 
 ## Context and orientation
 
@@ -315,7 +340,7 @@ Expected artifacts after completion:
 - Updated design docs (`ADR 0002` and related alignment notes),
   `docs/users-guide.md`, and `docs/roadmap.md`.
 - Gate logs:
-  `/tmp/wireframe-8-3-1-{fmt,markdownlint,check-fmt,lint,test,nixie}.log`.
+  `/tmp/wireframe-8-3-1-impl-{fmt,markdownlint,check-fmt,lint,test,nixie}.log`.
 
 ## Interfaces and dependencies
 
@@ -354,3 +379,10 @@ Dependencies:
 - No new crates.
 - Testing remains on `rstest` and `rstest-bdd` v0.5.0 already present in
   `Cargo.toml`.
+
+## Revision note
+
+- Updated this ExecPlan from `DRAFT` to `COMPLETE`.
+- Recorded implemented work, discovered lint constraints, and final outcomes.
+- Replaced planned log paths with the actual `-impl` gate logs used for
+  verification.

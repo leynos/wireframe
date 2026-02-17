@@ -285,6 +285,17 @@ Precedence is:
 3. Derived defaults based on `buffer_capacity` (and, where appropriate, the
    configured fragmentation settings).
 
+#### Implementation decisions (2026-02-17)
+
+- Wireframe now exposes `wireframe::app::MemoryBudgets`, a dedicated
+  configuration value containing three non-zero byte caps: `bytes_per_message`,
+  `bytes_per_connection`, and `bytes_in_flight`.
+- `WireframeApp` now exposes `memory_budgets(...)` to attach that
+  configuration per app instance (and therefore per accepted connection).
+- Roadmap item `8.3.1` is configuration-surface only; runtime enforcement,
+  back-pressure behaviour, and derived defaults remain in follow-on items
+  `8.3.2` through `8.3.5`.
+
 #### Budget enforcement
 
 - Budgets MUST cover: bytes buffered per message, bytes buffered per

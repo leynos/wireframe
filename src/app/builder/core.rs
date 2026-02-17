@@ -10,6 +10,7 @@ use crate::{
         envelope::{Envelope, Packet},
         error::Result,
         lifecycle::{ConnectionSetup, ConnectionTeardown},
+        memory_budgets::MemoryBudgets,
         middleware_types::{Handler, Middleware},
     },
     app_data_store::AppDataStore,
@@ -45,6 +46,7 @@ pub struct WireframeApp<
     pub(in crate::app) read_timeout_ms: u64,
     pub(in crate::app) fragmentation: Option<crate::fragment::FragmentationConfig>,
     pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
 }
 
 impl<S, C, E, F> Default for WireframeApp<S, C, E, F>
@@ -72,6 +74,7 @@ where
             read_timeout_ms: DEFAULT_READ_TIMEOUT_MS,
             fragmentation: None,
             message_assembler: None,
+            memory_budgets: None,
         }
     }
 }
@@ -114,14 +117,16 @@ where
 
 /// Groups the type-changing parameters for [`WireframeApp::rebuild_with_params`].
 ///
-/// Consolidates serializer, codec, protocol, fragmentation, and message
-/// assembler into a single value to keep the rebuild signature concise.
+/// Consolidates serializer, codec, protocol, fragmentation, message assembler,
+/// and memory budgets into a single value to keep the rebuild signature
+/// concise.
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     pub(super) serializer: S2,
     pub(super) codec: F2,
     pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
     pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    pub(super) memory_budgets: Option<MemoryBudgets>,
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -133,7 +138,7 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// The `WireframeApp` builder carries 13 fields that must be moved together
+    /// The `WireframeApp` builder carries 14 fields that must be moved together
     /// when swapping serializer or codec types. Centralising the reconstruction
     /// here keeps the transitions consistent and avoids repeating the same
     /// field list across each type-changing method. For smaller builders with
@@ -161,16 +166,23 @@ where
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: params.fragmentation,
             message_assembler: params.message_assembler,
+            memory_budgets: params.memory_budgets,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use rstest::{fixture, rstest};
 
     use super::WireframeApp;
-    use crate::{app::Envelope, codec::LengthDelimitedFrameCodec, serializer::BincodeSerializer};
+    use crate::{
+        app::{Envelope, MemoryBudgets},
+        codec::LengthDelimitedFrameCodec,
+        serializer::BincodeSerializer,
+    };
 
     type TestApp = WireframeApp<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>;
 
@@ -181,13 +193,32 @@ mod tests {
             app.fragmentation.is_none(),
             "fixture expects default fragmentation disabled"
         );
+        assert!(
+            app.memory_budgets.is_none(),
+            "fixture expects default memory budgets disabled"
+        );
         app
+    }
+
+    #[fixture]
+    fn memory_budgets() -> MemoryBudgets {
+        MemoryBudgets::new(
+            NonZeroUsize::new(1024).expect("non-zero"),
+            NonZeroUsize::new(4096).expect("non-zero"),
+            NonZeroUsize::new(2048).expect("non-zero"),
+        )
     }
 
     #[rstest]
     fn builder_defaults_fragmentation_to_disabled(app_builder: TestApp) {
         let app = app_builder;
         assert!(app.fragmentation.is_none());
+    }
+
+    #[rstest]
+    fn builder_defaults_memory_budgets_to_disabled(app_builder: TestApp) {
+        let app = app_builder;
+        assert!(app.memory_budgets.is_none());
     }
 
     #[rstest]
@@ -208,5 +239,30 @@ mod tests {
     fn buffer_capacity_clears_fragmentation_to_require_reconfiguration(app_builder: TestApp) {
         let app = app_builder.enable_fragmentation().buffer_capacity(2048);
         assert!(app.fragmentation.is_none());
+    }
+
+    #[rstest]
+    fn memory_budgets_builder_stores_configuration(
+        app_builder: TestApp,
+        memory_budgets: MemoryBudgets,
+    ) {
+        let app = app_builder.memory_budgets(memory_budgets);
+        assert_eq!(app.memory_budgets, Some(memory_budgets));
+    }
+
+    #[rstest]
+    fn with_codec_preserves_memory_budgets(app_builder: TestApp, memory_budgets: MemoryBudgets) {
+        let app = app_builder
+            .memory_budgets(memory_budgets)
+            .with_codec(LengthDelimitedFrameCodec::new(4096));
+        assert_eq!(app.memory_budgets, Some(memory_budgets));
+    }
+
+    #[rstest]
+    fn serializer_preserves_memory_budgets(app_builder: TestApp, memory_budgets: MemoryBudgets) {
+        let app = app_builder
+            .memory_budgets(memory_budgets)
+            .serializer(BincodeSerializer);
+        assert_eq!(app.memory_budgets, Some(memory_budgets));
     }
 }

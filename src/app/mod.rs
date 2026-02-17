@@ -19,10 +19,12 @@ pub mod fragment_utils;
 mod fragmentation_state;
 mod frame_handling;
 mod lifecycle;
+mod memory_budgets;
 mod middleware_types;
 
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};
 pub use error::{Result, SendError};
 pub use lifecycle::{ConnectionSetup, ConnectionTeardown};
+pub use memory_budgets::MemoryBudgets;
 pub use middleware_types::{Handler, Middleware};

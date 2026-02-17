@@ -12,6 +12,7 @@ pub mod codec_error;
 pub mod codec_stateful;
 pub mod correlation;
 pub mod fragment;
+pub mod memory_budgets;
 pub mod message_assembler;
 pub mod message_assembly;
 pub mod message_assembly_inbound;

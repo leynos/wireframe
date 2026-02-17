@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use super::WireframeApp;
 use crate::{
     app::{
+        MemoryBudgets,
         Packet,
         builder_defaults::{MAX_READ_TIMEOUT_MS, MIN_READ_TIMEOUT_MS, default_fragmentation},
     },
@@ -34,6 +35,13 @@ where
     #[must_use]
     pub fn fragmentation(mut self, config: Option<FragmentationConfig>) -> Self {
         self.fragmentation = config;
+        self
+    }
+
+    /// Configure per-connection memory budgets for inbound buffering.
+    #[must_use]
+    pub fn memory_budgets(mut self, budgets: MemoryBudgets) -> Self {
+        self.memory_budgets = Some(budgets);
         self
     }
 
