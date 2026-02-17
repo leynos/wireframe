@@ -284,9 +284,9 @@ and standardized per-connection memory budgets.
 - [x] 8.2.3. Add message key support for multiplexing interleaved assemblies.
 - [x] 8.2.4. Implement continuity validation (ordering, missing frames, and
   duplicate frames).
-- [ ] 8.2.5. Integrate with the connection actor's inbound path, applying
+- [x] 8.2.5. Integrate with the connection actor's inbound path, applying
   after transport fragmentation.
-- [ ] 8.2.6. Write tests for interleaved assembly, ordering violations, and
+- [x] 8.2.6. Write tests for interleaved assembly, ordering violations, and
   timeout behaviour.
 
 ### 8.3. Per-connection memory budgets

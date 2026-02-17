@@ -3,7 +3,7 @@
 
 use std::io;
 
-use bytes::Buf;
+use bytes::{Buf, BufMut, BytesMut};
 
 use crate::message_assembler::{
     ContinuationFrameHeader,
@@ -116,4 +116,44 @@ fn ensure_remaining(buf: &mut &[u8], needed: usize) -> Result<(), io::Error> {
 
 fn invalid_data(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+/// Build a first-frame payload for the test protocol.
+#[must_use]
+pub fn first_frame_payload(key: u64, body: &[u8], is_last: bool, total: Option<u32>) -> Vec<u8> {
+    let mut payload = BytesMut::new();
+    payload.put_u8(0x01);
+    let mut flags = 0u8;
+    if is_last {
+        flags |= 0b1;
+    }
+    if total.is_some() {
+        flags |= 0b10;
+    }
+    payload.put_u8(flags);
+    payload.put_u64(key);
+    payload.put_u16(0);
+    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
+    if let Some(total) = total {
+        payload.put_u32(total);
+    }
+    payload.extend_from_slice(body);
+    payload.to_vec()
+}
+
+/// Build a continuation-frame payload for the test protocol.
+#[must_use]
+pub fn continuation_frame_payload(key: u64, sequence: u32, body: &[u8], is_last: bool) -> Vec<u8> {
+    let mut payload = BytesMut::new();
+    payload.put_u8(0x02);
+    let mut flags = 0b10;
+    if is_last {
+        flags |= 0b1;
+    }
+    payload.put_u8(flags);
+    payload.put_u64(key);
+    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
+    payload.put_u32(sequence);
+    payload.extend_from_slice(body);
+    payload.to_vec()
 }

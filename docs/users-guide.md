@@ -489,12 +489,15 @@ let _app = WireframeApp::new()
     .with_message_assembler(DemoAssembler);
 ```
 
-Note: the hook is stored on the application today but is wired into the inbound
-connection path in roadmap item 8.2.5. Until that integration lands, protocol
-crates can use the trait for shared parsing logic and tests.
+When configured, this hook now runs on the inbound connection path after
+transport fragmentation reassembly and before handler dispatch. Incomplete
+assemblies remain buffered per message key until completion or timeout eviction.
+
+Message-assembly parsing and continuity failures are treated as inbound
+deserialization failures and follow the existing failure threshold policy.
 
 `WireframeApp::message_assembler` returns the configured hook as an
-`Option<&Arc<dyn MessageAssembler>>` if you need to access it directly.
+`Option<&Arc<dyn MessageAssembler>>` if direct access is required.
 
 #### Message key multiplexing (8.2.3)
 
@@ -506,6 +509,8 @@ different logical messages arrive on the same connection:
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::message_assembler::{
     ContinuationFrameHeader,
+    EnvelopeId,
+    EnvelopeRouting,
     FirstFrameHeader,
     FirstFrameInput,
     FrameSequence,
@@ -526,7 +531,8 @@ let first1 = FirstFrameHeader {
     total_body_len: Some(15),
     is_last: false,
 };
-let input1 = FirstFrameInput::new(&first1, vec![], b"hello")
+let routing1 = EnvelopeRouting { envelope_id: EnvelopeId(1), correlation_id: None };
+let input1 = FirstFrameInput::new(&first1, routing1, vec![], b"hello")
     .expect("header lengths match");
 state.accept_first_frame(input1)?;
 
@@ -538,7 +544,8 @@ let first2 = FirstFrameHeader {
     total_body_len: None,
     is_last: false,
 };
-let input2 = FirstFrameInput::new(&first2, vec![], b"world")
+let routing2 = EnvelopeRouting { envelope_id: EnvelopeId(2), correlation_id: None };
+let input2 = FirstFrameInput::new(&first2, routing2, vec![], b"world")
     .expect("header lengths match");
 state.accept_first_frame(input2)?;
 

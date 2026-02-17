@@ -15,22 +15,24 @@ use super::{
     MessageKey,
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     series::MessageSeries,
-    types::{AssembledMessage, FirstFrameInput},
+    types::{AssembledMessage, EnvelopeRouting, FirstFrameInput},
 };
 
 /// Partial message assembly in progress.
 #[derive(Debug)]
 struct PartialAssembly {
     series: MessageSeries,
+    routing: EnvelopeRouting,
     metadata: Vec<u8>,
     body_buffer: Vec<u8>,
     started_at: Instant,
 }
 
 impl PartialAssembly {
-    fn new(series: MessageSeries, started_at: Instant) -> Self {
+    fn new(series: MessageSeries, routing: EnvelopeRouting, started_at: Instant) -> Self {
         Self {
             series,
+            routing,
             metadata: Vec::new(),
             body_buffer: Vec::new(),
             started_at,
@@ -56,6 +58,8 @@ impl PartialAssembly {
 ///
 /// use wireframe::message_assembler::{
 ///     ContinuationFrameHeader,
+///     EnvelopeId,
+///     EnvelopeRouting,
 ///     FirstFrameHeader,
 ///     FirstFrameInput,
 ///     FrameSequence,
@@ -76,8 +80,12 @@ impl PartialAssembly {
 ///     total_body_len: Some(10),
 ///     is_last: false,
 /// };
-/// let input =
-///     FirstFrameInput::new(&first, vec![0x01, 0x02], b"hello").expect("header lengths match");
+/// let routing = EnvelopeRouting {
+///     envelope_id: EnvelopeId(1),
+///     correlation_id: None,
+/// };
+/// let input = FirstFrameInput::new(&first, routing, vec![0x01, 0x02], b"hello")
+///     .expect("header lengths match");
 /// let msg = state
 ///     .accept_first_frame(input)
 ///     .expect("first frame accepted");
@@ -179,13 +187,15 @@ impl MessageAssemblyState {
         if input.header.is_last {
             return Ok(Some(AssembledMessage::new(
                 key,
+                input.routing,
                 input.metadata,
                 input.body.to_vec(),
             )));
         }
 
-        // Start new assembly
-        let mut partial = PartialAssembly::new(series, now);
+        // Start new assembly, preserving envelope routing metadata from the
+        // first frame so the completed message is dispatched correctly.
+        let mut partial = PartialAssembly::new(series, input.routing, now);
         partial.set_metadata(input.metadata);
         partial.push_body(input.body);
         self.assemblies.insert(key, partial);
@@ -318,6 +328,7 @@ impl MessageAssemblyState {
                 let partial = entry.remove();
                 Ok(Some(AssembledMessage::new(
                     key,
+                    partial.routing,
                     partial.metadata,
                     partial.body_buffer,
                 )))
