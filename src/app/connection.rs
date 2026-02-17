@@ -253,6 +253,9 @@ where
         }
         framed.read_buffer_mut().reserve(max_frame_length);
         let mut deser_failures = 0u32;
+        let mut message_assembly = self.message_assembler.as_ref().map(|_| {
+            frame_handling::new_message_assembly_state(self.fragmentation, requested_frame_length)
+        });
         let mut pipeline = FramePipeline::new(self.fragmentation);
         let mut message_assembly = self.message_assembler.as_ref().map(|_| {
             frame_handling::new_message_assembly_state(self.fragmentation, requested_frame_length)
@@ -268,6 +271,7 @@ where
                             framed: &mut framed,
                             deser_failures: &mut deser_failures,
                             routes,
+                            message_assembly: &mut message_assembly,
                             pipeline: &mut pipeline,
                             message_assembly: &mut message_assembly,
                         },
@@ -300,6 +304,7 @@ where
             framed,
             deser_failures,
             routes,
+            message_assembly,
             pipeline,
             message_assembly,
         } = ctx;
