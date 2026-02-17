@@ -119,7 +119,12 @@ impl Default for MessageAssemblyInboundWorld {
     }
 }
 
-/// Construct a default [`MessageAssemblyInboundWorld`] for rstest injection.
+/// Construct and return a default [`MessageAssemblyInboundWorld`] for BDD
+/// test scenarios exercising inbound message assembly integration.
+///
+/// Injected by rstest into each `#[scenario]` function so that step
+/// definitions can drive `WireframeApp::handle_connection_result` through
+/// the full assembly pipeline.
 // rustfmt collapses simple fixtures into one line, which triggers unused_braces.
 #[rustfmt::skip]
 #[fixture]
