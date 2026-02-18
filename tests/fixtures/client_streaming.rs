@@ -1,10 +1,11 @@
 //! `ClientStreamingWorld` fixture for streaming response BDD tests.
 
+mod server;
+mod types;
+
 use std::net::SocketAddr;
 
-use bytes::Bytes;
-use derive_more::{Display, From};
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use rstest::fixture;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -12,107 +13,17 @@ use wireframe::{
     BincodeSerializer,
     Serializer,
     WireframeError,
-    app::{Packet, PacketParts},
     client::{ClientError, WireframeClient},
     correlation::CorrelatableFrame,
     rewind_stream::RewindStream,
 };
 pub use wireframe_testing::TestResult;
 
-/// A correlation identifier used to match streaming requests to responses.
-#[derive(
-    Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::BorrowDecode, bincode::Encode,
-)]
-#[display("{_0}")]
-pub(crate) struct CorrelationId(u64);
-
-impl CorrelationId {
-    const fn new(value: u64) -> Self { Self(value) }
-    const fn get(self) -> u64 { self.0 }
-}
-
-/// A message identifier used for routing.
-#[derive(
-    Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::BorrowDecode, bincode::Encode,
-)]
-#[display("{_0}")]
-pub(crate) struct MessageId(u32);
-
-impl MessageId {
-    const fn new(value: u32) -> Self { Self(value) }
-    const fn get(self) -> u32 { self.0 }
-}
-
-/// Payload bytes carried by a test frame.
-#[derive(Clone, Debug, PartialEq, Eq, bincode::BorrowDecode, bincode::Encode)]
-pub(crate) struct Payload(Vec<u8>);
-
-impl Payload {
-    fn new(data: Vec<u8>) -> Self { Self(data) }
-    fn into_inner(self) -> Vec<u8> { self.0 }
-}
-
-/// Terminator message ID used by the test streaming protocol.
-const TERMINATOR_ID: MessageId = MessageId::new(0);
-
-/// A test envelope that treats `id == 0` as a stream terminator.
-#[derive(bincode::BorrowDecode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
-pub struct StreamTestEnvelope {
-    pub id: MessageId,
-    pub correlation_id: Option<CorrelationId>,
-    pub payload: Payload,
-}
-
-impl CorrelatableFrame for StreamTestEnvelope {
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id.map(CorrelationId::get) }
-    fn set_correlation_id(&mut self, cid: Option<u64>) {
-        self.correlation_id = cid.map(CorrelationId::new);
-    }
-}
-
-impl Packet for StreamTestEnvelope {
-    fn id(&self) -> u32 { self.id.get() }
-    fn into_parts(self) -> PacketParts {
-        PacketParts::new(
-            self.id.get(),
-            self.correlation_id.map(CorrelationId::get),
-            self.payload.into_inner(),
-        )
-    }
-    fn from_parts(parts: PacketParts) -> Self {
-        Self {
-            id: MessageId::new(parts.id()),
-            correlation_id: parts.correlation_id().map(CorrelationId::new),
-            payload: Payload::new(parts.into_payload()),
-        }
-    }
-    fn is_stream_terminator(&self) -> bool { self.id == TERMINATOR_ID }
-}
-
-impl StreamTestEnvelope {
-    fn data(id: MessageId, correlation_id: CorrelationId, payload: Payload) -> Self {
-        Self {
-            id,
-            correlation_id: Some(correlation_id),
-            payload,
-        }
-    }
-    fn terminator(correlation_id: CorrelationId) -> Self {
-        Self {
-            id: TERMINATOR_ID,
-            correlation_id: Some(correlation_id),
-            payload: Payload::new(vec![]),
-        }
-    }
-
-    /// Serialize this envelope to bytes for transmission.
-    ///
-    /// # Errors
-    /// Returns an error if serialization fails.
-    fn serialize_to_bytes(&self) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Bytes::from(BincodeSerializer.serialize(self)?))
-    }
-}
+pub use self::types::*;
+use self::{
+    server::{send_data_and_terminator, send_data_frames, send_mismatch_frame},
+    types::{CorrelationId, MessageId, Payload},
+};
 
 /// Mode controlling how the streaming test server behaves.
 enum StreamingServerMode {
@@ -349,59 +260,5 @@ impl ClientStreamingWorld {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
-    }
-}
-
-/// Send a single frame with a mismatched correlation ID.
-async fn send_mismatch_frame<T>(framed: &mut Framed<T, LengthDelimitedCodec>, cid: CorrelationId)
-where
-    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    let bad = StreamTestEnvelope::data(
-        MessageId::new(1),
-        CorrelationId::new(cid.get() + 999),
-        Payload::new(vec![99]),
-    );
-    if let Ok(encoded) = bad.serialize_to_bytes() {
-        let _ = framed.send(encoded).await;
-    }
-}
-
-/// Send `count` data frames with payload `[1], [2], ..., [count]`.
-async fn send_data_frames<T>(
-    framed: &mut Framed<T, LengthDelimitedCodec>,
-    cid: CorrelationId,
-    count: usize,
-) where
-    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    for i in 1..=count {
-        let Ok(id) = u32::try_from(i) else { break };
-        let Ok(payload_byte) = u8::try_from(i) else {
-            break;
-        };
-        let frame =
-            StreamTestEnvelope::data(MessageId::new(id), cid, Payload::new(vec![payload_byte]));
-        let Ok(encoded) = frame.serialize_to_bytes() else {
-            break;
-        };
-        if framed.send(encoded).await.is_err() {
-            break;
-        }
-    }
-}
-
-/// Send `count` data frames followed by a terminator.
-async fn send_data_and_terminator<T>(
-    framed: &mut Framed<T, LengthDelimitedCodec>,
-    cid: CorrelationId,
-    count: usize,
-) where
-    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    send_data_frames(framed, cid, count).await;
-    let term = StreamTestEnvelope::terminator(cid);
-    if let Ok(encoded) = term.serialize_to_bytes() {
-        let _ = framed.send(encoded).await;
     }
 }
