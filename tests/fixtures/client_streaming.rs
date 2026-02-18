@@ -11,6 +11,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     BincodeSerializer,
     Serializer,
+    WireframeError,
     app::{Packet, PacketParts},
     client::{ClientError, WireframeClient},
     correlation::CorrelatableFrame,
@@ -19,7 +20,9 @@ use wireframe::{
 pub use wireframe_testing::TestResult;
 
 /// A correlation identifier used to match streaming requests to responses.
-#[derive(Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::Decode, bincode::Encode)]
+#[derive(
+    Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::BorrowDecode, bincode::Encode,
+)]
 #[display("{_0}")]
 pub(crate) struct CorrelationId(u64);
 
@@ -29,7 +32,9 @@ impl CorrelationId {
 }
 
 /// A message identifier used for routing.
-#[derive(Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::Decode, bincode::Encode)]
+#[derive(
+    Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::BorrowDecode, bincode::Encode,
+)]
 #[display("{_0}")]
 pub(crate) struct MessageId(u32);
 
@@ -39,7 +44,7 @@ impl MessageId {
 }
 
 /// Payload bytes carried by a test frame.
-#[derive(Clone, Debug, PartialEq, Eq, bincode::Decode, bincode::Encode)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::BorrowDecode, bincode::Encode)]
 pub(crate) struct Payload(Vec<u8>);
 
 impl Payload {
@@ -51,7 +56,7 @@ impl Payload {
 const TERMINATOR_ID: MessageId = MessageId::new(0);
 
 /// A test envelope that treats `id == 0` as a stream terminator.
-#[derive(bincode::Decode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
+#[derive(bincode::BorrowDecode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
 pub struct StreamTestEnvelope {
     pub id: MessageId,
     pub correlation_id: Option<CorrelationId>,
@@ -203,6 +208,8 @@ impl ClientStreamingWorld {
     }
 
     async fn start_server(&mut self, mode: StreamingServerMode) -> TestResult {
+        self.abort_server();
+
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
 
@@ -331,7 +338,7 @@ impl ClientStreamingWorld {
     /// Verify that a transport/disconnect error was returned.
     pub fn verify_disconnect_error(&self) -> TestResult {
         match &self.last_error {
-            Some(ClientError::Wireframe(_)) => Ok(()),
+            Some(ClientError::Wireframe(WireframeError::Io(_))) => Ok(()),
             Some(err) => Err(format!("expected transport error, got {err:?}").into()),
             None => Err("expected transport error, but no error".into()),
         }

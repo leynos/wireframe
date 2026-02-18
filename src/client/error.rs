@@ -60,10 +60,8 @@ pub enum ClientError {
     /// This error is returned by
     /// [`ResponseStream`](crate::client::ResponseStream) when a data frame
     /// arrives with an unexpected correlation identifier.
-    #[error(
-        "correlation ID mismatch in streaming response: expected {expected:?}, received \
-         {received:?}"
-    )]
+    #[rustfmt::skip]
+    #[error("correlation ID mismatch in streaming response: expected {expected:?}, received {received:?}")]
     StreamCorrelationMismatch {
         /// The correlation ID sent with the request.
         expected: Option<u64>,

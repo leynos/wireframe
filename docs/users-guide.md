@@ -1310,7 +1310,10 @@ The client library supports consuming `Response::Stream` and
 `Response::MultiPacket` server responses through the `call_streaming` and
 `receive_streaming` methods on `WireframeClient`. These methods return a
 `ResponseStream` that yields typed data frames until the protocol's
-end-of-stream terminator arrives.
+end-of-stream terminator arrives. `ResponseStream` holds an exclusive mutable
+borrow of `WireframeClient` while it exists, so the client cannot perform other
+I/O operations until the stream is dropped or fully consumed (`None` is
+observed).
 
 ### Terminator detection with `is_stream_terminator`
 
@@ -1363,7 +1366,9 @@ This mirrors the server's `stream_end_frame` hook symmetrically: the server
 
 `call_streaming` sends a request, auto-generates a correlation identifier if
 needed, and returns a `ResponseStream`. The stream yields data frames as
-`Result<P, ClientError>` and terminates with `None` when the terminator arrives:
+`Result<P, ClientError>` and terminates with `None` when the terminator
+arrives: because the stream borrows the `WireframeClient` mutably, this call
+also prevents other client I/O until the stream is dropped or drained.
 
 ```rust,no_run
 use futures::StreamExt;
@@ -1391,7 +1396,9 @@ while let Some(result) = stream.next().await {
 
 When the caller has already sent a request via `send_envelope`, the
 `receive_streaming` method accepts the known correlation identifier and returns
-a `ResponseStream` without re-sending:
+a `ResponseStream` without re-sending. As with `call_streaming`, that stream
+holds an exclusive mutable borrow of `WireframeClient` until dropped or fully
+consumed:
 
 ```rust,no_run
 use futures::StreamExt;
@@ -1417,10 +1424,13 @@ while let Some(result) = stream.next().await {
 
 ### Back-pressure
 
-Back-pressure propagates naturally through TCP flow control. If the client
-reads slowly, the TCP receive buffer fills, the server's TCP send buffer fills,
+Back-pressure propagates naturally through Transmission Control Protocol (TCP)
+flow control. If the client reads slowly, the client's TCP receive buffer
+fills. As that receive window shrinks, the server's TCP send buffer fills
+because bytes cannot be flushed quickly enough. Once the send buffer is full,
 write operations suspend, and the server stops polling its response stream or
-channel. No explicit flow-control messages are required.[^50]
+channel until the client drains data. No explicit flow-control messages are
+required.[^50]
 
 ### Error handling
 
