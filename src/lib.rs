@@ -10,9 +10,7 @@ pub mod app;
 pub mod app_data_store;
 pub mod byte_order;
 pub mod codec;
-/// Result type alias re-exported for convenience when working with the
-/// application builder.
-pub use app::error::Result;
+pub mod error;
 pub use app_data_store::AppDataStore;
 #[cfg(not(loom))]
 pub mod client;
@@ -32,6 +30,7 @@ pub use codec::{
     RecoveryPolicy,
     RecoveryPolicyHook,
 };
+pub use error::{Result, WireframeError};
 pub use serializer::{BincodeSerializer, Serializer};
 pub mod connection;
 pub mod correlation;
@@ -119,5 +118,5 @@ pub use request::{
     RequestParts,
     body_channel,
 };
-pub use response::{FrameStream, Response, WireframeError};
+pub use response::{FrameStream, Response};
 pub use session::{ConnectionId, SessionRegistry};

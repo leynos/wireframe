@@ -8,7 +8,7 @@
 
 use std::error::Error;
 
-use wireframe::{push::PushError, response::WireframeError};
+use wireframe::{WireframeError, push::PushError};
 
 #[rstest::rstest]
 #[case(PushError::QueueFull, "push queue full")]
@@ -37,7 +37,18 @@ fn wireframe_error_messages() {
 
     let proto = WireframeError::Protocol(ProtoErr);
     assert_eq!(proto.to_string(), "protocol error: ProtoErr");
+    assert!(
+        proto.source().is_none(),
+        "protocol variant does not expose a source for generic payloads"
+    );
 
-    let source = proto.source().expect("protocol variant must have source");
-    assert_eq!(source.to_string(), "boom");
+    let duplicate_route = WireframeError::<()>::DuplicateRoute(7);
+    assert_eq!(
+        duplicate_route.to_string(),
+        "route id 7 was already registered"
+    );
+    assert!(
+        duplicate_route.source().is_none(),
+        "DuplicateRoute should not expose an error source"
+    );
 }

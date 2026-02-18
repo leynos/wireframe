@@ -2,9 +2,10 @@
 
 use super::WireframeApp;
 use crate::{
+    WireframeError,
     app::{
         Packet,
-        error::{Result, WireframeError},
+        error::Result,
         middleware_types::{Handler, Middleware},
     },
     codec::FrameCodec,

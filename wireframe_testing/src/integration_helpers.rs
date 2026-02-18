@@ -147,7 +147,7 @@ pub enum TestError {
     #[error("{0}")]
     Msg(String),
     #[error(transparent)]
-    Wireframe(#[from] wireframe::app::WireframeError),
+    Wireframe(#[from] wireframe::WireframeError),
     #[error(transparent)]
     Client(#[from] wireframe::client::ClientError),
     #[error(transparent)]

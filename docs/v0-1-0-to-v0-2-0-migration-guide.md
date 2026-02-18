@@ -35,3 +35,24 @@ let fragment_payload = fragment_parts.payload();
 let packet_payload = packet_parts.into_payload();
 let fragment_payload = fragment_parts.into_payload();
 ```
+
+## Unified error surface
+
+Wireframe now exposes one canonical crate-level error type:
+`wireframe::WireframeError`. The crate-level result alias
+`wireframe::Result<T>` also resolves to this type.
+
+- Builder setup errors such as duplicate routes are now reported through
+  `wireframe::WireframeError::DuplicateRoute`.
+- Streaming and transport errors still use `Io`, `Protocol`, and `Codec`
+  variants on the same `wireframe::WireframeError` type.
+
+```rust
+// Before
+use wireframe::app::WireframeError as AppError;
+use wireframe::response::WireframeError as StreamError;
+
+// After
+use wireframe::WireframeError;
+use wireframe::Result;
+```

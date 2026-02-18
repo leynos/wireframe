@@ -1,8 +1,8 @@
 //! Response and error types for handler outputs.
 //!
-//! `Response` lets handlers return single frames, multiple frames, multi-packet channels or a
-//! stream of frames. `WireframeError` distinguishes transport errors from
-//! protocol errors when streaming.
+//! `Response` lets handlers return single frames, multiple frames, multi-packet
+//! channels or a stream of frames. `WireframeError` distinguishes transport
+//! errors from protocol errors when streaming.
 //!
 //! # Examples
 //!
@@ -34,6 +34,8 @@ use std::pin::Pin;
 use futures::{Stream, StreamExt, stream};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+
+pub use crate::WireframeError;
 
 /// A type alias for a type-erased, dynamically dispatched stream of frames.
 ///
@@ -191,87 +193,6 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
             Response::Stream(s) => s,
             Response::MultiPacket(rx) => ReceiverStream::new(rx).map(Ok).boxed(),
             Response::Empty => stream::empty().boxed(),
-        }
-    }
-}
-
-/// A generic error type for wireframe operations.
-///
-/// This enum distinguishes between transport-level I/O errors, protocol-defined
-/// logical errors, and codec-layer errors with structured context.
-///
-/// # Examples
-///
-/// ```no_run
-/// use wireframe::response::WireframeError;
-///
-/// #[derive(Debug)]
-/// enum MyError {
-///     BadRequest,
-/// }
-///
-/// let proto_err: WireframeError<MyError> = MyError::BadRequest.into();
-/// let io_err: WireframeError<MyError> = WireframeError::from_io(std::io::Error::other("boom"));
-/// # drop(proto_err);
-/// # drop(io_err);
-/// ```
-#[derive(Debug)]
-pub enum WireframeError<E = ()> {
-    /// An error in the underlying transport (e.g., socket closed).
-    Io(std::io::Error),
-    /// A protocol-defined logical error.
-    Protocol(E),
-    /// A codec-layer error with structured context.
-    ///
-    /// Codec errors are categorised by their origin: framing errors (wire-level
-    /// frame boundary issues), protocol errors (semantic violations), I/O
-    /// errors, or EOF conditions. See [`crate::codec::CodecError`] for details.
-    Codec(crate::codec::CodecError),
-}
-
-impl<E> From<E> for WireframeError<E> {
-    fn from(e: E) -> Self { WireframeError::Protocol(e) }
-}
-
-impl<E> WireframeError<E> {
-    /// Convert an I/O error into a `WireframeError`.
-    #[must_use]
-    pub fn from_io(e: std::io::Error) -> Self { WireframeError::Io(e) }
-
-    /// Convert a codec error into a `WireframeError`.
-    #[must_use]
-    pub fn from_codec(e: crate::codec::CodecError) -> Self { WireframeError::Codec(e) }
-
-    /// Returns true if this error represents a clean connection close.
-    ///
-    /// A clean close occurs when the peer closes the connection at a frame
-    /// boundary, indicating no data was lost. Delegates to
-    /// [`CodecError::is_clean_close`](crate::codec::CodecError::is_clean_close).
-    #[must_use]
-    pub fn is_clean_close(&self) -> bool {
-        matches!(self, WireframeError::Codec(e) if e.is_clean_close())
-    }
-}
-
-impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WireframeError::Io(e) => write!(f, "transport error: {e}"),
-            WireframeError::Protocol(e) => write!(f, "protocol error: {e:?}"),
-            WireframeError::Codec(e) => write!(f, "codec error: {e}"),
-        }
-    }
-}
-
-impl<E> std::error::Error for WireframeError<E>
-where
-    E: std::fmt::Debug + std::error::Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            WireframeError::Io(e) => Some(e),
-            WireframeError::Protocol(e) => Some(e),
-            WireframeError::Codec(e) => Some(e),
         }
     }
 }
