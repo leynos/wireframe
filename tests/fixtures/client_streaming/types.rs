@@ -48,8 +48,19 @@ pub(crate) const TERMINATOR_ID: MessageId = MessageId::new(0);
 /// A test envelope that treats `id == 0` as a stream terminator.
 #[derive(bincode::BorrowDecode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
 pub struct StreamTestEnvelope {
+    /// Message identifier for the frame.
+    ///
+    /// A value equal to [`TERMINATOR_ID`] marks this envelope as the stream
+    /// terminator.
     pub id: MessageId,
+    /// Correlation identifier carried by the frame.
+    ///
+    /// Streaming assertions use this value to ensure each frame belongs to the
+    /// expected request.
     pub correlation_id: Option<CorrelationId>,
+    /// Binary payload bytes for the frame.
+    ///
+    /// Terminator envelopes carry an empty payload.
     pub payload: Payload,
 }
 
