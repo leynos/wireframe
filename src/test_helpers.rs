@@ -119,8 +119,16 @@ fn invalid_data(message: &'static str) -> io::Error {
 }
 
 /// Build a first-frame payload for the test protocol.
-#[must_use]
-pub fn first_frame_payload(key: u64, body: &[u8], is_last: bool, total: Option<u32>) -> Vec<u8> {
+///
+/// # Errors
+///
+/// Returns an error if the body length exceeds `u32::MAX`.
+pub fn first_frame_payload(
+    key: u64,
+    body: &[u8],
+    is_last: bool,
+    total: Option<u32>,
+) -> Result<Vec<u8>, io::Error> {
     let mut payload = BytesMut::new();
     payload.put_u8(0x01);
     let mut flags = 0u8;
@@ -133,17 +141,26 @@ pub fn first_frame_payload(key: u64, body: &[u8], is_last: bool, total: Option<u
     payload.put_u8(flags);
     payload.put_u64(key);
     payload.put_u16(0);
-    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
+    let body_len = u32::try_from(body.len()).map_err(|_| invalid_data("body length too large"))?;
+    payload.put_u32(body_len);
     if let Some(total) = total {
         payload.put_u32(total);
     }
     payload.extend_from_slice(body);
-    payload.to_vec()
+    Ok(payload.to_vec())
 }
 
 /// Build a continuation-frame payload for the test protocol.
-#[must_use]
-pub fn continuation_frame_payload(key: u64, sequence: u32, body: &[u8], is_last: bool) -> Vec<u8> {
+///
+/// # Errors
+///
+/// Returns an error if the body length exceeds `u32::MAX`.
+pub fn continuation_frame_payload(
+    key: u64,
+    sequence: u32,
+    body: &[u8],
+    is_last: bool,
+) -> Result<Vec<u8>, io::Error> {
     let mut payload = BytesMut::new();
     payload.put_u8(0x02);
     let mut flags = 0b10;
@@ -152,8 +169,9 @@ pub fn continuation_frame_payload(key: u64, sequence: u32, body: &[u8], is_last:
     }
     payload.put_u8(flags);
     payload.put_u64(key);
-    payload.put_u32(u32::try_from(body.len()).unwrap_or(u32::MAX));
+    let body_len = u32::try_from(body.len()).map_err(|_| invalid_data("body length too large"))?;
+    payload.put_u32(body_len);
     payload.put_u32(sequence);
     payload.extend_from_slice(body);
-    payload.to_vec()
+    Ok(payload.to_vec())
 }

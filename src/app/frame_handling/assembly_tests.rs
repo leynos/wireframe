@@ -58,19 +58,19 @@ fn inbound_assembly_handles_interleaved_sequences(
 
     let key1_first = inbound_envelope(
         9,
-        test_helpers::first_frame_payload(1, b"A1", false, Some(4)),
+        test_helpers::first_frame_payload(1, b"A1", false, Some(4)).expect("valid test payload"),
     );
     let key2_first = inbound_envelope(
         9,
-        test_helpers::first_frame_payload(2, b"B1", false, Some(4)),
+        test_helpers::first_frame_payload(2, b"B1", false, Some(4)).expect("valid test payload"),
     );
     let key1_last = inbound_envelope(
         9,
-        test_helpers::continuation_frame_payload(1, 1, b"A2", true),
+        test_helpers::continuation_frame_payload(1, 1, b"A2", true).expect("valid test payload"),
     );
     let key2_last = inbound_envelope(
         9,
-        test_helpers::continuation_frame_payload(2, 1, b"B2", true),
+        test_helpers::continuation_frame_payload(2, 1, b"B2", true).expect("valid test payload"),
     );
 
     assert!(
@@ -132,19 +132,19 @@ fn inbound_assembly_rejects_ordering_violations(
 
     let first = inbound_envelope(
         3,
-        test_helpers::first_frame_payload(99, b"ab", false, Some(6)),
+        test_helpers::first_frame_payload(99, b"ab", false, Some(6)).expect("valid test payload"),
     );
     let cont_seq1 = inbound_envelope(
         3,
-        test_helpers::continuation_frame_payload(99, 1, b"cd", false),
+        test_helpers::continuation_frame_payload(99, 1, b"cd", false).expect("valid test payload"),
     );
     let cont_seq3 = inbound_envelope(
         3,
-        test_helpers::continuation_frame_payload(99, 3, b"ef", false),
+        test_helpers::continuation_frame_payload(99, 3, b"ef", false).expect("valid test payload"),
     );
     let cont_seq2 = inbound_envelope(
         3,
-        test_helpers::continuation_frame_payload(99, 2, b"gh", true),
+        test_helpers::continuation_frame_payload(99, 2, b"gh", true).expect("valid test payload"),
     );
 
     assert!(
@@ -208,7 +208,7 @@ fn inbound_assembly_timeout_purges_partial_state(
 
     let first = inbound_envelope(
         5,
-        test_helpers::first_frame_payload(7, b"ab", false, Some(4)),
+        test_helpers::first_frame_payload(7, b"ab", false, Some(4)).expect("valid test payload"),
     );
     assert!(
         process_assembly_frame(
@@ -231,7 +231,7 @@ fn inbound_assembly_timeout_purges_partial_state(
 
     let continuation = inbound_envelope(
         5,
-        test_helpers::continuation_frame_payload(7, 1, b"cd", true),
+        test_helpers::continuation_frame_payload(7, 1, b"cd", true).expect("valid test payload"),
     );
     assert!(
         process_assembly_frame(
@@ -261,7 +261,10 @@ fn assemble_if_needed_passes_through_when_assembler_is_none(
     let mut deser_failures = 0_u32;
     let mut state = Some(message_assembly_state?);
 
-    let envelope = inbound_envelope(9, test_helpers::first_frame_payload(1, b"A", true, Some(1)));
+    let envelope = inbound_envelope(
+        9,
+        test_helpers::first_frame_payload(1, b"A", true, Some(1)).expect("valid test payload"),
+    );
     let result = assemble_if_needed(
         AssemblyRuntime::new(None, &mut state),
         &mut deser_failures,
@@ -282,7 +285,10 @@ fn assemble_if_needed_passes_through_when_state_is_none(
     let mut deser_failures = 0_u32;
     let mut state: Option<MessageAssemblyState> = None;
 
-    let envelope = inbound_envelope(9, test_helpers::first_frame_payload(1, b"A", true, Some(1)));
+    let envelope = inbound_envelope(
+        9,
+        test_helpers::first_frame_payload(1, b"A", true, Some(1)).expect("valid test payload"),
+    );
     let result = assemble_if_needed(
         AssemblyRuntime::new(Some(&message_assembler), &mut state),
         &mut deser_failures,
@@ -311,13 +317,13 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
     let key1_first = Envelope::new(
         10,
         Some(100),
-        test_helpers::first_frame_payload(1, b"A1", false, Some(4)),
+        test_helpers::first_frame_payload(1, b"A1", false, Some(4)).expect("valid test payload"),
     );
     // Key 2: envelope_id=20, correlation_id=200
     let key2_first = Envelope::new(
         20,
         Some(200),
-        test_helpers::first_frame_payload(2, b"B1", false, Some(4)),
+        test_helpers::first_frame_payload(2, b"B1", false, Some(4)).expect("valid test payload"),
     );
 
     assert!(
@@ -345,7 +351,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
     let key2_last = Envelope::new(
         88,
         Some(888),
-        test_helpers::continuation_frame_payload(2, 1, b"B2", true),
+        test_helpers::continuation_frame_payload(2, 1, b"B2", true).expect("valid test payload"),
     );
     let completed_b = process_assembly_frame(
         &message_assembler,
@@ -364,7 +370,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
     let key1_last = Envelope::new(
         77,
         Some(777),
-        test_helpers::continuation_frame_payload(1, 1, b"A2", true),
+        test_helpers::continuation_frame_payload(1, 1, b"A2", true).expect("valid test payload"),
     );
     let completed_a = process_assembly_frame(
         &message_assembler,

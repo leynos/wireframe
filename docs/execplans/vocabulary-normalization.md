@@ -61,14 +61,14 @@ architectural model match.
 - [ ] Inventory API symbols and docs text against glossary.
 - [ ] Propose targeted rename set and update map.
 - [ ] Apply code and doc renames.
-- [ ] Create/update developers guide conceptual model section.
+- [ ] Create/update developers' guide conceptual model section.
 - [ ] Update migration guide and run quality gates.
 
 ## Surprises & Discoveries
 
 - Observation: `docs/developers-guide.md` is currently absent.
   Evidence: repository file inventory under `docs/`. Impact: this plan must
-  include creating the developers guide.
+  include creating the developers' guide.
 
 ## Decision Log
 
@@ -122,7 +122,7 @@ Stage C proposes targeted renames. Limit changes to inconsistent or ambiguous
 symbols; avoid blanket renaming where semantics are already clear.
 
 Stage D applies updates with synchronized docs. Ensure code, user guide, and
-new developers guide describe the same conceptual model.
+new developers' guide describe the same conceptual model.
 
 Stage E updates migration guidance and validates compile/lint/test/doc gates.
 
@@ -149,7 +149,7 @@ Run all commands from repository root (`/home/user/project`).
 
 Expected success indicators:
 
-- Conceptual glossary is explicit in users and developers guides.
+- Conceptual glossary is explicit in users' and developers' guides.
 - User-visible symbol names align to layer definitions.
 - Migration guide captures all renamed public items.
 
