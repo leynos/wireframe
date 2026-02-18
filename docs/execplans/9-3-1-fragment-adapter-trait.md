@@ -63,8 +63,9 @@ A library consumer can observe success by:
   accept a codec instance without altering the trait surface.
 - The `WireframeProtocol` trait signature must not change.
 - The `Response` enum must not gain or lose public variants.
-- Existing integration and BDD tests must continue to pass without
-  modification beyond what is required by the unification.
+- Existing integration and Behaviour-Driven Development (BDD) tests must
+  continue to pass without modification beyond what is required by the
+  unification.
 - No `unsafe` code.
 - en-GB-oxendict spelling in comments, docs, and commit messages.
 - Module-level (`//!`) comments on all new or modified modules.
@@ -160,8 +161,9 @@ A library consumer can observe success by:
   `tests/unified_codec.rs`. Five tests: round-trip, fragmented response,
   unfragmented small payload, multiple sequential requests, disabled
   fragmentation. Committed in `1b2851a`.
-- [x] (2026-02-15 03:00Z) Stage F: BDD behavioural tests added. Five
-  rstest-bdd scenarios in `tests/features/unified_codec.feature` with fixture
+- [x] (2026-02-15 03:00Z) Stage F: Behaviour-Driven Development (BDD)
+  behavioural tests added. Five rstest-bdd scenarios in
+  `tests/features/unified_codec.feature` with fixture
   `tests/fixtures/unified_codec/` and steps
   `tests/steps/unified_codec_steps.rs`. Committed in `1a2f854`.
 - [x] (2026-02-15 03:30Z) Stage G: updated design docs

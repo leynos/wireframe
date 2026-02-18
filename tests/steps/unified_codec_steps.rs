@@ -25,6 +25,11 @@ where
     runtime().block_on(future)
 }
 
+fn collect_and_verify_handler_payloads(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
+    run_async(unified_codec_world.collect_handler_payloads())?;
+    unified_codec_world.verify_handler_payloads()
+}
+
 // ---------------------------------------------------------------------------
 // Given
 // ---------------------------------------------------------------------------
@@ -79,14 +84,12 @@ fn when_client_sends_sequential(
 
 #[then("the handler receives the original payload")]
 fn then_handler_receives_payload(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
-    run_async(unified_codec_world.collect_handler_payloads())?;
-    unified_codec_world.verify_handler_payloads()
+    collect_and_verify_handler_payloads(unified_codec_world)
 }
 
 #[then("the handler receives the reassembled payload")]
 fn then_handler_receives_reassembled(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
-    run_async(unified_codec_world.collect_handler_payloads())?;
-    unified_codec_world.verify_handler_payloads()
+    collect_and_verify_handler_payloads(unified_codec_world)
 }
 
 #[then("the handler receives all {count:usize} payloads in order")]

@@ -65,6 +65,7 @@ fn echo_app(
     Ok(app.route(ROUTE_ID, handler)?)
 }
 
+/// Build the unified codec test harness and return client/server test handles.
 fn setup_harness(config: Option<FragmentationConfig>) -> TestResult<UnifiedCodecHarness> {
     let (tx, rx) = mpsc::unbounded_channel();
     let app = echo_app(config, &tx)?;
