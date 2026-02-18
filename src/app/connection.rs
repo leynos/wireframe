@@ -257,9 +257,6 @@ where
             frame_handling::new_message_assembly_state(self.fragmentation, requested_frame_length)
         });
         let mut pipeline = FramePipeline::new(self.fragmentation);
-        let mut message_assembly = self.message_assembler.as_ref().map(|_| {
-            frame_handling::new_message_assembly_state(self.fragmentation, requested_frame_length)
-        });
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
@@ -273,7 +270,6 @@ where
                             routes,
                             message_assembly: &mut message_assembly,
                             pipeline: &mut pipeline,
-                            message_assembly: &mut message_assembly,
                         },
                         &codec,
                     )
@@ -306,7 +302,6 @@ where
             routes,
             message_assembly,
             pipeline,
-            message_assembly,
         } = ctx;
 
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
