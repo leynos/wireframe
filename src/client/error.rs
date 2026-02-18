@@ -54,12 +54,12 @@ pub enum ClientError {
         /// The correlation ID received in the response.
         received: Option<u64>,
     },
-    /// A frame within a streaming response carried a correlation ID that does
-    /// not match the request.
+    /// A data frame within a streaming response carried a correlation ID that
+    /// does not match the request.
     ///
     /// This error is returned by
     /// [`ResponseStream`](crate::client::ResponseStream) when a data frame
-    /// or terminator arrives with an unexpected correlation identifier.
+    /// arrives with an unexpected correlation identifier.
     #[error(
         "correlation ID mismatch in streaming response: expected {expected:?}, received \
          {received:?}"

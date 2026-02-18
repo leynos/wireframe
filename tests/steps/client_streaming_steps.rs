@@ -21,8 +21,8 @@ fn with_server_restart(
     ) -> Pin<Box<dyn Future<Output = TestResult> + 'a>>,
 ) -> TestResult {
     world.abort_server();
-    world.block_on(|w| server_starter(w))?;
-    world.block_on(|w| Box::pin(w.connect_client()))
+    world.block_on(|w| server_starter(w))??;
+    world.block_on(|w| Box::pin(w.connect_client()))?
 }
 
 #[given("a streaming echo server")]
@@ -35,7 +35,7 @@ fn given_streaming_server(client_streaming_world: &mut ClientStreamingWorld) -> 
             w.start_normal_server(3).await?;
             w.connect_client().await
         })
-    })
+    })?
 }
 
 #[given("a streaming server that returns mismatched correlation IDs")]
@@ -63,12 +63,12 @@ fn when_streaming_request_with_count(
     with_server_restart(client_streaming_world, |world| {
         Box::pin(world.start_normal_server(count))
     })?;
-    client_streaming_world.block_on(|w| Box::pin(w.send_streaming_request()))
+    client_streaming_world.block_on(|w| Box::pin(w.send_streaming_request()))?
 }
 
 #[when("the client sends a streaming request")]
 fn when_streaming_request(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
-    client_streaming_world.block_on(|w| Box::pin(w.send_streaming_request()))
+    client_streaming_world.block_on(|w| Box::pin(w.send_streaming_request()))?
 }
 
 #[then("all {count:usize} data frames are received in order")]

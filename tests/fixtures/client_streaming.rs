@@ -1,10 +1,5 @@
 //! `ClientStreamingWorld` fixture for streaming response BDD tests.
 
-#![expect(
-    clippy::expect_used,
-    reason = "test fixture uses expect for runtime initialisation"
-)]
-
 use std::net::SocketAddr;
 
 use bytes::Bytes;
@@ -24,9 +19,9 @@ use wireframe::{
 pub use wireframe_testing::TestResult;
 
 /// A correlation identifier used to match streaming requests to responses.
-#[derive(Clone, Copy, Debug, Display, From)]
+#[derive(Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::Decode, bincode::Encode)]
 #[display("{_0}")]
-struct CorrelationId(u64);
+pub(crate) struct CorrelationId(u64);
 
 impl CorrelationId {
     const fn new(value: u64) -> Self { Self(value) }
@@ -34,9 +29,9 @@ impl CorrelationId {
 }
 
 /// A message identifier used for routing.
-#[derive(Clone, Copy, Debug, Display, From)]
+#[derive(Clone, Copy, Debug, Display, From, PartialEq, Eq, bincode::Decode, bincode::Encode)]
 #[display("{_0}")]
-struct MessageId(u32);
+pub(crate) struct MessageId(u32);
 
 impl MessageId {
     const fn new(value: u32) -> Self { Self(value) }
@@ -44,8 +39,8 @@ impl MessageId {
 }
 
 /// Payload bytes carried by a test frame.
-#[derive(Clone, Debug)]
-struct Payload(Vec<u8>);
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Decode, bincode::Encode)]
+pub(crate) struct Payload(Vec<u8>);
 
 impl Payload {
     fn new(data: Vec<u8>) -> Self { Self(data) }
@@ -58,49 +53,50 @@ const TERMINATOR_ID: MessageId = MessageId::new(0);
 /// A test envelope that treats `id == 0` as a stream terminator.
 #[derive(bincode::Decode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
 pub struct StreamTestEnvelope {
-    pub id: u32,
-    pub correlation_id: Option<u64>,
-    pub payload: Vec<u8>,
+    pub id: MessageId,
+    pub correlation_id: Option<CorrelationId>,
+    pub payload: Payload,
 }
 
 impl CorrelatableFrame for StreamTestEnvelope {
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-
-    fn set_correlation_id(&mut self, cid: Option<u64>) { self.correlation_id = cid; }
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id.map(CorrelationId::get) }
+    fn set_correlation_id(&mut self, cid: Option<u64>) {
+        self.correlation_id = cid.map(CorrelationId::new);
+    }
 }
 
 impl Packet for StreamTestEnvelope {
-    fn id(&self) -> u32 { self.id }
-
+    fn id(&self) -> u32 { self.id.get() }
     fn into_parts(self) -> PacketParts {
-        PacketParts::new(self.id, self.correlation_id, self.payload)
+        PacketParts::new(
+            self.id.get(),
+            self.correlation_id.map(CorrelationId::get),
+            self.payload.into_inner(),
+        )
     }
-
     fn from_parts(parts: PacketParts) -> Self {
         Self {
-            id: parts.id(),
-            correlation_id: parts.correlation_id(),
-            payload: parts.into_payload(),
+            id: MessageId::new(parts.id()),
+            correlation_id: parts.correlation_id().map(CorrelationId::new),
+            payload: Payload::new(parts.into_payload()),
         }
     }
-
-    fn is_stream_terminator(&self) -> bool { self.id == TERMINATOR_ID.get() }
+    fn is_stream_terminator(&self) -> bool { self.id == TERMINATOR_ID }
 }
 
 impl StreamTestEnvelope {
     fn data(id: MessageId, correlation_id: CorrelationId, payload: Payload) -> Self {
         Self {
-            id: id.get(),
-            correlation_id: Some(correlation_id.get()),
-            payload: payload.into_inner(),
+            id,
+            correlation_id: Some(correlation_id),
+            payload,
         }
     }
-
     fn terminator(correlation_id: CorrelationId) -> Self {
         Self {
-            id: TERMINATOR_ID.get(),
-            correlation_id: Some(correlation_id.get()),
-            payload: vec![],
+            id: TERMINATOR_ID,
+            correlation_id: Some(correlation_id),
+            payload: Payload::new(vec![]),
         }
     }
 
@@ -126,6 +122,7 @@ enum StreamingServerMode {
 /// Test world for client streaming scenarios.
 pub struct ClientStreamingWorld {
     runtime: Option<tokio::runtime::Runtime>,
+    runtime_error: Option<String>,
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
     client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>,
@@ -154,8 +151,13 @@ pub fn client_streaming_world() -> ClientStreamingWorld {
 impl ClientStreamingWorld {
     /// Build a new runtime-backed client streaming world.
     fn new() -> Self {
+        let (runtime, runtime_error) = match tokio::runtime::Runtime::new() {
+            Ok(rt) => (Some(rt), None),
+            Err(e) => (None, Some(format!("failed to create runtime: {e}"))),
+        };
         Self {
-            runtime: Some(tokio::runtime::Runtime::new().expect("tokio runtime")),
+            runtime,
+            runtime_error,
             addr: None,
             server: None,
             client: None,
@@ -172,14 +174,15 @@ impl ClientStreamingWorld {
         f: impl for<'a> FnOnce(
             &'a mut Self,
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>,
-    ) -> T {
-        let rt = self
-            .runtime
-            .take()
-            .expect("runtime should not be taken re-entrantly");
+    ) -> TestResult<T> {
+        let err_msg = self
+            .runtime_error
+            .as_deref()
+            .unwrap_or("runtime unavailable");
+        let rt = self.runtime.take().ok_or(err_msg)?;
         let result = rt.block_on(f(self));
         self.runtime = Some(rt);
-        result
+        Ok(result)
     }
 
     /// Start a streaming server that sends `data_count` frames + terminator.
@@ -252,9 +255,9 @@ impl ClientStreamingWorld {
         let client = self.client.as_mut().ok_or("client not connected")?;
 
         let request = StreamTestEnvelope {
-            id: 99,
+            id: MessageId::new(99),
             correlation_id: None,
-            payload: vec![],
+            payload: Payload::new(vec![]),
         };
 
         let mut stream = client.call_streaming::<StreamTestEnvelope>(request).await?;
@@ -296,10 +299,10 @@ impl ClientStreamingWorld {
         for (i, frame) in self.received_frames.iter().enumerate() {
             let payload_byte =
                 u8::try_from(i + 1).map_err(|e| format!("frame index {i} overflows u8: {e}"))?;
-            let expected_payload = vec![payload_byte];
-            if frame.payload != expected_payload {
+            let expected = Payload::new(vec![payload_byte]);
+            if frame.payload != expected {
                 return Err(format!(
-                    "frame {i}: expected payload {expected_payload:?}, got {:?}",
+                    "frame {i}: expected payload {expected:?}, got {:?}",
                     frame.payload
                 )
                 .into());

@@ -1323,7 +1323,7 @@ format:
 use wireframe::app::{Packet, PacketParts};
 use wireframe::correlation::CorrelatableFrame;
 
-#[derive(bincode::Decode, bincode::Encode)]
+#[derive(bincode::BorrowDecode, bincode::Encode)]
 struct MyFrame {
     id: u32,
     correlation_id: Option<u64>,
