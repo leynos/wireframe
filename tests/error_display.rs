@@ -6,9 +6,13 @@
 //! and surfaces causal chains so developers can diagnose issues.
 #![cfg(not(loom))]
 
-use std::error::Error;
+use std::{error::Error, io};
 
-use wireframe::{WireframeError, push::PushError};
+use wireframe::{
+    WireframeError,
+    codec::{CodecError, FramingError},
+    push::PushError,
+};
 
 #[rstest::rstest]
 #[case(PushError::QueueFull, "push queue full")]
@@ -28,13 +32,6 @@ impl std::error::Error for ProtoErr {}
 
 #[test]
 fn wireframe_error_messages() {
-    let io_error = std::io::Error::other("socket closed");
-    let io = WireframeError::<ProtoErr>::Io(io_error);
-    assert_eq!(io.to_string(), "transport error: socket closed");
-
-    let source = io.source().expect("io variant must have source");
-    assert_eq!(source.to_string(), "socket closed");
-
     let proto = WireframeError::Protocol(ProtoErr);
     assert_eq!(proto.to_string(), "protocol error: ProtoErr");
     assert!(
@@ -50,5 +47,33 @@ fn wireframe_error_messages() {
     assert!(
         duplicate_route.source().is_none(),
         "DuplicateRoute should not expose an error source"
+    );
+}
+
+#[test]
+fn wireframe_error_exposes_sources_for_io_and_codec() {
+    let io = WireframeError::<ProtoErr>::from_io(io::Error::other("socket closed"));
+    assert_eq!(io.to_string(), "transport error: socket closed");
+    let source = io.source().expect("io variant must have source");
+    let io_source = source
+        .downcast_ref::<io::Error>()
+        .expect("io source should be std::io::Error");
+    assert_eq!(io_source.kind(), io::ErrorKind::Other);
+    assert_eq!(io_source.to_string(), "socket closed");
+
+    let wireframe_codec =
+        WireframeError::<()>::from_codec(CodecError::from(FramingError::EmptyFrame));
+    let codec_source = wireframe_codec
+        .source()
+        .expect("Codec variant should expose an error source");
+    let typed_codec_source = codec_source
+        .downcast_ref::<CodecError>()
+        .expect("codec source should be wireframe::codec::CodecError");
+    assert!(
+        matches!(
+            typed_codec_source,
+            CodecError::Framing(FramingError::EmptyFrame)
+        ),
+        "codec source should preserve the original framing error"
     );
 }
