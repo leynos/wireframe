@@ -51,7 +51,7 @@ socket2 = "0.6.0"
 rstest = "0.26.1"
 rstest-bdd = "0.5.0"
 rstest-bdd-macros = { version = "0.5.0", features = ["strict-compile-time-validation"] }
-wireframe = { path = ".", features = ["test-helpers"] }
+wireframe = { path = ".", features = ["test-support"] }
 wireframe_testing = { path = "./wireframe_testing" }
 logtest = "2.0.0"
 proptest = "1.7.0"
@@ -85,7 +85,6 @@ serializer-bincode = []
 advanced-tests = []
 examples = []
 test-support = []
-test-helpers = []
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

@@ -55,7 +55,7 @@ pub mod rewind_stream;
 #[cfg(not(loom))]
 pub mod server;
 pub mod session;
-#[cfg(any(test, feature = "test-helpers"))]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_helpers;
 
 #[cfg(not(loom))]

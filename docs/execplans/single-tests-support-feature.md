@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETED (2026-02-18)
 
 `PLANS.md` is not present in this repository at the time this plan was drafted.
 
@@ -62,12 +62,16 @@ manifest references so behaviour is explicit and consistent.
 - [x] (2026-02-18) Drafted ExecPlan and captured current mismatch:
   `Cargo.toml` defines both flags, `src/lib.rs` and `src/test_helpers.rs` gate
   exports with `test-helpers`.
-- [ ] Replace feature declarations so only `test-support` remains.
-- [ ] Update `cfg(feature = "...")` gates to use `test-support`.
-- [ ] Update dev-dependency feature selection for local self-dependency.
-- [ ] Update any user-facing docs that reference `test-helpers`.
-- [ ] Run full validation gates and confirm no remaining `test-helpers`
-  references.
+- [x] (2026-02-18) Replaced feature declarations so only `test-support`
+  remains in `Cargo.toml`.
+- [x] (2026-02-18) Updated `cfg(feature = "...")` gates in `src/lib.rs` and
+  `src/test_helpers.rs` to `test-support`.
+- [x] (2026-02-18) Updated self dev-dependency feature selection to
+  `["test-support"]`.
+- [x] (2026-02-18) Added a migration note in `CHANGELOG.md` for the feature
+  rename.
+- [x] (2026-02-18) Ran full validation gates and confirmed no active
+  `test-helpers` feature gate usage remains in code or manifest entries.
 
 ## Surprises & Discoveries
 
@@ -75,6 +79,11 @@ manifest references so behaviour is explicit and consistent.
   `features = ["test-helpers"]`, so the rename is not only about cfg guards.
   Evidence: `Cargo.toml:54`. Impact: manifest and cfg updates must ship
   together to keep tests building.
+
+- Observation: no additional docs or test files required feature-name updates
+  beyond `CHANGELOG.md`. Evidence: repository-wide
+  `rg -n "test-helpers|test-support"` scan after code edits. Impact: the
+  migration surface was limited to manifest and cfg gates.
 
 ## Decision Log
 
@@ -89,11 +98,33 @@ manifest references so behaviour is explicit and consistent.
 
 ## Outcomes & Retrospective
 
-Not started. Populate after implementation and validation complete.
+Implemented as planned with no tolerance breaches.
+
+What was achieved:
+
+- The duplicate `test-helpers` cargo feature was removed from `Cargo.toml`.
+- The crate self dev-dependency now enables `test-support`.
+- Feature cfg gates now consistently use `feature = "test-support"` while
+  preserving `cfg(test)` behaviour.
+- A breaking-change migration note was added to `CHANGELOG.md`.
+
+Validation executed (all passed):
+
+- `make check-fmt`
+- `make lint`
+- `make test`
+- `make fmt`
+- `make markdownlint`
+- `make nixie`
+
+Retrospective:
+
+- The change was low risk and small in blast radius, but user-facing enough to
+  warrant an explicit changelog note.
 
 ## Context and orientation
 
-Current known state:
+Initial known state at draft time:
 
 - `Cargo.toml` declares both `test-support = []` and `test-helpers = []`.
 - `src/lib.rs` exports `pub mod test_helpers;` under
@@ -103,7 +134,7 @@ Current known state:
 - The crate self dev-dependency in `Cargo.toml` enables
   `features = ["test-helpers"]`.
 
-Target state:
+Target state (achieved):
 
 - `Cargo.toml` has one test helper feature entry: `test-support`.
 - All source-level feature cfg checks reference `test-support`.
@@ -220,3 +251,6 @@ feature name used to expose test helper APIs to non-test builds: `test-support`.
 
 Revision note: Initial draft created on 2026-02-18 for feature-flag ergonomics
 cleanup around test utility exports.
+
+Revision note: Marked completed on 2026-02-18 after implementing the rename and
+running full validation gates.
