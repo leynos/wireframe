@@ -105,25 +105,7 @@ impl UnifiedCodecWorld {
     /// # Errors
     /// Returns an error if payloads do not match.
     pub fn verify_handler_payloads(&self) -> TestResult {
-        if self.handler_observed.len() != self.sent_payloads.len() {
-            return Err(format!(
-                "handler payload count mismatch: expected {}, got {}",
-                self.sent_payloads.len(),
-                self.handler_observed.len()
-            )
-            .into());
-        }
-        for (i, (observed, expected)) in self
-            .handler_observed
-            .iter()
-            .zip(self.sent_payloads.iter())
-            .enumerate()
-        {
-            if observed != expected {
-                return Err(format!("handler payload {i} mismatch").into());
-            }
-        }
-        Ok(())
+        self.verify_payloads_match(&self.handler_observed, "handler")
     }
 
     /// Verify that all response payloads match the sent payloads.
@@ -131,25 +113,7 @@ impl UnifiedCodecWorld {
     /// # Errors
     /// Returns an error if payloads do not match.
     pub fn verify_response_payloads(&self) -> TestResult {
-        if self.response_payloads.len() != self.sent_payloads.len() {
-            return Err(format!(
-                "response payload count mismatch: expected {}, got {}",
-                self.sent_payloads.len(),
-                self.response_payloads.len()
-            )
-            .into());
-        }
-        for (i, (response, expected)) in self
-            .response_payloads
-            .iter()
-            .zip(self.sent_payloads.iter())
-            .enumerate()
-        {
-            if response != expected {
-                return Err(format!("response payload {i} mismatch").into());
-            }
-        }
-        Ok(())
+        self.verify_payloads_match(&self.response_payloads, "response")
     }
 
     /// Verify the last response was not fragmented.
@@ -171,6 +135,24 @@ impl UnifiedCodecWorld {
     pub async fn await_server(&mut self) -> TestResult {
         if let Some(handle) = self.server_handle.take() {
             handle.await??;
+        }
+        Ok(())
+    }
+
+    fn verify_payloads_match(&self, observed: &[Vec<u8>], label: &str) -> TestResult {
+        if observed.len() != self.sent_payloads.len() {
+            return Err(format!(
+                "{label} payload count mismatch: expected {}, got {}",
+                self.sent_payloads.len(),
+                observed.len()
+            )
+            .into());
+        }
+        for (i, (observed, expected)) in observed.iter().zip(self.sent_payloads.iter()).enumerate()
+        {
+            if observed != expected {
+                return Err(format!("{label} payload {i} mismatch").into());
+            }
         }
         Ok(())
     }
