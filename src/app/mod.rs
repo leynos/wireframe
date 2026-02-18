@@ -4,7 +4,7 @@
 //! - [`WireframeApp`] and builder traits ([`Handler`], [`Middleware`], [`ConnectionSetup`],
 //!   [`ConnectionTeardown`])
 //! - Envelope primitives ([`Envelope`], [`Packet`], [`PacketParts`])
-//! - Error handling types ([`WireframeError`], [`SendError`], [`Result`])
+//! - Error handling types ([`SendError`], [`Result`])
 //!
 //! See the `examples/` directory for end-to-end usage.
 
@@ -22,6 +22,6 @@ mod middleware_types;
 
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};
-pub use error::{Result, SendError, WireframeError};
+pub use error::{Result, SendError};
 pub use lifecycle::{ConnectionSetup, ConnectionTeardown};
 pub use middleware_types::{Handler, Middleware};

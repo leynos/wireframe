@@ -50,7 +50,7 @@ pub enum TestError {
     Send(String),
     /// Application error.
     #[error("application error: {0}")]
-    App(#[from] wireframe::app::WireframeError),
+    App(#[from] wireframe::WireframeError),
     /// Other error.
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),

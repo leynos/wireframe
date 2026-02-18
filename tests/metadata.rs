@@ -19,7 +19,7 @@ type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelo
 
 fn mock_wireframe_app_with_serializer<S>(
     serializer: S,
-) -> Result<TestApp<S>, wireframe::app::WireframeError>
+) -> Result<TestApp<S>, wireframe::WireframeError>
 where
     S: TestSerializer + Default,
 {
