@@ -84,7 +84,6 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     /// use wireframe::{
     ///     app::{Packet, PacketParts},
     ///     correlation::CorrelatableFrame,
-    ///     message::Message,
     /// };
     ///
     /// #[derive(bincode::Decode, bincode::Encode)]
@@ -98,6 +97,8 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     ///     fn set_correlation_id(&mut self, cid: Option<u64>) { self.correlation_id = cid; }
     /// }
+    ///
+    /// // Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
     ///
     /// impl Packet for MyFrame {
     ///     fn id(&self) -> u32 { self.id }

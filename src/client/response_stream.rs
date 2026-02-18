@@ -99,7 +99,7 @@ where
     pub fn is_terminated(&self) -> bool { self.terminated }
 
     /// Deserialize raw bytes and validate the resulting packet against the
-    /// expected correlation identifier and terminator predicate.
+    /// terminator predicate and expected correlation identifier.
     fn process_frame(&mut self, bytes: &[u8]) -> Option<Result<P, ClientError>> {
         let (packet, _consumed) = match self.client.serializer.deserialize::<P>(bytes) {
             Ok(result) => result,
@@ -109,6 +109,13 @@ where
             }
         };
 
+        // Check terminator before correlation so that end-of-stream frames
+        // without a per-request correlation stamp are handled cleanly.
+        if packet.is_stream_terminator() {
+            self.terminated = true;
+            return None;
+        }
+
         let received_cid = packet.correlation_id();
         if received_cid != Some(self.correlation_id) {
             self.terminated = true;
@@ -116,11 +123,6 @@ where
                 expected: Some(self.correlation_id),
                 received: received_cid,
             }));
-        }
-
-        if packet.is_stream_terminator() {
-            self.terminated = true;
-            return None;
         }
 
         Some(Ok(packet))

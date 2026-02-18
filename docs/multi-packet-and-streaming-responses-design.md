@@ -639,29 +639,24 @@ example, `self.id == 0`). The approach was chosen over alternatives because:
 call:
 
 1. Reads the next length-delimited frame from the transport.
-2. Deserializes it into `P` using the client's configured serializer.
-3. Validates the correlation identifier against the expected value.
-4. Checks `is_stream_terminator()` — if true, marks the stream as terminated
+2. Deserializes it into `P` using the client's configured `Serializer`.
+3. Checks `is_stream_terminator()` — if true, marks the stream as terminated
    and returns `None`.
+4. Validates the correlation identifier against the expected value.
 5. Otherwise yields `Ok(frame)`.
 
-<!-- Figure: ResponseStream poll_next control flow.
-     Accessible description for screen readers and editors that do not render
-     Mermaid diagrams:
-
-     The diagram is a top-down flowchart showing the decision tree inside
-     ResponseStream::poll_next.  Entry checks whether the stream is already
-     terminated; if so it returns None immediately.  Otherwise the underlying
-     Framed transport is polled.  Four outcomes branch from the poll result:
-     (1) Pending → return Poll::Pending;
-     (2) Ready(None) → set terminated, return Err(disconnected);
-     (3) Ready(Err) → set terminated, return Err(transport error);
-     (4) Ready(Ok(bytes)) → enter process_frame, which first attempts
-         deserialization (failure → set terminated, return Err(decode)).
-         On success it checks the correlation ID (mismatch → set terminated,
-         return Err(StreamCorrelationMismatch)), then checks
-         is_stream_terminator (true → set terminated, return None).
-         If none of those conditions apply it yields Ok(packet). -->
+The following diagram shows the decision tree inside
+`ResponseStream::poll_next`. Entry checks whether the stream is already
+terminated; if so it returns `None` immediately. Otherwise the underlying
+`Framed` transport is polled. Four outcomes branch from the poll result: (1)
+`Pending` — return `Poll::Pending`; (2) `Ready(None)` — set terminated, return
+`Err(disconnected)`; (3) `Ready(Err)` — set terminated, return
+`Err(transport error)`; (4) `Ready(Ok(bytes))` — enter `process_frame`, which
+first attempts deserialization (failure sets terminated and returns
+`Err(decode)`). On success it checks `is_stream_terminator` (true sets
+terminated and returns `None`), then validates the correlation ID (mismatch
+sets terminated and returns `Err(StreamCorrelationMismatch)`). If none of those
+conditions apply it yields `Ok(packet)`.
 
 ```mermaid
 flowchart TD
@@ -685,15 +680,15 @@ flowchart TD
     I_deserialize -- no --> J_decodeErr[Set terminated = true]
     J_decodeErr --> J1_error[Return Some Err ClientError_decode]
 
-    I_deserialize -- yes --> K_checkCid{received_cid == Some expected_cid?}
-    K_checkCid -- no --> L_cidMismatch[Set terminated = true]
-    L_cidMismatch --> L1_error[Return Some Err StreamCorrelationMismatch]
-
-    K_checkCid -- yes --> M_checkTerminator{packet.is_stream_terminator?}
+    I_deserialize -- yes --> M_checkTerminator{packet.is_stream_terminator?}
     M_checkTerminator -- yes --> N_setTerminated[Set terminated = true]
     N_setTerminated --> O_returnNone[Return None]
 
-    M_checkTerminator -- no --> P_yield[Return Some Ok packet]
+    M_checkTerminator -- no --> K_checkCid{received_cid == Some expected_cid?}
+    K_checkCid -- no --> L_cidMismatch[Set terminated = true]
+    L_cidMismatch --> L1_error[Return Some Err StreamCorrelationMismatch]
+
+    K_checkCid -- yes --> P_yield[Return Some Ok packet]
 ```
 
 Key design decisions:
@@ -730,14 +725,18 @@ Two methods are exposed on `WireframeClient`:
 | `ClientError::StreamCorrelationMismatch` | Frame carries wrong correlation ID |
 | `ClientError::StreamTerminated`          | Polling after the stream has ended |
 
-Correlation validation is performed on every frame before it is yielded to the
-consumer. A mismatch terminates the stream immediately, because mixed
-correlation traffic indicates a protocol violation that cannot be recovered.
+Terminator detection is performed before correlation validation so that
+end-of-stream frames produced by `stream_end_frame` without a per-request
+correlation stamp are handled cleanly. Correlation validation is performed on
+every non-terminator data frame before it is yielded to the consumer. A
+mismatch terminates the stream immediately, because mixed correlation traffic
+indicates a protocol violation that cannot be recovered.
 
 ### 12.5 Back-pressure
 
-No explicit flow-control messages are needed. TCP flow control provides natural
-back-pressure: if the client reads slowly, the receive buffer fills, the
-server's send buffer fills, write operations suspend, and the server stops
-polling its response stream or channel. This is consistent with the server-side
-back-pressure architecture described in Section 3.1.
+No explicit flow-control messages are needed. Transmission Control Protocol
+(TCP) flow control provides natural back-pressure: if the client reads slowly,
+the receive buffer fills, the server's send buffer fills, write operations
+suspend, and the server stops polling its response stream or channel. This is
+consistent with the server-side back-pressure architecture described in Section
+3.1.

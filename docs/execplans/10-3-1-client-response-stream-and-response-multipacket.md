@@ -24,9 +24,9 @@ design goal G5 in the multi-packet design document.
 Observable outcome: a user calls `client.call_streaming(request)` and receives
 a `ResponseStream<P>` that yields each data frame as `Result<P, ClientError>`,
 terminating cleanly when the server's end-of-stream marker arrives. Running
-`make test` passes, including new unit and BDD behavioural tests that exercise
-single-frame, multi-frame, empty-stream, terminator validation, correlation
-mismatch, and back-pressure scenarios.
+`make test` passes, including new unit and behaviour-driven development (BDD)
+behavioural tests that exercise single-frame, multi-frame, empty-stream,
+terminator validation, correlation mismatch, and back-pressure scenarios.
 
 ## Constraints
 

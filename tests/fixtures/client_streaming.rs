@@ -74,16 +74,12 @@ impl StreamTestEnvelope {
         }
     }
 
-    fn serialize_to_bytes(&self) -> Bytes {
-        #[expect(
-            clippy::expect_used,
-            reason = "test-only helper inside spawned tasks; panic is acceptable"
-        )]
-        Bytes::from(
-            BincodeSerializer
-                .serialize(self)
-                .expect("serialize test frame"),
-        )
+    /// Serialize this envelope to bytes for transmission.
+    ///
+    /// # Errors
+    /// Returns an error if serialization fails.
+    fn serialize_to_bytes(&self) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Bytes::from(BincodeSerializer.serialize(self)?))
     }
 }
 
@@ -178,8 +174,7 @@ impl ClientStreamingWorld {
                     send_data_and_terminator(&mut framed, cid, data_count).await;
                 }
                 StreamingServerMode::Mismatch => {
-                    let bad = StreamTestEnvelope::data(1, cid + 999, vec![99]);
-                    let _ = framed.send(bad.serialize_to_bytes()).await;
+                    send_mismatch_frame(&mut framed, cid).await;
                 }
                 StreamingServerMode::Disconnect { data_count } => {
                     send_data_frames(&mut framed, cid, data_count).await;
@@ -260,11 +255,9 @@ impl ClientStreamingWorld {
     /// Returns an error if ordering is wrong.
     pub fn verify_frame_order(&self) -> TestResult {
         for (i, frame) in self.received_frames.iter().enumerate() {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "test data limited to small frame counts"
-            )]
-            let expected_payload = vec![(i + 1) as u8];
+            let payload_byte =
+                u8::try_from(i + 1).map_err(|e| format!("frame index {i} overflows u8: {e}"))?;
+            let expected_payload = vec![payload_byte];
             if frame.payload != expected_payload {
                 return Err(format!(
                     "frame {i}: expected payload {expected_payload:?}, got {:?}",
@@ -319,18 +312,32 @@ impl ClientStreamingWorld {
     }
 }
 
+/// Send a single frame with a mismatched correlation ID.
+async fn send_mismatch_frame<T>(framed: &mut Framed<T, LengthDelimitedCodec>, cid: u64)
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let bad = StreamTestEnvelope::data(1, cid + 999, vec![99]);
+    if let Ok(encoded) = bad.serialize_to_bytes() {
+        let _ = framed.send(encoded).await;
+    }
+}
+
 /// Send `count` data frames with payload `[1], [2], ..., [count]`.
 async fn send_data_frames<T>(framed: &mut Framed<T, LengthDelimitedCodec>, cid: u64, count: usize)
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     for i in 1..=count {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "test data limited to small frame counts"
-        )]
-        let frame = StreamTestEnvelope::data(i as u32, cid, vec![i as u8]);
-        if framed.send(frame.serialize_to_bytes()).await.is_err() {
+        let Ok(id) = u32::try_from(i) else { break };
+        let Ok(payload_byte) = u8::try_from(i) else {
+            break;
+        };
+        let frame = StreamTestEnvelope::data(id, cid, vec![payload_byte]);
+        let Ok(encoded) = frame.serialize_to_bytes() else {
+            break;
+        };
+        if framed.send(encoded).await.is_err() {
             break;
         }
     }
@@ -346,5 +353,7 @@ async fn send_data_and_terminator<T>(
 {
     send_data_frames(framed, cid, count).await;
     let term = StreamTestEnvelope::terminator(cid);
-    let _ = framed.send(term.serialize_to_bytes()).await;
+    if let Ok(encoded) = term.serialize_to_bytes() {
+        let _ = framed.send(encoded).await;
+    }
 }

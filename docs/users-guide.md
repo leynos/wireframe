@@ -1315,14 +1315,13 @@ end-of-stream terminator arrives.
 ### Terminator detection with `is_stream_terminator`
 
 Protocol implementations must override `Packet::is_stream_terminator` to teach
-the client how to recognise the server's end-of-stream marker. The default
+the client how to recognize the server's end-of-stream marker. The default
 implementation returns `false`; protocols override it to match their terminator
 format:
 
 ```rust
 use wireframe::app::{Packet, PacketParts};
 use wireframe::correlation::CorrelatableFrame;
-use wireframe::message::Message;
 
 #[derive(bincode::Decode, bincode::Encode)]
 struct MyFrame {
@@ -1337,6 +1336,8 @@ impl CorrelatableFrame for MyFrame {
         self.correlation_id = cid;
     }
 }
+
+// Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
 
 impl Packet for MyFrame {
     fn id(&self) -> u32 { self.id }
