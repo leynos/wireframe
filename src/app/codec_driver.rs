@@ -3,7 +3,7 @@
 //!
 //! The [`FramePipeline`] applies optional fragmentation and outbound metrics
 //! to every [`Envelope`] before it reaches the wire. The [`send_envelope`]
-//! and [`flush_pipeline_output`] helpers then serialise, wrap via
+//! and [`flush_pipeline_output`] helpers then serialize, wrap via
 //! [`FrameCodec::wrap_payload`], and write the resulting frame to the
 //! underlying [`Framed`] stream.
 //!
@@ -32,7 +32,7 @@ use crate::{
 /// `process_frame_with_hooks_and_metrics` logic.
 ///
 /// Applies optional fragmentation and outbound metrics to each envelope.
-/// Produces a buffer of processed envelopes ready for serialisation and
+/// Produces a buffer of processed envelopes ready for serialization and
 /// transmission.
 pub(crate) struct FramePipeline {
     fragmentation: Option<FragmentationState>,
@@ -52,18 +52,21 @@ impl FramePipeline {
     ///
     /// Processed envelopes are buffered internally. Call
     /// [`drain_output`](Self::drain_output) to retrieve them.
-    pub(crate) fn process(&mut self, envelope: Envelope) {
-        let frames = match self.fragment_envelope(envelope) {
-            Ok(frames) => frames,
-            Err(err) => {
-                warn!("failed to fragment outbound envelope: error={err:?}");
-                crate::metrics::inc_handler_errors();
-                return;
-            }
-        };
+    pub(crate) fn process(&mut self, envelope: Envelope) -> io::Result<()> {
+        let id = envelope.id;
+        let correlation_id = envelope.correlation_id;
+        let frames = self.fragment_envelope(envelope).map_err(|err| {
+            warn!(
+                "failed to fragment outbound envelope: id={id}, \
+                 correlation_id={correlation_id:?}, error={err:?}"
+            );
+            crate::metrics::inc_handler_errors();
+            io::Error::other(err)
+        })?;
         for frame in frames {
             self.push_frame(frame);
         }
+        Ok(())
     }
 
     /// Fragment an envelope if fragmentation is enabled, otherwise return it
@@ -107,12 +110,12 @@ impl FramePipeline {
     }
 }
 
-/// Serialise an [`Envelope`] and write it through the codec to the framed
+/// Serialize an [`Envelope`] and write it through the codec to the framed
 /// stream.
 ///
 /// # Errors
 ///
-/// Returns an [`io::Error`] if serialisation or sending fails.
+/// Returns an [`io::Error`] if serialization or sending fails.
 pub(super) async fn send_envelope<S, W, F>(
     serializer: &S,
     codec: &F,
@@ -150,13 +153,13 @@ where
 /// Flush a batch of pipeline-produced [`Envelope`] values through the codec
 /// to the framed stream.
 ///
-/// Each envelope is serialised, wrapped, and written individually. On the
+/// Each envelope is serialized, wrapped, and written individually. On the
 /// first I/O failure the remaining envelopes are discarded and the error is
 /// returned.
 ///
 /// # Errors
 ///
-/// Returns an [`io::Error`] if any envelope fails to serialise or send.
+/// Returns an [`io::Error`] if any envelope fails to serialize or send.
 pub(super) async fn flush_pipeline_output<S, W, F>(
     serializer: &S,
     codec: &F,
@@ -189,10 +192,14 @@ mod tests {
     #[rstest]
     fn process_single_envelope_emits_one_frame(mut pipeline: FramePipeline) {
         let env = Envelope::new(1, Some(42), vec![1, 2, 3]);
-        pipeline.process(env);
+        pipeline
+            .process(env)
+            .expect("processing should succeed without fragmentation");
         let mut output = pipeline.drain_output();
         assert_eq!(output.len(), 1);
-        let first = output.remove(0);
+        let first = output
+            .pop()
+            .expect("pipeline should emit exactly one envelope");
         assert_eq!(first.id, 1);
         assert_eq!(first.correlation_id, Some(42));
         assert_eq!(first.payload, vec![1, 2, 3]);
@@ -200,7 +207,9 @@ mod tests {
 
     #[rstest]
     fn drain_clears_buffer(mut pipeline: FramePipeline) {
-        pipeline.process(Envelope::new(1, None, vec![]));
+        pipeline
+            .process(Envelope::new(1, None, vec![]))
+            .expect("processing should succeed without fragmentation");
         let first = pipeline.drain_output();
         assert_eq!(first.len(), 1);
 

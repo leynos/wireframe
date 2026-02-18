@@ -3,6 +3,9 @@
 //! Contains the low-level send, receive, fragmentation, and reassembly
 //! utilities used by the fixture's public async methods.
 
+#[path = "../../common/unified_codec_transport.rs"]
+mod unified_codec_transport;
+
 use std::{num::NonZeroUsize, time::Duration};
 
 use futures::{SinkExt, StreamExt};
@@ -21,20 +24,21 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
+use self::unified_codec_transport::{recv_one, send_one};
 use super::{CORRELATION, ROUTE_ID, TestResult, UnifiedCodecWorld};
 
 impl UnifiedCodecWorld {
     /// Send a single payload of the given size to the server.
     ///
     /// # Errors
-    /// Returns an error if serialisation or sending fails.
+    /// Returns an error if serialization or sending fails.
     pub async fn send_payload(&mut self, size: usize) -> TestResult {
         let payload = vec![b'P'; size];
         let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
         self.sent_payloads.push(payload);
 
         let client = self.client.as_mut().ok_or("client not started")?;
-        Self::send_one(client, &request).await?;
+        send_one(client, &request).await?;
         client.get_mut().shutdown().await?;
         Ok(())
     }
@@ -42,7 +46,7 @@ impl UnifiedCodecWorld {
     /// Send a fragmented payload of the given size to the server.
     ///
     /// # Errors
-    /// Returns an error if fragmentation, serialisation, or sending fails.
+    /// Returns an error if fragmentation, serialization, or sending fails.
     pub async fn send_fragmented_payload(&mut self, size: usize) -> TestResult {
         let config = self.fragmentation.ok_or("fragmentation not configured")?;
         let payload = vec![b'F'; size];
@@ -62,7 +66,7 @@ impl UnifiedCodecWorld {
     /// Send multiple sequential payloads.
     ///
     /// # Errors
-    /// Returns an error if serialisation or sending fails.
+    /// Returns an error if serialization or sending fails.
     pub async fn send_sequential_payloads(&mut self, count: usize, size: usize) -> TestResult {
         let client = self.client.as_mut().ok_or("client not started")?;
 
@@ -70,7 +74,7 @@ impl UnifiedCodecWorld {
             let payload = vec![i.try_into().unwrap_or(0); size];
             let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
             self.sent_payloads.push(payload);
-            Self::send_one(client, &request).await?;
+            send_one(client, &request).await?;
         }
         client.get_mut().shutdown().await?;
         Ok(())
@@ -96,10 +100,10 @@ impl UnifiedCodecWorld {
     /// Read a single unfragmented response.
     ///
     /// # Errors
-    /// Returns an error if reading or deserialisation fails.
+    /// Returns an error if reading or deserialization fails.
     pub async fn collect_single_response(&mut self) -> TestResult {
         let client = self.client.as_mut().ok_or("client not started")?;
-        let response = Self::recv_one(client).await?;
+        let response = recv_one(client).await?;
         let payload = response.into_parts().into_payload();
 
         self.last_response_fragmented = Some(decode_fragment_payload(&payload)?.is_some());
@@ -123,11 +127,11 @@ impl UnifiedCodecWorld {
     /// Read multiple sequential responses.
     ///
     /// # Errors
-    /// Returns an error if reading or deserialisation fails.
+    /// Returns an error if reading or deserialization fails.
     pub async fn collect_sequential_responses(&mut self, count: usize) -> TestResult {
         let client = self.client.as_mut().ok_or("client not started")?;
         for _ in 0..count {
-            let response = Self::recv_one(client).await?;
+            let response = recv_one(client).await?;
             let payload = response.into_parts().into_payload();
             self.response_payloads.push(payload);
         }
@@ -150,16 +154,6 @@ impl UnifiedCodecWorld {
         Ok(config)
     }
 
-    pub(super) async fn send_one(
-        client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
-        envelope: &Envelope,
-    ) -> TestResult {
-        let serializer = BincodeSerializer;
-        let bytes = serializer.serialize(envelope)?;
-        client.send(bytes.into()).await?;
-        Ok(())
-    }
-
     async fn send_envelopes(
         client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
         envelopes: &[Envelope],
@@ -170,17 +164,6 @@ impl UnifiedCodecWorld {
             client.send(bytes.into()).await?;
         }
         Ok(())
-    }
-
-    pub(super) async fn recv_one(
-        client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
-    ) -> TestResult<Envelope> {
-        let serializer = BincodeSerializer;
-        let frame = timeout(Duration::from_secs(2), client.next())
-            .await?
-            .ok_or("response frame missing")??;
-        let (env, _) = serializer.deserialize::<Envelope>(&frame)?;
-        Ok(env)
     }
 
     fn fragment_envelope(

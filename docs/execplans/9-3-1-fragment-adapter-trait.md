@@ -26,7 +26,7 @@ frame emission logic. This means:
 - The app router constructs its own `CombinedCodec` per connection, while the
   actor is codec-agnostic and cannot encode frames.
 - `Response::Stream` and `Response::MultiPacket` variants returned by handlers
-  are not driven through the actor's prioritised select loop, so push traffic
+  are not driven through the actor's prioritized select loop, so push traffic
   cannot interleave with streaming responses on the server side.
 - Fragmentation follows different code paths (the app router uses
   `FragmentationState` on `Envelope` values; the actor uses `fragment_packet()`
@@ -49,7 +49,8 @@ A library consumer can observe success by:
 1. Registering a `WireframeProtocol` with a `before_send` hook and seeing it
    fire for every outbound frame, whether the frame originates from a handler
    response, a `Response::Stream`, a `Response::MultiPacket`, or a push.
-2. Running `make test` and seeing the new integration and BDD tests pass.
+2. Running `make test` and seeing the new integration and
+   Behaviour-Driven Development (BDD) tests pass.
 3. Consulting `docs/users-guide.md` for updated guidance on the unified codec
    path.
 
@@ -68,7 +69,7 @@ A library consumer can observe success by:
 - en-GB-oxendict spelling in comments, docs, and commit messages.
 - Module-level (`//!`) comments on all new or modified modules.
 - Rustdoc (`///`) on all public items, with examples.
-- Use `rstest` fixtures/parameterisation for unit tests.
+- Use `rstest` fixtures/parameterization for unit tests.
 - Use `rstest-bdd` v0.5.0 for behavioural tests.
 - File size limit: no file may exceed 400 lines.
 - Record design decisions in the relevant design documents:
@@ -207,7 +208,7 @@ A library consumer can observe success by:
 
 - Decision: the `CodecDriver` is an internal type in `src/app/codec_driver.rs`
   that wraps a `Framed` stream and a `ConnectionActor<Envelope, ()>`. It runs
-  the actor, serialises each output `Envelope`, wraps via `codec.wrap_payload`,
+  the actor, serializes each output `Envelope`, wraps via `codec.wrap_payload`,
   and writes to the framed stream. The app router's `process_stream()` method
   is refactored to use this driver. Rationale: keeps the standalone
   `ConnectionActor` unchanged for client/test use while unifying the server
@@ -291,7 +292,7 @@ Two outbound frame-processing paths exist today:
   into an `Envelope`, optionally reassembling fragments, routing to the matched
   handler, and forwarding the response.
 - `forward_response()` in `src/app/frame_handling/response.rs` calls the
-  handler, fragments the response if needed, serialises each `Envelope`, wraps
+  handler, fragments the response if needed, serializes each `Envelope`, wraps
   the payload via `codec.wrap_payload()`, and sends the wrapped frame via
   `framed.send()`.
 - **Protocol hooks are not invoked.** There is no `before_send` call.
@@ -419,7 +420,7 @@ Modify `WireframeApp::process_stream()` to:
 2. Split the connection loop into an inbound decode task and an outbound
    actor/writer task communicating via an internal bounded channel.
 3. When a handler returns `Response::Single(bytes)` or `Response::Vec(v)`,
-   send the serialised, wrapped frames through the actor's input channel so
+   send the serialized, wrapped frames through the actor's input channel so
    hooks and fragmentation apply.
 4. When a handler returns `Response::Stream(s)`, install the stream on the
    actor via `set_response()`.
@@ -561,8 +562,8 @@ In `src/app/connection.rs`, the current `process_stream()` method (lines
 235-284) performs both decode and response send in a single loop. The unified
 design splits this:
 
-1. An inbound decode loop reads frames from `framed.next()`, deserialises
-   envelopes, routes to handlers, and sends handler output (serialised
+1. An inbound decode loop reads frames from `framed.next()`, deserializes
+   envelopes, routes to handlers, and sends handler output (serialized
    `Envelope` bytes) through an internal bounded channel to the actor.
 2. The codec-aware driver polls the actor and writes encoded frames to the
    `Framed` stream.
@@ -574,22 +575,22 @@ spawning a separate task and simplifies lifetime management.
 ### Actor modifications
 
 The `ConnectionActor` gains an additional frame source: a request-response
-channel fed by the inbound loop. This channel carries serialised response
+channel fed by the inbound loop. This channel carries serialized response
 frames (already wrapped by `codec.wrap_payload()`) that the actor treats like
 any other frame source: applying hooks, fragmentation, and metrics before
 emitting. Alternatively, the actor may receive `Envelope` values and delegate
-serialisation and wrapping to the driver.
+serialization and wrapping to the driver.
 
 The exact integration point (pre-wrapped frames vs. `Envelope` values) will be
 decided in Stage A and recorded in the decision log.
 
 ### Fragmentation reconciliation
 
-Today path 1 fragments at the `Envelope` level (before serialisation) and path
-2 fragments at the `F: Packet` level (after serialisation). The unified path
+Today path 1 fragments at the `Envelope` level (before serialization) and path
+2 fragments at the `F: Packet` level (after serialization). The unified path
 must choose one level. The design documents specify outbound order as
-"serialiser → fragmentation → codec framing", which means fragmentation should
-operate on serialised bytes wrapped in the codec frame type. The actor's
+"serializer → fragmentation → codec framing", which means fragmentation should
+operate on serialized bytes wrapped in the codec frame type. The actor's
 existing `fragment_packet()` call-site (in `src/connection/frame.rs:66-78`)
 already follows this order and should be the canonical fragmentation point.
 

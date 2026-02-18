@@ -8,15 +8,13 @@
 
 use std::time::Duration;
 
-use futures::{SinkExt, StreamExt};
-use rstest::rstest;
+use futures::SinkExt;
+use rstest::{fixture, rstest};
 use tokio::{io::AsyncWriteExt, sync::mpsc, time::timeout};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    Serializer,
     app::{Envelope, Packet, WireframeApp},
     fragment::{FragmentationConfig, decode_fragment_payload},
-    serializer::BincodeSerializer,
 };
 
 #[path = "common/fragment_helpers.rs"]
@@ -25,22 +23,34 @@ use wireframe::{
     reason = "shared helper module; not all items used by every test binary"
 )]
 mod fragment_helpers;
+#[path = "common/unified_codec_transport.rs"]
+mod unified_codec_transport;
 
-use crate::fragment_helpers::{
-    CORRELATION,
-    ROUTE_ID,
-    TestError,
-    TestResult,
-    build_envelopes,
-    fragmentation_config,
-    make_handler,
-    read_response_payload,
-    send_envelopes,
-    spawn_app,
+use crate::{
+    fragment_helpers::{
+        CORRELATION,
+        ROUTE_ID,
+        TestError,
+        TestResult,
+        build_envelopes,
+        fragmentation_config,
+        make_handler,
+        read_response_payload,
+        send_envelopes,
+        spawn_app,
+    },
+    unified_codec_transport::{recv_one, send_one},
 };
 
 /// Default buffer capacity used in unified codec tests.
 const CAPACITY: usize = 512;
+
+/// Shared harness for unified codec integration tests.
+struct UnifiedCodecHarness {
+    client: Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
+    server: tokio::task::JoinHandle<std::io::Result<()>>,
+    rx: mpsc::UnboundedReceiver<Vec<u8>>,
+}
 
 /// Helper to build an echo-style app with optional fragmentation.
 fn echo_app(
@@ -55,39 +65,32 @@ fn echo_app(
     Ok(app.route(ROUTE_ID, handler)?)
 }
 
-/// Serialize and send a single envelope to the server.
-async fn send_one(
-    client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
-    envelope: &Envelope,
-) -> TestResult {
-    let serializer = BincodeSerializer;
-    let bytes = serializer.serialize(envelope)?;
-    client.send(bytes.into()).await?;
-    Ok(())
-}
-
-/// Read a single response envelope from the client.
-async fn recv_one(
-    client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
-) -> TestResult<Envelope> {
-    let serializer = BincodeSerializer;
-    let frame = timeout(Duration::from_secs(2), client.next())
-        .await?
-        .ok_or(TestError::Setup("response frame missing"))??;
-    let (env, _) = serializer.deserialize::<Envelope>(&frame)?;
-    Ok(env)
+fn setup_harness(config: Option<FragmentationConfig>) -> TestResult<UnifiedCodecHarness> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let app = echo_app(config, &tx)?;
+    let (client, server) = spawn_app(app);
+    Ok(UnifiedCodecHarness { client, server, rx })
 }
 
 // ---------------------------------------------------------------------------
 // Test: basic request-response passes through the unified pipeline
 // ---------------------------------------------------------------------------
 
+#[fixture]
+fn fragmented_harness() -> TestResult<UnifiedCodecHarness> {
+    let config = fragmentation_config(CAPACITY)?;
+    setup_harness(Some(config))
+}
+
 #[rstest]
 #[tokio::test]
 async fn handler_response_round_trips_through_pipeline() -> TestResult {
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = echo_app(None, &tx)?;
-    let (mut client, server) = spawn_app(app);
+    let unfragmented_harness = setup_harness(None)?;
+    let UnifiedCodecHarness {
+        mut client,
+        server,
+        mut rx,
+    } = unfragmented_harness;
 
     let payload = vec![1, 2, 3, 4, 5];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
@@ -119,11 +122,15 @@ async fn handler_response_round_trips_through_pipeline() -> TestResult {
 
 #[rstest]
 #[tokio::test]
-async fn fragmented_response_passes_through_pipeline() -> TestResult {
+async fn fragmented_response_passes_through_pipeline(
+    fragmented_harness: TestResult<UnifiedCodecHarness>,
+) -> TestResult {
     let config = fragmentation_config(CAPACITY)?;
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = echo_app(Some(config), &tx)?;
-    let (mut client, server) = spawn_app(app);
+    let UnifiedCodecHarness {
+        mut client,
+        server,
+        mut rx,
+    } = fragmented_harness?;
 
     // Payload larger than fragment capacity to trigger fragmentation.
     // Must also fragment the *request* so it fits in the codec frame.
@@ -158,11 +165,14 @@ async fn fragmented_response_passes_through_pipeline() -> TestResult {
 
 #[rstest]
 #[tokio::test]
-async fn small_payload_passes_unfragmented() -> TestResult {
-    let config = fragmentation_config(CAPACITY)?;
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = echo_app(Some(config), &tx)?;
-    let (mut client, server) = spawn_app(app);
+async fn small_payload_passes_unfragmented(
+    fragmented_harness: TestResult<UnifiedCodecHarness>,
+) -> TestResult {
+    let UnifiedCodecHarness {
+        mut client,
+        server,
+        mut rx,
+    } = fragmented_harness?;
 
     let payload = vec![b'S'; 16];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
@@ -198,9 +208,12 @@ async fn small_payload_passes_unfragmented() -> TestResult {
 #[rstest]
 #[tokio::test]
 async fn multiple_sequential_requests_through_pipeline() -> TestResult {
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = echo_app(None, &tx)?;
-    let (mut client, server) = spawn_app(app);
+    let unfragmented_harness = setup_harness(None)?;
+    let UnifiedCodecHarness {
+        mut client,
+        server,
+        mut rx,
+    } = unfragmented_harness;
 
     let payloads: Vec<Vec<u8>> = (0..5).map(|i| vec![i; 8]).collect();
 
@@ -236,9 +249,12 @@ async fn multiple_sequential_requests_through_pipeline() -> TestResult {
 #[rstest]
 #[tokio::test]
 async fn pipeline_with_no_fragmentation_passes_large_payload() -> TestResult {
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = echo_app(None, &tx)?;
-    let (mut client, server) = spawn_app(app);
+    let unfragmented_harness = setup_harness(None)?;
+    let UnifiedCodecHarness {
+        mut client,
+        server,
+        mut rx,
+    } = unfragmented_harness;
 
     let payload = vec![b'L'; 256];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());

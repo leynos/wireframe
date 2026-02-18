@@ -10,7 +10,7 @@ mod transport;
 use std::io;
 
 use rstest::fixture;
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{runtime::Runtime, sync::mpsc, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Handler, Packet, WireframeApp},
@@ -70,11 +70,12 @@ impl UnifiedCodecWorld {
     ///
     /// # Errors
     /// Returns an error if app creation or spawning fails.
-    #[expect(
-        clippy::unused_async,
-        reason = "must be async to provide a Tokio runtime context for tokio::spawn"
-    )]
-    pub async fn start_server(&mut self, capacity: usize, fragmentation: bool) -> TestResult {
+    pub fn start_server(
+        &mut self,
+        runtime: &Runtime,
+        capacity: usize,
+        fragmentation: bool,
+    ) -> TestResult {
         self.capacity = capacity;
 
         let (tx, rx) = mpsc::unbounded_channel();
@@ -93,7 +94,8 @@ impl UnifiedCodecWorld {
         let codec = app.length_codec();
         let (client_stream, server_stream) = tokio::io::duplex(256);
         let client = Framed::new(client_stream, codec.clone());
-        let server = tokio::spawn(async move { app.handle_connection_result(server_stream).await });
+        let server =
+            runtime.spawn(async move { app.handle_connection_result(server_stream).await });
 
         self.client = Some(client);
         self.server_handle = Some(server);

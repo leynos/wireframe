@@ -1,11 +1,29 @@
 //! Step definitions for the unified codec pipeline behavioural tests.
 //!
-//! Steps are synchronous; async fixture methods are driven via
-//! `Runtime::new().block_on(...)`.
+//! Steps are synchronous; async fixture methods are driven via a shared
+//! Tokio runtime.
+
+use std::{future::Future, sync::OnceLock};
 
 use rstest_bdd_macros::{given, then, when};
+use tokio::runtime::Runtime;
 
 use crate::fixtures::unified_codec::{TestResult, UnifiedCodecWorld};
+
+fn runtime() -> &'static Runtime {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| match Runtime::new() {
+        Ok(runtime) => runtime,
+        Err(error) => panic!("failed to create shared Tokio runtime: {error}"),
+    })
+}
+
+fn run_async<F>(future: F) -> TestResult
+where
+    F: Future<Output = TestResult>,
+{
+    runtime().block_on(future)
+}
 
 // ---------------------------------------------------------------------------
 // Given
@@ -13,8 +31,7 @@ use crate::fixtures::unified_codec::{TestResult, UnifiedCodecWorld};
 
 #[given("a wireframe echo server with a buffer capacity of {cap:usize} bytes")]
 fn given_echo_server(unified_codec_world: &mut UnifiedCodecWorld, cap: usize) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.start_server(cap, false))
+    unified_codec_world.start_server(runtime(), cap, false)
 }
 
 #[given(
@@ -24,8 +41,7 @@ fn given_echo_server_fragmented(
     unified_codec_world: &mut UnifiedCodecWorld,
     cap: usize,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.start_server(cap, true))
+    unified_codec_world.start_server(runtime(), cap, true)
 }
 
 // ---------------------------------------------------------------------------
@@ -37,8 +53,7 @@ fn when_client_sends_payload(
     unified_codec_world: &mut UnifiedCodecWorld,
     size: usize,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.send_payload(size))
+    run_async(unified_codec_world.send_payload(size))
 }
 
 #[when("the client sends a fragmented {size:usize}-byte payload")]
@@ -46,8 +61,7 @@ fn when_client_sends_fragmented(
     unified_codec_world: &mut UnifiedCodecWorld,
     size: usize,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.send_fragmented_payload(size))
+    run_async(unified_codec_world.send_fragmented_payload(size))
 }
 
 #[when("the client sends {count:usize} sequential {size:usize}-byte payloads")]
@@ -56,8 +70,7 @@ fn when_client_sends_sequential(
     count: usize,
     size: usize,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.send_sequential_payloads(count, size))
+    run_async(unified_codec_world.send_sequential_payloads(count, size))
 }
 
 // ---------------------------------------------------------------------------
@@ -66,15 +79,13 @@ fn when_client_sends_sequential(
 
 #[then("the handler receives the original payload")]
 fn then_handler_receives_payload(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.collect_handler_payloads())?;
+    run_async(unified_codec_world.collect_handler_payloads())?;
     unified_codec_world.verify_handler_payloads()
 }
 
 #[then("the handler receives the reassembled payload")]
 fn then_handler_receives_reassembled(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.collect_handler_payloads())?;
+    run_async(unified_codec_world.collect_handler_payloads())?;
     unified_codec_world.verify_handler_payloads()
 }
 
@@ -83,8 +94,7 @@ fn then_handler_receives_all(
     unified_codec_world: &mut UnifiedCodecWorld,
     count: usize,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.collect_handler_payloads())?;
+    run_async(unified_codec_world.collect_handler_payloads())?;
     let observed = &unified_codec_world.handler_observed;
     if observed.len() != count {
         return Err(format!("expected {count} handler payloads, got {}", observed.len()).into());
@@ -94,27 +104,24 @@ fn then_handler_receives_all(
 
 #[then("the client receives a response matching the original payload")]
 fn then_client_receives_response(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.collect_single_response())?;
+    run_async(unified_codec_world.collect_single_response())?;
     unified_codec_world.verify_response_payloads()?;
-    rt.block_on(unified_codec_world.await_server())
+    run_async(unified_codec_world.await_server())
 }
 
 #[then("the client receives a fragmented response matching the original payload")]
 fn then_client_receives_fragmented(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.collect_fragmented_response())?;
+    run_async(unified_codec_world.collect_fragmented_response())?;
     unified_codec_world.verify_response_payloads()?;
-    rt.block_on(unified_codec_world.await_server())
+    run_async(unified_codec_world.await_server())
 }
 
 #[then("the client receives an unfragmented response matching the original payload")]
 fn then_client_receives_unfragmented(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.collect_single_response())?;
+    run_async(unified_codec_world.collect_single_response())?;
     unified_codec_world.verify_unfragmented()?;
     unified_codec_world.verify_response_payloads()?;
-    rt.block_on(unified_codec_world.await_server())
+    run_async(unified_codec_world.await_server())
 }
 
 #[then("the client receives {count:usize} responses matching the original payloads")]
@@ -122,8 +129,7 @@ fn then_client_receives_sequential(
     unified_codec_world: &mut UnifiedCodecWorld,
     count: usize,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(unified_codec_world.collect_sequential_responses(count))?;
+    run_async(unified_codec_world.collect_sequential_responses(count))?;
     unified_codec_world.verify_response_payloads()?;
-    rt.block_on(unified_codec_world.await_server())
+    run_async(unified_codec_world.await_server())
 }

@@ -24,7 +24,7 @@ use crate::{
 ///
 /// Responses are processed through the [`FramePipeline`] which applies
 /// fragmentation, protocol hooks (`before_send`), and outbound metrics before
-/// serialising and sending via the codec.
+/// serializing and sending via the codec.
 pub(crate) async fn forward_response<S, E, W, F>(
     env: Envelope,
     service: &HandlerService<E>,
@@ -55,7 +55,7 @@ where
     let envelope = Envelope::from_parts(parts);
 
     // Route through the pipeline: fragment → before_send → metrics
-    ctx.pipeline.process(envelope);
+    ctx.pipeline.process(envelope)?;
     let mut output = ctx.pipeline.drain_output();
     flush_pipeline_output(ctx.serializer, ctx.codec, ctx.framed, &mut output).await
 }
