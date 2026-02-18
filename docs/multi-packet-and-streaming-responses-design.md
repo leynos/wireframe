@@ -717,13 +717,16 @@ Two methods are exposed on `WireframeClient`:
 
 ### 12.4 Error handling
 
-`ResponseStream` surfaces three categories of error:
+`ResponseStream` surfaces two categories of error:
 
 | Error variant                            | Trigger                            |
 | ---------------------------------------- | ---------------------------------- |
 | `ClientError::Wireframe`                 | Transport or decode failure        |
 | `ClientError::StreamCorrelationMismatch` | Frame carries wrong correlation ID |
-| `ClientError::StreamTerminated`          | Polling after the stream has ended |
+
+Once the end-of-stream terminator has been received (or a fatal error has
+occurred), `ResponseStream` returns `None` on all subsequent polls, following
+the standard `futures::Stream` fused-stream convention.
 
 Terminator detection is performed before correlation validation so that
 end-of-stream frames produced by `stream_end_frame` without a per-request

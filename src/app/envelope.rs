@@ -27,7 +27,7 @@ use crate::{
 ///     message::Message,
 /// };
 ///
-/// #[derive(bincode::Decode, bincode::Encode)]
+/// #[derive(bincode::BorrowDecode, bincode::Encode)]
 /// struct CustomEnvelope {
 ///     id: u32,
 ///     correlation_id: Option<u64>,
@@ -86,7 +86,7 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     ///     correlation::CorrelatableFrame,
     /// };
     ///
-    /// #[derive(bincode::Decode, bincode::Encode)]
+    /// #[derive(bincode::BorrowDecode, bincode::Encode)]
     /// struct MyFrame {
     ///     id: u32,
     ///     correlation_id: Option<u64>,

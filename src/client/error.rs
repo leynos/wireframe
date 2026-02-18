@@ -70,13 +70,6 @@ pub enum ClientError {
         /// The correlation ID received in the response frame.
         received: Option<u64>,
     },
-    /// The streaming response has already been terminated.
-    ///
-    /// Returned when the caller attempts to read from a
-    /// [`ResponseStream`](crate::client::ResponseStream) after the
-    /// end-of-stream terminator has been received.
-    #[error("streaming response already terminated")]
-    StreamTerminated,
 }
 
 impl ClientError {

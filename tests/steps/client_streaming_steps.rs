@@ -1,4 +1,7 @@
 //! Step definitions for client streaming response behavioural tests.
+//!
+//! Steps run async world methods on the shared runtime stored in
+//! `ClientStreamingWorld` rather than constructing a per-step runtime.
 
 use std::{future::Future, pin::Pin};
 
@@ -18,22 +21,20 @@ fn with_server_restart(
     ) -> Pin<Box<dyn Future<Output = TestResult> + 'a>>,
 ) -> TestResult {
     world.abort_server();
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        server_starter(world).await?;
-        world.connect_client().await
-    })
+    world.block_on(|w| server_starter(w))?;
+    world.block_on(|w| Box::pin(w.connect_client()))
 }
 
 #[given("a streaming echo server")]
 fn given_streaming_server(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        // Default server sends frames based on the scenario's When step.
-        // Start with a normal 3-frame server as default; specific scenarios
-        // override via their own Given steps.
-        client_streaming_world.start_normal_server(3).await?;
-        client_streaming_world.connect_client().await
+    client_streaming_world.block_on(|w| {
+        Box::pin(async {
+            // Default server sends frames based on the scenario's When step.
+            // Start with a normal 3-frame server as default; specific scenarios
+            // override via their own Given steps.
+            w.start_normal_server(3).await?;
+            w.connect_client().await
+        })
     })
 }
 
@@ -60,17 +61,14 @@ fn when_streaming_request_with_count(
     count: usize,
 ) -> TestResult {
     with_server_restart(client_streaming_world, |world| {
-        Box::pin(async move {
-            world.start_normal_server(count).await?;
-            world.send_streaming_request().await
-        })
-    })
+        Box::pin(world.start_normal_server(count))
+    })?;
+    client_streaming_world.block_on(|w| Box::pin(w.send_streaming_request()))
 }
 
 #[when("the client sends a streaming request")]
 fn when_streaming_request(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_streaming_world.send_streaming_request())
+    client_streaming_world.block_on(|w| Box::pin(w.send_streaming_request()))
 }
 
 #[then("all {count:usize} data frames are received in order")]

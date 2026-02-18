@@ -1579,7 +1579,7 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
     back-pressure architecture.
 [^51]: Implemented in `src/client/response_stream.rs` (correlation
     validation) and `src/client/error.rs`
-    (`ClientError::StreamCorrelationMismatch`,
-    `ClientError::StreamTerminated`).
+    (`ClientError::StreamCorrelationMismatch`). Once terminated, the stream
+    returns `None` per the fused-stream convention.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md

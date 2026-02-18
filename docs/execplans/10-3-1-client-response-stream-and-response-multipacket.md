@@ -18,8 +18,17 @@ frames terminated by a protocol-defined end-of-stream marker. The client
 library currently lacks the ability to consume these multi-frame responses.
 After this work, a library consumer can send a request and receive a typed
 async stream of response frames, with correlation validation, terminator
-detection, and natural TCP back-pressure — completing the symmetry demanded by
-design goal G5 in the multi-packet design document.
+detection, and natural Transmission Control Protocol (TCP) back-pressure —
+completing the symmetry demanded by design goal G5 in the multi-packet design
+document.
+
+On the server side, the multi-packet API is tuple-based:
+`Response::with_channel(capacity)` returns a `(Sender<F>, Response<F, E>)`
+pair, giving the handler a sender it can move into a spawned task while the
+connection actor drains the receiver. A planned
+`Response::with_channel_and_initial` variant will extend this by allowing an
+initial `Response` (e.g. a header frame) to be emitted before the channel is
+drained.
 
 Observable outcome: a user calls `client.call_streaming(request)` and receives
 a `ResponseStream<P>` that yields each data frame as `Result<P, ClientError>`,
@@ -45,8 +54,7 @@ terminator validation, correlation mismatch, and back-pressure scenarios.
 - All code must pass `make check-fmt`, `make lint`, and `make test`.
 - Documentation must use en-GB-oxendict spelling per `AGENTS.md`.
 - No single source file may exceed 400 lines per `AGENTS.md`.
-- BDD tests must use `rstest-bdd` 0.5.0 (not the removed Cucumber
-  framework).
+- BDD tests must use `rstest-bdd` 0.5.0.
 
 ## Tolerances (exception triggers)
 
@@ -83,7 +91,7 @@ terminator validation, correlation mismatch, and back-pressure scenarios.
 ## Progress
 
 - [x] Stage A: Trait extension — add `is_stream_terminator` to `Packet`.
-- [x] Stage B: New client error variants — add `StreamTerminated` and
+- [x] Stage B: New client error variant — add
       `StreamCorrelationMismatch`.
 - [x] Stage C: `ResponseStream` type — implement the core streaming
       receiver.
@@ -241,20 +249,21 @@ File: `src/app/envelope.rs` Location: inside the `Packet` trait definition
 (after `from_parts`) Change: add one method with doc comment and default
 implementation.
 
-### Stage B: Add new ClientError variants
+### Stage B: Add new ClientError variant
 
-Add `StreamTerminated` to `ClientError` in `src/client/error.rs`. This error is
-returned if the caller attempts to read from a `ResponseStream` after the
-terminator has been received, or if the connection closes unexpectedly
-mid-stream.
+Add `StreamCorrelationMismatch` variant to `ClientError` in
+`src/client/error.rs` for when a frame within a streaming response carries a
+different `correlation_id` than the request. This is distinct from the existing
+`CorrelationMismatch` which covers single-frame `call_correlated`.
 
-Add `StreamCorrelationMismatch` variant to `ClientError` for when a frame
-within a streaming response carries a different `correlation_id` than the
-request. This is distinct from the existing `CorrelationMismatch` which covers
-single-frame `call_correlated`.
+Once the end-of-stream terminator has been received (or a fatal error has
+occurred), `ResponseStream` returns `None` on all subsequent polls, following
+the standard `futures::Stream` fused-stream convention. A separate
+`StreamTerminated` error variant was considered but rejected in favour of the
+idiomatic `None` approach.
 
 File: `src/client/error.rs` Location: inside the `ClientError` enum Change: add
-two new variants with doc comments and thiserror annotations.
+one new variant with doc comment and thiserror annotation.
 
 ### Stage C: Implement ResponseStream
 
@@ -418,8 +427,7 @@ Stage A:
 
 Stage B:
 
-    # Edit src/client/error.rs — add StreamTerminated,
-    #   StreamCorrelationMismatch variants
+    # Edit src/client/error.rs — add StreamCorrelationMismatch variant
     cargo check --all-targets --all-features
 
 Stage C:
@@ -549,9 +557,6 @@ In `src/app/envelope.rs`, the `Packet` trait gains:
     fn is_stream_terminator(&self) -> bool { false }
 
 In `src/client/error.rs`, `ClientError` gains:
-
-    #[error("streaming response terminated")]
-    StreamTerminated,
 
     #[error(
         "correlation ID mismatch in streaming response: \

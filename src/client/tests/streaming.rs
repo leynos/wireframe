@@ -21,6 +21,23 @@ use super::streaming_infra::{
 };
 use crate::{BincodeSerializer, Serializer, client::ClientError, correlation::CorrelatableFrame};
 
+/// Verify a stream yields exactly one data frame with the expected payload
+/// and then terminates cleanly.
+async fn verify_single_frame_stream<S>(
+    mut stream: S,
+    expected_payload: Vec<u8>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: StreamExt<Item = Result<TestStreamEnvelope, ClientError>> + Unpin,
+{
+    let frame = stream.next().await.expect("data frame").expect("Ok");
+    assert_eq!(frame.payload, expected_payload);
+
+    let end = stream.next().await;
+    assert!(end.is_none(), "stream should terminate");
+    Ok(())
+}
+
 #[rstest]
 #[tokio::test]
 async fn response_stream_yields_data_frames_in_order(
@@ -242,19 +259,13 @@ async fn call_streaming_sends_request_and_returns_stream(
 
     // Use explicit correlation ID so server response matches.
     let request = TestStreamEnvelope::data(MessageId::new(99), cid, Payload::new(vec![]));
-    let mut stream = client
+    let stream = client
         .call_streaming::<TestStreamEnvelope>(request)
         .await
         .expect("call_streaming");
 
     assert_eq!(stream.correlation_id(), cid.get());
-
-    let frame = stream.next().await.expect("one data frame").expect("Ok");
-    assert_eq!(frame.payload, vec![77]);
-
-    let end = stream.next().await;
-    assert!(end.is_none(), "stream should terminate");
-    Ok(())
+    verify_single_frame_stream(stream, vec![77]).await
 }
 
 #[rstest]
@@ -347,12 +358,6 @@ async fn receive_streaming_works_with_pre_sent_request(
     let sent_cid = client.send_envelope(request).await.expect("send");
 
     // Use receive_streaming to consume the response.
-    let mut stream = client.receive_streaming::<TestStreamEnvelope>(sent_cid);
-
-    let frame = stream.next().await.expect("data frame").expect("Ok");
-    assert_eq!(frame.payload, vec![55]);
-
-    let end = stream.next().await;
-    assert!(end.is_none(), "stream should terminate");
-    Ok(())
+    let stream = client.receive_streaming::<TestStreamEnvelope>(sent_cid);
+    verify_single_frame_stream(stream, vec![55]).await
 }
