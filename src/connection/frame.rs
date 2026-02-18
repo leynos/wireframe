@@ -56,7 +56,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// actor.process_frame_with_hooks_and_metrics(frame, &mut out);
     /// ```
     pub(super) fn process_frame_with_hooks_and_metrics(&mut self, frame: F, out: &mut Vec<F>)

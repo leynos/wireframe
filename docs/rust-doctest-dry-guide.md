@@ -1,5 +1,18 @@
 # A Systematic Guide to Effective, Ergonomic, and DRY Doctests in Rust
 
+## Project policy (Wireframe)
+
+Wireframe enforces doctests as a first-class quality gate.
+
+- Run doctests with `make test-doc` (equivalent to
+  `RUSTFLAGS="-D warnings" cargo test --doc --all-features`).
+- Keep doctest ownership on the public API surface only. Private modules and
+  `#[cfg(test)]` helpers may include examples, but those blocks should use
+  non-doctest fences such as `text`.
+- Enforce executable documentation balance with
+  `make doctest-benchmark`. The benchmark fails when runnable doctests drop
+  below 70% of runnable-or-`no_run` blocks, or when `no_run` blocks exceed 30%.
+
 ## The `rustdoc` Compilation Model: A Foundational Perspective
 
 To master the art of writing effective documentation tests in Rust, one must

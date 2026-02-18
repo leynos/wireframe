@@ -23,7 +23,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::new(42);
@@ -36,7 +36,7 @@ impl ConnectionId {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::session::ConnectionId;
     ///
     /// let id = ConnectionId::from(7u64);
@@ -77,7 +77,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -107,7 +107,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -132,7 +132,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -159,7 +159,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -187,7 +187,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},
@@ -226,7 +226,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     push::PushQueues,
     ///     session::{ConnectionId, SessionRegistry},

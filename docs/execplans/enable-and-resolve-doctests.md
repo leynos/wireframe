@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 `PLANS.md` is not present in this repository at the time this plan was drafted.
 
@@ -61,19 +61,38 @@ benchmark.
 ## Progress
 
 - [x] (2026-02-18) Drafted ExecPlan with success criteria and milestones.
-- [ ] Inventory all Rustdoc code blocks in `src/` and classify by item
-      visibility and runtime profile.
-- [ ] Enable doctests in `Cargo.toml` and add a dedicated command target for
-      doctest execution.
-- [ ] Resolve compile failures in all doctest blocks.
-- [ ] Enforce doctest scope rules (no private/test item doctest examples).
-- [ ] Compute and validate runnable-vs-`no_run` benchmark.
-- [ ] Run quality gates and update user documentation.
+- [x] (2026-02-18) Inventoried Rustdoc code fences in `src/` and classified
+      by runnable class:
+      runnable 128, `no_run` 51, `ignore`/`compile_fail` 6, non-Rust/text 7.
+- [x] (2026-02-18) Enabled doctests in `Cargo.toml` and added
+      `make test-doc`.
+- [x] (2026-02-18) Resolved doctest compile failures across builder, client,
+      extractor, response, server, and runtime API docs.
+- [x] (2026-02-18) Enforced scope rules by rewriting private/test-helper
+      examples (`src/server/test_util.rs`, `src/connection/state.rs`,
+      `src/connection/frame.rs`, `src/server/runtime/accept.rs`) to
+      non-doctest `text` fences.
+- [x] (2026-02-18) Added `scripts/doctest-benchmark.sh` and
+      `make doctest-benchmark`; benchmark now passes thresholds.
+- [x] (2026-02-18) Ran full Rust and Markdown quality gates and updated
+      user-facing doctest guidance.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Plan-only phase. Impact: None yet.
+- Observation: Enabling doctest execution surfaced 27 failing examples in the
+  first pass, mostly type inference in generic builder docs plus a few stale
+  API snippets. Evidence: `/tmp/doc-pre.log`. Impact: required broad
+  documentation repairs before policy work.
+
+- Observation: Several server binding examples panic when executed because they
+  require a Tokio runtime context. Evidence: failures in
+  `src/server/config/binding.rs` doctests. Impact: those examples were
+  correctly reclassified as `no_run`.
+
+- Observation: Initial benchmark result failed policy at 64% runnable / 35%
+  `no_run`. Evidence: early output from `scripts/doctest-benchmark.sh`. Impact:
+  converted deterministic state/extractor examples from `no_run` to runnable to
+  restore the target balance.
 
 ## Decision Log
 
@@ -88,21 +107,45 @@ benchmark.
   Rationale: This prevents mixing testing concerns with user-facing docs and
   aligns with Rustdoc guidance. Date/Author: 2026-02-18 / Codex.
 
+- Decision: Use explicit closure return types (`|| -> WireframeApp { ... }`) in
+  server docs to stabilize type inference for generic builders. Rationale: this
+  resolved repeated `E0283` inference failures without changing public
+  signatures. Date/Author: 2026-02-18 / Codex.
+
+- Decision: Promote deterministic, side-effect-free examples from `no_run` to
+  runnable in `src/session.rs` and `src/extractor/request.rs`. Rationale:
+  improves executable documentation coverage and satisfies the runnable/no_run
+  benchmark policy while preserving reliability. Date/Author: 2026-02-18 /
+  Codex.
+
 ## Outcomes & Retrospective
 
-Not started. Populate after implementation milestones complete.
+- Doctests enabled (`Cargo.toml` now sets `doctest = true`).
+- Repeatable doctest workflow added:
+  `make test-doc` and `make doctest-benchmark`.
+- Doctest acceptance target met:
+  `cargo test --doc --all-features` passes (`179 passed`, `0 failed`,
+  `4 ignored` + `2 compile_fail` checks).
+- Runnable-vs-`no_run` benchmark met:
+  runnable 128 (71%), `no_run` 51 (28%), ignored/compile_fail 6, non-rust/text
+  7.
+- Scope policy enforced for private/test-only helpers by converting their code
+  blocks to non-doctest fences.
+- Quality gates all pass:
+  `make fmt`, `make check-fmt`, `make lint`, `make test`, `make test-doc`,
+  `make doctest-benchmark`, `make markdownlint`, `make nixie`.
 
 ## Context and orientation
 
-Current state relevant to this plan:
+Current state after implementation:
 
-- `Cargo.toml` disables doctests with `doctest = false` in `[lib]`.
-- Public docs are spread across module-level docs and item-level docs in
-  `src/`.
-- The repository already contains extensive integration and behavioural tests in
-  `tests/`; these are not doctest replacements.
-- `docs/rust-doctest-dry-guide.md` documents project expectations for doctests
-  and should be kept aligned with implementation reality.
+- `Cargo.toml` enables doctests with `doctest = true` in `[lib]`.
+- Public docs remain spread across module-level and item-level docs in `src/`,
+  with doctest ownership scoped to the public API.
+- The repository still keeps integration and behavioural tests in `tests/`;
+  these remain distinct from doctests.
+- `docs/rust-doctest-dry-guide.md` now includes Wireframe-specific policy and
+  benchmark commands.
 
 Key files expected to change:
 
@@ -189,11 +232,17 @@ the stage-specific command before continuing.
 
 ## Artifacts and notes
 
-Implementation should retain:
+Implementation artifacts retained:
 
-- A short inventory summary of doctest blocks by class.
-- A benchmark summary with counts and percentages.
-- Failure cluster notes for any blocks converted to `no_run`.
+- Inventory and failure clustering logs:
+  `/tmp/doc-pre.log`, `/tmp/doc-pass4.log`.
+- Benchmark logs:
+  `/tmp/doctest-benchmark.log`, `/tmp/wireframe-doctest-benchmark.log`.
+- Quality gate logs:
+  `/tmp/wireframe-make-fmt.log`, `/tmp/wireframe-check-fmt.log`,
+  `/tmp/wireframe-lint.log`, `/tmp/wireframe-test.log`,
+  `/tmp/wireframe-test-doc.log`, `/tmp/wireframe-markdownlint.log`,
+  `/tmp/wireframe-nixie.log`.
 
 ## Interfaces and dependencies
 

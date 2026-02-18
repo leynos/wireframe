@@ -115,7 +115,7 @@ impl<T> fmt::Debug for PreambleHooks<T> {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```text
 /// use std::sync::Arc;
 ///
 /// use tokio_util::{sync::CancellationToken, task::TaskTracker};

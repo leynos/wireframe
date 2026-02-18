@@ -35,10 +35,10 @@ pub(crate) fn default_worker_count() -> usize {
 /// use tokio::net::TcpStream;
 /// use wireframe::{app::WireframeApp, server::WireframeServer};
 ///
-/// #[derive(bincode::Decode, bincode::BorrowDecode)]
+/// #[derive(bincode::Decode)]
 /// struct MyPreamble;
 ///
-/// let _server = WireframeServer::new(|| WireframeApp::default())
+/// let _server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
 ///     .with_preamble::<MyPreamble>()
 ///     .on_preamble_decode_success(
 ///         |_preamble: &MyPreamble, stream: &mut TcpStream| -> BoxFuture<'_, io::Result<()>> {
@@ -175,10 +175,11 @@ where
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), ServerError> {
 /// // Start unbound (S = Unbound)
-/// let srv = WireframeServer::new(|| WireframeApp::default());
+/// let srv = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() });
 ///
 /// // Transition to bound (S = Bound)
-/// let srv = srv.bind("127.0.0.1:0")?;
+/// let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
+/// let srv = srv.bind(addr)?;
 ///
 /// // Run the server
 /// srv.run().await

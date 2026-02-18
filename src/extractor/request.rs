@@ -60,13 +60,13 @@ impl MessageRequest {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::{
     ///     app::WireframeApp,
     ///     extractor::{MessageRequest, SharedState},
     /// };
     ///
-    /// let _app = WireframeApp::new()
+    /// let _app: WireframeApp = WireframeApp::new()
     ///     .expect("failed to initialize app")
     ///     .app_data(5u32);
     /// // The framework populates the request with application data.
@@ -171,7 +171,7 @@ impl<'a> Payload<'a> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::extractor::Payload;
     ///
     /// let payload = Payload::new(b"data");
@@ -199,7 +199,7 @@ impl Payload<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::extractor::Payload;
     ///
     /// let mut payload = Payload::new(b"abcd");
@@ -215,7 +215,7 @@ impl Payload<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// use wireframe::extractor::Payload;
     ///
     /// let mut payload = Payload::new(b"bytes");

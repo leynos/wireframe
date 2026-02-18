@@ -35,13 +35,13 @@ where
     ///
     /// ```
     /// use bincode::{Decode, Encode};
-    /// use wireframe::{app::WireframeApp, preamble::Preamble, server::WireframeServer};
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// #[derive(Encode, Decode)]
     /// struct MyPreamble;
-    /// impl Preamble for MyPreamble {}
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default()).with_preamble::<MyPreamble>();
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///     .with_preamble::<MyPreamble>();
     /// ```
     #[must_use]
     pub fn with_preamble<P>(self) -> WireframeServer<F, P, S, Ser, Ctx, E, Codec>
@@ -76,8 +76,8 @@ where
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server =
-    ///     WireframeServer::new(|| WireframeApp::default()).preamble_timeout(Duration::from_secs(1));
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///     .preamble_timeout(Duration::from_secs(1));
     /// ```
     #[must_use]
     pub fn preamble_timeout(mut self, timeout: Duration) -> Self {
@@ -97,13 +97,12 @@ where
         /// ```
         /// use bincode::{Decode, Encode};
         /// use futures::FutureExt;
-        /// use wireframe::{app::WireframeApp, preamble::Preamble, server::WireframeServer};
+        /// use wireframe::{app::WireframeApp, server::WireframeServer};
         ///
         /// #[derive(Encode, Decode)]
         /// struct MyPreamble;
-        /// impl Preamble for MyPreamble {}
         ///
-        /// let server = WireframeServer::new(|| WireframeApp::default())
+        /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
         ///     .with_preamble::<MyPreamble>()
         ///     .on_preamble_decode_success(|_p: &MyPreamble, _s| async { Ok(()) }.boxed());
         /// ```
@@ -126,15 +125,14 @@ where
     /// use tokio::io::AsyncWriteExt;
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default()).on_preamble_decode_failure(
-    ///     |_err: &bincode::error::DecodeError, stream| {
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///     .on_preamble_decode_failure(|_err: &bincode::error::DecodeError, stream| {
     ///         async move {
     ///             stream.write_all(b"BAD").await?;
     ///             Ok(())
     ///         }
     ///         .boxed()
-    ///     },
-    /// );
+    ///     });
     /// ```
     #[must_use]
     pub fn on_preamble_decode_failure<H>(mut self, handler: H) -> Self

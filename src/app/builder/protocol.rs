@@ -63,7 +63,7 @@ where
     ///     }
     /// }
     ///
-    /// let app = WireframeApp::new()
+    /// let app: WireframeApp = WireframeApp::new()
     ///     .expect("builder")
     ///     .with_message_assembler(DemoAssembler);
     /// let _ = app;
@@ -118,7 +118,7 @@ where
     ///     }
     /// }
     ///
-    /// let app = WireframeApp::new()
+    /// let app: WireframeApp = WireframeApp::new()
     ///     .expect("builder")
     ///     .with_message_assembler(DemoAssembler);
     /// assert!(app.message_assembler().is_some());

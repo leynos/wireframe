@@ -8,6 +8,8 @@
 /// use std::io;
 ///
 /// use bytes::Bytes;
+/// use wireframe::frame::FrameMetadata;
+///
 /// struct Demo;
 /// impl FrameMetadata for Demo {
 ///     type Frame = (u32, Bytes); // (id, payload)

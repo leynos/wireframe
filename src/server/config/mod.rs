@@ -69,7 +69,7 @@ where
     /// ```
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default());
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() });
     /// assert!(server.worker_count() >= 1);
     /// ```
     #[must_use]
@@ -110,10 +110,10 @@ where
         /// ```
         /// use wireframe::{app::WireframeApp, server::WireframeServer};
         ///
-        /// let server = WireframeServer::new(|| WireframeApp::default()).workers(4);
+        /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() }).workers(4);
         /// assert_eq!(server.worker_count(), 4);
         ///
-        /// let server = WireframeServer::new(|| WireframeApp::default()).workers(0);
+        /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() }).workers(0);
         /// assert_eq!(server.worker_count(), 1);
         /// ```
         workers, workers, count: usize => count.max(1)
@@ -129,7 +129,8 @@ where
         /// use wireframe::{app::WireframeApp, server::WireframeServer};
         ///
         /// let (tx, _rx) = oneshot::channel();
-        /// let server = WireframeServer::new(|| WireframeApp::default()).ready_signal(tx);
+        /// let server =
+        ///     WireframeServer::new(|| -> WireframeApp { WireframeApp::default() }).ready_signal(tx);
         /// ```
         ready_signal, ready_tx, tx: oneshot::Sender<()> => Some(tx)
     );
@@ -158,7 +159,7 @@ where
     /// ```
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
-    /// let server = WireframeServer::new(|| WireframeApp::default()).workers(8);
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() }).workers(8);
     /// assert_eq!(server.worker_count(), 8);
     /// ```
     #[inline]
