@@ -52,13 +52,14 @@ impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
 
 impl<E> std::error::Error for WireframeError<E>
 where
-    E: std::fmt::Debug + 'static,
+    E: std::fmt::Debug + std::error::Error + 'static,
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+            Self::Protocol(error) => Some(error),
             Self::Codec(error) => Some(error),
-            Self::DuplicateRoute(_) | Self::Protocol(_) => None,
+            Self::DuplicateRoute(_) => None,
         }
     }
 }

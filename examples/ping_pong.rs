@@ -157,7 +157,7 @@ async fn main() -> std::io::Result<()> {
         .nth(1)
         .unwrap_or_else(|| default_addr.into());
 
-    let app = Arc::new(build_app().map_err(std::io::Error::other)?);
+    let app = Arc::new(build_app().map_err(|error| std::io::Error::other(error.to_string()))?);
     let addr: SocketAddr = addr_str.parse().map_err(std::io::Error::other)?;
     let listener = TcpListener::bind(addr).await?;
     loop {

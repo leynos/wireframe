@@ -146,8 +146,8 @@ pub enum TestError {
     /// Assertion or other message-driven failure.
     #[error("{0}")]
     Msg(String),
-    #[error(transparent)]
-    Wireframe(#[from] wireframe::WireframeError),
+    #[error("wireframe error: {0}")]
+    Wireframe(wireframe::WireframeError),
     #[error(transparent)]
     Client(#[from] wireframe::client::ClientError),
     #[error(transparent)]
@@ -196,6 +196,10 @@ impl From<String> for TestError {
 
 impl From<&str> for TestError {
     fn from(value: &str) -> Self { Self::Msg(value.to_string()) }
+}
+
+impl From<wireframe::WireframeError> for TestError {
+    fn from(value: wireframe::WireframeError) -> Self { Self::Wireframe(value) }
 }
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {
