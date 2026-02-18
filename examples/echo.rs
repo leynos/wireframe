@@ -28,7 +28,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
 
     let handler: EchoHandler = Arc::new(|_: &Envelope| echo_handler());
-    build_app(handler.clone()).inspect_err(|err| error!("failed to build echo app: {err}"))?;
+    build_app(handler.clone())
+        .inspect_err(|err| error!("failed to build echo app: {err}"))
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
 
     let factory = {
         let handler = Arc::clone(&handler);

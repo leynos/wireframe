@@ -34,12 +34,12 @@ impl std::error::Error for ProtoErr {}
 fn wireframe_error_messages() {
     let proto = WireframeError::Protocol(ProtoErr);
     assert_eq!(proto.to_string(), "protocol error: ProtoErr");
-    assert!(
-        proto.source().is_none(),
-        "protocol variant does not expose a source for generic payloads"
-    );
+    let proto_source = proto
+        .source()
+        .expect("protocol variant must expose its underlying source");
+    assert_eq!(proto_source.to_string(), "boom");
 
-    let duplicate_route = WireframeError::<()>::DuplicateRoute(7);
+    let duplicate_route = WireframeError::<ProtoErr>::DuplicateRoute(7);
     assert_eq!(
         duplicate_route.to_string(),
         "route id 7 was already registered"
@@ -62,7 +62,7 @@ fn wireframe_error_exposes_sources_for_io_and_codec() {
     assert_eq!(io_source.to_string(), "socket closed");
 
     let wireframe_codec =
-        WireframeError::<()>::from_codec(CodecError::from(FramingError::EmptyFrame));
+        WireframeError::<ProtoErr>::from_codec(CodecError::from(FramingError::EmptyFrame));
     let codec_source = wireframe_codec
         .source()
         .expect("Codec variant should expose an error source");
