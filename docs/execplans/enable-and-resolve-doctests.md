@@ -112,11 +112,11 @@ benchmark.
   resolved repeated `E0283` inference failures without changing public
   signatures. Date/Author: 2026-02-18 / Codex.
 
-- Decision: Promote deterministic, side-effect-free examples from `no_run` to
-  runnable in `src/session.rs` and `src/extractor/request.rs`. Rationale:
-  improves executable documentation coverage and satisfies the runnable/no_run
-  benchmark policy while preserving reliability. Date/Author: 2026-02-18 /
-  Codex.
+- Decision: Promote deterministic, side-effect-free examples from `no_run`
+  into runnable examples in `src/session.rs` and `src/extractor/request.rs`.
+  Rationale: improves executable documentation coverage and satisfies the
+  runnable/no_run benchmark policy while preserving reliability. Date/Author:
+  2026-02-18 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -127,7 +127,7 @@ benchmark.
   `cargo test --doc --all-features` passes (`179 passed`, `0 failed`,
   `4 ignored` + `2 compile_fail` checks).
 - Runnable-vs-`no_run` benchmark met:
-  runnable 128 (71%), `no_run` 51 (28%), ignored/compile_fail 6, non-rust/text
+  runnable 128 (71%), `no_run` 51 (28%), ignored/compile_fail 6, non-Rust/text
   7.
 - Scope policy enforced for private/test-only helpers by converting their code
   blocks to non-doctest fences.

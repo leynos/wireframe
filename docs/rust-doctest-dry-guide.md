@@ -8,7 +8,7 @@ Wireframe enforces doctests as a first-class quality gate.
   `RUSTFLAGS="-D warnings" cargo test --doc --all-features`).
 - Keep doctest ownership on the public API surface only. Private modules and
   `#[cfg(test)]` helpers may include examples, but those blocks should use
-  non-doctest fences such as `text`.
+  non-doctest fences such as `plaintext`.
 - Enforce executable documentation balance with
   `make doctest-benchmark`. The benchmark fails when runnable doctests drop
   below 70% of runnable-or-`no_run` blocks, or when `no_run` blocks exceed 30%.

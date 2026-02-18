@@ -37,7 +37,7 @@ pub fn free_listener() -> StdTcpListener {
 ///
 /// # Examples
 ///
-/// ```text
+/// ```plaintext
 /// let addr = free_addr();
 /// assert_eq!(addr.ip(), std::net::Ipv4Addr::LOCALHOST.into());
 /// ```
@@ -49,7 +49,7 @@ pub fn free_addr() -> SocketAddr { listener_addr(&free_listener()) }
 ///
 /// # Examples
 ///
-/// ```text
+/// ```plaintext
 /// use std::net::TcpListener;
 ///
 /// use wireframe::server::test_util::{free_listener, listener_addr};

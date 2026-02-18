@@ -26,7 +26,7 @@ pub const FRAMES_PROCESSED: &str = "wireframe_frames_processed_total";
 pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
 /// Name of the counter tracking connection panics.
 ///
-/// ```text
+/// ```plaintext
 /// # HELP wireframe_connection_panics_total Count of panicking connection tasks.
 /// # TYPE wireframe_connection_panics_total counter
 /// wireframe_connection_panics_total 1
@@ -35,7 +35,7 @@ pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
 
 /// Name of the counter tracking codec errors by type and recovery policy.
 ///
-/// ```text
+/// ```plaintext
 /// # HELP wireframe_codec_errors_total Count of codec errors by type and recovery policy.
 /// # TYPE wireframe_codec_errors_total counter
 /// wireframe_codec_errors_total{error_type="framing",recovery_policy="drop"} 5

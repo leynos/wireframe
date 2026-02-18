@@ -26,7 +26,7 @@ impl ActorState {
     ///
     /// # Examples
     ///
-    /// ```text
+    /// ```plaintext
     /// use wireframe::connection::ActorState;
     ///
     /// let state = ActorState::new(true, false);
