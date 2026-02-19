@@ -23,6 +23,7 @@ use crate::{
     WireframeError,
     client::{ClientError, ClientProtocolError, WireframeClient, WireframeClientBuilder},
     rewind_stream::RewindStream,
+    serializer::Serializer,
 };
 
 /// Connects a client and returns both the client and server stream for custom server behaviour.
@@ -33,7 +34,7 @@ async fn connect_with_server<S, F, C>(
     configure_builder: F,
 ) -> (WireframeClient<S, RewindStream<TcpStream>, C>, TcpStream)
 where
-    S: crate::Serializer + Send + Sync + 'static,
+    S: Serializer + Send + Sync + 'static,
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<S, (), C>,
     C: Send + 'static,
 {

@@ -45,10 +45,10 @@ impl<T> ClientStream for T where T: AsyncRead + AsyncWrite + Unpin {}
 /// ```no_run
 /// use std::net::SocketAddr;
 ///
-/// use wireframe::WireframeClient;
+/// use wireframe::client::WireframeClient;
 ///
 /// # #[tokio::main]
-/// # async fn main() -> Result<(), wireframe::ClientError> {
+/// # async fn main() -> Result<(), wireframe::client::ClientError> {
 /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
 /// let _client = WireframeClient::builder().connect(addr).await?;
 /// # Ok(())
@@ -87,10 +87,10 @@ impl WireframeClient<BincodeSerializer, TcpStream, ()> {
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::WireframeClient;
+    /// use wireframe::client::WireframeClient;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), wireframe::ClientError> {
+    /// # async fn main() -> Result<(), wireframe::client::ClientError> {
     /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
     /// let _client = WireframeClient::builder().connect(addr).await?;
     /// # Ok(())
@@ -123,7 +123,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
     /// struct Ping(u8);
@@ -169,7 +169,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
     /// struct Pong(u8);
@@ -202,7 +202,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// #[derive(bincode::Encode, bincode::BorrowDecode)]
     /// struct Login {
@@ -240,7 +240,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
@@ -261,7 +261,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
@@ -287,7 +287,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
@@ -319,7 +319,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// struct Session {
     ///     id: u64,

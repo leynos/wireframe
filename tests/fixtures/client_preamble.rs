@@ -17,10 +17,10 @@ use futures::FutureExt;
 use rstest::fixture;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use wireframe::{
-    BincodeSerializer,
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
     rewind_stream::RewindStream,
+    serializer::BincodeSerializer,
 };
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;

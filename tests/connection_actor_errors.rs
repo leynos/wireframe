@@ -14,9 +14,8 @@ use rstest::{fixture, rstest};
 use serial_test::serial;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    ConnectionContext,
-    ProtocolHooks,
     connection::{ConnectionActor, ConnectionChannels},
+    hooks::{ConnectionContext, ProtocolHooks},
     push::PushQueues,
     response::WireframeError,
 };

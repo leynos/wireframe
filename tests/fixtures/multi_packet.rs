@@ -8,7 +8,7 @@ use std::{error::Error, fmt};
 use rstest::fixture;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
-use wireframe::{Response, connection::ConnectionActor};
+use wireframe::{connection::ConnectionActor, response::Response};
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 

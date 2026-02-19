@@ -14,11 +14,10 @@ use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder, Framed};
 use wireframe::{
-    Serializer,
     app::{Envelope, Packet, WireframeApp},
     codec::FrameCodec,
     correlation::CorrelatableFrame,
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 #[derive(Clone, Debug)]

@@ -6,9 +6,8 @@
 use bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use wireframe::{
-    FrameCodec,
     byte_order::{read_network_u32, write_network_u32},
-    codec::{EofError, LENGTH_HEADER_SIZE, LengthDelimitedFrameCodec},
+    codec::{EofError, FrameCodec, LENGTH_HEADER_SIZE, LengthDelimitedFrameCodec},
 };
 
 use super::{CodecErrorWorld, TestResult};

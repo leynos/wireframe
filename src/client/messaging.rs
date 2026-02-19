@@ -46,7 +46,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
@@ -86,7 +86,11 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, CorrelatableFrame, WireframeClient, app::Envelope};
+    /// use wireframe::{
+    ///     app::Envelope,
+    ///     client::{ClientError, WireframeClient},
+    ///     correlation::CorrelatableFrame,
+    /// };
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
@@ -144,7 +148,11 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, CorrelatableFrame, WireframeClient, app::Envelope};
+    /// use wireframe::{
+    ///     app::Envelope,
+    ///     client::{ClientError, WireframeClient},
+    ///     correlation::CorrelatableFrame,
+    /// };
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
@@ -179,7 +187,10 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient, app::Envelope};
+    /// use wireframe::{
+    ///     app::Envelope,
+    ///     client::{ClientError, WireframeClient},
+    /// };
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {

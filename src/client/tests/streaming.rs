@@ -19,7 +19,11 @@ use super::streaming_infra::{
     spawn_mismatch_server,
     spawn_test_server,
 };
-use crate::{BincodeSerializer, Serializer, client::ClientError, correlation::CorrelatableFrame};
+use crate::{
+    client::ClientError,
+    correlation::CorrelatableFrame,
+    serializer::{BincodeSerializer, Serializer},
+};
 
 /// Verify a stream yields exactly one data frame with the expected payload
 /// and then terminates cleanly.

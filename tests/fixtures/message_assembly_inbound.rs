@@ -7,10 +7,9 @@ use rstest::fixture;
 use tokio::{io::DuplexStream, sync::mpsc, task::JoinHandle, time::timeout};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    Serializer,
     app::{Envelope, Handler, WireframeApp},
     fragment::FragmentationConfig,
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
     test_helpers::{self, TestAssembler},
 };
 pub use wireframe_testing::TestResult;

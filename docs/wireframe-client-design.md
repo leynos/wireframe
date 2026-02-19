@@ -38,7 +38,10 @@ A `WireframeClient::builder()` method configures the client:
 ```rust
 use std::net::SocketAddr;
 
-use wireframe::{BincodeSerializer, WireframeClient};
+use wireframe::{
+    client::WireframeClient,
+    serializer::BincodeSerializer,
+};
 
 let addr: SocketAddr = "127.0.0.1:7878".parse()?;
 let client = WireframeClient::builder()

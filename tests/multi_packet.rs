@@ -8,9 +8,9 @@ use rstest::{fixture, rstest};
 use tokio::{sync::mpsc, task::yield_now, time::timeout};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    Response,
     connection::{ConnectionActor, FairnessConfig},
     push::{PushHandle, PushQueues},
+    response::{FrameStream, Response},
 };
 use wireframe_testing::{TestError, TestResult};
 
@@ -35,9 +35,7 @@ fn actor_components() -> TestResult<(PushQueues<u8>, PushHandle<u8>, Cancellatio
 }
 
 /// Drain all messages from a `FrameStream` for non-channel response variants.
-async fn drain_all<F, E: std::fmt::Debug>(
-    stream: wireframe::FrameStream<F, E>,
-) -> TestResult<Vec<F>> {
+async fn drain_all<F, E: std::fmt::Debug>(stream: FrameStream<F, E>) -> TestResult<Vec<F>> {
     stream
         .try_collect::<Vec<_>>()
         .await

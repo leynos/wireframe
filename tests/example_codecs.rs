@@ -7,14 +7,13 @@ use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe::{
-    BincodeSerializer,
-    Serializer,
     app::{Envelope, Packet, WireframeApp},
     codec::{
         FrameCodec,
         examples::{HotlineFrame, HotlineFrameCodec, MysqlFrame, MysqlFrameCodec},
     },
     correlation::CorrelatableFrame,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 #[test]

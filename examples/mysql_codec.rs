@@ -8,9 +8,9 @@
 use std::io;
 
 use wireframe::{
-    BincodeSerializer,
     app::{Envelope, WireframeApp},
     codec::examples::MysqlFrameCodec,
+    serializer::BincodeSerializer,
 };
 
 fn main() -> io::Result<()> {

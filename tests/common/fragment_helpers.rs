@@ -13,7 +13,6 @@ use tokio::{
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    Serializer,
     app::{Envelope, Handler, Packet, WireframeApp},
     fragment::{
         FragmentationConfig,
@@ -23,7 +22,7 @@ use wireframe::{
         decode_fragment_payload,
         encode_fragment_payload,
     },
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
 };
 pub type TestResult<T = ()> = Result<T, TestError>;
 

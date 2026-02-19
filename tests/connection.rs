@@ -11,9 +11,8 @@ use rstest::{fixture, rstest};
 use serial_test::serial;
 use tokio::sync::mpsc;
 use wireframe::{
-    ProtocolHooks,
     connection::test_support::{ActorHarness, ActorStateHarness, poll_queue_next},
-    hooks::ConnectionContext,
+    hooks::{ConnectionContext, ProtocolHooks},
 };
 use wireframe_testing::{LoggerHandle, TestResult, logger};
 

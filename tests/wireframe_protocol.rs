@@ -22,11 +22,10 @@ use tokio_util::{
     sync::CancellationToken,
 };
 use wireframe::{
-    ConnectionContext,
-    WireframeProtocol,
     app::Envelope,
     codec::FrameCodec,
     connection::{ConnectionActor, ConnectionChannels},
+    hooks::{ConnectionContext, WireframeProtocol},
     push::{PushConfigError, PushQueues},
     serializer::BincodeSerializer,
 };

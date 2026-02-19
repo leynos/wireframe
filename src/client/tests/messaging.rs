@@ -13,10 +13,9 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe_testing::{ServerMode, process_frame};
 
 use crate::{
-    WireframeClient,
     WireframeError,
     app::{Envelope, Packet},
-    client::ClientError,
+    client::{ClientError, WireframeClient},
     correlation::CorrelatableFrame,
 };
 

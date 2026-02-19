@@ -38,7 +38,8 @@ use tokio_util::io::StreamReader;
 /// full body reassembly. Each item yields either a chunk of bytes or an
 /// I/O error.
 ///
-/// This type is symmetric with [`crate::FrameStream`] for streaming responses.
+/// This type is symmetric with [`crate::response::FrameStream`] for streaming
+/// responses.
 /// See ADR 0002 for design rationale.
 ///
 /// # Examples
@@ -198,7 +199,7 @@ impl AsyncRead for RequestBodyReader {
 /// `RequestParts` separates routing and protocol metadata from the request
 /// payload, enabling handlers to begin processing before the full body
 /// arrives. This struct is the counterpart to streaming response types
-/// ([`crate::Response::Stream`]) for the inbound direction.
+/// ([`crate::response::Response::Stream`]) for the inbound direction.
 ///
 /// # Differences from [`crate::app::PacketParts`]
 ///

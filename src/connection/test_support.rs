@@ -1,7 +1,7 @@
 //! Helpers for exercising private connection actor paths in integration tests.
 
-// These helpers compile for all non-Loom builds so integration tests can
-// exercise private connection actor paths.
+// These helpers compile only for crate tests or the `test-support` feature so
+// integration tests can exercise private connection actor paths.
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;

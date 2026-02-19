@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use rstest_bdd_macros::{given, then, when};
-use wireframe::{FragmentHeader, FragmentIndex, MessageId};
+use wireframe::fragment::{FragmentHeader, FragmentIndex, MessageId};
 
 use crate::fixtures::fragment::{FragmentWorld, TestResult};
 

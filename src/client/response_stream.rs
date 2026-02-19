@@ -37,7 +37,10 @@ use crate::{app::Packet, serializer::Serializer};
 /// use std::net::SocketAddr;
 ///
 /// use futures::StreamExt;
-/// use wireframe::{ClientError, WireframeClient, app::Envelope};
+/// use wireframe::{
+///     app::Envelope,
+///     client::{ClientError, WireframeClient},
+/// };
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), ClientError> {

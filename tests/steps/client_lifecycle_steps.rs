@@ -121,7 +121,7 @@ fn then_client_error_is_wireframe_transport_error(
         .ok_or("expected a captured client error in world.last_error")?;
 
     match last_error {
-        wireframe::ClientError::Wireframe(wireframe::WireframeError::Io(_)) => Ok(()),
+        wireframe::client::ClientError::Wireframe(wireframe::WireframeError::Io(_)) => Ok(()),
         other => Err(format!(
             "expected ClientError::Wireframe(WireframeError::Io(_)), got {other:?}"
         )

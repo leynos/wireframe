@@ -12,8 +12,7 @@ use futures::FutureExt;
 use rstest::rstest;
 use tokio::{io::AsyncReadExt, net::TcpListener, sync::oneshot, time::timeout};
 use wireframe::{
-    ClientError,
-    client::WireframeClient,
+    client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
 };
 use wireframe_testing::TestResult;

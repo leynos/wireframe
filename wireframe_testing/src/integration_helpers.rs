@@ -12,6 +12,7 @@ use thiserror::Error;
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
     correlation::CorrelatableFrame,
+    fragment::{FragmentationError, ReassemblyError},
     serializer::BincodeSerializer,
 };
 
@@ -159,9 +160,9 @@ pub enum TestError {
     #[error(transparent)]
     ConnectionState(#[from] wireframe::connection::ConnectionStateError),
     #[error(transparent)]
-    Reassembly(#[from] wireframe::ReassemblyError),
+    Reassembly(#[from] ReassemblyError),
     #[error(transparent)]
-    Fragmentation(#[from] wireframe::FragmentationError),
+    Fragmentation(#[from] FragmentationError),
     #[error(transparent)]
     Codec(#[from] wireframe::codec::CodecError),
     #[error(transparent)]

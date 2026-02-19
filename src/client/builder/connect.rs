@@ -39,7 +39,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient};
+    /// use wireframe::client::{ClientError, WireframeClient};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {

@@ -11,7 +11,11 @@ use std::sync::{
 use bytes::BytesMut;
 use rstest::rstest;
 use tokio_util::codec::Encoder;
-use wireframe::{Serializer, app::Packet, message::Message, serializer::BincodeSerializer};
+use wireframe::{
+    app::Packet,
+    message::Message,
+    serializer::{BincodeSerializer, Serializer},
+};
 use wireframe_testing::{
     CommonTestEnvelope,
     TEST_MAX_FRAME,

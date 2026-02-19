@@ -3,10 +3,9 @@
 use bytes::Bytes;
 use derive_more::{Display, From};
 use wireframe::{
-    BincodeSerializer,
-    Serializer,
     app::{Packet, PacketParts},
     correlation::CorrelatableFrame,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 /// A correlation identifier used to match streaming requests to responses.

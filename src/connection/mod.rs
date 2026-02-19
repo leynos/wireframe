@@ -230,7 +230,7 @@ where
     /// ```no_run
     /// # use tokio::sync::mpsc;
     /// # use tokio_util::sync::CancellationToken;
-    /// # use wireframe::{ConnectionActor, push::PushQueues};
+    /// # use wireframe::{connection::ConnectionActor, push::PushQueues};
     /// # let (queues, handle) = PushQueues::<u8>::builder()
     /// #     .high_capacity(1)
     /// #     .low_capacity(1)
@@ -370,5 +370,5 @@ where
     }
 }
 
-#[cfg(not(loom))]
+#[cfg(all(not(loom), any(test, feature = "test-support")))]
 pub mod test_support;
