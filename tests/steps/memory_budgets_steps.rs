@@ -29,6 +29,19 @@ fn when_configuring_app_with_budgets_and_codec(
     memory_budgets_world.configure_app_with_budgets_and_codec()
 }
 
+#[when(
+    "attempting to configure memory budgets with message bytes {per_message:usize}, connection \
+     bytes {per_connection:usize}, and in-flight bytes {in_flight:usize}"
+)]
+fn when_attempting_to_configure_memory_budgets(
+    memory_budgets_world: &mut MemoryBudgetsWorld,
+    per_message: BudgetBytes,
+    per_connection: BudgetBytes,
+    in_flight: BudgetBytes,
+) {
+    memory_budgets_world.attempt_set_budgets(per_message, per_connection, in_flight);
+}
+
 #[then("the message budget is {expected:usize} bytes")]
 fn then_message_budget(
     memory_budgets_world: &mut MemoryBudgetsWorld,
@@ -56,4 +69,12 @@ fn then_in_flight_budget(
 #[then("app configuration with memory budgets succeeds")]
 fn then_app_configuration_succeeds(memory_budgets_world: &mut MemoryBudgetsWorld) -> TestResult {
     memory_budgets_world.assert_configuration_succeeded()
+}
+
+#[then("configuring memory budgets fails with error \"{expected_error}\"")]
+fn then_configuring_memory_budgets_fails_with_error(
+    memory_budgets_world: &mut MemoryBudgetsWorld,
+    expected_error: String,
+) -> TestResult {
+    memory_budgets_world.assert_budget_setup_failed_with(&expected_error)
 }

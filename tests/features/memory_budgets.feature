@@ -18,3 +18,7 @@ Feature: Memory budgets builder configuration
     Given memory budgets with message bytes 1024, connection bytes 4096, and in-flight bytes 2048
     When configuring a Wireframe app with memory budgets and a custom codec budget
     Then app configuration with memory budgets succeeds
+
+  Scenario: Reject zero message-byte budget
+    When attempting to configure memory budgets with message bytes 0, connection bytes 4096, and in-flight bytes 2048
+    Then configuring memory budgets fails with error "message budget must be non-zero"

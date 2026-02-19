@@ -52,7 +52,7 @@ Success is observable when:
 ## Tolerances (exception triggers)
 
 - Scope: if this work requires touching more than 12 files or exceeds 500 net
-  LOC, stop and escalate.
+  lines of code (LOC), stop and escalate.
 - Interface: if implementing `memory_budgets(...)` requires additional public
   APIs beyond the configuration value type and builder method, stop and
   escalate.
@@ -108,12 +108,10 @@ Success is observable when:
   Impact: this milestone must introduce a new configuration value and wire it
   through builder reconstruction paths.
 
-- Observation: `docs/behavioural-testing-in-rust-with-cucumber.md` is retained
-  for history; current behavioural guidance lives in
-  `docs/rstest-bdd-users-guide.md`. Evidence: note at top of
-  `docs/behavioural-testing-in-rust-with-cucumber.md`. Impact: behavioural test
-  implementation should follow rstest-bdd patterns, while still keeping the
-  historical reference document consistent.
+- Observation: behavioural guidance for this work should come from
+  `docs/rstest-bdd-users-guide.md`. Evidence: repository testing updates are
+  aligned to rstest-bdd. Impact: behavioural test implementation should follow
+  rstest-bdd patterns consistently.
 
 - Observation: strict clippy configuration rejects structs whose fields share a
   common prefix or suffix. Evidence: `make lint` failures from
@@ -273,7 +271,7 @@ Run from repository root (`/home/user/project`).
 
 Expected transcript snippets:
 
-- unit: `test result: ok.` with new builder-memory-budget tests listed.
+- unit: `test result: OK.` with new builder-memory-budget tests listed.
 - bdd: scenario names from `memory_budgets.feature` pass.
 
 1. Run repository quality gates.
@@ -330,15 +328,15 @@ All edits are additive and safe to rerun. If an intermediate step fails:
 Avoid destructive git commands. If rollback is needed, revert only files
 changed for this roadmap item.
 
-## Artifacts and notes
+## Artefacts and notes
 
-Expected artifacts after completion:
+Expected artefacts after completion:
 
 - New/updated app configuration files for `MemoryBudgets` and builder wiring.
 - New `rstest` unit tests covering memory-budget builder behaviour.
 - New `rstest-bdd` feature/fixture/steps/scenario for builder API behaviour.
-- Updated design docs (`ADR 0002` and related alignment notes),
-  `docs/users-guide.md`, and `docs/roadmap.md`.
+- Updated design docs (Architecture Decision Record `ADR 0002` and related
+  alignment notes), `docs/users-guide.md`, and `docs/roadmap.md`.
 - Gate logs:
   `/tmp/wireframe-8-3-1-impl-{fmt,markdownlint,check-fmt,lint,test,nixie}.log`.
 

@@ -25,3 +25,11 @@ fn configure_app_with_memory_budgets(memory_budgets_world: MemoryBudgetsWorld) {
 fn configure_app_with_codec(memory_budgets_world: MemoryBudgetsWorld) {
     let _ = memory_budgets_world;
 }
+
+#[scenario(
+    path = "tests/features/memory_budgets.feature",
+    name = "Reject zero message-byte budget"
+)]
+fn reject_zero_message_budget(memory_budgets_world: MemoryBudgetsWorld) {
+    let _ = memory_budgets_world;
+}

@@ -22,13 +22,14 @@ impl FromStr for BudgetBytes {
 #[derive(Debug, Default)]
 pub struct MemoryBudgetsWorld {
     budgets: Option<MemoryBudgets>,
+    budget_setup_error: Option<String>,
     app_configured: bool,
 }
 
 /// Fixture for `MemoryBudgetsWorld`.
-#[rustfmt::skip]
 #[fixture]
 pub fn memory_budgets_world() -> MemoryBudgetsWorld {
+    // Keep the default world explicit for behavioural test readability.
     MemoryBudgetsWorld::default()
 }
 
@@ -52,6 +53,19 @@ impl MemoryBudgetsWorld {
             NonZeroUsize::new(in_flight.0).ok_or("in-flight budget must be non-zero")?;
         self.budgets = Some(MemoryBudgets::new(per_message, per_connection, in_flight));
         Ok(())
+    }
+
+    /// Attempt to configure memory budgets and store any resulting error.
+    pub fn attempt_set_budgets(
+        &mut self,
+        per_message: BudgetBytes,
+        per_connection: BudgetBytes,
+        in_flight: BudgetBytes,
+    ) {
+        self.budget_setup_error = self
+            .set_budgets(per_message, per_connection, in_flight)
+            .err()
+            .map(|error| error.to_string());
     }
 
     /// Build a `WireframeApp` configured with memory budgets.
@@ -82,6 +96,23 @@ impl MemoryBudgetsWorld {
             .memory_budgets(budgets)
             .with_codec(LengthDelimitedFrameCodec::new(2048));
         self.app_configured = true;
+        Ok(())
+    }
+
+    /// Assert memory-budget configuration fails with the expected message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no setup failure was captured or if the message does
+    /// not match.
+    pub fn assert_budget_setup_failed_with(&self, expected: &str) -> TestResult {
+        let actual = self
+            .budget_setup_error
+            .as_deref()
+            .ok_or("expected memory-budget configuration to fail")?;
+        if actual != expected {
+            return Err(format!("expected setup error '{expected}', got '{actual}'").into());
+        }
         Ok(())
     }
 
