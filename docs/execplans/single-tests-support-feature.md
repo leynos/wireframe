@@ -164,8 +164,8 @@ switch to `test-support` and add a concise migration note if this is a breaking
 interface for users.
 
 Stage D validates behaviour and quality gates. Run Rust and Markdown validation
-commands with logged output and confirm feature-gated helper availability still
-matches expectations.
+commands with logged output, and confirm feature-gated helper availability
+still matches expectations.
 
 ## Concrete steps
 

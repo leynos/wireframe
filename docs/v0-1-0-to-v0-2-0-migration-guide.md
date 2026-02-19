@@ -17,6 +17,25 @@ Update any references accordingly, including documentation and code examples.
 let config = BackoffConfig::normalized(...);
 ```
 
+## Cargo feature gate rename
+
+The crate feature used to expose test helper APIs was renamed.
+
+- Old feature: `test-helpers`
+- New feature: `test-support`
+
+If your crate enables this feature in `Cargo.toml`, update it as follows:
+
+```toml
+# Before
+[dependencies]
+wireframe = { version = "0.2.0", features = ["test-helpers"] }
+
+# After
+[dependencies]
+wireframe = { version = "0.2.0", features = ["test-support"] }
+```
+
 ## Payload accessors
 
 The consuming payload accessors were renamed to follow Rust idioms.
