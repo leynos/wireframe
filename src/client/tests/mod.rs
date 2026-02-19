@@ -4,6 +4,8 @@ mod error_handling;
 mod helpers;
 mod lifecycle;
 mod messaging;
+mod streaming;
+mod streaming_infra;
 
 use std::time::Duration;
 

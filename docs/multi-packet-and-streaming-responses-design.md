@@ -45,6 +45,7 @@ duplex and capable framework.
 - [9. Alternatives considered](#9-alternatives-considered)
 - [10. Design decisions](#10-design-decisions)
 - [11. Streaming request bodies](#11-streaming-request-bodies)
+- [12. Client-side streaming consumption](#12-client-side-streaming-consumption)
 
 [sec-3]: #3-core-architecture-declarative-streaming
 
@@ -605,3 +606,142 @@ frames, duplicate frames) while Wireframe provides shared buffering machinery
 and limit enforcement. See [ADR 0002][adr-0002] for the complete specification.
 
 [adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+
+## 12. Client-side streaming consumption
+
+Sections 3–6 document how the **server** produces streaming and multi-packet
+responses. This section describes the symmetric **client** machinery that
+consumes those responses, completing design goal **G5**.
+
+### 12.1 Terminator detection via `Packet::is_stream_terminator`
+
+The server emits a terminator frame via the `stream_end_frame` protocol hook.
+The client must detect that frame to know when to stop reading. Rather than
+introducing a new trait or a closure parameter, the `Packet` trait gains a
+method with a backward-compatible default:
+
+```rust
+fn is_stream_terminator(&self) -> bool { false }
+```
+
+Protocol implementations override this to match their terminator format (for
+example, `self.id == 0`). The approach was chosen over alternatives because:
+
+- **Single abstraction.** `Packet` already models the protocol frame; adding
+  terminator knowledge avoids a parallel hierarchy.
+- **Backward-compatible.** The `false` default means existing `Packet`
+  implementations compile without changes.
+- **Symmetric.** Server produces terminators (`stream_end_frame`); client
+  detects them (`is_stream_terminator`). The two hooks mirror each other.
+
+### 12.2 `ResponseStream` type
+
+`ResponseStream<'a, P, S, T, C>` implements `futures::Stream` and borrows the
+`WireframeClient` exclusively for the duration of the stream. Each `poll_next`
+call:
+
+1. Reads the next length-delimited frame from the transport.
+2. Deserializes it into `P` using the client's configured `Serializer`.
+3. Checks `is_stream_terminator()` — if true, marks the stream as terminated
+   and returns `None`.
+4. Validates the correlation identifier against the expected value.
+5. Otherwise yields `Ok(frame)`.
+
+The following diagram shows the decision tree inside
+`ResponseStream::poll_next`. Entry checks whether the stream is already
+terminated; if so it returns `None` immediately. Otherwise the underlying
+`Framed` transport is polled. Four outcomes branch from the poll result: (1)
+`Pending` — return `Poll::Pending`; (2) `Ready(None)` — set terminated, return
+`Err(disconnected)`; (3) `Ready(Err)` — set terminated, return
+`Err(transport error)`; (4) `Ready(Ok(bytes))` — enter `process_frame`, which
+first attempts deserialization (failure sets terminated and returns
+`Err(decode)`). On success it checks `is_stream_terminator` (true sets
+terminated and returns `None`), then validates the correlation ID (mismatch
+sets terminated and returns `Err(StreamCorrelationMismatch)`). If none of those
+conditions apply it yields `Ok(packet)`.
+
+```mermaid
+flowchart TD
+    A_start[poll_next called] --> B_checkTerminated{terminated?}
+    B_checkTerminated -- yes --> Z_returnNone[Return None]
+    B_checkTerminated -- no --> C_pollFramed[Poll client.framed.next]
+
+    C_pollFramed --> D_state{Result}
+
+    D_state -- Pending --> E_pending[Return Poll Pending]
+
+    D_state -- Ready None --> F_connClosed[Set terminated = true]
+    F_connClosed --> F1_error[Return Some Err ClientError_disconnected]
+
+    D_state -- Ready Err --> G_transportErr[Set terminated = true]
+    G_transportErr --> G1_error[Return Some Err ClientError_from_transport]
+
+    D_state -- Ready Ok bytes --> H_processFrame[process_frame bytes]
+
+    H_processFrame --> I_deserialize{deserialize ok?}
+    I_deserialize -- no --> J_decodeErr[Set terminated = true]
+    J_decodeErr --> J1_error[Return Some Err ClientError_decode]
+
+    I_deserialize -- yes --> M_checkTerminator{packet.is_stream_terminator?}
+    M_checkTerminator -- yes --> N_setTerminated[Set terminated = true]
+    N_setTerminated --> O_returnNone[Return None]
+
+    M_checkTerminator -- no --> K_checkCid{received_cid == Some expected_cid?}
+    K_checkCid -- no --> L_cidMismatch[Set terminated = true]
+    L_cidMismatch --> L1_error[Return Some Err StreamCorrelationMismatch]
+
+    K_checkCid -- yes --> P_yield[Return Some Ok packet]
+```
+
+Key design decisions:
+
+- **Concrete type, not boxed `FrameStream`.** Avoids dynamic dispatch and
+  lets the borrow checker enforce that only one stream is active at a time.
+- **`&mut self` borrowing, not transport splitting.** Splitting `Framed` into
+  read and write halves would complicate the API for marginal benefit. Callers
+  already cannot do concurrent operations on `&mut self`, so the exclusive
+  borrow is natural.
+- **Terminator not yielded.** The terminator frame is swallowed by
+  `ResponseStream` and the stream returns `None`, matching the server's
+  behaviour where `on_command_end` is internal machinery.
+
+### 12.3 Client streaming API surface
+
+Two methods are exposed on `WireframeClient`:
+
+- `call_streaming<P>(request) -> Result<ResponseStream, ClientError>` — sends
+  the request, auto-generates a correlation identifier if the request does not
+  carry one, and returns a `ResponseStream`. This is the high-level API for the
+  common case.
+- `receive_streaming<P>(correlation_id) -> ResponseStream` — returns a stream
+  for a pre-sent request. This is the low-level API for callers who need to
+  send the request separately (for example, via `send_envelope`).
+
+### 12.4 Error handling
+
+`ResponseStream` surfaces two categories of error:
+
+| Error variant                            | Trigger                            |
+| ---------------------------------------- | ---------------------------------- |
+| `ClientError::Wireframe`                 | Transport or decode failure        |
+| `ClientError::StreamCorrelationMismatch` | Frame carries wrong correlation ID |
+
+Once the end-of-stream terminator has been received (or a fatal error has
+occurred), `ResponseStream` returns `None` on all subsequent polls, following
+the standard `futures::Stream` fused-stream convention.
+
+Terminator detection is performed before correlation validation so that
+end-of-stream frames produced by `stream_end_frame` without a per-request
+correlation stamp are handled cleanly. Correlation validation is performed on
+every non-terminator data frame before it is yielded to the consumer. A
+mismatch terminates the stream immediately, because mixed correlation traffic
+indicates a protocol violation that cannot be recovered.
+
+### 12.5 Back-pressure
+
+No explicit flow-control messages are needed. Transmission Control Protocol
+(TCP) flow control provides natural back-pressure: if the client reads slowly,
+the receive buffer fills, the server's send buffer fills, write operations
+suspend, and the server stops polling its response stream or channel. This is
+consistent with the server-side back-pressure architecture described in Section
+3.1.

@@ -27,7 +27,7 @@ use crate::{
 ///     message::Message,
 /// };
 ///
-/// #[derive(bincode::Decode, bincode::Encode)]
+/// #[derive(bincode::BorrowDecode, bincode::Encode)]
 /// struct CustomEnvelope {
 ///     id: u32,
 ///     correlation_id: Option<u64>,
@@ -70,6 +70,66 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
 
     /// Construct a new packet from raw parts.
     fn from_parts(parts: PacketParts) -> Self;
+
+    /// Returns `true` if this frame represents an end-of-stream terminator.
+    ///
+    /// The default implementation returns `false`. Protocol implementations
+    /// should override this to detect the protocol-specific terminator format
+    /// emitted by the server's
+    /// [`stream_end_frame`](crate::WireframeProtocol::stream_end_frame) hook.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::{
+    ///     app::{Packet, PacketParts},
+    ///     correlation::CorrelatableFrame,
+    /// };
+    ///
+    /// #[derive(bincode::BorrowDecode, bincode::Encode)]
+    /// struct MyFrame {
+    ///     id: u32,
+    ///     correlation_id: Option<u64>,
+    ///     payload: Vec<u8>,
+    /// }
+    ///
+    /// impl CorrelatableFrame for MyFrame {
+    ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    ///     fn set_correlation_id(&mut self, cid: Option<u64>) { self.correlation_id = cid; }
+    /// }
+    ///
+    /// // Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
+    ///
+    /// impl Packet for MyFrame {
+    ///     fn id(&self) -> u32 { self.id }
+    ///     fn into_parts(self) -> PacketParts {
+    ///         PacketParts::new(self.id, self.correlation_id, self.payload)
+    ///     }
+    ///     fn from_parts(parts: PacketParts) -> Self {
+    ///         Self {
+    ///             id: parts.id(),
+    ///             correlation_id: parts.correlation_id(),
+    ///             payload: parts.into_payload(),
+    ///         }
+    ///     }
+    ///     fn is_stream_terminator(&self) -> bool { self.id == 0 }
+    /// }
+    ///
+    /// let terminator = MyFrame {
+    ///     id: 0,
+    ///     correlation_id: None,
+    ///     payload: vec![],
+    /// };
+    /// assert!(terminator.is_stream_terminator());
+    ///
+    /// let data = MyFrame {
+    ///     id: 1,
+    ///     correlation_id: None,
+    ///     payload: vec![42],
+    /// };
+    /// assert!(!data.is_stream_terminator());
+    /// ```
+    fn is_stream_terminator(&self) -> bool { false }
 }
 
 /// Component values extracted from or used to build a [`Packet`].

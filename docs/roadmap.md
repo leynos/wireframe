@@ -467,7 +467,7 @@ behavioural guarantees.
 
 ### 10.3. Streaming and multi-packet parity
 
-- [ ] 10.3.1. Support `Response::Stream` and `Response::MultiPacket` on the
+- [x] 10.3.1. Support `Response::Stream` and `Response::MultiPacket` on the
   client by propagating back-pressure, validating terminator frames, and
   draining push traffic without starving request-driven responses.
 - [ ] 10.3.2. Exercise interleaved high- and low-priority push queues to prove

@@ -1319,6 +1319,141 @@ Dropping all senders closes the channel; the actor logs the termination reason
 and forwards the terminator through the same hooks used for regular frames so
 existing observability continues to work.
 
+## Consuming streaming responses on the client
+
+The client library supports consuming `Response::Stream` and
+`Response::MultiPacket` server responses through the `call_streaming` and
+`receive_streaming` methods on `WireframeClient`. These methods return a
+`ResponseStream` that yields typed data frames until the protocol's
+end-of-stream terminator arrives. `ResponseStream` holds an exclusive mutable
+borrow of `WireframeClient` while it exists, so the client cannot perform other
+I/O operations until the stream is dropped or fully consumed (`None` is
+observed).
+
+### Terminator detection with `is_stream_terminator`
+
+Protocol implementations must override `Packet::is_stream_terminator` to teach
+the client how to recognize the server's end-of-stream marker. The default
+implementation returns `false`; protocols override it to match their terminator
+format:
+
+```rust
+use wireframe::app::{Packet, PacketParts};
+use wireframe::correlation::CorrelatableFrame;
+
+#[derive(bincode::BorrowDecode, bincode::Encode)]
+struct MyFrame {
+    id: u32,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
+}
+
+impl CorrelatableFrame for MyFrame {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    fn set_correlation_id(&mut self, cid: Option<u64>) {
+        self.correlation_id = cid;
+    }
+}
+
+// Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
+
+impl Packet for MyFrame {
+    fn id(&self) -> u32 { self.id }
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
+    fn from_parts(parts: PacketParts) -> Self {
+        Self {
+            id: parts.id(),
+            correlation_id: parts.correlation_id(),
+            payload: parts.into_payload(),
+        }
+    }
+    // A frame with id == 0 signals end-of-stream.
+    fn is_stream_terminator(&self) -> bool { self.id == 0 }
+}
+```
+
+This mirrors the server's `stream_end_frame` hook symmetrically: the server
+*produces* terminators; the client *detects* them.[^49]
+
+### High-level API: `call_streaming`
+
+`call_streaming` sends a request, auto-generates a correlation identifier if
+needed, and returns a `ResponseStream`. The stream yields data frames as
+`Result<P, ClientError>` and terminates with `None` when the terminator
+arrives: because the stream borrows the `WireframeClient` mutably, this call
+also prevents other client I/O until the stream is dropped or drained.
+
+```rust,no_run
+use futures::StreamExt;
+use std::net::SocketAddr;
+use wireframe::{ClientError, WireframeClient, app::Envelope};
+
+# #[tokio::main]
+# async fn main() -> Result<(), ClientError> {
+let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid address");
+let mut client = WireframeClient::builder().connect(addr).await?;
+
+let request = Envelope::new(1, None, vec![]);
+let mut stream = client.call_streaming::<Envelope>(request).await?;
+
+while let Some(result) = stream.next().await {
+    let frame = result?;
+    println!("received: {:?}", frame);
+}
+// Stream terminated — all data frames consumed.
+# Ok(())
+# }
+```
+
+### Low-level API: `receive_streaming`
+
+When the caller has already sent a request via `send_envelope`, the
+`receive_streaming` method accepts the known correlation identifier and returns
+a `ResponseStream` without re-sending. As with `call_streaming`, that stream
+holds an exclusive mutable borrow of `WireframeClient` until dropped or fully
+consumed:
+
+```rust,no_run
+use futures::StreamExt;
+use std::net::SocketAddr;
+use wireframe::{ClientError, WireframeClient, app::Envelope};
+
+# #[tokio::main]
+# async fn main() -> Result<(), ClientError> {
+let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid address");
+let mut client = WireframeClient::builder().connect(addr).await?;
+
+let request = Envelope::new(1, None, vec![]);
+let cid = client.send_envelope(request).await?;
+let mut stream = client.receive_streaming::<Envelope>(cid);
+
+while let Some(result) = stream.next().await {
+    let frame = result?;
+    println!("received: {:?}", frame);
+}
+# Ok(())
+# }
+```
+
+### Back-pressure
+
+Back-pressure propagates naturally through Transmission Control Protocol (TCP)
+flow control. If the client reads slowly, the client's TCP receive buffer
+fills. As that receive window shrinks, the server's TCP send buffer fills
+because bytes cannot be flushed quickly enough. Once the send buffer is full,
+write operations suspend, and the server stops polling its response stream or
+channel until the client drains data. No explicit flow-control messages are
+required.[^50]
+
+### Error handling
+
+`ResponseStream` validates the correlation identifier on every frame. If a
+frame carries a different identifier, the stream yields
+`ClientError::StreamCorrelationMismatch` and terminates. Transport errors and
+decode failures are surfaced through `ClientError::Wireframe`.[^51]
+
 ## Versioning and graceful deprecation
 
 Phase out older message versions without breaking clients:
@@ -1460,5 +1595,16 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
     `src/client/builder.rs` (lifecycle methods), and `src/client/runtime.rs`
     (hook invocation). Behaviour-driven development (BDD) tests in
     `tests/features/client_lifecycle.feature`.
+
+[^49]: Implemented in `src/app/envelope.rs` (`Packet::is_stream_terminator`)
+    and `src/client/response_stream.rs` (terminator detection in
+    `ResponseStream::poll_next`).
+[^50]: See Section 3.1 of the
+    [streaming design](multi-packet-and-streaming-responses-design.md) for
+    back-pressure architecture.
+[^51]: Implemented in `src/client/response_stream.rs` (correlation
+    validation) and `src/client/error.rs`
+    (`ClientError::StreamCorrelationMismatch`). Once terminated, the stream
+    returns `None` per the fused-stream convention.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md
