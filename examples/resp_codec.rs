@@ -10,6 +10,8 @@
 //! Wireframe payloads are carried in bulk strings. Other frame types are
 //! decoded for completeness but do not expose a payload for routing.
 
+use std::io;
+
 #[path = "resp_codec_impl/mod.rs"]
 mod resp_codec_impl;
 
@@ -19,10 +21,12 @@ use wireframe::{
     app::{Envelope, WireframeApp},
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()?
+fn main() -> io::Result<()> {
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .map_err(|error| io::Error::other(error.to_string()))?
         .with_codec(RespFrameCodec::new(1024))
-        .route(1, std::sync::Arc::new(|_: &Envelope| Box::pin(async {})))?;
+        .route(1, std::sync::Arc::new(|_: &Envelope| Box::pin(async {})))
+        .map_err(|error| io::Error::other(error.to_string()))?;
 
     let _ = app;
     Ok(())

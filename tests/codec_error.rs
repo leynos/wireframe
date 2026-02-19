@@ -189,21 +189,6 @@ fn wireframe_error_codec_variant_displays_correctly() {
     assert!(display.contains("framing error"));
 }
 
-// ============================================================================
-// App error WireframeError tests
-// ============================================================================
-
-#[test]
-fn app_wireframe_error_from_codec() {
-    use wireframe::app::error::WireframeError;
-
-    let codec_err = CodecError::Framing(FramingError::EmptyFrame);
-    let wf_err: WireframeError = codec_err.into();
-
-    let display = wf_err.to_string();
-    assert!(display.contains("codec error"));
-}
-
 #[test]
 fn send_error_from_codec() {
     use wireframe::app::error::SendError;

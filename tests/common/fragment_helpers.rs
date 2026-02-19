@@ -50,7 +50,7 @@ pub enum TestError {
     Send(String),
     /// Application error.
     #[error("application error: {0}")]
-    App(#[from] wireframe::app::WireframeError),
+    App(wireframe::WireframeError),
     /// Other error.
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
@@ -70,6 +70,10 @@ pub enum TestError {
 
 impl<T> From<mpsc::error::SendError<T>> for TestError {
     fn from(err: mpsc::error::SendError<T>) -> Self { TestError::Send(err.to_string()) }
+}
+
+impl From<wireframe::WireframeError> for TestError {
+    fn from(err: wireframe::WireframeError) -> Self { TestError::App(err) }
 }
 
 /// Default route ID used in fragmentation tests.

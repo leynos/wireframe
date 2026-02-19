@@ -76,7 +76,7 @@ struct Ping;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let app = App::with_serializer(HeaderSerializer)
-        .map_err(io::Error::other)?
+        .map_err(|error| io::Error::other(error.to_string()))?
         .buffer_capacity(MAX_FRAME)
         .route(
             1,
@@ -86,7 +86,7 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .map_err(io::Error::other)?
+        .map_err(|error| io::Error::other(error.to_string()))?
         .route(
             2,
             Arc::new(|_env: &Envelope| {
@@ -95,7 +95,7 @@ async fn main() -> io::Result<()> {
                 })
             }),
         )
-        .map_err(io::Error::other)?;
+        .map_err(|error| io::Error::other(error.to_string()))?;
 
     let mut codec = app.length_codec();
     let (mut client, server) = duplex(1024);

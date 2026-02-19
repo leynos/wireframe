@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE (2026-02-18)
 
 `PLANS.md` is not present in this repository at the time this plan was drafted.
 
@@ -59,16 +59,20 @@ alias, so downstream users have a single error contract throughout the crate.
 ## Progress
 
 - [x] (2026-02-18) Drafted ExecPlan for error surface unification.
-- [ ] Catalogue all public error types and all public `Result` aliases.
-- [ ] Define canonical `WireframeError` structure and conversion policy.
-- [ ] Refactor modules to use canonical error type.
-- [ ] Update docs and migration guide.
-- [ ] Run full quality gates.
+- [x] (2026-02-18) Catalogued public error types and `Result` aliases.
+- [x] (2026-02-18) Defined canonical `WireframeError` and conversion policy.
+- [x] (2026-02-18) Refactored modules to use canonical crate-level error type.
+- [x] (2026-02-18) Updated user guide and migration guide error contract docs.
+- [x] (2026-02-18) Ran full quality gates.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Plan-only phase. Impact: None yet.
+- Observation: `wireframe::WireframeError<()>` did not satisfy
+  `std::error::Error`, which broke `thiserror(transparent)` wrappers in
+  `wireframe_testing`. Evidence: `make lint` failed with `as_dyn_error`
+  trait-bound diagnostics in `wireframe_testing/src/integration_helpers.rs`.
+  Impact: `std::error::Error` was implemented for all `E: Debug + 'static`,
+  with protocol sources reported as `None` for generic payloads.
 
 ## Decision Log
 
@@ -82,9 +86,26 @@ alias, so downstream users have a single error contract throughout the crate.
   Preserves meaning without fragmenting top-level API. Date/Author: 2026-02-18
   / Codex.
 
+- Decision: Keep the canonical error generic as `WireframeError<E = ()>` and
+  add the builder-specific `DuplicateRoute` variant to it, instead of forcing a
+  non-generic top-level error. Rationale: preserves existing typed protocol
+  error paths (`Protocol(E)`) while removing duplicate top-level
+  `WireframeError` definitions. Date/Author: 2026-02-18 / Codex.
+
 ## Outcomes & Retrospective
 
-Not started. Populate after implementation milestones complete.
+- Result: Added `src/error.rs` as the canonical error module and re-exported
+  `wireframe::WireframeError` plus `wireframe::Result<T>` from `src/lib.rs`.
+- Result: Removed the duplicate `WireframeError` definition from
+  `src/app/error.rs`; app builder APIs now resolve through canonical
+  `wireframe::WireframeError`.
+- Result: `src/response.rs` now uses the canonical error type, preserving the
+  `response::WireframeError` path as a re-export of the same type for
+  compatibility.
+- Result: Updated migration documentation and user guide examples to point to
+  the canonical contract (`wireframe::WireframeError`, `wireframe::Result<T>`).
+- Validation: Passed `make check-fmt`, `make lint`, `make test`,
+  `make markdownlint`, and `make nixie`.
 
 ## Context and orientation
 

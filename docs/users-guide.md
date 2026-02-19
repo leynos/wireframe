@@ -63,7 +63,7 @@ async fn ping(env: &Envelope) {
     log::info!("received correlation id: {:?}", env.clone().into_parts().correlation_id());
 }
 
-fn build_app() -> wireframe::app::Result<WireframeApp> {
+fn build_app() -> wireframe::Result<WireframeApp> {
     let handler: Handler<Envelope> = Arc::new(|env: &Envelope| Box::pin(ping(env)));
 
     WireframeApp::new()?
@@ -99,15 +99,18 @@ async fn main() -> Result<(), ServerError> {
 ```
 
 Route identifiers must be unique; the builder returns
-`WireframeError::DuplicateRoute` when a handler is registered twice, keeping
-the dispatch table unambiguous.[^2][^5] New applications default to the bundled
-bincode serializer, a length-delimited codec capped at 1024 bytes per frame,
-and a 100 ms read timeout. Clamp the length-delimited limit with
-`buffer_capacity` (length-delimited only), swap codecs with `with_codec`, and
-override the serializer with `with_serializer` when a different encoding
-strategy is required.[^3][^4] Custom protocols implement `FrameCodec` to
-describe their framing rules. Changing frame budgets with `buffer_capacity` or
-swapping codecs with `with_codec` clears fragmentation settings, so call
+`wireframe::WireframeError::DuplicateRoute` when a handler is registered twice,
+keeping the dispatch table unambiguous.[^2][^5] The crate-level
+`wireframe::Result<T>` alias always resolves to this canonical
+`wireframe::WireframeError` surface, so setup-time and streaming failures share
+one error contract.[^5] New applications default to the bundled bincode
+serializer, a length-delimited codec capped at 1024 bytes per frame, and a 100
+ms read timeout. Clamp the length-delimited limit with `buffer_capacity`
+(length-delimited only), swap codecs with `with_codec`, and override the
+serializer with `with_serializer` when a different encoding strategy is
+required.[^3][^4] Custom protocols implement `FrameCodec` to describe their
+framing rules. Changing frame budgets with `buffer_capacity` or swapping codecs
+with `with_codec` clears fragmentation settings, so call
 `enable_fragmentation()` (or `fragmentation(Some(cfg))`) again when transport
 fragmentation is required.
 
@@ -1552,7 +1555,7 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^2]: Implemented in `src/app/builder.rs` (lines 66-209).
 [^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
 [^4]: Implemented in `src/app/builder.rs` (lines 326-344).
-[^5]: Implemented in `src/app/error.rs` (lines 7-26).
+[^5]: Implemented in `src/error.rs` (lines 1-68).
 [^6]: Implemented in `src/app/connection.rs` (lines 41-205).
 [^7]: Implemented in `src/app/connection.rs` (lines 207-289).
 [^8]: Implemented in `src/app/envelope.rs` (lines 11-172).

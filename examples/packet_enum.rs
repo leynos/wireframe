@@ -94,7 +94,7 @@ fn build_app() -> wireframe::app::Result<App> {
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let app = Arc::new(build_app().map_err(std::io::Error::other)?);
+    let app = Arc::new(build_app().map_err(|error| std::io::Error::other(error.to_string()))?);
 
     let addr_str = std::env::var("SERVER_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
     let addr: SocketAddr = addr_str.parse().map_err(|e| {
