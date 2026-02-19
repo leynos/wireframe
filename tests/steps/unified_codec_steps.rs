@@ -10,19 +10,19 @@ use tokio::runtime::Runtime;
 
 use crate::fixtures::unified_codec::{TestResult, UnifiedCodecWorld};
 
-fn runtime() -> &'static Runtime {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| match Runtime::new() {
-        Ok(runtime) => runtime,
-        Err(error) => panic!("failed to create shared Tokio runtime: {error}"),
-    })
+fn runtime() -> TestResult<&'static Runtime> {
+    static RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
+    let runtime = RUNTIME.get_or_init(|| {
+        Runtime::new().map_err(|error| format!("failed to create shared Tokio runtime: {error}"))
+    });
+    runtime.as_ref().map_err(|error| error.clone().into())
 }
 
 fn run_async<F>(future: F) -> TestResult
 where
     F: Future<Output = TestResult>,
 {
-    runtime().block_on(future)
+    runtime()?.block_on(future)
 }
 
 fn collect_and_verify_handler_payloads(unified_codec_world: &mut UnifiedCodecWorld) -> TestResult {
@@ -36,7 +36,7 @@ fn collect_and_verify_handler_payloads(unified_codec_world: &mut UnifiedCodecWor
 
 #[given("a wireframe echo server with a buffer capacity of {cap:usize} bytes")]
 fn given_echo_server(unified_codec_world: &mut UnifiedCodecWorld, cap: usize) -> TestResult {
-    unified_codec_world.start_server(runtime(), cap, false)
+    unified_codec_world.start_server(runtime()?, cap, false)
 }
 
 #[given(
@@ -46,7 +46,7 @@ fn given_echo_server_fragmented(
     unified_codec_world: &mut UnifiedCodecWorld,
     cap: usize,
 ) -> TestResult {
-    unified_codec_world.start_server(runtime(), cap, true)
+    unified_codec_world.start_server(runtime()?, cap, true)
 }
 
 // ---------------------------------------------------------------------------
