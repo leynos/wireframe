@@ -24,7 +24,7 @@ The crate feature used to expose test helper APIs was renamed.
 - Old feature: `test-helpers`
 - New feature: `test-support`
 
-If your crate enables this feature in `Cargo.toml`, update it as follows:
+When a crate enables this feature in `Cargo.toml`, update it as follows:
 
 ```toml
 # Before
