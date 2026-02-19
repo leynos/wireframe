@@ -431,6 +431,15 @@ not hang.
   Outbound order is serializer → fragmentation → codec framing; inbound order
   is codec decode → fragment reassembly → deserialization.
 
+- **Unified Codec Pipeline (server path):** On the server side, handler
+  responses — including `Response::Stream` and `Response::MultiPacket` — pass
+  through the `FramePipeline` (`src/app/codec_driver.rs`) before reaching the
+  wire. The pipeline applies fragmentation and outbound metrics uniformly to
+  every `Envelope`, regardless of response variant. This ensures that large
+  streaming frames are fragmented by the same path that fragments single-frame
+  handler responses. Protocol hook integration for the server path is planned
+  for a follow-up stage.
+
 - **Streaming Request Bodies:** [ADR 0002][adr-0002] introduces first-class
   streaming request bodies as the inbound counterpart to streaming responses.
   Handlers MAY receive `RequestParts` plus `RequestBodyStream` rather than a

@@ -19,7 +19,7 @@ Feature: Inbound message assembly integration
     And a continuation frame for key 9 sequence 3 with body "ef" arrives
     And a final continuation frame for key 9 sequence 2 with body "gh" arrives
     Then the handler eventually receives payload "abcdgh"
-    And the handler receives 1 payloads
+    And the handler receives 1 payload
     And no send error is recorded
 
   Scenario: Timeout purges partial assembly before continuation arrives

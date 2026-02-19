@@ -213,12 +213,8 @@ impl MessageAssemblyInboundWorld {
     /// Returns an error if the client is not initialised or the send fails.
     pub fn send_first_frame(&mut self, key: impl Into<MessageKey>, body: &str) -> TestResult {
         let key = key.into();
-        self.send_payload(test_helpers::first_frame_payload(
-            key.0,
-            body.as_bytes(),
-            false,
-            None,
-        ))
+        let payload = test_helpers::first_frame_payload(key.0, body.as_bytes(), false, None)?;
+        self.send_payload(payload)
     }
 
     /// Serialize and send a non-final continuation frame.
@@ -262,12 +258,9 @@ impl MessageAssemblyInboundWorld {
             body,
             is_last,
         } = params;
-        self.send_payload(test_helpers::continuation_frame_payload(
-            key,
-            sequence,
-            body.as_bytes(),
-            is_last,
-        ))
+        let payload =
+            test_helpers::continuation_frame_payload(key, sequence, body.as_bytes(), is_last)?;
+        self.send_payload(payload)
     }
 
     /// Advance the paused Tokio clock by `millis` milliseconds.

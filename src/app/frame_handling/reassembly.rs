@@ -5,19 +5,20 @@ use std::io;
 use super::core::DeserFailureTracker;
 use crate::app::{
     Envelope,
-    fragmentation_state::{FragmentProcessError, FragmentationState},
+    codec_driver::FramePipeline,
+    fragmentation_state::FragmentProcessError,
 };
 
 /// Attempt to reassemble a potentially fragmented envelope.
 pub(crate) fn reassemble_if_needed(
-    fragmentation: &mut Option<FragmentationState>,
+    pipeline: &mut FramePipeline,
     deser_failures: &mut u32,
     env: Envelope,
     max_deser_failures: u32,
 ) -> io::Result<Option<Envelope>> {
     let mut failures = DeserFailureTracker::new(deser_failures, max_deser_failures);
 
-    if let Some(state) = fragmentation.as_mut() {
+    if let Some(state) = pipeline.fragmentation_mut() {
         let correlation_id = env.correlation_id;
         match state.reassemble(env) {
             Ok(Some(env)) => Ok(Some(env)),

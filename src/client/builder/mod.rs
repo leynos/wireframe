@@ -10,7 +10,7 @@
 /// Use this macro for small builders with a limited number of fields (five in
 /// this case) and single-field updates per method. For larger builders with
 /// many coordinated updates, prefer a dedicated helper method to keep the
-/// reconstruction logic centralised and easier to audit (see
+/// reconstruction logic centralized and easier to audit (see
 /// `WireframeApp::rebuild_with_params` and
 /// `docs/builder-pattern-conventions.md`).
 ///

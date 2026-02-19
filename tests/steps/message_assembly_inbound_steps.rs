@@ -64,6 +64,7 @@ fn then_handler_receives_payload(
 }
 
 #[then("the handler receives {count:usize} payloads")]
+#[then("the handler receives {count:usize} payload")]
 fn then_handler_receives_count(
     message_assembly_inbound_world: &mut MessageAssemblyInboundWorld,
     count: usize,

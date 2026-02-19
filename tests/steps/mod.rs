@@ -19,5 +19,6 @@ mod multi_packet_steps;
 mod panic_steps;
 mod request_parts_steps;
 mod stream_end_steps;
+mod unified_codec_steps;
 
 pub(crate) use message_assembly_steps::FrameId;

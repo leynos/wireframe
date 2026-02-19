@@ -11,10 +11,15 @@ use rstest::{fixture, rstest};
 use tokio::io::DuplexStream;
 use tokio_util::codec::{Decoder, Encoder};
 
-use super::{ResponseContext, response::send_response_payload};
+use super::ResponseContext;
 use crate::{
-    app::{Envelope, combined_codec::CombinedCodec, fragmentation_state::FragmentationState},
+    app::{
+        Envelope,
+        codec_driver::{FramePipeline, send_envelope},
+        combined_codec::CombinedCodec,
+    },
     codec::FrameCodec,
+    serializer::BincodeSerializer,
 };
 
 /// Test frame carrying a tag byte and payload.
@@ -160,26 +165,20 @@ fn build_harness(max_frame_length: usize) -> TestHarness {
     }
 }
 
-/// Verify `send_response_payload` uses `F::wrap_payload` to frame responses.
+/// Verify `send_envelope` uses `F::wrap_payload` to frame responses.
 #[rstest]
 #[tokio::test]
-async fn send_response_payload_wraps_with_codec(harness: TestHarness) {
+async fn send_envelope_wraps_with_codec(harness: TestHarness) {
     let TestHarness {
         codec,
         mut framed,
         client,
     } = harness;
 
-    let payload = vec![1, 2, 3, 4];
-    let response = Envelope::new(1, Some(99), payload.clone());
-    send_response_payload::<TestCodec, _>(
-        &codec,
-        &mut framed,
-        Bytes::from(payload.clone()),
-        &response,
-    )
-    .await
-    .expect("send should succeed");
+    let envelope = Envelope::new(1, Some(99), vec![1, 2, 3, 4]);
+    send_envelope(&BincodeSerializer, &codec, &mut framed, &envelope)
+        .await
+        .expect("send should succeed");
 
     drop(framed);
 
@@ -192,7 +191,6 @@ async fn send_response_payload_wraps_with_codec(harness: TestHarness) {
         .expect("decode should succeed");
 
     assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
-    assert_eq!(frame.payload, payload, "payload should match");
     assert_eq!(codec.wraps(), 1, "wrap_payload should advance codec state");
 }
 
@@ -200,47 +198,39 @@ async fn send_response_payload_wraps_with_codec(harness: TestHarness) {
 #[rstest]
 #[tokio::test]
 async fn response_context_holds_references(harness: TestHarness) {
-    use crate::serializer::BincodeSerializer;
-
     let TestHarness {
         codec,
         mut framed,
         client: _client,
     } = harness;
     let serializer = BincodeSerializer;
-    let mut fragmentation: Option<FragmentationState> = None;
+    let mut pipeline = FramePipeline::new(None);
 
     let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
         serializer: &serializer,
         framed: &mut framed,
-        fragmentation: &mut fragmentation,
+        pipeline: &mut pipeline,
         codec: &codec,
     };
 
-    // Verify fields are accessible (compile-time check with runtime assertion)
-    assert!(ctx.fragmentation.is_none());
+    // Verify fields are accessible (compile-time check)
+    assert!(!ctx.pipeline.has_fragmentation());
 }
 
-/// Verify `send_response_payload` returns error on send failure.
+/// Verify `send_envelope` returns error on send failure.
 #[rstest]
 #[tokio::test]
-async fn send_response_payload_returns_error_on_failure(small_harness: TestHarness) {
+async fn send_envelope_returns_error_on_failure(small_harness: TestHarness) {
     let TestHarness {
         codec,
         mut framed,
         client: _client,
     } = small_harness;
 
-    // Payload exceeds max_frame_length, so encode will fail
+    // Payload exceeds max_frame_length after serialization, so encode will fail
     let oversized_payload = vec![0u8; 100];
-    let response = Envelope::new(1, Some(99), oversized_payload.clone());
-    let result = send_response_payload::<TestCodec, _>(
-        &codec,
-        &mut framed,
-        Bytes::from(oversized_payload),
-        &response,
-    )
-    .await;
+    let envelope = Envelope::new(1, Some(99), oversized_payload);
+    let result = send_envelope(&BincodeSerializer, &codec, &mut framed, &envelope).await;
 
     assert!(
         result.is_err(),

@@ -35,7 +35,7 @@ fn build_app() -> wireframe::Result<WireframeApp> {
 ```
 
 The snippet below wires the builder into a Tokio runtime, decodes inbound
-payloads, and emits a serialised response. It showcases the typical `main`
+payloads, and emits a serialized response. It showcases the typical `main`
 function for a microservice that listens on localhost and responds to a `Ping`
 message with a `Pong` payload.[^2][^10][^15]
 
@@ -878,6 +878,12 @@ configuration (for example, when the transport already supports large frames or
 fragmentation is delegated to an upstream gateway). The `ConnectionActor`
 mirrors the same behaviour for push traffic and streaming responses through
 `enable_fragmentation`, ensuring client-visible frames follow the same format.
+
+On the server side, a unified `FramePipeline` applies the same fragmentation
+logic to all outbound `Envelope` values — handler responses, streaming frames,
+and multi-packet channels — before serialization and codec wrapping. This
+guarantees that a single connection-scoped `FragmentationState` manages both
+outbound fragmentation and inbound reassembly.
 
 ## Protocol hooks
 
