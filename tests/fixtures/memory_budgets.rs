@@ -91,16 +91,9 @@ impl MemoryBudgetsWorld {
     ///
     /// Returns an error if budgets are missing or value mismatches.
     pub fn assert_message_budget(&self, expected: BudgetBytes) -> TestResult {
-        let budgets = self.budgets.ok_or("memory budgets not configured")?;
-        if budgets.bytes_per_message().get() != expected.0 {
-            return Err(format!(
-                "expected message budget {}, got {}",
-                expected.0,
-                budgets.bytes_per_message().get()
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_budget("message", expected, |budgets| {
+            budgets.bytes_per_message().get()
+        })
     }
 
     /// Assert the connection-level budget.
@@ -109,16 +102,9 @@ impl MemoryBudgetsWorld {
     ///
     /// Returns an error if budgets are missing or value mismatches.
     pub fn assert_connection_budget(&self, expected: BudgetBytes) -> TestResult {
-        let budgets = self.budgets.ok_or("memory budgets not configured")?;
-        if budgets.bytes_per_connection().get() != expected.0 {
-            return Err(format!(
-                "expected connection budget {}, got {}",
-                expected.0,
-                budgets.bytes_per_connection().get()
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_budget("connection", expected, |budgets| {
+            budgets.bytes_per_connection().get()
+        })
     }
 
     /// Assert the in-flight budget.
@@ -127,12 +113,26 @@ impl MemoryBudgetsWorld {
     ///
     /// Returns an error if budgets are missing or value mismatches.
     pub fn assert_in_flight_budget(&self, expected: BudgetBytes) -> TestResult {
+        self.assert_budget("in-flight", expected, |budgets| {
+            budgets.bytes_in_flight().get()
+        })
+    }
+
+    fn assert_budget<Accessor>(
+        &self,
+        budget_name: &str,
+        expected: BudgetBytes,
+        accessor: Accessor,
+    ) -> TestResult
+    where
+        Accessor: Fn(&MemoryBudgets) -> usize,
+    {
         let budgets = self.budgets.ok_or("memory budgets not configured")?;
-        if budgets.bytes_in_flight().get() != expected.0 {
+        let actual = accessor(&budgets);
+        if actual != expected.0 {
             return Err(format!(
-                "expected in-flight budget {}, got {}",
-                expected.0,
-                budgets.bytes_in_flight().get()
+                "expected {budget_name} budget {}, got {}",
+                expected.0, actual
             )
             .into());
         }
