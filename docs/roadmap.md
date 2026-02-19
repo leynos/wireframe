@@ -403,10 +403,10 @@ integration boundaries.
 
 ### 9.4. Property-based codec tests
 
-- [ ] 9.4.1. Add property-based round-trip tests for the default
+- [x] 9.4.1. Add property-based round-trip tests for the default
   `LengthDelimitedFrameCodec` and a mock protocol codec.
-  - [ ] Cover boundary sizes and malformed frames using generated inputs.
-  - [ ] Verify encoder and decoder stateful behaviour with generated
+  - [x] Cover boundary sizes and malformed frames using generated inputs.
+  - [x] Verify encoder and decoder stateful behaviour with generated
     sequences.
 
 ### 9.5. Serializer boundaries and protocol metadata

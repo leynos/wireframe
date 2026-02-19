@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 No `PLANS.md` exists in this repository as of 2026-02-19.
 
@@ -82,15 +82,24 @@ After this work, maintainers can run a deterministic property suite and observe:
 ## Progress
 
 - [x] (2026-02-19 00:00Z) Draft ExecPlan for roadmap item `9.4.1`.
-- [ ] Establish baseline and identify exact insertion points for new tests.
-- [ ] Add generated unit tests for `LengthDelimitedFrameCodec` boundaries and
-      malformed frames.
-- [ ] Add generated unit tests for a mock stateful codec round-tripping
-      sequence-aware frames.
-- [ ] Add rstest-bdd behavioural scenarios and fixture plumbing for generated
-      codec sequences.
-- [ ] Update design/user docs and mark roadmap `9.4.1` done.
-- [ ] Run full quality gates and capture logs.
+- [x] (2026-02-19 01:05Z) Established baseline and identified insertion points
+      in `src/codec/tests.rs` and rstest-bdd fixture/step/scenario modules.
+- [x] (2026-02-19 01:30Z) Added generated unit tests for default codec
+      boundary round-trips and malformed input rejection in
+      `src/codec/tests/property.rs`.
+- [x] (2026-02-19 01:30Z) Added generated unit tests for mock stateful codec
+      sequence ordering, reset semantics, and out-of-order rejection in
+      `src/codec/tests/property.rs`.
+- [x] (2026-02-19 01:45Z) Added rstest-bdd feature coverage in
+      `tests/features/codec_property_roundtrip.feature` with
+      `tests/fixtures/codec_property_roundtrip.rs`,
+      `tests/steps/codec_property_roundtrip_steps.rs`, and
+      `tests/scenarios/codec_property_roundtrip_scenarios.rs`.
+- [x] (2026-02-19 01:50Z) Updated `docs/adr-004-pluggable-protocol-codecs.md`
+      and marked roadmap entry `9.4.1` done in `docs/roadmap.md`.
+- [x] (2026-02-19 02:05Z) Ran full quality gates (`make fmt`,
+      `make check-fmt`, `make markdownlint`, `make nixie`, `make lint`,
+      `make test-bdd`, `make test`) and captured logs.
 
 ## Surprises & Discoveries
 
@@ -108,6 +117,12 @@ After this work, maintainers can run a deterministic property suite and observe:
   Evidence: `tests/features/codec_stateful.feature`,
   `tests/fixtures/codec_stateful.rs`, `tests/steps/codec_stateful_steps.rs`.
   Impact: new behavioural work can follow existing architecture and style.
+
+- Observation: deterministic generated checks using
+  `TestRunner::new_with_rng(... deterministic_rng(...))` provide stable CI
+  behaviour while still exercising generated edge cases. Evidence: new unit and
+  behavioural fixtures both use deterministic proptest runners. Impact: reduced
+  flake risk without dropping property-style coverage.
 
 ## Decision Log
 
@@ -128,7 +143,28 @@ After this work, maintainers can run a deterministic property suite and observe:
 
 ## Outcomes & Retrospective
 
-To be completed when implementation is done.
+Implemented roadmap item `9.4.1` end-to-end with deterministic generated tests
+for both default and mock codecs, plus behavioural rstest-bdd scenarios.
+
+Delivered outcomes:
+
+- Added `src/codec/tests/property.rs` and wired it from `src/codec/tests.rs`.
+- Added generated default-codec checks for:
+  boundary payload sequence round-trips and malformed-frame rejection.
+- Added generated mock-codec checks for:
+  stateful sequence progression, decoder rejection of out-of-order frames, and
+  encoder rejection of out-of-order frames.
+- Added behavioural scenarios and world/step plumbing for generated checks:
+  `tests/features/codec_property_roundtrip.feature`,
+  `tests/fixtures/codec_property_roundtrip.rs`,
+  `tests/steps/codec_property_roundtrip_steps.rs`,
+  `tests/scenarios/codec_property_roundtrip_scenarios.rs`.
+- Updated design decision record:
+  `docs/adr-004-pluggable-protocol-codecs.md`.
+- Marked roadmap 9.4.1 complete in `docs/roadmap.md`.
+
+No public API changes were required, so no user-guide API migration text was
+added.
 
 ## Context and orientation
 
@@ -344,3 +380,7 @@ Dependency expectations:
 2026-02-19: Initial draft created for roadmap item `9.4.1`, defining staged
 implementation, quality gates, documentation obligations, and roadmap
 completion criteria.
+
+2026-02-19: Updated this ExecPlan to COMPLETE after implementation. Progress,
+discoveries, and outcomes were filled with concrete file-level deliverables and
+validation results; remaining work is now only future follow-ups outside 9.4.1.

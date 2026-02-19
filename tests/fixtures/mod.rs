@@ -9,6 +9,7 @@ pub mod client_preamble;
 pub mod client_runtime;
 pub mod client_streaming;
 pub mod codec_error;
+pub mod codec_property_roundtrip;
 pub mod codec_stateful;
 pub mod correlation;
 pub mod fragment;

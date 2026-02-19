@@ -304,6 +304,23 @@ assert_eq!(frame.payload.as_ptr(), extracted.as_ptr());
 See `src/codec/tests.rs` for zero-copy regression tests covering
 `LengthDelimitedFrameCodec`, `HotlineFrameCodec`, and `MysqlFrameCodec`.
 
+### Property-based codec round-trip hardening (resolved 2026-02-19)
+
+Roadmap item 9.4.1 is now covered by deterministic generated tests for both the
+default codec and a mock protocol codec:
+
+- `LengthDelimitedFrameCodec` now has generated round-trip checks over boundary
+  payload sizes and generated malformed-frame checks (partial headers,
+  truncated payloads, and oversized declared lengths).
+- A mock stateful protocol codec now has generated sequence checks that verify
+  per-connection reset semantics and stateful encoder/decoder ordering rules.
+- Behavioural coverage mirrors these guarantees through
+  `tests/features/codec_property_roundtrip.feature` and associated rstest-bdd
+  fixtures and steps.
+
+This hardening keeps the public API unchanged while increasing confidence in
+codec recovery behaviour and state-machine consistency.
+
 ## Architectural Rationale
 
 A dedicated `FrameCodec` abstraction aligns framing with the protocol boundary
