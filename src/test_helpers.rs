@@ -1,4 +1,4 @@
-#![cfg(any(test, feature = "test-helpers"))]
+#![cfg(any(test, feature = "test-support"))]
 //! Test-only helpers for shared test utilities.
 
 use std::io;

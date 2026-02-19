@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
   must add a wildcard arm when matching it.
 - Breaking: Renamed `BackoffConfig::normalised` to `BackoffConfig::normalized`
   to align the public API spelling with American English.
+- Breaking: Renamed the cargo feature flag `test-helpers` to
+  `test-support`. Enable `test-support` to access exported test helper APIs.
+  See `docs/v0-1-0-to-v0-2-0-migration-guide.md` for the required `Cargo.toml`
+  dependency update.
 - Exposed `MAX_PUSH_RATE` for configuring push queue rate limits.
 - Refactored the application module into the `src/app/` directory
   (13 focused files) to keep module sizes under 400 lines; public API exports
