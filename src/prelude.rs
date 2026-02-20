@@ -14,6 +14,8 @@
 #[cfg(not(loom))]
 pub use crate::client::{ClientError, WireframeClient};
 #[cfg(not(loom))]
+pub use crate::request::{RequestBodyStream, RequestParts};
+#[cfg(not(loom))]
 pub use crate::server::{ServerError, WireframeServer};
 pub use crate::{
     app::{Envelope, Handler, Middleware, WireframeApp},
