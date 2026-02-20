@@ -3,16 +3,21 @@
 use std::io;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use proptest::{
-    collection::vec,
-    prelude::{Just, Strategy, any, prop_oneof},
-    prop_assert,
-    prop_assert_eq,
-    test_runner::{Config as ProptestConfig, RngAlgorithm, TestCaseError, TestRng, TestRunner},
-};
+use proptest::{prop_assert, prop_assert_eq, test_runner::TestCaseError};
 use rstest::fixture;
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe::codec::{FrameCodec, LENGTH_HEADER_SIZE, LengthDelimitedFrameCodec};
+
+#[path = "../../src/codec/tests/property/shared.rs"]
+mod property_shared;
+
+use property_shared::{
+    deterministic_runner,
+    expected_sequence,
+    malformed_length_delimited_strategy,
+    mock_session_strategy,
+    payload_sequence_strategy,
+};
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 
@@ -41,7 +46,7 @@ impl CodecPropertyRoundtripWorld {
 
     pub fn run_default_sequence_checks(&mut self) -> TestResult {
         let max_frame_length = 256;
-        let strategy = payload_sequence_strategy(max_frame_length);
+        let strategy = payload_sequence_strategy(max_frame_length, 1..14);
         let mut runner = deterministic_runner(self.cases);
 
         runner
@@ -56,7 +61,8 @@ impl CodecPropertyRoundtripWorld {
 
     pub fn run_default_malformed_checks(&mut self) -> TestResult {
         let max_frame_length = 256;
-        let strategy = malformed_length_delimited_strategy(max_frame_length);
+        let strategy =
+            malformed_length_delimited_strategy(max_frame_length, LENGTH_HEADER_SIZE, 512);
         let mut runner = deterministic_runner(self.cases);
 
         runner
@@ -85,7 +91,7 @@ impl CodecPropertyRoundtripWorld {
 
     pub fn run_mock_sequence_checks(&mut self) -> TestResult {
         let max_frame_length = 128;
-        let strategy = mock_session_strategy(max_frame_length);
+        let strategy = mock_session_strategy(max_frame_length, 1..10, 1..5);
         let mut runner = deterministic_runner(self.cases);
 
         runner
@@ -123,15 +129,6 @@ impl CodecPropertyRoundtripWorld {
     }
 }
 
-fn deterministic_runner(cases: u32) -> TestRunner {
-    let config = ProptestConfig {
-        cases,
-        ..ProptestConfig::default()
-    };
-    let rng = TestRng::deterministic_rng(RngAlgorithm::ChaCha);
-    TestRunner::new_with_rng(config, rng)
-}
-
 fn run_default_sequence_case(
     payloads: &[Vec<u8>],
     max_frame_length: usize,
@@ -166,90 +163,6 @@ fn decode_required_default_frame(
         .map_err(|err| TestCaseError::fail(format!("decode failed: {err}")))?
         .ok_or_else(|| TestCaseError::fail("missing frame during decode".to_owned()))
 }
-
-fn boundary_length_strategy(max_frame_length: usize) -> impl Strategy<Value = usize> {
-    prop_oneof![
-        Just(0usize),
-        Just(1usize),
-        Just(max_frame_length.saturating_sub(1)),
-        Just(max_frame_length),
-        0usize..=max_frame_length,
-    ]
-}
-
-fn boundary_payload_strategy(max_frame_length: usize) -> impl Strategy<Value = Vec<u8>> {
-    boundary_length_strategy(max_frame_length).prop_flat_map(|len| vec(any::<u8>(), len))
-}
-
-fn payload_sequence_strategy(max_frame_length: usize) -> impl Strategy<Value = Vec<Vec<u8>>> {
-    vec(boundary_payload_strategy(max_frame_length), 1..14)
-}
-
-#[derive(Clone, Debug)]
-enum MalformedLengthDelimitedInput {
-    PartialHeader(Vec<u8>),
-    TruncatedPayload {
-        declared_len: usize,
-        payload: Vec<u8>,
-    },
-    OversizedLength {
-        declared_len: usize,
-    },
-}
-
-impl MalformedLengthDelimitedInput {
-    fn expected_error_kind(&self) -> io::ErrorKind {
-        match self {
-            Self::OversizedLength { .. } => io::ErrorKind::InvalidData,
-            Self::PartialHeader(_) | Self::TruncatedPayload { .. } => io::ErrorKind::UnexpectedEof,
-        }
-    }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        match self {
-            Self::PartialHeader(bytes) => bytes.clone(),
-            Self::TruncatedPayload {
-                declared_len,
-                payload,
-            } => {
-                let mut bytes = BytesMut::new();
-                bytes.put_u32(usize_to_u32(*declared_len));
-                bytes.extend_from_slice(payload);
-                bytes.to_vec()
-            }
-            Self::OversizedLength { declared_len } => {
-                let mut bytes = BytesMut::new();
-                bytes.put_u32(usize_to_u32(*declared_len));
-                bytes.to_vec()
-            }
-        }
-    }
-}
-
-fn malformed_length_delimited_strategy(
-    max_frame_length: usize,
-) -> impl Strategy<Value = MalformedLengthDelimitedInput> {
-    let partial_header = vec(any::<u8>(), 1..LENGTH_HEADER_SIZE)
-        .prop_map(MalformedLengthDelimitedInput::PartialHeader);
-
-    let truncated_payload = (1usize..=max_frame_length)
-        .prop_flat_map(|declared_len| (Just(declared_len), vec(any::<u8>(), 0..declared_len)))
-        .prop_map(
-            |(declared_len, payload)| MalformedLengthDelimitedInput::TruncatedPayload {
-                declared_len,
-                payload,
-            },
-        );
-
-    let oversized_min = max_frame_length.saturating_add(1);
-    let oversized_max = max_frame_length.saturating_add(512).max(oversized_min);
-    let oversized_length = (oversized_min..=oversized_max)
-        .prop_map(|declared_len| MalformedLengthDelimitedInput::OversizedLength { declared_len });
-
-    prop_oneof![partial_header, truncated_payload, oversized_length]
-}
-
-fn usize_to_u32(value: usize) -> u32 { u32::try_from(value).unwrap_or(u32::MAX) }
 
 #[derive(Clone, Debug)]
 struct MockStatefulFrame {
@@ -351,15 +264,6 @@ fn is_next_sequence(last_sequence: u16, sequence: u16) -> bool {
     sequence == last_sequence.wrapping_add(1)
 }
 
-fn mock_payload_strategy(max_frame_length: usize) -> impl Strategy<Value = Vec<u8>> {
-    let bounded_max = max_frame_length.min(usize::from(u16::MAX));
-    boundary_payload_strategy(bounded_max)
-}
-
-fn mock_session_strategy(max_frame_length: usize) -> impl Strategy<Value = Vec<Vec<Vec<u8>>>> {
-    vec(vec(mock_payload_strategy(max_frame_length), 1..10), 1..5)
-}
-
 fn run_mock_session_case(
     payloads: &[Vec<u8>],
     max_frame_length: usize,
@@ -388,9 +292,4 @@ fn run_mock_session_case(
 
     prop_assert!(wire.is_empty());
     Ok(())
-}
-
-fn expected_sequence(index: usize) -> Result<u16, TestCaseError> {
-    u16::try_from(index + 1)
-        .map_err(|_| TestCaseError::fail("generated index exceeded u16 range".to_owned()))
 }

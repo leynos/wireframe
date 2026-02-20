@@ -2,3 +2,4 @@
 
 mod default_codec;
 mod mock_codec;
+mod shared;

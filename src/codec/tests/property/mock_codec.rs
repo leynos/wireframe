@@ -6,38 +6,21 @@ use std::{
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use proptest::{
-    collection::vec,
-    prelude::{Just, Strategy, any, prop_oneof},
+    prelude::{Just, Strategy, prop_oneof},
     prop_assert,
     prop_assert_eq,
-    test_runner::{Config as ProptestConfig, RngAlgorithm, TestCaseError, TestRng, TestRunner},
+    test_runner::TestCaseError,
 };
 use rstest::rstest;
 use tokio_util::codec::{Decoder, Encoder};
 
+use super::shared::{
+    deterministic_runner,
+    expected_sequence,
+    mock_payload_strategy,
+    mock_session_strategy,
+};
 use crate::codec::FrameCodec;
-fn deterministic_runner(cases: u32) -> TestRunner {
-    let config = ProptestConfig {
-        cases,
-        ..ProptestConfig::default()
-    };
-    let rng = TestRng::deterministic_rng(RngAlgorithm::ChaCha);
-    TestRunner::new_with_rng(config, rng)
-}
-
-fn boundary_length_strategy(max_frame_length: usize) -> impl Strategy<Value = usize> {
-    prop_oneof![
-        Just(0usize),
-        Just(1usize),
-        Just(max_frame_length.saturating_sub(1)),
-        Just(max_frame_length),
-        0usize..=max_frame_length,
-    ]
-}
-
-fn boundary_payload_strategy(max_frame_length: usize) -> impl Strategy<Value = Vec<u8>> {
-    boundary_length_strategy(max_frame_length).prop_flat_map(|len| vec(any::<u8>(), len))
-}
 
 #[derive(Clone, Debug)]
 struct MockStatefulFrame {
@@ -197,15 +180,6 @@ impl FrameCodec for MockStatefulCodec {
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
 
-fn mock_payload_strategy(max_frame_length: usize) -> impl Strategy<Value = Vec<u8>> {
-    let bounded_max = max_frame_length.min(usize::from(u16::MAX));
-    boundary_payload_strategy(bounded_max)
-}
-
-fn mock_session_strategy(max_frame_length: usize) -> impl Strategy<Value = Vec<Vec<Vec<u8>>>> {
-    vec(vec(mock_payload_strategy(max_frame_length), 1..10), 1..5)
-}
-
 #[derive(Clone, Debug)]
 struct OutOfOrderSequenceInput {
     valid_prefix_len: u16,
@@ -261,7 +235,7 @@ fn generated_mock_codec_sequences_round_trip_and_reset_per_connection(
     #[case] cases: u32,
 ) {
     let mut runner = deterministic_runner(cases);
-    let strategy = mock_session_strategy(max_frame_length);
+    let strategy = mock_session_strategy(max_frame_length, 1..10, 1..5);
 
     runner
         .run(&strategy, |sessions| {
@@ -275,10 +249,8 @@ fn generated_mock_codec_sequences_round_trip_and_reset_per_connection(
 
                 for (index, payload) in payloads.iter().enumerate() {
                     let frame = connection_codec.wrap_payload(Bytes::from(payload.clone()));
-                    let expected_sequence = u16::try_from(index + 1).map_err(|_| {
-                        TestCaseError::fail("generated index exceeded u16 range".to_owned())
-                    })?;
-                    prop_assert_eq!(frame.sequence, expected_sequence);
+                    let expected_seq = expected_sequence(index)?;
+                    prop_assert_eq!(frame.sequence, expected_seq);
 
                     encoder.encode(frame, &mut wire).map_err(|err| {
                         TestCaseError::fail(format!("stateful encoder failed: {err}"))
@@ -291,11 +263,8 @@ fn generated_mock_codec_sequences_round_trip_and_reset_per_connection(
                         .map_err(|err| TestCaseError::fail(format!("decode failed: {err}")))?
                         .ok_or_else(|| TestCaseError::fail("missing mock frame".to_owned()))?;
 
-                    let expected_sequence = u16::try_from(index + 1).map_err(|_| {
-                        TestCaseError::fail("generated index exceeded u16 range".to_owned())
-                    })?;
-
-                    prop_assert_eq!(frame.sequence, expected_sequence);
+                    let expected_seq = expected_sequence(index)?;
+                    prop_assert_eq!(frame.sequence, expected_seq);
                     prop_assert_eq!(frame.payload.as_ref(), payload.as_slice());
                 }
 
