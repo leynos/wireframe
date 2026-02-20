@@ -291,7 +291,7 @@ and standardized per-connection memory budgets.
 
 ### 8.3. Per-connection memory budgets
 
-- [ ] 8.3.1. Add `WireframeApp::memory_budgets(...)` builder method.
+- [x] 8.3.1. Add `WireframeApp::memory_budgets(...)` builder method.
 - [ ] 8.3.2. Implement budget enforcement covering bytes per message, bytes
   per connection, and bytes across in-flight assemblies.
 - [ ] 8.3.3. Implement soft limit (back-pressure by pausing reads) behaviour.

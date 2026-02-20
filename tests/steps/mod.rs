@@ -12,6 +12,7 @@ mod codec_error_steps;
 mod codec_stateful_steps;
 mod correlation_steps;
 mod fragment_steps;
+mod memory_budgets_steps;
 mod message_assembler_steps;
 mod message_assembly_inbound_steps;
 mod message_assembly_steps;

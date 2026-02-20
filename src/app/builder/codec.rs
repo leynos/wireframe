@@ -26,12 +26,14 @@ where
     {
         let serializer = std::mem::take(&mut self.serializer);
         let message_assembler = self.message_assembler.take();
+        let memory_budgets = self.memory_budgets.take();
         self.rebuild_with_params(RebuildParams {
             serializer,
             codec,
             protocol: None,
             fragmentation: None,
             message_assembler,
+            memory_budgets,
         })
     }
 
@@ -46,12 +48,14 @@ where
         let protocol = self.protocol.take();
         let fragmentation = self.fragmentation.take();
         let message_assembler = self.message_assembler.take();
+        let memory_budgets = self.memory_budgets.take();
         self.rebuild_with_params(RebuildParams {
             serializer,
             codec,
             protocol,
             fragmentation,
             message_assembler,
+            memory_budgets,
         })
     }
 }

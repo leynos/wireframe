@@ -108,11 +108,12 @@ serializer, a length-delimited codec capped at 1024 bytes per frame, and a 100
 ms read timeout. Clamp the length-delimited limit with `buffer_capacity`
 (length-delimited only), swap codecs with `with_codec`, and override the
 serializer with `with_serializer` when a different encoding strategy is
-required.[^3][^4] Custom protocols implement `FrameCodec` to describe their
-framing rules. Changing frame budgets with `buffer_capacity` or swapping codecs
-with `with_codec` clears fragmentation settings, so call
-`enable_fragmentation()` (or `fragmentation(Some(cfg))`) again when transport
-fragmentation is required.
+required.[^3][^4] Use `memory_budgets(...)` to set explicit per-connection
+buffering caps for inbound assembly paths. Custom protocols implement
+`FrameCodec` to describe their framing rules. Changing frame budgets with
+`buffer_capacity` or swapping codecs with `with_codec` clears fragmentation
+settings, so call `enable_fragmentation()` (or `fragmentation(Some(cfg))`)
+again when transport fragmentation is required.
 
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
@@ -501,6 +502,37 @@ deserialization failures and follow the existing failure threshold policy.
 
 `WireframeApp::message_assembler` returns the configured hook as an
 `Option<&Arc<dyn MessageAssembler>>` if direct access is required.
+
+### Per-connection memory budgets
+
+`MemoryBudgets` configures explicit per-connection byte caps for inbound
+buffering and assembly:
+
+- bytes buffered per message;
+- bytes buffered per connection; and
+- bytes buffered across in-flight assemblies.
+
+Configure budgets through the app builder:
+
+```rust,no_run
+use std::num::NonZeroUsize;
+use wireframe::app::{BudgetBytes, MemoryBudgets, WireframeApp};
+
+let budgets = MemoryBudgets::new(
+    BudgetBytes::new(NonZeroUsize::new(16 * 1024).expect("non-zero")),
+    BudgetBytes::new(NonZeroUsize::new(64 * 1024).expect("non-zero")),
+    BudgetBytes::new(NonZeroUsize::new(48 * 1024).expect("non-zero")),
+);
+
+let _app = WireframeApp::new()
+    .expect("builder creation should not fail")
+    .memory_budgets(budgets)
+    .read_timeout_ms(250);
+```
+
+This builder method establishes configuration for the current `WireframeApp`
+instance. Runtime enforcement and derived defaults are implemented in the
+subsequent roadmap items covering memory budget enforcement behaviour.
 
 #### Message key multiplexing (8.2.3)
 

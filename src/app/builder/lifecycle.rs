@@ -55,6 +55,7 @@ where
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: self.fragmentation,
             message_assembler: self.message_assembler,
+            memory_budgets: self.memory_budgets,
         })
     }
 
