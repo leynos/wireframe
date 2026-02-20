@@ -179,7 +179,7 @@ mod tests {
 
     use super::WireframeApp;
     use crate::{
-        app::{Envelope, MemoryBudgets},
+        app::{BudgetBytes, Envelope, MemoryBudgets},
         codec::LengthDelimitedFrameCodec,
         serializer::BincodeSerializer,
     };
@@ -219,7 +219,11 @@ mod tests {
                 "in-flight budget must be non-zero",
             )
         })?;
-        Ok(MemoryBudgets::new(per_message, per_connection, in_flight))
+        Ok(MemoryBudgets::new(
+            BudgetBytes::new(per_message),
+            BudgetBytes::new(per_connection),
+            BudgetBytes::new(in_flight),
+        ))
     }
 
     #[rstest]

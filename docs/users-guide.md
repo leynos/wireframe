@@ -516,12 +516,12 @@ Configure budgets through the app builder:
 
 ```rust,no_run
 use std::num::NonZeroUsize;
-use wireframe::app::{MemoryBudgets, WireframeApp};
+use wireframe::app::{BudgetBytes, MemoryBudgets, WireframeApp};
 
 let budgets = MemoryBudgets::new(
-    NonZeroUsize::new(16 * 1024).expect("non-zero"),
-    NonZeroUsize::new(64 * 1024).expect("non-zero"),
-    NonZeroUsize::new(48 * 1024).expect("non-zero"),
+    BudgetBytes::new(NonZeroUsize::new(16 * 1024).expect("non-zero")),
+    BudgetBytes::new(NonZeroUsize::new(64 * 1024).expect("non-zero")),
+    BudgetBytes::new(NonZeroUsize::new(48 * 1024).expect("non-zero")),
 );
 
 let _app = WireframeApp::new()

@@ -2,7 +2,7 @@
 
 use rstest_bdd_macros::{given, then, when};
 
-use crate::fixtures::memory_budgets::{BudgetBytes, MemoryBudgetsWorld, TestResult};
+use crate::fixtures::memory_budgets::{MemoryBudgetsWorld, StepBudgetBytes, TestResult};
 
 #[given(
     "memory budgets with message bytes {per_message:usize}, connection bytes \
@@ -10,9 +10,9 @@ use crate::fixtures::memory_budgets::{BudgetBytes, MemoryBudgetsWorld, TestResul
 )]
 fn given_memory_budgets(
     memory_budgets_world: &mut MemoryBudgetsWorld,
-    per_message: BudgetBytes,
-    per_connection: BudgetBytes,
-    in_flight: BudgetBytes,
+    per_message: StepBudgetBytes,
+    per_connection: StepBudgetBytes,
+    in_flight: StepBudgetBytes,
 ) -> TestResult {
     memory_budgets_world.set_budgets(per_message, per_connection, in_flight)
 }
@@ -35,9 +35,9 @@ fn when_configuring_app_with_budgets_and_codec(
 )]
 fn when_attempting_to_configure_memory_budgets(
     memory_budgets_world: &mut MemoryBudgetsWorld,
-    per_message: BudgetBytes,
-    per_connection: BudgetBytes,
-    in_flight: BudgetBytes,
+    per_message: StepBudgetBytes,
+    per_connection: StepBudgetBytes,
+    in_flight: StepBudgetBytes,
 ) {
     memory_budgets_world.attempt_set_budgets(per_message, per_connection, in_flight);
 }
@@ -45,7 +45,7 @@ fn when_attempting_to_configure_memory_budgets(
 #[then("the message budget is {expected:usize} bytes")]
 fn then_message_budget(
     memory_budgets_world: &mut MemoryBudgetsWorld,
-    expected: BudgetBytes,
+    expected: StepBudgetBytes,
 ) -> TestResult {
     memory_budgets_world.assert_message_budget(expected)
 }
@@ -53,7 +53,7 @@ fn then_message_budget(
 #[then("the connection budget is {expected:usize} bytes")]
 fn then_connection_budget(
     memory_budgets_world: &mut MemoryBudgetsWorld,
-    expected: BudgetBytes,
+    expected: StepBudgetBytes,
 ) -> TestResult {
     memory_budgets_world.assert_connection_budget(expected)
 }
@@ -61,7 +61,7 @@ fn then_connection_budget(
 #[then("the in-flight budget is {expected:usize} bytes")]
 fn then_in_flight_budget(
     memory_budgets_world: &mut MemoryBudgetsWorld,
-    expected: BudgetBytes,
+    expected: StepBudgetBytes,
 ) -> TestResult {
     memory_budgets_world.assert_in_flight_budget(expected)
 }

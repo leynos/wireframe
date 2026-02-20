@@ -26,5 +26,5 @@ pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};
 pub use error::{Result, SendError};
 pub use lifecycle::{ConnectionSetup, ConnectionTeardown};
-pub use memory_budgets::MemoryBudgets;
+pub use memory_budgets::{BudgetBytes, MemoryBudgets};
 pub use middleware_types::{Handler, Middleware};

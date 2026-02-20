@@ -3,16 +3,19 @@
 use std::{num::NonZeroUsize, str::FromStr};
 
 use rstest::fixture;
-use wireframe::{app::MemoryBudgets, codec::LengthDelimitedFrameCodec};
+use wireframe::{
+    app::{BudgetBytes as AppBudgetBytes, MemoryBudgets},
+    codec::LengthDelimitedFrameCodec,
+};
 pub use wireframe_testing::TestResult;
 
 use crate::TestApp;
 
 /// Byte-count wrapper used by Gherkin steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BudgetBytes(pub usize);
+pub struct StepBudgetBytes(pub usize);
 
-impl FromStr for BudgetBytes {
+impl FromStr for StepBudgetBytes {
     type Err = std::num::ParseIntError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> { value.parse().map(Self) }
@@ -28,8 +31,8 @@ pub struct MemoryBudgetsWorld {
 
 /// Fixture for `MemoryBudgetsWorld`.
 #[fixture]
+#[rustfmt::skip]
 pub fn memory_budgets_world() -> MemoryBudgetsWorld {
-    // Keep the default world explicit for behavioural test readability.
     MemoryBudgetsWorld::default()
 }
 
@@ -41,9 +44,9 @@ impl MemoryBudgetsWorld {
     /// Returns an error when any value is zero.
     pub fn set_budgets(
         &mut self,
-        per_message: BudgetBytes,
-        per_connection: BudgetBytes,
-        in_flight: BudgetBytes,
+        per_message: StepBudgetBytes,
+        per_connection: StepBudgetBytes,
+        in_flight: StepBudgetBytes,
     ) -> TestResult {
         let per_message =
             NonZeroUsize::new(per_message.0).ok_or("message budget must be non-zero")?;
@@ -51,16 +54,20 @@ impl MemoryBudgetsWorld {
             NonZeroUsize::new(per_connection.0).ok_or("connection budget must be non-zero")?;
         let in_flight =
             NonZeroUsize::new(in_flight.0).ok_or("in-flight budget must be non-zero")?;
-        self.budgets = Some(MemoryBudgets::new(per_message, per_connection, in_flight));
+        self.budgets = Some(MemoryBudgets::new(
+            AppBudgetBytes::new(per_message),
+            AppBudgetBytes::new(per_connection),
+            AppBudgetBytes::new(in_flight),
+        ));
         Ok(())
     }
 
     /// Attempt to configure memory budgets and store any resulting error.
     pub fn attempt_set_budgets(
         &mut self,
-        per_message: BudgetBytes,
-        per_connection: BudgetBytes,
-        in_flight: BudgetBytes,
+        per_message: StepBudgetBytes,
+        per_connection: StepBudgetBytes,
+        in_flight: StepBudgetBytes,
     ) {
         self.budget_setup_error = self
             .set_budgets(per_message, per_connection, in_flight)
@@ -121,9 +128,9 @@ impl MemoryBudgetsWorld {
     /// # Errors
     ///
     /// Returns an error if budgets are missing or value mismatches.
-    pub fn assert_message_budget(&self, expected: BudgetBytes) -> TestResult {
+    pub fn assert_message_budget(&self, expected: StepBudgetBytes) -> TestResult {
         self.assert_budget("message", expected, |budgets| {
-            budgets.bytes_per_message().get()
+            budgets.bytes_per_message().as_usize()
         })
     }
 
@@ -132,9 +139,9 @@ impl MemoryBudgetsWorld {
     /// # Errors
     ///
     /// Returns an error if budgets are missing or value mismatches.
-    pub fn assert_connection_budget(&self, expected: BudgetBytes) -> TestResult {
+    pub fn assert_connection_budget(&self, expected: StepBudgetBytes) -> TestResult {
         self.assert_budget("connection", expected, |budgets| {
-            budgets.bytes_per_connection().get()
+            budgets.bytes_per_connection().as_usize()
         })
     }
 
@@ -143,16 +150,16 @@ impl MemoryBudgetsWorld {
     /// # Errors
     ///
     /// Returns an error if budgets are missing or value mismatches.
-    pub fn assert_in_flight_budget(&self, expected: BudgetBytes) -> TestResult {
+    pub fn assert_in_flight_budget(&self, expected: StepBudgetBytes) -> TestResult {
         self.assert_budget("in-flight", expected, |budgets| {
-            budgets.bytes_in_flight().get()
+            budgets.bytes_in_flight().as_usize()
         })
     }
 
     fn assert_budget<Accessor>(
         &self,
         budget_name: &str,
-        expected: BudgetBytes,
+        expected: StepBudgetBytes,
         accessor: Accessor,
     ) -> TestResult
     where
