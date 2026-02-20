@@ -97,7 +97,8 @@ where
     ///
     /// ```
     /// use wireframe::app::WireframeApp;
-    /// WireframeApp::<_, _, wireframe::app::Envelope>::new().expect("failed to initialize app");
+    ///
+    /// let _app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
     /// ```
     pub fn new() -> Result<Self> { Ok(Self::default()) }
 

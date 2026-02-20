@@ -86,7 +86,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient, app::Envelope};
+    /// use wireframe::{ClientError, CorrelatableFrame, WireframeClient, app::Envelope};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {
@@ -144,7 +144,7 @@ where
     /// ```no_run
     /// use std::net::SocketAddr;
     ///
-    /// use wireframe::{ClientError, WireframeClient, app::Envelope};
+    /// use wireframe::{ClientError, CorrelatableFrame, WireframeClient, app::Envelope};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), ClientError> {

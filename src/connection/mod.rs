@@ -237,7 +237,7 @@ where
     /// #     .build()
     /// #     .expect("failed to build PushQueues");
     /// # let shutdown = CancellationToken::new();
-    /// # let mut actor = ConnectionActor::new(queues, handle, None, shutdown);
+    /// # let mut actor: ConnectionActor<u8, ()> = ConnectionActor::new(queues, handle, None, shutdown);
     /// # let (_tx, rx) = mpsc::channel(4);
     /// actor.set_multi_packet_with_correlation(Some(rx), Some(7))?;
     /// # Ok::<(), wireframe::connection::ConnectionStateError>(())

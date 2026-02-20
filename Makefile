@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie typecheck
+.PHONY: help all clean test test-doc doctest-benchmark build release lint fmt check-fmt markdownlint nixie typecheck
 
 CRATE ?= wireframe
 CARGO ?= cargo
@@ -21,6 +21,12 @@ test-bdd: ## Run rstest-bdd tests only
 
 test: ## Run all tests (bdd + unit/integration)
 	RUSTFLAGS="-D warnings" $(CARGO) test --all-targets --all-features $(BUILD_JOBS)
+
+test-doc: ## Run doctests across all features
+	RUSTFLAGS="-D warnings" $(CARGO) test --doc --all-features $(BUILD_JOBS)
+
+doctest-benchmark: ## Check runnable/no_run doctest ratios
+	./scripts/doctest-benchmark.sh
 
 typecheck: ## Run a workspace typecheck
 	RUSTFLAGS="-D warnings" $(CARGO) check --all-targets --all-features $(BUILD_JOBS)

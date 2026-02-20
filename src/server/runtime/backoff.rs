@@ -42,7 +42,7 @@ impl BackoffConfig {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use wireframe::server::runtime::BackoffConfig;
+    /// use wireframe::server::BackoffConfig;
     ///
     /// let cfg = BackoffConfig {
     ///     initial_delay: Duration::from_millis(5),

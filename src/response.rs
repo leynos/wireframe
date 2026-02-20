@@ -84,7 +84,7 @@ pub enum Response<F, E = ()> {
     ///     let (tx, rx) = mpsc::channel(1);
     ///     tx.send(1u8).await.expect("send");
     ///     drop(tx); // close sender
-    ///     if let Response::MultiPacket(mut rx) = Response::MultiPacket(rx) {
+    ///     if let Response::MultiPacket(mut rx) = Response::<u8, ()>::MultiPacket(rx) {
     ///         while let Some(f) = rx.recv().await {
     ///             assert_eq!(f, 1);
     ///         }

@@ -117,7 +117,7 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// assert!(
-    ///     WireframeServer::new(|| WireframeApp::default())
+    ///     WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///         .local_addr()
     ///         .is_none()
     /// );
@@ -129,13 +129,13 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use std::net::{Ipv4Addr, SocketAddr};
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///     .bind(addr)
     ///     .expect("bind failed");
     /// assert!(server.local_addr().is_some());
@@ -155,13 +155,13 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let std_listener = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///     .bind_existing_listener(std_listener)
     ///     .expect("bind failed");
     /// assert!(server.local_addr().is_some());
@@ -195,13 +195,13 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use std::net::SocketAddr;
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///     .bind(addr)
     ///     .expect("bind failed");
     /// assert!(server.local_addr().is_some());
@@ -213,13 +213,13 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use std::net::{Ipv4Addr, SocketAddr};
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///     .bind(addr)
     ///     .expect("bind failed");
     /// let addr2 = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -238,13 +238,13 @@ where
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
     ///
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
-    /// let server = WireframeServer::new(|| WireframeApp::default())
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///     .bind(addr)
     ///     .expect("bind failed");
     /// let std_listener = StdTcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();

@@ -13,7 +13,7 @@ documentation = "https://docs.rs/wireframe"
 [lib]
 name = "wireframe"
 path = "src/lib.rs"
-doctest = false
+doctest = true
 
 [package.metadata.docs.rs]
 features = ["metrics"]

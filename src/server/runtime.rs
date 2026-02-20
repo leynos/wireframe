@@ -45,8 +45,8 @@ where
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), wireframe::server::ServerError> {
-    /// let server =
-    ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 8080).into())?;
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///     .bind(([127, 0, 0, 1], 8080).into())?;
     /// server.run().await?;
     /// # Ok(())
     /// # }
@@ -61,7 +61,7 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// async fn try_run() {
-    ///     WireframeServer::new(|| WireframeApp::default())
+    ///     WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///         .run()
     ///         .await
     ///         .expect("unbound servers do not expose run()");
@@ -90,8 +90,8 @@ where
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), wireframe::server::ServerError> {
-    /// let server =
-    ///     WireframeServer::new(|| WireframeApp::default()).bind(([127, 0, 0, 1], 0).into())?;
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///     .bind(([127, 0, 0, 1], 0).into())?;
     ///
     /// let (tx, rx) = oneshot::channel::<()>();
     /// let handle = tokio::spawn(async move {
@@ -104,7 +104,10 @@ where
     ///
     /// // Signal shutdown
     /// let _ = tx.send(());
-    /// handle.await??;
+    /// handle
+    ///     .await
+    ///     .expect("join server task")
+    ///     .expect("server run failed");
     /// # Ok(())
     /// # }
     /// ```
@@ -118,7 +121,7 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     ///
     /// async fn try_run_with_shutdown() {
-    ///     WireframeServer::new(|| WireframeApp::default())
+    ///     WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
     ///         .run_with_shutdown(async {})
     ///         .await
     ///         .expect("unbound servers do not expose run_with_shutdown()");
