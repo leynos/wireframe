@@ -92,8 +92,8 @@ benchmark.
 
 - Observation: Initial benchmark result failed policy at 64% runnable / 35%
   `no_run`. Evidence: early output from `scripts/doctest-benchmark.sh`. Impact:
-  converted deterministic state/extractor examples from `no_run` to runnable to
-  restore the target balance.
+  converted deterministic state/extractor examples from `no_run` to runnable,
+  restoring the target balance.
 
 ## Decision Log
 
