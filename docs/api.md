@@ -8,7 +8,7 @@ A `PacketParts` struct decomposes a packet into its components:
 let parts = PacketParts::new(id, correlation_id, payload);
 ```
 
-- `id: u32` — frame identifier
+- `id: u32` — packet/envelope identifier used for routing
 - `correlation_id: Option<u64>` — `None` marks an unsolicited event or
   server‑initiated push
 - `payload: Vec<u8>` — raw message bytes
