@@ -306,8 +306,8 @@ See `src/codec/tests.rs` for zero-copy regression tests covering
 
 ### Property-based codec round-trip hardening (resolved 2026-02-19)
 
-Roadmap item 9.4.1 is now covered by deterministic generated tests for both the
-default codec and a mock protocol codec:
+Roadmap item 9.4.1 is now covered by deterministically generated tests for both
+the default codec and a mock protocol codec:
 
 - `LengthDelimitedFrameCodec` now has generated round-trip checks over boundary
   payload sizes and generated malformed-frame checks (partial headers,

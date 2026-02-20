@@ -3,7 +3,8 @@ use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use proptest::{
-    prelude::{Just, Strategy, prop_oneof},
+    collection::vec,
+    prelude::{Just, Strategy, any, prop_oneof},
     prop_assert,
     prop_assert_eq,
     test_runner::TestCaseError,
@@ -55,6 +56,27 @@ fn out_of_order_sequence_strategy(
         )
 }
 
+fn oversized_payload_len_strategy(max_frame_length: usize) -> impl Strategy<Value = usize> {
+    let lower_bound = max_frame_length
+        .saturating_add(1)
+        .min(usize::from(u16::MAX));
+    let upper_bound = max_frame_length
+        .saturating_add(1024)
+        .min(usize::from(u16::MAX))
+        .max(lower_bound);
+
+    lower_bound..=upper_bound
+}
+
+fn truncated_body_strategy(max_frame_length: usize) -> impl Strategy<Value = (u16, Vec<u8>)> {
+    (1usize..=max_frame_length.max(1).min(usize::from(u16::MAX))).prop_flat_map(|declared_len| {
+        (
+            Just(u16::try_from(declared_len).unwrap_or(u16::MAX)),
+            vec(any::<u8>(), 0..declared_len),
+        )
+    })
+}
+
 fn push_raw_mock_frame(
     dst: &mut BytesMut,
     sequence: u16,
@@ -67,6 +89,17 @@ fn push_raw_mock_frame(
     dst.put_u16(payload_len);
     dst.extend_from_slice(payload);
     Ok(())
+}
+
+fn push_raw_mock_frame_with_declared_len(
+    dst: &mut BytesMut,
+    sequence: u16,
+    declared_payload_len: u16,
+    payload: &[u8],
+) {
+    dst.put_u16(sequence);
+    dst.put_u16(declared_payload_len);
+    dst.extend_from_slice(payload);
 }
 
 #[rstest]
@@ -208,4 +241,102 @@ fn generated_mock_encoder_rejects_out_of_order_sequences(
             Ok(())
         })
         .expect("generated out-of-order encoder sequence should fail");
+}
+
+#[rstest]
+#[case(64, 96)]
+#[case(256, 128)]
+fn generated_mock_decoder_rejects_oversized_declared_payload_lengths(
+    #[case] max_frame_length: usize,
+    #[case] cases: u32,
+) {
+    let mut runner = deterministic_runner(cases);
+    let strategy = oversized_payload_len_strategy(max_frame_length);
+
+    runner
+        .run(&strategy, |declared_len| {
+            let mut decoder = MockStatefulCodec::new(max_frame_length).decoder();
+            let mut wire = BytesMut::new();
+            let declared_len_u16 = u16::try_from(declared_len)
+                .map_err(|_| TestCaseError::fail("declared length exceeded u16".to_owned()))?;
+            push_raw_mock_frame_with_declared_len(&mut wire, 1, declared_len_u16, &[]);
+
+            match decoder.decode(&mut wire) {
+                Err(err) => prop_assert_eq!(err.kind(), io::ErrorKind::InvalidData),
+                Ok(frame) => {
+                    return Err(TestCaseError::fail(format!(
+                        "expected oversized declared length to fail, got {frame:?}"
+                    )));
+                }
+            }
+
+            Ok(())
+        })
+        .expect("generated oversized mock decoder inputs should fail");
+}
+
+#[rstest]
+#[case(64, 96)]
+#[case(256, 128)]
+fn generated_mock_encoder_rejects_oversized_payloads(
+    #[case] max_frame_length: usize,
+    #[case] cases: u32,
+) {
+    let mut runner = deterministic_runner(cases);
+    let strategy = oversized_payload_len_strategy(max_frame_length);
+
+    runner
+        .run(&strategy, |payload_len| {
+            let mut encoder = MockStatefulCodec::new(max_frame_length).encoder();
+            let mut wire = BytesMut::new();
+            let payload = vec![0xab; payload_len];
+
+            match encoder.encode(
+                MockStatefulFrame {
+                    sequence: 1,
+                    payload: Bytes::from(payload),
+                },
+                &mut wire,
+            ) {
+                Err(err) => prop_assert_eq!(err.kind(), io::ErrorKind::InvalidInput),
+                Ok(()) => {
+                    return Err(TestCaseError::fail(
+                        "expected oversized payload to fail during encode".to_owned(),
+                    ));
+                }
+            }
+
+            Ok(())
+        })
+        .expect("generated oversized mock encoder payloads should fail");
+}
+
+#[rstest]
+#[case(64, 96)]
+#[case(256, 128)]
+fn generated_mock_decoder_eof_reports_truncated_bodies(
+    #[case] max_frame_length: usize,
+    #[case] cases: u32,
+) {
+    let mut runner = deterministic_runner(cases);
+    let strategy = truncated_body_strategy(max_frame_length);
+
+    runner
+        .run(&strategy, |(declared_len, payload)| {
+            let mut decoder = MockStatefulCodec::new(max_frame_length).decoder();
+            let mut wire = BytesMut::new();
+            push_raw_mock_frame_with_declared_len(&mut wire, 1, declared_len, &payload);
+
+            match decoder.decode_eof(&mut wire) {
+                Err(err) => prop_assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof),
+                Ok(frame) => {
+                    return Err(TestCaseError::fail(format!(
+                        "expected truncated body to fail at eof, got {frame:?}"
+                    )));
+                }
+            }
+
+            Ok(())
+        })
+        .expect("generated truncated mock decoder eof inputs should fail");
 }

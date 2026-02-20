@@ -81,3 +81,18 @@ fn generated_length_delimited_malformed_frames_are_rejected(
         })
         .expect("generated malformed default codec input should fail");
 }
+
+#[rstest]
+#[case(64)]
+#[case(512)]
+fn decode_eof_with_empty_buffer_returns_none(#[case] max_frame_length: usize) {
+    let codec = LengthDelimitedFrameCodec::new(max_frame_length);
+    let mut decoder = codec.decoder();
+    let mut wire = BytesMut::new();
+
+    let frame = decoder
+        .decode_eof(&mut wire)
+        .expect("decode_eof with empty buffer should not fail");
+
+    assert!(frame.is_none());
+}
