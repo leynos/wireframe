@@ -5,8 +5,8 @@ use rstest_bdd_macros::{given, then, when};
 use crate::fixtures::memory_budgets::{MemoryBudgetsWorld, StepBudgetBytes, TestResult};
 
 #[given(
-    "memory budgets with message bytes {per_message:usize}, connection bytes \
-     {per_connection:usize}, and in-flight bytes {in_flight:usize}"
+    "memory budgets with message bytes {per_message}, connection bytes {per_connection}, and \
+     in-flight bytes {in_flight}"
 )]
 fn given_memory_budgets(
     memory_budgets_world: &mut MemoryBudgetsWorld,
@@ -30,8 +30,8 @@ fn when_configuring_app_with_budgets_and_codec(
 }
 
 #[when(
-    "attempting to configure memory budgets with message bytes {per_message:usize}, connection \
-     bytes {per_connection:usize}, and in-flight bytes {in_flight:usize}"
+    "attempting to configure memory budgets with message bytes {per_message}, connection bytes \
+     {per_connection}, and in-flight bytes {in_flight}"
 )]
 fn when_attempting_to_configure_memory_budgets(
     memory_budgets_world: &mut MemoryBudgetsWorld,
@@ -42,7 +42,7 @@ fn when_attempting_to_configure_memory_budgets(
     memory_budgets_world.attempt_set_budgets(per_message, per_connection, in_flight);
 }
 
-#[then("the message budget is {expected:usize} bytes")]
+#[then("the message budget is {expected} bytes")]
 fn then_message_budget(
     memory_budgets_world: &mut MemoryBudgetsWorld,
     expected: StepBudgetBytes,
@@ -50,7 +50,7 @@ fn then_message_budget(
     memory_budgets_world.assert_message_budget(expected)
 }
 
-#[then("the connection budget is {expected:usize} bytes")]
+#[then("the connection budget is {expected} bytes")]
 fn then_connection_budget(
     memory_budgets_world: &mut MemoryBudgetsWorld,
     expected: StepBudgetBytes,
@@ -58,7 +58,7 @@ fn then_connection_budget(
     memory_budgets_world.assert_connection_budget(expected)
 }
 
-#[then("the in-flight budget is {expected:usize} bytes")]
+#[then("the in-flight budget is {expected} bytes")]
 fn then_in_flight_budget(
     memory_budgets_world: &mut MemoryBudgetsWorld,
     expected: StepBudgetBytes,
