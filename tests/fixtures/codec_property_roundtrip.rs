@@ -65,12 +65,9 @@ impl CodecPropertyRoundtripWorld {
 
     pub fn run_default_malformed_checks(&mut self) -> TestResult {
         let max_frame_length = 256;
-        let strategy =
-            malformed_length_delimited_strategy(max_frame_length, LENGTH_HEADER_SIZE, 512);
-        let mut runner = deterministic_runner(self.cases);
-
-        runner
-            .run(&strategy, |input| {
+        self.run_generated_checks(
+            malformed_length_delimited_strategy(max_frame_length, LENGTH_HEADER_SIZE, 512),
+            |input| {
                 let codec = LengthDelimitedFrameCodec::new(max_frame_length);
                 let mut decoder = codec.decoder();
                 let encoded = input.to_bytes();
@@ -86,8 +83,9 @@ impl CodecPropertyRoundtripWorld {
                 }
 
                 Ok(())
-            })
-            .map_err(|err| format!("default codec malformed check failed: {err}"))?;
+            },
+            "default codec malformed check failed",
+        )?;
 
         self.default_malformed_checks_passed = true;
         Ok(())

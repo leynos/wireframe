@@ -152,9 +152,9 @@ Delivered outcomes:
   `src/codec/tests.rs`, with generated checks in
   `src/codec/tests/property/default_codec.rs` and
   `src/codec/tests/property/mock_codec.rs`.
-- Added generated default-codec checks for:
+- Added generated default-codec checks for
   boundary payload sequence round-trips and malformed-frame rejection.
-- Added generated mock-codec checks for:
+- Added generated mock-codec checks for
   stateful sequence progression, decoder rejection of out-of-order frames, and
   encoder rejection of out-of-order frames.
 - Added behavioural scenarios and world/step plumbing for generated checks:
@@ -369,7 +369,7 @@ Expected touched interfaces and modules:
 - `LengthDelimitedFrameCodec::decoder`, `encoder`, `wrap_payload`,
   `frame_payload_bytes` exercised under generated inputs.
 - Test-only mock codec implementing `FrameCodec` for stateful sequence checks.
-- rstest-bdd scenario plumbing via:
+- rstest-bdd scenario plumbing via
   `tests/features/*`, `tests/fixtures/*`, `tests/steps/*`, `tests/scenarios/*`.
 
 Dependency expectations:
