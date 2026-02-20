@@ -12,6 +12,15 @@ use wireframe::codec::{
     LengthDelimitedFrameCodec,
 };
 
+// NOTE: This fixture depends on property-test helpers sourced from
+// `src/codec/tests/property/*` via explicit paths. If these modules move, keep
+// these imports aligned with the required API:
+// - `MockStatefulCodec`
+// - `deterministic_runner`
+// - `expected_sequence`
+// - `malformed_length_delimited_strategy`
+// - `mock_session_strategy`
+// - `payload_sequence_strategy`
 #[path = "../../src/codec/tests/property/mock_stateful_codec.rs"]
 mod property_mock_stateful_codec;
 #[path = "../../src/codec/tests/property/shared.rs"]
@@ -36,7 +45,6 @@ pub struct CodecPropertyRoundtripWorld {
     mock_sequence_checks_passed: bool,
 }
 
-#[rustfmt::skip]
 #[fixture]
 pub fn codec_property_roundtrip_world() -> CodecPropertyRoundtripWorld {
     CodecPropertyRoundtripWorld::default()
