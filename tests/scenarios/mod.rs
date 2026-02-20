@@ -13,6 +13,7 @@ mod client_preamble_scenarios;
 mod client_runtime_scenarios;
 mod client_streaming_scenarios;
 mod codec_error_scenarios;
+mod codec_property_roundtrip_scenarios;
 mod codec_stateful_scenarios;
 mod correlation_scenarios;
 mod fragment_scenarios;

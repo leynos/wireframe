@@ -313,3 +313,5 @@ fn mysql_decode_produces_zero_copy_payload() {
 
     assert_decode_zero_copy(payload_ptr, frame.payload.as_ptr(), "mysql");
 }
+
+mod property;
