@@ -11,16 +11,16 @@
 //! fn build() -> Result<WireframeApp> { WireframeApp::new() }
 //! ```
 
-#[cfg(not(loom))]
-pub use crate::client::{ClientError, WireframeClient};
-#[cfg(not(loom))]
-pub use crate::request::{RequestBodyStream, RequestParts};
-#[cfg(not(loom))]
-pub use crate::server::{ServerError, WireframeServer};
 pub use crate::{
     app::{Envelope, Handler, Middleware, WireframeApp},
     error::{Result, WireframeError},
     message::Message,
     response::Response,
     serializer::{BincodeSerializer, Serializer},
+};
+#[cfg(not(loom))]
+pub use crate::{
+    client::{ClientError, WireframeClient},
+    request::{RequestBodyStream, RequestParts},
+    server::{ServerError, WireframeServer},
 };
