@@ -63,7 +63,8 @@ benchmark.
 - [x] (2026-02-18) Drafted ExecPlan with success criteria and milestones.
 - [x] (2026-02-18) Inventoried Rustdoc code fences in `src/` and classified
       by runnable class:
-      runnable 128, `no_run` 51, `ignore`/`compile_fail` 6, non-Rust/text 7.
+      runnable 128, `no_run` 51, `ignore`/`compile_fail` 6, non-Rust/plaintext
+      7.
 - [x] (2026-02-18) Enabled doctests in `Cargo.toml` and added
       `make test-doc`.
 - [x] (2026-02-18) Resolved doctest compile failures across builder, client,
@@ -71,7 +72,7 @@ benchmark.
 - [x] (2026-02-18) Enforced scope rules by rewriting private/test-helper
       examples (`src/server/test_util.rs`, `src/connection/state.rs`,
       `src/connection/frame.rs`, `src/server/runtime/accept.rs`) to
-      non-doctest `text` fences.
+      non-doctest `plaintext` fences.
 - [x] (2026-02-18) Added `scripts/doctest-benchmark.sh` and
       `make doctest-benchmark`; benchmark now passes thresholds.
 - [x] (2026-02-18) Ran full Rust and Markdown quality gates and updated
@@ -127,8 +128,8 @@ benchmark.
   `cargo test --doc --all-features` passes (`179 passed`, `0 failed`,
   `4 ignored` + `2 compile_fail` checks).
 - Runnable-vs-`no_run` benchmark met:
-  runnable 128 (71%), `no_run` 51 (28%), ignored/compile_fail 6, non-Rust/text
-  7.
+  runnable 128 (71%), `no_run` 51 (28%), ignored/compile_fail 6,
+  non-Rust/plaintext 7.
 - Scope policy enforced for private/test-only helpers by converting their code
   blocks to non-doctest fences.
 - Quality gates all pass:
