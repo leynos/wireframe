@@ -188,7 +188,8 @@ mod tests {
 
     #[fixture]
     fn app_builder() -> Result<TestApp, Box<dyn Error>> {
-        let app = TestApp::new()?;
+        let app = TestApp::new()
+            .map_err(|error| io::Error::other(format!("failed to construct test app: {error}")))?;
         if app.fragmentation.is_some() {
             return Err(io::Error::other("fixture expects default fragmentation disabled").into());
         }
