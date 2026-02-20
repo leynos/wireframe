@@ -86,10 +86,10 @@ After this work, maintainers can run a deterministic property suite and observe:
       in `src/codec/tests.rs` and rstest-bdd fixture/step/scenario modules.
 - [x] (2026-02-19 01:30Z) Added generated unit tests for default codec
       boundary round-trips and malformed input rejection in
-      `src/codec/tests/property.rs`.
+      `src/codec/tests/property/default_codec.rs`.
 - [x] (2026-02-19 01:30Z) Added generated unit tests for mock stateful codec
       sequence ordering, reset semantics, and out-of-order rejection in
-      `src/codec/tests/property.rs`.
+      `src/codec/tests/property/mock_codec.rs`.
 - [x] (2026-02-19 01:45Z) Added rstest-bdd feature coverage in
       `tests/features/codec_property_roundtrip.feature` with
       `tests/fixtures/codec_property_roundtrip.rs`,
@@ -148,7 +148,10 @@ for both default and mock codecs, plus behavioural rstest-bdd scenarios.
 
 Delivered outcomes:
 
-- Added `src/codec/tests/property.rs` and wired it from `src/codec/tests.rs`.
+- Added `src/codec/tests/property/mod.rs` and wired it from
+  `src/codec/tests.rs`, with generated checks in
+  `src/codec/tests/property/default_codec.rs` and
+  `src/codec/tests/property/mock_codec.rs`.
 - Added generated default-codec checks for:
   boundary payload sequence round-trips and malformed-frame rejection.
 - Added generated mock-codec checks for:
