@@ -8,7 +8,10 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use tokio::time::timeout;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use wireframe::{Serializer, app::Envelope, serializer::BincodeSerializer};
+use wireframe::{
+    app::Envelope,
+    serializer::{BincodeSerializer, Serializer},
+};
 
 /// Shared result type for helper functions in this module.
 pub type SharedTestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;

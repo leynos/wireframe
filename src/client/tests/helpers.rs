@@ -13,8 +13,8 @@ use std::{
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::{
-    BincodeSerializer,
     client::{ClientError, WireframeClient, WireframeClientBuilder},
+    serializer::{BincodeSerializer, Serializer},
 };
 
 /// Type alias for async hooks that return their input after performing side effects.
@@ -131,7 +131,7 @@ where
 /// A serializer that always fails to serialize, used for testing error hooks.
 pub struct FailingSerializer;
 
-impl crate::Serializer for FailingSerializer {
+impl Serializer for FailingSerializer {
     fn serialize<M: crate::message::Message>(
         &self,
         _value: &M,

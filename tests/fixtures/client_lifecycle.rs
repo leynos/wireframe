@@ -24,10 +24,10 @@ use futures::FutureExt;
 use rstest::fixture;
 use tokio::{net::TcpListener, task::JoinHandle};
 use wireframe::{
-    BincodeSerializer,
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
     rewind_stream::RewindStream,
+    serializer::BincodeSerializer,
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;

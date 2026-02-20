@@ -75,3 +75,100 @@ use wireframe::response::WireframeError as StreamError;
 use wireframe::WireframeError;
 use wireframe::Result;
 ```
+
+## Public API surface reorganization
+
+The crate root is now intentionally minimal. Detailed APIs moved to their
+owning modules, and root re-exports were removed.
+
+- Root now exposes canonical `wireframe::Result<T>` and
+  `wireframe::WireframeError`.
+- Use `wireframe::<module>::...` for specialized APIs.
+- `wireframe::prelude::*` is available as an optional convenience import for
+  high-frequency types.
+
+### Removed root re-exports and their new module paths
+
+- `wireframe::AppDataStore` ->
+  `wireframe::app_data_store::AppDataStore`
+- `wireframe::BincodeSerializer`, `wireframe::Serializer` ->
+  `wireframe::serializer::{BincodeSerializer, Serializer}`
+- `wireframe::ConnectionActor` ->
+  `wireframe::connection::ConnectionActor`
+- `wireframe::CorrelatableFrame` ->
+  `wireframe::correlation::CorrelatableFrame`
+- `wireframe::ConnectionContext`, `wireframe::ProtocolHooks`,
+  `wireframe::WireframeProtocol` ->
+  `wireframe::hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol}`
+- `wireframe::ClientCodecConfig`, `wireframe::ClientError`,
+  `wireframe::ClientProtocolError` -> `wireframe::client::{...}`
+- `wireframe::ClientWireframeError`, `wireframe::SocketOptions`,
+  `wireframe::WireframeClient` -> `wireframe::client::{...}`
+- `wireframe::CodecError`, `wireframe::CodecErrorContext`,
+  `wireframe::DefaultRecoveryPolicy`, `wireframe::EofError` ->
+  `wireframe::codec::{...}`
+- `wireframe::FrameCodec`, `wireframe::FramingError`,
+  `wireframe::LengthDelimitedFrameCodec`, `wireframe::MAX_FRAME_LENGTH` ->
+  `wireframe::codec::{...}`
+- `wireframe::MIN_FRAME_LENGTH`, `wireframe::ProtocolError`,
+  `wireframe::RecoveryConfig`, `wireframe::RecoveryPolicy`,
+  `wireframe::RecoveryPolicyHook` -> `wireframe::codec::{...}`
+- `wireframe::DefaultFragmentAdapter`, `wireframe::FRAGMENT_MAGIC`,
+  `wireframe::FragmentAdapter`, `wireframe::FragmentAdapterError` ->
+  `wireframe::fragment::{...}`
+- `wireframe::FragmentBatch`, `wireframe::FragmentError`,
+  `wireframe::FragmentFrame`, `wireframe::FragmentHeader`,
+  `wireframe::FragmentIndex`, `wireframe::FragmentSeries` ->
+  `wireframe::fragment::{...}`
+- `wireframe::FragmentStatus`, `wireframe::FragmentationConfig`,
+  `wireframe::FragmentationError`, `wireframe::Fragmenter`,
+  `wireframe::MessageId`, `wireframe::ReassembledMessage` ->
+  `wireframe::fragment::{...}`
+- `wireframe::Reassembler`, `wireframe::ReassemblyError`,
+  `wireframe::decode_fragment_payload`, `wireframe::encode_fragment_payload`,
+  `wireframe::fragment_overhead` -> `wireframe::fragment::{...}`
+- `wireframe::AssembledMessage`, `wireframe::ContinuationFrameHeader`,
+  `wireframe::FirstFrameHeader`, `wireframe::FirstFrameInput` ->
+  `wireframe::message_assembler::{...}`
+- `wireframe::FirstFrameInputError`, `wireframe::FrameHeader`,
+  `wireframe::FrameSequence`, `wireframe::MessageAssembler`,
+  `wireframe::MessageAssemblyError` -> `wireframe::message_assembler::{...}`
+- `wireframe::MessageAssemblyState`, `wireframe::MessageKey`,
+  `wireframe::MessageSeries`, `wireframe::MessageSeriesError`,
+  `wireframe::MessageSeriesStatus`, `wireframe::ParsedFrameHeader` ->
+  `wireframe::message_assembler::{...}`
+- `wireframe::CODEC_ERRORS`, `wireframe::CONNECTIONS_ACTIVE`,
+  `wireframe::Direction`, `wireframe::ERRORS_TOTAL`,
+  `wireframe::FRAMES_PROCESSED` -> `wireframe::metrics::{...}`
+- `wireframe::DEFAULT_BODY_CHANNEL_CAPACITY`,
+  `wireframe::RequestBodyReader`, `wireframe::RequestBodyStream`,
+  `wireframe::RequestParts`, `wireframe::body_channel` ->
+  `wireframe::request::{...}`
+- `wireframe::FrameStream`, `wireframe::Response` ->
+  `wireframe::response::{FrameStream, Response}`
+- `wireframe::ConnectionId`, `wireframe::SessionRegistry` ->
+  `wireframe::session::{ConnectionId, SessionRegistry}`
+
+Example migration:
+
+```rust
+// Before
+use wireframe::{Response, Serializer, WireframeClient};
+
+// After
+use wireframe::{
+    client::WireframeClient,
+    response::Response,
+    serializer::Serializer,
+};
+```
+
+## Test support visibility changes
+
+Connection actor test helpers are no longer reachable in normal builds.
+
+- `wireframe::connection::test_support` now requires
+  `cfg(any(test, feature = "test-support"))` in addition to `cfg(not(loom))`.
+- Production consumers should not depend on `connection::test_support`.
+- Internal and integration test suites can continue to use the `test-support`
+  feature where required.

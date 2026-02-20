@@ -11,10 +11,9 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use tokio::{io::AsyncWriteExt, sync::mpsc, time::timeout};
 use wireframe::{
-    Serializer,
     app::{Envelope, Packet, WireframeApp},
     fragment::{Fragmenter, decode_fragment_payload},
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 #[path = "fragment_transport/mod.rs"]

@@ -14,7 +14,7 @@ use std::sync::{
 };
 
 use tokio::net::TcpListener;
-use wireframe::WireframeClient;
+use wireframe::client::WireframeClient;
 use wireframe_testing::TestResult;
 
 /// Test that setup and teardown callbacks are both invoked for a full
@@ -107,7 +107,7 @@ async fn client_error_hook_invoked_on_disconnect() -> TestResult<()> {
     server.await?;
 
     // Try to receive - should fail and invoke error hook
-    let result: Result<Vec<u8>, wireframe::ClientError> = client.receive().await;
+    let result: Result<Vec<u8>, wireframe::client::ClientError> = client.receive().await;
     assert!(result.is_err(), "receive should fail after disconnect");
 
     assert_eq!(

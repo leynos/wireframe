@@ -22,7 +22,7 @@ pub enum ClientProtocolError {
 /// [`ClientProtocolError`].
 pub type ClientWireframeError = WireframeError<ClientProtocolError>;
 
-/// Errors emitted by [`crate::WireframeClient`].
+/// Errors emitted by [`crate::client::WireframeClient`].
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     /// Request/response transport or protocol failure.
@@ -45,7 +45,8 @@ pub enum ClientError {
     PreambleTimeout,
     /// Response correlation ID does not match the request.
     ///
-    /// This error is returned by [`crate::WireframeClient::call_correlated`]
+    /// This error is returned by
+    /// [`crate::client::WireframeClient::call_correlated`]
     /// when the response envelope's correlation ID differs from the request's.
     #[error("correlation ID mismatch: expected {expected:?}, received {received:?}")]
     CorrelationMismatch {

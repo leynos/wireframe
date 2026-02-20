@@ -11,11 +11,11 @@ use rstest::fixture;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    BincodeSerializer,
     app::{Envelope, Packet},
     client::{ClientError, WireframeClient},
     correlation::CorrelatableFrame,
     rewind_stream::RewindStream,
+    serializer::BincodeSerializer,
 };
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;

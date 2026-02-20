@@ -5,10 +5,9 @@
 //! IDs for error testing scenarios.
 
 use wireframe::{
-    BincodeSerializer,
-    Serializer,
     app::{Envelope, Packet},
     correlation::CorrelatableFrame,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 /// Server mode for testing various correlation ID scenarios.

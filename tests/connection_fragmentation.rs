@@ -8,8 +8,8 @@ use std::{io, num::NonZeroUsize, time::Duration};
 
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    ConnectionActor,
     app::{Envelope, Packet},
+    connection::ConnectionActor,
     fragment::{FragmentationConfig, Reassembler, decode_fragment_payload},
     push::{PushHandle, PushQueues},
 };

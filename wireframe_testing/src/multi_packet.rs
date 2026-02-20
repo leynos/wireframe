@@ -3,7 +3,7 @@
 //! These utilities collect all frames from a [`Response::MultiPacket`] into a
 //! `Vec`, enabling concise assertions in tests and Cucumber steps.
 
-use wireframe::Response;
+use wireframe::response::Response;
 
 /// Collect all frames from a [`Response::MultiPacket`].
 ///
@@ -11,7 +11,7 @@ use wireframe::Response;
 ///
 /// ```rust
 /// use tokio::sync::mpsc;
-/// use wireframe::Response;
+/// use wireframe::response::Response;
 /// use wireframe_testing::collect_multi_packet;
 ///
 /// # async fn demo() {

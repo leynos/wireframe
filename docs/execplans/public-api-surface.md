@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 `PLANS.md` is not present in this repository at the time this plan was drafted.
 
@@ -57,17 +57,26 @@ optional convenience prelude. Test-only helpers become private to tests (or to
 ## Progress
 
 - [x] (2026-02-18) Drafted ExecPlan for public API surface cleanup.
-- [ ] Define target root API map and progressive discovery tiers.
-- [ ] Refactor `src/lib.rs` exports to the target map.
-- [ ] Tighten module visibility (`pub` to `pub(crate)` where applicable).
-- [ ] Remove public test-only reachability from production builds.
-- [ ] Update migration guide and user docs.
-- [ ] Run full quality gates.
+- [x] Define target root API map and progressive discovery tiers.
+- [x] Refactor `src/lib.rs` exports to the target map.
+- [x] Tighten module visibility (`pub` to `pub(crate)` where applicable).
+- [x] Remove public test-only reachability from production builds.
+- [x] Update migration guide and user docs.
+- [x] Run full quality gates.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: Plan-only phase. Impact: None yet.
+- Observation: Root re-export pruning required broad import rewrites across
+  tests, examples, and client test modules. Evidence:
+  `git diff --name-only | wc -l` returned `60` touched files. Impact: At the
+  tolerance boundary, and required iterative compile repair loops before moving
+  to full quality gates.
+
+- Observation: `connection::test_support` was publicly reachable in non-test
+  builds via `cfg(not(loom))`. Evidence: `src/connection/mod.rs` exported
+  `pub mod test_support` with only `not(loom)` gating. Impact: Tightened to
+  `cfg(all(not(loom), any(test, feature = "test-support")))` to keep it out of
+  normal production builds.
 
 ## Decision Log
 
@@ -79,9 +88,36 @@ optional convenience prelude. Test-only helpers become private to tests (or to
   Rationale: Module paths communicate conceptual ownership and reduce root
   clutter. Date/Author: 2026-02-18 / Codex.
 
+- Decision: Keep crate-root exports to canonical error/result aliases and move
+  high-frequency ergonomics to `wireframe::prelude`. Rationale: This preserves
+  a stable minimal root while still offering optional convenience imports.
+  Date/Author: 2026-02-19 / Codex.
+
+- Decision: Preserve the `test-support` feature for integration-test workflows
+  while removing default-build exposure of connection test helpers. Rationale:
+  Internal and companion tests continue to work without exposing test-only
+  helpers in standard library builds. Date/Author: 2026-02-19 / Codex.
+
 ## Outcomes & Retrospective
 
-Not started. Populate after implementation milestones complete.
+Completed implementation outcomes:
+
+- Root API was reduced to canonical error/result aliases with detailed APIs
+  now discovered through module namespaces.
+- `wireframe::prelude` was introduced as an optional ergonomics layer for
+  common imports.
+- `connection::test_support` is no longer reachable in normal builds.
+- Migration and user documentation now describe module-based imports and
+  include explicit before/after mappings for removed root re-exports.
+
+Validation outcomes:
+
+- `make fmt` passed.
+- `make check-fmt` passed.
+- `make lint` passed.
+- `make test` passed.
+- `make markdownlint` passed.
+- `make nixie` passed.
 
 ## Context and orientation
 
@@ -185,7 +221,7 @@ No new external dependencies are planned.
 
 Expected interface shape:
 
-- `wireframe::` root exposes only canonical high-level entry points.
+- `wireframe::` root exposes only canonical error/result aliases.
 - `wireframe::<module>::...` is the default path for specialized APIs.
 - `wireframe::prelude::*` is optional convenience, not mandatory coupling.
 

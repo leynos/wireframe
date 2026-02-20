@@ -10,7 +10,7 @@ use std::time::Duration;
 use futures::TryStreamExt;
 use tokio::time::sleep;
 use tracing::info;
-use wireframe::{Response, WireframeError};
+use wireframe::{WireframeError, response::Response};
 
 const TRANSCRIPT: &[&str] = &[
     "Client: HELLO",

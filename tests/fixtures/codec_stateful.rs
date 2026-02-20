@@ -18,10 +18,9 @@ use tokio::{
 };
 use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
 use wireframe::{
-    Serializer,
     app::{Envelope, WireframeApp},
     codec::FrameCodec,
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;

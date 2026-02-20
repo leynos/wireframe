@@ -13,12 +13,11 @@ use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::{
-    BincodeSerializer,
-    Serializer,
-    WireframeClient,
     app::Packet,
+    client::WireframeClient,
     correlation::CorrelatableFrame,
     rewind_stream::RewindStream,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 // ---------------------------------------------------------------------------

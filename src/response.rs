@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use futures::{StreamExt, stream};
-//! use wireframe::Response;
+//! use wireframe::response::Response;
 //!
 //! # type Frame = u8;
 //! # type Error = ();
@@ -78,7 +78,7 @@ pub enum Response<F, E = ()> {
     ///
     /// ```rust,no_run
     /// use tokio::sync::mpsc;
-    /// use wireframe::Response;
+    /// use wireframe::response::Response;
     ///
     /// async fn demo() {
     ///     let (tx, rx) = mpsc::channel(1);
@@ -134,7 +134,7 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
     ///
     /// ```rust,no_run
     /// use tokio::spawn;
-    /// use wireframe::Response;
+    /// use wireframe::response::Response;
     ///
     /// async fn stream_frames() -> (tokio::sync::mpsc::Sender<u8>, Response<u8>) {
     ///     let (sender, response) = Response::with_channel(8);
@@ -168,7 +168,7 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
     ///
     /// ```
     /// use futures::TryStreamExt;
-    /// use wireframe::Response;
+    /// use wireframe::response::Response;
     ///
     /// # async fn demo() {
     /// let (tx, rx) = tokio::sync::mpsc::channel(1);

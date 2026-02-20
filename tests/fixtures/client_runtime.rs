@@ -15,10 +15,10 @@ use rstest::fixture;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    BincodeSerializer,
     WireframeError,
     client::{ClientCodecConfig, ClientError, ClientProtocolError, WireframeClient},
     rewind_stream::RewindStream,
+    serializer::BincodeSerializer,
 };
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;

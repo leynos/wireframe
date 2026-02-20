@@ -10,11 +10,10 @@ use bytes::BytesMut;
 use rstest::rstest;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
-    Serializer,
     app::{Envelope, Packet, WireframeApp},
     frame::{Endianness, LengthFormat},
     message::Message,
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{
     TestApp,

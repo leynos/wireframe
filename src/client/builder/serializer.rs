@@ -12,7 +12,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// use wireframe::{BincodeSerializer, client::WireframeClientBuilder};
+    /// use wireframe::{client::WireframeClientBuilder, serializer::BincodeSerializer};
     ///
     /// let builder = WireframeClientBuilder::new().serializer(BincodeSerializer);
     /// let _ = builder;

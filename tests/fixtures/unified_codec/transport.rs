@@ -12,7 +12,6 @@ use futures::{SinkExt, StreamExt};
 use tokio::{io::AsyncWriteExt, time::timeout};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    Serializer,
     app::{Envelope, Packet},
     fragment::{
         FragmentationConfig,
@@ -21,7 +20,7 @@ use wireframe::{
         decode_fragment_payload,
         encode_fragment_payload,
     },
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 use self::unified_codec_transport::{recv_one, send_one};

@@ -5,6 +5,16 @@ with pluggable routing, middleware, and connection utilities.[^1] The guide
 below walks through the components that exist today and explains how they work
 together when assembling an application.
 
+## API discovery and imports
+
+Wireframe uses progressive discovery for public APIs:
+
+- `wireframe::` root is intentionally small and stable, exposing canonical
+  `Result` and `WireframeError`.
+- `wireframe::<module>::...` is the default path for specialized APIs.
+- `wireframe::prelude::*` is an optional convenience import for common
+  workflows.
+
 ## Quick start: building an application
 
 A `WireframeApp` collects route handlers and middleware. Each handler is stored
@@ -290,7 +300,10 @@ The `WireframeProtocol` trait includes an `on_eof` hook for handling EOF
 conditions during frame decoding:
 
 ```rust,ignore
-use wireframe::{ConnectionContext, EofError, WireframeProtocol};
+use wireframe::{
+    codec::EofError,
+    hooks::{ConnectionContext, WireframeProtocol},
+};
 
 impl WireframeProtocol for MyProtocol {
     type Frame = Vec<u8>;
@@ -1081,7 +1094,7 @@ system, enabling consistent instrumentation across both client and server.[^48]
 use std::{net::SocketAddr, sync::Arc};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use wireframe::WireframeClient;
+use wireframe::client::WireframeClient;
 
 struct SessionState {
     request_count: AtomicUsize,
@@ -1144,10 +1157,10 @@ use std::net::SocketAddr;
 
 use wireframe::{
     app::{Envelope, Packet},
-    WireframeClient,
+    client::{ClientError, WireframeClient},
 };
 
-# async fn example() -> Result<(), wireframe::ClientError> {
+# async fn example() -> Result<(), ClientError> {
 let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
 let mut client = WireframeClient::builder()
     .connect(addr)
@@ -1171,8 +1184,8 @@ separately:
 
 ```rust,no_run
 use wireframe::app::{Envelope, Packet};
-# use wireframe::WireframeClient;
-# async fn example(client: &mut WireframeClient) -> Result<(), wireframe::ClientError> {
+# use wireframe::client::{ClientError, WireframeClient};
+# async fn example(client: &mut WireframeClient) -> Result<(), ClientError> {
 
 // Auto-generate correlation ID when sending.
 let envelope = Envelope::new(1, None, b"payload".to_vec());
@@ -1429,7 +1442,7 @@ also prevents other client I/O until the stream is dropped or drained.
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
-use wireframe::{ClientError, WireframeClient, app::Envelope};
+use wireframe::{app::Envelope, client::{ClientError, WireframeClient}};
 
 # #[tokio::main]
 # async fn main() -> Result<(), ClientError> {
@@ -1459,7 +1472,7 @@ consumed:
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
-use wireframe::{ClientError, WireframeClient, app::Envelope};
+use wireframe::{app::Envelope, client::{ClientError, WireframeClient}};
 
 # #[tokio::main]
 # async fn main() -> Result<(), ClientError> {

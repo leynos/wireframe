@@ -76,7 +76,8 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     /// The default implementation returns `false`. Protocol implementations
     /// should override this to detect the protocol-specific terminator format
     /// emitted by the server's
-    /// [`stream_end_frame`](crate::WireframeProtocol::stream_end_frame) hook.
+    /// [`stream_end_frame`](crate::hooks::WireframeProtocol::stream_end_frame)
+    /// hook.
     ///
     /// # Examples
     ///

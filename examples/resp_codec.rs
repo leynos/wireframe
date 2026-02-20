@@ -17,8 +17,8 @@ mod resp_codec_impl;
 
 pub use resp_codec_impl::{codec::RespFrameCodec, frame::RespFrame};
 use wireframe::{
-    BincodeSerializer,
     app::{Envelope, WireframeApp},
+    serializer::BincodeSerializer,
 };
 
 fn main() -> io::Result<()> {

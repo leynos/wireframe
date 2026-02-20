@@ -8,9 +8,9 @@
 use std::io;
 
 use wireframe::{
-    BincodeSerializer,
     app::{Envelope, WireframeApp},
     codec::examples::HotlineFrameCodec,
+    serializer::BincodeSerializer,
 };
 
 fn main() -> io::Result<()> {

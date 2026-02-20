@@ -7,9 +7,9 @@ use rstest::rstest;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    CorrelatableFrame,
     app::Envelope,
     connection::{ConnectionActor, ConnectionChannels},
+    correlation::CorrelatableFrame,
     hooks::{ConnectionContext, ProtocolHooks},
     push::PushQueues,
     response::FrameStream,

@@ -8,7 +8,8 @@ use super::{ExtractError, FromMessageRequest, MessageRequest, Payload};
 /// takes ownership of a streaming body channel. Handlers opting into
 /// streaming receive chunks incrementally via a [`RequestBodyStream`].
 ///
-/// This type is the inbound counterpart to [`crate::Response::Stream`].
+/// This type is the inbound counterpart to
+/// [`crate::response::Response::Stream`].
 ///
 /// # Examples
 ///
