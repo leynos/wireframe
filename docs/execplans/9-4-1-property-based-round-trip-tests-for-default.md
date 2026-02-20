@@ -202,7 +202,6 @@ Reference documents that inform this plan:
 - `docs/hardening-wireframe-a-guide-to-production-resilience.md`
 - `docs/rust-testing-with-rstest-fixtures.md`
 - `docs/reliable-testing-in-rust-via-dependency-injection.md`
-- `docs/behavioural-testing-in-rust-with-cucumber.md` (historical context)
 - `docs/rstest-bdd-users-guide.md`
 - `docs/rust-doctest-dry-guide.md`
 

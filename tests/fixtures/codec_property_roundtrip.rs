@@ -142,6 +142,10 @@ impl CodecPropertyRoundtripWorld {
         GeneratedStrategy: Strategy<Value = Value>,
         CaseFn: Fn(Value) -> Result<(), TestCaseError>,
     {
+        if self.cases == 0 {
+            return Err("generated case count must be configured before running checks".into());
+        }
+
         let mut runner = deterministic_runner(self.cases);
         runner
             .run(&strategy, run_case)
