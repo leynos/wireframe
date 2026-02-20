@@ -83,7 +83,7 @@ owning modules, and root re-exports were removed.
 
 - Root now exposes canonical `wireframe::Result<T>` and
   `wireframe::WireframeError`.
-- Use `wireframe::<module>::...` for specialised APIs.
+- Use `wireframe::<module>::...` for specialized APIs.
 - `wireframe::prelude::*` is available as an optional convenience import for
   high-frequency types.
 
@@ -101,35 +101,42 @@ owning modules, and root re-exports were removed.
   `wireframe::WireframeProtocol` ->
   `wireframe::hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol}`
 - `wireframe::ClientCodecConfig`, `wireframe::ClientError`,
-  `wireframe::ClientProtocolError`, `wireframe::ClientWireframeError`,
-  `wireframe::SocketOptions`, `wireframe::WireframeClient` ->
-  `wireframe::client::{...}`
+  `wireframe::ClientProtocolError` -> `wireframe::client::{...}`
+- `wireframe::ClientWireframeError`, `wireframe::SocketOptions`,
+  `wireframe::WireframeClient` -> `wireframe::client::{...}`
 - `wireframe::CodecError`, `wireframe::CodecErrorContext`,
-  `wireframe::DefaultRecoveryPolicy`, `wireframe::EofError`,
-  `wireframe::FrameCodec`, `wireframe::FramingError`,
-  `wireframe::LengthDelimitedFrameCodec`, `wireframe::MAX_FRAME_LENGTH`,
-  `wireframe::MIN_FRAME_LENGTH`, `wireframe::ProtocolError`,
+  `wireframe::DefaultRecoveryPolicy`, `wireframe::EofError` ->
+  `wireframe::codec::{...}`
+- `wireframe::FrameCodec`, `wireframe::FramingError`,
+  `wireframe::LengthDelimitedFrameCodec`, `wireframe::MAX_FRAME_LENGTH` ->
+  `wireframe::codec::{...}`
+- `wireframe::MIN_FRAME_LENGTH`, `wireframe::ProtocolError`,
   `wireframe::RecoveryConfig`, `wireframe::RecoveryPolicy`,
   `wireframe::RecoveryPolicyHook` -> `wireframe::codec::{...}`
 - `wireframe::DefaultFragmentAdapter`, `wireframe::FRAGMENT_MAGIC`,
-  `wireframe::FragmentAdapter`, `wireframe::FragmentAdapterError`,
-  `wireframe::FragmentBatch`, `wireframe::FragmentError`,
+  `wireframe::FragmentAdapter`, `wireframe::FragmentAdapterError` ->
+  `wireframe::fragment::{...}`
+- `wireframe::FragmentBatch`, `wireframe::FragmentError`,
   `wireframe::FragmentFrame`, `wireframe::FragmentHeader`,
-  `wireframe::FragmentIndex`, `wireframe::FragmentSeries`,
-  `wireframe::FragmentStatus`, `wireframe::FragmentationConfig`,
+  `wireframe::FragmentIndex`, `wireframe::FragmentSeries` ->
+  `wireframe::fragment::{...}`
+- `wireframe::FragmentStatus`, `wireframe::FragmentationConfig`,
   `wireframe::FragmentationError`, `wireframe::Fragmenter`,
-  `wireframe::MessageId`, `wireframe::ReassembledMessage`,
-  `wireframe::Reassembler`, `wireframe::ReassemblyError`,
+  `wireframe::MessageId`, `wireframe::ReassembledMessage` ->
+  `wireframe::fragment::{...}`
+- `wireframe::Reassembler`, `wireframe::ReassemblyError`,
   `wireframe::decode_fragment_payload`, `wireframe::encode_fragment_payload`,
   `wireframe::fragment_overhead` -> `wireframe::fragment::{...}`
 - `wireframe::AssembledMessage`, `wireframe::ContinuationFrameHeader`,
-  `wireframe::FirstFrameHeader`, `wireframe::FirstFrameInput`,
-  `wireframe::FirstFrameInputError`, `wireframe::FrameHeader`,
+  `wireframe::FirstFrameHeader`, `wireframe::FirstFrameInput` ->
+  `wireframe::message_assembler::{...}`
+- `wireframe::FirstFrameInputError`, `wireframe::FrameHeader`,
   `wireframe::FrameSequence`, `wireframe::MessageAssembler`,
-  `wireframe::MessageAssemblyError`, `wireframe::MessageAssemblyState`,
-  `wireframe::MessageKey`, `wireframe::MessageSeries`,
-  `wireframe::MessageSeriesError`, `wireframe::MessageSeriesStatus`,
-  `wireframe::ParsedFrameHeader` -> `wireframe::message_assembler::{...}`
+  `wireframe::MessageAssemblyError` -> `wireframe::message_assembler::{...}`
+- `wireframe::MessageAssemblyState`, `wireframe::MessageKey`,
+  `wireframe::MessageSeries`, `wireframe::MessageSeriesError`,
+  `wireframe::MessageSeriesStatus`, `wireframe::ParsedFrameHeader` ->
+  `wireframe::message_assembler::{...}`
 - `wireframe::CODEC_ERRORS`, `wireframe::CONNECTIONS_ACTIVE`,
   `wireframe::Direction`, `wireframe::ERRORS_TOTAL`,
   `wireframe::FRAMES_PROCESSED` -> `wireframe::metrics::{...}`

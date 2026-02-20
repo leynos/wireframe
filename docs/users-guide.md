@@ -11,7 +11,7 @@ Wireframe uses progressive discovery for public APIs:
 
 - `wireframe::` root is intentionally small and stable, exposing canonical
   `Result` and `WireframeError`.
-- `wireframe::<module>::...` is the default path for specialised APIs.
+- `wireframe::<module>::...` is the default path for specialized APIs.
 - `wireframe::prelude::*` is an optional convenience import for common
   workflows.
 
