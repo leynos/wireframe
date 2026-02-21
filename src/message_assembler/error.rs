@@ -107,4 +107,26 @@ pub enum MessageAssemblyError {
         /// Configured size cap.
         limit: NonZeroUsize,
     },
+
+    /// Accepting this frame would exceed the per-connection buffering budget.
+    #[error("connection budget exceeded for key {key}: {attempted} bytes > {limit} bytes")]
+    ConnectionBudgetExceeded {
+        /// Message key whose frame triggered the guard.
+        key: MessageKey,
+        /// Total bytes that would result from accepting the frame.
+        attempted: usize,
+        /// Configured per-connection byte cap.
+        limit: NonZeroUsize,
+    },
+
+    /// Accepting this frame would exceed the in-flight assembly byte budget.
+    #[error("in-flight budget exceeded for key {key}: {attempted} bytes > {limit} bytes")]
+    InFlightBudgetExceeded {
+        /// Message key whose frame triggered the guard.
+        key: MessageKey,
+        /// Total bytes that would result from accepting the frame.
+        attempted: usize,
+        /// Configured in-flight byte cap.
+        limit: NonZeroUsize,
+    },
 }

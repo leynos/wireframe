@@ -3,6 +3,7 @@
 //! Each world from the former Cucumber tests is converted to an rstest fixture
 //! here.
 
+pub mod budget_enforcement;
 pub mod client_lifecycle;
 pub mod client_messaging;
 pub mod client_preamble;

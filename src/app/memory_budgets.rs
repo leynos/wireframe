@@ -2,8 +2,8 @@
 //!
 //! `MemoryBudgets` stores explicit byte caps configured on
 //! [`crate::app::WireframeApp`] via `WireframeApp::memory_budgets(...)`.
-//! This module only exposes configuration; enforcement lands in a future
-//! iteration.
+//! Enforcement is wired through `MessageAssemblyState::with_budgets` so
+//! that frames exceeding any budget dimension are rejected at assembly time.
 
 use std::num::NonZeroUsize;
 

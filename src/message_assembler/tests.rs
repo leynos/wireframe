@@ -201,3 +201,10 @@ mod series_tests;
 
 #[path = "state_tests.rs"]
 mod state_tests;
+
+// =============================================================================
+// Budget enforcement tests (8.3.2) - see budget_tests.rs
+// =============================================================================
+
+#[path = "budget_tests.rs"]
+mod budget_tests;
