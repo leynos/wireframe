@@ -1308,7 +1308,10 @@ invokes protocol hooks, records metrics for outbound frames, and returns a
 `WireframeError` when the response stream hits an I/O problem.[^30][^33] Active
 connection counts are tracked with a guard that increments on creation and
 decrements on drop; the `active_connection_count()` helper exposes the current
-gauge.[^31]
+gauge.[^31] Interleaved high- and low-priority push behaviour is validated by
+the test suite: the shared rate limiter enforces symmetrical throughput caps
+across both queues, and `FairnessConfig` prevents low-priority starvation
+during sustained high-priority bursts.
 
 ## Session management
 

@@ -17,6 +17,7 @@ mod codec_property_roundtrip_scenarios;
 mod codec_stateful_scenarios;
 mod correlation_scenarios;
 mod fragment_scenarios;
+mod interleaved_push_queues_scenarios;
 mod memory_budgets_scenarios;
 mod message_assembler_scenarios;
 mod message_assembly_inbound_scenarios;

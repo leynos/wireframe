@@ -13,6 +13,7 @@ mod codec_property_roundtrip_steps;
 mod codec_stateful_steps;
 mod correlation_steps;
 mod fragment_steps;
+mod interleaved_push_queues_steps;
 mod memory_budgets_steps;
 mod message_assembler_steps;
 mod message_assembly_inbound_steps;

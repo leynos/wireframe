@@ -472,7 +472,7 @@ behavioural guarantees.
 - [x] 10.3.1. Support `Response::Stream` and `Response::MultiPacket` on the
   client by propagating back-pressure, validating terminator frames, and
   draining push traffic without starving request-driven responses.
-- [ ] 10.3.2. Exercise interleaved high- and low-priority push queues to prove
+- [x] 10.3.2. Exercise interleaved high- and low-priority push queues to prove
   fairness and rate limits remain symmetrical.
 
 ### 10.4. Documentation and examples
