@@ -18,7 +18,12 @@ use crate::{
     frame::FrameMetadata,
     preamble::Preamble,
     serializer::Serializer,
-    server::{AppFactory, PreambleFailure, PreambleHandler, connection::spawn_connection_task},
+    server::{
+        AppFactory,
+        PreambleFailure,
+        PreambleHandler,
+        connection_spawner::spawn_connection_task,
+    },
 };
 
 /// Abstraction for sources of incoming connections consumed by the accept loop.

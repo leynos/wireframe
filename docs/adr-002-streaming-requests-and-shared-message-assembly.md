@@ -137,7 +137,7 @@ sequenceDiagram
 
 #### Implementation decisions (2026-02-12)
 
-- The inbound integration seam for this ADR is `src/app/connection.rs` and
+- The inbound integration seam for this ADR is `src/app/inbound_handler.rs` and
   `src/app/frame_handling/`, not `src/connection/`, because inbound decode and
   dispatch already occur in the app-layer connection loop.
 - Message-assembly parsing, length, and continuity violations are treated as

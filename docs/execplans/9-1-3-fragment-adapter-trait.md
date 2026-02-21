@@ -189,7 +189,8 @@ Current app integration points are:
 
 - `src/app/builder/core.rs` and `src/app/builder/codec.rs`, where
   `default_fragmentation(...)` currently auto-enables fragmentation.
-- `src/app/connection.rs`, which instantiates optional fragmentation state and
+- `src/app/inbound_handler.rs`, which instantiates optional fragmentation state
+  and
   calls purge on read-timeout ticks.
 - `src/app/frame_handling/response.rs` and
   `src/app/frame_handling/reassembly.rs`, which apply fragmentation and
@@ -278,7 +279,7 @@ Go/no-go:
 2. Refactor connection-facing adapter implementation:
    `src/app/fragmentation_state.rs`, `src/app/frame_handling/core.rs`,
    `src/app/frame_handling/reassembly.rs`,
-   `src/app/frame_handling/response.rs`, `src/app/connection.rs`.
+   `src/app/frame_handling/response.rs`, `src/app/inbound_handler.rs`.
 
 3. Enforce opt-in builder behaviour:
    `src/app/builder_defaults.rs`, `src/app/builder/core.rs`,

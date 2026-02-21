@@ -160,7 +160,7 @@ The `HotlineFrameCodec::wrap_payload()` method copies:
 
 ### Primary Usage Site
 
-The connection handling code in `src/app/connection.rs` calls
+The connection handling code in `src/app/inbound_handler.rs` calls
 `F::frame_payload(frame)` to extract payload bytes for envelope parsing. This
 works with `&[u8]` and would also work with `Bytes` via `as_ref()`.
 
