@@ -7,6 +7,7 @@
 #[path = "../steps/mod.rs"]
 pub(crate) mod steps;
 
+mod budget_enforcement_scenarios;
 mod client_lifecycle_scenarios;
 mod client_messaging_scenarios;
 mod client_preamble_scenarios;

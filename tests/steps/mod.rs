@@ -3,6 +3,7 @@
 //! Step functions are synchronous and call async world methods via
 //! `Runtime::new().block_on(...)`.
 
+mod budget_enforcement_steps;
 mod client_lifecycle_steps;
 mod client_messaging_steps;
 mod client_preamble_steps;

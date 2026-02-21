@@ -296,6 +296,25 @@ Precedence is:
   back-pressure behaviour, and derived defaults remain in follow-on items
   `8.3.2` through `8.3.5`.
 
+#### Implementation decisions (2026-02-21)
+
+- Roadmap item `8.3.2` implements hard-cap budget enforcement in
+  `MessageAssemblyState`. Budget tracking is embedded directly in the assembly
+  state rather than a separate wrapper, since the state already owns all
+  assembly lifecycle.
+- A new `with_budgets()` constructor accepts optional `connection_budget`
+  and `in_flight_budget` limits. The integration layer (`assembly.rs`) threads
+  `MemoryBudgets` from `WireframeApp` and computes the effective per-message
+  limit as `min(max_message_size, bytes_per_message)`.
+- Budget checks are applied after single-frame early return (single-frame
+  messages are never buffered and skip aggregate checks).
+- On budget violation the offending partial assembly is freed and the error
+  is surfaced as `ConnectionBudgetExceeded` or `InFlightBudgetExceeded`, both
+  routed through the existing `DeserFailureTracker` as `InvalidData`.
+- Budget enforcement helpers are extracted to `src/message_assembler/budget.rs`
+  to keep `state.rs` under the 400-line file limit.
+- Back-pressure (`8.3.3`) and derived defaults (`8.3.5`) remain future work.
+
 #### Budget enforcement
 
 - Budgets MUST cover: bytes buffered per message, bytes buffered per

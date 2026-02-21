@@ -20,6 +20,7 @@
 //! - Duplicate frames (already-processed sequences)
 //! - Frames arriving after the series is complete
 
+mod budget;
 pub mod error;
 mod header;
 pub mod series;
