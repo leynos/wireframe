@@ -144,7 +144,7 @@ pub struct PacketParts {
 /// Basic envelope type used by
 /// [`crate::app::builder::WireframeApp::handle_connection`].
 ///
-/// Incoming packets are deserialised into an `Envelope` containing the
+/// Incoming packets are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
 #[derive(bincode::Decode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
 pub struct Envelope {

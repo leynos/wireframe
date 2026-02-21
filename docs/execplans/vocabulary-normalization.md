@@ -100,7 +100,7 @@ Completed implementation outcomes:
 - Created `docs/developers-guide.md` to define naming invariants and
   allowed/disallowed term mixing.
 - Updated `docs/v0-1-0-to-v0-2-0-migration-guide.md` with explicit
-  terminology mapping and a no-additional-public-rename note.
+  terminology mapping and a note that no additional public renames were made.
 - Updated terminology wording in public rustdoc and references
   (`src/app/envelope.rs`, `docs/api.md`, `docs/contents.md`).
 

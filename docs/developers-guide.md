@@ -25,22 +25,22 @@ APIs and refactors.
 
 ## Allowed aliases and prohibited mixing
 
-| Canonical term    | Allowed aliases                | Avoid in the same context                 |
-| ----------------- | ------------------------------ | ----------------------------------------- |
-| Frame             | wire frame, transport frame    | packet, envelope, message                 |
-| Packet / Envelope | routable envelope              | frame (unless describing codec transport) |
-| Message           | payload type, domain message   | frame, fragment                           |
-| Fragment          | fragment frame, fragment chunk | packet, message                           |
+| Canonical term    | Allowed aliases              | Avoid in the same context                 |
+| ----------------- | ---------------------------- | ----------------------------------------- |
+| Frame             | wire frame, transport frame  | packet, envelope, message                 |
+| Packet / Envelope | routable envelope            | frame (unless describing codec transport) |
+| Message           | payload type, domain message | frame, fragment                           |
+| Fragment          | fragment chunk               | packet, message                           |
 
 ## API and docs checklist
 
 Use this checklist before merging API naming changes:
 
 - Confirm the identifier name matches the owning layer.
-- Confirm rustdoc examples use the same term as the symbol being documented.
-- Confirm `docs/users-guide.md` and migration notes describe the same meaning.
-- Confirm cross-layer terms (for example, `correlation_id`) are explicitly
-  labelled as shared metadata.
+- Ensure rustdoc examples use the same term as the symbol being documented.
+- Verify `docs/users-guide.md` and migration notes describe the same meaning.
+- Label cross-layer terms (for example, `correlation_id`) explicitly as shared
+  metadata.
 
 ## Vocabulary normalization outcome (2026-02-20)
 
