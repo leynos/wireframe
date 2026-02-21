@@ -13,6 +13,7 @@ use std::{
 use super::{
     ContinuationFrameHeader,
     MessageKey,
+    budget::{AggregateBudgets, check_aggregate_budgets, check_size_limit},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     series::MessageSeries,
     types::{AssembledMessage, EnvelopeRouting, FirstFrameInput},
@@ -44,6 +45,9 @@ impl PartialAssembly {
     fn set_metadata(&mut self, data: Vec<u8>) { self.metadata = data; }
 
     fn accumulated_len(&self) -> usize { self.body_buffer.len() }
+
+    /// Total heap bytes held by this partial assembly (body + metadata).
+    fn buffered_bytes(&self) -> usize { self.body_buffer.len().saturating_add(self.metadata.len()) }
 }
 
 /// Stateful manager for multiple concurrent message assemblies.
@@ -109,6 +113,7 @@ pub struct MessageAssemblyState {
     max_message_size: NonZeroUsize,
     timeout: Duration,
     assemblies: HashMap<MessageKey, PartialAssembly>,
+    budgets: AggregateBudgets,
 }
 
 impl MessageAssemblyState {
@@ -120,10 +125,29 @@ impl MessageAssemblyState {
     /// * `timeout` - Duration after which partial assemblies are purged.
     #[must_use]
     pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self {
+        Self::with_budgets(max_message_size, timeout, None, None)
+    }
+
+    /// Create a new assembly state manager with optional aggregate budgets.
+    ///
+    /// When `connection_budget` or `in_flight_budget` is `Some`, frames that
+    /// would cause the total buffered bytes across all in-flight assemblies
+    /// to exceed the respective limit are rejected.
+    #[must_use]
+    pub fn with_budgets(
+        max_message_size: NonZeroUsize,
+        timeout: Duration,
+        connection_budget: Option<NonZeroUsize>,
+        in_flight_budget: Option<NonZeroUsize>,
+    ) -> Self {
         Self {
             max_message_size,
             timeout,
             assemblies: HashMap::new(),
+            budgets: AggregateBudgets {
+                connection: connection_budget,
+                in_flight: in_flight_budget,
+            },
         }
     }
 
@@ -193,6 +217,16 @@ impl MessageAssemblyState {
             )));
         }
 
+        // Check aggregate budgets before buffering (single-frame messages
+        // are returned above and never counted against aggregate budgets).
+        let incoming_bytes = input.body.len().saturating_add(input.metadata.len());
+        check_aggregate_budgets(
+            key,
+            self.total_buffered_bytes(),
+            incoming_bytes,
+            &self.budgets,
+        )?;
+
         // Start new assembly, preserving envelope routing metadata from the
         // first frame so the completed message is dispatched correctly.
         let mut partial = PartialAssembly::new(series, input.routing, now);
@@ -237,34 +271,6 @@ impl MessageAssemblyState {
         )
     }
 
-    /// Check if accumulated size plus new body would exceed the limit.
-    ///
-    /// Returns the new total size on success.
-    fn check_size_limit(
-        max_message_size: NonZeroUsize,
-        key: MessageKey,
-        accumulated: usize,
-        body_len: usize,
-    ) -> Result<usize, MessageAssemblyError> {
-        let Some(new_len) = accumulated.checked_add(body_len) else {
-            return Err(MessageAssemblyError::MessageTooLarge {
-                key,
-                attempted: usize::MAX,
-                limit: max_message_size,
-            });
-        };
-
-        if new_len > max_message_size.get() {
-            return Err(MessageAssemblyError::MessageTooLarge {
-                key,
-                attempted: new_len,
-                limit: max_message_size,
-            });
-        }
-
-        Ok(new_len)
-    }
-
     /// Process a continuation frame with an explicit timestamp.
     ///
     /// See [`accept_continuation_frame`](Self::accept_continuation_frame) for
@@ -295,6 +301,11 @@ impl MessageAssemblyState {
             ));
         }
 
+        // Snapshot budget state before the mutable entry borrow.
+        let max_message_size = self.max_message_size;
+        let budgets = self.budgets;
+        let buffered_total = self.total_buffered_bytes();
+
         let Entry::Occupied(mut entry) = self.assemblies.entry(key) else {
             return Err(MessageAssemblyError::Series(
                 MessageSeriesError::MissingFirstFrame { key },
@@ -314,8 +325,13 @@ impl MessageAssemblyState {
 
         // Check size limit
         let accumulated = entry.get().accumulated_len();
-        if let Err(e) = Self::check_size_limit(self.max_message_size, key, accumulated, body.len())
-        {
+        if let Err(e) = check_size_limit(max_message_size, key, accumulated, body.len()) {
+            entry.remove();
+            return Err(e);
+        }
+
+        // Check aggregate budgets
+        if let Err(e) = check_aggregate_budgets(key, buffered_total, body.len(), &budgets) {
             entry.remove();
             return Err(e);
         }
@@ -357,6 +373,17 @@ impl MessageAssemblyState {
         });
 
         evicted
+    }
+
+    /// Total bytes buffered across all in-flight assemblies.
+    ///
+    /// Includes both body and metadata bytes for each partial assembly.
+    #[must_use]
+    pub fn total_buffered_bytes(&self) -> usize {
+        self.assemblies
+            .values()
+            .map(PartialAssembly::buffered_bytes)
+            .sum()
     }
 
     /// Number of partial assemblies currently buffered.
