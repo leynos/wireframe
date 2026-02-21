@@ -1,8 +1,8 @@
 //! Packet abstraction and envelope types.
 //!
-//! These types decouple serialisation from routing by wrapping raw payloads in
+//! These types decouple serialization from routing by wrapping raw payloads in
 //! identifiers understood by [`crate::app::builder::WireframeApp`]. This
-//! allows the builder to route packets before full deserialisation. See
+//! allows the builder to route packets before full deserialization. See
 //! [`crate::app::builder::WireframeApp`] for how envelopes are used when
 //! registering routes.
 

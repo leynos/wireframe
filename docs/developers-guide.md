@@ -6,18 +6,19 @@ APIs and refactors.
 
 ## Layer model and glossary
 
-| Layer                 | Canonical term    | Primary types                                    | Description                                                                         |
-| --------------------- | ----------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| Transport framing     | Frame             | `FrameCodec::Frame`, `LengthDelimitedFrameCodec` | Physical wire unit read from or written to the socket.                              |
-| Routing envelope      | Packet / Envelope | `Packet`, `Envelope`, `PacketParts`              | Routable wrapper that carries route id, optional correlation id, and payload bytes. |
-| Domain payload        | Message           | `message::Message`, extractor `Message<T>`       | Typed application data encoded into packet payload bytes.                           |
-| Transport subdivision | Fragment          | `FragmentHeader`, `Fragmenter`, `Reassembler`    | Size-limited chunk used when a payload exceeds frame budget.                        |
+| Layer                 | Canonical term | Primary types                                    | Description                                                                                                                |
+| --------------------- | -------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Transport framing     | Frame          | `FrameCodec::Frame`, `LengthDelimitedFrameCodec` | Physical wire unit read from or written to the socket.                                                                     |
+| Routing envelope      | Envelope       | `Packet`, `Envelope`, `PacketParts`              | Routable wrapper that carries route id, optional correlation id, and payload bytes (`Packet` names the trait abstraction). |
+| Domain payload        | Message        | `message::Message`, extractor `Message<T>`       | Typed application data encoded into envelope payload bytes.                                                                |
+| Transport subdivision | Fragment       | `FragmentHeader`, `Fragmenter`, `Reassembler`    | Size-limited chunk used when a payload exceeds frame budget.                                                               |
 
 ## Naming invariants
 
 - Frame terms belong to codec and socket boundaries only.
-- Packet or envelope terms belong to routing and middleware request/response
-  wrappers.
+- Envelope terms belong to routing and middleware request/response wrappers;
+  packet is an alias reserved for trait-level abstractions (`Packet`,
+  `PacketParts`).
 - Message terms belong to typed payload encode/decode concerns.
 - Fragment terms belong to transport splitting and reassembly.
 - Correlation identifiers are cross-layer metadata and may appear on frame,
@@ -25,12 +26,12 @@ APIs and refactors.
 
 ## Allowed aliases and prohibited mixing
 
-| Canonical term    | Allowed aliases              | Avoid in the same context                 |
-| ----------------- | ---------------------------- | ----------------------------------------- |
-| Frame             | wire frame, transport frame  | packet, envelope, message                 |
-| Packet / Envelope | routable envelope            | frame (unless describing codec transport) |
-| Message           | payload type, domain message | frame, fragment                           |
-| Fragment          | fragment chunk               | packet, message                           |
+| Canonical term | Allowed aliases                     | Avoid in the same context                 |
+| -------------- | ----------------------------------- | ----------------------------------------- |
+| Frame          | wire frame, transport frame         | packet, envelope, message                 |
+| Envelope       | packet (trait abstraction contexts) | frame (unless describing codec transport) |
+| Message        | payload type, domain message        | frame, fragment                           |
+| Fragment       | fragment chunk                      | packet, message                           |
 
 ## API and docs checklist
 

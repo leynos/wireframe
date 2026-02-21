@@ -20,18 +20,18 @@ Wireframe uses progressive discovery for public APIs:
 Wireframe uses layer-specific terms. Keep these boundaries explicit so
 transport concerns do not leak into routing or domain logic.
 
-| Layer                 | Canonical term    | Meaning                                                                               |
-| --------------------- | ----------------- | ------------------------------------------------------------------------------------- |
-| Transport             | Frame             | The wire unit produced and consumed by `FrameCodec`.                                  |
-| Routing envelope      | Packet / Envelope | The routable wrapper that carries `id`, optional `correlation_id`, and payload bytes. |
-| Domain payload        | Message           | The typed value encoded into and decoded from payload bytes.                          |
-| Transport subdivision | Fragment          | A bounded slice of large payload bytes plus fragmentation metadata.                   |
+| Layer                 | Canonical term | Meaning                                                                                                                   |
+| --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Transport             | Frame          | The wire unit produced and consumed by `FrameCodec`.                                                                      |
+| Routing envelope      | Envelope       | The routable wrapper that carries `id`, optional `correlation_id`, and payload bytes (`Packet` is the trait abstraction). |
+| Domain payload        | Message        | The typed value encoded into and decoded from payload bytes.                                                              |
+| Transport subdivision | Fragment       | A bounded slice of large payload bytes plus fragmentation metadata.                                                       |
 
 Vocabulary rules:
 
 - Use `frame` for wire-format codec units only.
-- Use `packet` or `envelope` for routable wrappers (`Packet`, `Envelope`,
-  `PacketParts`).
+- Use `envelope` for routable wrappers and instances; use `packet` when
+  discussing the `Packet` trait abstraction or `PacketParts`.
 - Use `message` for typed application payloads implementing
   `wireframe::message::Message`.
 - Use `fragment` only for transport-level split/reassembly units.
