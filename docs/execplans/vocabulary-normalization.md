@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE (2026-02-20)
 
 `PLANS.md` is not present in this repository at the time this plan was drafted.
 
@@ -57,18 +57,24 @@ architectural model match.
 ## Progress
 
 - [x] (2026-02-18) Drafted ExecPlan for vocabulary normalization.
-- [ ] Create canonical glossary by architectural layer.
-- [ ] Inventory API symbols and docs text against glossary.
-- [ ] Propose targeted rename set and update map.
-- [ ] Apply code and doc renames.
-- [ ] Create/update developers' guide conceptual model section.
-- [ ] Update migration guide and run quality gates.
+- [x] (2026-02-20) Created canonical glossary by architectural layer.
+- [x] (2026-02-20) Inventoried API symbols and docs text against glossary.
+- [x] (2026-02-20) Proposed targeted rename set and update map.
+- [x] (2026-02-20) Applied code and doc terminology updates.
+- [x] (2026-02-20) Created `docs/developers-guide.md` conceptual model section.
+- [x] (2026-02-20) Updated migration guide and ran quality gates.
 
 ## Surprises & Discoveries
 
 - Observation: `docs/developers-guide.md` is currently absent.
   Evidence: repository file inventory under `docs/`. Impact: this plan must
   include creating the developers' guide.
+
+- Observation: Most ambiguity was in documentation wording, not public symbol
+  names. Evidence: inventory audit across `src`, `docs`, and `README.md` showed
+  `FrameCodec`/`Packet`/`Message`/`Fragment*` symbols already follow layer
+  boundaries. Impact: normalized terminology in docs and rustdoc without
+  additional breaking API renames.
 
 ## Decision Log
 
@@ -81,9 +87,31 @@ architectural model match.
   Rationale: These are the recurring conceptual boundaries in Wireframe APIs.
   Date/Author: 2026-02-18 / Codex.
 
+- Decision: Keep public symbol names unchanged in this pass and normalize
+  wording plus examples instead. Rationale: Existing symbols already mapped
+  cleanly to layers; wording fixes achieved clarity without avoidable churn.
+  Date/Author: 2026-02-20 / Codex.
+
 ## Outcomes & Retrospective
 
-Not started. Populate after implementation milestones complete.
+Completed implementation outcomes:
+
+- Added a canonical layered glossary to `docs/users-guide.md`.
+- Created `docs/developers-guide.md` to define naming invariants and
+  allowed/disallowed term mixing.
+- Updated `docs/v0-1-0-to-v0-2-0-migration-guide.md` with explicit
+  terminology mapping and a note that no additional public renames were made.
+- Updated terminology wording in public rustdoc and references
+  (`src/app/envelope.rs`, `docs/api.md`, `docs/contents.md`).
+
+Validation outcomes:
+
+- `make fmt` passed.
+- `make check-fmt` passed.
+- `make lint` passed.
+- `make test` passed.
+- `make markdownlint` passed.
+- `make nixie` passed.
 
 ## Context and orientation
 
@@ -109,6 +137,9 @@ Potentially touched files:
 - `docs/users-guide.md`
 - `docs/developers-guide.md` (new file expected)
 - `docs/v0-1-0-to-v0-2-0-migration-guide.md`
+- `src/app/envelope.rs`
+- `docs/api.md`
+- `docs/contents.md`
 
 ## Plan of work
 
@@ -191,5 +222,9 @@ Expected interface effects:
 - Cross-layer models are documented explicitly where names are shared.
 - Developers have a stable naming contract in `docs/developers-guide.md`.
 
-Revision note: Initial draft created on 2026-02-18 to plan layer-specific
-vocabulary normalization and conceptual model documentation.
+Revision notes:
+
+- 2026-02-18: Initial draft created to plan layer-specific vocabulary
+  normalization and conceptual model documentation.
+- 2026-02-20: Marked complete after glossary, docs/rustdoc updates, migration
+  mapping updates, and full quality-gate validation.

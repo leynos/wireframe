@@ -1,8 +1,8 @@
 //! Packet abstraction and envelope types.
 //!
-//! These types decouple serialisation from routing by wrapping raw payloads in
+//! These types decouple serialization from routing by wrapping raw payloads in
 //! identifiers understood by [`crate::app::builder::WireframeApp`]. This
-//! allows the builder to route frames before full deserialisation. See
+//! allows the builder to route packets before full deserialization. See
 //! [`crate::app::builder::WireframeApp`] for how envelopes are used when
 //! registering routes.
 
@@ -71,7 +71,7 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     /// Construct a new packet from raw parts.
     fn from_parts(parts: PacketParts) -> Self;
 
-    /// Returns `true` if this frame represents an end-of-stream terminator.
+    /// Returns `true` if this packet represents an end-of-stream terminator.
     ///
     /// The default implementation returns `false`. Protocol implementations
     /// should override this to detect the protocol-specific terminator format
@@ -88,20 +88,20 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     /// };
     ///
     /// #[derive(bincode::BorrowDecode, bincode::Encode)]
-    /// struct MyFrame {
+    /// struct MyEnvelope {
     ///     id: u32,
     ///     correlation_id: Option<u64>,
     ///     payload: Vec<u8>,
     /// }
     ///
-    /// impl CorrelatableFrame for MyFrame {
+    /// impl CorrelatableFrame for MyEnvelope {
     ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     ///     fn set_correlation_id(&mut self, cid: Option<u64>) { self.correlation_id = cid; }
     /// }
     ///
     /// // Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
     ///
-    /// impl Packet for MyFrame {
+    /// impl Packet for MyEnvelope {
     ///     fn id(&self) -> u32 { self.id }
     ///     fn into_parts(self) -> PacketParts {
     ///         PacketParts::new(self.id, self.correlation_id, self.payload)
@@ -116,14 +116,14 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     ///     fn is_stream_terminator(&self) -> bool { self.id == 0 }
     /// }
     ///
-    /// let terminator = MyFrame {
+    /// let terminator = MyEnvelope {
     ///     id: 0,
     ///     correlation_id: None,
     ///     payload: vec![],
     /// };
     /// assert!(terminator.is_stream_terminator());
     ///
-    /// let data = MyFrame {
+    /// let data = MyEnvelope {
     ///     id: 1,
     ///     correlation_id: None,
     ///     payload: vec![42],
@@ -144,7 +144,7 @@ pub struct PacketParts {
 /// Basic envelope type used by
 /// [`crate::app::builder::WireframeApp::handle_connection`].
 ///
-/// Incoming frames are deserialised into an `Envelope` containing the
+/// Incoming packets are deserialized into an `Envelope` containing the
 /// message identifier and raw payload bytes.
 #[derive(bincode::Decode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
 pub struct Envelope {
@@ -206,7 +206,7 @@ impl PacketParts {
         }
     }
 
-    /// Return the message identifier used to route this frame.
+    /// Return the message identifier used to route this packet.
     ///
     /// # Examples
     ///

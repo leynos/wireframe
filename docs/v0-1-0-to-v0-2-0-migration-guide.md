@@ -55,6 +55,25 @@ let packet_payload = packet_parts.into_payload();
 let fragment_payload = fragment_parts.into_payload();
 ```
 
+## Vocabulary normalization by layer
+
+Wireframe now documents one canonical vocabulary per architectural layer in
+`docs/users-guide.md` and `docs/developers-guide.md`.
+
+No additional public symbol renames were introduced in this normalization pass.
+The migration impact is terminology alignment in docs and rustdoc.
+
+| Prior wording                                                 | Canonical wording   | Scope                                    |
+| ------------------------------------------------------------- | ------------------- | ---------------------------------------- |
+| frame identifier (routing context)                            | envelope identifier | `Packet`, `Envelope`, `PacketParts` docs |
+| frame terminator (`Packet::is_stream_terminator` docs)        | envelope terminator | Packet rustdoc and users' guide examples |
+| generic custom packet type named `MyFrame` in packet examples | `MyEnvelope`        | users' guide and rustdoc examples        |
+
+When updating application code, prefer names that follow the same layer model:
+`Frame*` for transport codec units, `Envelope` for routing wrappers, and
+`Message` for typed domain payloads. Use `packet` as a trait-abstraction alias
+where the API explicitly uses `Packet` or `PacketParts`.
+
 ## Unified error surface
 
 Wireframe now exposes one canonical crate-level error type:

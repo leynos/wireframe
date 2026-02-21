@@ -15,6 +15,30 @@ Wireframe uses progressive discovery for public APIs:
 - `wireframe::prelude::*` is an optional convenience import for common
   workflows.
 
+## Conceptual model and vocabulary
+
+Wireframe uses layer-specific terms. Keep these boundaries explicit so
+transport concerns do not leak into routing or domain logic.
+
+| Layer                 | Canonical term | Meaning                                                                                                                   |
+| --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Transport             | Frame          | The wire unit produced and consumed by `FrameCodec`.                                                                      |
+| Routing envelope      | Envelope       | The routable wrapper that carries `id`, optional `correlation_id`, and payload bytes (`Packet` is the trait abstraction). |
+| Domain payload        | Message        | The typed value encoded into and decoded from payload bytes.                                                              |
+| Transport subdivision | Fragment       | A bounded slice of large payload bytes plus fragmentation metadata.                                                       |
+
+Vocabulary rules:
+
+- Use `frame` for wire-format codec units only.
+- Use `envelope` for routable wrappers and instances; use `packet` when
+  discussing the `Packet` trait abstraction or `PacketParts`.
+- Use `message` for typed application payloads implementing
+  `wireframe::message::Message`.
+- Use `fragment` only for transport-level split/reassembly units.
+
+For invariants and naming rules used across internal modules, see the
+[developers' guide](developers-guide.md).
+
 ## Quick start: building an application
 
 A `WireframeApp` collects route handlers and middleware. Each handler is stored
@@ -1396,13 +1420,13 @@ use wireframe::app::{Packet, PacketParts};
 use wireframe::correlation::CorrelatableFrame;
 
 #[derive(bincode::BorrowDecode, bincode::Encode)]
-struct MyFrame {
+struct MyEnvelope {
     id: u32,
     correlation_id: Option<u64>,
     payload: Vec<u8>,
 }
 
-impl CorrelatableFrame for MyFrame {
+impl CorrelatableFrame for MyEnvelope {
     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     fn set_correlation_id(&mut self, cid: Option<u64>) {
         self.correlation_id = cid;
@@ -1411,7 +1435,7 @@ impl CorrelatableFrame for MyFrame {
 
 // Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
 
-impl Packet for MyFrame {
+impl Packet for MyEnvelope {
     fn id(&self) -> u32 { self.id }
     fn into_parts(self) -> PacketParts {
         PacketParts::new(self.id, self.correlation_id, self.payload)
@@ -1423,7 +1447,7 @@ impl Packet for MyFrame {
             payload: parts.into_payload(),
         }
     }
-    // A frame with id == 0 signals end-of-stream.
+    // An envelope with id == 0 signals end-of-stream.
     fn is_stream_terminator(&self) -> bool { self.id == 0 }
 }
 ```

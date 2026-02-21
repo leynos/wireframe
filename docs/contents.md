@@ -55,6 +55,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 
 ## Reference guides
 
+- [Developers' guide](developers-guide.md) Canonical architectural vocabulary
+  and naming invariants.
 - [Refactoring guide](complexity-antipatterns-and-refactoring-strategies.md)
   Strategies for taming code complexity and refactoring.
 - [Builder pattern conventions](builder-pattern-conventions.md) Guidance for
