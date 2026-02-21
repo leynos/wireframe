@@ -392,7 +392,7 @@ integration boundaries.
   actor.[^outbound-design]
   - [x] Route app-level request and response handling through the
     `FramePipeline` so fragmentation and metrics apply consistently.
-  - [x] Remove duplicate codec construction in `src/app/connection.rs`; the
+  - [x] Remove duplicate codec construction in `src/app/inbound_handler.rs`; the
     `FramePipeline` owns outbound fragmentation.
   - [x] Add integration tests covering the unified pipeline (round-trip,
     fragmentation, sequential requests, disabled fragmentation).

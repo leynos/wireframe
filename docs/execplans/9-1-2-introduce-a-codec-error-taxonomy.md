@@ -31,7 +31,7 @@ integration, and behavioural tests.
 - [x] (2026-01-07) Update `LengthDelimitedDecoder` to produce structured EOF
       errors.
 - [ ] Integrate `CodecErrorContext` population in connection processing.
-- [ ] Add recovery policy evaluation in `src/app/connection.rs`.
+- [ ] Add recovery policy evaluation in `src/app/inbound_handler.rs`.
 - [ ] Add structured logging with codec error fields.
 - [ ] Add `on_eof` hook to `ProtocolHooks`.
 - [x] (2026-01-07) Add codec error metrics.
@@ -102,7 +102,7 @@ Codec implementation:
 
 Error handling paths:
 
-- `src/app/connection.rs` - Connection processing and error handling
+- `src/app/inbound_handler.rs` - Connection processing and error handling
 - `src/app/frame_handling.rs` - Frame deserialization and response forwarding
 - `src/hooks.rs` - Protocol hooks including error callbacks
 
@@ -182,7 +182,7 @@ Update `LengthDelimitedDecoder` to produce structured EOF errors:
 Integrate the error taxonomy into connection processing:
 
 1. Populate `CodecErrorContext` from connection state in
-   `src/app/connection.rs`
+   `src/app/inbound_handler.rs`
 2. Evaluate recovery policies when codec errors occur
 3. Apply recovery actions (drop frame, quarantine, disconnect)
 4. Track consecutive drop count and escalate to disconnect if exceeded
@@ -286,7 +286,7 @@ Update documentation:
    - Return appropriate `CodecError::Eof` variant
    - Convert to `io::Error` for trait compatibility
 
-7. Update `src/app/connection.rs`:
+7. Update `src/app/inbound_handler.rs`:
    - Add `CodecErrorContext` population from connection state
    - Add recovery policy evaluation on decode errors
    - Track consecutive drop count
@@ -438,7 +438,7 @@ Record key evidence here once available:
 | `src/codec.rs`                              | Modify: Re-export error types    |
 | `src/app/error.rs`                          | Modify: Add Codec variant        |
 | `src/response.rs`                           | Modify: Add Codec variant        |
-| `src/app/connection.rs`                     | Modify: Integrate error handling |
+| `src/app/inbound_handler.rs`                | Modify: Integrate error handling |
 | `src/hooks.rs`                              | Modify: Add on_eof hook          |
 | `src/metrics.rs`                            | Modify: Add codec error metrics  |
 | `src/lib.rs`                                | Modify: Re-export types          |

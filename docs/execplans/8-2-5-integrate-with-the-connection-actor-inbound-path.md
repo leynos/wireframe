@@ -62,9 +62,9 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 
 - Risk: The term "connection actor inbound path" is ambiguous because
   `src/connection/` is outbound-focused, while inbound routing lives in
-  `src/app/connection.rs`. Severity: medium Likelihood: high Mitigation:
-  Implement in `src/app/connection.rs` and record this naming clarification in
-  the design docs.
+  `src/app/inbound_handler.rs`. Severity: medium Likelihood: high Mitigation:
+  Implement in `src/app/inbound_handler.rs` and record this naming
+  clarification in the design docs.
 
 - Risk: Message assembly error handling may diverge from existing inbound
   decode-failure policy. Severity: high Likelihood: medium Mitigation: Route
@@ -85,7 +85,7 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 
 - [x] (2026-02-12 00:00Z) Drafted ExecPlan for roadmap items 8.2.5 and 8.2.6.
 - [x] Confirmed and documented the exact inbound integration seam in
-      `src/app/connection.rs` and `src/app/frame_handling/`.
+      `src/app/inbound_handler.rs` and `src/app/frame_handling/`.
 - [x] Upgraded behavioural test dependencies to `rstest-bdd` v0.5.0 and
       restored
       green compilation.
@@ -104,14 +104,15 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 ## Surprises & discoveries
 
 - Observation: `WireframeApp::with_message_assembler` is currently a stored
-  configuration only; inbound code in `src/app/connection.rs` does not yet call
-  the hook. Evidence: no `message_assembler` usage in inbound frame handling.
-  Impact: 8.2.5 requires runtime integration work, not only API exposure.
+  configuration only; inbound code in `src/app/inbound_handler.rs` does not yet
+  call the hook. Evidence: no `message_assembler` usage in inbound frame
+  handling. Impact: 8.2.5 requires runtime integration work, not only API
+  exposure.
 
 - Observation: `src/connection/` is centred on outbound frame delivery and does
   not own inbound decode/reassembly. Evidence: `src/connection/mod.rs` actor
   loop handles push/response streams, while inbound decode happens in
-  `src/app/connection.rs`. Impact: roadmap wording must be interpreted as
+  `src/app/inbound_handler.rs`. Impact: roadmap wording must be interpreted as
   inbound path in `WireframeApp` connection handling.
 
 - Observation: the workspace currently pins `rstest-bdd = "0.4.0"` in
@@ -126,7 +127,7 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 
 ## Decision log
 
-- Decision: Integrate message assembly in `src/app/connection.rs` using
+- Decision: Integrate message assembly in `src/app/inbound_handler.rs` using
   `frame_handling` helpers, immediately after `reassemble_if_needed` and before
   handler lookup. Rationale: this is the existing inbound choke point and
   preserves ADR 0002 layer ordering. Date/Author: 2026-02-12 / Codex.
@@ -147,7 +148,7 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 Completed.
 
 - Inbound runtime now applies message assembly after transport reassembly in
-  `src/app/connection.rs` via `src/app/frame_handling/assembly.rs`.
+  `src/app/inbound_handler.rs` via `src/app/frame_handling/assembly.rs`.
 - Failure handling is unified with the existing deserialization-failure policy
   for parse, continuity, and declared-length errors.
 - Unit coverage includes interleaving, ordering violations, and timeout purge
@@ -164,7 +165,7 @@ Completed.
 
 ## Context and orientation
 
-The inbound runtime pipeline in `src/app/connection.rs` is now:
+The inbound runtime pipeline in `src/app/inbound_handler.rs` is now:
 
 - `decode_envelope` converts codec frames into `Envelope` values.
 - `frame_handling::reassemble_if_needed` applies transport-level fragment
@@ -207,7 +208,7 @@ or a completed envelope for dispatch. Keep this helper small and explicitly
 route failures through existing deserialization failure accounting.
 
 Stage C integrates the helper into connection processing. Extend connection
-state in `src/app/connection.rs` to hold optional message assembly runtime
+state in `src/app/inbound_handler.rs` to hold optional message assembly runtime
 state, invoke the new helper after transport reassembly, and purge expired
 assemblies on idle read timeouts alongside existing fragmentation purging.
 Go/no-go: if composition order or failure policy differs from ADR 0002, stop
@@ -249,7 +250,7 @@ mark roadmap entries 8.2.5 and 8.2.6 as done only after all gates pass.
 
 3. Wire runtime state in connection handling.
 
-   - Update `src/app/connection.rs` to:
+   - Update `src/app/inbound_handler.rs` to:
      - hold optional inbound message assembly state per connection;
      - call assembly helper after `reassemble_if_needed` and before route
        lookup;
@@ -259,7 +260,7 @@ mark roadmap entries 8.2.5 and 8.2.6 as done only after all gates pass.
 4. Add or extend unit tests with `rstest`.
 
    - Add targeted tests in `src/app/frame_handling/tests.rs` and/or
-     `src/app/connection/tests.rs`:
+     `src/app/inbound_handler/tests.rs`:
      - interleaved keyed assembly dispatches only completed messages;
      - out-of-order continuation is rejected and does not dispatch;
      - timeout purge evicts stale partial state and later continuation fails as
@@ -342,7 +343,7 @@ specific files introduced by this feature branch.
 
 Expected deliverables:
 
-- inbound message assembly integration in `src/app/connection.rs` and
+- inbound message assembly integration in `src/app/inbound_handler.rs` and
   `src/app/frame_handling/`;
 - `rstest` unit tests for inbound interleaving, ordering violation, timeout;
 - `rstest-bdd` v0.5.0 behavioural scenarios for the same behaviours;

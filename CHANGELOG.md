@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Renamed internal module `src/app/connection.rs` to
+  `src/app/inbound_handler.rs` and `src/server/connection.rs` to
+  `src/server/connection_spawner.rs` to clarify directionality and eliminate
+  naming ambiguity with the public `src/connection/` module. No public API
+  changes.
 - Deprecated `SharedState::new` (since 0.2.0); construct via `inner.into()`
   instead.
 - Breaking: Marked `ServerError` as `#[non_exhaustive]`. Downstream consumers

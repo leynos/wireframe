@@ -60,15 +60,15 @@ The codec abstraction lives in `src/codec.rs` with the `FrameCodec` trait and
 `LengthDelimitedFrameCodec` default. The outbound send path uses
 `FrameCodec::wrap_payload` in two places:
 
-- `src/app/connection.rs` in `WireframeApp::send_response` and
+- `src/app/inbound_handler.rs` in `WireframeApp::send_response` and
   `WireframeApp::send_response_framed_with_codec`.
 - `src/app/frame_handling.rs` in `send_response_payload`, which feeds the
   `Framed` stream used by `handle_connection_result`.
 
 Inbound decoding uses `FrameCodec::frame_payload` in
-`WireframeApp::decode_envelope` (`src/app/connection.rs`). Connection framing
-uses `CombinedCodec` in `src/app/combined_codec.rs` to pair a codec decoder and
-encoder into a `Framed` stream.
+`WireframeApp::decode_envelope` (`src/app/inbound_handler.rs`). Connection
+framing uses `CombinedCodec` in `src/app/combined_codec.rs` to pair a codec
+decoder and encoder into a `Framed` stream.
 
 Tests and examples that implement `FrameCodec` live in:
 
@@ -113,7 +113,7 @@ roadmap item 9.1.1 as done, then run the required Makefile gates.
 ## Concrete Steps
 
 1. Inspect the existing trait and send paths to catalogue `wrap_payload` usage:
-   `src/codec.rs`, `src/app/connection.rs`, `src/app/frame_handling.rs`,
+   `src/codec.rs`, `src/app/inbound_handler.rs`, `src/app/frame_handling.rs`,
    `tests/frame_codec.rs`, `tests/example_codecs.rs`, and the codec examples.
 
 2. Update the trait signature in `src/codec.rs`:
@@ -131,7 +131,7 @@ roadmap item 9.1.1 as done, then run the required Makefile gates.
    - Extend `ResponseContext` (and any related context structs) to carry a
      `&F` so `send_response_payload` can use the per-connection codec
      instance.
-   - In `WireframeApp::process_stream` (`src/app/connection.rs`), create a
+   - In `WireframeApp::process_stream` (`src/app/inbound_handler.rs`), create a
      per-connection codec value (for example
      `let mut codec = self.codec.clone();`)
      and use it both to build the `CombinedCodec` and to populate the response

@@ -47,11 +47,11 @@ Success is observable when:
 ## Surprises & Discoveries
 
 - Observation: Streaming request primitives exist (`src/request/mod.rs` and
-  `src/extractor.rs`), but the inbound pipeline in `src/app/connection.rs` does
-  not yet invoke a message-assembly hook. This plan keeps integration scoped to
-  8.2.1/8.2.2 and documents the limitation in the user guide until 8.2.5.
-  Evidence: `WireframeApp::handle_frame` decodes to `Envelope` and dispatches
-  directly to handlers after fragmentation reassembly.
+  `src/extractor.rs`), but the inbound pipeline in `src/app/inbound_handler.rs`
+  does not yet invoke a message-assembly hook. This plan keeps integration
+  scoped to 8.2.1/8.2.2 and documents the limitation in the user guide until
+  8.2.5. Evidence: `WireframeApp::handle_frame` decodes to `Envelope` and
+  dispatches directly to handlers after fragmentation reassembly.
 
 ## Decision Log
 
@@ -76,7 +76,7 @@ Not started yet.
 ## Context and Orientation
 
 Wireframe’s inbound path decodes frames into `Envelope` values inside
-`src/app/connection.rs`, then optionally applies transport fragmentation
+`src/app/inbound_handler.rs`, then optionally applies transport fragmentation
 reassembly via `src/app/fragmentation_state.rs` and
 `frame_handling::reassemble_if_needed`. Handlers receive buffered payloads
 through `ServiceRequest` and `PacketParts` in `src/middleware.rs`.
