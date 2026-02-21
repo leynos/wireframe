@@ -754,3 +754,38 @@ the receive buffer fills, the server's send buffer fills, write operations
 suspend, and the server stops polling its response stream or channel. This is
 consistent with the server-side back-pressure architecture described in Section
 3.1.
+
+## 13. Interleaved push queue validation
+
+### 13.1 Motivation
+
+The connection actor's biased `select!` loop (Section 3.1) and `FairnessConfig`
+counter-based and time-slice yield mechanism must be validated under realistic
+interleaved traffic to confirm three properties: fairness (low-priority frames
+are eventually delivered during sustained high-priority bursts), rate-limit
+symmetry (the shared `leaky_bucket::RateLimiter` enforces identical throughput
+caps regardless of which priority queue consumes tokens), and completeness (no
+frames are lost when both queues carry traffic simultaneously).
+
+### 13.2 Testing strategy
+
+Unit tests (`tests/interleaved_push_queues.rs`) exercise the `ConnectionActor`
+and `PushQueues` under parameterised `FairnessConfig` settings and rate-limiter
+configurations using virtual time (`tokio::time::pause`). BDD scenarios
+(`tests/features/interleaved_push_queues.feature`) express the same properties
+in Gherkin, exercising the actor through fixture-driven world structs.
+
+### 13.3 Design decisions
+
+The rate limiter is shared across both priority queues as a single token bucket
+(Section 3.1). This was a deliberate choice: a per-queue limiter would allow
+combined throughput to exceed the configured cap. The interleaved tests confirm
+that a high-priority push and a low-priority push draw from the same bucket by
+verifying that consuming all tokens via one queue blocks pushes on the other.
+
+The fairness counter (`max_high_before_low`) triggers an opportunistic
+non-blocking `try_recv` on the low-priority queue after the threshold is
+reached. This yields at most one low-priority frame per threshold crossing, not
+a full drain, preserving the high-priority bias while preventing starvation.
+The interleaved tests verify this interleaving pattern with exact frame
+ordering assertions.

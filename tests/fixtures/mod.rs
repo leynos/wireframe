@@ -13,6 +13,7 @@ pub mod codec_property_roundtrip;
 pub mod codec_stateful;
 pub mod correlation;
 pub mod fragment;
+pub mod interleaved_push_queues;
 pub mod memory_budgets;
 pub mod message_assembler;
 pub mod message_assembly;
