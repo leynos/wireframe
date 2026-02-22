@@ -1,8 +1,9 @@
 # 9.5.1 Decouple message encoding from bincode-specific traits
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This Execution Plan (ExecPlan) is a living document. The sections
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
+proceeds.
 
 Status: DRAFT
 
@@ -23,8 +24,8 @@ After this work, maintainers and library consumers can observe:
   serializer-agnostic adapter contract instead of direct `bincode` trait bounds.
 - Existing bincode message types continue to work with minimal or zero source
   changes through compatibility shims.
-- A feature-gated Serde bridge is available as an optional path to reduce
-  manual adapter implementations.
+- A feature-gated Serde (serialization/deserialization) bridge is available as
+  an optional path to reduce manual adapter implementations.
 - Deserializers can inspect frame metadata through an explicit context object,
   enabling protocol version negotiation patterns.
 - Unit tests use `rstest`, behavioural tests use `rstest-bdd` v0.5.0, design
@@ -37,7 +38,7 @@ After this work, maintainers and library consumers can observe:
 - Preserve runtime behaviour for existing bincode users unless explicitly
   documented as changed in migration guidance.
 - Keep `WireframeApp` and `WireframeClient` defaults on bincode-compatible
-  behaviour so existing applications do not need immediate serializer rewrites.
+  behaviour, so existing applications do not need immediate serializer rewrites.
 - Use `rstest` for unit tests and `rstest-bdd` v0.5.0 for behavioural tests.
 - Do not introduce `wire-rs` as a mandatory dependency. This item will satisfy
   the roadmap bridge requirement via an optional Serde bridge.
@@ -88,8 +89,8 @@ After this work, maintainers and library consumers can observe:
 
 - Risk: behavioural tests may assert implementation details rather than user
   observable outcomes. Severity: medium. Likelihood: medium. Mitigation: keep
-  BDD scenarios focused on round-trip compatibility, migration-visible
-  behaviour, and version negotiation outcomes.
+  behaviour-driven development (BDD) scenarios focused on round-trip
+  compatibility, migration-visible behaviour, and version negotiation outcomes.
 
 - Risk: optional bridge feature matrix can drift from defaults and rot.
   Severity: medium. Likelihood: medium. Mitigation: include targeted unit
@@ -138,10 +139,10 @@ After this work, maintainers and library consumers can observe:
 
 ## Decision Log
 
-- Decision: implement ADR-005 Option B (serializer-agnostic boundary plus
-  adapters) using compatibility-first layering. Rationale: satisfies roadmap
-  goals while minimizing disruption for current users. Date/Author: 2026-02-21
-  / Codex.
+- Decision: implement Architecture Decision Record (ADR-005) Option B
+  (serializer-agnostic boundary plus adapters) using compatibility-first
+  layering. Rationale: satisfies roadmap goals while minimizing disruption for
+  current users. Date/Author: 2026-02-21 / Codex.
 
 - Decision: satisfy the roadmap bridge requirement with an optional Serde
   bridge in this item; defer wire-rs bridge to a later roadmap task unless
