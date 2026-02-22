@@ -4,13 +4,15 @@
 //! push queue behaviour under various fairness and rate-limit
 //! configurations.
 
+use std::future::Future;
+
 use futures::FutureExt;
 use rstest::fixture;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
-    push::PushQueues,
+    push::{PushHandle, PushQueues},
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
@@ -33,28 +35,25 @@ pub fn interleaved_push_world() -> InterleavedPushWorld {
 }
 
 impl InterleavedPushWorld {
-    /// Run the actor with fairness disabled and both queues loaded.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if queue construction or actor execution fails.
-    pub async fn run_strict_priority(&mut self) -> TestResult {
+    /// Build unlimited queues, load frames via `setup`, run the actor
+    /// with the given `fairness` config, and collect output into
+    /// `self.frames`.
+    async fn run_actor_with_fairness<F, Fut>(
+        &mut self,
+        fairness: FairnessConfig,
+        setup: F,
+    ) -> TestResult
+    where
+        F: FnOnce(PushHandle<u8>) -> Fut,
+        Fut: Future<Output = ()>,
+    {
         let (queues, handle) = PushQueues::<u8>::builder()
             .high_capacity(8)
             .low_capacity(8)
             .unlimited()
             .build()?;
 
-        let fairness = FairnessConfig {
-            max_high_before_low: 0,
-            time_slice: None,
-        };
-
-        push_expect!(handle.push_low_priority(101));
-        push_expect!(handle.push_low_priority(102));
-        push_expect!(handle.push_high_priority(1));
-        push_expect!(handle.push_high_priority(2));
-        push_expect!(handle.push_high_priority(3));
+        setup(handle.clone()).await;
 
         let shutdown = CancellationToken::new();
         let mut actor: ConnectionActor<_, ()> =
@@ -68,39 +67,48 @@ impl InterleavedPushWorld {
         Ok(())
     }
 
+    /// Run the actor with fairness disabled and both queues loaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if queue construction or actor execution fails.
+    pub async fn run_strict_priority(&mut self) -> TestResult {
+        self.run_actor_with_fairness(
+            FairnessConfig {
+                max_high_before_low: 0,
+                time_slice: None,
+            },
+            |handle| async move {
+                push_expect!(handle.push_low_priority(101));
+                push_expect!(handle.push_low_priority(102));
+                push_expect!(handle.push_high_priority(1));
+                push_expect!(handle.push_high_priority(2));
+                push_expect!(handle.push_high_priority(3));
+            },
+        )
+        .await
+    }
+
     /// Run the actor with counter-based fairness.
     ///
     /// # Errors
     ///
     /// Returns an error if queue construction or actor execution fails.
     pub async fn run_fairness_threshold(&mut self) -> TestResult {
-        let (queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(8)
-            .low_capacity(8)
-            .unlimited()
-            .build()?;
-
-        let fairness = FairnessConfig {
-            max_high_before_low: 3,
-            time_slice: None,
-        };
-
-        for n in 1..=6 {
-            push_expect!(handle.push_high_priority(n));
-        }
-        push_expect!(handle.push_low_priority(101));
-        push_expect!(handle.push_low_priority(102));
-
-        let shutdown = CancellationToken::new();
-        let mut actor: ConnectionActor<_, ()> =
-            ConnectionActor::new(queues, handle, None, shutdown);
-        actor.set_fairness(fairness);
-        self.frames = Vec::new();
-        actor
-            .run(&mut self.frames)
-            .await
-            .map_err(|e| format!("actor run failed: {e:?}"))?;
-        Ok(())
+        self.run_actor_with_fairness(
+            FairnessConfig {
+                max_high_before_low: 3,
+                time_slice: None,
+            },
+            |handle| async move {
+                for n in 1..=6 {
+                    push_expect!(handle.push_high_priority(n));
+                }
+                push_expect!(handle.push_low_priority(101));
+                push_expect!(handle.push_low_priority(102));
+            },
+        )
+        .await
     }
 
     /// Test rate-limit symmetry: a high-priority push blocks a
@@ -132,34 +140,21 @@ impl InterleavedPushWorld {
     ///
     /// Returns an error if queue construction or actor execution fails.
     pub async fn run_interleaved_delivery(&mut self) -> TestResult {
-        let (queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(8)
-            .low_capacity(8)
-            .unlimited()
-            .build()?;
-
-        let fairness = FairnessConfig {
-            max_high_before_low: 2,
-            time_slice: None,
-        };
-
-        for n in 1..=5 {
-            push_expect!(handle.push_high_priority(n));
-        }
-        for n in 101..=105 {
-            push_expect!(handle.push_low_priority(n));
-        }
-
-        let shutdown = CancellationToken::new();
-        let mut actor: ConnectionActor<_, ()> =
-            ConnectionActor::new(queues, handle, None, shutdown);
-        actor.set_fairness(fairness);
-        self.frames = Vec::new();
-        actor
-            .run(&mut self.frames)
-            .await
-            .map_err(|e| format!("actor run failed: {e:?}"))?;
-        Ok(())
+        self.run_actor_with_fairness(
+            FairnessConfig {
+                max_high_before_low: 2,
+                time_slice: None,
+            },
+            |handle| async move {
+                for n in 1..=5 {
+                    push_expect!(handle.push_high_priority(n));
+                }
+                for n in 101..=105 {
+                    push_expect!(handle.push_low_priority(n));
+                }
+            },
+        )
+        .await
     }
 
     /// Assert all high-priority frames precede all low-priority frames.
