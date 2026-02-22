@@ -23,6 +23,21 @@ use crate::message_assembler::{
 /// Non-zero shorthand.
 fn nz(val: usize) -> NonZeroUsize { NonZeroUsize::new(val).expect("non-zero") }
 
+/// Build a [`FirstFrameHeader`] and [`FirstFrameInput`] in the caller's
+/// scope from a key, body slice, and finality flag.
+///
+/// Encapsulates the header construction and input validation common to all
+/// first-frame submission helpers.  The macro expands to two `let` bindings
+/// (`$hdr` for the header, `$inp` for the input) so the header lives long
+/// enough for the input's borrow.
+macro_rules! create_first_frame_input {
+    ($hdr:ident, $inp:ident, $key:expr, $body:expr, $is_last:expr) => {
+        let $hdr = first_header($key, $body.len(), $is_last);
+        let $inp =
+            FirstFrameInput::new(&$hdr, EnvelopeRouting::default(), vec![], $body).expect("valid");
+    };
+}
+
 /// Submit a first frame with `body_len` bytes of body data.
 fn submit_first(
     state: &mut MessageAssemblyState,
@@ -30,9 +45,7 @@ fn submit_first(
     body: &[u8],
     is_last: bool,
 ) -> Result<Option<crate::message_assembler::AssembledMessage>, MessageAssemblyError> {
-    let header = first_header(key, body.len(), is_last);
-    let input =
-        FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], body).expect("valid");
+    create_first_frame_input!(_header, input, key, body, is_last);
     state.accept_first_frame(input)
 }
 
@@ -43,9 +56,7 @@ fn submit_first_at(
     body: &[u8],
     now: Instant,
 ) -> Result<Option<crate::message_assembler::AssembledMessage>, MessageAssemblyError> {
-    let header = first_header(key, body.len(), false);
-    let input =
-        FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], body).expect("valid");
+    create_first_frame_input!(_header, input, key, body, false);
     state.accept_first_frame_at(input, now)
 }
 
