@@ -1,4 +1,4 @@
-//! Connection handling and response utilities for `WireframeApp`.
+//! Inbound connection handling and response utilities for `WireframeApp`.
 
 use std::{collections::HashMap, sync::Arc};
 

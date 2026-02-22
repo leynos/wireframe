@@ -37,7 +37,7 @@ After this work:
 
 - App-level request and response handling is routed through the actor codec
   path so protocol hooks apply consistently.
-- Duplicate codec construction in `src/app/connection.rs` is removed; the
+- Duplicate codec construction in `src/app/inbound_handler.rs` is removed; the
   actor path owns framing.
 - Integration tests cover streaming responses and push traffic through the
   unified path.
@@ -284,7 +284,7 @@ crate under `wireframe_testing/`.
 
 Two outbound frame-processing paths exist today:
 
-**Path 1 — App router** (`src/app/connection.rs`,
+**Path 1 — App router** (`src/app/inbound_handler.rs`,
 `src/app/frame_handling/response.rs`):
 
 - `WireframeApp::process_stream()` creates a `Framed<W, ConnectionCodec<F>>`
@@ -315,7 +315,8 @@ Two outbound frame-processing paths exist today:
 - Used by standalone tests, client code, and custom protocol harnesses.
   **Not used by the server runtime.**
 
-**Server runtime** (`src/server/connection.rs`, `src/server/runtime/accept.rs`):
+**Server runtime** (`src/server/connection_spawner.rs`,
+`src/server/runtime/accept.rs`):
 
 - `spawn_connection_task()` spawns a Tokio task per TCP connection.
 - The task calls `app.handle_connection_result(stream)`, which enters
@@ -323,7 +324,7 @@ Two outbound frame-processing paths exist today:
 
 ### Key files
 
-- `src/app/connection.rs` — app router's `process_stream()` and
+- `src/app/inbound_handler.rs` — app router's `process_stream()` and
   `handle_frame()`.
 - `src/app/frame_handling/response.rs` — `forward_response()`,
   `fragment_responses()`, `send_response_payload()`.
@@ -338,7 +339,7 @@ Two outbound frame-processing paths exist today:
 - `src/hooks.rs` — `WireframeProtocol` trait and `ProtocolHooks` struct.
 - `src/response.rs` — `Response` enum, `FrameStream`, `WireframeError`.
 - `src/codec.rs` — `FrameCodec` trait and `LengthDelimitedFrameCodec`.
-- `src/server/connection.rs` — `spawn_connection_task()`.
+- `src/server/connection_spawner.rs` — `spawn_connection_task()`.
 - `src/app/builder/core.rs` — `WireframeApp` builder.
 - `src/app/builder/codec.rs` — codec configuration methods.
 - `src/app/builder/protocol.rs` — `with_protocol()` method.
@@ -560,7 +561,7 @@ All commands must exit 0. If Mermaid diagrams are edited, also run:
 
 ### Inbound/outbound split
 
-In `src/app/connection.rs`, the current `process_stream()` method (lines
+In `src/app/inbound_handler.rs`, the current `process_stream()` method (lines
 235-284) performs both decode and response send in a single loop. The unified
 design splits this:
 
@@ -612,7 +613,7 @@ Acceptance is complete when all of the following are true:
   `process_frame_with_hooks_and_metrics()` before reaching the wire.
 - `WireframeProtocol::before_send` fires for every outbound frame on
   server connections.
-- Duplicate codec construction in `src/app/connection.rs` is removed.
+- Duplicate codec construction in `src/app/inbound_handler.rs` is removed.
 - Integration tests exercise streaming responses, push traffic,
   multi-packet channels, and back-pressure through the unified path.
 - BDD scenarios covering hook consistency, streaming, push interleaving,
@@ -695,14 +696,14 @@ Sketch of the driver's public surface:
 
 ### Modified files (expected)
 
-- `src/app/connection.rs` — refactor `process_stream()` to use
+- `src/app/inbound_handler.rs` — refactor `process_stream()` to use
   `CodecDriver`.
 - `src/app/frame_handling/response.rs` — simplify `forward_response()` to
   produce response values rather than writing directly.
 - `src/app/frame_handling/core.rs` — remove or simplify `ResponseContext`.
 - `src/app/combined_codec.rs` — no changes expected; driver reuses it.
-- `src/server/connection.rs` — may need minor adjustment if the connection
-  task setup changes.
+- `src/server/connection_spawner.rs` — may need minor adjustment if the
+  connection task setup changes.
 - `src/app/builder/protocol.rs` — wire `ProtocolHooks` into the connection
   driver.
 - `docs/asynchronous-outbound-messaging-design.md`

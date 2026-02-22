@@ -1,4 +1,4 @@
-//! Connection handling for [`WireframeServer`].
+//! Connection task spawning for [`WireframeServer`].
 
 use std::{io, net::SocketAddr, time::Duration};
 

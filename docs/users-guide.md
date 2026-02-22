@@ -1625,8 +1625,8 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
 [^4]: Implemented in `src/app/builder.rs` (lines 326-344).
 [^5]: Implemented in `src/error.rs` (lines 1-68).
-[^6]: Implemented in `src/app/connection.rs` (lines 41-205).
-[^7]: Implemented in `src/app/connection.rs` (lines 207-289).
+[^6]: Implemented in `src/app/inbound_handler.rs` (lines 41-205).
+[^7]: Implemented in `src/app/inbound_handler.rs` (lines 207-289).
 [^8]: Implemented in `src/app/envelope.rs` (lines 11-172).
 [^9]: Implemented in `src/frame/metadata.rs` (lines 1-40).
 [^10]: Implemented in `src/message.rs` (lines 4-41).
@@ -1640,7 +1640,7 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 [^18]: Implemented in `src/server/runtime.rs` (lines 90-233).
 [^19]: Implemented in `src/server/runtime.rs` (lines 240-333).
 [^20]: Implemented in `src/server/config/preamble.rs` (lines 14-135) and
-    `src/server/connection.rs` (lines 1-222).
+    `src/server/connection_spawner.rs` (lines 1-222).
 [^21]: Implemented in `src/server/error.rs` (lines 7-18).
 [^23]: Implemented in `src/push/queues/mod.rs` (lines 41-190).
 [^24]: Implemented in `src/push/queues/errors.rs` (lines 7-28).

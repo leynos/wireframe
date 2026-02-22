@@ -71,7 +71,7 @@ Key files:
 
 - `src/app/builder.rs` defines `WireframeApp`, its builder methods, and the
   `buffer_capacity` configuration currently tied to length-delimited framing.
-- `src/app/connection.rs` builds `Framed` streams with
+- `src/app/inbound_handler.rs` builds `Framed` streams with
   `LengthDelimitedCodec` and reserves buffer capacity for reads.
 - `src/app/frame_handling.rs` writes responses through
   `Framed<_, LengthDelimitedCodec>`.
@@ -99,7 +99,7 @@ needed. Update documentation where new decisions are captured.
 ## Concrete Steps
 
 1. Inspect existing framing usage to confirm the integration points.
-   Review `src/app/connection.rs`, `src/app/frame_handling.rs`, and
+   Review `src/app/inbound_handler.rs`, `src/app/frame_handling.rs`, and
    `src/app/builder.rs`.
 
 2. Add `src/codec.rs` with:
@@ -119,7 +119,7 @@ needed. Update documentation where new decisions are captured.
    - Add builder method `.with_codec()` and wire it through type transitions.
    - Decide how to handle `buffer_capacity()` (deprecate or re-map to codec).
 
-5. Update connection handling in `src/app/connection.rs` and
+5. Update connection handling in `src/app/inbound_handler.rs` and
    `src/app/frame_handling.rs`:
    - Replace `LengthDelimitedCodec` with `FrameCodec` decoder/encoder.
    - Parameterize `FrameHandlingContext` and `ResponseContext` over the codec
@@ -131,8 +131,8 @@ needed. Update documentation where new decisions are captured.
 
 6. Propagate the codec type parameter through server types in
    `src/server/mod.rs`, `src/server/runtime.rs`, and
-   `src/server/connection.rs`. Ensure factory bounds remain ergonomic with
-   default type parameters.
+   `src/server/connection_spawner.rs`. Ensure factory bounds remain ergonomic
+   with default type parameters.
 
 7. Add examples for Hotline and MySQL codecs if included in scope. Ensure
    they compile with `cargo build --example hotline_codec` and

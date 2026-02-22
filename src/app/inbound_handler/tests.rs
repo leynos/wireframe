@@ -1,4 +1,4 @@
-//! Tests for Wireframe connection handling.
+//! Tests for Wireframe inbound connection handling.
 
 use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
