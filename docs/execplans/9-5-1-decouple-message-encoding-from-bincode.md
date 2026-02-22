@@ -7,6 +7,10 @@ proceeds.
 
 Status: DRAFT
 
+Maintenance cadence: update `Progress` immediately after each stage completes,
+record architecture and scope choices in `Decision Log` when they are made, and
+write `Outcomes & Retrospective` at Stage E completion.
+
 No `PLANS.md` exists in this repository as of 2026-02-21.
 
 ## Purpose / big picture
@@ -32,6 +36,14 @@ After this work, maintainers and library consumers can observe:
   decisions are recorded in `docs/adr-005-serializer-abstraction.md`, public
   interface changes are documented in `docs/users-guide.md`, and roadmap item
   `9.5.1` is marked done only after all quality gates pass.
+
+Authority boundaries for documentation:
+
+- This ExecPlan is the implementation staging guide and task tracker.
+- `docs/adr-005-serializer-abstraction.md` is the source of truth for
+  serializer-boundary architecture and trade-offs.
+- `docs/users-guide.md` is the source of truth for public API contracts and
+  migration guidance for library consumers.
 
 ## Constraints
 
@@ -420,8 +432,15 @@ Keep the following artifacts during implementation:
 
 Target interface shape (names may vary slightly, intent must remain):
 
+`DeserializeContext` fields must be projections of the canonical metadata model
+returned by `FrameMetadata::parse` (`FrameMetadata::Frame`). If the metadata
+model changes, update this context shape in lockstep (or expose that model
+directly) to avoid drift.
+
 ```rust
 pub struct DeserializeContext<'a> {
+    // Keep these convenience fields aligned with identifiers extracted from
+    // FrameMetadata::Frame in the active serializer implementation.
     pub frame_metadata: Option<&'a [u8]>,
     pub message_id: Option<u32>,
     pub correlation_id: Option<u64>,
