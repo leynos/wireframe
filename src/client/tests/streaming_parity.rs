@@ -44,16 +44,10 @@ fn hooks_with_stream_end() -> ProtocolHooks<TestStreamEnvelope, ()> {
     }
 }
 
-async fn collect_interleaved_fairness_frames(
-    correlation: CorrelationId,
-) -> TestResult<Vec<TestStreamEnvelope>> {
-    let (queues, handle) = PushQueues::<TestStreamEnvelope>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .unlimited()
-        .build()?;
-    let push_handle = handle.clone();
-
+fn setup_fairness_actor(
+    queues: PushQueues<TestStreamEnvelope>,
+    handle: crate::push::PushHandle<TestStreamEnvelope>,
+) -> ConnectionActor<TestStreamEnvelope, ()> {
     let mut actor = ConnectionActor::with_hooks(
         ConnectionChannels::new(queues, handle),
         None,
@@ -64,6 +58,40 @@ async fn collect_interleaved_fairness_frames(
         max_high_before_low: 1,
         time_slice: None,
     });
+    actor
+}
+
+async fn setup_multi_packet_channel(
+    correlation: CorrelationId,
+) -> TestResult<mpsc::Receiver<TestStreamEnvelope>> {
+    let (tx, rx) = mpsc::channel(4);
+    tx.send(TestStreamEnvelope::data(
+        MessageId::new(10),
+        correlation,
+        Payload::new(vec![10]),
+    ))
+    .await?;
+    tx.send(TestStreamEnvelope::data(
+        MessageId::new(11),
+        correlation,
+        Payload::new(vec![11]),
+    ))
+    .await?;
+    drop(tx);
+    Ok(rx)
+}
+
+async fn collect_interleaved_fairness_frames(
+    correlation: CorrelationId,
+) -> TestResult<Vec<TestStreamEnvelope>> {
+    let (queues, handle) = PushQueues::<TestStreamEnvelope>::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .unlimited()
+        .build()?;
+    let push_handle = handle.clone();
+
+    let mut actor = setup_fairness_actor(queues, handle);
 
     // High-priority burst with low-priority frames queued to prove fairness.
     push_handle
@@ -95,20 +123,7 @@ async fn collect_interleaved_fairness_frames(
         ))
         .await?;
 
-    let (tx, rx) = mpsc::channel(4);
-    tx.send(TestStreamEnvelope::data(
-        MessageId::new(10),
-        correlation,
-        Payload::new(vec![10]),
-    ))
-    .await?;
-    tx.send(TestStreamEnvelope::data(
-        MessageId::new(11),
-        correlation,
-        Payload::new(vec![11]),
-    ))
-    .await?;
-    drop(tx);
+    let rx = setup_multi_packet_channel(correlation).await?;
 
     actor
         .set_multi_packet_with_correlation(Some(rx), Some(correlation.get()))

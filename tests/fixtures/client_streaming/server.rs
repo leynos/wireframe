@@ -11,7 +11,7 @@ use tokio_util::{
 use wireframe::{
     connection::{ConnectionActor, ConnectionChannels, FairnessConfig},
     hooks::{ConnectionContext, ProtocolHooks},
-    push::PushQueues,
+    push::{PushHandle, PushQueues},
 };
 
 use super::{
@@ -92,29 +92,10 @@ fn hooks_with_stream_end() -> ProtocolHooks<StreamTestEnvelope, ()> {
     }
 }
 
-/// Build frames using the connection actor with fairness enabled so
-/// low-priority traffic interleaves with high-priority bursts.
-pub(crate) async fn build_interleaved_priority_frames(
+async fn push_interleaved_test_messages(
+    push_handle: &PushHandle<StreamTestEnvelope>,
     cid: CorrelationId,
-) -> TestResult<Vec<StreamTestEnvelope>> {
-    let (queues, handle) = PushQueues::<StreamTestEnvelope>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .unlimited()
-        .build()?;
-    let push_handle = handle.clone();
-
-    let mut actor = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
-        None,
-        CancellationToken::new(),
-        hooks_with_stream_end(),
-    );
-    actor.set_fairness(FairnessConfig {
-        max_high_before_low: 1,
-        time_slice: None,
-    });
-
+) -> TestResult {
     push_handle
         .push_high_priority(StreamTestEnvelope::data(
             MessageId::new(1),
@@ -143,7 +124,12 @@ pub(crate) async fn build_interleaved_priority_frames(
             Payload::new(vec![4]),
         ))
         .await?;
+    Ok(())
+}
 
+async fn setup_multi_packet_test_channel(
+    cid: CorrelationId,
+) -> TestResult<mpsc::Receiver<StreamTestEnvelope>> {
     let (tx, rx) = mpsc::channel(4);
     tx.send(StreamTestEnvelope::data(
         MessageId::new(10),
@@ -158,6 +144,34 @@ pub(crate) async fn build_interleaved_priority_frames(
     ))
     .await?;
     drop(tx);
+    Ok(rx)
+}
+
+/// Build frames using the connection actor with fairness enabled so
+/// low-priority traffic interleaves with high-priority bursts.
+pub(crate) async fn build_interleaved_priority_frames(
+    cid: CorrelationId,
+) -> TestResult<Vec<StreamTestEnvelope>> {
+    let (queues, handle) = PushQueues::<StreamTestEnvelope>::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .unlimited()
+        .build()?;
+    let push_handle = handle.clone();
+
+    let mut actor = ConnectionActor::with_hooks(
+        ConnectionChannels::new(queues, handle),
+        None,
+        CancellationToken::new(),
+        hooks_with_stream_end(),
+    );
+    actor.set_fairness(FairnessConfig {
+        max_high_before_low: 1,
+        time_slice: None,
+    });
+
+    push_interleaved_test_messages(&push_handle, cid).await?;
+    let rx = setup_multi_packet_test_channel(cid).await?;
 
     actor
         .set_multi_packet_with_correlation(Some(rx), Some(cid.get()))
