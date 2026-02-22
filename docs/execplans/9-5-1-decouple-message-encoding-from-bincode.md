@@ -345,17 +345,22 @@ All commands run from repository root: `/home/user/project`.
 
 1. Baseline before editing:
 
+    ```shell
     set -o pipefail && cargo check --all-targets --all-features 2>&1 | tee /tmp/9-5-1-check-baseline.log
     set -o pipefail && make test-bdd 2>&1 | tee /tmp/9-5-1-test-bdd-baseline.log
+    ```
 
 2. After Stage B and Stage C edits, run focused verification:
 
+    ```shell
     set -o pipefail && cargo test message --all-features 2>&1 | tee /tmp/9-5-1-message-tests.log
     set -o pipefail && cargo test metadata --all-features 2>&1 | tee /tmp/9-5-1-metadata-tests.log
     set -o pipefail && make test-bdd 2>&1 | tee /tmp/9-5-1-test-bdd.log
+    ```
 
 3. Final quality gates:
 
+    ```shell
     set -o pipefail && make fmt 2>&1 | tee /tmp/9-5-1-fmt.log
     set -o pipefail && make check-fmt 2>&1 | tee /tmp/9-5-1-check-fmt.log
     set -o pipefail && make markdownlint 2>&1 | tee /tmp/9-5-1-markdownlint.log
@@ -363,6 +368,7 @@ All commands run from repository root: `/home/user/project`.
     set -o pipefail && make lint 2>&1 | tee /tmp/9-5-1-lint.log
     set -o pipefail && make test-doc 2>&1 | tee /tmp/9-5-1-test-doc.log
     set -o pipefail && make test 2>&1 | tee /tmp/9-5-1-test.log
+    ```
 
 Expected success indicators:
 
@@ -414,40 +420,46 @@ Keep the following artifacts during implementation:
 
 Target interface shape (names may vary slightly, intent must remain):
 
-    pub struct DeserializeContext<'a> {
-        pub frame_metadata: Option<&'a [u8]>,
-        pub message_id: Option<u32>,
-        pub correlation_id: Option<u64>,
-        pub metadata_bytes_consumed: Option<usize>,
-    }
+```rust
+pub struct DeserializeContext<'a> {
+    pub frame_metadata: Option<&'a [u8]>,
+    pub message_id: Option<u32>,
+    pub correlation_id: Option<u64>,
+    pub metadata_bytes_consumed: Option<usize>,
+}
 
-    pub trait EncodeWith<S: Serializer> {
-        fn encode_with(&self, serializer: &S) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
-    }
+pub trait EncodeWith<S: Serializer> {
+    fn encode_with(
+        &self,
+        serializer: &S,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
+}
 
-    pub trait DecodeWith<S: Serializer>: Sized {
-        fn decode_with(
-            serializer: &S,
-            bytes: &[u8],
-            context: &DeserializeContext<'_>,
-        ) -> Result<(Self, usize), Box<dyn std::error::Error + Send + Sync>>;
-    }
+pub trait DecodeWith<S: Serializer>: Sized {
+    fn decode_with(
+        serializer: &S,
+        bytes: &[u8],
+        context: &DeserializeContext<'_>,
+    ) -> Result<(Self, usize), Box<dyn std::error::Error + Send + Sync>>;
+}
 
-    pub trait Serializer {
-        fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
-        where
-            M: EncodeWith<Self>,
-            Self: Sized;
+pub trait Serializer {
+    fn serialize<M>(&self, value: &M)
+        -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: EncodeWith<Self>,
+        Self: Sized;
 
-        fn deserialize_with_context<M>(
-            &self,
-            bytes: &[u8],
-            context: &DeserializeContext<'_>,
-        ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
-        where
-            M: DecodeWith<Self>,
-            Self: Sized;
-    }
+    fn deserialize_with_context<M>(
+        &self,
+        bytes: &[u8],
+        context: &DeserializeContext<'_>,
+    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: DecodeWith<Self>,
+        Self: Sized;
+}
+```
 
 Dependency expectations:
 
