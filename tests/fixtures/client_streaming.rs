@@ -44,6 +44,9 @@ enum StreamingServerMode {
     SharedRateLimit,
 }
 
+const SHARED_RATE_LIMIT_CONTENTION_MARKER: u8 = 99;
+const SHARED_RATE_LIMIT_NO_CONTENTION_MARKER: u8 = 98;
+
 async fn send_stream_frame<T>(
     framed_transport: &mut Framed<T, LengthDelimitedCodec>,
     frame: StreamTestEnvelope,
@@ -83,7 +86,11 @@ where
         return false;
     };
 
-    let marker_value = if was_blocked { 99_u8 } else { 98_u8 };
+    let marker_value = if was_blocked {
+        SHARED_RATE_LIMIT_CONTENTION_MARKER
+    } else {
+        SHARED_RATE_LIMIT_NO_CONTENTION_MARKER
+    };
     let marker_frame =
         StreamTestEnvelope::data(MessageId::new(250), cid, Payload::new(vec![marker_value]));
     if !send_stream_frame(framed_transport, marker_frame).await {
@@ -159,7 +166,10 @@ pub fn client_streaming_world() -> ClientStreamingWorld {
 impl ClientStreamingWorld {
     /// Build a new runtime-backed client streaming world.
     fn new() -> Self {
-        let (runtime, runtime_error) = match tokio::runtime::Runtime::new() {
+        let (runtime, runtime_error) = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
             Ok(rt) => (Some(rt), None),
             Err(e) => (None, Some(format!("failed to create runtime: {e}"))),
         };
@@ -365,7 +375,7 @@ impl ClientStreamingWorld {
             .payload
             .clone()
             .into_inner();
-        let was_blocked = marker == vec![99];
+        let was_blocked = marker == vec![SHARED_RATE_LIMIT_CONTENTION_MARKER];
         self.shared_rate_limit_blocked = Some(was_blocked);
         if !was_blocked {
             return Err("expected shared limiter contention marker".into());

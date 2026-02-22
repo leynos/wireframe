@@ -44,6 +44,19 @@ fn hooks_with_stream_end() -> ProtocolHooks<TestStreamEnvelope, ()> {
     }
 }
 
+struct PausedTimeGuard;
+
+impl PausedTimeGuard {
+    fn pause() -> Self {
+        time::pause();
+        Self
+    }
+}
+
+impl Drop for PausedTimeGuard {
+    fn drop(&mut self) { time::resume(); }
+}
+
 fn setup_fairness_actor(
     queues: PushQueues<TestStreamEnvelope>,
     handle: crate::push::PushHandle<TestStreamEnvelope>,
@@ -143,7 +156,7 @@ async fn collect_interleaved_fairness_frames(
 async fn collect_rate_limited_frames(
     correlation: CorrelationId,
 ) -> TestResult<(Vec<TestStreamEnvelope>, bool)> {
-    time::pause();
+    let _paused_time = PausedTimeGuard::pause();
 
     let (queues, handle) = PushQueues::<TestStreamEnvelope>::builder()
         .high_capacity(4)
@@ -207,7 +220,6 @@ async fn collect_rate_limited_frames(
         .await
         .map_err(|e| format!("connection actor run failed: {e:?}"))?;
 
-    time::resume();
     Ok((out, was_blocked))
 }
 

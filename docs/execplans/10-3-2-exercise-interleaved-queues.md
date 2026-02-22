@@ -139,6 +139,11 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
   10.3.2 is proving that the tracker integrates correctly with the actor's
   `select!` loop and drain logic. Date: 2026-02-21.
 
+- Decision: use virtual time in timing-sensitive unit tests and outcome-based
+  assertions in BDD scenarios. Rationale: deterministic continuous integration
+  (CI) behaviour without over-coupling BDD tests to scheduler details.
+  Date/Author: 2026-02-19 / Codex.
+
 - Decision: prove behavioural rate-limit contention in BDD using an explicit
   marker frame emitted by the fixture harness. Rationale: keeps scenarios
   externally observable while avoiding flaky wall-clock assertions.

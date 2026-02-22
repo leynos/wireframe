@@ -92,6 +92,19 @@ fn hooks_with_stream_end() -> ProtocolHooks<StreamTestEnvelope, ()> {
     }
 }
 
+struct PausedTimeGuard;
+
+impl PausedTimeGuard {
+    fn pause() -> Self {
+        time::pause();
+        Self
+    }
+}
+
+impl Drop for PausedTimeGuard {
+    fn drop(&mut self) { time::resume(); }
+}
+
 async fn push_interleaved_test_messages(
     push_handle: &PushHandle<StreamTestEnvelope>,
     cid: CorrelationId,
@@ -193,7 +206,7 @@ pub(crate) async fn build_interleaved_priority_frames(
 pub(crate) async fn build_rate_limited_priority_frames(
     cid: CorrelationId,
 ) -> TestResult<(Vec<StreamTestEnvelope>, bool)> {
-    time::pause();
+    let _paused_time = PausedTimeGuard::pause();
 
     let (queues, handle) = PushQueues::<StreamTestEnvelope>::builder()
         .high_capacity(4)
@@ -254,6 +267,5 @@ pub(crate) async fn build_rate_limited_priority_frames(
         .await
         .map_err(|e| format!("connection actor run failed: {e:?}"))?;
 
-    time::resume();
     Ok((out, was_blocked))
 }
