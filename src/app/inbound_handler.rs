@@ -22,7 +22,7 @@ use super::{
 use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
     frame::FrameMetadata,
-    message::Message,
+    message::{DecodeWith, DeserializeContext, EncodeWith},
     message_assembler::MessageAssemblyState,
     middleware::HandlerService,
     serializer::Serializer,
@@ -71,7 +71,7 @@ where
     ) -> std::result::Result<(), SendError>
     where
         W: AsyncWrite + Unpin,
-        M: Message,
+        M: EncodeWith<S>,
     {
         let bytes = self
             .serializer
@@ -103,7 +103,7 @@ where
     ) -> std::result::Result<(), SendError>
     where
         W: AsyncRead + AsyncWrite + Unpin,
-        M: Message,
+        M: EncodeWith<S>,
         Cc: Encoder<F::Frame, Error = io::Error>,
     {
         let bytes = self
@@ -142,7 +142,7 @@ where
     ) -> std::result::Result<(), SendError>
     where
         W: AsyncRead + AsyncWrite + Unpin,
-        M: Message,
+        M: EncodeWith<S>,
     {
         let bytes = self
             .serializer
@@ -158,6 +158,7 @@ where
     C: Send + 'static,
     E: Packet,
     F: FrameCodec,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     /// Try parsing the frame using [`FrameMetadata::parse`], falling back to
     /// full deserialization on failure.
@@ -165,10 +166,22 @@ where
         &self,
         payload: &[u8],
     ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
-        self.serializer
-            .parse(payload)
-            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
-            .or_else(|_| self.serializer.deserialize::<Envelope>(payload))
+        match self.serializer.parse(payload) {
+            Ok((parsed_envelope, metadata_bytes_consumed)) => {
+                let context = DeserializeContext {
+                    frame_metadata: payload.get(..metadata_bytes_consumed),
+                    message_id: Some(parsed_envelope.id),
+                    correlation_id: parsed_envelope.correlation_id,
+                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
+                };
+                self.serializer
+                    .deserialize_with_context::<Envelope>(payload, &context)
+                    .or(Ok((parsed_envelope, metadata_bytes_consumed)))
+            }
+            Err(_) => self
+                .serializer
+                .deserialize_with_context::<Envelope>(payload, &DeserializeContext::default()),
+        }
     }
 
     /// Handle an accepted connection end-to-end, returning any processing error.

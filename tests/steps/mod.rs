@@ -20,6 +20,7 @@ mod message_assembly_steps;
 mod multi_packet_steps;
 mod panic_steps;
 mod request_parts_steps;
+mod serializer_boundaries_steps;
 mod stream_end_steps;
 mod unified_codec_steps;
 

@@ -9,7 +9,11 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 
 use super::{ClientError, runtime::ClientStream};
-use crate::{app::Packet, message::Message, serializer::Serializer};
+use crate::{
+    app::Packet,
+    message::{DecodeWith, EncodeWith},
+    serializer::Serializer,
+};
 
 /// Extension trait providing envelope-based messaging methods.
 ///
@@ -104,7 +108,10 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn send_envelope<P: Packet>(&mut self, mut envelope: P) -> Result<u64, ClientError> {
+    pub async fn send_envelope<P>(&mut self, mut envelope: P) -> Result<u64, ClientError>
+    where
+        P: Packet + EncodeWith<S>,
+    {
         // Check once whether correlation ID is present.
         let existing = envelope.correlation_id();
         let correlation_id = existing.unwrap_or_else(|| self.next_correlation_id());
@@ -163,7 +170,10 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn receive_envelope<P: Packet>(&mut self) -> Result<P, ClientError> {
+    pub async fn receive_envelope<P>(&mut self) -> Result<P, ClientError>
+    where
+        P: Packet + DecodeWith<S>,
+    {
         self.receive_internal().await
     }
 
@@ -202,7 +212,10 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn call_correlated<P: Packet>(&mut self, request: P) -> Result<P, ClientError> {
+    pub async fn call_correlated<P>(&mut self, request: P) -> Result<P, ClientError>
+    where
+        P: Packet + EncodeWith<S> + DecodeWith<S>,
+    {
         let correlation_id = self.send_envelope(request).await?;
         let response: P = self.receive_envelope().await?;
 
@@ -221,7 +234,7 @@ where
     }
 
     /// Internal helper for receiving and deserializing a frame.
-    pub(crate) async fn receive_internal<R: Message>(&mut self) -> Result<R, ClientError> {
+    pub(crate) async fn receive_internal<R: DecodeWith<S>>(&mut self) -> Result<R, ClientError> {
         let Some(frame) = self.framed.next().await else {
             let err = ClientError::disconnected();
             self.invoke_error_hook(&err).await;

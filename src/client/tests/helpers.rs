@@ -132,19 +132,22 @@ where
 pub struct FailingSerializer;
 
 impl Serializer for FailingSerializer {
-    fn serialize<M: crate::message::Message>(
-        &self,
-        _value: &M,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn serialize<M>(&self, _value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: crate::message::EncodeWith<Self>,
+    {
         Err(Box::new(std::io::Error::other(
             "forced serialization failure",
         )))
     }
 
-    fn deserialize<M: crate::message::Message>(
+    fn deserialize<M>(
         &self,
         _bytes: &[u8],
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: crate::message::DecodeWith<Self>,
+    {
         Err(Box::new(std::io::Error::other(
             "forced deserialization failure",
         )))

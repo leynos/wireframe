@@ -24,5 +24,6 @@ mod message_assembly_scenarios;
 mod multi_packet_scenarios;
 mod panic_scenarios;
 mod request_parts_scenarios;
+mod serializer_boundaries_scenarios;
 mod stream_end_scenarios;
 mod unified_codec_scenarios;

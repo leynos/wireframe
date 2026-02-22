@@ -11,7 +11,11 @@ use bytes::Bytes;
 use futures::SinkExt;
 
 use super::{ClientError, ResponseStream, runtime::ClientStream};
-use crate::{app::Packet, serializer::Serializer};
+use crate::{
+    app::Packet,
+    message::{DecodeWith, EncodeWith},
+    serializer::Serializer,
+};
 
 impl<S, T, C> super::WireframeClient<S, T, C>
 where
@@ -66,10 +70,13 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn call_streaming<P: Packet>(
+    pub async fn call_streaming<P>(
         &mut self,
         mut request: P,
-    ) -> Result<ResponseStream<'_, P, S, T, C>, ClientError> {
+    ) -> Result<ResponseStream<'_, P, S, T, C>, ClientError>
+    where
+        P: Packet + EncodeWith<S> + DecodeWith<S>,
+    {
         let existing = request.correlation_id();
         let correlation_id =
             existing.unwrap_or_else(|| self.correlation_counter.fetch_add(1, Ordering::Relaxed));
@@ -133,10 +140,10 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn receive_streaming<P: Packet>(
-        &mut self,
-        correlation_id: u64,
-    ) -> ResponseStream<'_, P, S, T, C> {
+    pub fn receive_streaming<P>(&mut self, correlation_id: u64) -> ResponseStream<'_, P, S, T, C>
+    where
+        P: Packet + DecodeWith<S>,
+    {
         ResponseStream::new(self, correlation_id)
     }
 }

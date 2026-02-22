@@ -25,6 +25,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     fragment::{FragmentationConfig, FragmentationError},
+    message::EncodeWith,
     serializer::Serializer,
 };
 
@@ -126,6 +127,7 @@ where
     S: Serializer + Send + Sync,
     W: AsyncRead + AsyncWrite + Unpin,
     F: FrameCodec,
+    Envelope: EncodeWith<S>,
 {
     let bytes = serializer.serialize(envelope).map_err(|e| {
         let id = envelope.id;
@@ -170,6 +172,7 @@ where
     S: Serializer + Send + Sync,
     W: AsyncRead + AsyncWrite + Unpin,
     F: FrameCodec,
+    Envelope: EncodeWith<S>,
 {
     for envelope in envelopes.drain(..) {
         send_envelope(serializer, codec, framed, &envelope).await?;

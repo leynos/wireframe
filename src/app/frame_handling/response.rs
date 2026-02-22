@@ -8,6 +8,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::{
     app::{Envelope, Packet, PacketParts, codec_driver::flush_pipeline_output},
     codec::FrameCodec,
+    message::EncodeWith,
     middleware::{HandlerService, Service, ServiceRequest},
     serializer::Serializer,
 };
@@ -35,6 +36,7 @@ where
     E: Packet,
     W: AsyncRead + AsyncWrite + Unpin,
     F: FrameCodec,
+    Envelope: EncodeWith<S>,
 {
     let request = ServiceRequest::new(env.payload, env.correlation_id);
     let resp = match service.call(request).await {

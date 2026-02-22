@@ -17,7 +17,7 @@ use super::{
     hooks::{ClientConnectionTeardownHandler, ClientErrorHandler},
 };
 use crate::{
-    message::Message,
+    message::{DecodeWith, EncodeWith},
     rewind_stream::RewindStream,
     serializer::{BincodeSerializer, Serializer},
 };
@@ -136,7 +136,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn send<M: Message>(&mut self, message: &M) -> Result<(), ClientError> {
+    pub async fn send<M: EncodeWith<S>>(&mut self, message: &M) -> Result<(), ClientError> {
         let bytes = match self.serializer.serialize(message) {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -182,7 +182,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn receive<M: Message>(&mut self) -> Result<M, ClientError> {
+    pub async fn receive<M: DecodeWith<S>>(&mut self) -> Result<M, ClientError> {
         self.receive_internal().await
     }
 
@@ -225,7 +225,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn call<Req: Message, Resp: Message>(
+    pub async fn call<Req: EncodeWith<S>, Resp: DecodeWith<S>>(
         &mut self,
         request: &Req,
     ) -> Result<Resp, ClientError> {

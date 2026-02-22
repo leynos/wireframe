@@ -14,7 +14,7 @@ use std::{
 use futures::Stream;
 
 use super::{ClientError, runtime::ClientStream};
-use crate::{app::Packet, serializer::Serializer};
+use crate::{app::Packet, message::DecodeWith, serializer::Serializer};
 
 /// An async stream of typed frames received from a streaming server response.
 ///
@@ -60,7 +60,7 @@ use crate::{app::Packet, serializer::Serializer};
 /// ```
 pub struct ResponseStream<'a, P, S, T, C>
 where
-    P: Packet,
+    P: Packet + DecodeWith<S>,
     S: Serializer + Send + Sync,
     T: ClientStream,
 {
@@ -72,7 +72,7 @@ where
 
 impl<'a, P, S, T, C> ResponseStream<'a, P, S, T, C>
 where
-    P: Packet,
+    P: Packet + DecodeWith<S>,
     S: Serializer + Send + Sync,
     T: ClientStream,
 {
@@ -134,7 +134,7 @@ where
 
 impl<P, S, T, C> Stream for ResponseStream<'_, P, S, T, C>
 where
-    P: Packet,
+    P: Packet + DecodeWith<S>,
     S: Serializer + Send + Sync,
     T: ClientStream,
 {

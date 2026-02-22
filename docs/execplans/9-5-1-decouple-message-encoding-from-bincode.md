@@ -5,7 +5,7 @@ This Execution Plan (ExecPlan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETED (2026-02-22)
 
 Maintenance cadence: update `Progress` immediately after each stage completes,
 record architecture and scope choices in `Decision Log` when they are made, and
@@ -113,14 +113,14 @@ Authority boundaries for documentation:
 
 - [x] (2026-02-21 00:00Z) Drafted ExecPlan for roadmap item `9.5.1` with
       staged implementation and acceptance criteria.
-- [ ] Stage A complete: baseline analysis, adapter API decision, and context
+- [x] Stage A complete: baseline analysis, adapter API decision, and context
       shape finalized.
-- [ ] Stage B complete: serializer-agnostic message adapter layer and bincode
+- [x] Stage B complete: serializer-agnostic message adapter layer and bincode
       compatibility shim implemented.
-- [ ] Stage C complete: metadata context propagation wired through decode path
+- [x] Stage C complete: metadata context propagation wired through decode path
       and version-negotiation integration tests added.
-- [ ] Stage D complete: optional Serde bridge implemented and validated.
-- [ ] Stage E complete: documentation updates, roadmap completion, and full
+- [x] Stage D complete: optional Serde bridge implemented and validated.
+- [x] Stage E complete: documentation updates, roadmap completion, and full
       quality gate validation.
 
 ## Surprises & Discoveries
@@ -169,7 +169,14 @@ Authority boundaries for documentation:
 
 ## Outcomes & Retrospective
 
-Not started yet.
+- Implemented serializer-agnostic adapter boundaries through
+  `EncodeWith`/`DecodeWith` and `DeserializeContext`.
+- Added metadata-context propagation in the inbound parse/deserialize path.
+- Added optional Serde bridge support behind feature `serializer-serde`.
+- Added behavioural and unit validation for serializer boundaries and metadata
+  context handling.
+- Updated `docs/adr-005-serializer-abstraction.md`,
+  `docs/users-guide.md`, and `docs/roadmap.md` to reflect shipped behaviour.
 
 ## Context and orientation
 

@@ -11,6 +11,7 @@ use crate::{
     app::{Envelope, Packet},
     codec::FrameCodec,
     frame::FrameMetadata,
+    message::{DecodeWith, EncodeWith},
     preamble::{Preamble, read_preamble},
     rewind_stream::RewindStream,
     serializer::Serializer,
@@ -30,6 +31,7 @@ pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
     Ctx: Send + 'static,
     E: Packet + 'static,
     Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     let peer_addr = match stream.peer_addr() {
         Ok(addr) => Some(addr),
@@ -64,6 +66,7 @@ async fn process_stream<F, T, Ser, Ctx, E, Codec>(
     Ctx: Send + 'static,
     E: Packet + 'static,
     Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     let PreambleHooks {
         on_success,
@@ -92,6 +95,7 @@ where
     Ctx: Send + 'static,
     E: Packet + 'static,
     Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     match factory.build() {
         Ok(app) => {
