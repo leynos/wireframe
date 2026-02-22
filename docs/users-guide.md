@@ -1566,6 +1566,11 @@ write operations suspend, and the server stops polling its response stream or
 channel until the client drains data. No explicit flow-control messages are
 required.[^50]
 
+Interleaved high- and low-priority push behaviour is validated against this
+streaming path as part of roadmap item `10.3.2`. The parity suite confirms
+fairness-driven low-priority progress and shared cross-priority rate limiting
+without changing the public `WireframeClient` interface.
+
 ### Error handling
 
 `ResponseStream` validates the correlation identifier on every frame. If a

@@ -83,6 +83,24 @@ This mapping applies to `receive`, `call`, and envelope-aware receive/call
 methods. Serialization failures remain explicit as `ClientError::Serialize(_)`
 because they occur before the transport layer is used.
 
+### Streaming parity validation
+
+Client streaming parity is validated against the server's priority queue and
+rate-limiter behaviour by driving `ConnectionActor` output through the client
+streaming consumer. This avoids duplicating queue logic in client-only test
+harnesses and ensures both sides are exercised under the same behavioural
+contracts.
+
+The parity checks cover two guarantees:
+
+- Interleaved high- and low-priority pushes maintain fairness under configured
+  `FairnessConfig` thresholds.
+- Rate limiting remains cross-priority and symmetric, so one priority cannot
+  bypass limits imposed on another.
+
+This validation was added for roadmap item `10.3.2` and does not introduce new
+public client API methods.
+
 ### Implementation decisions
 
 - `connect` accepts a `SocketAddr` so the client can create a `TcpSocket` and

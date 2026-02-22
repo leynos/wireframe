@@ -755,6 +755,27 @@ suspend, and the server stops polling its response stream or channel. This is
 consistent with the server-side back-pressure architecture described in Section
 3.1.
 
+### 12.6 Interleaved queue parity validation
+
+Roadmap item `10.3.2` is validated by exercising interleaved high- and
+low-priority push queues through the client streaming surface. The parity
+coverage deliberately uses the same `ConnectionActor`, `FairnessConfig`, and
+`PushQueues` machinery as production paths, then feeds the resulting frame
+sequence into `ResponseStream`.
+
+Two behavioural guarantees are asserted end-to-end:
+
+- **Fairness parity.** Under a high-priority burst, low-priority frames still
+  make forward progress when fairness settings require yielding.
+- **Rate-limit symmetry.** A single limiter budget is shared across high and
+  low priorities; traffic in one queue cannot bypass limits by switching
+  priority.
+
+These checks are covered in both `rstest` unit tests
+(`src/client/tests/streaming_parity.rs`) and `rstest-bdd` behavioural scenarios
+(`tests/features/client_streaming.feature`), ensuring parity is proven in
+white-box and user-observable paths without changing the public client API.
+
 ## 13. Interleaved push queue validation
 
 ### 13.1 Motivation

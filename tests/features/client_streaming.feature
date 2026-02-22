@@ -27,3 +27,15 @@ Feature: Client streaming response consumption
     When the client sends a streaming request
     Then 2 data frames are received
     And a disconnection error is returned
+
+  Scenario: Client receives fair interleaving across push priorities
+    Given a streaming server that emits interleaved high- and low-priority pushes
+    When the client sends a streaming request
+    Then interleaved priority frames are received without low-priority starvation
+    And the stream terminates cleanly
+
+  Scenario: Client observes shared rate limiting across push priorities
+    Given a streaming server with shared cross-priority push rate limiting
+    When the client sends a streaming request
+    Then the shared limiter blocks cross-priority bursts before refill
+    And the stream terminates cleanly
