@@ -10,6 +10,8 @@
 //! 3. No frames are lost under concurrent interleaved traffic.
 #![cfg(not(loom))]
 
+use std::future::Future;
+
 use futures::FutureExt;
 use rstest::{fixture, rstest};
 use serial_test::serial;
@@ -20,7 +22,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
-    push::PushQueues,
+    push::{PushHandle, PushQueues},
 };
 use wireframe_testing::{TestResult, push_expect};
 
@@ -30,6 +32,35 @@ use wireframe_testing::{TestResult, push_expect};
 #[fixture]
 fn shutdown_token() -> CancellationToken {
     CancellationToken::new()
+}
+
+/// Build unlimited queues, load frames via `setup`, run the actor with
+/// the given `fairness` config, and pass collected output to `assertions`.
+async fn run_actor_test<S, SFut, A>(fairness: FairnessConfig, setup: S, assertions: A) -> TestResult
+where
+    S: FnOnce(PushHandle<u8>) -> SFut,
+    SFut: Future<Output = ()>,
+    A: FnOnce(Vec<u8>),
+{
+    let (queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .unlimited()
+        .build()?;
+
+    setup(handle.clone()).await;
+
+    let shutdown = CancellationToken::new();
+    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    actor.set_fairness(fairness);
+    let mut out = Vec::new();
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
+
+    assertions(out);
+    Ok(())
 }
 
 // ── Rate-limit symmetry ─────────────────────────────────────────────
@@ -145,43 +176,30 @@ async fn rate_limit_symmetric_mixed() -> TestResult {
 #[rstest]
 #[tokio::test]
 #[serial]
-async fn interleaved_fairness_yields_at_threshold(shutdown_token: CancellationToken) -> TestResult {
-    let (queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .unlimited()
-        .build()?;
-
-    let fairness = FairnessConfig {
-        max_high_before_low: 3,
-        time_slice: None,
-    };
-
-    // Pre-load: 6 high, 2 low.
-    for n in 1..=6 {
-        push_expect!(handle.push_high_priority(n));
-    }
-    push_expect!(handle.push_low_priority(101));
-    push_expect!(handle.push_low_priority(102));
-
-    // Moving handle into the actor drops the last sender, allowing the
-    // actor to detect channel closure once all frames are drained.
-    let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, handle, None, shutdown_token);
-    actor.set_fairness(fairness);
-    let mut out = Vec::new();
-    actor
-        .run(&mut out)
-        .await
-        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
-
-    // Expected: H H H L H H H L
-    assert_eq!(
-        out,
-        vec![1, 2, 3, 101, 4, 5, 6, 102],
-        "low-priority frames should be interleaved every 3 high frames"
-    );
-    Ok(())
+async fn interleaved_fairness_yields_at_threshold() -> TestResult {
+    run_actor_test(
+        FairnessConfig {
+            max_high_before_low: 3,
+            time_slice: None,
+        },
+        // Pre-load: 6 high, 2 low.
+        |handle| async move {
+            for n in 1..=6 {
+                push_expect!(handle.push_high_priority(n));
+            }
+            push_expect!(handle.push_low_priority(101));
+            push_expect!(handle.push_low_priority(102));
+        },
+        // Expected: H H H L H H H L
+        |out| {
+            assert_eq!(
+                out,
+                vec![1, 2, 3, 101, 4, 5, 6, 102],
+                "low-priority frames should be interleaved every 3 high frames"
+            );
+        },
+    )
+    .await
 }
 
 /// All frames are delivered when both queues carry traffic with
@@ -189,47 +207,36 @@ async fn interleaved_fairness_yields_at_threshold(shutdown_token: CancellationTo
 #[rstest]
 #[tokio::test]
 #[serial]
-async fn interleaved_all_frames_delivered(shutdown_token: CancellationToken) -> TestResult {
-    let (queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .unlimited()
-        .build()?;
+async fn interleaved_all_frames_delivered() -> TestResult {
+    run_actor_test(
+        FairnessConfig {
+            max_high_before_low: 2,
+            time_slice: None,
+        },
+        |handle| async move {
+            for n in 1..=5 {
+                push_expect!(handle.push_high_priority(n));
+            }
+            for n in 101..=105 {
+                push_expect!(handle.push_low_priority(n));
+            }
+        },
+        |out| {
+            assert_eq!(out.len(), 10, "all 10 frames should be delivered");
 
-    let fairness = FairnessConfig {
-        max_high_before_low: 2,
-        time_slice: None,
-    };
-
-    for n in 1..=5 {
-        push_expect!(handle.push_high_priority(n));
-    }
-    for n in 101..=105 {
-        push_expect!(handle.push_low_priority(n));
-    }
-
-    let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, handle, None, shutdown_token);
-    actor.set_fairness(fairness);
-    let mut out = Vec::new();
-    actor
-        .run(&mut out)
-        .await
-        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
-
-    assert_eq!(out.len(), 10, "all 10 frames should be delivered");
-
-    let mut high_frames: Vec<u8> = out.iter().copied().filter(|&f| f <= 5).collect();
-    let mut low_frames: Vec<u8> = out.iter().copied().filter(|&f| f >= 101).collect();
-    high_frames.sort_unstable();
-    low_frames.sort_unstable();
-    assert_eq!(high_frames, vec![1, 2, 3, 4, 5], "all high frames present");
-    assert_eq!(
-        low_frames,
-        vec![101, 102, 103, 104, 105],
-        "all low frames present"
-    );
-    Ok(())
+            let mut high_frames: Vec<u8> = out.iter().copied().filter(|&f| f <= 5).collect();
+            let mut low_frames: Vec<u8> = out.iter().copied().filter(|&f| f >= 101).collect();
+            high_frames.sort_unstable();
+            low_frames.sort_unstable();
+            assert_eq!(high_frames, vec![1, 2, 3, 4, 5], "all high frames present");
+            assert_eq!(
+                low_frames,
+                vec![101, 102, 103, 104, 105],
+                "all low frames present"
+            );
+        },
+    )
+    .await
 }
 
 /// Time-slice fairness yields to low-priority traffic after the
@@ -332,37 +339,26 @@ async fn rate_limit_interleaved_total_throughput() -> TestResult {
 #[rstest]
 #[tokio::test]
 #[serial]
-async fn fairness_disabled_strict_priority(shutdown_token: CancellationToken) -> TestResult {
-    let (queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .unlimited()
-        .build()?;
-
-    let fairness = FairnessConfig {
-        max_high_before_low: 0,
-        time_slice: None,
-    };
-
-    push_expect!(handle.push_low_priority(101));
-    push_expect!(handle.push_low_priority(102));
-    push_expect!(handle.push_high_priority(1));
-    push_expect!(handle.push_high_priority(2));
-    push_expect!(handle.push_high_priority(3));
-
-    let mut actor: ConnectionActor<_, ()> =
-        ConnectionActor::new(queues, handle, None, shutdown_token);
-    actor.set_fairness(fairness);
-    let mut out = Vec::new();
-    actor
-        .run(&mut out)
-        .await
-        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
-
-    assert_eq!(
-        out,
-        vec![1, 2, 3, 101, 102],
-        "all high frames should precede all low frames"
-    );
-    Ok(())
+async fn fairness_disabled_strict_priority() -> TestResult {
+    run_actor_test(
+        FairnessConfig {
+            max_high_before_low: 0,
+            time_slice: None,
+        },
+        |handle| async move {
+            push_expect!(handle.push_low_priority(101));
+            push_expect!(handle.push_low_priority(102));
+            push_expect!(handle.push_high_priority(1));
+            push_expect!(handle.push_high_priority(2));
+            push_expect!(handle.push_high_priority(3));
+        },
+        |out| {
+            assert_eq!(
+                out,
+                vec![1, 2, 3, 101, 102],
+                "all high frames should precede all low frames"
+            );
+        },
+    )
+    .await
 }
