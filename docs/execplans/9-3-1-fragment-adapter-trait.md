@@ -703,8 +703,7 @@ Sketch of the driver's public surface:
 - `src/app/frame_handling/core.rs` — remove or simplify `ResponseContext`.
 - `src/app/combined_codec.rs` — no changes expected; driver reuses it.
 - `src/server/connection_spawner.rs` — may need minor adjustment if the
-  connection
-  task setup changes.
+  connection task setup changes.
 - `src/app/builder/protocol.rs` — wire `ProtocolHooks` into the connection
   driver.
 - `docs/asynchronous-outbound-messaging-design.md`

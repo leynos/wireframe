@@ -190,8 +190,7 @@ Current app integration points are:
 - `src/app/builder/core.rs` and `src/app/builder/codec.rs`, where
   `default_fragmentation(...)` currently auto-enables fragmentation.
 - `src/app/inbound_handler.rs`, which instantiates optional fragmentation state
-  and
-  calls purge on read-timeout ticks.
+  and calls purge on read-timeout ticks.
 - `src/app/frame_handling/response.rs` and
   `src/app/frame_handling/reassembly.rs`, which apply fragmentation and
   reassembly around handler processing.
