@@ -15,7 +15,7 @@ Wireframe currently hardcodes `tokio_util::codec::LengthDelimitedCodec` with a
 4-byte big-endian length prefix in the connection pipeline (notably in
 `src/app/inbound_handler.rs` and `src/app/frame_handling.rs`). This makes
 framing inflexible and prevents protocols with alternative framing rules (such
-as Hotline, MySQL, and Redis Serialization Protocol (RESP) from reusing
+as Hotline, MySQL, and Redis Serialization Protocol (RESP)) from reusing
 Wireframe's routing, middleware, and serialization infrastructure.
 
 A pluggable framing layer is required that can:
