@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 No `PLANS.md` exists in this repository as of 2026-02-23.
 
@@ -97,11 +97,12 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-02-23 19:10Z) Drafted ExecPlan for roadmap item `8.3.3`.
-- [ ] Stage A: add soft-limit policy helper and unit coverage.
-- [ ] Stage B: integrate paced read pausing into inbound loop.
-- [ ] Stage C: add behavioural coverage (`rstest-bdd` v0.5.0).
-- [ ] Stage D: documentation and roadmap updates.
-- [ ] Stage E: run all quality gates and finalize.
+- [x] (2026-02-23) Stage A: added soft-limit policy helper and unit coverage.
+- [x] (2026-02-23) Stage B: integrated paced read pausing into inbound loop.
+- [x] (2026-02-23) Stage C: added behavioural coverage (`rstest-bdd` v0.5.0).
+- [x] (2026-02-23) Stage D: updated ADR, design docs, user guide, and roadmap.
+- [x] (2026-02-23) Stage E: reran all quality gates and finalized this
+  ExecPlan.
 
 ## Surprises & Discoveries
 
@@ -122,6 +123,17 @@ Success is observable when:
   `docs/users-guide.md` section "Per-connection memory budgets". Impact: docs
   must be updated so consumers understand runtime behaviour under near-cap
   pressure.
+
+- Observation: new back-pressure step text initially conflicted with existing
+  message-assembly step definitions. Evidence: rstest-bdd ambiguity during
+  scenario expansion. Impact: step phrases were renamed with a `budgeted`
+  prefix to keep glue deterministic.
+
+- Observation: pre-existing `push_expect!` call sites failed strict
+  `unused_must_use` linting while running workspace gates. Evidence:
+  `make lint` output for `tests/interleaved_push_queues.rs` and
+  `tests/fixtures/interleaved_push_queues.rs`. Impact: the existing call sites
+  were fixed (`let _ = ...`) so the 8.3.3 gate run can complete cleanly.
 
 ## Decision Log
 
@@ -144,8 +156,33 @@ Success is observable when:
 
 ## Outcomes & Retrospective
 
-Not started. This section will be completed after implementation and quality
-validation.
+Implemented roadmap item `8.3.3` with no public API changes:
+
+- Added `src/app/frame_handling/backpressure.rs` and unit tests in
+  `src/app/frame_handling/backpressure_tests.rs`.
+- Integrated soft-limit pacing into `WireframeApp::process_stream` via
+  `should_pause_inbound_reads(...)` and a short async pause before polling
+  additional frames.
+- Added `rstest-bdd` coverage via:
+  `tests/features/memory_budget_backpressure.feature`,
+  `tests/fixtures/memory_budget_backpressure.rs`,
+  `tests/steps/memory_budget_backpressure_steps.rs`, and
+  `tests/scenarios/memory_budget_backpressure_scenarios.rs`.
+- Updated documentation in:
+  `docs/adr-002-streaming-requests-and-shared-message-assembly.md`,
+  `docs/generic-message-fragmentation-and-re-assembly-design.md`,
+  `docs/users-guide.md`, and `docs/roadmap.md`.
+
+Validation completed with fresh logs:
+
+- `make fmt` (`/tmp/wireframe-8-3-3-fmt.log`)
+- `make markdownlint` (`/tmp/wireframe-8-3-3-markdownlint.log`)
+- `make check-fmt` (`/tmp/wireframe-8-3-3-check-fmt.log`)
+- `make lint` (`/tmp/wireframe-8-3-3-lint.log`)
+- `make test` (`/tmp/wireframe-8-3-3-test.log`)
+- `make nixie` (`/tmp/wireframe-8-3-3-nixie.log`)
+
+All gates passed on 2026-02-23.
 
 ## Context and orientation
 

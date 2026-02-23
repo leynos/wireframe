@@ -3,6 +3,7 @@
 //! Extracted from `connection.rs` to keep modules small and focused.
 
 mod assembly;
+mod backpressure;
 mod core;
 mod decode;
 mod reassembly;
@@ -16,11 +17,14 @@ pub(crate) use assembly::{
     new_message_assembly_state,
     purge_expired_assemblies,
 };
+pub(crate) use backpressure::{should_pause_inbound_reads, soft_limit_pause_duration};
 pub(crate) use decode::decode_envelope;
 pub(crate) use reassembly::reassemble_if_needed;
 pub(crate) use response::forward_response;
 
 #[cfg(all(test, not(loom)))]
 mod assembly_tests;
+#[cfg(all(test, not(loom)))]
+mod backpressure_tests;
 #[cfg(all(test, not(loom)))]
 mod tests;

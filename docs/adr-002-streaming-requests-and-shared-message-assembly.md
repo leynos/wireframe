@@ -313,7 +313,23 @@ Precedence is:
   routed through the existing `DeserFailureTracker` as `InvalidData`.
 - Budget enforcement helpers are extracted to `src/message_assembler/budget.rs`
   to keep `state.rs` under the 400-line file limit.
-- Back-pressure (`8.3.3`) and derived defaults (`8.3.5`) remain future work.
+- At this point, back-pressure (`8.3.3`) and derived defaults (`8.3.5`)
+  remained future work.
+
+#### Implementation decisions (2026-02-23)
+
+- Roadmap item `8.3.3` now implements soft-limit back-pressure in the inbound
+  read loop (`src/app/inbound_handler.rs`) by pausing briefly before polling
+  the next frame when buffered assembly bytes are under pressure.
+- Soft pressure is computed from assembly-state buffered bytes versus the
+  smaller aggregate cap (`min(bytes_per_connection, bytes_in_flight)`), with a
+  threshold of 80% to engage pacing before hard-cap rejection.
+- The soft-limit policy is implemented in
+  `src/app/frame_handling/backpressure.rs` to keep `inbound_handler.rs` and
+  `state.rs` within the repository file-size constraint.
+- Under sustained pressure, pacing is applied as short per-iteration pauses
+  rather than an indefinite read stop, so in-flight assemblies can continue to
+  make progress.
 
 #### Budget enforcement
 

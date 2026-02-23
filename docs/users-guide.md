@@ -609,6 +609,13 @@ is the minimum of the fragmentation `max_message_size` and the configured
 `bytes_per_message`. Single-frame messages that complete immediately are never
 counted against aggregate budgets, since they do not buffer.
 
+Wireframe also applies soft-limit read pacing before hard-cap rejection. When
+buffered assembly bytes reach the soft-pressure threshold (80% of the smaller
+aggregate cap from `bytes_per_connection` and `bytes_in_flight`), the inbound
+connection loop briefly pauses socket reads before polling the next frame. This
+propagates back-pressure to senders while still allowing progress on in-flight
+assemblies.
+
 #### Message key multiplexing (8.2.3)
 
 The `MessageAssemblyState` type manages multiple concurrent message assemblies
