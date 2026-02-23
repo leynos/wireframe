@@ -6,7 +6,7 @@ use log::debug;
 
 use super::core::DeserFailureTracker;
 use crate::{
-    app::{Envelope, builder_defaults::default_fragmentation},
+    app::{Envelope, builder_defaults::default_fragmentation, memory_budgets::MemoryBudgets},
     codec::clamp_frame_length,
     fragment::FragmentationConfig,
     message_assembler::{
@@ -42,13 +42,18 @@ impl<'a> AssemblyRuntime<'a> {
 }
 
 /// Build a connection-scoped message assembly state from known budgets.
+///
+/// When `memory_budgets` is `Some`, the effective per-message limit is
+/// `min(fragmentation_max, bytes_per_message)` and the connection/in-flight
+/// budgets are forwarded to [`MessageAssemblyState::with_budgets`].
 #[must_use]
 pub(crate) fn new_message_assembly_state(
     fragmentation: Option<FragmentationConfig>,
     frame_budget: usize,
+    memory_budgets: Option<MemoryBudgets>,
 ) -> MessageAssemblyState {
     let config = fragmentation.or_else(|| default_fragmentation(frame_budget));
-    let max_message_size = config.map_or_else(
+    let frag_max = config.map_or_else(
         || NonZeroUsize::new(clamp_frame_length(frame_budget)).unwrap_or(NonZeroUsize::MIN),
         |cfg| cfg.max_message_size,
     );
@@ -56,7 +61,19 @@ pub(crate) fn new_message_assembly_state(
         cfg.reassembly_timeout
     });
 
-    MessageAssemblyState::new(max_message_size, timeout)
+    match memory_budgets {
+        Some(budgets) => {
+            let per_message = budgets.bytes_per_message().get();
+            let max_message_size = frag_max.min(per_message);
+            MessageAssemblyState::with_budgets(
+                max_message_size,
+                timeout,
+                Some(budgets.bytes_per_connection().get()),
+                Some(budgets.bytes_in_flight().get()),
+            )
+        }
+        None => MessageAssemblyState::new(frag_max, timeout),
+    }
 }
 
 /// Purge stale in-flight assemblies.

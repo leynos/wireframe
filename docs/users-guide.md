@@ -567,9 +567,14 @@ let _app = WireframeApp::new()
     .read_timeout_ms(250);
 ```
 
-This builder method establishes configuration for the current `WireframeApp`
-instance. Runtime enforcement and derived defaults are implemented in the
-subsequent roadmap items covering memory budget enforcement behaviour.
+When budgets are configured, the message assembly subsystem enforces them at
+frame acceptance time. Frames that would cause the total buffered bytes to
+exceed the per-connection or in-flight budget are rejected, the offending
+partial assembly is freed, and the failure is surfaced through the existing
+deserialization-failure policy (`InvalidData`). The effective per-message limit
+is the minimum of the fragmentation `max_message_size` and the configured
+`bytes_per_message`. Single-frame messages that complete immediately are never
+counted against aggregate budgets, since they do not buffer.
 
 #### Message key multiplexing (8.2.3)
 

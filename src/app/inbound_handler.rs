@@ -254,7 +254,11 @@ where
         framed.read_buffer_mut().reserve(max_frame_length);
         let mut deser_failures = 0u32;
         let mut message_assembly = self.message_assembler.as_ref().map(|_| {
-            frame_handling::new_message_assembly_state(self.fragmentation, requested_frame_length)
+            frame_handling::new_message_assembly_state(
+                self.fragmentation,
+                requested_frame_length,
+                self.memory_budgets,
+            )
         });
         let mut pipeline = FramePipeline::new(self.fragmentation);
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
