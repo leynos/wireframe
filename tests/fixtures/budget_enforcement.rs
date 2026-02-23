@@ -2,6 +2,7 @@
 
 use std::{
     num::NonZeroUsize,
+    str::FromStr,
     time::{Duration, Instant},
 };
 
@@ -19,12 +20,37 @@ use wireframe::message_assembler::{
 pub use wireframe_testing::TestResult;
 
 /// Configuration bundle for `init_budgeted_state`.
+///
+/// Parsed from the Gherkin step text as
+/// `"max_message_size / timeout_secs / connection_budget / in_flight_budget"`.
 #[derive(Clone, Copy)]
 pub struct BudgetedStateConfig {
     pub max_message_size: usize,
     pub timeout_secs: u64,
     pub connection_budget: usize,
     pub in_flight_budget: usize,
+}
+
+impl FromStr for BudgetedStateConfig {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split('/').map(str::trim);
+        let msg = parts.next().ok_or("missing max_message_size")?;
+        let timeout = parts.next().ok_or("missing timeout_secs")?;
+        let conn = parts.next().ok_or("missing connection_budget")?;
+        let flight = parts.next().ok_or("missing in_flight_budget")?;
+        Ok(Self {
+            max_message_size: msg.parse().map_err(|e| format!("max_message_size: {e}"))?,
+            timeout_secs: timeout.parse().map_err(|e| format!("timeout_secs: {e}"))?,
+            connection_budget: conn
+                .parse()
+                .map_err(|e| format!("connection_budget: {e}"))?,
+            in_flight_budget: flight
+                .parse()
+                .map_err(|e| format!("in_flight_budget: {e}"))?,
+        })
+    }
 }
 
 /// Continuation frame descriptor.

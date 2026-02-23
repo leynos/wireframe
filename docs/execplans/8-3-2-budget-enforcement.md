@@ -16,8 +16,8 @@ dimensions introduced by `8.3.1` (configuration-only). After this change, when
 a library consumer configures `MemoryBudgets` on `WireframeApp`, the message
 assembly subsystem will actively enforce:
 
-- **bytes per message** — no single assembled message may exceed the configured
-  cap;
+- **bytes per message** — no single assembled message may exceed the
+  configured cap;
 - **bytes per connection** — the sum of all bytes buffered across every
   in-flight assembly on one connection may not exceed the configured cap; and
 - **bytes in flight** — a second aggregate guard on buffered assembly bytes,
@@ -27,7 +27,7 @@ assembly subsystem will actively enforce:
 
 When a budget is exceeded the framework aborts the offending assembly, frees
 its partial buffers, and surfaces `std::io::ErrorKind::InvalidData` through the
-existing deserialisation-failure policy. No handler is invoked for the aborted
+existing deserialization-failure policy. No handler is invoked for the aborted
 message. Other in-flight assemblies on the same connection are unaffected.
 
 Success is observable when:
@@ -92,7 +92,7 @@ Success is observable when:
 - Risk: `total_buffered_bytes()` is O(n) over all in-flight assemblies per
   accepted frame. Severity: low. Likelihood: low. Mitigation: acceptable for
   8.3.2 because concurrent assemblies per connection are typically in single
-  digits. A cached running total can be added in a future optimisation pass if
+  digits. A cached running total can be added in a future optimization pass if
   profiling warrants it.
 
 - Risk: the conceptual overlap between `bytes_per_connection` and

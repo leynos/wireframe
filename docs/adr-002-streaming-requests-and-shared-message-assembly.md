@@ -308,7 +308,7 @@ Precedence is:
   limit as `min(max_message_size, bytes_per_message)`.
 - Budget checks are applied after single-frame early return (single-frame
   messages are never buffered and skip aggregate checks).
-- On budget violation the offending partial assembly is freed and the error
+- On budget violation the offending partial assembly is freed, and the error
   is surfaced as `ConnectionBudgetExceeded` or `InFlightBudgetExceeded`, both
   routed through the existing `DeserFailureTracker` as `InvalidData`.
 - Budget enforcement helpers are extracted to `src/message_assembler/budget.rs`

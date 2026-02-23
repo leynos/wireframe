@@ -5,7 +5,7 @@ Feature: Memory budget enforcement during message assembly
   three budget dimensions — per-message, per-connection, and in-flight.
 
   Background:
-    Given a budgeted assembly state with max message size 1024, timeout 30, connection budget 50, and in-flight budget 40
+    Given a budgeted assembly state configured as 1024/30/50/40
 
   Scenario: Accept frames within all budget limits
     When a first frame for key 1 with 10 body bytes is accepted

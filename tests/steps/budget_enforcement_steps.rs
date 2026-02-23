@@ -13,24 +13,12 @@ use crate::fixtures::budget_enforcement::{
 // Given
 // ---------------------------------------------------------------------------
 
-#[given(
-    "a budgeted assembly state with max message size {max_msg}, timeout {timeout}, connection \
-     budget {conn}, and in-flight budget {flight}"
-)]
-#[expect(clippy::too_many_arguments, reason = "step macro injects world param")]
+#[given("a budgeted assembly state configured as {config}")]
 fn given_budgeted_state(
     budget_enforcement_world: &mut BudgetEnforcementWorld,
-    max_msg: usize,
-    timeout: u64,
-    conn: usize,
-    flight: usize,
+    config: BudgetedStateConfig,
 ) -> TestResult {
-    budget_enforcement_world.init_budgeted_state(BudgetedStateConfig {
-        max_message_size: max_msg,
-        timeout_secs: timeout,
-        connection_budget: conn,
-        in_flight_budget: flight,
-    })
+    budget_enforcement_world.init_budgeted_state(config)
 }
 
 #[given("the clock is at time zero")]
