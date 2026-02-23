@@ -48,7 +48,10 @@ pub struct BudgetEnforcementWorld {
 
 impl Default for BudgetEnforcementWorld {
     fn default() -> Self {
-        let max = NonZeroUsize::MIN;
+        // Use a forgiving default so that scenarios which forget to call
+        // init_budgeted_state fail with a clear budget error rather than a
+        // confusing MessageTooLarge on any multi-byte body.
+        let max = NonZeroUsize::new(64 * 1024).unwrap_or(NonZeroUsize::MIN);
         Self {
             state: MessageAssemblyState::new(max, Duration::from_secs(30)),
             last_error: None,
