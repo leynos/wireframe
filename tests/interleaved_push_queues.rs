@@ -10,7 +10,7 @@
 //! 3. No frames are lost under concurrent interleaved traffic.
 #![cfg(not(loom))]
 
-use std::future::Future;
+use std::{future::Future, pin::Pin};
 
 use futures::FutureExt;
 use rstest::{fixture, rstest};
@@ -22,7 +22,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
-    push::{PushHandle, PushQueues},
+    push::{PushError, PushHandle, PushQueues},
 };
 use wireframe_testing::{TestResult, push_expect};
 
@@ -65,12 +65,14 @@ where
 
 // ── Rate-limit symmetry ─────────────────────────────────────────────
 
-/// The rate limiter blocks high-priority pushes after the burst window
-/// is exhausted, proving it applies to the high queue.
-#[rstest]
-#[tokio::test]
-#[serial]
-async fn rate_limit_symmetric_high_only() -> TestResult {
+/// Type alias for a push function that takes a handle reference and a
+/// frame value, returning a boxed future resolving to `PushError`.
+type PushFn = fn(&PushHandle<u8>, u8) -> Pin<Box<dyn Future<Output = Result<(), PushError>> + '_>>;
+
+/// Build rate-limited queues (rate=2), push a burst that saturates the
+/// token bucket, verify the next push blocks, advance time, push once
+/// more, and drain to confirm delivery order.
+async fn test_single_priority_rate_limit(push: PushFn, priority_name: &str) -> TestResult {
     time::pause();
     let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(4)
@@ -79,27 +81,46 @@ async fn rate_limit_symmetric_high_only() -> TestResult {
         .build()?;
 
     // Burst of 2 should succeed immediately.
-    push_expect!(handle.push_high_priority(1));
-    push_expect!(handle.push_high_priority(2));
+    push(&handle, 1).await?;
+    push(&handle, 2).await?;
 
     // Third push should be blocked by the rate limiter.
-    let mut blocked = handle.push_high_priority(3).boxed();
+    let mut blocked = push(&handle, 3);
     tokio::task::yield_now().await;
     assert!(
         blocked.as_mut().now_or_never().is_none(),
-        "third high push should be pending under rate limit"
+        "third {priority_name} push should be pending under rate limit"
     );
 
     // Advance past the refill window and push again.
     time::advance(Duration::from_secs(1)).await;
-    push_expect!(handle.push_high_priority(4));
+    push(&handle, 4).await?;
 
     // Drain to confirm frame delivery.
+    let frames = drain_three(&mut queues).await?;
+    assert_eq!(
+        frames,
+        (1, 2, 4),
+        "{priority_name} frames delivered in order"
+    );
+    Ok(())
+}
+
+/// Drain exactly three frames from the queue, returning them as a tuple.
+async fn drain_three(queues: &mut PushQueues<u8>) -> TestResult<(u8, u8, u8)> {
     let (_, a) = queues.recv().await.ok_or("recv 1 failed")?;
     let (_, b) = queues.recv().await.ok_or("recv 2 failed")?;
     let (_, c) = queues.recv().await.ok_or("recv 3 failed")?;
-    assert_eq!((a, b, c), (1, 2, 4), "high frames delivered in order");
-    Ok(())
+    Ok((a, b, c))
+}
+
+/// The rate limiter blocks high-priority pushes after the burst window
+/// is exhausted, proving it applies to the high queue.
+#[rstest]
+#[tokio::test]
+#[serial]
+async fn rate_limit_symmetric_high_only() -> TestResult {
+    test_single_priority_rate_limit(|h, v| Box::pin(h.push_high_priority(v)), "high").await
 }
 
 /// The rate limiter blocks low-priority pushes after the burst window
@@ -108,31 +129,7 @@ async fn rate_limit_symmetric_high_only() -> TestResult {
 #[tokio::test]
 #[serial]
 async fn rate_limit_symmetric_low_only() -> TestResult {
-    time::pause();
-    let (mut queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(4)
-        .low_capacity(4)
-        .rate(Some(2))
-        .build()?;
-
-    push_expect!(handle.push_low_priority(1));
-    push_expect!(handle.push_low_priority(2));
-
-    let mut blocked = handle.push_low_priority(3).boxed();
-    tokio::task::yield_now().await;
-    assert!(
-        blocked.as_mut().now_or_never().is_none(),
-        "third low push should be pending under rate limit"
-    );
-
-    time::advance(Duration::from_secs(1)).await;
-    push_expect!(handle.push_low_priority(4));
-
-    let (_, a) = queues.recv().await.ok_or("recv 1 failed")?;
-    let (_, b) = queues.recv().await.ok_or("recv 2 failed")?;
-    let (_, c) = queues.recv().await.ok_or("recv 3 failed")?;
-    assert_eq!((a, b, c), (1, 2, 4), "low frames delivered in order");
-    Ok(())
+    test_single_priority_rate_limit(|h, v| Box::pin(h.push_low_priority(v)), "low").await
 }
 
 /// A high-priority push consumes a token from the shared bucket,
