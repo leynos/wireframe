@@ -35,19 +35,32 @@ async fn run_app_rejects_excess_capacity() {
 #[tokio::test]
 async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
     let app: WireframeApp<BincodeSerializer, (), Envelope> =
-        WireframeApp::new().expect("failed to create app");
+        WireframeApp::new().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to create app: {error}"),
+            )
+        })?;
     let app = app
         .route(
             1,
             Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) }),
         )
-        .expect("route registration should succeed");
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("route registration should succeed: {error}"),
+            )
+        })?;
     let serializer = BincodeSerializer;
     let payload = vec![1_u8, 2, 3];
     let env = Envelope::new(1, Some(7), payload.clone());
-    let encoded = serializer
-        .serialize(&env)
-        .expect("failed to serialize envelope");
+    let encoded = serializer.serialize(&env).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to serialize envelope: {error}"),
+        )
+    })?;
 
     let out = drive_with_payloads(app, vec![encoded]).await?;
     let frames = decode_frames(out)?;
@@ -63,9 +76,12 @@ async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
             "expected a single response frame",
         )
     })?;
-    let (decoded, _) = serializer
-        .deserialize::<Envelope>(first)
-        .expect("failed to deserialise envelope");
+    let (decoded, _) = serializer.deserialize::<Envelope>(first).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to deserialise envelope: {error}"),
+        )
+    })?;
     assert_eq!(
         decoded.payload_bytes(),
         payload.as_slice(),
