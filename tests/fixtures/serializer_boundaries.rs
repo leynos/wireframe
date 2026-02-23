@@ -5,68 +5,20 @@ use std::sync::{Arc, Mutex};
 use rstest::fixture;
 use wireframe::{
     app::Envelope,
-    message::{DecodeWith, DeserializeContext, EncodeWith},
-    serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
+    message::DeserializeContext,
+    serializer::{BincodeSerializer, Serializer},
 };
+
+#[path = "../common/context_capturing_serializer.rs"]
+mod context_capturing_serializer;
+
+use context_capturing_serializer::{CapturedDeserializeContext, ContextCapturingSerializer};
 /// Shared result type used by serializer boundary fixtures and steps.
 pub use wireframe_testing::TestResult;
 
 #[derive(bincode::Decode, bincode::Encode, Debug, PartialEq, Eq)]
 struct LegacyPayload {
     value: u32,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct CapturedContext {
-    message_id: Option<u32>,
-    correlation_id: Option<u64>,
-}
-
-#[derive(Default)]
-struct ContextCapturingSerializer {
-    captured: Arc<Mutex<Option<CapturedContext>>>,
-}
-
-impl ContextCapturingSerializer {
-    fn new(captured: Arc<Mutex<Option<CapturedContext>>>) -> Self { Self { captured } }
-}
-
-impl MessageCompatibilitySerializer for ContextCapturingSerializer {}
-
-impl Serializer for ContextCapturingSerializer {
-    fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: EncodeWith<Self>,
-    {
-        value.encode_with(self)
-    }
-
-    fn deserialize<M>(
-        &self,
-        bytes: &[u8],
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: DecodeWith<Self>,
-    {
-        M::decode_with(self, bytes, &DeserializeContext::empty())
-    }
-
-    fn deserialize_with_context<M>(
-        &self,
-        bytes: &[u8],
-        context: &DeserializeContext<'_>,
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: DecodeWith<Self>,
-    {
-        if let Ok(mut state) = self.captured.lock() {
-            *state = Some(CapturedContext {
-                message_id: context.message_id,
-                correlation_id: context.correlation_id,
-            });
-        }
-        M::decode_with(self, bytes, context)
-    }
 }
 
 /// Behavioural test world for serializer boundary scenarios.
@@ -76,7 +28,7 @@ pub struct SerializerBoundariesWorld {
     decoded_legacy_value: Option<u32>,
     context_message_id: Option<u32>,
     context_correlation_id: Option<u64>,
-    captured_context: Arc<Mutex<Option<CapturedContext>>>,
+    captured_context: Arc<Mutex<Option<CapturedDeserializeContext>>>,
 }
 
 /// Fixture world for serializer boundary tests.
@@ -150,19 +102,18 @@ impl SerializerBoundariesWorld {
     /// Returns an error if no context was captured.
     fn assert_captured_field<T>(
         &self,
-        field_extractor: impl FnOnce(&CapturedContext) -> Option<T>,
+        field_extractor: impl FnOnce(&CapturedDeserializeContext) -> Option<T>,
         expected: T,
         field_name: &str,
     ) -> TestResult
     where
         T: PartialEq + std::fmt::Debug,
     {
-        let captured = self
+        let captured = (*self
             .captured_context
             .lock()
-            .ok()
-            .and_then(|state| *state)
-            .ok_or("captured context not available")?;
+            .map_err(|_| "captured context mutex poisoned")?)
+        .ok_or("captured context not available")?;
         let actual = field_extractor(&captured);
         let expected_value = Some(expected);
         if actual != expected_value {

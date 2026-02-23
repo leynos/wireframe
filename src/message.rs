@@ -141,6 +141,11 @@ where
 #[cfg(feature = "serializer-serde")]
 pub mod serde_bridge {
     //! Optional Serde wrapper adapters for serializer bridges.
+    //!
+    //! `SerdeMessage<T>` exists because Rust coherence prevents adding blanket
+    //! `EncodeWith`/`DecodeWith` impls for all `T: Serialize +
+    //! DeserializeOwned`: those impls would overlap with the default
+    //! `T: Message` adapters.
 
     use serde::{Serialize, de::DeserializeOwned};
 
@@ -148,6 +153,8 @@ pub mod serde_bridge {
     use crate::serializer::SerdeSerializerBridge;
 
     /// Wrapper providing `EncodeWith`/`DecodeWith` implementations via Serde.
+    ///
+    /// This wrapper is the explicit opt-in path for Serde-only payloads.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct SerdeMessage<T>(T);
 

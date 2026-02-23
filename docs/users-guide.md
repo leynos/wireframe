@@ -402,7 +402,9 @@ no change is required for bincode-compatible types.
 Optional Serde bridge support is available behind the feature
 `serializer-serde`. Wrap values with `SerdeMessage<T>` (or
 `into_serde_message()`) and implement `SerdeSerializerBridge` on the serializer
-to reduce per-type adapter boilerplate.
+to reduce per-type adapter boilerplate. This explicit wrapper is required
+because blanket Serde adapters would overlap with the default `T: Message`
+adapter implementations.
 
 ### Fragmentation metadata
 

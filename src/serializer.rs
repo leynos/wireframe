@@ -48,6 +48,16 @@ pub trait SerdeSerializerBridge {
 }
 
 /// Trait for serializing and deserializing messages.
+///
+/// # Object Safety
+///
+/// This trait is not object-safe. Its core methods include `Self: Sized`
+/// bounds, so `dyn Serializer` cannot call `serialize`, `deserialize`, or
+/// `deserialize_with_context`.
+///
+/// Use concrete serializer types (for example `BincodeSerializer`) in API
+/// bounds. If runtime selection is required, introduce an explicit type-erased
+/// wrapper that provides object-safe forwarding methods.
 pub trait Serializer {
     /// Serialize `value` into a byte vector.
     ///

@@ -17,6 +17,11 @@ use wireframe::{
 };
 use wireframe_testing::{TestResult, TestSerializer, drive_with_bincode};
 
+#[path = "common/context_capturing_serializer.rs"]
+mod context_capturing_serializer;
+
+use context_capturing_serializer::{CapturedDeserializeContext, ContextCapturingSerializer};
+
 type TestApp<S = BincodeSerializer> = wireframe::app::WireframeApp<S, (), Envelope>;
 
 fn mock_wireframe_app_with_serializer<S>(
@@ -152,67 +157,14 @@ async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct CapturedContext {
-    message_id: Option<u32>,
-    correlation_id: Option<u64>,
-    metadata_bytes_consumed: Option<usize>,
-    frame_metadata_len: Option<usize>,
-}
-
-#[derive(Default)]
-struct ContextCapturingSerializer {
-    captured: Arc<Mutex<Option<CapturedContext>>>,
-}
-
-impl ContextCapturingSerializer {
-    fn capture_handle(&self) -> Arc<Mutex<Option<CapturedContext>>> { self.captured.clone() }
-}
-
-impl MessageCompatibilitySerializer for ContextCapturingSerializer {}
-
-impl Serializer for ContextCapturingSerializer {
-    impl_test_serializer_boilerplate!(ContextCapturingSerializer);
-
-    fn deserialize_with_context<M>(
-        &self,
-        bytes: &[u8],
-        context: &DeserializeContext<'_>,
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: wireframe::message::DecodeWith<Self>,
-    {
-        let captured = CapturedContext {
-            message_id: context.message_id,
-            correlation_id: context.correlation_id,
-            metadata_bytes_consumed: context.metadata_bytes_consumed,
-            frame_metadata_len: context.frame_metadata.map(<[u8]>::len),
-        };
-        let mut state = self.captured.lock().map_err(|_| {
-            "ContextCapturingSerializer::deserialize_with_context captured mutex poisoned"
-        })?;
-        *state = Some(captured);
-        M::decode_with(self, bytes, context)
-    }
-}
-
-impl FrameMetadata for ContextCapturingSerializer {
-    type Frame = Envelope;
-    type Error = bincode::error::DecodeError;
-
-    fn parse(&self, src: &[u8]) -> Result<(Self::Frame, usize), Self::Error> {
-        BincodeSerializer.parse(src)
-    }
-}
-
 #[tokio::test]
 #[expect(
     clippy::panic_in_result_fn,
     reason = "asserts provide clearer diagnostics in tests"
 )]
 async fn metadata_is_forwarded_to_deserialize_context() -> TestResult<()> {
-    let serializer = ContextCapturingSerializer::default();
-    let context_state = serializer.capture_handle();
+    let context_state = Arc::new(Mutex::new(None::<CapturedDeserializeContext>));
+    let serializer = ContextCapturingSerializer::new(context_state.clone());
     let app = mock_wireframe_app_with_serializer(serializer)?;
 
     let envelope = Envelope::new(1, Some(77), vec![1, 2, 3, 4]);
