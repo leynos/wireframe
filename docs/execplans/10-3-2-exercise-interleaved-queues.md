@@ -1,7 +1,7 @@
-# Exercise interleaved high- and low-priority push queues
+# Exercise interleaved push queue fairness and rate-limit symmetry
 
 This Execution Plan (ExecPlan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`,
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
@@ -389,12 +389,30 @@ Stage C:
 
 Stage D:
 
-    set -o pipefail && make check-fmt 2>&1 | tee /tmp/gate-fmt.log
-    set -o pipefail && make lint 2>&1 | tee /tmp/gate-lint.log
-    set -o pipefail && make test 2>&1 | tee /tmp/gate-test.log
-    set -o pipefail && make markdownlint 2>&1 | tee /tmp/gate-md.log
+```shell
+set -o pipefail
+make fmt 2>&1 | tee /tmp/wireframe-10-3-2-fmt.log
 
-    Expected: all four commands exit 0 with no warnings.
+set -o pipefail
+make check-fmt 2>&1 | tee /tmp/wireframe-10-3-2-check-fmt.log
+
+set -o pipefail
+make lint 2>&1 | tee /tmp/wireframe-10-3-2-lint.log
+
+set -o pipefail
+make test-bdd 2>&1 | tee /tmp/wireframe-10-3-2-test-bdd.log
+
+set -o pipefail
+make test 2>&1 | tee /tmp/wireframe-10-3-2-test.log
+
+set -o pipefail
+make markdownlint 2>&1 | tee /tmp/wireframe-10-3-2-markdownlint.log
+
+set -o pipefail
+make nixie 2>&1 | tee /tmp/wireframe-10-3-2-nixie.log
+```
+
+Expected: all commands exit 0 with no warnings.
 
 ## Validation and acceptance
 

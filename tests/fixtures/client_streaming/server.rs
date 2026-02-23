@@ -243,7 +243,11 @@ pub(crate) async fn build_rate_limited_priority_frames(
     let Some(blocked_low_future) = blocked_low.as_mut() else {
         return Err("missing low-priority push future".into());
     };
-    let was_blocked = blocked_low_future.as_mut().now_or_never().is_none();
+    let was_blocked = match blocked_low_future.as_mut().now_or_never() {
+        Some(Ok(())) => false,
+        Some(Err(e)) => return Err(e.into()),
+        None => true,
+    };
     if was_blocked {
         time::advance(Duration::from_secs(1)).await;
         let Some(fut) = blocked_low.take() else {
