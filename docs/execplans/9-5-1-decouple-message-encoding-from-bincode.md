@@ -282,7 +282,7 @@ Planned edits:
 - `src/app/connection.rs`:
   build context from `FrameMetadata::parse` output and pass it into
   deserializer entry points.
-- `src/frame/metadata.rs` and/or `src/serializer.rs`:
+- `src/frame/metadata.rs` or `src/serializer.rs`:
   define stable metadata view semantics (what fields are guaranteed and when).
 - `tests/metadata.rs`:
   extend coverage to assert context receives metadata and fallback behaviour
@@ -398,7 +398,7 @@ Expected success indicators:
 
 ## Validation and acceptance
 
-Acceptance is complete only when all of the following are true:
+Acceptance is complete only when all the following are true:
 
 - Public APIs no longer require direct `bincode` traits at serializer
   boundaries; adapter traits are used instead.

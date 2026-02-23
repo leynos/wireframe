@@ -399,10 +399,10 @@ no change is required for bincode-compatible types.
 - Metadata-aware serializers can implement
   `Serializer::deserialize_with_context` to inspect `DeserializeContext`.
 
-Optional Serde bridge support is available behind feature `serializer-serde`.
-Wrap values with `SerdeMessage<T>` (or `into_serde_message()`) and implement
-`SerdeSerializerBridge` on the serializer to reduce per-type adapter
-boilerplate.
+Optional Serde bridge support is available behind the feature
+`serializer-serde`. Wrap values with `SerdeMessage<T>` (or
+`into_serde_message()`) and implement `SerdeSerializerBridge` on the serializer
+to reduce per-type adapter boilerplate.
 
 ### Fragmentation metadata
 

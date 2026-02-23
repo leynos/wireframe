@@ -188,9 +188,10 @@ impl Serializer for ContextCapturingSerializer {
             metadata_bytes_consumed: context.metadata_bytes_consumed,
             frame_metadata_len: context.frame_metadata.map(<[u8]>::len),
         };
-        if let Ok(mut state) = self.captured.lock() {
-            *state = Some(captured);
-        }
+        let mut state = self.captured.lock().map_err(|_| {
+            "ContextCapturingSerializer::deserialize_with_context captured mutex poisoned"
+        })?;
+        *state = Some(captured);
         M::decode_with(self, bytes, context)
     }
 }
@@ -219,11 +220,10 @@ async fn metadata_is_forwarded_to_deserialize_context() -> TestResult<()> {
     let output = drive_with_bincode(app, envelope.clone()).await?;
     assert!(!output.is_empty(), "no frames emitted");
 
-    let captured = context_state
+    let captured = (*context_state
         .lock()
-        .ok()
-        .and_then(|state| *state)
-        .ok_or("expected captured deserialize context")?;
+        .unwrap_or_else(|_| panic!("mutex poisoned while locking context_state")))
+    .ok_or("expected captured deserialize context")?;
 
     assert_eq!(captured.message_id, Some(expected_parts.id()));
     assert_eq!(captured.correlation_id, expected_parts.correlation_id());

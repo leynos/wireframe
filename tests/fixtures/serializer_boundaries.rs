@@ -8,6 +8,7 @@ use wireframe::{
     message::{DecodeWith, DeserializeContext, EncodeWith},
     serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
 };
+/// Shared result type used by serializer boundary fixtures and steps.
 pub use wireframe_testing::TestResult;
 
 #[derive(bincode::Decode, bincode::Encode, Debug, PartialEq, Eq)]
@@ -78,12 +79,14 @@ pub struct SerializerBoundariesWorld {
     captured_context: Arc<Mutex<Option<CapturedContext>>>,
 }
 
+/// Fixture world for serializer boundary tests.
 #[fixture]
 pub fn serializer_boundaries_world() -> SerializerBoundariesWorld {
     SerializerBoundariesWorld::default()
 }
 
 impl SerializerBoundariesWorld {
+    /// Set the legacy value used for round-trip tests.
     pub fn set_legacy_value(&mut self, value: u32) { self.legacy_value = Some(value); }
 
     /// # Errors
@@ -112,6 +115,7 @@ impl SerializerBoundariesWorld {
         Ok(())
     }
 
+    /// Set message and correlation ids used during deserialization.
     pub fn set_deserialize_context(&mut self, message_id: u32, correlation_id: u64) {
         self.context_message_id = Some(message_id);
         self.context_correlation_id = Some(correlation_id);

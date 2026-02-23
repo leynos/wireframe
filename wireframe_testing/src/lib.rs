@@ -22,6 +22,7 @@ pub mod echo_server;
 pub mod helpers;
 pub mod integration_helpers;
 pub mod logging;
+pub mod macros;
 pub mod multi_packet;
 
 pub use echo_server::{ServerMode, process_frame};
