@@ -197,7 +197,7 @@ The wireframe crate lives at the repository root. Key paths for this task:
                                      recv_expect!
 
     docs/roadmap.md                — Roadmap (10.3.2 to mark done)
-    docs/users-guide.md            — Users guide
+    docs/users-guide.md            — User's guide
     docs/multi-packet-and-streaming-responses-design.md
                                    — Design document
 
