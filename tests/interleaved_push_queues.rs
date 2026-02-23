@@ -26,6 +26,9 @@ use wireframe::{
 };
 use wireframe_testing::{TestResult, push_expect};
 
+#[path = "common/interleaved_push_helpers.rs"]
+mod interleaved_push_helpers;
+
 // rustfmt collapses simple fixtures into one line, which triggers
 // unused_braces.
 #[rustfmt::skip]
@@ -42,23 +45,7 @@ where
     SFut: Future<Output = ()>,
     A: FnOnce(Vec<u8>),
 {
-    let (queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(8)
-        .low_capacity(8)
-        .unlimited()
-        .build()?;
-
-    setup(handle.clone()).await;
-
-    let shutdown = CancellationToken::new();
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
-    actor.set_fairness(fairness);
-    let mut out = Vec::new();
-    actor
-        .run(&mut out)
-        .await
-        .map_err(|e| std::io::Error::other(format!("actor run failed: {e:?}")))?;
-
+    let out = interleaved_push_helpers::run_actor_with_fairness(fairness, setup).await?;
     assertions(out);
     Ok(())
 }

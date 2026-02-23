@@ -4,19 +4,16 @@
 //! push queue behaviour under various fairness and rate-limit
 //! configurations.
 
-use std::future::Future;
-
 use futures::FutureExt;
 use rstest::fixture;
-use tokio::time;
-use tokio_util::sync::CancellationToken;
-use wireframe::{
-    connection::{ConnectionActor, FairnessConfig},
-    push::{PushHandle, PushQueues},
-};
+use tokio::time::{self, Duration};
+use wireframe::{connection::FairnessConfig, push::PushQueues};
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 use wireframe_testing::push_expect;
+
+#[path = "../common/interleaved_push_helpers.rs"]
+mod interleaved_push_helpers;
 
 /// Test world capturing push queue output and rate-limiter state for
 /// interleaved queue scenarios.
@@ -24,6 +21,7 @@ use wireframe_testing::push_expect;
 pub struct InterleavedPushWorld {
     frames: Vec<u8>,
     rate_limit_blocked: bool,
+    rate_limit_recovered: bool,
 }
 
 // rustfmt collapses simple fixtures into one line, which triggers
@@ -38,32 +36,19 @@ impl InterleavedPushWorld {
     /// Build unlimited queues, load frames via `setup`, run the actor
     /// with the given `fairness` config, and collect output into
     /// `self.frames`.
+    ///
+    /// Delegates to `interleaved_push_helpers::run_actor_with_fairness`
+    /// to share setup logic with the unit tests.
     async fn run_actor_with_fairness<F, Fut>(
         &mut self,
         fairness: FairnessConfig,
         setup: F,
     ) -> TestResult
     where
-        F: FnOnce(PushHandle<u8>) -> Fut,
-        Fut: Future<Output = ()>,
+        F: FnOnce(wireframe::push::PushHandle<u8>) -> Fut,
+        Fut: std::future::Future<Output = ()>,
     {
-        let (queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(8)
-            .low_capacity(8)
-            .unlimited()
-            .build()?;
-
-        setup(handle.clone()).await;
-
-        let shutdown = CancellationToken::new();
-        let mut actor: ConnectionActor<_, ()> =
-            ConnectionActor::new(queues, handle, None, shutdown);
-        actor.set_fairness(fairness);
-        self.frames = Vec::new();
-        actor
-            .run(&mut self.frames)
-            .await
-            .map_err(|e| format!("actor run failed: {e:?}"))?;
+        self.frames = interleaved_push_helpers::run_actor_with_fairness(fairness, setup).await?;
         Ok(())
     }
 
@@ -112,7 +97,7 @@ impl InterleavedPushWorld {
     }
 
     /// Test rate-limit symmetry: a high-priority push blocks a
-    /// subsequent low-priority push.
+    /// subsequent low-priority push until the token bucket refills.
     ///
     /// # Errors
     ///
@@ -127,9 +112,16 @@ impl InterleavedPushWorld {
 
         push_expect!(handle.push_high_priority(1));
 
+        // The low-priority push should be blocked: the single token was
+        // consumed by the high-priority push above.
         let mut blocked = handle.push_low_priority(2).boxed();
         tokio::task::yield_now().await;
         self.rate_limit_blocked = blocked.as_mut().now_or_never().is_none();
+
+        // Advance past the refill window and verify the push unblocks,
+        // proving the shared bucket recovers for both priorities.
+        time::advance(Duration::from_secs(1)).await;
+        self.rate_limit_recovered = blocked.as_mut().now_or_never().is_some();
         Ok(())
     }
 
@@ -183,15 +175,21 @@ impl InterleavedPushWorld {
         );
     }
 
-    /// Assert the low-priority push was blocked by the rate limiter.
+    /// Assert the low-priority push was blocked by the rate limiter and
+    /// recovered after the refill window.
     ///
     /// # Panics
     ///
-    /// Panics if the low-priority push was not blocked.
+    /// Panics if the low-priority push was not blocked or did not
+    /// recover.
     pub fn verify_rate_limit_blocked(&self) {
         assert!(
             self.rate_limit_blocked,
             "low-priority push should be blocked after high consumed the token"
+        );
+        assert!(
+            self.rate_limit_recovered,
+            "low-priority push should succeed after the refill window"
         );
     }
 

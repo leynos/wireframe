@@ -1,8 +1,9 @@
 # Exercise interleaved high- and low-priority push queues
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This Execution Plan (ExecPlan) is a living document. The sections
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
+proceeds.
 
 Status: COMPLETE
 
@@ -34,9 +35,9 @@ both queues and proves three properties:
    simultaneously under various fairness and rate-limit configurations.
 
 Observable outcome: running `make test` passes, including new unit tests in
-`tests/interleaved_push_queues.rs` and new BDD scenarios in
-`tests/features/interleaved_push_queues.feature`. The existing test suite
-remains green. The roadmap entry 10.3.2 is marked as done.
+`tests/interleaved_push_queues.rs` and new Behaviour-Driven Development (BDD)
+scenarios in `tests/features/interleaved_push_queues.feature`. The existing
+test suite remains green. The roadmap entry 10.3.2 is marked as done.
 
 ## Constraints
 
