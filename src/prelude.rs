@@ -11,12 +11,14 @@
 //! fn build() -> Result<WireframeApp> { WireframeApp::new() }
 //! ```
 
+#[cfg(feature = "serializer-serde")]
+pub use crate::message::serde_bridge::{IntoSerdeMessage, SerdeMessage};
 pub use crate::{
     app::{Envelope, Handler, Middleware, WireframeApp},
     error::{Result, WireframeError},
-    message::Message,
+    message::{DecodeWith, DeserializeContext, EncodeWith, Message},
     response::Response,
-    serializer::{BincodeSerializer, Serializer},
+    serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
 };
 #[cfg(not(loom))]
 pub use crate::{

@@ -12,8 +12,8 @@ use wireframe::{
     app::Envelope,
     byte_order::{read_network_u16, write_network_u16},
     frame::FrameMetadata,
-    message::Message,
-    serializer::Serializer,
+    message::{DecodeWith, DeserializeContext, EncodeWith, Message},
+    serializer::{MessageCompatibilitySerializer, Serializer},
 };
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
@@ -24,21 +24,24 @@ const MAX_FRAME: usize = 64 * 1024;
 #[derive(Default)]
 struct HeaderSerializer;
 
+impl MessageCompatibilitySerializer for HeaderSerializer {}
+
 impl Serializer for HeaderSerializer {
-    fn serialize<M: Message>(
-        &self,
-        value: &M,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        value
-            .to_bytes()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: EncodeWith<Self>,
+    {
+        value.encode_with(self)
     }
 
-    fn deserialize<M: Message>(
+    fn deserialize<M>(
         &self,
         bytes: &[u8],
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>> {
-        M::from_bytes(bytes).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: DecodeWith<Self>,
+    {
+        M::decode_with(self, bytes, &DeserializeContext::empty())
     }
 }
 

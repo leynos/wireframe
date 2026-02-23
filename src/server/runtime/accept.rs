@@ -16,6 +16,7 @@ use crate::{
     app::{Envelope, Packet},
     codec::FrameCodec,
     frame::FrameMetadata,
+    message::{DecodeWith, EncodeWith},
     preamble::Preamble,
     serializer::Serializer,
     server::{
@@ -157,6 +158,7 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     Ctx: Send + 'static,
     E: Packet + 'static,
     Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     let AcceptLoopOptions {
         preamble,
@@ -203,6 +205,7 @@ where
     Ctx: Send + 'static,
     E: Packet + 'static,
     Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     select! {
         biased;

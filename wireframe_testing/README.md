@@ -24,7 +24,7 @@ async fn drives_app() -> std::io::Result<()> {
     let app = WireframeApp::new().expect("failed to initialise app");
 
     let raw = drive_with_bincode(app, 42u8).await?;
-    let frames = decode_frames(raw);
+    let frames = decode_frames(raw)?;
 
     assert_eq!(frames.len(), 1);
     Ok(())

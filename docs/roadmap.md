@@ -411,14 +411,14 @@ integration boundaries.
 
 ### 9.5. Serializer boundaries and protocol metadata
 
-- [ ] 9.5.1. Decouple message encoding from `bincode`-specific traits to
+- [x] 9.5.1. Decouple message encoding from `bincode`-specific traits to
   support alternative serializers.[^router-design][^adr-005]
-  - [ ] Introduce a serializer-agnostic message trait or adaptor layer for
+  - [x] Introduce a serializer-agnostic message trait or adaptor layer for
     `Message` types.
-  - [ ] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
-  - [ ] Define how frame metadata is exposed to the deserialization context to
+  - [x] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
+  - [x] Define how frame metadata is exposed to the deserialization context to
     enable version negotiation.[^message-versioning]
-  - [ ] Add migration guidance covering existing `bincode` users.
+  - [x] Add migration guidance covering existing `bincode` users.
 
 ### 9.6. Codec performance benchmarks
 

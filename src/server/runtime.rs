@@ -21,6 +21,7 @@ use crate::{
     app::{Envelope, Packet},
     codec::FrameCodec,
     frame::FrameMetadata,
+    message::{DecodeWith, EncodeWith},
     preamble::Preamble,
     serializer::Serializer,
 };
@@ -33,6 +34,7 @@ where
     Ctx: Send + 'static,
     E: Packet,
     Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     /// Run the server until a shutdown signal is received.
     ///

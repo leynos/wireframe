@@ -58,7 +58,7 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
 
     let out = drive_with_bincode(app, env).await?;
 
-    let frames = decode_frames(out);
+    let frames = decode_frames(out)?;
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };
@@ -93,7 +93,7 @@ async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     };
 
     let out = drive_with_bincode(app, env).await?;
-    let frames = decode_frames(out);
+    let frames = decode_frames(out)?;
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };
@@ -136,7 +136,7 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
 
     let out = drive_with_frames(app, encoded_frames).await?;
 
-    let frames = decode_frames(out);
+    let frames = decode_frames(out)?;
     let [first, second] = frames.as_slice() else {
         return Err("expected two response frames".into());
     };
@@ -183,7 +183,7 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> Tes
     codec.encode(env_bytes.into(), &mut frame_buf)?;
 
     let out = drive_with_frames(app, vec![frame_buf.to_vec()]).await?;
-    let frames = decode_frames(out);
+    let frames = decode_frames(out)?;
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };

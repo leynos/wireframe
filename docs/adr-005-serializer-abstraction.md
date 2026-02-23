@@ -2,11 +2,11 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
 ## Date
 
-2025-12-30.
+2025-12-30 (accepted update: 2026-02-22).
 
 ## Context and Problem Statement
 
@@ -82,6 +82,23 @@ optional wire-rs or Serde adaptors to reduce boilerplate. This allows frame
 metadata to participate in deserialization, supports version negotiation, and
 avoids committing Wireframe to a single serializer.
 
+Accepted implementation details:
+
+- `message::EncodeWith<S>` and `message::DecodeWith<S>` define serializer-aware
+  adaptor boundaries used by `Serializer`.
+- `message::DeserializeContext` carries parsed frame metadata into
+  `Serializer::deserialize_with_context`.
+- `Serializer` now supports `deserialize_with_context` with a default fallback
+  to `deserialize`, preserving existing serializers.
+- Existing bincode-centric flows remain source-compatible through the
+  `message::Message` compatibility layer.
+- Legacy `Message` compatibility is now an explicit serializer opt-in through
+  `serializer::MessageCompatibilitySerializer`, avoiding blanket impl lockout
+  for serializer-specific adaptors.
+- An optional Serde bridge ships behind feature `serializer-serde` via
+  `message::serde_bridge::{SerdeMessage, IntoSerdeMessage}` plus
+  `serializer::SerdeSerializerBridge`.
+
 ## Goals and Non-Goals
 
 ### Goals
@@ -123,9 +140,11 @@ avoids committing Wireframe to a single serializer.
 
 ## Outstanding Decisions
 
-- Define the precise `MessageBody` surface (borrowed vs owned payloads).
-- Decide how codec metadata is passed into the deserializer context.
-- Choose which optional adaptors ship by default and which are feature-gated.
+- Decide whether envelope encoding should remain compatibility-first bincode
+  for `Message` implementers across all serializers, or move to stricter
+  serializer-specific envelope adaptors in a future major release.
+- Evaluate whether a wire-rs bridge should be added alongside the Serde bridge
+  in a follow-up roadmap item.
 
 ## Architectural Rationale
 

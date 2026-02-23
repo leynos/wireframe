@@ -54,9 +54,9 @@ async fn complete_draining_of_sources(
         wireframe::push::PushConfigError,
     >,
     shutdown_token: CancellationToken,
-) {
+) -> TestResult {
     let (queues, handle) = queues.expect("fixture should build queues");
-    push_expect!(handle.push_high_priority(1), "push high-priority");
+    push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(2u8), Ok(3u8)]);
     let mut actor: ConnectionActor<_, ()> =
@@ -65,6 +65,7 @@ async fn complete_draining_of_sources(
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
     assert_eq!(out, vec![1, 2, 3]);
+    Ok(())
 }
 
 #[rstest]
@@ -102,19 +103,20 @@ async fn interleaved_shutdown_during_stream(
 #[rstest]
 #[tokio::test]
 #[serial]
-async fn push_queue_exhaustion_backpressure() {
+async fn push_queue_exhaustion_backpressure() -> TestResult {
     let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
         .expect("failed to build PushQueues");
-    push_expect!(handle.push_high_priority(1), "push high-priority");
+    push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let blocked = timeout(Duration::from_millis(200), handle.push_high_priority(2)).await;
     assert!(blocked.is_err());
 
     // clean up without exposing internal fields
     queues.close();
+    Ok(())
 }
 
 #[rstest]

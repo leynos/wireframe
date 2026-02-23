@@ -20,7 +20,7 @@ features = ["metrics"]
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
-bincode = "2.0.1"
+bincode = { version = "2.0.1", features = ["serde"] }
 tokio = { version = "1.47.1", default-features = false, features = [
     "net",
     "signal",
@@ -82,6 +82,7 @@ metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = 
 default = ["metrics", "serializer-bincode"]
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
 serializer-bincode = []
+serializer-serde = []
 advanced-tests = []
 examples = []
 test-support = []

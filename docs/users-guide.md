@@ -33,7 +33,8 @@ Vocabulary rules:
 - Use `envelope` for routable wrappers and instances; use `packet` when
   discussing the `Packet` trait abstraction or `PacketParts`.
 - Use `message` for typed application payloads implementing
-  `wireframe::message::Message`.
+  `wireframe::message::EncodeWith`/`wireframe::message::DecodeWith` (or
+  `wireframe::message::Message` for bincode-compatible types).
 - Use `fragment` only for transport-level split/reassembly units.
 
 For invariants and naming rules used across internal modules, see the
@@ -379,9 +380,41 @@ that meets the trait bounds.[^4]
 
 When `FrameMetadata::parse` succeeds, the framework extracts identifiers from
 metadata without deserializing the payload. If parsing fails, it falls back to
-full deserialization.[^9][^6] Application messages implement the `Message`
-trait, gaining `to_bytes` and `from_bytes` helpers that use bincode with the
-standard configuration.[^10]
+full deserialization.[^9][^6] Serializer integration now uses adapter traits:
+`EncodeWith<S>` for encoding and `DecodeWith<S>` for decoding. Existing bincode
+message types remain compatible through `Message`, which still provides
+`to_bytes` and `from_bytes` helpers.[^10]
+
+### Migration from `Message`-only bounds
+
+If existing code previously relied on `M: Message` for client/server API calls,
+no change is required for bincode-compatible types.
+
+- Existing `#[derive(bincode::Encode, bincode::BorrowDecode)]` payloads still
+  work in `send`, `receive`, `call`, and `send_response`.
+- Serializer implementations should update method signatures to use
+  `EncodeWith<Self>` and `DecodeWith<Self>` bounds.
+- Custom serializers that rely on legacy `Message`-derived payload encoding
+  should also implement `wireframe::serializer::MessageCompatibilitySerializer`.
+- Metadata-aware serializers can implement
+  `Serializer::deserialize_with_context` to inspect `DeserializeContext`.
+- `Serializer` is not object-safe (`Self: Sized` on serializer entry points), so
+  using `dyn Serializer` directly is unsupported unless you provide concrete
+  wrappers. For migration, keep concrete serializer types in `EncodeWith` /
+  `DecodeWith` bounds, retain
+  `wireframe::serializer::MessageCompatibilitySerializer` for legacy
+  `Message`-based payloads, and use `SerdeMessage` with `SerdeSerializerBridge`
+  for Serde-only payloads. When runtime-polymorphic serializer behaviour is
+  required, wrap concrete serializer implementations in adapter wrappers that
+  expose object-safe APIs and delegate to
+  `Serializer::deserialize_with_context` as needed.
+
+Optional Serde bridge support is available behind the feature
+`serializer-serde`. Wrap values with `SerdeMessage<T>` (or
+`into_serde_message()`) and implement `SerdeSerializerBridge` on the serializer
+to reduce per-type adapter boilerplate. This explicit wrapper is required
+because blanket Serde adapters would overlap with the default `T: Message`
+adapter implementations.
 
 ### Fragmentation metadata
 

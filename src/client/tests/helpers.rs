@@ -14,7 +14,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::{
     client::{ClientError, WireframeClient, WireframeClientBuilder},
-    serializer::{BincodeSerializer, Serializer},
+    serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
 };
 
 /// Type alias for async hooks that return their input after performing side effects.
@@ -131,20 +131,25 @@ where
 /// A serializer that always fails to serialize, used for testing error hooks.
 pub struct FailingSerializer;
 
+impl MessageCompatibilitySerializer for FailingSerializer {}
+
 impl Serializer for FailingSerializer {
-    fn serialize<M: crate::message::Message>(
-        &self,
-        _value: &M,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn serialize<M>(&self, _value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: crate::message::EncodeWith<Self>,
+    {
         Err(Box::new(std::io::Error::other(
             "forced serialization failure",
         )))
     }
 
-    fn deserialize<M: crate::message::Message>(
+    fn deserialize<M>(
         &self,
         _bytes: &[u8],
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: crate::message::DecodeWith<Self>,
+    {
         Err(Box::new(std::io::Error::other(
             "forced deserialization failure",
         )))

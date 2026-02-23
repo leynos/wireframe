@@ -48,7 +48,7 @@ async fn before_send_hook_modifies_frames(
     shutdown_token: CancellationToken,
 ) -> TestResult {
     let (queues, handle) = queues?;
-    push_expect!(handle.push_high_priority(1), "push high-priority");
+    push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(2u8)]);
     let hooks = ProtocolHooks {

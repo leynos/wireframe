@@ -9,7 +9,6 @@
 use crate::{
     correlation::CorrelatableFrame,
     fragment::{FragmentParts, Fragmentable},
-    message::Message,
 };
 
 /// Envelope-like type used to wrap incoming and outgoing messages.
@@ -24,7 +23,6 @@ use crate::{
 /// use wireframe::{
 ///     app::{Packet, PacketParts},
 ///     correlation::CorrelatableFrame,
-///     message::Message,
 /// };
 ///
 /// #[derive(bincode::BorrowDecode, bincode::Encode)]
@@ -61,7 +59,7 @@ use crate::{
 ///     }
 /// }
 /// ```
-pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
+pub trait Packet: CorrelatableFrame + Send + Sync + 'static {
     /// Return the message identifier used for routing.
     fn id(&self) -> u32;
 
@@ -98,8 +96,6 @@ pub trait Packet: CorrelatableFrame + Message + Send + Sync + 'static {
     ///     fn correlation_id(&self) -> Option<u64> { self.correlation_id }
     ///     fn set_correlation_id(&mut self, cid: Option<u64>) { self.correlation_id = cid; }
     /// }
-    ///
-    /// // Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
     ///
     /// impl Packet for MyEnvelope {
     ///     fn id(&self) -> u32 { self.id }
