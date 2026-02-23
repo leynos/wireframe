@@ -398,6 +398,16 @@ no change is required for bincode-compatible types.
   should also implement `wireframe::serializer::MessageCompatibilitySerializer`.
 - Metadata-aware serializers can implement
   `Serializer::deserialize_with_context` to inspect `DeserializeContext`.
+- `Serializer` is not object-safe (`Self: Sized` on serializer entry points), so
+  using `dyn Serializer` directly is unsupported unless you provide concrete
+  wrappers. For migration, keep concrete serializer types in `EncodeWith` /
+  `DecodeWith` bounds, retain
+  `wireframe::serializer::MessageCompatibilitySerializer` for legacy
+  `Message`-based payloads, and use `SerdeMessage` with `SerdeSerializerBridge`
+  for Serde-only payloads. When runtime-polymorphic serializer behaviour is
+  required, wrap concrete serializer implementations in adapter wrappers that
+  expose object-safe APIs and delegate to
+  `Serializer::deserialize_with_context` as needed.
 
 Optional Serde bridge support is available behind the feature
 `serializer-serde`. Wrap values with `SerdeMessage<T>` (or

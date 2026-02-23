@@ -164,7 +164,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let out = run_app(app, vec![frame.to_vec()], None).await?;
     assert!(!out.is_empty(), "expected response frames");
 
-    let frames = decode_frames(out);
+    let frames = decode_frames(out)?;
     let [first] = frames.as_slice() else {
         panic!("expected a single response frame");
     };

@@ -1,3 +1,6 @@
+//! Verifies helper utilities such as `run_app`, `drive_with_payloads`,
+//! `decode_frames`, and `MAX_CAPACITY` handling.
+
 use std::{io, sync::Arc};
 
 use futures::future::BoxFuture;
@@ -47,10 +50,19 @@ async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
         .expect("failed to serialize envelope");
 
     let out = drive_with_payloads(app, vec![encoded]).await?;
-    let frames = decode_frames(out);
-    let [first] = frames.as_slice() else {
-        panic!("expected a single response frame");
-    };
+    let frames = decode_frames(out)?;
+    if frames.len() != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected a single response frame, got {}", frames.len()),
+        ));
+    }
+    let first = frames.first().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "expected a single response frame",
+        )
+    })?;
     let (decoded, _) = serializer
         .deserialize::<Envelope>(first)
         .expect("failed to deserialise envelope");

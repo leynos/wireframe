@@ -74,7 +74,7 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&env)?;
     let mut codec = app.length_codec();
-    let frame = encode_frame(&mut codec, bytes);
+    let frame = encode_frame(&mut codec, bytes)?;
     client.write_all(&frame).await?;
     client.shutdown().await?;
 
@@ -84,7 +84,7 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     client.read_to_end(&mut out).await?;
     handle.await??;
 
-    let frames = decode_frames(out);
+    let frames = decode_frames(out)?;
     let [first] = frames.as_slice() else {
         return Err("expected a single response frame".into());
     };

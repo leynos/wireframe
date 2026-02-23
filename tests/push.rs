@@ -70,8 +70,8 @@ async fn disables_throttling_allows_burst_pushes() -> TestResult<()> {
         .unlimited()
         .build()?;
     for i in 0u8..10 {
-        push_expect!(handle.push_high_priority(i));
-        push_expect!(handle.push_low_priority(i));
+        push_expect!(handle.push_high_priority(i))?;
+        push_expect!(handle.push_low_priority(i))?;
     }
     let res = time::timeout(Duration::from_millis(10), handle.push_high_priority(99)).await;
     let push_res = res.expect("push should not block when throttling disabled");
@@ -115,11 +115,11 @@ fn builder_rejects_zero_capacity() {
 async fn frames_routed_to_correct_priority_queues() -> TestResult<()> {
     let (mut queues, handle) = small_queues()?;
 
-    push_expect!(handle.push_low_priority(1u8));
-    push_expect!(handle.push_high_priority(2u8));
+    push_expect!(handle.push_low_priority(1u8))?;
+    push_expect!(handle.push_high_priority(2u8))?;
 
-    let (prio1, frame1) = recv_expect!(queues.recv());
-    let (prio2, frame2) = recv_expect!(queues.recv());
+    let (prio1, frame1) = recv_expect!(queues.recv())?;
+    let (prio2, frame2) = recv_expect!(queues.recv())?;
 
     assert_eq!(
         prio1,
@@ -148,7 +148,7 @@ async fn frames_routed_to_correct_priority_queues() -> TestResult<()> {
 async fn try_push_respects_policy() -> TestResult<()> {
     let (mut queues, handle) = small_queues()?;
 
-    push_expect!(handle.push_high_priority(1u8));
+    push_expect!(handle.push_high_priority(1u8))?;
     let result = handle.try_push(2u8, PushPriority::High, PushPolicy::ReturnErrorIfFull);
     assert!(
         matches!(result, Err(PushError::QueueFull)),
@@ -157,8 +157,8 @@ async fn try_push_respects_policy() -> TestResult<()> {
 
     // drain queue to allow new push
     let _ = queues.recv().await;
-    push_expect!(handle.push_high_priority(3u8));
-    let (_, last) = recv_expect!(queues.recv());
+    push_expect!(handle.push_high_priority(3u8))?;
+    let (_, last) = recv_expect!(queues.recv())?;
     assert_eq!(last, 3, "unexpected drained frame");
     Ok(())
 }
@@ -198,8 +198,8 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
     let (mut queues, handle) = queues()?;
 
     match priority {
-        PushPriority::High => push_expect!(handle.push_high_priority(1u8)),
-        PushPriority::Low => push_expect!(handle.push_low_priority(1u8)),
+        PushPriority::High => push_expect!(handle.push_high_priority(1u8))?,
+        PushPriority::Low => push_expect!(handle.push_low_priority(1u8))?,
     }
 
     let mut fut = match priority {
@@ -214,12 +214,12 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
 
     time::advance(Duration::from_secs(1)).await;
     match priority {
-        PushPriority::High => push_expect!(handle.push_high_priority(3u8)),
-        PushPriority::Low => push_expect!(handle.push_low_priority(3u8)),
+        PushPriority::High => push_expect!(handle.push_high_priority(3u8))?,
+        PushPriority::Low => push_expect!(handle.push_low_priority(3u8))?,
     }
 
-    let (_, first) = recv_expect!(queues.recv());
-    let (_, second) = recv_expect!(queues.recv());
+    let (_, first) = recv_expect!(queues.recv())?;
+    let (_, second) = recv_expect!(queues.recv())?;
     assert_eq!(
         (first, second),
         (1, 3),
@@ -237,12 +237,12 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
 async fn rate_limiter_allows_after_wait() -> TestResult<()> {
     time::pause();
     let (mut queues, handle) = queues()?;
-    push_expect!(handle.push_high_priority(1u8));
+    push_expect!(handle.push_high_priority(1u8))?;
     time::advance(Duration::from_secs(1)).await;
-    push_expect!(handle.push_high_priority(2u8));
+    push_expect!(handle.push_high_priority(2u8))?;
 
-    let (_, a) = recv_expect!(queues.recv());
-    let (_, b) = recv_expect!(queues.recv());
+    let (_, a) = recv_expect!(queues.recv())?;
+    let (_, b) = recv_expect!(queues.recv())?;
     assert_eq!((a, b), (1, 2), "unexpected frame ordering after wait");
     Ok(())
 }
@@ -258,7 +258,7 @@ async fn rate_limiter_allows_after_wait() -> TestResult<()> {
 async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
     time::pause();
     let (mut queues, handle) = queues()?;
-    push_expect!(handle.push_high_priority(1u8));
+    push_expect!(handle.push_high_priority(1u8))?;
 
     let mut fut = handle.push_low_priority(2u8).boxed();
     tokio::task::yield_now().await;
@@ -268,10 +268,10 @@ async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
     );
 
     time::advance(Duration::from_secs(1)).await;
-    push_expect!(handle.push_low_priority(2u8));
+    push_expect!(handle.push_low_priority(2u8))?;
 
-    let (prio1, frame1) = recv_expect!(queues.recv());
-    let (prio2, frame2) = recv_expect!(queues.recv());
+    let (prio1, frame1) = recv_expect!(queues.recv())?;
+    let (prio2, frame2) = recv_expect!(queues.recv())?;
     assert_eq!(prio1, PushPriority::High, "first priority should be high");
     assert_eq!(frame1, 1, "unexpected first frame value");
     assert_eq!(prio2, PushPriority::Low, "second priority should be low");
@@ -288,12 +288,12 @@ async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
 async fn unlimited_queues_do_not_block() -> TestResult<()> {
     time::pause();
     let (mut queues, handle) = support::builder::<u8>().unlimited().build()?;
-    push_expect!(handle.push_high_priority(1u8));
+    push_expect!(handle.push_high_priority(1u8))?;
     let res = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8)).await;
     assert!(res.is_ok(), "pushes should not block when unlimited");
 
-    let (_, a) = recv_expect!(queues.recv());
-    let (_, b) = recv_expect!(queues.recv());
+    let (_, a) = recv_expect!(queues.recv())?;
+    let (_, b) = recv_expect!(queues.recv())?;
     assert_eq!((a, b), (1, 2), "unexpected ordering for unlimited queues");
     Ok(())
 }
@@ -314,7 +314,7 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestRe
         .build()?;
 
     for i in 0u8..3 {
-        push_expect!(handle.push_high_priority(i));
+        push_expect!(handle.push_high_priority(i))?;
     }
 
     let mut fut = handle.push_high_priority(99).boxed();
@@ -325,10 +325,10 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestRe
     );
 
     time::advance(Duration::from_secs(1)).await;
-    push_expect!(handle.push_high_priority(100));
+    push_expect!(handle.push_high_priority(100))?;
 
     for expected in [0u8, 1u8, 2u8, 100u8] {
-        let (_, frame) = recv_expect!(queues.recv());
+        let (_, frame) = recv_expect!(queues.recv())?;
         assert_eq!(
             frame, expected,
             "frames drained in unexpected order: expected {expected}, got {frame}"

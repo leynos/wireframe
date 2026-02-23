@@ -100,10 +100,14 @@ pub trait Serializer {
     }
 
     /// Decide whether [`Serializer::deserialize_with_context`] should run after
-    /// a successful [`FrameMetadata::parse`] call.
+    /// a successful [`FrameMetadata::parse`] call on the inbound path.
     ///
-    /// Serializers that fully decode frames during `parse` can return `false`
-    /// to avoid duplicate decoding on the inbound path.
+    /// Returning `false` skips `deserialize_with_context` after parse succeeds.
+    /// This is useful when `parse` already performs full frame decoding and a
+    /// second decode pass would be redundant.
+    ///
+    /// This flag is consulted by the inbound handler in
+    /// `src/app/inbound_handler.rs` (`parse_envelope`).
     #[must_use]
     fn should_deserialize_after_parse(&self) -> bool { true }
 }

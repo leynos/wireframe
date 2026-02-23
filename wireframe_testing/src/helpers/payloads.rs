@@ -143,7 +143,10 @@ where
         )
     })?;
     let mut codec = new_test_codec(DEFAULT_CAPACITY);
-    let mut framed = BytesMut::with_capacity(bytes.len() + 4);
+    let mut prefix_probe = BytesMut::new();
+    codec.encode(Vec::<u8>::new().into(), &mut prefix_probe)?;
+    let prefix_len = prefix_probe.len();
+    let mut framed = BytesMut::with_capacity(bytes.len() + prefix_len);
     codec.encode(bytes.into(), &mut framed)?;
     drive::drive_with_frame(app, framed.to_vec()).await
 }
