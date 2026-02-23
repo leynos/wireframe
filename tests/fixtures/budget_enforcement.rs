@@ -108,6 +108,7 @@ impl BudgetEnforcementWorld {
             }
             Err(e) => {
                 self.last_accepted = false;
+                self.last_completed = false;
                 self.last_error = Some(e);
             }
         }

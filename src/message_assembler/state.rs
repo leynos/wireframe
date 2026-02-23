@@ -217,15 +217,18 @@ impl MessageAssemblyState {
             )));
         }
 
-        // Check aggregate budgets before buffering (single-frame messages
-        // are returned above and never counted against aggregate budgets).
-        let incoming_bytes = input.body.len().saturating_add(input.metadata.len());
-        check_aggregate_budgets(
-            key,
-            self.total_buffered_bytes(),
-            incoming_bytes,
-            &self.budgets,
-        )?;
+        // Check aggregate budgets before buffering.  Single-frame messages
+        // are returned above and never counted.  The O(n) scan is gated on
+        // is_enabled() so the hot path stays O(1) when budgets are absent.
+        if self.budgets.is_enabled() {
+            let incoming_bytes = input.body.len().saturating_add(input.metadata.len());
+            check_aggregate_budgets(
+                key,
+                self.total_buffered_bytes(),
+                incoming_bytes,
+                &self.budgets,
+            )?;
+        }
 
         // Start new assembly, preserving envelope routing metadata from the
         // first frame so the completed message is dispatched correctly.
@@ -301,10 +304,15 @@ impl MessageAssemblyState {
             ));
         }
 
-        // Snapshot budget state before the mutable entry borrow.
+        // Snapshot budget state before the mutable entry borrow.  The O(n)
+        // scan is gated on is_enabled() so it's skipped when budgets are absent.
         let max_message_size = self.max_message_size;
         let budgets = self.budgets;
-        let buffered_total = self.total_buffered_bytes();
+        let buffered_total = if budgets.is_enabled() {
+            self.total_buffered_bytes()
+        } else {
+            0
+        };
 
         let Entry::Occupied(mut entry) = self.assemblies.entry(key) else {
             return Err(MessageAssemblyError::Series(

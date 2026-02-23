@@ -19,6 +19,13 @@ pub(super) struct AggregateBudgets {
     pub(super) in_flight: Option<NonZeroUsize>,
 }
 
+impl AggregateBudgets {
+    /// Returns `true` when at least one aggregate budget limit is configured.
+    pub(super) const fn is_enabled(&self) -> bool {
+        self.connection.is_some() || self.in_flight.is_some()
+    }
+}
+
 /// Check whether accepting `additional_bytes` for `key` would exceed
 /// the connection budget or in-flight budget.
 ///

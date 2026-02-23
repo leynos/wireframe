@@ -571,7 +571,7 @@ When budgets are configured, the message assembly subsystem enforces them at
 frame acceptance time. Frames that would cause the total buffered bytes to
 exceed the per-connection or in-flight budget are rejected, the offending
 partial assembly is freed, and the failure is surfaced through the existing
-deserialization-failure policy (`InvalidData`). The effective per-message limit
+deserialisation-failure policy (`InvalidData`). The effective per-message limit
 is the minimum of the fragmentation `max_message_size` and the configured
 `bytes_per_message`. Single-frame messages that complete immediately are never
 counted against aggregate budgets since they do not buffer.

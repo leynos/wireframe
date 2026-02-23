@@ -1,8 +1,9 @@
 # Implement budget enforcement for message assembly (8.3.2)
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This execution plan (ExecPlan) is a living document. The sections
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
+proceeds.
 
 Status: COMPLETE
 
@@ -26,7 +27,7 @@ assembly subsystem will actively enforce:
 
 When a budget is exceeded the framework aborts the offending assembly, frees
 its partial buffers, and surfaces `std::io::ErrorKind::InvalidData` through the
-existing deserialization-failure policy. No handler is invoked for the aborted
+existing deserialisation-failure policy. No handler is invoked for the aborted
 message. Other in-flight assemblies on the same connection are unaffected.
 
 Success is observable when:
@@ -34,8 +35,8 @@ Success is observable when:
 - Unit tests (`rstest`) prove that each budget dimension is enforced, that
   partial buffers are freed on violation, and that completed or purged
   assemblies reclaim budget headroom.
-- Behavioural tests (`rstest-bdd` v0.5.0) prove the enforcement behaviour in
-  scenario form.
+- Behavioural tests (behaviour-driven development, via the `rstest-bdd` v0.5.0
+  crate) prove the enforcement behaviour in scenario form.
 - `docs/users-guide.md` documents that configured budgets are now enforced.
 - `docs/roadmap.md` marks `8.3.2` as done after all quality gates pass.
 - Design decisions are recorded in the relevant design document.
@@ -51,7 +52,8 @@ Success is observable when:
   remains the sole per-message limit when budgets are absent.
 - When both `max_message_size` (from fragmentation) and `bytes_per_message`
   (from `MemoryBudgets`) are present, use the minimum of the two so neither
-  guard is silently overridden (per ADR 0002 guidance on compatible values).
+  guard is silently overridden (per architecture decision record (ADR) 0002
+  guidance on compatible values).
 - Single-frame messages (`is_last: true` on first frame) are returned
   immediately and never buffered. They must pass the per-message size check but
   must not count against connection or in-flight budgets because they are never
