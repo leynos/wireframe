@@ -15,14 +15,11 @@ use std::{future::Future, pin::Pin};
 use futures::FutureExt;
 use rstest::{fixture, rstest};
 use serial_test::serial;
-use tokio::{
-    sync::oneshot,
-    time::{self, Duration},
-};
+use tokio::time::{self, Duration};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::{ConnectionActor, FairnessConfig},
-    push::{PushError, PushHandle, PushQueues},
+    push::{PushError, PushHandle, PushPriority, PushQueues},
 };
 use wireframe_testing::{TestResult, push_expect};
 
@@ -52,47 +49,6 @@ where
 
 // ── Rate-limit symmetry ─────────────────────────────────────────────
 
-/// Type alias for a push function that takes a handle reference and a
-/// frame value, returning a boxed future resolving to `PushError`.
-type PushFn = fn(&PushHandle<u8>, u8) -> Pin<Box<dyn Future<Output = Result<(), PushError>> + '_>>;
-
-/// Build rate-limited queues (rate=2), push a burst that saturates the
-/// token bucket, verify the next push blocks, advance time, push once
-/// more, and drain to confirm delivery order.
-async fn test_single_priority_rate_limit(push: PushFn, priority_name: &str) -> TestResult {
-    time::pause();
-    let (mut queues, handle) = PushQueues::<u8>::builder()
-        .high_capacity(4)
-        .low_capacity(4)
-        .rate(Some(2))
-        .build()?;
-
-    // Burst of 2 should succeed immediately.
-    push(&handle, 1).await?;
-    push(&handle, 2).await?;
-
-    // Third push should be blocked by the rate limiter.
-    let mut blocked = push(&handle, 3);
-    tokio::task::yield_now().await;
-    assert!(
-        blocked.as_mut().now_or_never().is_none(),
-        "third {priority_name} push should be pending under rate limit"
-    );
-
-    // Advance past the refill window and push again.
-    time::advance(Duration::from_secs(1)).await;
-    push(&handle, 4).await?;
-
-    // Drain to confirm frame delivery.
-    let frames = drain_three(&mut queues).await?;
-    assert_eq!(
-        frames,
-        (1, 2, 4),
-        "{priority_name} frames delivered in order"
-    );
-    Ok(())
-}
-
 /// Drain exactly three frames from the queue, returning them as a tuple.
 async fn drain_three(queues: &mut PushQueues<u8>) -> TestResult<(u8, u8, u8)> {
     let (_, a) = queues.recv().await.ok_or("recv 1 failed")?;
@@ -101,22 +57,50 @@ async fn drain_three(queues: &mut PushQueues<u8>) -> TestResult<(u8, u8, u8)> {
     Ok((a, b, c))
 }
 
-/// The rate limiter blocks high-priority pushes after the burst window
-/// is exhausted, proving it applies to the high queue.
-#[rstest]
-#[tokio::test]
-#[serial]
-async fn rate_limit_symmetric_high_only() -> TestResult {
-    test_single_priority_rate_limit(|h, v| Box::pin(h.push_high_priority(v)), "high").await
-}
+/// Push function selecting high- or low-priority delivery.
+type PushFn = fn(&PushHandle<u8>, u8) -> Pin<Box<dyn Future<Output = Result<(), PushError>> + '_>>;
 
-/// The rate limiter blocks low-priority pushes after the burst window
-/// is exhausted, proving it applies to the low queue identically.
+/// The rate limiter blocks pushes after the burst window is exhausted,
+/// regardless of priority. Each case proves the shared token bucket
+/// applies identically.
 #[rstest]
+#[case::high(PushPriority::High)]
+#[case::low(PushPriority::Low)]
 #[tokio::test]
 #[serial]
-async fn rate_limit_symmetric_low_only() -> TestResult {
-    test_single_priority_rate_limit(|h, v| Box::pin(h.push_low_priority(v)), "low").await
+async fn rate_limit_symmetric_single_priority(#[case] priority: PushPriority) -> TestResult {
+    let push_fn: PushFn = match priority {
+        PushPriority::High => |h, v| Box::pin(h.push_high_priority(v)),
+        PushPriority::Low => |h, v| Box::pin(h.push_low_priority(v)),
+    };
+
+    time::pause();
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .rate(Some(2))
+        .build()?;
+
+    // Burst of 2 should succeed immediately.
+    push_fn(&handle, 1).await?;
+    push_fn(&handle, 2).await?;
+
+    // Third push should be blocked by the rate limiter.
+    let mut blocked = push_fn(&handle, 3);
+    tokio::task::yield_now().await;
+    assert!(
+        blocked.as_mut().now_or_never().is_none(),
+        "third {priority:?} push should be pending under rate limit"
+    );
+
+    // Advance past the refill window and push again.
+    time::advance(Duration::from_secs(1)).await;
+    push_fn(&handle, 4).await?;
+
+    // Drain to confirm frame delivery.
+    let frames = drain_three(&mut queues).await?;
+    assert_eq!(frames, (1, 2, 4), "{priority:?} frames delivered in order");
+    Ok(())
 }
 
 /// A high-priority push consumes a token from the shared bucket,
@@ -166,7 +150,7 @@ async fn interleaved_fairness_yields_at_threshold() -> TestResult {
             max_high_before_low: 3,
             time_slice: None,
         },
-        // Pre-load: 6 high, 2 low.
+        // Preload: 6 high, 2 low.
         |handle| async move {
             for n in 1..=6 {
                 push_expect!(handle.push_high_priority(n));
@@ -245,11 +229,13 @@ async fn interleaved_time_slice_fairness(shutdown_token: CancellationToken) -> T
         ConnectionActor::new(queues, handle.clone(), None, shutdown_token);
     actor.set_fairness(fairness);
 
-    let (tx, rx) = oneshot::channel();
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let mut out = Vec::new();
-        let _ = actor.run(&mut out).await;
-        let _ = tx.send(out);
+        actor
+            .run(&mut out)
+            .await
+            .map_err(|e| format!("actor run failed: {e:?}"))?;
+        Ok::<_, String>(out)
     });
 
     push_expect!(handle.push_high_priority(1));
@@ -263,7 +249,9 @@ async fn interleaved_time_slice_fairness(shutdown_token: CancellationToken) -> T
     }
     drop(handle);
 
-    let out = rx.await.map_err(|_| "actor output missing")?;
+    let out = task
+        .await
+        .map_err(|e| format!("actor task panicked: {e}"))??;
     assert!(out.contains(&42), "low-priority item should be delivered");
     let pos = out
         .iter()

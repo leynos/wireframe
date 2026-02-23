@@ -121,7 +121,7 @@ impl InterleavedPushWorld {
         // Advance past the refill window and verify the push unblocks,
         // proving the shared bucket recovers for both priorities.
         time::advance(Duration::from_secs(1)).await;
-        self.rate_limit_recovered = blocked.as_mut().now_or_never().is_some();
+        self.rate_limit_recovered = matches!(blocked.as_mut().now_or_never(), Some(Ok(())));
         Ok(())
     }
 

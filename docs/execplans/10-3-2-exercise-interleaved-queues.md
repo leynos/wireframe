@@ -91,7 +91,7 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
   passing.
 - [x] Stage B: BDD behavioural tests — feature file, fixture, steps,
   scenarios. 4 BDD scenarios passing (98 total BDD tests green).
-- [x] Stage C: Documentation — update design doc, users guide, roadmap.
+- [x] Stage C: Documentation — update design doc, user's guide, roadmap.
 - [x] Stage D: Validation — full quality gate pass. All four gates
   (`check-fmt`, `lint`, `test`, `markdownlint`) exit 0.
 
@@ -132,13 +132,13 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
   supporting fixture, steps, and scenario wiring modules.
 - Design document updated with Section 13 documenting the interleaved queue
   testing strategy.
-- Users guide updated with a note on interleaved push queue validation.
+- User's guide updated with a note on interleaved push queue validation.
 - Roadmap entry 10.3.2 marked as done.
 
 ### Metrics
 
 - Files created: 5 (unit tests, feature file, fixture, steps, scenarios).
-- Files modified: 6 (3 BDD mod.rs files, design doc, users guide, roadmap).
+- Files modified: 6 (3 BDD mod.rs files, design doc, user's guide, roadmap).
 - Total new test count: 12 (8 unit + 4 BDD).
 - All quality gates pass with 0 warnings.
 
@@ -267,7 +267,7 @@ token. Advance time, push again, and verify both arrive. This directly proves
 the shared token bucket.
 
 A4. `interleaved_fairness_yields_at_threshold` — Configure
-`max_high_before_low = 3`. Pre-load 6 high-priority and 2 low-priority frames.
+`max_high_before_low = 3`. Preload 6 high-priority and 2 low-priority frames.
 Run the actor and verify the output sequence is `[H, H, H, L, H, H, H, L]`
 (low-priority interleaved every 3 high frames).
 
@@ -288,7 +288,7 @@ remainder. Verify all 8 frames arrive and that total throughput does not exceed
 R per second across both queues combined.
 
 A8. `fairness_disabled_strict_priority` — Configure
-`max_high_before_low = 0, time_slice = None` (fairness disabled). Pre-load high
+`max_high_before_low = 0, time_slice = None` (fairness disabled). Preload high
 and low frames. Verify all high frames precede all low frames (strict biased
 ordering).
 

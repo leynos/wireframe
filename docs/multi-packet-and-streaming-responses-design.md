@@ -770,7 +770,7 @@ frames are lost when both queues carry traffic simultaneously).
 ### 13.2 Testing strategy
 
 Unit tests (`tests/interleaved_push_queues.rs`) exercise the `ConnectionActor`
-and `PushQueues` under parameterised `FairnessConfig` settings and rate-limiter
+and `PushQueues` under parameterized `FairnessConfig` settings and rate-limiter
 configurations using virtual time (`tokio::time::pause`). BDD scenarios
 (`tests/features/interleaved_push_queues.feature`) express the same properties
 in Gherkin, exercising the actor through fixture-driven world structs.
