@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 This document must be maintained in accordance with `AGENTS.md` at the
 repository root, including quality gates, test policy, and documentation style
@@ -93,18 +93,31 @@ Observable success is:
 ## Progress
 
 - [x] (2026-02-23 00:00Z) Drafted ExecPlan for roadmap items 10.4.1 and 10.4.2.
-- [ ] Stage A complete: confirm contract, target files, and test locations.
-- [ ] Stage B complete: runnable example added and registered.
-- [ ] Stage C complete: `rstest` unit/integration coverage added.
-- [ ] Stage D complete: `rstest-bdd` behavioural coverage added.
-- [ ] Stage E complete: user guide and client design docs expanded with tables,
-      diagrams, troubleshooting, and decision notes.
-- [ ] Stage F complete: roadmap updated and all gates pass.
+- [x] (2026-02-23 00:18Z) Stage A complete: confirmed the acknowledgement
+      contract as an echoed login payload decode and scoped file targets.
+- [x] (2026-02-23 00:30Z) Stage B complete: added
+      `examples/client_echo_login.rs` and registered it in `Cargo.toml`.
+- [x] (2026-02-23 00:42Z) Stage C complete: added parameterized `rstest`
+      integration coverage in `tests/client_runtime.rs`.
+- [x] (2026-02-23 00:55Z) Stage D complete: extended `rstest-bdd` feature,
+      world, steps, and scenarios for login acknowledgement behaviour.
+- [x] (2026-02-23 01:10Z) Stage E complete: expanded
+      `docs/users-guide.md` and `docs/wireframe-client-design.md` with
+      configuration tables, lifecycle diagrams, troubleshooting, and the
+      10.4.1 decision record.
+- [x] (2026-02-23 01:55Z) Stage F complete: updated roadmap checkboxes and ran
+      all required quality/documentation gates successfully.
 
 ## Surprises & Discoveries
 
-- None yet. Update this section during implementation whenever behaviour differs
-  from the assumptions in this draft.
+- Discovery: strict `-D warnings` on `make test-bdd` surfaced existing
+  `unused_must_use` test helper paths in interleaved push queue fixtures that
+  were unrelated to 10.4. Fixing them was required for green behavioural
+  validation.
+
+- Discovery: `make test-doc` initially failed due to stale doctest imports in
+  `src/app_data_store.rs` (`wireframe::AppDataStore` is not re-exported). The
+  correct doctest path is `wireframe::app_data_store::AppDataStore`.
 
 ## Decision Log
 
@@ -118,16 +131,71 @@ Observable success is:
   requirement to use the `echo` server while still demonstrating typed decode
   on the client side. Date/Author: 2026-02-23 / Codex.
 
+- Decision: keep the new example output in `tracing` logs instead of
+  `println!`. Rationale: repository lint policy denies stdout printing in
+  binaries under clippy `-D warnings`. Date/Author: 2026-02-23 / Codex.
+
+- Decision: fix the unrelated interleaved push fixture warning paths as part of
+  this delivery. Rationale: required to make `make test-bdd` and `make test`
+  pass under `RUSTFLAGS="-D warnings"` and preserve repository health.
+  Date/Author: 2026-02-23 / Codex.
+
 ## Outcomes & Retrospective
 
-Pending implementation.
+Shipped functionality:
 
-This section must be completed at delivery with:
+- Added runnable client example: `examples/client_echo_login.rs`.
+- Registered the new example in `Cargo.toml`.
+- Added `rstest` login-ack integration coverage in `tests/client_runtime.rs`.
+- Added `rstest-bdd` login-ack feature/scenario/steps/world coverage across:
+  `tests/features/client_runtime.feature`,
+  `tests/scenarios/client_runtime_scenarios.rs`,
+  `tests/steps/client_runtime_steps.rs`, and `tests/fixtures/client_runtime.rs`.
+- Expanded client docs and design guidance in `docs/users-guide.md` and
+  `docs/wireframe-client-design.md`, including configuration tables, lifecycle
+  diagrams, troubleshooting, runnable commands, and decision rationale.
+- Marked roadmap 10.4.1 and 10.4.2 complete in `docs/roadmap.md`.
 
-- shipped files,
-- validation evidence,
-- roadmap status confirmation,
-- and lessons learned.
+Repository-health fixes needed for validation:
+
+- Hardened `unused_must_use` handling in interleaved push test helpers:
+  `tests/common/interleaved_push_helpers.rs`,
+  `tests/fixtures/interleaved_push_queues.rs`,
+  `tests/interleaved_push_queues.rs`.
+- Repaired doctest import examples in `src/app_data_store.rs`.
+
+Validation evidence (all passing):
+
+- `cargo test --test client_runtime -- --nocapture`:
+  `/tmp/10-4-1-client-runtime-targeted.log`
+- `make test-bdd`: `/tmp/10-4-1-bdd.log`
+- `make fmt`: `/tmp/10-4-1-make-fmt.log`
+- `make check-fmt`: `/tmp/10-4-1-check-fmt.log`
+- `make lint`: `/tmp/10-4-1-lint.log`
+- `make test`: `/tmp/10-4-1-test.log`
+- `make test-doc`: `/tmp/10-4-1-test-doc.log`
+- `make doctest-benchmark`: `/tmp/10-4-1-doctest-benchmark.log`
+- `make markdownlint`: `/tmp/10-4-1-markdownlint.log`
+- `make nixie`: `/tmp/10-4-1-nixie.log`
+- Manual runtime proof:
+  - `cargo run --example echo --features examples` (background server):
+    `/tmp/10-4-1-echo-example.log`
+  - `RUST_LOG=info cargo run --example client_echo_login --features examples`:
+    `/tmp/10-4-1-client-echo-login-example.log`
+  - Observed success lines include:
+    `decoded login acknowledgement username=guest correlation_id=Some(1)` and
+    `client echo-login example completed successfully`.
+
+Roadmap status confirmation:
+
+- `docs/roadmap.md` now marks both 10.4.1 and 10.4.2 as done.
+
+Lessons learned:
+
+- When behavioural suites run with warnings denied, latent fixture warnings can
+  block unrelated feature delivery; keep helper return types warning-clean.
+- Doctest paths can drift when public re-exports are not present; validate docs
+  early in the gate sequence to catch this sooner.
 
 ## Context and orientation
 
@@ -273,7 +341,7 @@ All commands run from repository root (`/home/user/project`). Use
 3. Documentation quality gates:
 
     set -o pipefail
-    make fmt | tee /tmp/10-4-1-fmt.log
+    make fmt | tee /tmp/10-4-1-make-fmt.log
 
     set -o pipefail
     make markdownlint | tee /tmp/10-4-1-markdownlint.log
@@ -353,3 +421,7 @@ Dependency policy:
 Revision note (2026-02-23): Initial draft created for roadmap items 10.4.1 and
 10.4.2. This revision defines acknowledgement semantics for the echo contract,
 scopes file targets, and sets mandatory validation gates for implementation.
+
+Revision note (2026-02-23): Implementation completed. This revision records
+final decisions, unexpected findings, delivered artifacts, quality-gate
+evidence, and roadmap closure.

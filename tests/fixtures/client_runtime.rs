@@ -34,6 +34,7 @@ pub struct ClientRuntimeWorld {
         RefCell<Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>>,
     payload: RefCell<Option<ClientPayload>>,
     response: RefCell<Option<ClientPayload>>,
+    login_ack: RefCell<Option<LoginAck>>,
     last_error: RefCell<Option<ClientError>>,
 }
 
@@ -49,6 +50,7 @@ impl ClientRuntimeWorld {
                 client: RefCell::new(None),
                 payload: RefCell::new(None),
                 response: RefCell::new(None),
+                login_ack: RefCell::new(None),
                 last_error: RefCell::new(None),
             },
             Err(err) => Self {
@@ -59,6 +61,7 @@ impl ClientRuntimeWorld {
                 client: RefCell::new(None),
                 payload: RefCell::new(None),
                 response: RefCell::new(None),
+                login_ack: RefCell::new(None),
                 last_error: RefCell::new(None),
             },
         }
@@ -88,6 +91,16 @@ impl ClientRuntimeWorld {
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
 struct ClientPayload {
     data: Vec<u8>,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
+struct LoginRequest {
+    username: String,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
+struct LoginAck {
+    username: String,
 }
 
 /// Fixture for `ClientRuntimeWorld`.
@@ -193,6 +206,7 @@ impl ClientRuntimeWorld {
         let response = result?;
         *self.payload.borrow_mut() = Some(payload);
         *self.response.borrow_mut() = Some(response);
+        *self.login_ack.borrow_mut() = None;
         *self.last_error.borrow_mut() = None;
         Ok(())
     }
@@ -205,7 +219,10 @@ impl ClientRuntimeWorld {
         let (_payload, result) = self.send_payload_inner(size)?;
         match result {
             Ok(_) => return Err("expected client error for oversized payload".into()),
-            Err(err) => *self.last_error.borrow_mut() = Some(err),
+            Err(err) => {
+                *self.last_error.borrow_mut() = Some(err);
+                *self.login_ack.borrow_mut() = None;
+            }
         }
         Ok(())
     }
@@ -238,6 +255,42 @@ impl ClientRuntimeWorld {
         let response = response_ref.as_ref().ok_or("response missing")?;
         if payload != response {
             return Err("response did not match payload".into());
+        }
+        self.await_server()?;
+        Ok(())
+    }
+
+    /// Send a login request and capture the echoed acknowledgement.
+    ///
+    /// # Errors
+    /// Returns an error if the client is missing or deserialization fails.
+    pub fn send_login_request(&self, username: String) -> TestResult {
+        let login = LoginRequest { username };
+        let mut client = self
+            .client
+            .borrow_mut()
+            .take()
+            .ok_or("client not connected")?;
+        let ack = self.block_on(async { client.call::<_, LoginAck>(&login).await })??;
+        *self.client.borrow_mut() = Some(client);
+        *self.login_ack.borrow_mut() = Some(ack);
+        *self.last_error.borrow_mut() = None;
+        Ok(())
+    }
+
+    /// Verify that login acknowledgement decoding succeeded for `expected`.
+    ///
+    /// # Errors
+    /// Returns an error when the acknowledgement is missing or mismatched.
+    pub fn verify_login_acknowledgement(&self, expected: &str) -> TestResult {
+        let ack_ref = self.login_ack.borrow();
+        let ack = ack_ref.as_ref().ok_or("login acknowledgement missing")?;
+        if ack.username != expected {
+            return Err(format!(
+                "expected login acknowledgement for '{expected}', got '{}'",
+                ack.username
+            )
+            .into());
         }
         self.await_server()?;
         Ok(())

@@ -39,7 +39,7 @@ fn shutdown_token() -> CancellationToken {
 async fn run_actor_test<S, SFut, A>(fairness: FairnessConfig, setup: S, assertions: A) -> TestResult
 where
     S: FnOnce(PushHandle<u8>) -> SFut,
-    SFut: Future<Output = ()>,
+    SFut: Future<Output = TestResult>,
     A: FnOnce(Vec<u8>),
 {
     let out = interleaved_push_helpers::run_actor_with_fairness(fairness, setup).await?;
@@ -117,7 +117,7 @@ async fn rate_limit_symmetric_mixed() -> TestResult {
         .build()?;
 
     // High push consumes the single token.
-    let _ = push_expect!(handle.push_high_priority(1));
+    push_expect!(handle.push_high_priority(1))?;
 
     // Low push should now be blocked.
     let mut blocked = handle.push_low_priority(2).boxed();
@@ -128,7 +128,7 @@ async fn rate_limit_symmetric_mixed() -> TestResult {
     );
 
     time::advance(Duration::from_secs(1)).await;
-    let _ = push_expect!(handle.push_low_priority(3));
+    push_expect!(handle.push_low_priority(3))?;
 
     let (_, a) = queues.recv().await.ok_or("recv 1 failed")?;
     let (_, b) = queues.recv().await.ok_or("recv 2 failed")?;
@@ -153,10 +153,11 @@ async fn interleaved_fairness_yields_at_threshold() -> TestResult {
         // Preload: 6 high, 2 low.
         |handle| async move {
             for n in 1..=6 {
-                let _ = push_expect!(handle.push_high_priority(n));
+                push_expect!(handle.push_high_priority(n))?;
             }
-            let _ = push_expect!(handle.push_low_priority(101));
-            let _ = push_expect!(handle.push_low_priority(102));
+            push_expect!(handle.push_low_priority(101))?;
+            push_expect!(handle.push_low_priority(102))?;
+            Ok(())
         },
         // Expected: H H H L H H H L
         |out| {
@@ -183,11 +184,12 @@ async fn interleaved_all_frames_delivered() -> TestResult {
         },
         |handle| async move {
             for n in 1..=5 {
-                let _ = push_expect!(handle.push_high_priority(n));
+                push_expect!(handle.push_high_priority(n))?;
             }
             for n in 101..=105 {
-                let _ = push_expect!(handle.push_low_priority(n));
+                push_expect!(handle.push_low_priority(n))?;
             }
+            Ok(())
         },
         |out| {
             assert_eq!(out.len(), 10, "all 10 frames should be delivered");
@@ -238,14 +240,14 @@ async fn interleaved_time_slice_fairness(shutdown_token: CancellationToken) -> T
         Ok::<_, String>(out)
     });
 
-    let _ = push_expect!(handle.push_high_priority(1));
+    push_expect!(handle.push_high_priority(1))?;
     time::advance(Duration::from_millis(5)).await;
-    let _ = push_expect!(handle.push_high_priority(2));
+    push_expect!(handle.push_high_priority(2))?;
     // Advance past the time slice so the next high frame triggers yield.
     time::advance(Duration::from_millis(15)).await;
-    let _ = push_expect!(handle.push_low_priority(42));
+    push_expect!(handle.push_low_priority(42))?;
     for n in 3..=5 {
-        let _ = push_expect!(handle.push_high_priority(n));
+        push_expect!(handle.push_high_priority(n))?;
     }
     drop(handle);
 
@@ -278,10 +280,10 @@ async fn rate_limit_interleaved_total_throughput() -> TestResult {
         .build()?;
 
     // First 4 pushes (mix of priorities) should succeed immediately.
-    let _ = push_expect!(handle.push_high_priority(1));
-    let _ = push_expect!(handle.push_low_priority(2));
-    let _ = push_expect!(handle.push_high_priority(3));
-    let _ = push_expect!(handle.push_low_priority(4));
+    push_expect!(handle.push_high_priority(1))?;
+    push_expect!(handle.push_low_priority(2))?;
+    push_expect!(handle.push_high_priority(3))?;
+    push_expect!(handle.push_low_priority(4))?;
 
     // The 5th push (either priority) should block.
     let mut blocked = handle.push_high_priority(5).boxed();
@@ -292,8 +294,8 @@ async fn rate_limit_interleaved_total_throughput() -> TestResult {
     );
 
     time::advance(Duration::from_secs(1)).await;
-    let _ = push_expect!(handle.push_high_priority(6));
-    let _ = push_expect!(handle.push_low_priority(7));
+    push_expect!(handle.push_high_priority(6))?;
+    push_expect!(handle.push_low_priority(7))?;
 
     // Drain all frames to verify delivery.
     let mut out = Vec::new();
@@ -318,11 +320,12 @@ async fn fairness_disabled_strict_priority() -> TestResult {
             time_slice: None,
         },
         |handle| async move {
-            let _ = push_expect!(handle.push_low_priority(101));
-            let _ = push_expect!(handle.push_low_priority(102));
-            let _ = push_expect!(handle.push_high_priority(1));
-            let _ = push_expect!(handle.push_high_priority(2));
-            let _ = push_expect!(handle.push_high_priority(3));
+            push_expect!(handle.push_low_priority(101))?;
+            push_expect!(handle.push_low_priority(102))?;
+            push_expect!(handle.push_high_priority(1))?;
+            push_expect!(handle.push_high_priority(2))?;
+            push_expect!(handle.push_high_priority(3))?;
+            Ok(())
         },
         |out| {
             assert_eq!(

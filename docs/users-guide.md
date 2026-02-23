@@ -1038,11 +1038,27 @@ serializer, codec settings, and socket options before connecting.[^44] Use
 `buffer_capacity`, and apply `SocketOptions` when TCP tuning is required, such
 as `TCP_NODELAY` or buffer size adjustments.
 
+### Client configuration reference
+
+| Surface              | API                                          | Default                                                 | Use when                                                            |
+| -------------------- | -------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------- |
+| Serializer           | `WireframeClient::builder().serializer(...)` | `BincodeSerializer`                                     | Server and client need a non-default serialization contract.        |
+| Frame codec settings | `codec_config(ClientCodecConfig)`            | 4-byte big-endian prefix and 1024-byte max frame length | Server `buffer_capacity` or protocol limits differ from defaults.   |
+| Socket tuning        | `socket_options(SocketOptions)`              | OS defaults                                             | Low-latency tuning (`TCP_NODELAY`) or keepalive policy is required. |
+| Preamble payload     | `with_preamble(T)`                           | Disabled                                                | Protocol negotiation must happen before framed payload traffic.     |
+| Preamble timeout     | `preamble_timeout(Duration)`                 | Disabled unless configured                              | Connection setup should fail fast on stalled preamble exchange.     |
+| Setup hook           | `on_connection_setup(...)`                   | Disabled                                                | Per-connection state is needed for metrics or lifecycle coupling.   |
+| Teardown hook        | `on_connection_teardown(...)`                | Disabled                                                | Close should flush counters or release stateful resources.          |
+| Error hook           | `on_error(...)`                              | Disabled                                                | Transport and decode failures must be routed to observability.      |
+
 ```rust
 use std::{net::SocketAddr, time::Duration};
 
 use wireframe::{
+    app::Envelope,
     client::{ClientCodecConfig, SocketOptions},
+    correlation::CorrelatableFrame,
+    message::Message,
     WireframeClient,
 };
 
@@ -1053,7 +1069,7 @@ struct Login {
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
 struct LoginAck {
-    ok: bool,
+    username: String,
 }
 
 let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
@@ -1071,8 +1087,44 @@ let mut client = WireframeClient::builder()
 let login = Login {
     username: "guest".to_string(),
 };
-let ack: LoginAck = client.call(&login).await?;
-assert!(ack.ok);
+let request = Envelope::new(1, None, login.to_bytes()?);
+let response: Envelope = client.call_correlated(request).await?;
+let (ack, _) = LoginAck::from_bytes(response.payload_bytes())?;
+assert_eq!(ack.username, "guest");
+assert!(response.correlation_id().is_some());
+```
+
+For screen readers: the following sequence diagram shows the client lifecycle
+for connect, optional preamble exchange, message I/O, error handling, and
+teardown.
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Builder as WireframeClientBuilder
+    participant Stream as TcpStream
+    participant Hooks as Client hooks
+    App->>Builder: connect(addr)
+    Builder->>Stream: apply socket options + connect
+    alt preamble configured
+        Builder->>Stream: write/read preamble
+        Builder->>Builder: preamble success/failure callbacks
+    end
+    Builder->>Hooks: on_connection_setup
+    App->>Stream: send / receive / call / call_correlated
+    App->>Hooks: on_error (if operation fails)
+    App->>Builder: close()
+    Builder->>Hooks: on_connection_teardown
+```
+
+Run the client example against the echo server:
+
+```plaintext
+# terminal 1
+cargo run --example echo --features examples
+
+# terminal 2
+cargo run --example client_echo_login --features examples
 ```
 
 ### Client preamble exchange
@@ -1577,6 +1629,20 @@ without changing the public `WireframeClient` interface.
 frame carries a different identifier, the stream yields
 `ClientError::StreamCorrelationMismatch` and terminates. Transport errors and
 decode failures are surfaced through `ClientError::Wireframe`.[^51]
+
+### Client troubleshooting
+
+- Frame length mismatch: if requests fail on larger payloads, align client
+  `ClientCodecConfig::max_frame_length` with server `buffer_capacity`.
+- Preamble timeout or decode failure: verify preamble timeout values and
+  callback implementations (`on_preamble_success` and `on_preamble_failure`).
+- Correlation mismatch errors: verify server echoes or stamps the expected
+  `correlation_id` for `call_correlated` and streaming responses.
+- Streaming API contention: `ResponseStream` holds `&mut WireframeClient`; do
+  not issue additional client I/O until the stream is drained or dropped.
+- Transport disconnects: treat
+  `ClientError::Wireframe(WireframeError::Io(_))` as network-level failures and
+  apply reconnect/retry policy at the call site.
 
 ## Versioning and graceful deprecation
 

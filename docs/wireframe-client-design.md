@@ -55,6 +55,19 @@ The same `Serializer` trait used by the server is reused here, ensuring
 messages are encoded consistently while framing is handled by the
 length‑delimited codec.
 
+### Client configuration reference
+
+| Surface          | API                                          | Default                                                     | Use when                                                                   |
+| ---------------- | -------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Serializer       | `WireframeClient::builder().serializer(...)` | `BincodeSerializer`                                         | Client and server must share a non-default encoding contract.              |
+| Codec framing    | `codec_config(ClientCodecConfig)`            | 4-byte big-endian length prefix, 1024-byte max frame length | Align with server `buffer_capacity` and protocol frame size limits.        |
+| Socket tuning    | `socket_options(SocketOptions)`              | OS defaults                                                 | Enable `TCP_NODELAY`, keepalive, or buffer sizing policies.                |
+| Preamble payload | `with_preamble(T)`                           | Disabled                                                    | Protocol requires version or capability negotiation before framed traffic. |
+| Preamble timeout | `preamble_timeout(Duration)`                 | No timeout unless configured                                | Fail fast when servers stall during preamble exchange.                     |
+| Setup hook       | `on_connection_setup(...)`                   | Disabled                                                    | Store per-connection state for metrics, auth context, or counters.         |
+| Teardown hook    | `on_connection_teardown(...)`                | Disabled                                                    | Flush metrics and release per-connection resources on `close()`.           |
+| Error hook       | `on_error(...)`                              | Disabled                                                    | Centralize client transport/decode/correlation error reporting.            |
+
 ### Request/response helpers
 
 To keep the API simple, `WireframeClient` offers a `call` method that sends a
@@ -158,6 +171,28 @@ changes the `C` type parameter from the default `()` to the user's state type.
 This ensures type safety—teardown callbacks must accept the exact state type
 produced by setup.
 
+For screen readers: the following sequence diagram shows the client connection
+lifecycle from connect through teardown.
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Builder as WireframeClientBuilder
+    participant TCP as TcpStream
+    participant Hooks as Lifecycle hooks
+    App->>Builder: connect(addr)
+    Builder->>TCP: apply socket options + connect
+    alt preamble configured
+        Builder->>TCP: write preamble
+        Builder->>Builder: on_preamble_success / on_preamble_failure
+    end
+    Builder->>Hooks: on_connection_setup
+    App->>TCP: send / receive / call
+    App->>Hooks: on_error (when operation fails)
+    App->>Builder: close()
+    Builder->>Hooks: on_connection_teardown
+```
+
 ### Preamble support
 
 The client builder now supports an optional preamble exchange. Use
@@ -197,25 +232,77 @@ Any bytes read beyond the server's response must be returned as "leftover"
 bytes for the framing layer to replay. The failure callback runs when the
 preamble exchange fails due to timeout, I/O error, or encoding error.
 
-## Example usage
+## Runnable echo-login example
 
 ```rust
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    use std::net::SocketAddr;
+    use wireframe::{
+        app::Envelope,
+        client::WireframeClient,
+        message::Message,
+    };
+
+    #[derive(bincode::Encode, bincode::BorrowDecode)]
+    struct LoginRequest {
+        username: String,
+    }
+
+    #[derive(bincode::Encode, bincode::BorrowDecode)]
+    struct LoginAck {
+        username: String,
+    }
 
     let mut client = WireframeClient::builder()
-        .serializer(BincodeSerializer)
-        .max_frame_length(1024)
-        .connect("127.0.0.1:7878".parse::<SocketAddr>()?)
+        .connect("127.0.0.1:7878".parse()?)
         .await?;
 
-    let login = Login { username: "guest".into() };
-    let ack: LoginAck = client.call(&login).await?;
-    println!("logged in: {:?}", ack);
+    let request = LoginRequest {
+        username: "guest".to_string(),
+    };
+    let envelope = Envelope::new(1, None, request.to_bytes()?);
+    let response: Envelope = client.call_correlated(envelope).await?;
+    let (ack, _) = LoginAck::from_bytes(response.payload_bytes())?;
+    assert_eq!(ack.username, "guest");
     Ok(())
 }
 ```
+
+Run it with the existing echo server example:
+
+```plaintext
+# terminal 1
+cargo run --example echo --features examples
+
+# terminal 2
+cargo run --example client_echo_login --features examples
+```
+
+### Troubleshooting
+
+- Frame length mismatches: if the server rejects frames or the client reports
+  transport I/O errors on larger payloads, ensure
+  `ClientCodecConfig::max_frame_length` matches server `buffer_capacity`.
+- Preamble failures: `PreambleTimeout`, `PreambleRead`, and `PreambleWrite`
+  indicate negotiation faults before framing starts. Validate timeout settings
+  and callback logic.
+- Correlation mismatch: `ClientError::CorrelationMismatch` indicates the
+  response envelope did not preserve the request correlation identifier.
+- Streaming borrow contention: `ResponseStream` holds `&mut WireframeClient`,
+  so parallel `send`/`receive` calls must wait until the stream is dropped or
+  drained.
+- Disconnects during calls: `ClientError::Wireframe(WireframeError::Io(_))`
+  usually means peer closure or transport interruption; retry policies should
+  treat these as network faults.
+
+## Decision record for 10.4.1
+
+- Decision: treat login acknowledgement in the echo example as the echoed login
+  payload decoded as `LoginAck`.
+- Rationale: roadmap item 10.4.1 explicitly targets the existing `echo` server.
+  The echo server does not synthesize new response payloads, so decoding the
+  echoed payload as the acknowledgement provides a runnable, typed, end-to-end
+  demonstration without introducing server-only behaviour.
 
 ## Future work
 

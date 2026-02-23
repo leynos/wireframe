@@ -5,6 +5,7 @@ use std::io;
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
+use rstest::rstest;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
@@ -19,6 +20,11 @@ struct ClientPayload {
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
 struct Login {
+    username: String,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
+struct LoginAck {
     username: String,
 }
 
@@ -76,6 +82,29 @@ async fn client_round_trips_multiple_message_types_through_sample_server() {
     };
     let metrics_resp: Metrics = client.call(&metrics).await.expect("metrics round-trip");
     assert_eq!(metrics_resp, metrics);
+
+    server.abort();
+}
+
+#[rstest]
+#[case("guest")]
+#[case("operator")]
+#[tokio::test]
+async fn client_decodes_echoed_login_acknowledgement(#[case] username: &str) {
+    let (addr, server) = spawn_sample_echo_server()
+        .await
+        .expect("spawn sample echo server");
+
+    let mut client = WireframeClient::builder()
+        .connect(addr)
+        .await
+        .expect("connect client");
+
+    let login = Login {
+        username: username.to_string(),
+    };
+    let ack: LoginAck = client.call(&login).await.expect("login acknowledgement");
+    assert_eq!(ack.username, username);
 
     server.abort();
 }
