@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 use wireframe::{
     client::{ClientError, WireframeClient},
     rewind_stream::RewindStream,
-    serializer::{BincodeSerializer, Serializer},
+    serializer::BincodeSerializer,
 };
 pub use wireframe_testing::TestResult;
 

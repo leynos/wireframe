@@ -4,11 +4,10 @@ use futures::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    BincodeSerializer,
-    Serializer,
     WireframeError,
     client::ClientError,
     correlation::CorrelatableFrame,
+    serializer::{BincodeSerializer, Serializer},
 };
 
 use super::{
