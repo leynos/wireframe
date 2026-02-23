@@ -142,18 +142,26 @@ impl SerializerBoundariesWorld {
     /// # Errors
     ///
     /// Returns an error if no context was captured.
-    pub fn assert_captured_message_id(&self, expected: u32) -> TestResult {
+    fn assert_captured_field<T>(
+        &self,
+        field_extractor: impl FnOnce(&CapturedContext) -> Option<T>,
+        expected: T,
+        field_name: &str,
+    ) -> TestResult
+    where
+        T: PartialEq + std::fmt::Debug,
+    {
         let captured = self
             .captured_context
             .lock()
             .ok()
             .and_then(|state| *state)
             .ok_or("captured context not available")?;
-        if captured.message_id != Some(expected) {
+        let actual = field_extractor(&captured);
+        let expected_value = Some(expected);
+        if actual != expected_value {
             return Err(format!(
-                "expected captured message id {:?}, got {:?}",
-                Some(expected),
-                captured.message_id
+                "expected captured {field_name} {expected_value:?}, got {actual:?}"
             )
             .into());
         }
@@ -163,21 +171,14 @@ impl SerializerBoundariesWorld {
     /// # Errors
     ///
     /// Returns an error if no context was captured.
+    pub fn assert_captured_message_id(&self, expected: u32) -> TestResult {
+        self.assert_captured_field(|ctx| ctx.message_id, expected, "message id")
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error if no context was captured.
     pub fn assert_captured_correlation_id(&self, expected: u64) -> TestResult {
-        let captured = self
-            .captured_context
-            .lock()
-            .ok()
-            .and_then(|state| *state)
-            .ok_or("captured context not available")?;
-        if captured.correlation_id != Some(expected) {
-            return Err(format!(
-                "expected captured correlation id {:?}, got {:?}",
-                Some(expected),
-                captured.correlation_id
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_captured_field(|ctx| ctx.correlation_id, expected, "correlation id")
     }
 }
