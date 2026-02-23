@@ -6,7 +6,7 @@ use rstest::fixture;
 use wireframe::{
     app::Envelope,
     message::{DecodeWith, DeserializeContext, EncodeWith},
-    serializer::{BincodeSerializer, Serializer},
+    serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
 };
 pub use wireframe_testing::TestResult;
 
@@ -29,6 +29,8 @@ struct ContextCapturingSerializer {
 impl ContextCapturingSerializer {
     fn new(captured: Arc<Mutex<Option<CapturedContext>>>) -> Self { Self { captured } }
 }
+
+impl MessageCompatibilitySerializer for ContextCapturingSerializer {}
 
 impl Serializer for ContextCapturingSerializer {
     fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>

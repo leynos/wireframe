@@ -12,16 +12,26 @@ use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     frame::{FrameMetadata, LengthFormat},
-    serializer::Serializer,
+    serializer::{MessageCompatibilitySerializer, Serializer},
 };
 
 pub trait TestSerializer:
-    Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
+    Serializer
+    + MessageCompatibilitySerializer
+    + FrameMetadata<Frame = Envelope>
+    + Send
+    + Sync
+    + 'static
 {
 }
 
 impl<T> TestSerializer for T where
-    T: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static
+    T: Serializer
+        + MessageCompatibilitySerializer
+        + FrameMetadata<Frame = Envelope>
+        + Send
+        + Sync
+        + 'static
 {
 }
 

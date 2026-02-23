@@ -18,7 +18,7 @@ pub use crate::{
     error::{Result, WireframeError},
     message::{DecodeWith, DeserializeContext, EncodeWith, Message},
     response::Response,
-    serializer::{BincodeSerializer, Serializer},
+    serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
 };
 #[cfg(not(loom))]
 pub use crate::{

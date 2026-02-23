@@ -13,7 +13,7 @@ use wireframe::{
     app::{Envelope, Packet},
     frame::FrameMetadata,
     message::DeserializeContext,
-    serializer::{BincodeSerializer, Serializer},
+    serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
 };
 use wireframe_testing::{TestResult, TestSerializer, drive_with_bincode};
 
@@ -55,6 +55,8 @@ macro_rules! impl_test_serializer_boilerplate {
 
 #[derive(Default)]
 struct CountingSerializer(Arc<AtomicUsize>, Arc<AtomicUsize>);
+
+impl MessageCompatibilitySerializer for CountingSerializer {}
 
 impl Serializer for CountingSerializer {
     impl_test_serializer_boilerplate!(CountingSerializer);
@@ -112,6 +114,8 @@ async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
 #[derive(Default)]
 struct FallbackSerializer(Arc<AtomicUsize>);
 
+impl MessageCompatibilitySerializer for FallbackSerializer {}
+
 impl Serializer for FallbackSerializer {
     impl_test_serializer_boilerplate!(FallbackSerializer);
 }
@@ -164,6 +168,8 @@ struct ContextCapturingSerializer {
 impl ContextCapturingSerializer {
     fn capture_handle(&self) -> Arc<Mutex<Option<CapturedContext>>> { self.captured.clone() }
 }
+
+impl MessageCompatibilitySerializer for ContextCapturingSerializer {}
 
 impl Serializer for ContextCapturingSerializer {
     impl_test_serializer_boilerplate!(ContextCapturingSerializer);

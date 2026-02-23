@@ -115,7 +115,7 @@ impl<T> Message for T where T: Encode + for<'de> BorrowDecode<'de, ()> {}
 
 impl<S, T> EncodeWith<S> for T
 where
-    S: ?Sized,
+    S: crate::serializer::MessageCompatibilitySerializer + ?Sized,
     T: Message,
 {
     fn encode_with(&self, _serializer: &S) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
@@ -126,7 +126,7 @@ where
 
 impl<S, T> DecodeWith<S> for T
 where
-    S: ?Sized,
+    S: crate::serializer::MessageCompatibilitySerializer + ?Sized,
     T: Message,
 {
     fn decode_with(

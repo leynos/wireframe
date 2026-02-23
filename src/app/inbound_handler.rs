@@ -168,6 +168,10 @@ where
     ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
         match self.serializer.parse(payload) {
             Ok((parsed_envelope, metadata_bytes_consumed)) => {
+                if !self.serializer.should_deserialize_after_parse() {
+                    return Ok((parsed_envelope, metadata_bytes_consumed));
+                }
+
                 let context = DeserializeContext {
                     frame_metadata: payload.get(..metadata_bytes_consumed),
                     message_id: Some(parsed_envelope.id),
@@ -176,11 +180,8 @@ where
                 };
                 self.serializer
                     .deserialize_with_context::<Envelope>(payload, &context)
-                    .or(Ok((parsed_envelope, metadata_bytes_consumed)))
             }
-            Err(_) => self
-                .serializer
-                .deserialize_with_context::<Envelope>(payload, &DeserializeContext::default()),
+            Err(_) => self.serializer.deserialize::<Envelope>(payload),
         }
     }
 

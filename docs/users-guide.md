@@ -387,13 +387,15 @@ message types remain compatible through `Message`, which still provides
 
 ### Migration from `Message`-only bounds
 
-If your code previously relied on `M: Message` for client/server API calls, no
-change is required for bincode-compatible types.
+If existing code previously relied on `M: Message` for client/server API calls,
+no change is required for bincode-compatible types.
 
 - Existing `#[derive(bincode::Encode, bincode::BorrowDecode)]` payloads still
   work in `send`, `receive`, `call`, and `send_response`.
 - Serializer implementations should update method signatures to use
   `EncodeWith<Self>` and `DecodeWith<Self>` bounds.
+- Custom serializers that rely on legacy `Message`-derived payload encoding
+  should also implement `wireframe::serializer::MessageCompatibilitySerializer`.
 - Metadata-aware serializers can implement
   `Serializer::deserialize_with_context` to inspect `DeserializeContext`.
 

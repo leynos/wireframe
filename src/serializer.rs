@@ -16,6 +16,12 @@ use crate::{
     message::{DecodeWith, DeserializeContext, EncodeWith, Message},
 };
 
+/// Marker trait for serializers that opt into legacy [`Message`] compatibility.
+///
+/// Implement this trait when `T: Message` values should automatically satisfy
+/// `EncodeWith<Self>` and `DecodeWith<Self>`.
+pub trait MessageCompatibilitySerializer {}
+
 /// Optional bridge trait used by `message::serde_bridge`.
 #[cfg(feature = "serializer-serde")]
 pub trait SerdeSerializerBridge {
@@ -82,11 +88,21 @@ pub trait Serializer {
     {
         self.deserialize(bytes)
     }
+
+    /// Decide whether [`Serializer::deserialize_with_context`] should run after
+    /// a successful [`FrameMetadata::parse`] call.
+    ///
+    /// Serializers that fully decode frames during `parse` can return `false`
+    /// to avoid duplicate decoding on the inbound path.
+    #[must_use]
+    fn should_deserialize_after_parse(&self) -> bool { true }
 }
 
 /// Serializer using `bincode` with its standard configuration.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BincodeSerializer;
+
+impl MessageCompatibilitySerializer for BincodeSerializer {}
 
 impl Serializer for BincodeSerializer {
     fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>
@@ -113,6 +129,8 @@ impl Serializer for BincodeSerializer {
     {
         M::decode_with(self, bytes, context)
     }
+
+    fn should_deserialize_after_parse(&self) -> bool { false }
 }
 
 impl FrameMetadata for BincodeSerializer {

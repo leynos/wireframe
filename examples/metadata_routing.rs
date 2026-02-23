@@ -13,7 +13,7 @@ use wireframe::{
     byte_order::{read_network_u16, write_network_u16},
     frame::FrameMetadata,
     message::{DecodeWith, DeserializeContext, EncodeWith, Message},
-    serializer::Serializer,
+    serializer::{MessageCompatibilitySerializer, Serializer},
 };
 
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
@@ -23,6 +23,8 @@ const MAX_FRAME: usize = 64 * 1024;
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
 #[derive(Default)]
 struct HeaderSerializer;
+
+impl MessageCompatibilitySerializer for HeaderSerializer {}
 
 impl Serializer for HeaderSerializer {
     fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
