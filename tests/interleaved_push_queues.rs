@@ -117,7 +117,7 @@ async fn rate_limit_symmetric_mixed() -> TestResult {
         .build()?;
 
     // High push consumes the single token.
-    let _ = push_expect!(handle.push_high_priority(1));
+    push_expect!(handle.push_high_priority(1))?;
 
     // Low push should now be blocked.
     let mut blocked = handle.push_low_priority(2).boxed();
@@ -128,7 +128,7 @@ async fn rate_limit_symmetric_mixed() -> TestResult {
     );
 
     time::advance(Duration::from_secs(1)).await;
-    let _ = push_expect!(handle.push_low_priority(3));
+    push_expect!(handle.push_low_priority(3))?;
 
     let (_, a) = queues.recv().await.ok_or("recv 1 failed")?;
     let (_, b) = queues.recv().await.ok_or("recv 2 failed")?;
@@ -238,14 +238,14 @@ async fn interleaved_time_slice_fairness(shutdown_token: CancellationToken) -> T
         Ok::<_, String>(out)
     });
 
-    let _ = push_expect!(handle.push_high_priority(1));
+    push_expect!(handle.push_high_priority(1))?;
     time::advance(Duration::from_millis(5)).await;
-    let _ = push_expect!(handle.push_high_priority(2));
+    push_expect!(handle.push_high_priority(2))?;
     // Advance past the time slice so the next high frame triggers yield.
     time::advance(Duration::from_millis(15)).await;
-    let _ = push_expect!(handle.push_low_priority(42));
+    push_expect!(handle.push_low_priority(42))?;
     for n in 3..=5 {
-        let _ = push_expect!(handle.push_high_priority(n));
+        push_expect!(handle.push_high_priority(n))?;
     }
     drop(handle);
 
@@ -278,10 +278,10 @@ async fn rate_limit_interleaved_total_throughput() -> TestResult {
         .build()?;
 
     // First 4 pushes (mix of priorities) should succeed immediately.
-    let _ = push_expect!(handle.push_high_priority(1));
-    let _ = push_expect!(handle.push_low_priority(2));
-    let _ = push_expect!(handle.push_high_priority(3));
-    let _ = push_expect!(handle.push_low_priority(4));
+    push_expect!(handle.push_high_priority(1))?;
+    push_expect!(handle.push_low_priority(2))?;
+    push_expect!(handle.push_high_priority(3))?;
+    push_expect!(handle.push_low_priority(4))?;
 
     // The 5th push (either priority) should block.
     let mut blocked = handle.push_high_priority(5).boxed();
@@ -292,8 +292,8 @@ async fn rate_limit_interleaved_total_throughput() -> TestResult {
     );
 
     time::advance(Duration::from_secs(1)).await;
-    let _ = push_expect!(handle.push_high_priority(6));
-    let _ = push_expect!(handle.push_low_priority(7));
+    push_expect!(handle.push_high_priority(6))?;
+    push_expect!(handle.push_low_priority(7))?;
 
     // Drain all frames to verify delivery.
     let mut out = Vec::new();

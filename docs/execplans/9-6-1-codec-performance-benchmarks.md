@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT (2026-02-23)
+Status: COMPLETE (2026-02-23)
 
 No `PLANS.md` exists in this repository as of 2026-02-23.
 
@@ -97,12 +97,22 @@ command and seeing:
 
 - [x] (2026-02-23 00:00Z) Drafted ExecPlan for roadmap item `9.6.1`, including
       staged benchmark, testing, documentation, and validation scope.
-- [ ] Stage A complete: benchmark contract, workloads, and harness design.
-- [ ] Stage B complete: benchmark implementation and Makefile integration.
-- [ ] Stage C complete: rstest unit tests for benchmark helpers.
-- [ ] Stage D complete: rstest-bdd behavioural benchmark validation.
-- [ ] Stage E complete: design docs, user guide checks, roadmap updates.
-- [ ] Stage F complete: full quality gates and benchmark execution evidence.
+- [x] (2026-02-23 01:30Z) Stage A complete: benchmark workload matrix and
+      shared benchmark support helpers implemented in
+      `tests/common/codec_benchmark_support.rs`.
+- [x] (2026-02-23 02:10Z) Stage B complete: criterion benchmarks implemented in
+      `benches/codec_performance.rs` and `benches/codec_performance_alloc.rs`,
+      with `make bench-codec` wired in `Makefile`.
+- [x] (2026-02-23 02:25Z) Stage C complete: rstest unit coverage added in
+      `tests/codec_performance_benchmark_helpers.rs`.
+- [x] (2026-02-23 02:40Z) Stage D complete: rstest-bdd feature, fixture, step,
+      and scenario coverage added for benchmark behaviour validation.
+- [x] (2026-02-23 02:55Z) Stage E complete: updated
+      `docs/adr-004-pluggable-protocol-codecs.md` and marked roadmap item
+      `9.6.1` done in `docs/roadmap.md`.
+- [x] (2026-02-23 03:50Z) Stage F complete: all required gates passed
+      (`make fmt`, `make check-fmt`, `make markdownlint`, `make nixie`,
+      `make lint`, `make test-bdd`, `make test`, `make bench-codec`).
 
 ## Surprises & Discoveries
 
@@ -126,6 +136,13 @@ command and seeing:
   returned empty results. Impact: no project-memory retrieval could be done for
   this draft.
 
+- Observation: strict Clippy policy applies to bench targets as part of
+  `make lint`, including missing docs and anti-truncation/division rules.
+  Evidence: initial `make lint` failures in `benches/codec_performance.rs` and
+  shared support code. Impact: benchmarks needed helper refactors (e.g.
+  `Duration::checked_div`, `Duration::div_duration_f64`) and explicit `main()`
+  entrypoints instead of criterion macro-generated undocumented functions.
+
 ## Decision Log
 
 - Decision: use `HotlineFrameCodec` as the custom codec benchmark target for
@@ -143,12 +160,48 @@ command and seeing:
   Rationale: timing thresholds are hardware-dependent and unsuitable for
   deterministic CI assertions. Date/Author: 2026-02-23 / Codex.
 
+- Decision: implement criterion entrypoints using explicit documented `main()`
+  functions rather than `criterion_group!`/`criterion_main!` macros in order to
+  satisfy strict `missing_docs` linting on bench targets. Rationale: macro
+  output functions were flagged by lint gates and macro-level doc attributes
+  are ignored by rustc. Date/Author: 2026-02-23 / Codex.
+
 ## Outcomes & Retrospective
 
-Pending implementation.
+Roadmap item `9.6.1` is implemented and validated.
 
-This section will be updated at completion with delivered files, benchmark
-commands, measured baselines, and lessons learned.
+Delivered outcomes:
+
+- Added benchmark workload support helpers in
+  `tests/common/codec_benchmark_support.rs`.
+- Added throughput/latency and fragmentation-overhead benchmarks in
+  `benches/codec_performance.rs`.
+- Added allocation-baseline benchmark reporting in
+  `benches/codec_performance_alloc.rs`.
+- Added benchmark command wiring in `Makefile` via `bench-codec`.
+- Added rstest unit validation in
+  `tests/codec_performance_benchmark_helpers.rs`.
+- Added rstest-bdd behavioural validation:
+  `tests/features/codec_performance_benchmarks.feature`,
+  `tests/fixtures/codec_performance_benchmarks.rs`,
+  `tests/steps/codec_performance_benchmarks_steps.rs`,
+  `tests/scenarios/codec_performance_benchmarks_scenarios.rs`, plus module
+  wiring updates.
+- Updated design decision record in
+  `docs/adr-004-pluggable-protocol-codecs.md`.
+- Marked roadmap item `9.6.1` complete in `docs/roadmap.md`.
+
+Additional quality fix completed during validation:
+
+- Resolved pre-existing `unused Result` failures in interleaved push queue
+  tests by handling `push_expect!` results correctly in
+  `tests/interleaved_push_queues.rs` and
+  `tests/fixtures/interleaved_push_queues.rs`.
+
+Public API impact:
+
+- No library-consumer public runtime API changes were introduced, so
+  `docs/users-guide.md` required no interface update for this item.
 
 ## Context and orientation
 

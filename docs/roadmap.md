@@ -422,11 +422,11 @@ integration boundaries.
 
 ### 9.6. Codec performance benchmarks
 
-- [ ] 9.6.1. Add targeted benchmarks for codec throughput and latency.
-  - [ ] Benchmark encode and decode for small and large frames across the
+- [x] 9.6.1. Add targeted benchmarks for codec throughput and latency.
+  - [x] Benchmark encode and decode for small and large frames across the
     default codec and one custom codec.
-  - [ ] Measure fragmentation overhead versus unfragmented paths.
-  - [ ] Record memory allocation baselines for payload wrapping and decoding.
+  - [x] Measure fragmentation overhead versus unfragmented paths.
+  - [x] Record memory allocation baselines for payload wrapping and decoding.
 
 ### 9.7. Codec test harness and observability
 

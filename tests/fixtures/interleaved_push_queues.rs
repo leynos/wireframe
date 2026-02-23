@@ -110,7 +110,7 @@ impl InterleavedPushWorld {
             .rate(Some(1))
             .build()?;
 
-        let _ = push_expect!(handle.push_high_priority(1));
+        push_expect!(handle.push_high_priority(1))?;
 
         // The low-priority push should be blocked: the single token was
         // consumed by the high-priority push above.
