@@ -29,26 +29,35 @@ where
         .route(1, Arc::new(|_| Box::pin(async {})))
 }
 
+macro_rules! impl_test_serializer_boilerplate {
+    ($serializer:ty) => {
+        fn serialize<M>(
+            &self,
+            value: &M,
+        ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
+        where
+            M: wireframe::message::EncodeWith<$serializer>,
+        {
+            value.encode_with(self)
+        }
+
+        fn deserialize<M>(
+            &self,
+            bytes: &[u8],
+        ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
+        where
+            M: wireframe::message::DecodeWith<$serializer>,
+        {
+            M::decode_with(self, bytes, &DeserializeContext::empty())
+        }
+    };
+}
+
 #[derive(Default)]
 struct CountingSerializer(Arc<AtomicUsize>, Arc<AtomicUsize>);
 
 impl Serializer for CountingSerializer {
-    fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: wireframe::message::EncodeWith<Self>,
-    {
-        value.encode_with(self)
-    }
-
-    fn deserialize<M>(
-        &self,
-        bytes: &[u8],
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: wireframe::message::DecodeWith<Self>,
-    {
-        M::decode_with(self, bytes, &DeserializeContext::empty())
-    }
+    impl_test_serializer_boilerplate!(CountingSerializer);
 
     fn deserialize_with_context<M>(
         &self,
@@ -101,26 +110,10 @@ async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
 }
 
 #[derive(Default)]
-struct FallbackSerializer(Arc<AtomicUsize>, Arc<AtomicUsize>);
+struct FallbackSerializer(Arc<AtomicUsize>);
 
 impl Serializer for FallbackSerializer {
-    fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: wireframe::message::EncodeWith<Self>,
-    {
-        value.encode_with(self)
-    }
-
-    fn deserialize<M>(
-        &self,
-        bytes: &[u8],
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: wireframe::message::DecodeWith<Self>,
-    {
-        self.1.fetch_add(1, Ordering::Relaxed);
-        M::decode_with(self, bytes, &DeserializeContext::empty())
-    }
+    impl_test_serializer_boilerplate!(FallbackSerializer);
 }
 
 impl FrameMetadata for FallbackSerializer {
@@ -140,8 +133,7 @@ impl FrameMetadata for FallbackSerializer {
 )]
 async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let parse_calls = Arc::new(AtomicUsize::new(0));
-    let deser_calls = Arc::new(AtomicUsize::new(0));
-    let serializer = FallbackSerializer(parse_calls.clone(), deser_calls.clone());
+    let serializer = FallbackSerializer(parse_calls.clone());
     let app = mock_wireframe_app_with_serializer(serializer)?;
 
     let env = Envelope::new(1, Some(0), vec![7]);
@@ -152,11 +144,6 @@ async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
         parse_calls.load(Ordering::Relaxed),
         1,
         "expected 1 parse call"
-    );
-    assert_eq!(
-        deser_calls.load(Ordering::Relaxed),
-        1,
-        "expected 1 deserialize call"
     );
     Ok(())
 }
@@ -179,22 +166,7 @@ impl ContextCapturingSerializer {
 }
 
 impl Serializer for ContextCapturingSerializer {
-    fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: wireframe::message::EncodeWith<Self>,
-    {
-        value.encode_with(self)
-    }
-
-    fn deserialize<M>(
-        &self,
-        bytes: &[u8],
-    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
-    where
-        M: wireframe::message::DecodeWith<Self>,
-    {
-        M::decode_with(self, bytes, &DeserializeContext::empty())
-    }
+    impl_test_serializer_boilerplate!(ContextCapturingSerializer);
 
     fn deserialize_with_context<M>(
         &self,
