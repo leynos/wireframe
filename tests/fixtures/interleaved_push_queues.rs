@@ -64,11 +64,11 @@ impl InterleavedPushWorld {
                 time_slice: None,
             },
             |handle| async move {
-                push_expect!(handle.push_low_priority(101));
-                push_expect!(handle.push_low_priority(102));
-                push_expect!(handle.push_high_priority(1));
-                push_expect!(handle.push_high_priority(2));
-                push_expect!(handle.push_high_priority(3));
+                let _ = push_expect!(handle.push_low_priority(101));
+                let _ = push_expect!(handle.push_low_priority(102));
+                let _ = push_expect!(handle.push_high_priority(1));
+                let _ = push_expect!(handle.push_high_priority(2));
+                let _ = push_expect!(handle.push_high_priority(3));
             },
         )
         .await
@@ -87,10 +87,10 @@ impl InterleavedPushWorld {
             },
             |handle| async move {
                 for n in 1..=6 {
-                    push_expect!(handle.push_high_priority(n));
+                    let _ = push_expect!(handle.push_high_priority(n));
                 }
-                push_expect!(handle.push_low_priority(101));
-                push_expect!(handle.push_low_priority(102));
+                let _ = push_expect!(handle.push_low_priority(101));
+                let _ = push_expect!(handle.push_low_priority(102));
             },
         )
         .await
@@ -110,7 +110,7 @@ impl InterleavedPushWorld {
             .rate(Some(1))
             .build()?;
 
-        push_expect!(handle.push_high_priority(1));
+        let _ = push_expect!(handle.push_high_priority(1));
 
         // The low-priority push should be blocked: the single token was
         // consumed by the high-priority push above.
@@ -139,10 +139,10 @@ impl InterleavedPushWorld {
             },
             |handle| async move {
                 for n in 1..=5 {
-                    push_expect!(handle.push_high_priority(n));
+                    let _ = push_expect!(handle.push_high_priority(n));
                 }
                 for n in 101..=105 {
-                    push_expect!(handle.push_low_priority(n));
+                    let _ = push_expect!(handle.push_low_priority(n));
                 }
             },
         )

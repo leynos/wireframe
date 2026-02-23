@@ -33,3 +33,19 @@ fn correlation_mismatch_in_stream(client_streaming_world: ClientStreamingWorld) 
 fn server_disconnect_during_stream(client_streaming_world: ClientStreamingWorld) {
     let _ = client_streaming_world;
 }
+
+#[scenario(
+    path = "tests/features/client_streaming.feature",
+    name = "Client receives fair interleaving across push priorities"
+)]
+fn interleaved_priority_fairness(client_streaming_world: ClientStreamingWorld) {
+    let _ = client_streaming_world;
+}
+
+#[scenario(
+    path = "tests/features/client_streaming.feature",
+    name = "Client observes shared rate limiting across push priorities"
+)]
+fn shared_rate_limit_symmetry(client_streaming_world: ClientStreamingWorld) {
+    let _ = client_streaming_world;
+}

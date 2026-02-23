@@ -55,6 +55,22 @@ fn given_disconnect_server(
     })
 }
 
+#[given("a streaming server that emits interleaved high- and low-priority pushes")]
+fn given_interleaved_priority_server(
+    client_streaming_world: &mut ClientStreamingWorld,
+) -> TestResult {
+    with_server_restart(client_streaming_world, |world| {
+        Box::pin(world.start_interleaved_priority_server())
+    })
+}
+
+#[given("a streaming server with shared cross-priority push rate limiting")]
+fn given_shared_rate_limit_server(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
+    with_server_restart(client_streaming_world, |world| {
+        Box::pin(world.start_shared_rate_limit_server())
+    })
+}
+
 #[when("the client sends a streaming request with {count:usize} data frames")]
 fn when_streaming_request_with_count(
     client_streaming_world: &mut ClientStreamingWorld,
@@ -106,4 +122,18 @@ fn then_n_frames_received(
 #[then("a disconnection error is returned")]
 fn then_disconnect_error(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
     client_streaming_world.verify_disconnect_error()
+}
+
+#[then("interleaved priority frames are received without low-priority starvation")]
+fn then_interleaved_priority_fairness(
+    client_streaming_world: &mut ClientStreamingWorld,
+) -> TestResult {
+    client_streaming_world.verify_interleaved_priority_order()
+}
+
+#[then("the shared limiter blocks cross-priority bursts before refill")]
+fn then_shared_rate_limit_symmetry(
+    client_streaming_world: &mut ClientStreamingWorld,
+) -> TestResult {
+    client_streaming_world.verify_shared_rate_limit_symmetry()
 }

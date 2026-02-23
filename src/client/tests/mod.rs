@@ -6,6 +6,7 @@ mod lifecycle;
 mod messaging;
 mod streaming;
 mod streaming_infra;
+mod streaming_parity;
 
 use std::time::Duration;
 

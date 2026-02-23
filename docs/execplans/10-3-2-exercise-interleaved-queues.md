@@ -1,7 +1,7 @@
-# Exercise interleaved high- and low-priority push queues
+# Exercise interleaved push queue fairness and rate-limit symmetry
 
 This Execution Plan (ExecPlan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`,
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
@@ -87,16 +87,31 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
 
 ## Progress
 
-- [x] Stage A: Unit tests — interleaved push queue test file. 8 tests
-  passing.
-- [x] Stage B: BDD behavioural tests — feature file, fixture, steps,
-  scenarios. 4 BDD scenarios passing (98 total BDD tests green).
-- [x] Stage C: Documentation — update design doc, user's guide, roadmap.
-- [x] Stage D: Validation — full quality gate pass. All four gates
-  (`check-fmt`, `lint`, `test`, `markdownlint`) exit 0.
+- [x] (2026-02-19) Gathered context from roadmap, client/runtime code, existing
+      fairness/rate tests, and referenced design/testing documents.
+- [x] (2026-02-19) Drafted ExecPlan for roadmap item `10.3.2`.
+- [x] (2026-02-19) Defined parity assertions and mapped them to
+      unit/behavioural tests.
+- [x] (2026-02-19) Added `rstest` unit tests for interleaved fairness and
+      shared-rate symmetry in `src/client/tests/streaming_parity.rs`.
+- [x] (2026-02-19) Extended `rstest-bdd` client streaming scenarios and fixture
+      support for fairness/rate parity.
+- [x] (2026-02-19) Applied minimal fixture/runtime test-harness updates; no
+      production API changes were required.
+- [x] (2026-02-19) Updated design and user docs with final parity notes.
+- [x] (2026-02-19) Marked roadmap item `10.3.2` done.
+- [x] (2026-02-19) Ran full quality and documentation gates with captured logs.
 
 ## Surprises & discoveries
 
+- Existing coverage already validates core mechanics separately:
+  `tests/connection_actor_fairness.rs` covers fairness and `tests/push.rs`
+  covers shared rate limiting across priorities.
+- Client streaming behavioural coverage exists but currently stops at frame
+  ordering, clean termination, mismatch handling, and disconnect handling; it
+  does not yet exercise high/low queue interleaving or rate-limit symmetry.
+- `ResponseStream` enforces per-frame correlation checks; parity scenarios must
+  account for this to avoid false failures unrelated to fairness/rate logic.
 - Observation: BDD step functions that use `tokio::time::pause()` must
   use a `current_thread` runtime, not the default multi-thread runtime created
   by `tokio::runtime::Runtime::new()`. Evidence: the `rate_limit_symmetry` BDD
@@ -105,6 +120,9 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
   `tokio::runtime::Builder::new_current_thread()` instead of `Runtime::new()`.
   Other steps that do not use virtual time can continue to use the default
   runtime.
+- Implementing shared rate-limit parity checks required explicit lifetime
+  management for pending push futures; boxed futures borrowing `PushHandle` had
+  to be dropped before dropping the handle itself.
 
 ## Decision log
 
@@ -121,40 +139,41 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
   10.3.2 is proving that the tracker integrates correctly with the actor's
   `select!` loop and drain logic. Date: 2026-02-21.
 
+- Decision: use virtual time in timing-sensitive unit tests and outcome-based
+  assertions in BDD scenarios. Rationale: deterministic continuous integration
+  (CI) behaviour without over-coupling BDD tests to scheduler details.
+  Date/Author: 2026-02-19 / Codex.
+
+- Decision: prove behavioural rate-limit contention in BDD using an explicit
+  marker frame emitted by the fixture harness. Rationale: keeps scenarios
+  externally observable while avoiding flaky wall-clock assertions.
+  Date/Author: 2026-02-19 / Codex.
+
 ## Outcomes & retrospective
+
+Implemented roadmap item `10.3.2` end-to-end.
 
 ### Deliverables
 
-- 8 unit tests in `tests/interleaved_push_queues.rs` covering rate-limit
-  symmetry (3 tests), counter-based fairness (1), time-slice fairness (1),
-  total throughput cap (1), frame completeness (1), and strict priority (1).
-- 4 BDD scenarios in `tests/features/interleaved_push_queues.feature` with
-  supporting fixture, steps, and scenario wiring modules.
-- Design document updated with Section 13 documenting the interleaved queue
-  testing strategy.
-- User's guide updated with a note on interleaved push queue validation.
-- Roadmap entry 10.3.2 marked as done.
-
-### Metrics
-
-- Files created: 5 (unit tests, feature file, fixture, steps, scenarios).
-- Files modified: 6 (3 BDD mod.rs files, design doc, user's guide, roadmap).
-- Total new test count: 12 (8 unit + 4 BDD).
-- All quality gates pass with 0 warnings.
+- Added parity unit coverage: `src/client/tests/streaming_parity.rs`.
+- Extended behavioural coverage:
+  `tests/features/client_streaming.feature`,
+  `tests/fixtures/client_streaming.rs`,
+  `tests/fixtures/client_streaming/server.rs`,
+  `tests/steps/client_streaming_steps.rs`,
+  `tests/scenarios/client_streaming_scenarios.rs`.
+- Recorded parity rationale in design docs:
+  `docs/multi-packet-and-streaming-responses-design.md` and
+  `docs/wireframe-client-design.md`.
+- Updated user guidance in `docs/users-guide.md`.
+- Marked roadmap item complete in `docs/roadmap.md`.
+- No public API signatures changed; work was validation and fixture-focused.
 
 ### Retrospective
 
 - The `current_thread` runtime requirement for `tokio::time::pause()` was the
   only unexpected friction. It was caught early during Stage B and documented
   in the Surprises section.
-- Clippy's `stable_sort_primitive` lint caught `sort()` on `Vec<u8>` in both
-  the unit test and BDD fixture; the fix was trivial (`sort_unstable()`).
-- Separating rate-limit tests (queue-level, no actor) from fairness tests
-  (actor-level) simplified ownership management and made the test intentions
-  clearer.
-- The rstest-bdd macro requires step function parameter names to match the
-  fixture function name exactly — a detail not obvious from the documentation
-  but easily caught by the runtime panic message.
 
 ## Context and orientation
 
@@ -370,12 +389,30 @@ Stage C:
 
 Stage D:
 
-    set -o pipefail && make check-fmt 2>&1 | tee /tmp/gate-fmt.log
-    set -o pipefail && make lint 2>&1 | tee /tmp/gate-lint.log
-    set -o pipefail && make test 2>&1 | tee /tmp/gate-test.log
-    set -o pipefail && make markdownlint 2>&1 | tee /tmp/gate-md.log
+```shell
+set -o pipefail
+make fmt 2>&1 | tee /tmp/wireframe-10-3-2-fmt.log
 
-    Expected: all four commands exit 0 with no warnings.
+set -o pipefail
+make check-fmt 2>&1 | tee /tmp/wireframe-10-3-2-check-fmt.log
+
+set -o pipefail
+make lint 2>&1 | tee /tmp/wireframe-10-3-2-lint.log
+
+set -o pipefail
+make test-bdd 2>&1 | tee /tmp/wireframe-10-3-2-test-bdd.log
+
+set -o pipefail
+make test 2>&1 | tee /tmp/wireframe-10-3-2-test.log
+
+set -o pipefail
+make markdownlint 2>&1 | tee /tmp/wireframe-10-3-2-markdownlint.log
+
+set -o pipefail
+make nixie 2>&1 | tee /tmp/wireframe-10-3-2-nixie.log
+```
+
+Expected: all commands exit 0 with no warnings.
 
 ## Validation and acceptance
 
