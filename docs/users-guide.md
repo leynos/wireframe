@@ -1642,7 +1642,7 @@ decode failures are surfaced through `ClientError::Wireframe`.[^51]
   not issue additional client I/O until the stream is drained or dropped.
 - Transport disconnects: treat
   `ClientError::Wireframe(WireframeError::Io(_))` as network-level failures and
-  apply reconnect/retry policy at the call site.
+  apply a reconnect/retry policy at the call site.
 
 ## Versioning and graceful deprecation
 

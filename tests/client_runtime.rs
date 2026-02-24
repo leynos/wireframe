@@ -10,22 +10,20 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     WireframeError,
+    app::Envelope,
     client::{ClientCodecConfig, ClientError, ClientProtocolError, WireframeClient},
+    correlation::CorrelatableFrame,
+    message::Message,
 };
+
+#[path = "../examples/support/echo_login_contract.rs"]
+mod echo_login_contract;
+
+use echo_login_contract::{LOGIN_ROUTE_ID, LoginAck, LoginRequest};
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
 struct ClientPayload {
     data: Vec<u8>,
-}
-
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
-struct Login {
-    username: String,
-}
-
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
-struct LoginAck {
-    username: String,
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq)]
@@ -67,10 +65,10 @@ async fn client_round_trips_multiple_message_types_through_sample_server() {
         .await
         .expect("connect client");
 
-    let login = Login {
+    let login = LoginRequest {
         username: "guest".to_string(),
     };
-    let login_resp: Login = client.call(&login).await.expect("login round-trip");
+    let login_resp: LoginRequest = client.call(&login).await.expect("login round-trip");
     assert_eq!(login_resp, login);
 
     let ping = Ping(42);
@@ -100,11 +98,22 @@ async fn client_decodes_echoed_login_acknowledgement(#[case] username: &str) {
         .await
         .expect("connect client");
 
-    let login = Login {
+    let login = LoginRequest {
         username: username.to_string(),
     };
-    let ack: LoginAck = client.call(&login).await.expect("login acknowledgement");
+    let request = Envelope::new(
+        LOGIN_ROUTE_ID,
+        None,
+        login.to_bytes().expect("serialize login request"),
+    );
+    let response: Envelope = client
+        .call_correlated(request)
+        .await
+        .expect("login acknowledgement envelope");
+    let (ack, _) = LoginAck::from_bytes(response.payload_bytes())
+        .expect("decode login acknowledgement payload");
     assert_eq!(ack.username, username);
+    assert!(response.correlation_id().is_some());
 
     server.abort();
 }

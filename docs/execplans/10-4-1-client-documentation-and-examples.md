@@ -41,7 +41,7 @@ Observable success is:
 - Preserve existing public API signatures in `src/client/`.
 - Keep the example under the existing examples feature gate
   (`required-features = ["examples"]`).
-- Unit/integration tests must use `rstest` fixtures or parameterized cases
+- Unit/integration tests must use `rstest` fixtures or parameterised cases
   where shared setup exists.
 - Behavioural tests must use `rstest-bdd` v0.5.0 with the existing
   feature/fixture/steps/scenario layout in `tests/`.
@@ -97,7 +97,7 @@ Observable success is:
       contract as an echoed login payload decode and scoped file targets.
 - [x] (2026-02-23 00:30Z) Stage B complete: added
       `examples/client_echo_login.rs` and registered it in `Cargo.toml`.
-- [x] (2026-02-23 00:42Z) Stage C complete: added parameterized `rstest`
+- [x] (2026-02-23 00:42Z), Stage C complete: added parameterised `rstest`
       integration coverage in `tests/client_runtime.rs`.
 - [x] (2026-02-23 00:55Z) Stage D complete: extended `rstest-bdd` feature,
       world, steps, and scenarios for login acknowledgement behaviour.
@@ -105,7 +105,7 @@ Observable success is:
       `docs/users-guide.md` and `docs/wireframe-client-design.md` with
       configuration tables, lifecycle diagrams, troubleshooting, and the
       10.4.1 decision record.
-- [x] (2026-02-23 01:55Z) Stage F complete: updated roadmap checkboxes and ran
+- [x] (2026-02-23 01:55Z), Stage F complete: updated roadmap checkboxes and ran
       all required quality/documentation gates successfully.
 
 ## Surprises & Discoveries
@@ -147,8 +147,8 @@ Shipped functionality:
 - Added runnable client example: `examples/client_echo_login.rs`.
 - Registered the new example in `Cargo.toml`.
 - Added `rstest` login-ack integration coverage in `tests/client_runtime.rs`.
-- Added `rstest-bdd` login-ack feature/scenario/steps/world coverage across:
-  `tests/features/client_runtime.feature`,
+- Added `rstest-bdd` login-ack feature/scenario/steps/world coverage in the
+  following files: `tests/features/client_runtime.feature`,
   `tests/scenarios/client_runtime_scenarios.rs`,
   `tests/steps/client_runtime_steps.rs`, and `tests/fixtures/client_runtime.rs`.
 - Expanded client docs and design guidance in `docs/users-guide.md` and
@@ -254,7 +254,7 @@ Go/no-go: example compiles and runs successfully against the echo server.
 ### Stage C: unit/integration validation with `rstest`
 
 Extend `tests/client_runtime.rs` with a focused test for the login
-request/acknowledgement round trip. Use `#[rstest]` parameterization for at
+request/acknowledgement round trip. Use `#[rstest]` parameterisation for at
 least two usernames to prove typed decode is not hard-coded.
 
 Prefer existing helper infrastructure (`spawn_sample_echo_server`) unless a
@@ -315,49 +315,73 @@ All commands run from repository root (`/home/user/project`). Use
 
 1. Baseline and targeted checks during implementation:
 
-    set -o pipefail
-    cargo test --test client_runtime -- --nocapture | tee /tmp/10-4-1-client-runtime-targeted.log
+   ```sh
+   set -o pipefail
+   cargo test --test client_runtime -- --nocapture | tee /tmp/10-4-1-client-runtime-targeted.log
+   ```
 
-    set -o pipefail
-    make test-bdd | tee /tmp/10-4-1-bdd.log
+   ```sh
+   set -o pipefail
+   make test-bdd | tee /tmp/10-4-1-bdd.log
+   ```
 
 2. Full Rust quality gates before completion:
 
-    set -o pipefail
-    make check-fmt | tee /tmp/10-4-1-check-fmt.log
+   ```sh
+   set -o pipefail
+   make check-fmt | tee /tmp/10-4-1-check-fmt.log
+   ```
 
-    set -o pipefail
-    make lint | tee /tmp/10-4-1-lint.log
+   ```sh
+   set -o pipefail
+   make lint | tee /tmp/10-4-1-lint.log
+   ```
 
-    set -o pipefail
-    make test | tee /tmp/10-4-1-test.log
+   ```sh
+   set -o pipefail
+   make test | tee /tmp/10-4-1-test.log
+   ```
 
-    set -o pipefail
-    make test-doc | tee /tmp/10-4-1-test-doc.log
+   ```sh
+   set -o pipefail
+   make test-doc | tee /tmp/10-4-1-test-doc.log
+   ```
 
-    set -o pipefail
-    make doctest-benchmark | tee /tmp/10-4-1-doctest-benchmark.log
+   ```sh
+   set -o pipefail
+   make doctest-benchmark | tee /tmp/10-4-1-doctest-benchmark.log
+   ```
 
 3. Documentation quality gates:
 
-    set -o pipefail
-    make fmt | tee /tmp/10-4-1-make-fmt.log
+   ```sh
+   set -o pipefail
+   make fmt | tee /tmp/10-4-1-make-fmt.log
+   ```
 
-    set -o pipefail
-    make markdownlint | tee /tmp/10-4-1-markdownlint.log
+   ```sh
+   set -o pipefail
+   make markdownlint | tee /tmp/10-4-1-markdownlint.log
+   ```
 
-    set -o pipefail
-    make nixie | tee /tmp/10-4-1-nixie.log
+   ```sh
+   set -o pipefail
+   make nixie | tee /tmp/10-4-1-nixie.log
+   ```
 
 4. Manual runtime proof for the example:
 
    Terminal A command:
 
-    cargo run --example echo --features examples
+   ```sh
+   cargo run --example echo --features examples
+   ```
 
    Terminal B command:
 
-    cargo run --example client_echo_login --features examples
+   ```sh
+   cargo run --example client_echo_login --features examples
+   ```
 
 Expected manual proof: Terminal B prints a decoded acknowledgement message and
 exits successfully.
@@ -389,7 +413,7 @@ Quality method:
 
 - All edits are additive and repeatable.
 - Re-running tests and quality gates is safe.
-- If manual example run fails due to port contention on `127.0.0.1:7878`, stop
+- If a manual example run fails due to port contention on `127.0.0.1:7878`, stop
   the existing process and retry.
 - If BDD compile-time validation fails due to ambiguous step matching, rename
   new steps with a client-runtime-specific prefix and rerun.

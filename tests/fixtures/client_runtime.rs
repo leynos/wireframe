@@ -16,10 +16,17 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     WireframeError,
+    app::Envelope,
     client::{ClientCodecConfig, ClientError, ClientProtocolError, WireframeClient},
+    message::Message,
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
 };
+
+#[path = "../../examples/support/echo_login_contract.rs"]
+mod echo_login_contract;
+
+use echo_login_contract::{LOGIN_ROUTE_ID, LoginAck, LoginRequest};
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
 
@@ -91,16 +98,6 @@ impl ClientRuntimeWorld {
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
 struct ClientPayload {
     data: Vec<u8>,
-}
-
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
-struct LoginRequest {
-    username: String,
-}
-
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq, Eq, Clone)]
-struct LoginAck {
-    username: String,
 }
 
 /// Fixture for `ClientRuntimeWorld`.
@@ -265,13 +262,17 @@ impl ClientRuntimeWorld {
     /// # Errors
     /// Returns an error if the client is missing or deserialization fails.
     pub fn send_login_request(&self, username: String) -> TestResult {
+        *self.login_ack.borrow_mut() = None;
         let login = LoginRequest { username };
         let mut client = self
             .client
             .borrow_mut()
             .take()
             .ok_or("client not connected")?;
-        let ack = self.block_on(async { client.call::<_, LoginAck>(&login).await })??;
+        let request = Envelope::new(LOGIN_ROUTE_ID, None, login.to_bytes()?);
+        let response: Envelope =
+            self.block_on(async { client.call_correlated(request).await })??;
+        let (ack, _) = LoginAck::from_bytes(response.payload_bytes())?;
         *self.client.borrow_mut() = Some(client);
         *self.login_ack.borrow_mut() = Some(ack);
         *self.last_error.borrow_mut() = None;

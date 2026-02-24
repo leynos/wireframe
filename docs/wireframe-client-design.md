@@ -236,7 +236,7 @@ preamble exchange fails due to timeout, I/O error, or encoding error.
 
 ```rust
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use wireframe::{
         app::Envelope,
         client::WireframeClient,

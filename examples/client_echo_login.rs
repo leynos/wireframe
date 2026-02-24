@@ -14,17 +14,10 @@ use wireframe::{
     message::Message,
 };
 
-const LOGIN_ROUTE_ID: u32 = 1;
+#[path = "support/echo_login_contract.rs"]
+mod echo_login_contract;
 
-#[derive(Debug, bincode::Encode, bincode::BorrowDecode)]
-struct LoginRequest {
-    username: String,
-}
-
-#[derive(Debug, bincode::Encode, bincode::BorrowDecode)]
-struct LoginAck {
-    username: String,
-}
+use echo_login_contract::{LOGIN_ROUTE_ID, LoginAck, LoginRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,12 +41,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     if ack.username != login.username {
-        let message = format!(
+        error!(
+            sent = %login.username,
+            received = %ack.username,
+            "login acknowledgement mismatch",
+        );
+        let error = std::io::Error::other(format!(
             "login acknowledgement mismatch: sent '{}', received '{}'",
             login.username, ack.username
-        );
-        error!(%message, "login acknowledgement mismatch");
-        return Err(std::io::Error::other(message).into());
+        ));
+        return Err(error.into());
     }
 
     info!("client echo-login example completed successfully");
