@@ -206,7 +206,7 @@ Public API impact:
 
 ## Context and orientation
 
-Primary implementation files and expected touch points:
+Primary implementation files and expected touchpoints:
 
 - `Cargo.toml` for benchmark dependencies and bench target registration.
 - `Makefile` for a benchmark target (`bench-codec`) with consistent flags.
@@ -365,14 +365,14 @@ Required commands:
 
 <!-- markdownlint-disable MD046 -->
 ```shell
-    set -o pipefail; make fmt 2>&1 | tee /tmp/9-6-1-fmt.log
-    set -o pipefail; make check-fmt 2>&1 | tee /tmp/9-6-1-check-fmt.log
-    set -o pipefail; make markdownlint 2>&1 | tee /tmp/9-6-1-markdownlint.log
-    set -o pipefail; make nixie 2>&1 | tee /tmp/9-6-1-nixie.log
-    set -o pipefail; make lint 2>&1 | tee /tmp/9-6-1-lint.log
-    set -o pipefail; make test-bdd 2>&1 | tee /tmp/9-6-1-test-bdd.log
-    set -o pipefail; make test 2>&1 | tee /tmp/9-6-1-test.log
-    set -o pipefail; make bench-codec 2>&1 | tee /tmp/9-6-1-bench-codec.log
+set -o pipefail; make fmt 2>&1 | tee /tmp/9-6-1-fmt.log
+set -o pipefail; make check-fmt 2>&1 | tee /tmp/9-6-1-check-fmt.log
+set -o pipefail; make markdownlint 2>&1 | tee /tmp/9-6-1-markdownlint.log
+set -o pipefail; make nixie 2>&1 | tee /tmp/9-6-1-nixie.log
+set -o pipefail; make lint 2>&1 | tee /tmp/9-6-1-lint.log
+set -o pipefail; make test-bdd 2>&1 | tee /tmp/9-6-1-test-bdd.log
+set -o pipefail; make test 2>&1 | tee /tmp/9-6-1-test.log
+set -o pipefail; make bench-codec 2>&1 | tee /tmp/9-6-1-bench-codec.log
 ```
 <!-- markdownlint-enable MD046 -->
 

@@ -21,8 +21,8 @@ use wireframe::codec::{
 
 #[expect(
     dead_code,
-    reason = "FIXME: split shared benchmark support to avoid importing unused helpers in this \
-              bench."
+    reason = "FIXME: https://github.com/leynos/wireframe/issues/480 - split shared benchmark \
+              support to avoid importing unused helpers in this bench."
 )]
 #[path = "../tests/common/codec_benchmark_support.rs"]
 mod codec_benchmark_support;
