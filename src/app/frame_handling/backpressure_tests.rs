@@ -1,4 +1,8 @@
 //! Unit tests for soft-limit back-pressure policy helpers.
+#![expect(
+    clippy::expect_used,
+    reason = "Test setup intentionally uses expect for concise failure diagnostics."
+)]
 
 use std::{num::NonZeroUsize, time::Duration};
 
@@ -18,15 +22,9 @@ use crate::{
 
 #[fixture]
 fn budgets() -> MemoryBudgets {
-    let Some(per_message) = NonZeroUsize::new(1024) else {
-        panic!("1024 is non-zero");
-    };
-    let Some(per_connection) = NonZeroUsize::new(100) else {
-        panic!("100 is non-zero");
-    };
-    let Some(in_flight) = NonZeroUsize::new(100) else {
-        panic!("100 is non-zero");
-    };
+    let per_message = NonZeroUsize::new(1024).expect("1024 is non-zero");
+    let per_connection = NonZeroUsize::new(100).expect("100 is non-zero");
+    let in_flight = NonZeroUsize::new(100).expect("100 is non-zero");
     MemoryBudgets::new(
         BudgetBytes::new(per_message),
         BudgetBytes::new(per_connection),
@@ -35,9 +33,8 @@ fn budgets() -> MemoryBudgets {
 }
 
 fn state_with_buffered_bytes(buffered_bytes: usize) -> MessageAssemblyState {
-    let Some(max) = NonZeroUsize::new(buffered_bytes.saturating_add(64)) else {
-        panic!("buffer size plus padding should be non-zero");
-    };
+    let max = NonZeroUsize::new(buffered_bytes.saturating_add(64))
+        .expect("buffer size plus padding should be non-zero");
     let mut state = MessageAssemblyState::new(max, Duration::from_secs(30));
     if buffered_bytes == 0 {
         return state;
@@ -51,14 +48,11 @@ fn state_with_buffered_bytes(buffered_bytes: usize) -> MessageAssemblyState {
         total_body_len: None,
         is_last: false,
     };
-    let input = match FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], &body) {
-        Ok(input) => input,
-        Err(error) => panic!("test first frame input should be valid: {error}"),
-    };
-    let result = match state.accept_first_frame(input) {
-        Ok(result) => result,
-        Err(error) => panic!("first frame should be accepted: {error}"),
-    };
+    let input = FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], &body)
+        .expect("test first frame input should be valid");
+    let result = state
+        .accept_first_frame(input)
+        .expect("first frame should be accepted");
     assert!(
         result.is_none(),
         "first frame should start an in-flight assembly"
@@ -95,15 +89,9 @@ fn soft_limit_pause_threshold_behaviour(
 
 #[rstest]
 fn uses_smallest_aggregate_budget_dimension() {
-    let Some(per_message) = NonZeroUsize::new(1024) else {
-        panic!("1024 is non-zero");
-    };
-    let Some(per_connection) = NonZeroUsize::new(200) else {
-        panic!("200 is non-zero");
-    };
-    let Some(in_flight) = NonZeroUsize::new(100) else {
-        panic!("100 is non-zero");
-    };
+    let per_message = NonZeroUsize::new(1024).expect("1024 is non-zero");
+    let per_connection = NonZeroUsize::new(200).expect("200 is non-zero");
+    let in_flight = NonZeroUsize::new(100).expect("100 is non-zero");
     let budgets = MemoryBudgets::new(
         BudgetBytes::new(per_message),
         BudgetBytes::new(per_connection),
