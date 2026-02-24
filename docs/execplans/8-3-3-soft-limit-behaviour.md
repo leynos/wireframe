@@ -58,7 +58,7 @@ Success is observable when:
 ## Tolerances (exception triggers)
 
 - Scope: if implementation requires changes to more than 14 files or more than
-  700 net LOC, stop and escalate.
+  700 net lines of code (LOC), stop and escalate.
 - Interface: if implementing `8.3.3` requires a new public builder method,
   changed public function signatures, or new public types, stop and escalate.
 - Dependencies: if any new crate is required, stop and escalate.

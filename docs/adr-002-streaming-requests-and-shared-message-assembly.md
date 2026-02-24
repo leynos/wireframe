@@ -219,10 +219,10 @@ Wireframe will make budget failures explicit and deterministic so protocol
 implementers can rely on the behaviour across crates:
 
 - **Soft budget pressure (back-pressure):** when inbound buffering approaches
-  the per-connection in-flight cap, Wireframe MUST stop reading further packets
-  from the socket until buffered bytes fall below the cap. For streaming bodies
-  backed by bounded queues, this naturally suspends the reader when the queue
-  is full.
+  the per-connection in-flight cap, Wireframe MUST pace further reads by
+  applying short per-iteration pauses before polling the next packet. For
+  streaming bodies backed by bounded queues, this naturally suspends the reader
+  when the queue is full.
 - **Hard cap exceeded during assembly (pre-handler):** if accepting a fragment
   or continuation packet would exceed the configured per-message or per-
   connection cap, Wireframe MUST:

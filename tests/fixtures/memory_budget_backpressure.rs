@@ -34,10 +34,25 @@ impl FromStr for BackpressureConfig {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut values = s.split('/').map(str::trim);
-        let timeout_ms = values.next().ok_or("missing timeout_ms")?;
-        let per_message = values.next().ok_or("missing per_message")?;
-        let per_connection = values.next().ok_or("missing per_connection")?;
-        let in_flight = values.next().ok_or("missing in_flight")?;
+        let timeout_ms = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing timeout_ms")?;
+        let per_message = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing per_message")?;
+        let per_connection = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing per_connection")?;
+        let in_flight = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing in_flight")?;
+        if values.next().is_some() {
+            return Err("unexpected trailing segments".to_string());
+        }
         Ok(Self {
             timeout_ms: timeout_ms
                 .parse()
@@ -105,6 +120,7 @@ impl fmt::Debug for MemoryBudgetBackpressureWorld {
     }
 }
 
+/// Construct the default world used by memory-budget back-pressure BDD tests.
 #[fixture]
 #[rustfmt::skip]
 pub fn memory_budget_backpressure_world() -> MemoryBudgetBackpressureWorld {
@@ -131,9 +147,11 @@ impl MemoryBudgetBackpressureWorld {
         Ok(self.runtime()?.block_on(future))
     }
 
+    /// Start the app under test using the supplied budget and timeout config.
     pub fn start_app(&mut self, config: BackpressureConfig) -> TestResult {
-        let fragment_limit =
-            NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)).unwrap_or(NonZeroUsize::MIN);
+        let Some(fragment_limit) = NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)) else {
+            return Err("buffer-derived fragment limit should be non-zero".into());
+        };
         let fragmentation = FragmentationConfig::for_frame_budget(
             BUFFER_CAPACITY,
             fragment_limit,
@@ -185,11 +203,13 @@ impl MemoryBudgetBackpressureWorld {
         Ok(())
     }
 
+    /// Send a non-final first frame for the provided message key.
     pub fn send_first_frame(&mut self, key: u64, body: &str) -> TestResult {
         let payload = test_helpers::first_frame_payload(key, body.as_bytes(), false, None)?;
         self.send_payload(payload)
     }
 
+    /// Send a final continuation frame for the provided message key.
     pub fn send_final_continuation_frame(
         &mut self,
         key: u64,
@@ -201,6 +221,7 @@ impl MemoryBudgetBackpressureWorld {
         self.send_payload(payload)
     }
 
+    /// Assert that no payload has been emitted yet.
     pub fn assert_no_payload_ready(&mut self) -> TestResult {
         self.spin_runtime()?;
         self.drain_ready_payloads()?;
@@ -214,11 +235,13 @@ impl MemoryBudgetBackpressureWorld {
         .into())
     }
 
+    /// Advance Tokio virtual time by the supplied duration in milliseconds.
     pub fn advance_millis(&mut self, millis: u64) -> TestResult {
         self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
         Ok(())
     }
 
+    /// Assert that the expected payload is eventually observed.
     pub fn assert_payload_received(&mut self, expected: &str) -> TestResult {
         let expected = expected.as_bytes();
         for _ in 0..SPIN_ATTEMPTS {
@@ -240,6 +263,7 @@ impl MemoryBudgetBackpressureWorld {
         .into())
     }
 
+    /// Assert that sending frames into the app did not record any send error.
     pub fn assert_no_send_error(&self) -> TestResult {
         if self.last_send_error.is_none() {
             return Ok(());
@@ -292,5 +316,86 @@ impl MemoryBudgetBackpressureWorld {
         }
         self.observed_rx = Some(observed_rx);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod backpressure_config_from_str_tests {
+    use std::str::FromStr;
+
+    use super::BackpressureConfig;
+
+    #[test]
+    fn parses_valid_backpressure_config() {
+        let Ok(config) = BackpressureConfig::from_str("1000/10/20/30") else {
+            panic!("valid config should parse");
+        };
+
+        assert_eq!(config.timeout_ms, 1000);
+        assert_eq!(config.per_message, 10);
+        assert_eq!(config.per_connection, 20);
+        assert_eq!(config.in_flight, 30);
+    }
+
+    #[test]
+    fn fails_when_missing_fields() {
+        let Err(missing_in_flight) = BackpressureConfig::from_str("1000/10/20") else {
+            panic!("missing in_flight should fail");
+        };
+        assert_eq!(missing_in_flight, "missing in_flight");
+
+        let Err(missing_per_message) = BackpressureConfig::from_str("1000") else {
+            panic!("missing per_message should fail");
+        };
+        assert_eq!(missing_per_message, "missing per_message");
+
+        let Err(missing_timeout) = BackpressureConfig::from_str("") else {
+            panic!("missing timeout_ms should fail");
+        };
+        assert_eq!(missing_timeout, "missing timeout_ms");
+    }
+
+    #[test]
+    fn fails_with_clear_error_on_non_numeric_segments() {
+        let Err(timeout_error) = BackpressureConfig::from_str("not-a-number/10/20/30") else {
+            panic!("non-numeric timeout_ms should fail");
+        };
+        assert!(
+            timeout_error.starts_with("timeout_ms:"),
+            "unexpected error message: {timeout_error}"
+        );
+
+        let Err(per_message_error) = BackpressureConfig::from_str("1000/not-a-number/20/30") else {
+            panic!("non-numeric per_message should fail");
+        };
+        assert!(
+            per_message_error.starts_with("per_message:"),
+            "unexpected error message: {per_message_error}"
+        );
+
+        let Err(per_connection_error) = BackpressureConfig::from_str("1000/10/not-a-number/30")
+        else {
+            panic!("non-numeric per_connection should fail");
+        };
+        assert!(
+            per_connection_error.starts_with("per_connection:"),
+            "unexpected error message: {per_connection_error}"
+        );
+
+        let Err(in_flight_error) = BackpressureConfig::from_str("1000/10/20/not-a-number") else {
+            panic!("non-numeric in_flight should fail");
+        };
+        assert!(
+            in_flight_error.starts_with("in_flight:"),
+            "unexpected error message: {in_flight_error}"
+        );
+    }
+
+    #[test]
+    fn fails_when_segments_are_present_after_in_flight() {
+        let Err(trailing_segments) = BackpressureConfig::from_str("1000/10/20/30/40") else {
+            panic!("trailing segments should fail");
+        };
+        assert_eq!(trailing_segments, "unexpected trailing segments");
     }
 }

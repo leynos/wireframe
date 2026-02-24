@@ -18,15 +18,26 @@ use crate::{
 
 #[fixture]
 fn budgets() -> MemoryBudgets {
+    let Some(per_message) = NonZeroUsize::new(1024) else {
+        panic!("1024 is non-zero");
+    };
+    let Some(per_connection) = NonZeroUsize::new(100) else {
+        panic!("100 is non-zero");
+    };
+    let Some(in_flight) = NonZeroUsize::new(100) else {
+        panic!("100 is non-zero");
+    };
     MemoryBudgets::new(
-        BudgetBytes::new(NonZeroUsize::new(1024).unwrap_or(NonZeroUsize::MIN)),
-        BudgetBytes::new(NonZeroUsize::new(100).unwrap_or(NonZeroUsize::MIN)),
-        BudgetBytes::new(NonZeroUsize::new(100).unwrap_or(NonZeroUsize::MIN)),
+        BudgetBytes::new(per_message),
+        BudgetBytes::new(per_connection),
+        BudgetBytes::new(in_flight),
     )
 }
 
 fn state_with_buffered_bytes(buffered_bytes: usize) -> MessageAssemblyState {
-    let max = NonZeroUsize::new(buffered_bytes.saturating_add(64)).unwrap_or(NonZeroUsize::MIN);
+    let Some(max) = NonZeroUsize::new(buffered_bytes.saturating_add(64)) else {
+        panic!("buffer size plus padding should be non-zero");
+    };
     let mut state = MessageAssemblyState::new(max, Duration::from_secs(30));
     if buffered_bytes == 0 {
         return state;
@@ -86,10 +97,19 @@ fn should_pause_above_soft_limit(budgets: MemoryBudgets) {
 
 #[rstest]
 fn uses_smallest_aggregate_budget_dimension() {
+    let Some(per_message) = NonZeroUsize::new(1024) else {
+        panic!("1024 is non-zero");
+    };
+    let Some(per_connection) = NonZeroUsize::new(200) else {
+        panic!("200 is non-zero");
+    };
+    let Some(in_flight) = NonZeroUsize::new(100) else {
+        panic!("100 is non-zero");
+    };
     let budgets = MemoryBudgets::new(
-        BudgetBytes::new(NonZeroUsize::new(1024).unwrap_or(NonZeroUsize::MIN)),
-        BudgetBytes::new(NonZeroUsize::new(200).unwrap_or(NonZeroUsize::MIN)),
-        BudgetBytes::new(NonZeroUsize::new(100).unwrap_or(NonZeroUsize::MIN)),
+        BudgetBytes::new(per_message),
+        BudgetBytes::new(per_connection),
+        BudgetBytes::new(in_flight),
     );
     let state = state_with_buffered_bytes(80);
     assert!(should_pause_inbound_reads(Some(&state), Some(budgets)));
