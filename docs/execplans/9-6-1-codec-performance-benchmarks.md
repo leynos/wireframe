@@ -363,6 +363,8 @@ policy.
 
 Required commands:
 
+<!-- markdownlint-disable MD046 -->
+```shell
     set -o pipefail; make fmt 2>&1 | tee /tmp/9-6-1-fmt.log
     set -o pipefail; make check-fmt 2>&1 | tee /tmp/9-6-1-check-fmt.log
     set -o pipefail; make markdownlint 2>&1 | tee /tmp/9-6-1-markdownlint.log
@@ -371,6 +373,8 @@ Required commands:
     set -o pipefail; make test-bdd 2>&1 | tee /tmp/9-6-1-test-bdd.log
     set -o pipefail; make test 2>&1 | tee /tmp/9-6-1-test.log
     set -o pipefail; make bench-codec 2>&1 | tee /tmp/9-6-1-bench-codec.log
+```
+<!-- markdownlint-enable MD046 -->
 
 Completion criteria:
 

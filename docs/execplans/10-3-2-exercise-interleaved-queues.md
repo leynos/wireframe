@@ -389,6 +389,8 @@ Stage C:
 
 Stage D:
 
+<!-- markdownlint-disable MD046 -->
+```shell
     set -o pipefail
     make fmt 2>&1 | tee /tmp/wireframe-10-3-2-fmt.log
 
@@ -409,6 +411,8 @@ Stage D:
 
     set -o pipefail
     make nixie 2>&1 | tee /tmp/wireframe-10-3-2-nixie.log
+```
+<!-- markdownlint-enable MD046 -->
 
 Expected: all commands exit 0 with no warnings.
 

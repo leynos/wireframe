@@ -124,27 +124,32 @@ enum PreparedDecodeInput {
     },
 }
 
-fn prepare_length_delimited_decode_input(
-    payload: Bytes,
-) -> Result<(Bytes, LengthDelimitedFrameDecoder), String> {
-    let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
-    let mut seed_encoder = codec.encoder();
-    let mut encoded = BytesMut::new();
-    seed_encoder
-        .encode(codec.wrap_payload(payload), &mut encoded)
-        .map_err(|err| format!("length-delimited seed encode failed: {err}"))?;
-    Ok((encoded.freeze(), codec.decoder()))
+macro_rules! codec_prepare_decode_input_fn {
+    ($fn_name:ident, $codec_type:ty, $decoder_type:ty, $label_str:literal) => {
+        fn $fn_name(payload: Bytes) -> Result<(Bytes, $decoder_type), String> {
+            let codec = <$codec_type>::new(LARGE_PAYLOAD_BYTES + 4096);
+            let mut seed_encoder = codec.encoder();
+            let mut encoded = BytesMut::new();
+            seed_encoder
+                .encode(codec.wrap_payload(payload), &mut encoded)
+                .map_err(|err| format!("{} seed encode failed: {err}", $label_str))?;
+            Ok((encoded.freeze(), codec.decoder()))
+        }
+    };
 }
 
-fn prepare_hotline_decode_input(payload: Bytes) -> Result<(Bytes, HotlineFrameDecoder), String> {
-    let codec = HotlineFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
-    let mut seed_encoder = codec.encoder();
-    let mut encoded = BytesMut::new();
-    seed_encoder
-        .encode(codec.wrap_payload(payload), &mut encoded)
-        .map_err(|err| format!("hotline seed encode failed: {err}"))?;
-    Ok((encoded.freeze(), codec.decoder()))
-}
+codec_prepare_decode_input_fn!(
+    prepare_length_delimited_decode_input,
+    LengthDelimitedFrameCodec,
+    LengthDelimitedFrameDecoder,
+    "length-delimited"
+);
+codec_prepare_decode_input_fn!(
+    prepare_hotline_decode_input,
+    HotlineFrameCodec,
+    HotlineFrameDecoder,
+    "hotline"
+);
 
 fn prepare_decode_input(workload: BenchmarkWorkload) -> Result<PreparedDecodeInput, String> {
     let payload = payload_for_class(workload.payload_class);

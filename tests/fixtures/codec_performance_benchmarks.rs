@@ -19,14 +19,29 @@ use codec_benchmark_support::{
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
 
+/// Holds benchmark configuration and captured state for codec performance tests.
+///
+/// The world stores:
+/// - `iterations`: the currently configured iteration count for benchmark sampling.
+/// - `matrix_samples`: how many codec/payload matrix samples were collected.
+/// - `fragmentation_overhead`: the most recent fragmentation overhead summary.
+/// - `allocation_labels`: generated allocation baseline labels for assertions.
 #[derive(Debug, Default)]
 pub struct CodecPerformanceBenchmarksWorld {
+    /// Iteration count used when running benchmark helper measurements.
     iterations: u64,
+    /// Number of workload samples collected by the codec matrix run.
     matrix_samples: usize,
+    /// Last recorded fragmentation overhead sample, if one was captured.
     fragmentation_overhead: Option<FragmentationOverhead>,
+    /// Allocation baseline labels generated for each workload.
     allocation_labels: Vec<String>,
 }
 
+/// Build the codec performance fixture world with validation iterations.
+///
+/// Returns a default world configured with `iterations` set to
+/// `VALIDATION_ITERATIONS`.
 #[fixture]
 pub fn codec_performance_benchmarks_world() -> CodecPerformanceBenchmarksWorld {
     CodecPerformanceBenchmarksWorld {
@@ -36,6 +51,14 @@ pub fn codec_performance_benchmarks_world() -> CodecPerformanceBenchmarksWorld {
 }
 
 impl CodecPerformanceBenchmarksWorld {
+    /// Configure the iteration count used by benchmark helper runs.
+    ///
+    /// # Arguments
+    /// - `iterations`: Number of iterations to execute; must be greater than zero.
+    ///
+    /// # Returns
+    /// - `Ok(())` when the iteration count is accepted and stored.
+    /// - `Err` when `iterations == 0`.
     pub fn configure_iterations(&mut self, iterations: u64) -> TestResult {
         if iterations == 0 {
             return Err("iteration count must be greater than zero".into());
@@ -45,6 +68,16 @@ impl CodecPerformanceBenchmarksWorld {
         Ok(())
     }
 
+    /// Run encode/decode benchmark samples for every workload in the matrix.
+    ///
+    /// # Arguments
+    /// - None.
+    /// - Preconditions: `iterations` must be configured to a value greater than zero.
+    ///
+    /// # Returns
+    /// - `Ok(())` when all workloads run and operation counts match the configured `iterations`.
+    /// - `Err` when iterations were not configured, measurement fails, or an encode/decode
+    ///   operation count mismatch is detected.
     pub fn run_codec_matrix_samples(&mut self) -> TestResult {
         if self.iterations == 0 {
             return Err("iteration count must be configured before running matrix samples".into());
@@ -67,6 +100,15 @@ impl CodecPerformanceBenchmarksWorld {
         Ok(())
     }
 
+    /// Run one fragmentation-overhead sample for the large payload class.
+    ///
+    /// # Arguments
+    /// - None.
+    /// - Preconditions: `iterations` must be configured to a value greater than zero.
+    ///
+    /// # Returns
+    /// - `Ok(())` when fragmentation overhead is measured and stored.
+    /// - `Err` when iterations were not configured or measurement fails.
     pub fn run_fragmentation_sample(&mut self) -> TestResult {
         if self.iterations == 0 {
             return Err("iteration count must be configured before fragmentation samples".into());
@@ -81,6 +123,15 @@ impl CodecPerformanceBenchmarksWorld {
         Ok(())
     }
 
+    /// Build allocation labels for each workload using deterministic baselines.
+    ///
+    /// # Arguments
+    /// - None.
+    /// - Preconditions: `iterations` must be configured to a value greater than zero.
+    ///
+    /// # Returns
+    /// - `Ok(())` when labels are generated for all workloads.
+    /// - `Err` when iterations were not configured.
     pub fn build_allocation_labels(&mut self) -> TestResult {
         if self.iterations == 0 {
             return Err(
@@ -101,6 +152,15 @@ impl CodecPerformanceBenchmarksWorld {
         Ok(())
     }
 
+    /// Assert that matrix sampling covered the full benchmark workload matrix.
+    ///
+    /// # Arguments
+    /// - None.
+    /// - Preconditions: run `run_codec_matrix_samples` first to populate `matrix_samples`.
+    ///
+    /// # Returns
+    /// - `Ok(())` when `matrix_samples` equals `benchmark_workloads().len()`.
+    /// - `Err` when the recorded sample count does not match workload count.
     pub fn assert_matrix_samples_cover_workloads(&self) -> TestResult {
         if self.matrix_samples != benchmark_workloads().len() {
             return Err(format!(
@@ -114,6 +174,17 @@ impl CodecPerformanceBenchmarksWorld {
         Ok(())
     }
 
+    /// Assert that fragmentation overhead was captured and contains valid
+    /// metrics.
+    ///
+    /// # Arguments
+    /// - None.
+    /// - Preconditions: run `run_fragmentation_sample` first to populate `fragmentation_overhead`.
+    ///
+    /// # Returns
+    /// - `Ok(())` when an overhead sample is present with usable nanos-per-op values,
+    ///   non-decreasing operation count, and an available ratio.
+    /// - `Err` when no sample exists or any validation check fails.
     pub fn assert_fragmentation_overhead_available(&self) -> TestResult {
         let Some(overhead) = self.fragmentation_overhead else {
             return Err("fragmentation overhead sample was not recorded".into());
@@ -138,6 +209,15 @@ impl CodecPerformanceBenchmarksWorld {
         Ok(())
     }
 
+    /// Assert that generated allocation labels include both counter fragments.
+    ///
+    /// # Arguments
+    /// - None.
+    /// - Preconditions: run `build_allocation_labels` first to populate `allocation_labels`.
+    ///
+    /// # Returns
+    /// - `Ok(())` when labels are present and each contains `wrap_allocs_` and `decode_allocs_`.
+    /// - `Err` when no labels were generated or any label omits required counters.
     pub fn assert_allocation_labels_include_counters(&self) -> TestResult {
         if self.allocation_labels.is_empty() {
             return Err("allocation labels were not generated".into());
