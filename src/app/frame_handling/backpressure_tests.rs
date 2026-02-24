@@ -78,21 +78,19 @@ fn should_not_pause_when_state_is_not_available(budgets: MemoryBudgets) {
 }
 
 #[rstest]
-fn should_not_pause_below_soft_limit(budgets: MemoryBudgets) {
-    let state = state_with_buffered_bytes(79);
-    assert!(!should_pause_inbound_reads(Some(&state), Some(budgets)));
-}
-
-#[rstest]
-fn should_pause_at_soft_limit(budgets: MemoryBudgets) {
-    let state = state_with_buffered_bytes(80);
-    assert!(should_pause_inbound_reads(Some(&state), Some(budgets)));
-}
-
-#[rstest]
-fn should_pause_above_soft_limit(budgets: MemoryBudgets) {
-    let state = state_with_buffered_bytes(95);
-    assert!(should_pause_inbound_reads(Some(&state), Some(budgets)));
+#[case(79, false)]
+#[case(80, true)]
+#[case(95, true)]
+fn soft_limit_pause_threshold_behaviour(
+    #[case] buffered_bytes: usize,
+    #[case] should_pause: bool,
+    budgets: MemoryBudgets,
+) {
+    let state = state_with_buffered_bytes(buffered_bytes);
+    assert_eq!(
+        should_pause_inbound_reads(Some(&state), Some(budgets)),
+        should_pause
+    );
 }
 
 #[rstest]

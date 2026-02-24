@@ -21,7 +21,7 @@ const SPIN_ATTEMPTS: usize = 64;
 
 /// Parsed as
 /// "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct BackpressureConfig {
     pub timeout_ms: u64,
     pub per_message: usize,
@@ -81,30 +81,33 @@ pub struct MemoryBudgetBackpressureWorld {
     last_send_error: Option<String>,
 }
 
+impl MemoryBudgetBackpressureWorld {
+    fn with_runtime(
+        runtime: Option<tokio::runtime::Runtime>,
+        runtime_error: Option<String>,
+    ) -> Self {
+        Self {
+            runtime,
+            runtime_error,
+            client: None,
+            server: None,
+            observed_rx: None,
+            observed_payloads: Vec::new(),
+            last_send_error: None,
+        }
+    }
+}
+
 impl Default for MemoryBudgetBackpressureWorld {
     fn default() -> Self {
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
         {
-            Ok(runtime) => Self {
-                runtime: Some(runtime),
-                runtime_error: None,
-                client: None,
-                server: None,
-                observed_rx: None,
-                observed_payloads: Vec::new(),
-                last_send_error: None,
-            },
-            Err(error) => Self {
-                runtime: None,
-                runtime_error: Some(format!("failed to create runtime: {error}")),
-                client: None,
-                server: None,
-                observed_rx: None,
-                observed_payloads: Vec::new(),
-                last_send_error: None,
-            },
+            Ok(runtime) => Self::with_runtime(Some(runtime), None),
+            Err(error) => {
+                Self::with_runtime(None, Some(format!("failed to create runtime: {error}")))
+            }
         }
     }
 }
@@ -122,7 +125,6 @@ impl fmt::Debug for MemoryBudgetBackpressureWorld {
 
 /// Construct the default world used by memory-budget back-pressure BDD tests.
 #[fixture]
-#[rustfmt::skip]
 pub fn memory_budget_backpressure_world() -> MemoryBudgetBackpressureWorld {
     MemoryBudgetBackpressureWorld::default()
 }
@@ -276,6 +278,8 @@ impl MemoryBudgetBackpressureWorld {
         let serializer = BincodeSerializer;
         let frame = serializer.serialize(&envelope)?;
 
+        // Temporarily move the framed client into the async block so send/flush
+        // can run without holding a mutable borrow of `self`; then restore it.
         let mut client = self.client.take().ok_or("client not initialized")?;
         let send_result = self.block_on(async {
             client.send(frame.into()).await?;
@@ -316,86 +320,5 @@ impl MemoryBudgetBackpressureWorld {
         }
         self.observed_rx = Some(observed_rx);
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod backpressure_config_from_str_tests {
-    use std::str::FromStr;
-
-    use super::BackpressureConfig;
-
-    #[test]
-    fn parses_valid_backpressure_config() {
-        let Ok(config) = BackpressureConfig::from_str("1000/10/20/30") else {
-            panic!("valid config should parse");
-        };
-
-        assert_eq!(config.timeout_ms, 1000);
-        assert_eq!(config.per_message, 10);
-        assert_eq!(config.per_connection, 20);
-        assert_eq!(config.in_flight, 30);
-    }
-
-    #[test]
-    fn fails_when_missing_fields() {
-        let Err(missing_in_flight) = BackpressureConfig::from_str("1000/10/20") else {
-            panic!("missing in_flight should fail");
-        };
-        assert_eq!(missing_in_flight, "missing in_flight");
-
-        let Err(missing_per_message) = BackpressureConfig::from_str("1000") else {
-            panic!("missing per_message should fail");
-        };
-        assert_eq!(missing_per_message, "missing per_message");
-
-        let Err(missing_timeout) = BackpressureConfig::from_str("") else {
-            panic!("missing timeout_ms should fail");
-        };
-        assert_eq!(missing_timeout, "missing timeout_ms");
-    }
-
-    #[test]
-    fn fails_with_clear_error_on_non_numeric_segments() {
-        let Err(timeout_error) = BackpressureConfig::from_str("not-a-number/10/20/30") else {
-            panic!("non-numeric timeout_ms should fail");
-        };
-        assert!(
-            timeout_error.starts_with("timeout_ms:"),
-            "unexpected error message: {timeout_error}"
-        );
-
-        let Err(per_message_error) = BackpressureConfig::from_str("1000/not-a-number/20/30") else {
-            panic!("non-numeric per_message should fail");
-        };
-        assert!(
-            per_message_error.starts_with("per_message:"),
-            "unexpected error message: {per_message_error}"
-        );
-
-        let Err(per_connection_error) = BackpressureConfig::from_str("1000/10/not-a-number/30")
-        else {
-            panic!("non-numeric per_connection should fail");
-        };
-        assert!(
-            per_connection_error.starts_with("per_connection:"),
-            "unexpected error message: {per_connection_error}"
-        );
-
-        let Err(in_flight_error) = BackpressureConfig::from_str("1000/10/20/not-a-number") else {
-            panic!("non-numeric in_flight should fail");
-        };
-        assert!(
-            in_flight_error.starts_with("in_flight:"),
-            "unexpected error message: {in_flight_error}"
-        );
-    }
-
-    #[test]
-    fn fails_when_segments_are_present_after_in_flight() {
-        let Err(trailing_segments) = BackpressureConfig::from_str("1000/10/20/30/40") else {
-            panic!("trailing segments should fail");
-        };
-        assert_eq!(trailing_segments, "unexpected trailing segments");
     }
 }

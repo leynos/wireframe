@@ -317,39 +317,47 @@ No roadmap checkbox update until every gate is green.
 
 ## Concrete steps
 
-Run from repository root (`/home/user/project`).
+Run from the repository root (`.`).
 
 1. Implement Stage A helper + unit tests.
 
 2. Run focused unit tests for helper and inbound assembly behaviour:
 
-       set -o pipefail
-       cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-3-unit-a.log
-       cargo test --lib message_assembler 2>&1 | tee /tmp/wireframe-8-3-3-unit-b.log
+```shell
+set -o pipefail
+cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-3-unit-a.log
+cargo test --lib message_assembler 2>&1 | tee /tmp/wireframe-8-3-3-unit-b.log
+```
 
-3. Integrate Stage B inbound loop pausing and re-run focused unit tests:
+1. Integrate Stage B inbound loop pausing and re-run focused unit tests:
 
-       set -o pipefail
-       cargo test --lib inbound_handler 2>&1 | tee /tmp/wireframe-8-3-3-unit-c.log
+```shell
+set -o pipefail
+cargo test --lib inbound_handler 2>&1 | tee /tmp/wireframe-8-3-3-unit-c.log
+```
 
-4. Add Stage C behavioural suite and run targeted BDD scenarios:
+1. Add Stage C behavioural suite and run targeted BDD scenarios:
 
-       set -o pipefail
-       cargo test --test bdd --all-features memory_budget_backpressure 2>&1 | tee /tmp/wireframe-8-3-3-bdd.log
+```shell
+set -o pipefail
+cargo test --test bdd --all-features memory_budget_backpressure 2>&1 | tee /tmp/wireframe-8-3-3-bdd.log
+```
 
-5. Update Stage D docs and roadmap.
+1. Update Stage D docs and roadmap.
 
-6. Run full quality gates:
+2. Run full quality gates:
 
-       set -o pipefail
-       make fmt 2>&1 | tee /tmp/wireframe-8-3-3-fmt.log
-       make markdownlint 2>&1 | tee /tmp/wireframe-8-3-3-markdownlint.log
-       make check-fmt 2>&1 | tee /tmp/wireframe-8-3-3-check-fmt.log
-       make lint 2>&1 | tee /tmp/wireframe-8-3-3-lint.log
-       make test 2>&1 | tee /tmp/wireframe-8-3-3-test.log
-       make nixie 2>&1 | tee /tmp/wireframe-8-3-3-nixie.log
+```shell
+set -o pipefail
+make fmt 2>&1 | tee /tmp/wireframe-8-3-3-fmt.log
+make markdownlint 2>&1 | tee /tmp/wireframe-8-3-3-markdownlint.log
+make check-fmt 2>&1 | tee /tmp/wireframe-8-3-3-check-fmt.log
+make lint 2>&1 | tee /tmp/wireframe-8-3-3-lint.log
+make test 2>&1 | tee /tmp/wireframe-8-3-3-test.log
+make nixie 2>&1 | tee /tmp/wireframe-8-3-3-nixie.log
+```
 
-7. If any gate fails, fix only the failing area and rerun the failing command
+1. If any gate fails, fix only the failing area and rerun the failing command
    until green, then rerun affected downstream gates.
 
 ## Validation and acceptance
@@ -418,10 +426,12 @@ Internal interfaces expected at the end of this milestone:
 
 In `src/app/frame_handling/backpressure.rs`:
 
-    pub(crate) fn should_pause_inbound_reads(
-        state: Option<&crate::message_assembler::MessageAssemblyState>,
-        budgets: Option<crate::app::MemoryBudgets>,
-    ) -> bool
+```rust
+pub(crate) fn should_pause_inbound_reads(
+    state: Option<&crate::message_assembler::MessageAssemblyState>,
+    budgets: Option<crate::app::MemoryBudgets>,
+) -> bool
+```
 
 In `src/app/inbound_handler.rs`:
 
