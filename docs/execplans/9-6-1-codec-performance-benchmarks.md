@@ -1,8 +1,9 @@
 # 9.6.1 Codec performance benchmarks for throughput, latency, and allocations
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This execution plan (ExecPlan) is a living document. The sections
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises and discoveries`,
+`Decision log`, and `Outcomes and retrospective` must be kept up to date as
+work proceeds.
 
 Status: COMPLETE (2026-02-23)
 
@@ -70,7 +71,7 @@ command and seeing:
 - Interface: if benchmark helpers force unavoidable public API exposure, stop
   and present API alternatives before merging.
 - Iterations: if the same failing root cause persists after 3 fixes, stop and
-  document options in `Decision Log`.
+  document options in `Decision log`.
 
 ## Risks
 
@@ -114,7 +115,7 @@ command and seeing:
       (`make fmt`, `make check-fmt`, `make markdownlint`, `make nixie`,
       `make lint`, `make test-bdd`, `make test`, `make bench-codec`).
 
-## Surprises & Discoveries
+## Surprises and discoveries
 
 - Observation: no `PLANS.md` exists. Evidence: repository root check on
   2026-02-23. Impact: this document is the sole execution plan source.
@@ -143,7 +144,7 @@ command and seeing:
   `Duration::checked_div`, `Duration::div_duration_f64`) and explicit `main()`
   entrypoints instead of criterion macro-generated undocumented functions.
 
-## Decision Log
+## Decision log
 
 - Decision: use `HotlineFrameCodec` as the custom codec benchmark target for
   9.6.1. Rationale: it is already maintained in-tree and exercises non-trivial
@@ -166,7 +167,7 @@ command and seeing:
   output functions were flagged by lint gates and macro-level doc attributes
   are ignored by rustc. Date/Author: 2026-02-23 / Codex.
 
-## Outcomes & Retrospective
+## Outcomes and retrospective
 
 Roadmap item `9.6.1` is implemented and validated.
 
@@ -377,5 +378,5 @@ Completion criteria:
 - Benchmark logs include encode/decode, fragmentation overhead, and allocation
   baseline sections.
 - Documentation and roadmap updates are present and consistent.
-- `Progress`, `Decision Log`, and `Outcomes & Retrospective` sections are
+- `Progress`, `Decision log`, and `Outcomes and retrospective` sections are
   updated with final evidence and dates.

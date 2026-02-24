@@ -24,7 +24,7 @@ use dashmap::DashMap;
 /// # Examples
 ///
 /// ```rust
-/// use wireframe::AppDataStore;
+/// use wireframe::app_data_store::AppDataStore;
 ///
 /// let store = AppDataStore::default();
 /// store.insert(42u32);
@@ -48,7 +48,7 @@ impl AppDataStore {
     /// # Examples
     ///
     /// ```rust
-    /// use wireframe::AppDataStore;
+    /// use wireframe::app_data_store::AppDataStore;
     ///
     /// let store = AppDataStore::default();
     /// store.insert("hello".to_string());
@@ -72,7 +72,7 @@ impl AppDataStore {
     /// # Examples
     ///
     /// ```rust
-    /// use wireframe::AppDataStore;
+    /// use wireframe::app_data_store::AppDataStore;
     ///
     /// let store = AppDataStore::default();
     /// store.insert(5u32);
@@ -94,7 +94,7 @@ impl AppDataStore {
     /// # Examples
     ///
     /// ```rust
-    /// use wireframe::AppDataStore;
+    /// use wireframe::app_data_store::AppDataStore;
     ///
     /// let store = AppDataStore::default();
     /// assert!(!store.contains::<u32>());
@@ -116,7 +116,7 @@ impl AppDataStore {
     /// # Examples
     ///
     /// ```rust
-    /// use wireframe::AppDataStore;
+    /// use wireframe::app_data_store::AppDataStore;
     ///
     /// let store = AppDataStore::default();
     /// store.insert(42u32);

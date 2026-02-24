@@ -1,5 +1,6 @@
 //! Unit tests for codec benchmark workload and measurement helpers.
 
+// These checks rely on real-time measurement behaviour and are unsuitable for loom.
 #![cfg(not(loom))]
 
 use rstest::rstest;
@@ -82,10 +83,8 @@ fn benchmark_workloads_cover_default_and_custom_codecs() {
     payload_class: PayloadClass::Large,
 })]
 fn encode_measurement_reports_requested_iterations(#[case] workload: BenchmarkWorkload) {
-    let measurement = match measure_encode(workload, VALIDATION_ITERATIONS) {
-        Ok(value) => value,
-        Err(err) => panic!("encode measurement failed: {err}"),
-    };
+    let measurement =
+        measure_encode(workload, VALIDATION_ITERATIONS).expect("encode measurement failed");
     assert_eq!(measurement.operations, VALIDATION_ITERATIONS);
     assert!(measurement.payload_bytes > 0);
     assert!(measurement.nanos_per_op().is_some());
@@ -109,10 +108,8 @@ fn encode_measurement_reports_requested_iterations(#[case] workload: BenchmarkWo
     payload_class: PayloadClass::Large,
 })]
 fn decode_measurement_reports_requested_iterations(#[case] workload: BenchmarkWorkload) {
-    let measurement = match measure_decode(workload, VALIDATION_ITERATIONS) {
-        Ok(value) => value,
-        Err(err) => panic!("decode measurement failed: {err}"),
-    };
+    let measurement =
+        measure_decode(workload, VALIDATION_ITERATIONS).expect("decode measurement failed");
     assert_eq!(measurement.operations, VALIDATION_ITERATIONS);
     assert!(measurement.payload_bytes > 0);
     assert!(measurement.nanos_per_op().is_some());
@@ -120,14 +117,12 @@ fn decode_measurement_reports_requested_iterations(#[case] workload: BenchmarkWo
 
 #[test]
 fn fragmentation_overhead_reports_fragmented_and_unfragmented_results() {
-    let overhead = match measure_fragmentation_overhead(
+    let overhead = measure_fragmentation_overhead(
         PayloadClass::Large,
         VALIDATION_ITERATIONS,
         FRAGMENT_PAYLOAD_CAP_BYTES,
-    ) {
-        Ok(value) => value,
-        Err(err) => panic!("fragmentation overhead measurement failed: {err}"),
-    };
+    )
+    .expect("fragmentation overhead measurement failed");
 
     assert_eq!(overhead.unfragmented.operations, VALIDATION_ITERATIONS);
     assert!(

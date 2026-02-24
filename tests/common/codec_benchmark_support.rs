@@ -161,17 +161,17 @@ impl FragmentationOverhead {
     /// Ratio of fragmented to unfragmented mean nanoseconds per operation.
     #[must_use]
     pub fn nanos_ratio(self) -> Option<f64> {
-        if self.fragmented.operations == 0 || self.unfragmented.operations == 0 {
+        let fragmented_operations = u32::try_from(self.fragmented.operations).ok()?;
+        let unfragmented_operations = u32::try_from(self.unfragmented.operations).ok()?;
+        let fragmented_mean = self.fragmented.elapsed.checked_div(fragmented_operations)?;
+        let unfragmented_mean = self
+            .unfragmented
+            .elapsed
+            .checked_div(unfragmented_operations)?;
+        if unfragmented_mean.is_zero() {
             return None;
         }
-        if self.unfragmented.elapsed.is_zero() {
-            return None;
-        }
-        Some(
-            self.fragmented
-                .elapsed
-                .div_duration_f64(self.unfragmented.elapsed),
-        )
+        Some(fragmented_mean.div_duration_f64(unfragmented_mean))
     }
 }
 
@@ -210,39 +210,9 @@ pub fn measure_encode(workload: BenchmarkWorkload, iterations: u64) -> Result<Me
 
     match workload.codec {
         CodecUnderTest::LengthDelimited => {
-            let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
-            let mut encoder = codec.encoder();
-            let mut wire = BytesMut::new();
-            let started = Instant::now();
-            for _ in 0..iterations {
-                wire.clear();
-                encoder
-                    .encode(codec.wrap_payload(payload.clone()), &mut wire)
-                    .map_err(|err| format!("length-delimited encode failed: {err}"))?;
-            }
-            Ok(Measurement {
-                operations: iterations,
-                payload_bytes: iterations * payload_len,
-                elapsed: started.elapsed(),
-            })
+            measure_encode_length_delimited(payload, payload_len, iterations)
         }
-        CodecUnderTest::Hotline => {
-            let codec = HotlineFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
-            let mut encoder = codec.encoder();
-            let mut wire = BytesMut::new();
-            let started = Instant::now();
-            for _ in 0..iterations {
-                wire.clear();
-                encoder
-                    .encode(codec.wrap_payload(payload.clone()), &mut wire)
-                    .map_err(|err| format!("hotline encode failed: {err}"))?;
-            }
-            Ok(Measurement {
-                operations: iterations,
-                payload_bytes: iterations * payload_len,
-                elapsed: started.elapsed(),
-            })
-        }
+        CodecUnderTest::Hotline => measure_encode_hotline(payload, payload_len, iterations),
     }
 }
 
@@ -266,6 +236,39 @@ pub fn measure_decode(workload: BenchmarkWorkload, iterations: u64) -> Result<Me
         CodecUnderTest::Hotline => measure_decode_hotline(payload, payload_len, iterations),
     }
 }
+
+macro_rules! codec_measure_encode_fn {
+    ($fn_name:ident, $codec_type:ty, $label_str:literal) => {
+        fn $fn_name(
+            payload: Bytes,
+            payload_len: u64,
+            iterations: u64,
+        ) -> Result<Measurement, String> {
+            let codec = <$codec_type>::new(LARGE_PAYLOAD_BYTES + 4096);
+            let mut encoder = codec.encoder();
+            let mut wire = BytesMut::new();
+            let started = Instant::now();
+            for _ in 0..iterations {
+                wire.clear();
+                encoder
+                    .encode(codec.wrap_payload(payload.clone()), &mut wire)
+                    .map_err(|err| format!("{} encode failed: {err}", $label_str))?;
+            }
+            Ok(Measurement {
+                operations: iterations,
+                payload_bytes: iterations.saturating_mul(payload_len),
+                elapsed: started.elapsed(),
+            })
+        }
+    };
+}
+
+codec_measure_encode_fn!(
+    measure_encode_length_delimited,
+    LengthDelimitedFrameCodec,
+    "length-delimited"
+);
+codec_measure_encode_fn!(measure_encode_hotline, HotlineFrameCodec, "hotline");
 
 macro_rules! codec_measure_decode_fn {
     ($fn_name:ident, $codec_type:ty, $label_str:literal, $frame_payload_path:path) => {
@@ -295,7 +298,7 @@ macro_rules! codec_measure_decode_fn {
             }
             Ok(Measurement {
                 operations: iterations,
-                payload_bytes: iterations * payload_len,
+                payload_bytes: iterations.saturating_mul(payload_len),
                 elapsed: started.elapsed(),
             })
         }

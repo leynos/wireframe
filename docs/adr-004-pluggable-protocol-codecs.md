@@ -325,10 +325,9 @@ codec recovery behaviour and state-machine consistency.
 
 Roadmap item 9.6.1 is now covered by dedicated criterion benchmark targets:
 
-- `benches/codec_performance.rs` measures encode and decode throughput/latency
-  across:
-  - `LengthDelimitedFrameCodec` and `HotlineFrameCodec`, and
-  - small (32-byte) and large (64 KiB) payload classes.
+- `benches/codec_performance.rs` measures encode and decode
+  throughput/latency for `LengthDelimitedFrameCodec` and `HotlineFrameCodec`,
+  and for small (32-byte) and large (64 KiB) payload classes.
 - `benches/codec_performance.rs` also measures fragmentation overhead by
   comparing unfragmented wrapping against fragmented wrapping with
   `FRAGMENT_PAYLOAD_CAP_BYTES = 1024`.

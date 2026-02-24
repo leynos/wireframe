@@ -118,8 +118,12 @@ impl CodecPerformanceBenchmarksWorld {
         let Some(overhead) = self.fragmentation_overhead else {
             return Err("fragmentation overhead sample was not recorded".into());
         };
-        let _ = overhead.unfragmented.nanos_per_op();
-        let _ = overhead.fragmented.nanos_per_op();
+        if overhead.unfragmented.nanos_per_op().is_none() {
+            return Err("unfragmented nanos-per-op metric is unavailable".into());
+        }
+        if overhead.fragmented.nanos_per_op().is_none() {
+            return Err("fragmented nanos-per-op metric is unavailable".into());
+        }
 
         if overhead.fragmented.operations < overhead.unfragmented.operations {
             return Err(

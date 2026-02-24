@@ -25,6 +25,18 @@ use codec_benchmark_support::{
     measure_unfragmented_wrap,
 };
 
+fn keep_shared_support_symbols_reachable() {
+    if let Some(workload) = benchmark_workloads().first().copied() {
+        let _ = allocation_label(
+            workload,
+            AllocationBaseline {
+                wrap_allocations: 0,
+                decode_allocations: 0,
+            },
+        );
+    }
+}
+
 fn fragmented_measurement(payload_class: PayloadClass, iterations: u64) -> Measurement {
     match measure_fragmented_wrap(payload_class, iterations, FRAGMENT_PAYLOAD_CAP_BYTES) {
         Ok(measurement) => measurement,
@@ -34,13 +46,6 @@ fn fragmented_measurement(payload_class: PayloadClass, iterations: u64) -> Measu
 
 fn benchmark_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/encode");
-    black_box(allocation_label(
-        benchmark_workloads()[0],
-        AllocationBaseline {
-            wrap_allocations: 0,
-            decode_allocations: 0,
-        },
-    ));
 
     for workload in benchmark_workloads() {
         let bytes = workload.payload_class.len() as u64;
@@ -91,7 +96,12 @@ fn benchmark_fragmentation_overhead(c: &mut Criterion) {
             Ok(result) => result,
             Err(err) => panic!("fragmentation baseline setup failed: {err}"),
         };
-        let ratio = baseline.nanos_ratio().unwrap_or(0.0);
+        let ratio = baseline.nanos_ratio().unwrap_or_else(|| {
+            panic!(
+                "fragmentation baseline has no valid nanos_ratio for payload_class={}",
+                payload_class.label()
+            )
+        });
         black_box(baseline.unfragmented.nanos_per_op());
         black_box(baseline.fragmented.nanos_per_op());
 
@@ -126,6 +136,8 @@ fn benchmark_fragmentation_overhead(c: &mut Criterion) {
 
 /// Entrypoint for codec throughput, latency, and fragmentation benchmarks.
 fn main() {
+    keep_shared_support_symbols_reachable();
+
     let mut criterion = Criterion::default().configure_from_args();
     benchmark_encode(&mut criterion);
     benchmark_decode(&mut criterion);

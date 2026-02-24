@@ -389,28 +389,26 @@ Stage C:
 
 Stage D:
 
-```shell
-set -o pipefail
-make fmt 2>&1 | tee /tmp/wireframe-10-3-2-fmt.log
+    set -o pipefail
+    make fmt 2>&1 | tee /tmp/wireframe-10-3-2-fmt.log
 
-set -o pipefail
-make check-fmt 2>&1 | tee /tmp/wireframe-10-3-2-check-fmt.log
+    set -o pipefail
+    make check-fmt 2>&1 | tee /tmp/wireframe-10-3-2-check-fmt.log
 
-set -o pipefail
-make lint 2>&1 | tee /tmp/wireframe-10-3-2-lint.log
+    set -o pipefail
+    make lint 2>&1 | tee /tmp/wireframe-10-3-2-lint.log
 
-set -o pipefail
-make test-bdd 2>&1 | tee /tmp/wireframe-10-3-2-test-bdd.log
+    set -o pipefail
+    make test-bdd 2>&1 | tee /tmp/wireframe-10-3-2-test-bdd.log
 
-set -o pipefail
-make test 2>&1 | tee /tmp/wireframe-10-3-2-test.log
+    set -o pipefail
+    make test 2>&1 | tee /tmp/wireframe-10-3-2-test.log
 
-set -o pipefail
-make markdownlint 2>&1 | tee /tmp/wireframe-10-3-2-markdownlint.log
+    set -o pipefail
+    make markdownlint 2>&1 | tee /tmp/wireframe-10-3-2-markdownlint.log
 
-set -o pipefail
-make nixie 2>&1 | tee /tmp/wireframe-10-3-2-nixie.log
-```
+    set -o pipefail
+    make nixie 2>&1 | tee /tmp/wireframe-10-3-2-nixie.log
 
 Expected: all commands exit 0 with no warnings.
 
