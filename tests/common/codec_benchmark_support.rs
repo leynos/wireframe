@@ -267,67 +267,53 @@ pub fn measure_decode(workload: BenchmarkWorkload, iterations: u64) -> Result<Me
     }
 }
 
-fn measure_decode_length_delimited(
-    payload: Bytes,
-    payload_len: u64,
-    iterations: u64,
-) -> Result<Measurement, String> {
-    let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
-    let mut seed_encoder = codec.encoder();
-    let mut encoded = BytesMut::new();
-    seed_encoder
-        .encode(codec.wrap_payload(payload), &mut encoded)
-        .map_err(|err| format!("length-delimited seed encode failed: {err}"))?;
-    let encoded = encoded.freeze();
-    let mut decoder = codec.decoder();
-    let started = Instant::now();
-    for _ in 0..iterations {
-        let mut wire = BytesMut::from(encoded.as_ref());
-        let frame = decoder
-            .decode(&mut wire)
-            .map_err(|err| format!("length-delimited decode failed: {err}"))?
-            .ok_or("length-delimited decode produced no frame")?;
-        if LengthDelimitedFrameCodec::frame_payload(&frame).is_empty() {
-            return Err("length-delimited decode produced empty payload".to_string());
+macro_rules! codec_measure_decode_fn {
+    ($fn_name:ident, $codec_type:ty, $label_str:literal, $frame_payload_path:path) => {
+        fn $fn_name(
+            payload: Bytes,
+            payload_len: u64,
+            iterations: u64,
+        ) -> Result<Measurement, String> {
+            let codec = <$codec_type>::new(LARGE_PAYLOAD_BYTES + 4096);
+            let mut seed_encoder = codec.encoder();
+            let mut encoded = BytesMut::new();
+            seed_encoder
+                .encode(codec.wrap_payload(payload), &mut encoded)
+                .map_err(|err| format!("{} seed encode failed: {err}", $label_str))?;
+            let encoded = encoded.freeze();
+            let mut decoder = codec.decoder();
+            let started = Instant::now();
+            for _ in 0..iterations {
+                let mut wire = BytesMut::from(encoded.as_ref());
+                let frame = decoder
+                    .decode(&mut wire)
+                    .map_err(|err| format!("{} decode failed: {err}", $label_str))?
+                    .ok_or_else(|| format!("{} decode produced no frame", $label_str))?;
+                if $frame_payload_path(&frame).is_empty() {
+                    return Err(format!("{} decode produced empty payload", $label_str));
+                }
+            }
+            Ok(Measurement {
+                operations: iterations,
+                payload_bytes: iterations * payload_len,
+                elapsed: started.elapsed(),
+            })
         }
-    }
-    Ok(Measurement {
-        operations: iterations,
-        payload_bytes: iterations * payload_len,
-        elapsed: started.elapsed(),
-    })
+    };
 }
 
-fn measure_decode_hotline(
-    payload: Bytes,
-    payload_len: u64,
-    iterations: u64,
-) -> Result<Measurement, String> {
-    let codec = HotlineFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
-    let mut seed_encoder = codec.encoder();
-    let mut encoded = BytesMut::new();
-    seed_encoder
-        .encode(codec.wrap_payload(payload), &mut encoded)
-        .map_err(|err| format!("hotline seed encode failed: {err}"))?;
-    let encoded = encoded.freeze();
-    let mut decoder = codec.decoder();
-    let started = Instant::now();
-    for _ in 0..iterations {
-        let mut wire = BytesMut::from(encoded.as_ref());
-        let frame = decoder
-            .decode(&mut wire)
-            .map_err(|err| format!("hotline decode failed: {err}"))?
-            .ok_or("hotline decode produced no frame")?;
-        if HotlineFrameCodec::frame_payload(&frame).is_empty() {
-            return Err("hotline decode produced empty payload".to_string());
-        }
-    }
-    Ok(Measurement {
-        operations: iterations,
-        payload_bytes: iterations * payload_len,
-        elapsed: started.elapsed(),
-    })
-}
+codec_measure_decode_fn!(
+    measure_decode_length_delimited,
+    LengthDelimitedFrameCodec,
+    "length-delimited",
+    LengthDelimitedFrameCodec::frame_payload
+);
+codec_measure_decode_fn!(
+    measure_decode_hotline,
+    HotlineFrameCodec,
+    "hotline",
+    HotlineFrameCodec::frame_payload
+);
 
 /// Measure unfragmented payload wrapping performance for the default codec.
 pub fn measure_unfragmented_wrap(payload_class: PayloadClass, iterations: u64) -> Measurement {

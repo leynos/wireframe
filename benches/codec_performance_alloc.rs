@@ -146,6 +146,45 @@ fn payload_for_class(class: PayloadClass) -> Bytes {
     Bytes::from(payload)
 }
 
+trait CodecDecodeOps {
+    type Codec: FrameCodec<Decoder = Self::Decoder>;
+    type Decoder: Decoder;
+
+    fn codec_name() -> &'static str;
+    fn create_codec() -> Self::Codec;
+    fn extract_payload(frame: &<Self::Decoder as Decoder>::Item) -> &[u8];
+}
+
+struct LengthDelimitedOps;
+
+impl CodecDecodeOps for LengthDelimitedOps {
+    type Codec = LengthDelimitedFrameCodec;
+    type Decoder = LengthDelimitedFrameDecoder;
+
+    fn codec_name() -> &'static str { "length-delimited" }
+
+    fn create_codec() -> Self::Codec { LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096) }
+
+    fn extract_payload(frame: &<Self::Decoder as Decoder>::Item) -> &[u8] {
+        LengthDelimitedFrameCodec::frame_payload(frame)
+    }
+}
+
+struct HotlineOps;
+
+impl CodecDecodeOps for HotlineOps {
+    type Codec = HotlineFrameCodec;
+    type Decoder = HotlineFrameDecoder;
+
+    fn codec_name() -> &'static str { "hotline" }
+
+    fn create_codec() -> Self::Codec { HotlineFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096) }
+
+    fn extract_payload(frame: &<Self::Decoder as Decoder>::Item) -> &[u8] {
+        HotlineFrameCodec::frame_payload(frame)
+    }
+}
+
 fn measure_encode(workload: BenchmarkWorkload, iterations: u64) -> Result<Measurement, String> {
     let payload = payload_for_class(workload.payload_class);
     let payload_len = payload.len() as u64;
@@ -192,18 +231,18 @@ fn measure_decode(workload: BenchmarkWorkload, iterations: u64) -> Result<Measur
 
     match workload.codec {
         CodecUnderTest::LengthDelimited => {
-            let (encoded, mut decoder) = prepare_length_delimited_decode(payload)?;
+            let (encoded, mut decoder) = prepare_decode::<LengthDelimitedOps>(payload)?;
             let started = Instant::now();
-            run_length_delimited_decode_iterations(&mut decoder, &encoded, iterations)?;
+            run_decode_iterations::<LengthDelimitedOps>(&mut decoder, &encoded, iterations)?;
             Ok(Measurement {
                 payload_bytes: iterations.saturating_mul(payload_len),
                 elapsed: started.elapsed(),
             })
         }
         CodecUnderTest::Hotline => {
-            let (encoded, mut decoder) = prepare_hotline_decode(payload)?;
+            let (encoded, mut decoder) = prepare_decode::<HotlineOps>(payload)?;
             let started = Instant::now();
-            run_hotline_decode_iterations(&mut decoder, &encoded, iterations)?;
+            run_decode_iterations::<HotlineOps>(&mut decoder, &encoded, iterations)?;
             Ok(Measurement {
                 payload_bytes: iterations.saturating_mul(payload_len),
                 elapsed: started.elapsed(),
@@ -212,59 +251,38 @@ fn measure_decode(workload: BenchmarkWorkload, iterations: u64) -> Result<Measur
     }
 }
 
-fn prepare_length_delimited_decode(
-    payload: Bytes,
-) -> Result<(Bytes, LengthDelimitedFrameDecoder), String> {
-    let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
+fn prepare_decode<Ops: CodecDecodeOps>(payload: Bytes) -> Result<(Bytes, Ops::Decoder), String>
+where
+    <Ops::Codec as FrameCodec>::Frame: Clone,
+{
+    let codec = Ops::create_codec();
     let mut seed_encoder = codec.encoder();
     let mut encoded = BytesMut::new();
     seed_encoder
         .encode(codec.wrap_payload(payload), &mut encoded)
-        .map_err(|err| format!("length-delimited seed encode failed: {err}"))?;
+        .map_err(|err| format!("{} seed encode failed: {err}", Ops::codec_name()))?;
     Ok((encoded.freeze(), codec.decoder()))
 }
 
-fn run_length_delimited_decode_iterations(
-    decoder: &mut LengthDelimitedFrameDecoder,
+fn run_decode_iterations<Ops: CodecDecodeOps>(
+    decoder: &mut Ops::Decoder,
     encoded: &Bytes,
     iterations: u64,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    <Ops::Decoder as Decoder>::Error: std::fmt::Display,
+{
     for _ in 0..iterations {
         let mut wire = BytesMut::from(encoded.as_ref());
         let frame = decoder
             .decode(&mut wire)
-            .map_err(|err| format!("length-delimited decode failed: {err}"))?
-            .ok_or("length-delimited decode produced no frame")?;
-        if LengthDelimitedFrameCodec::frame_payload(&frame).is_empty() {
-            return Err("length-delimited decode produced empty payload".to_string());
-        }
-    }
-    Ok(())
-}
-
-fn prepare_hotline_decode(payload: Bytes) -> Result<(Bytes, HotlineFrameDecoder), String> {
-    let codec = HotlineFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
-    let mut seed_encoder = codec.encoder();
-    let mut encoded = BytesMut::new();
-    seed_encoder
-        .encode(codec.wrap_payload(payload), &mut encoded)
-        .map_err(|err| format!("hotline seed encode failed: {err}"))?;
-    Ok((encoded.freeze(), codec.decoder()))
-}
-
-fn run_hotline_decode_iterations(
-    decoder: &mut HotlineFrameDecoder,
-    encoded: &Bytes,
-    iterations: u64,
-) -> Result<(), String> {
-    for _ in 0..iterations {
-        let mut wire = BytesMut::from(encoded.as_ref());
-        let frame = decoder
-            .decode(&mut wire)
-            .map_err(|err| format!("hotline decode failed: {err}"))?
-            .ok_or("hotline decode produced no frame")?;
-        if HotlineFrameCodec::frame_payload(&frame).is_empty() {
-            return Err("hotline decode produced empty payload".to_string());
+            .map_err(|err| format!("{} decode failed: {err}", Ops::codec_name()))?
+            .ok_or_else(|| format!("{} decode produced no frame", Ops::codec_name()))?;
+        if Ops::extract_payload(&frame).is_empty() {
+            return Err(format!(
+                "{} decode produced empty payload",
+                Ops::codec_name()
+            ));
         }
     }
     Ok(())
