@@ -162,10 +162,10 @@ command and seeing:
   deterministic CI assertions. Date/Author: 2026-02-23 / Codex.
 
 - Decision: implement criterion entrypoints using explicit documented `main()`
-  functions rather than `criterion_group!`/`criterion_main!` macros in order to
-  satisfy strict `missing_docs` linting on bench targets. Rationale: macro
-  output functions were flagged by lint gates and macro-level doc attributes
-  are ignored by rustc. Date/Author: 2026-02-23 / Codex.
+  functions rather than `criterion_group!`/`criterion_main!` macros to satisfy
+  strict `missing_docs` linting on bench targets. Rationale: macro output
+  functions were flagged by lint gates and macro-level doc attributes are
+  ignored by rustc. Date/Author: 2026-02-23 / Codex.
 
 ## Outcomes and retrospective
 

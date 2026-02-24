@@ -7,7 +7,6 @@
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering, fence},
-    time::Duration,
 };
 
 use bytes::{Bytes, BytesMut};
@@ -20,6 +19,11 @@ use wireframe::codec::{
     examples::{HotlineAdapter, HotlineFrameCodec},
 };
 
+#[expect(
+    dead_code,
+    reason = "FIXME: split shared benchmark support to avoid importing unused helpers in this \
+              bench."
+)]
 #[path = "../tests/common/codec_benchmark_support.rs"]
 mod codec_benchmark_support;
 
@@ -27,19 +31,12 @@ use codec_benchmark_support::{
     AllocationBaseline,
     BenchmarkWorkload,
     CodecUnderTest,
-    FRAGMENT_PAYLOAD_CAP_BYTES,
-    FragmentationOverhead,
     LARGE_PAYLOAD_BYTES,
-    Measurement,
-    PayloadClass,
     VALIDATION_ITERATIONS,
     allocation_label,
     benchmark_workloads,
     measure_decode,
     measure_encode,
-    measure_fragmentation_overhead,
-    measure_fragmented_wrap,
-    measure_unfragmented_wrap,
     payload_for_class,
 };
 
@@ -223,38 +220,12 @@ fn run_prepared_decode_iterations(
     }
 }
 
-fn keep_shared_support_symbols_reachable() {
-    let _ = FRAGMENT_PAYLOAD_CAP_BYTES;
-
-    let baseline = Measurement {
-        operations: 1,
-        payload_bytes: 0,
-        elapsed: Duration::ZERO,
-    };
-    let _ = baseline.nanos_per_op();
-
-    let overhead = FragmentationOverhead {
-        unfragmented: baseline,
-        fragmented: baseline,
-    };
-    let _ = overhead.nanos_ratio();
-
-    let _ = measure_unfragmented_wrap as fn(PayloadClass, u64) -> Measurement;
-    let _ = measure_fragmented_wrap as fn(PayloadClass, u64, usize) -> Result<Measurement, String>;
-    let _ = measure_fragmentation_overhead
-        as fn(PayloadClass, u64, usize) -> Result<FragmentationOverhead, String>;
-}
-
 fn benchmark_allocations(c: &mut Criterion) {
-    keep_shared_support_symbols_reachable();
-
     let mut group = c.benchmark_group("codec/allocations");
 
     for workload in benchmark_workloads() {
         let wrap_allocations = count_allocations(|| {
-            for _ in 0..VALIDATION_ITERATIONS {
-                let _ = measure_encode(workload, 1)?;
-            }
+            let _ = measure_encode(workload, VALIDATION_ITERATIONS)?;
             Ok(())
         });
 
