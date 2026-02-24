@@ -46,6 +46,14 @@ fn when_send_payload_expect_decode_failure(
     client_runtime_world.send_payload_expect_error(size)
 }
 
+#[when("the client sends a login request for username {username:string}")]
+fn when_send_login_request(
+    client_runtime_world: &mut ClientRuntimeWorld,
+    username: String,
+) -> TestResult {
+    client_runtime_world.send_login_request(username)
+}
+
 #[then("the client receives the echoed payload")]
 fn then_receives_echo(client_runtime_world: &mut ClientRuntimeWorld) -> TestResult {
     client_runtime_world.verify_echo()
@@ -59,4 +67,12 @@ fn then_reports_transport_error(client_runtime_world: &mut ClientRuntimeWorld) -
 #[then("the client reports a Wireframe decode protocol error")]
 fn then_reports_decode_error(client_runtime_world: &mut ClientRuntimeWorld) -> TestResult {
     client_runtime_world.verify_decode_wireframe_error()
+}
+
+#[then("the client decodes a login acknowledgement for username {username:string}")]
+fn then_decodes_login_ack(
+    client_runtime_world: &mut ClientRuntimeWorld,
+    username: String,
+) -> TestResult {
+    client_runtime_world.verify_login_acknowledgement(&username)
 }

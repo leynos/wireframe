@@ -178,6 +178,11 @@ name = "resp_codec"
 path = "examples/resp_codec.rs"
 required-features = ["examples"]
 
+[[example]]
+name = "client_echo_login"
+path = "examples/client_echo_login.rs"
+required-features = ["examples"]
+
 # rstest-bdd behavioural tests use standard test harness
 [[test]]
 name = "bdd"

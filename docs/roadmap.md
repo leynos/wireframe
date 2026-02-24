@@ -477,9 +477,9 @@ behavioural guarantees.
 
 ### 10.4. Documentation and examples
 
-- [ ] 10.4.1. Publish a runnable example where a client connects to the `echo`
+- [x] 10.4.1. Publish a runnable example where a client connects to the `echo`
   server, issues a login request, and decodes the acknowledgement.
-- [ ] 10.4.2. Extend `docs/users-guide.md` and `docs/wireframe-client-design.md`
+- [x] 10.4.2. Extend `docs/users-guide.md` and `docs/wireframe-client-design.md`
   with configuration tables, lifecycle diagrams, and troubleshooting guidance
   for the new APIs.
 

@@ -22,7 +22,7 @@ pub async fn run_actor_with_fairness<S, SFut>(
 ) -> TestResult<Vec<u8>>
 where
     S: FnOnce(PushHandle<u8>) -> SFut,
-    SFut: Future<Output = ()>,
+    SFut: Future<Output = TestResult>,
 {
     let (queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(8)
@@ -30,7 +30,7 @@ where
         .unlimited()
         .build()?;
 
-    setup(handle.clone()).await;
+    setup(handle.clone()).await?;
 
     let shutdown = CancellationToken::new();
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);

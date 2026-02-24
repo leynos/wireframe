@@ -16,10 +16,17 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     WireframeError,
+    app::Envelope,
     client::{ClientCodecConfig, ClientError, ClientProtocolError, WireframeClient},
+    message::Message,
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
 };
+
+#[path = "../../examples/support/echo_login_contract.rs"]
+mod echo_login_contract;
+
+use echo_login_contract::{LOGIN_ROUTE_ID, LoginAck, LoginRequest};
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
 
@@ -34,6 +41,7 @@ pub struct ClientRuntimeWorld {
         RefCell<Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>>,
     payload: RefCell<Option<ClientPayload>>,
     response: RefCell<Option<ClientPayload>>,
+    login_ack: RefCell<Option<LoginAck>>,
     last_error: RefCell<Option<ClientError>>,
 }
 
@@ -49,6 +57,7 @@ impl ClientRuntimeWorld {
                 client: RefCell::new(None),
                 payload: RefCell::new(None),
                 response: RefCell::new(None),
+                login_ack: RefCell::new(None),
                 last_error: RefCell::new(None),
             },
             Err(err) => Self {
@@ -59,6 +68,7 @@ impl ClientRuntimeWorld {
                 client: RefCell::new(None),
                 payload: RefCell::new(None),
                 response: RefCell::new(None),
+                login_ack: RefCell::new(None),
                 last_error: RefCell::new(None),
             },
         }
@@ -193,6 +203,7 @@ impl ClientRuntimeWorld {
         let response = result?;
         *self.payload.borrow_mut() = Some(payload);
         *self.response.borrow_mut() = Some(response);
+        *self.login_ack.borrow_mut() = None;
         *self.last_error.borrow_mut() = None;
         Ok(())
     }
@@ -205,7 +216,10 @@ impl ClientRuntimeWorld {
         let (_payload, result) = self.send_payload_inner(size)?;
         match result {
             Ok(_) => return Err("expected client error for oversized payload".into()),
-            Err(err) => *self.last_error.borrow_mut() = Some(err),
+            Err(err) => {
+                *self.last_error.borrow_mut() = Some(err);
+                *self.login_ack.borrow_mut() = None;
+            }
         }
         Ok(())
     }
@@ -238,6 +252,46 @@ impl ClientRuntimeWorld {
         let response = response_ref.as_ref().ok_or("response missing")?;
         if payload != response {
             return Err("response did not match payload".into());
+        }
+        self.await_server()?;
+        Ok(())
+    }
+
+    /// Send a login request and capture the echoed acknowledgement.
+    ///
+    /// # Errors
+    /// Returns an error if the client is missing or deserialization fails.
+    pub fn send_login_request(&self, username: String) -> TestResult {
+        *self.login_ack.borrow_mut() = None;
+        let login = LoginRequest { username };
+        let mut client = self
+            .client
+            .borrow_mut()
+            .take()
+            .ok_or("client not connected")?;
+        let request = Envelope::new(LOGIN_ROUTE_ID, None, login.to_bytes()?);
+        let response: Envelope =
+            self.block_on(async { client.call_correlated(request).await })??;
+        let (ack, _) = LoginAck::from_bytes(response.payload_bytes())?;
+        *self.client.borrow_mut() = Some(client);
+        *self.login_ack.borrow_mut() = Some(ack);
+        *self.last_error.borrow_mut() = None;
+        Ok(())
+    }
+
+    /// Verify that login acknowledgement decoding succeeded for `expected`.
+    ///
+    /// # Errors
+    /// Returns an error when the acknowledgement is missing or mismatched.
+    pub fn verify_login_acknowledgement(&self, expected: &str) -> TestResult {
+        let ack_ref = self.login_ack.borrow();
+        let ack = ack_ref.as_ref().ok_or("login acknowledgement missing")?;
+        if ack.username != expected {
+            return Err(format!(
+                "expected login acknowledgement for '{expected}', got '{}'",
+                ack.username
+            )
+            .into());
         }
         self.await_server()?;
         Ok(())

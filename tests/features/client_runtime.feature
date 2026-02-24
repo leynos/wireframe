@@ -16,3 +16,9 @@ Feature: Wireframe client runtime
     And a wireframe client configured with max frame length 1024
     When the client sends a payload of 128 bytes expecting decode failure
     Then the client reports a Wireframe decode protocol error
+
+  Scenario: Client decodes echoed login acknowledgement
+    Given a wireframe echo server allowing frames up to 2048 bytes
+    And a wireframe client configured with max frame length 2048
+    When the client sends a login request for username "guest"
+    Then the client decodes a login acknowledgement for username "guest"
