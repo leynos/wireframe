@@ -321,6 +321,25 @@ the default codec and a mock protocol codec:
 This hardening keeps the public API unchanged while increasing confidence in
 codec recovery behaviour and state-machine consistency.
 
+### Codec performance benchmarks (resolved 2026-02-23)
+
+Roadmap item 9.6.1 is now covered by dedicated criterion benchmark targets:
+
+- `benches/codec_performance.rs` measures encode and decode
+  throughput/latency for `LengthDelimitedFrameCodec` and `HotlineFrameCodec`,
+  and for small (32-byte) and large (64 KiB) payload classes.
+- `benches/codec_performance.rs` also measures fragmentation overhead by
+  comparing unfragmented wrapping against fragmented wrapping with
+  `FRAGMENT_PAYLOAD_CAP_BYTES = 1024`.
+- `benches/codec_performance_alloc.rs` records allocation baselines for payload
+  wrapping and decoding. Baseline counts are embedded into benchmark labels as
+  `wrap_allocs_<n>` and `decode_allocs_<n>` for regression tracking.
+- `make bench-codec` runs both benchmark binaries with warnings denied and the
+  `test-support` feature enabled.
+
+The benchmark harness remains internal: no library runtime API changes were
+required to ship these measurements.
+
 ## Architectural Rationale
 
 A dedicated `FrameCodec` abstraction aligns framing with the protocol boundary

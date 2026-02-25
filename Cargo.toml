@@ -61,6 +61,7 @@ serial_test = "3.2.0"
 metrics-util = "0.20.0"
 tracing-test = "0.2.5"
 mockall = "0.13.1"
+criterion = "0.5.1"
 
 tokio = { version = "1.47.1", default-features = false, features = [
     "macros",
@@ -193,3 +194,11 @@ required-features = ["advanced-tests"]
 name = "concurrency_loom"
 path = "tests/advanced/concurrency_loom.rs"
 required-features = ["advanced-tests"]
+
+[[bench]]
+name = "codec_performance"
+harness = false
+
+[[bench]]
+name = "codec_performance_alloc"
+harness = false

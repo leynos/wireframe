@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc doctest-benchmark build release lint fmt check-fmt markdownlint nixie typecheck
+.PHONY: help all clean test test-doc doctest-benchmark bench-codec build release lint fmt check-fmt markdownlint nixie typecheck
 
 CRATE ?= wireframe
 CARGO ?= cargo
@@ -27,6 +27,9 @@ test-doc: ## Run doctests across all features
 
 doctest-benchmark: ## Check runnable/no_run doctest ratios
 	./scripts/doctest-benchmark.sh
+
+bench-codec: ## Run codec performance benchmarks
+	RUSTFLAGS="-D warnings" $(CARGO) bench --bench codec_performance --bench codec_performance_alloc --features test-support $(BUILD_JOBS)
 
 typecheck: ## Run a workspace typecheck
 	RUSTFLAGS="-D warnings" $(CARGO) check --all-targets --all-features $(BUILD_JOBS)
