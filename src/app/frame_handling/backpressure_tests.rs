@@ -88,8 +88,11 @@ fn soft_limit_pause_threshold_behaviour(
     let actual = should_pause_inbound_reads(Some(&state), Some(budgets?));
     if actual != should_pause {
         return Err(io::Error::other(format!(
-            "soft limit mismatch: buffered_bytes={buffered_bytes}, expected={should_pause}, \
-             actual={actual}"
+            concat!(
+                "soft limit mismatch: buffered_bytes={}, expected={}, ",
+                "actual={}"
+            ),
+            buffered_bytes, should_pause, actual
         ))
         .into());
     }
