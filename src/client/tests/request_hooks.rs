@@ -81,31 +81,64 @@ where
         .expect("connect client")
 }
 
+/// Generic test harness for request hook tests.
+///
+/// Spawns an echo server, connects a client with custom hooks,
+/// runs the test body, and handles cleanup automatically.
+async fn run_hook_test<F, T>(configure_hooks: F, test_body: T)
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>>,
+{
+    let (addr, server) = spawn_echo_server().await;
+    let mut client = connect_client_with_hooks(addr, configure_hooks).await;
+    test_body(&mut client).await;
+    drop(client);
+    let _ = server.await;
+}
+
+/// Variant for tests that need the capturing server.
+async fn run_hook_test_with_capture<F, T>(configure_hooks: F, test_body: T) -> Vec<Vec<u8>>
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>>,
+{
+    let (addr, server) = spawn_capturing_server().await;
+    let mut client = connect_client_with_hooks(addr, configure_hooks).await;
+    test_body(&mut client).await;
+    drop(client);
+    server.await.expect("server completes")
+}
+
 #[tokio::test]
 async fn before_send_hook_invoked_on_send() {
     let counter = Arc::new(AtomicUsize::new(0));
     let count = counter.clone();
 
-    let (addr, server) = spawn_echo_server().await;
-
-    let mut client = connect_client_with_hooks(addr, |b| {
-        b.before_send(move |_bytes: &mut Vec<u8>| {
-            count.fetch_add(1, Ordering::SeqCst);
-        })
-    })
+    run_hook_test(
+        |b| {
+            b.before_send(move |_bytes: &mut Vec<u8>| {
+                count.fetch_add(1, Ordering::SeqCst);
+            })
+        },
+        |client| {
+            Box::pin(async move {
+                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+                client.send_envelope(envelope).await.expect("send envelope");
+            })
+        },
+    )
     .await;
-
-    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-    client.send_envelope(envelope).await.expect("send envelope");
 
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,
         "before_send hook should be invoked once"
     );
-
-    drop(client);
-    let _ = server.await;
 }
 
 #[tokio::test]
@@ -113,28 +146,28 @@ async fn after_receive_hook_invoked_on_receive() {
     let counter = Arc::new(AtomicUsize::new(0));
     let count = counter.clone();
 
-    let (addr, server) = spawn_echo_server().await;
-
-    let mut client = connect_client_with_hooks(addr, |b| {
-        b.after_receive(move |_bytes: &mut bytes::BytesMut| {
-            count.fetch_add(1, Ordering::SeqCst);
-        })
-    })
+    run_hook_test(
+        |b| {
+            b.after_receive(move |_bytes: &mut bytes::BytesMut| {
+                count.fetch_add(1, Ordering::SeqCst);
+            })
+        },
+        |client| {
+            Box::pin(async move {
+                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+                client.send_envelope(envelope).await.expect("send envelope");
+                let _response: Envelope =
+                    client.receive_envelope().await.expect("receive envelope");
+            })
+        },
+    )
     .await;
-
-    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-    client.send_envelope(envelope).await.expect("send envelope");
-
-    let _response: Envelope = client.receive_envelope().await.expect("receive envelope");
 
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,
         "after_receive hook should be invoked once"
     );
-
-    drop(client);
-    let _ = server.await;
 }
 
 #[tokio::test]
@@ -143,32 +176,30 @@ async fn multiple_before_send_hooks_execute_in_order() {
     let log_a = log.clone();
     let log_b = log.clone();
 
-    let (addr, server) = spawn_echo_server().await;
-
-    let mut client = connect_client_with_hooks(addr, |b| {
-        b.before_send(move |_bytes: &mut Vec<u8>| {
-            log_a.lock().expect("lock").push(b'A');
-        })
-        .before_send(move |_bytes: &mut Vec<u8>| {
-            log_b.lock().expect("lock").push(b'B');
-        })
-    })
+    run_hook_test(
+        |b| {
+            b.before_send(move |_bytes: &mut Vec<u8>| {
+                log_a.lock().expect("lock").push(b'A');
+            })
+            .before_send(move |_bytes: &mut Vec<u8>| {
+                log_b.lock().expect("lock").push(b'B');
+            })
+        },
+        |client| {
+            Box::pin(async move {
+                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+                client.send_envelope(envelope).await.expect("send envelope");
+            })
+        },
+    )
     .await;
 
-    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-    client.send_envelope(envelope).await.expect("send envelope");
-
-    {
-        let entries = log.lock().expect("lock");
-        assert_eq!(
-            entries.as_slice(),
-            b"AB",
-            "hooks should execute in registration order"
-        );
-    }
-
-    drop(client);
-    let _ = server.await;
+    let entries = log.lock().expect("lock");
+    assert_eq!(
+        entries.as_slice(),
+        b"AB",
+        "hooks should execute in registration order"
+    );
 }
 
 #[tokio::test]
@@ -177,33 +208,32 @@ async fn multiple_after_receive_hooks_execute_in_order() {
     let log_a = log.clone();
     let log_b = log.clone();
 
-    let (addr, server) = spawn_echo_server().await;
-
-    let mut client = connect_client_with_hooks(addr, |b| {
-        b.after_receive(move |_bytes: &mut bytes::BytesMut| {
-            log_a.lock().expect("lock").push(b'A');
-        })
-        .after_receive(move |_bytes: &mut bytes::BytesMut| {
-            log_b.lock().expect("lock").push(b'B');
-        })
-    })
+    run_hook_test(
+        |b| {
+            b.after_receive(move |_bytes: &mut bytes::BytesMut| {
+                log_a.lock().expect("lock").push(b'A');
+            })
+            .after_receive(move |_bytes: &mut bytes::BytesMut| {
+                log_b.lock().expect("lock").push(b'B');
+            })
+        },
+        |client| {
+            Box::pin(async move {
+                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+                client.send_envelope(envelope).await.expect("send envelope");
+                let _response: Envelope =
+                    client.receive_envelope().await.expect("receive envelope");
+            })
+        },
+    )
     .await;
 
-    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-    client.send_envelope(envelope).await.expect("send envelope");
-    let _response: Envelope = client.receive_envelope().await.expect("receive envelope");
-
-    {
-        let entries = log.lock().expect("lock");
-        assert_eq!(
-            entries.as_slice(),
-            b"AB",
-            "hooks should execute in registration order"
-        );
-    }
-
-    drop(client);
-    let _ = server.await;
+    let entries = log.lock().expect("lock");
+    assert_eq!(
+        entries.as_slice(),
+        b"AB",
+        "hooks should execute in registration order"
+    );
 }
 
 #[tokio::test]
@@ -213,45 +243,50 @@ async fn both_hooks_fire_for_call_correlated() {
     let sc = send_count.clone();
     let rc = recv_count.clone();
 
-    let (addr, server) = spawn_echo_server().await;
-
-    let mut client = connect_client_with_hooks(addr, |b| {
-        b.before_send(move |_bytes: &mut Vec<u8>| {
-            sc.fetch_add(1, Ordering::SeqCst);
-        })
-        .after_receive(move |_bytes: &mut bytes::BytesMut| {
-            rc.fetch_add(1, Ordering::SeqCst);
-        })
-    })
+    run_hook_test(
+        |b| {
+            b.before_send(move |_bytes: &mut Vec<u8>| {
+                sc.fetch_add(1, Ordering::SeqCst);
+            })
+            .after_receive(move |_bytes: &mut bytes::BytesMut| {
+                rc.fetch_add(1, Ordering::SeqCst);
+            })
+        },
+        |client| {
+            Box::pin(async move {
+                let request = Envelope::new(1, None, vec![10, 20]);
+                let _response: Envelope = client.call_correlated(request).await.expect("call");
+            })
+        },
+    )
     .await;
-
-    let request = Envelope::new(1, None, vec![10, 20]);
-    let _response: Envelope = client.call_correlated(request).await.expect("call");
 
     assert_eq!(send_count.load(Ordering::SeqCst), 1, "before_send fires");
     assert_eq!(recv_count.load(Ordering::SeqCst), 1, "after_receive fires");
-
-    drop(client);
-    let _ = server.await;
 }
 
 #[tokio::test]
 async fn no_hooks_configured_works_identically() {
-    let (addr, server) = spawn_echo_server().await;
+    let correlation_id = Arc::new(std::sync::Mutex::new(None));
+    let cid = correlation_id.clone();
 
-    let mut client = connect_client_with_hooks(addr, |b| b).await;
-
-    let request = Envelope::new(1, None, vec![5, 6, 7]);
-    let response: Envelope = client.call_correlated(request).await.expect("call");
+    run_hook_test(
+        |b| b,
+        |client| {
+            Box::pin(async move {
+                let request = Envelope::new(1, None, vec![5, 6, 7]);
+                let response: Envelope = client.call_correlated(request).await.expect("call");
+                *cid.lock().expect("lock") = response.correlation_id();
+            })
+        },
+    )
+    .await;
 
     assert_eq!(
-        response.correlation_id(),
+        *correlation_id.lock().expect("lock"),
         Some(1),
         "correlation ID should match without hooks"
     );
-
-    drop(client);
-    let _ = server.await;
 }
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
@@ -262,24 +297,24 @@ async fn before_send_hook_fires_for_plain_send() {
     let counter = Arc::new(AtomicUsize::new(0));
     let count = counter.clone();
 
-    let (addr, server) = spawn_capturing_server().await;
-
-    let mut client = connect_client_with_hooks(addr, |b| {
-        b.before_send(move |_bytes: &mut Vec<u8>| {
-            count.fetch_add(1, Ordering::SeqCst);
-        })
-    })
+    let _captured = run_hook_test_with_capture(
+        |b| {
+            b.before_send(move |_bytes: &mut Vec<u8>| {
+                count.fetch_add(1, Ordering::SeqCst);
+            })
+        },
+        |client| {
+            Box::pin(async move {
+                // Use the plain send() API (not envelope-aware).
+                client.send(&Ping(42)).await.expect("send");
+            })
+        },
+    )
     .await;
-
-    // Use the plain send() API (not envelope-aware).
-    client.send(&Ping(42)).await.expect("send");
 
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,
         "before_send should fire for plain send()"
     );
-
-    drop(client);
-    let _ = server.await;
 }
