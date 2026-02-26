@@ -183,18 +183,26 @@ impl HookLog {
     }
 }
 
+/// Helper: test body that sends an envelope.
+async fn send_envelope_test_body(client: &mut TestClient) {
+    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+    client.send_envelope(envelope).await.expect("send envelope");
+}
+
+/// Helper: test body that sends an envelope and receives a response.
+async fn send_and_receive_test_body(client: &mut TestClient) {
+    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+    client.send_envelope(envelope).await.expect("send envelope");
+    let _response: Envelope = client.receive_envelope().await.expect("receive envelope");
+}
+
 #[tokio::test]
 async fn before_send_hook_invoked_on_send() {
     let counter = HookCounter::new();
 
     run_hook_test(
         |b| b.before_send(counter.before_send_hook()),
-        |client| {
-            Box::pin(async move {
-                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-                client.send_envelope(envelope).await.expect("send envelope");
-            })
-        },
+        |client| Box::pin(send_envelope_test_body(client)),
     )
     .await;
 
@@ -207,14 +215,7 @@ async fn after_receive_hook_invoked_on_receive() {
 
     run_hook_test(
         |b| b.after_receive(counter.after_receive_hook()),
-        |client| {
-            Box::pin(async move {
-                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-                client.send_envelope(envelope).await.expect("send envelope");
-                let _response: Envelope =
-                    client.receive_envelope().await.expect("receive envelope");
-            })
-        },
+        |client| Box::pin(send_and_receive_test_body(client)),
     )
     .await;
 
@@ -230,12 +231,7 @@ async fn multiple_before_send_hooks_execute_in_order() {
             b.before_send(log.before_send_hook(b'A'))
                 .before_send(log.before_send_hook(b'B'))
         },
-        |client| {
-            Box::pin(async move {
-                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-                client.send_envelope(envelope).await.expect("send envelope");
-            })
-        },
+        |client| Box::pin(send_envelope_test_body(client)),
     )
     .await;
 
@@ -251,14 +247,7 @@ async fn multiple_after_receive_hooks_execute_in_order() {
             b.after_receive(log.after_receive_hook(b'A'))
                 .after_receive(log.after_receive_hook(b'B'))
         },
-        |client| {
-            Box::pin(async move {
-                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
-                client.send_envelope(envelope).await.expect("send envelope");
-                let _response: Envelope =
-                    client.receive_envelope().await.expect("receive envelope");
-            })
-        },
+        |client| Box::pin(send_and_receive_test_body(client)),
     )
     .await;
 
