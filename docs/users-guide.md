@@ -1120,8 +1120,8 @@ as `TCP_NODELAY` or buffer size adjustments.
 | Setup hook           | `on_connection_setup(...)`                   | Disabled                                                | Per-connection state is needed for metrics or lifecycle coupling.   |
 | Teardown hook        | `on_connection_teardown(...)`                | Disabled                                                | Close should flush counters or release stateful resources.          |
 | Error hook           | `on_error(...)`                              | Disabled                                                | Transport and decode failures must be routed to observability.      |
-| Before-send hook     | `before_send(...)`                           | Disabled                                                | Inspect or mutate serialised bytes before every outgoing frame.     |
-| After-receive hook   | `after_receive(...)`                          | Disabled                                                | Inspect or mutate raw bytes after every incoming frame is read.     |
+| Before-send hook     | `before_send(...)`                           | Disabled                                                | Inspect or mutate serialized bytes before every outgoing frame.     |
+| After-receive hook   | `after_receive(...)`                         | Disabled                                                | Inspect or mutate raw bytes after every incoming frame is read.     |
 
 ```rust
 use std::{net::SocketAddr, time::Duration};
@@ -1322,13 +1322,13 @@ The client builder supports **request hooks** that fire on every outgoing and
 incoming frame, enabling symmetric instrumentation with the server middleware
 stack.[^52]
 
-- **Before-send hook** (`before_send`): Invoked after serialisation, before
+- **Before-send hook** (`before_send`): Invoked after serialization, before
   each frame is written to the transport. Receives a `&mut Vec<u8>` of the
-  serialised bytes, allowing inspection or mutation (e.g., prepending an
+  serialized bytes, allowing inspection or mutation (e.g., prepending an
   authentication token, incrementing a metrics counter).
 - **After-receive hook** (`after_receive`): Invoked after each frame is read
-  from the transport, before deserialisation. Receives a `&mut BytesMut` of
-  the raw frame bytes, allowing inspection or mutation before the deserialiser
+  from the transport, before deserialization. Receives a `&mut BytesMut` of the
+  raw frame bytes, allowing inspection or mutation before the deserializer
   processes them.
 
 Multiple hooks of the same kind may be registered; they execute in registration
@@ -1360,9 +1360,9 @@ let mut client = WireframeClient::builder()
 ```
 
 Request hooks fire on all message paths: `send`, `send_envelope`,
-`receive_envelope`, `call_correlated`, `call_streaming`, and
-`ResponseStream` polling. Clients configured without request hooks behave
-identically to clients that have none registered.
+`receive_envelope`, `call_correlated`, `call_streaming`, and `ResponseStream`
+polling. Clients configured without request hooks behave identically to clients
+that have none registered.
 
 ### Client message API with correlation identifiers
 

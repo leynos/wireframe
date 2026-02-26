@@ -321,3 +321,57 @@ async fn before_send_hook_fires_for_plain_send() {
 
     counter.assert_count(1, "before_send should fire for plain send()");
 }
+
+#[tokio::test]
+async fn before_send_hook_mutation_visible_on_wire() {
+    const MARKER: u8 = 0xff;
+
+    let captured = run_hook_test_with_capture(
+        |b| {
+            b.before_send(move |bytes: &mut Vec<u8>| {
+                bytes.push(MARKER);
+            })
+        },
+        |client| Box::pin(send_envelope_test_body(client)),
+    )
+    .await;
+
+    let frame = captured
+        .first()
+        .expect("server should capture exactly one frame");
+    assert_eq!(
+        frame.last().copied(),
+        Some(MARKER),
+        "marker byte appended by before_send hook should be visible on the wire"
+    );
+}
+
+#[tokio::test]
+async fn after_receive_hook_mutation_affects_deserialization() {
+    // Pre-serialize a replacement envelope with a distinctive payload.
+    let replacement = Envelope::new(42, Some(1), vec![99, 98, 97]);
+    let replacement_bytes =
+        bincode::encode_to_vec(&replacement, bincode::config::standard()).expect("encode");
+
+    let hook = move |bytes: &mut bytes::BytesMut| {
+        bytes.clear();
+        bytes.extend_from_slice(&replacement_bytes);
+    };
+
+    run_hook_test(
+        |b| b.after_receive(hook),
+        |client| {
+            Box::pin(async move {
+                let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+                client.send_envelope(envelope).await.expect("send envelope");
+                let response: Envelope = client.receive_envelope().await.expect("receive envelope");
+                assert_eq!(
+                    response.payload_bytes(),
+                    &[99, 98, 97],
+                    "after_receive hook mutation should be reflected in deserialized envelope"
+                );
+            })
+        },
+    )
+    .await;
+}

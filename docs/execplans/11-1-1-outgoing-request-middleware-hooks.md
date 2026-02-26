@@ -68,11 +68,9 @@ Hard invariants. Violation requires escalation, not workarounds.
 ## Risks
 
 - Risk: `ResponseStream::poll_next` is synchronous (`fn poll_next`) but hooks
-  may want to be async.
-  Severity: medium
-  Likelihood: high
-  Mitigation: use synchronous hooks (`Fn(&mut BytesMut)`). This matches the
-  server's `before_send` hook in `src/hooks.rs` which is also synchronous
+  may want to be async. Severity: medium Likelihood: high Mitigation: use
+  synchronous hooks (`Fn(&mut BytesMut)`). This matches the server's
+  `before_send` hook in `src/hooks.rs` which is also synchronous
   (`FnMut(&mut F, &mut ConnectionContext)`). Frame-level hooks operate on raw
   bytes in memory — they do not need async. Truly async operations (e.g.,
   fetching a token from a remote service) should be done at the lifecycle level
@@ -80,16 +78,12 @@ Hard invariants. Violation requires escalation, not workarounds.
   synchronous hook can then read.
 
 - Risk: adding fields to `WireframeClient` and `WireframeClientBuilder` may
-  push existing files over the 400-line limit.
-  Severity: low
-  Likelihood: low
+  push existing files over the 400-line limit. Severity: low Likelihood: low
   Mitigation: `runtime.rs` is 351 lines, `builder/core.rs` is 61 lines. There
   is ample headroom. Hook types and builder methods go in separate files.
 
 - Risk: the `builder_field_update!` macro has three arms; adding a field
-  requires a one-line addition per arm.
-  Severity: low
-  Likelihood: certain
+  requires a one-line addition per arm. Severity: low Likelihood: certain
   Mitigation: `RequestHooks` is not parameterised by any generic type, so it
   moves directly (`$self.request_hooks`) in all arms.
 
@@ -129,34 +123,33 @@ Hard invariants. Violation requires escalation, not workarounds.
   `ResponseStream::poll_next` without spawning tasks or blocking. Trait-based
   hooks (like the server's `Service`/`Transform`) are designed for middleware
   chaining with routing — overkill for the client's point-to-point model.
-  Closures match the existing client hook pattern (`ClientConnectionSetupHandler`,
-  `ClientErrorHandler`).
+  Closures match the existing client hook pattern
+  (`ClientConnectionSetupHandler`, `ClientErrorHandler`).
 
 - Decision: hooks operate on raw bytes (`&mut Vec<u8>` outgoing,
-  `&mut BytesMut` incoming), not typed messages.
-  Rationale: symmetric with the server's `before_send` hook which operates on
-  `&mut F` (the frame type, typically `Vec<u8>`). Operating on typed messages
-  would require the hooks to be generic over every message type, making storage
-  impossible without type erasure. Raw-byte hooks can universally inspect or
-  modify the serialised payload (e.g., prepend an auth token, count bytes).
+  `&mut BytesMut` incoming), not typed messages. Rationale: symmetric with the
+  server's `before_send` hook which operates on `&mut F` (the frame type,
+  typically `Vec<u8>`). Operating on typed messages would require the hooks to
+  be generic over every message type, making storage impossible without type
+  erasure. Raw-byte hooks can universally inspect or modify the serialised
+  payload (e.g., prepend an auth token, count bytes).
 
 - Decision: use `Arc<dyn Fn(...)>` (shared, immutable) rather than
-  `Box<dyn FnMut(...)>`.
-  Rationale: existing client lifecycle hooks use `Arc<dyn Fn(...) + Send +
-  Sync>`. `Fn` (not `FnMut`) is required because hooks are stored behind
-  shared references. Users who need mutable state (counters, etc.) capture an
-  `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure — the established
-  pattern in the existing lifecycle hook tests.
+  `Box<dyn FnMut(...)>`. Rationale: existing client lifecycle hooks use
+  `Arc<dyn Fn(...) + Send + Sync>`. `Fn` (not `FnMut`) is required because
+  hooks are stored behind shared references. Users who need mutable state
+  (counters, etc.) capture an `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the
+  closure — the established pattern in the existing lifecycle hook tests.
 
 - Decision: hook ordering is registration order for both outgoing and incoming.
   Rationale: simplest mental model. First registered hook runs first. There is
-  no "onion" wrapping because these are sequential interceptors, not
-  middleware with next-chains.
+  no "onion" wrapping because these are sequential interceptors, not middleware
+  with next-chains.
 
 - Decision: store hooks in a `RequestHooks` struct (analogous to
-  `LifecycleHooks`), not inline in `WireframeClient`.
-  Rationale: keeps the client struct focused. Mirrors the `LifecycleHooks`
-  pattern from `src/client/hooks.rs`.
+  `LifecycleHooks`), not inline in `WireframeClient`. Rationale: keeps the
+  client struct focused. Mirrors the `LifecycleHooks` pattern from
+  `src/client/hooks.rs`.
 
 ## Outcomes & retrospective
 
@@ -166,9 +159,9 @@ minor deviations noted in Surprises & Discoveries.
 **Actual file counts**: 6 new files created, 16 files modified — exactly as
 estimated (22 total). All files remain under the 400-line constraint.
 
-**Test results**: 7 unit tests in `src/client/tests/request_hooks.rs` and 4
-BDD scenarios in `tests/scenarios/client_request_hooks_scenarios.rs` all pass.
-All pre-existing tests pass unchanged (backwards compatibility verified).
+**Test results**: 7 unit tests in `src/client/tests/request_hooks.rs` and 4 BDD
+scenarios in `tests/scenarios/client_request_hooks_scenarios.rs` all pass. All
+pre-existing tests pass unchanged (backwards compatibility verified).
 
 **Key lesson**: placing hook invocation helpers in `messaging.rs` rather than
 `runtime.rs` was a pragmatic deviation that avoided unnecessary import
@@ -220,7 +213,8 @@ tests/
 
 Key data flow (outgoing):
 
-1. User calls `client.send(&msg)`, `send_envelope(env)`, or `call_streaming(req)`.
+1. User calls `client.send(&msg)`, `send_envelope(env)`, or
+   `call_streaming(req)`.
 2. `self.serializer.serialize(message)` produces `Vec<u8>`.
 3. **← HOOK INSERTION POINT: `before_send` hooks modify `&mut Vec<u8>` →**
 4. `self.framed.send(Bytes::from(bytes))` writes to TCP.
@@ -321,6 +315,7 @@ Three insertion points, each ~2 lines added:
 1. `src/client/runtime.rs`, `send()` method (line ~140): after
    `self.serializer.serialize(message)` produces `bytes`, before
    `self.framed.send()`:
+
    ```rust
    let mut bytes = bytes;
    self.invoke_before_send_hooks(&mut bytes);
@@ -339,6 +334,7 @@ Two insertion points:
 1. `src/client/messaging.rs`, `receive_internal()` method (line ~237): after
    `self.framed.next()` produces `bytes` (a `BytesMut`), before
    `self.serializer.deserialize(&bytes)`:
+
    ```rust
    let mut bytes = bytes;
    self.invoke_after_receive_hooks(&mut bytes);
@@ -346,6 +342,7 @@ Two insertion points:
 
 2. `src/client/response_stream.rs`, `ResponseStream::poll_next()` (line ~162):
    in the `Poll::Ready(Some(Ok(bytes)))` arm:
+
    ```rust
    Poll::Ready(Some(Ok(mut bytes))) => {
        this.client.invoke_after_receive_hooks(&mut bytes);
@@ -354,8 +351,8 @@ Two insertion points:
    ```
 
    This is the critical streaming integration. Because
-   `invoke_after_receive_hooks` is synchronous, it works within the
-   synchronous `poll_next` context.
+   `invoke_after_receive_hooks` is synchronous, it works within the synchronous
+   `poll_next` context.
 
 ### Stage D: unit tests
 
@@ -429,8 +426,9 @@ methods for each step. The world stores `Arc<AtomicUsize>` counters,
 **E3. Steps** `tests/steps/client_request_hooks_steps.rs` (~80 lines):
 
 Step definitions using `rstest_bdd_macros::{given, when, then}`. Each step
-calls the world's async methods via `tokio::runtime::Runtime::new()?.block_on()`
-— the established pattern from `tests/steps/client_messaging_steps.rs`.
+calls the world's async methods via
+`tokio::runtime::Runtime::new()?.block_on()` — the established pattern from
+`tests/steps/client_messaging_steps.rs`.
 
 **E4. Scenarios** `tests/scenarios/client_request_hooks_scenarios.rs` (~40
 lines):
@@ -491,8 +489,8 @@ Expected: all three exit code 0.
 Quality criteria (what "done" means):
 
 - `make test` passes. New tests in `src/client/tests/request_hooks.rs` and
-  the BDD scenarios in `tests/scenarios/client_request_hooks_scenarios.rs`
-  all pass.
+  the BDD scenarios in `tests/scenarios/client_request_hooks_scenarios.rs` all
+  pass.
 - `make lint` passes with zero warnings.
 - `make check-fmt` passes.
 - All pre-existing client tests pass unchanged (backwards compatibility).
@@ -512,35 +510,35 @@ beginning of the failed stage. No destructive operations are involved.
 
 **Files to create (new):**
 
-| File | Purpose | Est. lines |
-| ---- | ------- | ---------- |
-| `src/client/builder/request_hooks.rs` | Builder methods `before_send()`, `after_receive()` | ~80 |
-| `src/client/tests/request_hooks.rs` | Unit tests for hooks | ~200 |
-| `tests/features/client_request_hooks.feature` | BDD feature file | ~30 |
-| `tests/fixtures/client_request_hooks.rs` | BDD world/fixture | ~150 |
-| `tests/steps/client_request_hooks_steps.rs` | BDD step definitions | ~80 |
-| `tests/scenarios/client_request_hooks_scenarios.rs` | BDD scenario bindings | ~40 |
+| File                                                | Purpose                                            | Est. lines |
+| --------------------------------------------------- | -------------------------------------------------- | ---------- |
+| `src/client/builder/request_hooks.rs`               | Builder methods `before_send()`, `after_receive()` | ~80        |
+| `src/client/tests/request_hooks.rs`                 | Unit tests for hooks                               | ~200       |
+| `tests/features/client_request_hooks.feature`       | BDD feature file                                   | ~30        |
+| `tests/fixtures/client_request_hooks.rs`            | BDD world/fixture                                  | ~150       |
+| `tests/steps/client_request_hooks_steps.rs`         | BDD step definitions                               | ~80        |
+| `tests/scenarios/client_request_hooks_scenarios.rs` | BDD scenario bindings                              | ~40        |
 
 **Files to modify:**
 
-| File | Change | Current → est. new |
-| ---- | ------ | ------------------ |
-| `src/client/hooks.rs` | Add `BeforeSendHook`, `AfterReceiveHook`, `RequestHooks` | 113 → ~168 |
-| `src/client/builder/core.rs` | Add `request_hooks` field | 61 → ~64 |
-| `src/client/builder/mod.rs` | Extend macro + `mod request_hooks` | 61 → ~66 |
-| `src/client/runtime.rs` | Add field + helper methods + hook call in `send()` | 351 → ~370 |
-| `src/client/messaging.rs` | Hook calls in `send_envelope()` and `receive_internal()` | 268 → ~276 |
-| `src/client/streaming.rs` | Hook call in `call_streaming()` | 149 → ~153 |
-| `src/client/response_stream.rs` | Hook call in `poll_next()` | 165 → ~170 |
-| `src/client/builder/connect.rs` | Thread `request_hooks` to constructor | 100 → ~101 |
-| `src/client/mod.rs` | Add re-exports | 79 → ~82 |
-| `src/client/tests/mod.rs` | Add `mod request_hooks` | 175 → ~176 |
-| `tests/fixtures/mod.rs` | Add `pub mod client_request_hooks` | 30 → ~31 |
-| `tests/steps/mod.rs` | Add `mod client_request_hooks_steps` | 31 → ~32 |
-| `tests/scenarios/mod.rs` | Add `mod client_request_hooks_scenarios` | 33 → ~34 |
-| `docs/wireframe-client-design.md` | New "Request hooks" section | +~40 |
-| `docs/users-guide.md` | New subsection + table row | +~50 |
-| `docs/roadmap.md` | Mark 11.1.1 done | 1 char change |
+| File                              | Change                                                   | Current → est. new   |
+| --------------------------------- | -------------------------------------------------------- | -------------------- |
+| `src/client/hooks.rs`             | Add `BeforeSendHook`, `AfterReceiveHook`, `RequestHooks` | 113 → ~168           |
+| `src/client/builder/core.rs`      | Add `request_hooks` field                                | 61 → ~64             |
+| `src/client/builder/mod.rs`       | Extend macro + `mod request_hooks`                       | 61 → ~66             |
+| `src/client/runtime.rs`           | Add field + helper methods + hook call in `send()`       | 351 → ~370           |
+| `src/client/messaging.rs`         | Hook calls in `send_envelope()` and `receive_internal()` | 268 → ~276           |
+| `src/client/streaming.rs`         | Hook call in `call_streaming()`                          | 149 → ~153           |
+| `src/client/response_stream.rs`   | Hook call in `poll_next()`                               | 165 → ~170           |
+| `src/client/builder/connect.rs`   | Thread `request_hooks` to constructor                    | 100 → ~101           |
+| `src/client/mod.rs`               | Add re-exports                                           | 79 → ~82             |
+| `src/client/tests/mod.rs`         | Add `mod request_hooks`                                  | 175 → ~176           |
+| `tests/fixtures/mod.rs`           | Add `pub mod client_request_hooks`                       | 30 → ~31             |
+| `tests/steps/mod.rs`              | Add `mod client_request_hooks_steps`                     | 31 → ~32             |
+| `tests/scenarios/mod.rs`          | Add `mod client_request_hooks_scenarios`                 | 33 → ~34             |
+| `docs/wireframe-client-design.md` | New "Request hooks" section                              | +~40                 |
+| `docs/users-guide.md`             | New subsection + table row                               | +~50                 |
+| `docs/roadmap.md`                 | Mark 11.1.1 done                                         | 1 char change        |
 
 Total: 6 new files + 16 modified files = 22 files. All under 400 lines.
 

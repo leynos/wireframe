@@ -116,10 +116,10 @@ impl<C> Default for LifecycleHooks<C> {
     }
 }
 
-/// Hook invoked after serialisation, before a frame is written to the
+/// Hook invoked after serialization, before a frame is written to the
 /// transport.
 ///
-/// The hook receives a mutable reference to the serialised bytes, allowing
+/// The hook receives a mutable reference to the serialized bytes, allowing
 /// inspection or modification (e.g., prepending an authentication token,
 /// logging frame size, incrementing a metrics counter).
 ///
@@ -142,10 +142,10 @@ impl<C> Default for LifecycleHooks<C> {
 pub type BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>;
 
 /// Hook invoked after a frame is read from the transport, before
-/// deserialisation.
+/// deserialization.
 ///
 /// The hook receives a mutable reference to the raw bytes, allowing
-/// inspection or modification before the deserialiser processes them.
+/// inspection or modification before the deserializer processes them.
 ///
 /// # Examples
 ///
@@ -167,8 +167,8 @@ pub type AfterReceiveHook = Arc<dyn Fn(&mut BytesMut) + Send + Sync>;
 
 /// Configuration for client request/response hooks.
 ///
-/// Stores hooks that fire on every outgoing frame (after serialisation) and
-/// every incoming frame (before deserialisation). Multiple hooks of each type
+/// Stores hooks that fire on every outgoing frame (after serialization) and
+/// every incoming frame (before deserialization). Multiple hooks of each type
 /// may be registered; they execute in registration order.
 #[derive(Default)]
 pub(crate) struct RequestHooks {

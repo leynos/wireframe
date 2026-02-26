@@ -200,12 +200,12 @@ frame, providing symmetric instrumentation with the server's `before_send` hook
 in `src/hooks.rs`.
 
 - **`before_send`**: `Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>`. Invoked after
-  serialisation, before each frame is written to the transport. Registered via
+  serialization, before each frame is written to the transport. Registered via
   `WireframeClientBuilder::before_send()`. Multiple hooks execute in
   registration order.
 
 - **`after_receive`**: `Arc<dyn Fn(&mut BytesMut) + Send + Sync>`. Invoked
-  after each frame is read from the transport, before deserialisation.
+  after each frame is read from the transport, before deserialization.
   Registered via `WireframeClientBuilder::after_receive()`. Multiple hooks
   execute in registration order.
 
@@ -225,16 +225,16 @@ then read via captured `Arc` state.
 
 **Design rationale — `Arc<dyn Fn>` not `Box<dyn FnMut>`**: Hooks are stored
 behind shared references. The existing lifecycle hooks use
-`Arc<dyn Fn(...) + Send + Sync>`. `Fn` (not `FnMut`) is required because
-hooks are invoked through `&self` methods. Users who need mutable state capture
-an `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure.
+`Arc<dyn Fn(...) + Send + Sync>`. `Fn` (not `FnMut`) is required because hooks
+are invoked through `&self` methods. Users who need mutable state capture an
+`Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure.
 
 **Design rationale — raw bytes, not typed messages**: Hooks operate on raw
 bytes (`&mut Vec<u8>` outgoing, `&mut BytesMut` incoming), not typed messages.
 This matches the server's `before_send` hook which operates on the frame type.
 Operating on typed messages would require hooks to be generic over every
 message type, making storage impossible without type erasure. Raw-byte hooks
-can universally inspect or modify the serialised payload.
+can universally inspect or modify the serialized payload.
 
 **Integration points**: `before_send` is wired into `send()` (runtime.rs),
 `send_envelope()` (messaging.rs), and `call_streaming()` (streaming.rs).
