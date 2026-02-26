@@ -17,6 +17,7 @@ mod codec_error_scenarios;
 mod codec_performance_benchmarks_scenarios;
 mod codec_property_roundtrip_scenarios;
 mod codec_stateful_scenarios;
+mod codec_test_harness_scenarios;
 mod correlation_scenarios;
 mod fragment_scenarios;
 mod interleaved_push_queues_scenarios;

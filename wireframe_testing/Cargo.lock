@@ -1831,6 +1831,7 @@ dependencies = [
  "logtest",
  "metrics-util",
  "rstest",
+ "thiserror",
  "tokio",
  "tokio-util",
  "wireframe",

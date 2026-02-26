@@ -13,6 +13,7 @@ pub mod codec_error;
 pub mod codec_performance_benchmarks;
 pub mod codec_property_roundtrip;
 pub mod codec_stateful;
+pub mod codec_test_harness;
 pub mod correlation;
 pub mod fragment;
 pub mod interleaved_push_queues;

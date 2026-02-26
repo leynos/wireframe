@@ -10,6 +10,8 @@ use wireframe::{
 };
 
 mod codec;
+mod codec_drive;
+mod codec_ext;
 mod drive;
 mod payloads;
 mod runtime;
@@ -45,6 +47,15 @@ pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
 pub const TEST_MAX_FRAME: usize = DEFAULT_CAPACITY;
 
 pub use codec::{decode_frames, decode_frames_with_max, encode_frame, new_test_codec};
+pub use codec_drive::{
+    drive_with_codec_frames,
+    drive_with_codec_frames_with_capacity,
+    drive_with_codec_payloads,
+    drive_with_codec_payloads_mut,
+    drive_with_codec_payloads_with_capacity,
+    drive_with_codec_payloads_with_capacity_mut,
+};
+pub use codec_ext::{decode_frames_with_codec, encode_payloads_with_codec, extract_payloads};
 pub use drive::{
     drive_with_frame,
     drive_with_frame_mut,

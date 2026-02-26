@@ -208,6 +208,54 @@ let app = WireframeApp::new()?
 See `examples/hotline_codec.rs` and `examples/mysql_codec.rs` for complete
 implementations.
 
+#### Codec accessor
+
+Retrieve the configured codec from a `WireframeApp` instance:
+
+```rust
+use wireframe::app::WireframeApp;
+use wireframe::codec::examples::HotlineFrameCodec;
+
+let codec = HotlineFrameCodec::new(4096);
+let app = WireframeApp::new()?.with_codec(codec);
+let codec_ref = app.codec(); // &HotlineFrameCodec
+```
+
+#### Testing custom codecs with `wireframe_testing`
+
+The `wireframe_testing` crate provides codec-aware driver functions that handle
+frame encoding and decoding transparently:
+
+```rust
+use wireframe::codec::examples::HotlineFrameCodec;
+use wireframe_testing::{drive_with_codec_payloads, drive_with_codec_frames};
+
+let codec = HotlineFrameCodec::new(4096);
+let app = WireframeApp::new()?.with_codec(codec.clone());
+
+// Payload-level: returns decoded response payloads as byte vectors.
+let payloads = drive_with_codec_payloads(app, &codec, vec![serialized_envelope]).await?;
+
+// Frame-level: returns decoded codec frames for metadata inspection.
+let frames = drive_with_codec_frames(app, &codec, vec![serialized_envelope]).await?;
+```
+
+Available codec-aware driver functions:
+
+- `drive_with_codec_payloads` / `drive_with_codec_payloads_with_capacity` —
+  owned app, returns payload bytes.
+- `drive_with_codec_payloads_mut` /
+  `drive_with_codec_payloads_with_capacity_mut` — mutable app reference,
+  returns payload bytes.
+- `drive_with_codec_frames` / `drive_with_codec_frames_with_capacity` — owned
+  app, returns decoded `F::Frame` values.
+
+Supporting helpers for composing custom test patterns:
+
+- `encode_payloads_with_codec` — encode payloads to wire bytes.
+- `decode_frames_with_codec` — decode wire bytes to frames.
+- `extract_payloads` — extract payload bytes from decoded frames.
+
 #### Zero-copy payload extraction
 
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload
