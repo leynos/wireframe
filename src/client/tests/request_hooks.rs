@@ -323,7 +323,7 @@ async fn before_send_hook_fires_for_plain_send() {
 }
 
 #[tokio::test]
-async fn before_send_hook_mutation_visible_on_wire() {
+async fn before_send_hook_can_mutate_frame_bytes_on_wire() {
     const MARKER: u8 = 0xff;
 
     let captured = run_hook_test_with_capture(
@@ -347,7 +347,7 @@ async fn before_send_hook_mutation_visible_on_wire() {
 }
 
 #[tokio::test]
-async fn after_receive_hook_mutation_affects_deserialization() {
+async fn after_receive_hook_can_mutate_frame_bytes_before_deserialization() {
     // Pre-serialize a replacement envelope with a distinctive payload.
     let replacement = Envelope::new(42, Some(1), vec![99, 98, 97]);
     let replacement_bytes =
