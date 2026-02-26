@@ -5,9 +5,9 @@ use rstest_bdd_macros::{given, then, when};
 use crate::fixtures::client_request_hooks::{ClientRequestHooksWorld, TestResult};
 
 /// Run an async block on a fresh single-threaded Tokio runtime.
-fn run_block_on<F>(future: F) -> TestResult
+fn run_block_on<F, T>(future: F) -> Result<T, wireframe_testing::TestError>
 where
-    F: std::future::Future<Output = TestResult>,
+    F: std::future::Future<Output = Result<T, wireframe_testing::TestError>>,
 {
     tokio::runtime::Runtime::new()?.block_on(future)
 }
@@ -20,6 +20,23 @@ fn check_counter(counter_name: &str, actual: usize, expected: usize) -> TestResu
         );
     }
     Ok(())
+}
+
+/// Macro to generate a counter-checking step function.
+macro_rules! define_counter_step {
+    ($step_text:literal, $fn_name:ident, $counter_name:literal, $accessor:ident) => {
+        #[then($step_text)]
+        fn $fn_name(
+            client_request_hooks_world: &mut ClientRequestHooksWorld,
+            expected: usize,
+        ) -> TestResult {
+            check_counter(
+                $counter_name,
+                client_request_hooks_world.$accessor(),
+                expected,
+            )
+        }
+    };
 }
 
 #[given("an envelope echo server for hook testing")]
@@ -55,8 +72,7 @@ fn given_both_counters(client_request_hooks_world: &mut ClientRequestHooksWorld)
 fn given_before_send_marker(
     client_request_hooks_world: &mut ClientRequestHooksWorld,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
+    run_block_on(async {
         client_request_hooks_world.start_capturing_server().await?;
         client_request_hooks_world
             .connect_with_before_send_marker()
@@ -86,29 +102,19 @@ fn when_correlated_call(client_request_hooks_world: &mut ClientRequestHooksWorld
     run_block_on(client_request_hooks_world.perform_correlated_call())
 }
 
-#[then("the before_send counter is {expected:usize}")]
-fn then_before_send_counter(
-    client_request_hooks_world: &mut ClientRequestHooksWorld,
-    expected: usize,
-) -> TestResult {
-    check_counter(
-        "before_send",
-        client_request_hooks_world.before_send_count(),
-        expected,
-    )
-}
+define_counter_step!(
+    "the before_send counter is {expected:usize}",
+    then_before_send_counter,
+    "before_send",
+    before_send_count
+);
 
-#[then("the after_receive counter is {expected:usize}")]
-fn then_after_receive_counter(
-    client_request_hooks_world: &mut ClientRequestHooksWorld,
-    expected: usize,
-) -> TestResult {
-    check_counter(
-        "after_receive",
-        client_request_hooks_world.after_receive_count(),
-        expected,
-    )
-}
+define_counter_step!(
+    "the after_receive counter is {expected:usize}",
+    then_after_receive_counter,
+    "after_receive",
+    after_receive_count
+);
 
 #[then("the markers appear in registration order")]
 fn then_markers_in_order(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
@@ -123,8 +129,12 @@ fn then_markers_in_order(client_request_hooks_world: &mut ClientRequestHooksWorl
 fn then_captured_frame_has_marker(
     client_request_hooks_world: &mut ClientRequestHooksWorld,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    let frames = rt.block_on(client_request_hooks_world.collect_captured_frames())?;
+    let frames = run_block_on(async {
+        client_request_hooks_world
+            .collect_captured_frames()
+            .await
+            .map_err(Into::into)
+    })?;
     let frame = frames.first().ok_or("no frames captured")?;
     let marker = ClientRequestHooksWorld::marker_byte();
     if frame.last().copied() != Some(marker) {
