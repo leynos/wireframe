@@ -63,6 +63,24 @@ async fn spawn_capturing_server() -> (std::net::SocketAddr, tokio::task::JoinHan
     (addr, handle)
 }
 
+/// Client type returned by [`connect_client_with_hooks`].
+type TestClient = WireframeClient<
+    crate::serializer::BincodeSerializer,
+    crate::rewind_stream::RewindStream<tokio::net::TcpStream>,
+>;
+
+/// Helper to build and connect a client with custom hook configuration.
+async fn connect_client_with_hooks<F>(addr: std::net::SocketAddr, configure: F) -> TestClient
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+{
+    let builder = WireframeClient::builder();
+    configure(builder)
+        .connect(addr)
+        .await
+        .expect("connect client")
+}
+
 #[tokio::test]
 async fn before_send_hook_invoked_on_send() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -70,13 +88,12 @@ async fn before_send_hook_invoked_on_send() {
 
     let (addr, server) = spawn_echo_server().await;
 
-    let mut client = WireframeClient::builder()
-        .before_send(move |_bytes: &mut Vec<u8>| {
+    let mut client = connect_client_with_hooks(addr, |b| {
+        b.before_send(move |_bytes: &mut Vec<u8>| {
             count.fetch_add(1, Ordering::SeqCst);
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
     let envelope = Envelope::new(1, None, vec![1, 2, 3]);
     client.send_envelope(envelope).await.expect("send envelope");
@@ -98,13 +115,12 @@ async fn after_receive_hook_invoked_on_receive() {
 
     let (addr, server) = spawn_echo_server().await;
 
-    let mut client = WireframeClient::builder()
-        .after_receive(move |_bytes: &mut bytes::BytesMut| {
+    let mut client = connect_client_with_hooks(addr, |b| {
+        b.after_receive(move |_bytes: &mut bytes::BytesMut| {
             count.fetch_add(1, Ordering::SeqCst);
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
     let envelope = Envelope::new(1, None, vec![1, 2, 3]);
     client.send_envelope(envelope).await.expect("send envelope");
@@ -129,16 +145,15 @@ async fn multiple_before_send_hooks_execute_in_order() {
 
     let (addr, server) = spawn_echo_server().await;
 
-    let mut client = WireframeClient::builder()
-        .before_send(move |_bytes: &mut Vec<u8>| {
+    let mut client = connect_client_with_hooks(addr, |b| {
+        b.before_send(move |_bytes: &mut Vec<u8>| {
             log_a.lock().expect("lock").push(b'A');
         })
         .before_send(move |_bytes: &mut Vec<u8>| {
             log_b.lock().expect("lock").push(b'B');
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
     let envelope = Envelope::new(1, None, vec![1, 2, 3]);
     client.send_envelope(envelope).await.expect("send envelope");
@@ -164,16 +179,15 @@ async fn multiple_after_receive_hooks_execute_in_order() {
 
     let (addr, server) = spawn_echo_server().await;
 
-    let mut client = WireframeClient::builder()
-        .after_receive(move |_bytes: &mut bytes::BytesMut| {
+    let mut client = connect_client_with_hooks(addr, |b| {
+        b.after_receive(move |_bytes: &mut bytes::BytesMut| {
             log_a.lock().expect("lock").push(b'A');
         })
         .after_receive(move |_bytes: &mut bytes::BytesMut| {
             log_b.lock().expect("lock").push(b'B');
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
     let envelope = Envelope::new(1, None, vec![1, 2, 3]);
     client.send_envelope(envelope).await.expect("send envelope");
@@ -201,16 +215,15 @@ async fn both_hooks_fire_for_call_correlated() {
 
     let (addr, server) = spawn_echo_server().await;
 
-    let mut client = WireframeClient::builder()
-        .before_send(move |_bytes: &mut Vec<u8>| {
+    let mut client = connect_client_with_hooks(addr, |b| {
+        b.before_send(move |_bytes: &mut Vec<u8>| {
             sc.fetch_add(1, Ordering::SeqCst);
         })
         .after_receive(move |_bytes: &mut bytes::BytesMut| {
             rc.fetch_add(1, Ordering::SeqCst);
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
     let request = Envelope::new(1, None, vec![10, 20]);
     let _response: Envelope = client.call_correlated(request).await.expect("call");
@@ -226,10 +239,7 @@ async fn both_hooks_fire_for_call_correlated() {
 async fn no_hooks_configured_works_identically() {
     let (addr, server) = spawn_echo_server().await;
 
-    let mut client = WireframeClient::builder()
-        .connect(addr)
-        .await
-        .expect("connect client");
+    let mut client = connect_client_with_hooks(addr, |b| b).await;
 
     let request = Envelope::new(1, None, vec![5, 6, 7]);
     let response: Envelope = client.call_correlated(request).await.expect("call");
@@ -254,13 +264,12 @@ async fn before_send_hook_fires_for_plain_send() {
 
     let (addr, server) = spawn_capturing_server().await;
 
-    let mut client = WireframeClient::builder()
-        .before_send(move |_bytes: &mut Vec<u8>| {
+    let mut client = connect_client_with_hooks(addr, |b| {
+        b.before_send(move |_bytes: &mut Vec<u8>| {
             count.fetch_add(1, Ordering::SeqCst);
         })
-        .connect(addr)
-        .await
-        .expect("connect client");
+    })
+    .await;
 
     // Use the plain send() API (not envelope-aware).
     client.send(&Ping(42)).await.expect("send");

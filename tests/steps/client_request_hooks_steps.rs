@@ -4,6 +4,16 @@ use rstest_bdd_macros::{given, then, when};
 
 use crate::fixtures::client_request_hooks::{ClientRequestHooksWorld, TestResult};
 
+/// Verify that a counter matches the expected value.
+fn check_counter(counter_name: &str, actual: usize, expected: usize) -> TestResult {
+    if actual != expected {
+        return Err(
+            format!("expected {counter_name} counter to be {expected}, got {actual}").into(),
+        );
+    }
+    Ok(())
+}
+
 #[given("an envelope echo server for hook testing")]
 fn given_echo_server(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
@@ -62,10 +72,7 @@ fn then_before_send_counter(
     expected: usize,
 ) -> TestResult {
     let actual = client_request_hooks_world.before_send_count();
-    if actual != expected {
-        return Err(format!("expected before_send counter to be {expected}, got {actual}").into());
-    }
-    Ok(())
+    check_counter("before_send", actual, expected)
 }
 
 #[then("the after_receive counter is {expected:usize}")]
@@ -74,12 +81,7 @@ fn then_after_receive_counter(
     expected: usize,
 ) -> TestResult {
     let actual = client_request_hooks_world.after_receive_count();
-    if actual != expected {
-        return Err(
-            format!("expected after_receive counter to be {expected}, got {actual}").into(),
-        );
-    }
-    Ok(())
+    check_counter("after_receive", actual, expected)
 }
 
 #[then("the markers appear in registration order")]

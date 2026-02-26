@@ -92,23 +92,34 @@ impl ClientRequestHooksWorld {
         Ok(())
     }
 
+    /// Connect a client with custom builder configuration.
+    ///
+    /// # Errors
+    /// Returns an error if server address is missing or connection fails.
+    async fn connect_with_hooks<F>(&mut self, configure: F) -> TestResult
+    where
+        F: FnOnce(
+            wireframe::client::WireframeClientBuilder,
+        ) -> wireframe::client::WireframeClientBuilder,
+    {
+        let addr = self.addr.ok_or("server address missing")?;
+        let client = configure(WireframeClient::builder()).connect(addr).await?;
+        self.client = Some(client);
+        Ok(())
+    }
+
     /// Connect a client with a `before_send` counter hook.
     ///
     /// # Errors
     /// Returns an error if server address is missing or connection fails.
     pub async fn connect_with_before_send_counter(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let count = Arc::clone(&self.before_send_count);
-
-        let client = WireframeClient::builder()
-            .before_send(move |_bytes: &mut Vec<u8>| {
+        self.connect_with_hooks(|b| {
+            b.before_send(move |_bytes: &mut Vec<u8>| {
                 count.fetch_add(1, Ordering::SeqCst);
             })
-            .connect(addr)
-            .await?;
-
-        self.client = Some(client);
-        Ok(())
+        })
+        .await
     }
 
     /// Connect a client with an `after_receive` counter hook.
@@ -116,18 +127,13 @@ impl ClientRequestHooksWorld {
     /// # Errors
     /// Returns an error if server address is missing or connection fails.
     pub async fn connect_with_after_receive_counter(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let count = Arc::clone(&self.after_receive_count);
-
-        let client = WireframeClient::builder()
-            .after_receive(move |_bytes: &mut bytes::BytesMut| {
+        self.connect_with_hooks(|b| {
+            b.after_receive(move |_bytes: &mut bytes::BytesMut| {
                 count.fetch_add(1, Ordering::SeqCst);
             })
-            .connect(addr)
-            .await?;
-
-        self.client = Some(client);
-        Ok(())
+        })
+        .await
     }
 
     /// Connect a client with two `before_send` hooks that append markers.
@@ -135,22 +141,17 @@ impl ClientRequestHooksWorld {
     /// # Errors
     /// Returns an error if server address is missing or connection fails.
     pub async fn connect_with_marker_hooks(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let log_a = Arc::clone(&self.marker_log);
         let log_b = Arc::clone(&self.marker_log);
-
-        let client = WireframeClient::builder()
-            .before_send(move |_bytes: &mut Vec<u8>| {
+        self.connect_with_hooks(|b| {
+            b.before_send(move |_bytes: &mut Vec<u8>| {
                 log_a.lock().expect("lock").push(b'A');
             })
             .before_send(move |_bytes: &mut Vec<u8>| {
                 log_b.lock().expect("lock").push(b'B');
             })
-            .connect(addr)
-            .await?;
-
-        self.client = Some(client);
-        Ok(())
+        })
+        .await
     }
 
     /// Connect a client with both counter hooks.
@@ -158,22 +159,17 @@ impl ClientRequestHooksWorld {
     /// # Errors
     /// Returns an error if server address is missing or connection fails.
     pub async fn connect_with_both_counters(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
         let sc = Arc::clone(&self.before_send_count);
         let rc = Arc::clone(&self.after_receive_count);
-
-        let client = WireframeClient::builder()
-            .before_send(move |_bytes: &mut Vec<u8>| {
+        self.connect_with_hooks(|b| {
+            b.before_send(move |_bytes: &mut Vec<u8>| {
                 sc.fetch_add(1, Ordering::SeqCst);
             })
             .after_receive(move |_bytes: &mut bytes::BytesMut| {
                 rc.fetch_add(1, Ordering::SeqCst);
             })
-            .connect(addr)
-            .await?;
-
-        self.client = Some(client);
-        Ok(())
+        })
+        .await
     }
 
     /// Send an envelope via the configured client.
