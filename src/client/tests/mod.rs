@@ -5,6 +5,8 @@ mod helpers;
 mod lifecycle;
 mod messaging;
 mod request_hooks;
+mod send_streaming;
+mod send_streaming_infra;
 mod streaming;
 mod streaming_infra;
 mod streaming_parity;

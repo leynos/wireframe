@@ -304,12 +304,12 @@ and standardized per-connection memory budgets.
 
 ### 8.4. Transport helper
 
-- [ ] 8.4.1. Implement `send_streaming(frame_header, body_reader)` helper.
-- [ ] 8.4.2. Add chunk size configuration with protocol-provided headers.
-- [ ] 8.4.3. Implement timeout handling (return `TimedOut`, stop emitting
+- [x] 8.4.1. Implement `send_streaming(frame_header, body_reader)` helper.
+- [x] 8.4.2. Add chunk size configuration with protocol-provided headers.
+- [x] 8.4.3. Implement timeout handling (return `TimedOut`, stop emitting
   frames).
-- [ ] 8.4.4. Integrate with connection actor instrumentation and hooks.
-- [ ] 8.4.5. Write tests for partial send failures and timeout behaviour.
+- [x] 8.4.4. Integrate with connection actor instrumentation and hooks.
+- [x] 8.4.5. Write tests for partial send failures and timeout behaviour.
 
 ### 8.5. Testkit utilities
 

@@ -9,6 +9,7 @@ mod client_messaging_steps;
 mod client_preamble_steps;
 mod client_request_hooks_steps;
 mod client_runtime_steps;
+mod client_send_streaming_steps;
 mod client_streaming_steps;
 mod codec_error_steps;
 mod codec_performance_benchmarks_steps;
