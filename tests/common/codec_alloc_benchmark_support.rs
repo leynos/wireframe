@@ -2,8 +2,16 @@
 //!
 //! This module defines the allocation baseline types and labelling helpers used
 //! by criterion allocation benchmarks, rstest unit tests, and rstest-bdd
-//! behavioural tests. It depends on the core benchmark support module for
-//! workload definitions.
+//! behavioural tests.
+//!
+//! # Layout coupling
+//!
+//! This module references `codec_benchmark_support` via `super::` and therefore
+//! must be declared as a sibling `mod` in the same parent scope. Every current
+//! consumer already satisfies this constraint because the `#[path]` inclusion
+//! pattern compiles both modules into the same crate root. If the helpers are
+//! ever reused outside the current test/bench tree, consider introducing a
+//! `tests/common/mod.rs` hierarchy with normal `mod`/`pub` wiring instead.
 
 use super::codec_benchmark_support::BenchmarkWorkload;
 

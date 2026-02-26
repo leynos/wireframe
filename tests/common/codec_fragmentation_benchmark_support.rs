@@ -2,8 +2,15 @@
 //!
 //! This module defines the fragmentation overhead measurement helpers used by
 //! criterion benches, rstest unit tests, and rstest-bdd behavioural tests.
-//! It depends on the core benchmark support module for shared types and payload
-//! generation.
+//!
+//! # Layout coupling
+//!
+//! This module references `codec_benchmark_support` via `super::` and therefore
+//! must be declared as a sibling `mod` in the same parent scope. Every current
+//! consumer already satisfies this constraint because the `#[path]` inclusion
+//! pattern compiles both modules into the same crate root. If the helpers are
+//! ever reused outside the current test/bench tree, consider introducing a
+//! `tests/common/mod.rs` hierarchy with normal `mod`/`pub` wiring instead.
 
 use std::num::NonZeroUsize;
 
@@ -25,18 +32,22 @@ use super::codec_benchmark_support::{
 /// This lives in the fragmentation module because only fragmentation and test
 /// consumers use per-operation timing; the allocation bench does not.
 pub trait MeasurementExt {
+    /// Mean duration per operation.
+    #[must_use]
+    fn mean_duration_per_op(self) -> Option<std::time::Duration>;
+
     /// Mean nanoseconds per operation.
     #[must_use]
     fn nanos_per_op(self) -> Option<u128>;
 }
 
 impl MeasurementExt for Measurement {
-    fn nanos_per_op(self) -> Option<u128> {
+    fn mean_duration_per_op(self) -> Option<std::time::Duration> {
         let operations = u32::try_from(self.operations).ok()?;
-        self.elapsed
-            .checked_div(operations)
-            .map(|duration| duration.as_nanos())
+        self.elapsed.checked_div(operations)
     }
+
+    fn nanos_per_op(self) -> Option<u128> { self.mean_duration_per_op().map(|d| d.as_nanos()) }
 }
 
 /// Fragment payload cap used for fragmentation-overhead benchmarks.
@@ -55,13 +66,8 @@ impl FragmentationOverhead {
     /// Ratio of fragmented to unfragmented mean nanoseconds per operation.
     #[must_use]
     pub fn nanos_ratio(self) -> Option<f64> {
-        let fragmented_operations = u32::try_from(self.fragmented.operations).ok()?;
-        let unfragmented_operations = u32::try_from(self.unfragmented.operations).ok()?;
-        let fragmented_mean = self.fragmented.elapsed.checked_div(fragmented_operations)?;
-        let unfragmented_mean = self
-            .unfragmented
-            .elapsed
-            .checked_div(unfragmented_operations)?;
+        let fragmented_mean = self.fragmented.mean_duration_per_op()?;
+        let unfragmented_mean = self.unfragmented.mean_duration_per_op()?;
         if unfragmented_mean.is_zero() {
             return None;
         }
