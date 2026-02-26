@@ -7,7 +7,7 @@
 /// parameter changes, struct update syntax (`..self`) cannot be used, so fields
 /// must be copied explicitly.
 ///
-/// Use this macro for small builders with a limited number of fields (five in
+/// Use this macro for small builders with a limited number of fields (six in
 /// this case) and single-field updates per method. For larger builders with
 /// many coordinated updates, prefer a dedicated helper method to keep the
 /// reconstruction logic centralized and easier to audit (see
@@ -27,6 +27,7 @@ macro_rules! builder_field_update {
             socket_options: $self.socket_options,
             preamble_config: $self.preamble_config,
             lifecycle_hooks: $self.lifecycle_hooks,
+            request_hooks: $self.request_hooks,
         }
     };
     // Preamble change: preserves S and C, moves lifecycle_hooks unchanged
@@ -37,6 +38,7 @@ macro_rules! builder_field_update {
             socket_options: $self.socket_options,
             preamble_config: $value,
             lifecycle_hooks: $self.lifecycle_hooks,
+            request_hooks: $self.request_hooks,
         }
     };
     // Lifecycle hooks change: preserves S and P, changes C
@@ -47,6 +49,7 @@ macro_rules! builder_field_update {
             socket_options: $self.socket_options,
             preamble_config: $self.preamble_config,
             lifecycle_hooks: $value,
+            request_hooks: $self.request_hooks,
         }
     };
 }
@@ -56,6 +59,7 @@ mod connect;
 mod core;
 mod lifecycle;
 mod preamble;
+mod request_hooks;
 mod serializer;
 
 pub use core::WireframeClientBuilder;

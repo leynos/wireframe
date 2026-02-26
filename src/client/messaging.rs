@@ -122,7 +122,7 @@ where
             envelope.set_correlation_id(Some(correlation_id));
         }
 
-        let bytes = match self.serializer.serialize(&envelope) {
+        let mut bytes = match self.serializer.serialize(&envelope) {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
@@ -130,6 +130,7 @@ where
                 return Err(err);
             }
         };
+        self.invoke_before_send_hooks(&mut bytes);
         if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
@@ -240,7 +241,7 @@ where
             self.invoke_error_hook(&err).await;
             return Err(err);
         };
-        let bytes = match frame {
+        let mut bytes = match frame {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::from(e);
@@ -248,6 +249,7 @@ where
                 return Err(err);
             }
         };
+        self.invoke_after_receive_hooks(&mut bytes);
         let (message, _consumed) = match self.serializer.deserialize(&bytes) {
             Ok(result) => result,
             Err(e) => {
@@ -263,6 +265,20 @@ where
     pub(crate) async fn invoke_error_hook(&self, error: &ClientError) {
         if let Some(ref handler) = self.on_error {
             handler(error).await;
+        }
+    }
+
+    /// Invoke all registered before-send hooks in registration order.
+    pub(crate) fn invoke_before_send_hooks(&self, bytes: &mut Vec<u8>) {
+        for hook in &self.request_hooks.before_send {
+            hook(bytes);
+        }
+    }
+
+    /// Invoke all registered after-receive hooks in registration order.
+    pub(crate) fn invoke_after_receive_hooks(&self, bytes: &mut bytes::BytesMut) {
+        for hook in &self.request_hooks.after_receive {
+            hook(bytes);
         }
     }
 }

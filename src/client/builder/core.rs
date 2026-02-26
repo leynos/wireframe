@@ -4,7 +4,7 @@ use crate::{
     client::{
         ClientCodecConfig,
         SocketOptions,
-        hooks::LifecycleHooks,
+        hooks::{LifecycleHooks, RequestHooks},
         preamble_exchange::PreambleConfig,
     },
     serializer::BincodeSerializer,
@@ -31,6 +31,7 @@ pub struct WireframeClientBuilder<S = BincodeSerializer, P = (), C = ()> {
     pub(crate) socket_options: SocketOptions,
     pub(crate) preamble_config: Option<PreambleConfig<P>>,
     pub(crate) lifecycle_hooks: LifecycleHooks<C>,
+    pub(crate) request_hooks: RequestHooks,
 }
 
 impl WireframeClientBuilder<BincodeSerializer, (), ()> {
@@ -52,6 +53,7 @@ impl WireframeClientBuilder<BincodeSerializer, (), ()> {
             socket_options: SocketOptions::default(),
             preamble_config: None,
             lifecycle_hooks: LifecycleHooks::default(),
+            request_hooks: RequestHooks::default(),
         }
     }
 }

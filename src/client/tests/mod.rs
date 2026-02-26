@@ -4,6 +4,7 @@ mod error_handling;
 mod helpers;
 mod lifecycle;
 mod messaging;
+mod request_hooks;
 mod streaming;
 mod streaming_infra;
 mod streaming_parity;

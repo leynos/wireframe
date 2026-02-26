@@ -1,10 +1,14 @@
-//! Client connection lifecycle hooks.
+//! Client connection lifecycle and request hooks.
 //!
 //! This module defines callback types for client-side connection lifecycle
-//! events that mirror the server's hook system. These hooks enable consistent
-//! instrumentation and middleware integration across both client and server.
+//! events and per-request middleware hooks. Lifecycle hooks fire at connection
+//! boundaries (setup, teardown, error). Request hooks fire on every outgoing
+//! frame and every incoming frame, enabling symmetric instrumentation with
+//! the server's middleware stack.
 
 use std::{future::Future, pin::Pin, sync::Arc};
+
+use bytes::BytesMut;
 
 use super::ClientError;
 
@@ -110,4 +114,66 @@ impl<C> Default for LifecycleHooks<C> {
             on_error: None,
         }
     }
+}
+
+/// Hook invoked after serialisation, before a frame is written to the
+/// transport.
+///
+/// The hook receives a mutable reference to the serialised bytes, allowing
+/// inspection or modification (e.g., prepending an authentication token,
+/// logging frame size, incrementing a metrics counter).
+///
+/// # Examples
+///
+/// ```rust
+/// use std::sync::{
+///     Arc,
+///     atomic::{AtomicUsize, Ordering},
+/// };
+///
+/// use wireframe::client::BeforeSendHook;
+///
+/// let counter = Arc::new(AtomicUsize::new(0));
+/// let count = counter.clone();
+/// let hook: BeforeSendHook = Arc::new(move |_bytes: &mut Vec<u8>| {
+///     count.fetch_add(1, Ordering::Relaxed);
+/// });
+/// ```
+pub type BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>;
+
+/// Hook invoked after a frame is read from the transport, before
+/// deserialisation.
+///
+/// The hook receives a mutable reference to the raw bytes, allowing
+/// inspection or modification before the deserialiser processes them.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::sync::{
+///     Arc,
+///     atomic::{AtomicUsize, Ordering},
+/// };
+///
+/// use wireframe::client::AfterReceiveHook;
+///
+/// let counter = Arc::new(AtomicUsize::new(0));
+/// let count = counter.clone();
+/// let hook: AfterReceiveHook = Arc::new(move |_bytes: &mut bytes::BytesMut| {
+///     count.fetch_add(1, Ordering::Relaxed);
+/// });
+/// ```
+pub type AfterReceiveHook = Arc<dyn Fn(&mut BytesMut) + Send + Sync>;
+
+/// Configuration for client request/response hooks.
+///
+/// Stores hooks that fire on every outgoing frame (after serialisation) and
+/// every incoming frame (before deserialisation). Multiple hooks of each type
+/// may be registered; they execute in registration order.
+#[derive(Default)]
+pub(crate) struct RequestHooks {
+    /// Hooks invoked before each outgoing frame is sent.
+    pub(crate) before_send: Vec<BeforeSendHook>,
+    /// Hooks invoked after each incoming frame is received.
+    pub(crate) after_receive: Vec<AfterReceiveHook>,
 }

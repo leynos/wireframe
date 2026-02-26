@@ -28,6 +28,8 @@ pub use codec_config::ClientCodecConfig;
 pub use config::SocketOptions;
 pub use error::{ClientError, ClientProtocolError, ClientWireframeError};
 pub use hooks::{
+    AfterReceiveHook,
+    BeforeSendHook,
     ClientConnectionSetupHandler,
     ClientConnectionTeardownHandler,
     ClientErrorHandler,

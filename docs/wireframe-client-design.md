@@ -193,6 +193,54 @@ sequenceDiagram
     Builder->>Hooks: on_connection_teardown
 ```
 
+### Request hooks
+
+The client supports **request hooks** that fire on every outgoing and incoming
+frame, providing symmetric instrumentation with the server's `before_send` hook
+in `src/hooks.rs`.
+
+- **`before_send`**: `Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>`. Invoked after
+  serialisation, before each frame is written to the transport. Registered via
+  `WireframeClientBuilder::before_send()`. Multiple hooks execute in
+  registration order.
+
+- **`after_receive`**: `Arc<dyn Fn(&mut BytesMut) + Send + Sync>`. Invoked
+  after each frame is read from the transport, before deserialisation.
+  Registered via `WireframeClientBuilder::after_receive()`. Multiple hooks
+  execute in registration order.
+
+Hooks are stored in a `RequestHooks` struct (analogous to `LifecycleHooks`)
+with two fields: `before_send: Vec<BeforeSendHook>` and
+`after_receive: Vec<AfterReceiveHook>`.
+
+**Design rationale — synchronous hooks**: The `ResponseStream::poll_next`
+implementation is synchronous (`fn poll_next`). Async hooks would require
+spawning tasks or blocking within a poll context, which is unsound. The
+server's equivalent `before_send` hook in `src/hooks.rs` is also synchronous
+(`FnMut`). Frame-level hooks operate on raw bytes in memory and do not require
+I/O. Users needing async operations (e.g., fetching a token from a remote
+service) should perform them in the lifecycle `on_connection_setup` hook and
+store the result in connection state, which the synchronous request hook can
+then read via captured `Arc` state.
+
+**Design rationale — `Arc<dyn Fn>` not `Box<dyn FnMut>`**: Hooks are stored
+behind shared references. The existing lifecycle hooks use
+`Arc<dyn Fn(...) + Send + Sync>`. `Fn` (not `FnMut`) is required because
+hooks are invoked through `&self` methods. Users who need mutable state capture
+an `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure.
+
+**Design rationale — raw bytes, not typed messages**: Hooks operate on raw
+bytes (`&mut Vec<u8>` outgoing, `&mut BytesMut` incoming), not typed messages.
+This matches the server's `before_send` hook which operates on the frame type.
+Operating on typed messages would require hooks to be generic over every
+message type, making storage impossible without type erasure. Raw-byte hooks
+can universally inspect or modify the serialised payload.
+
+**Integration points**: `before_send` is wired into `send()` (runtime.rs),
+`send_envelope()` (messaging.rs), and `call_streaming()` (streaming.rs).
+`after_receive` is wired into `receive_internal()` (messaging.rs) and
+`ResponseStream::poll_next()` (response_stream.rs).
+
 ### Preamble support
 
 The client builder now supports an optional preamble exchange. Use

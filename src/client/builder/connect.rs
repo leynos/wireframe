@@ -94,6 +94,7 @@ where
             connection_state,
             on_disconnect: self.lifecycle_hooks.on_disconnect,
             on_error: self.lifecycle_hooks.on_error,
+            request_hooks: self.request_hooks,
             correlation_counter: AtomicU64::new(1),
         })
     }
