@@ -114,17 +114,81 @@ where
     server.await.expect("server completes")
 }
 
+/// Test fixture for tracking hook invocations with a counter.
+struct HookCounter {
+    counter: Arc<AtomicUsize>,
+}
+
+impl HookCounter {
+    fn new() -> Self {
+        Self {
+            counter: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn before_send_hook(&self) -> impl Fn(&mut Vec<u8>) + Send + Sync + 'static {
+        let count = self.counter.clone();
+        move |_bytes: &mut Vec<u8>| {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn after_receive_hook(&self) -> impl Fn(&mut bytes::BytesMut) + Send + Sync + 'static {
+        let count = self.counter.clone();
+        move |_bytes: &mut bytes::BytesMut| {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn assert_count(&self, expected: usize, message: &str) {
+        assert_eq!(self.counter.load(Ordering::SeqCst), expected, "{message}");
+    }
+}
+
+/// Test fixture for tracking hook invocations with a log.
+struct HookLog {
+    log: Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+impl HookLog {
+    fn new() -> Self {
+        Self {
+            log: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    fn before_send_hook(&self, marker: u8) -> impl Fn(&mut Vec<u8>) + Send + Sync + 'static {
+        let log = self.log.clone();
+        move |_bytes: &mut Vec<u8>| {
+            log.lock().expect("lock").push(marker);
+        }
+    }
+
+    fn after_receive_hook(
+        &self,
+        marker: u8,
+    ) -> impl Fn(&mut bytes::BytesMut) + Send + Sync + 'static {
+        let log = self.log.clone();
+        move |_bytes: &mut bytes::BytesMut| {
+            log.lock().expect("lock").push(marker);
+        }
+    }
+
+    fn assert_entries(&self, expected: &[u8], message: &str) {
+        assert_eq!(
+            self.log.lock().expect("lock").as_slice(),
+            expected,
+            "{message}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn before_send_hook_invoked_on_send() {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let count = counter.clone();
+    let counter = HookCounter::new();
 
     run_hook_test(
-        |b| {
-            b.before_send(move |_bytes: &mut Vec<u8>| {
-                count.fetch_add(1, Ordering::SeqCst);
-            })
-        },
+        |b| b.before_send(counter.before_send_hook()),
         |client| {
             Box::pin(async move {
                 let envelope = Envelope::new(1, None, vec![1, 2, 3]);
@@ -134,24 +198,15 @@ async fn before_send_hook_invoked_on_send() {
     )
     .await;
 
-    assert_eq!(
-        counter.load(Ordering::SeqCst),
-        1,
-        "before_send hook should be invoked once"
-    );
+    counter.assert_count(1, "before_send hook should be invoked once");
 }
 
 #[tokio::test]
 async fn after_receive_hook_invoked_on_receive() {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let count = counter.clone();
+    let counter = HookCounter::new();
 
     run_hook_test(
-        |b| {
-            b.after_receive(move |_bytes: &mut bytes::BytesMut| {
-                count.fetch_add(1, Ordering::SeqCst);
-            })
-        },
+        |b| b.after_receive(counter.after_receive_hook()),
         |client| {
             Box::pin(async move {
                 let envelope = Envelope::new(1, None, vec![1, 2, 3]);
@@ -163,27 +218,17 @@ async fn after_receive_hook_invoked_on_receive() {
     )
     .await;
 
-    assert_eq!(
-        counter.load(Ordering::SeqCst),
-        1,
-        "after_receive hook should be invoked once"
-    );
+    counter.assert_count(1, "after_receive hook should be invoked once");
 }
 
 #[tokio::test]
 async fn multiple_before_send_hooks_execute_in_order() {
-    let log = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
-    let log_a = log.clone();
-    let log_b = log.clone();
+    let log = HookLog::new();
 
     run_hook_test(
         |b| {
-            b.before_send(move |_bytes: &mut Vec<u8>| {
-                log_a.lock().expect("lock").push(b'A');
-            })
-            .before_send(move |_bytes: &mut Vec<u8>| {
-                log_b.lock().expect("lock").push(b'B');
-            })
+            b.before_send(log.before_send_hook(b'A'))
+                .before_send(log.before_send_hook(b'B'))
         },
         |client| {
             Box::pin(async move {
@@ -194,28 +239,17 @@ async fn multiple_before_send_hooks_execute_in_order() {
     )
     .await;
 
-    let entries = log.lock().expect("lock");
-    assert_eq!(
-        entries.as_slice(),
-        b"AB",
-        "hooks should execute in registration order"
-    );
+    log.assert_entries(b"AB", "hooks should execute in registration order");
 }
 
 #[tokio::test]
 async fn multiple_after_receive_hooks_execute_in_order() {
-    let log = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
-    let log_a = log.clone();
-    let log_b = log.clone();
+    let log = HookLog::new();
 
     run_hook_test(
         |b| {
-            b.after_receive(move |_bytes: &mut bytes::BytesMut| {
-                log_a.lock().expect("lock").push(b'A');
-            })
-            .after_receive(move |_bytes: &mut bytes::BytesMut| {
-                log_b.lock().expect("lock").push(b'B');
-            })
+            b.after_receive(log.after_receive_hook(b'A'))
+                .after_receive(log.after_receive_hook(b'B'))
         },
         |client| {
             Box::pin(async move {
@@ -228,29 +262,18 @@ async fn multiple_after_receive_hooks_execute_in_order() {
     )
     .await;
 
-    let entries = log.lock().expect("lock");
-    assert_eq!(
-        entries.as_slice(),
-        b"AB",
-        "hooks should execute in registration order"
-    );
+    log.assert_entries(b"AB", "hooks should execute in registration order");
 }
 
 #[tokio::test]
 async fn both_hooks_fire_for_call_correlated() {
-    let send_count = Arc::new(AtomicUsize::new(0));
-    let recv_count = Arc::new(AtomicUsize::new(0));
-    let sc = send_count.clone();
-    let rc = recv_count.clone();
+    let send_counter = HookCounter::new();
+    let recv_counter = HookCounter::new();
 
     run_hook_test(
         |b| {
-            b.before_send(move |_bytes: &mut Vec<u8>| {
-                sc.fetch_add(1, Ordering::SeqCst);
-            })
-            .after_receive(move |_bytes: &mut bytes::BytesMut| {
-                rc.fetch_add(1, Ordering::SeqCst);
-            })
+            b.before_send(send_counter.before_send_hook())
+                .after_receive(recv_counter.after_receive_hook())
         },
         |client| {
             Box::pin(async move {
@@ -261,8 +284,8 @@ async fn both_hooks_fire_for_call_correlated() {
     )
     .await;
 
-    assert_eq!(send_count.load(Ordering::SeqCst), 1, "before_send fires");
-    assert_eq!(recv_count.load(Ordering::SeqCst), 1, "after_receive fires");
+    send_counter.assert_count(1, "before_send fires");
+    recv_counter.assert_count(1, "after_receive fires");
 }
 
 #[tokio::test]
@@ -294,15 +317,10 @@ struct Ping(u8);
 
 #[tokio::test]
 async fn before_send_hook_fires_for_plain_send() {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let count = counter.clone();
+    let counter = HookCounter::new();
 
     let _captured = run_hook_test_with_capture(
-        |b| {
-            b.before_send(move |_bytes: &mut Vec<u8>| {
-                count.fetch_add(1, Ordering::SeqCst);
-            })
-        },
+        |b| b.before_send(counter.before_send_hook()),
         |client| {
             Box::pin(async move {
                 // Use the plain send() API (not envelope-aware).
@@ -312,9 +330,5 @@ async fn before_send_hook_fires_for_plain_send() {
     )
     .await;
 
-    assert_eq!(
-        counter.load(Ordering::SeqCst),
-        1,
-        "before_send should fire for plain send()"
-    );
+    counter.assert_count(1, "before_send should fire for plain send()");
 }
