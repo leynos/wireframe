@@ -18,6 +18,7 @@ pub mod fragment;
 pub mod interleaved_push_queues;
 pub mod memory_budget_backpressure;
 mod memory_budget_backpressure_tests;
+pub mod memory_budget_hard_cap;
 pub mod memory_budgets;
 pub mod message_assembler;
 pub mod message_assembly;

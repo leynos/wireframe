@@ -7,7 +7,7 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, warn};
 use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
-    time::{Duration, sleep, timeout},
+    time::{Duration, timeout},
 };
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
@@ -278,14 +278,14 @@ where
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
-            if frame_handling::should_pause_inbound_reads(
+            let pressure = frame_handling::evaluate_memory_pressure(
                 message_assembly.as_ref(),
                 self.memory_budgets,
-            ) {
-                debug!("soft memory budget pressure detected; pausing inbound reads briefly");
-                sleep(frame_handling::soft_limit_pause_duration()).await;
+            );
+            frame_handling::apply_memory_pressure(pressure, || {
                 purge_expired(&mut pipeline, &mut message_assembly);
-            }
+            })
+            .await?;
 
             match timeout(timeout_dur, framed.next()).await {
                 Ok(Some(Ok(frame))) => {

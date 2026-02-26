@@ -331,6 +331,25 @@ Precedence is:
   rather than an indefinite read stop, so in-flight assemblies can continue to
   make progress.
 
+#### Implementation decisions (2026-02-26)
+
+- Roadmap item `8.3.4` implements hard-cap connection abort as a
+  defence-in-depth safety net in the inbound read loop. When total buffered
+  bytes strictly exceed the aggregate cap
+  (`min(bytes_per_connection, bytes_in_flight)`), the connection is terminated
+  immediately with `InvalidData`, bypassing the `DeserFailureTracker` counter.
+- The hard-cap check is combined with the soft-limit check into a single
+  `evaluate_memory_pressure()` function in
+  `src/app/frame_handling/backpressure.rs`, returning a `MemoryPressureAction`
+  enum (`Continue`, `Pause`, or `Abort`). This keeps the inbound loop
+  (`src/app/inbound_handler.rs`) within the 400-line file limit.
+- The hard cap uses `>` (strictly exceeds) for the comparison, matching the
+  `check_aggregate_budgets` convention in `budget.rs`. The limit value itself
+  is permitted.
+- Under normal operation, per-frame budget enforcement (`8.3.2`) prevents
+  total buffered bytes from exceeding the limit. The hard cap catches the edge
+  case where this invariant is violated.
+
 #### Budget enforcement
 
 - Budgets MUST cover: bytes buffered per message, bytes buffered per

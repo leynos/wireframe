@@ -481,11 +481,13 @@ reads and assembly work. When a hard cap is exceeded, Wireframe aborts early,
 releases partial state, and surfaces `std::io::ErrorKind::InvalidData` from the
 inbound processing path.
 
-The current soft-limit implementation paces reads by inserting a short pause
-before polling the next inbound frame once buffered bytes reach 80% of the
-smaller aggregate budget (`bytes_per_connection` and `bytes_in_flight`). This
-keeps pressure visible without permanently stalling assemblies that still need
-additional frames to complete.
+The soft-limit implementation paces reads by inserting a short pause before
+polling the next inbound frame once buffered bytes reach 80% of the smaller
+aggregate budget (`bytes_per_connection` and `bytes_in_flight`). This keeps
+pressure visible without permanently stalling assemblies that still need
+additional frames to complete. If total buffered bytes strictly exceed the
+aggregate cap (100%), the connection is terminated immediately with
+`InvalidData` as a defence-in-depth safety net.
 
 If both transport fragmentation and `MessageAssembler` are enabled, the
 effective message cap is whichever guard triggers first. Operators should set

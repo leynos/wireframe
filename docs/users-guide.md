@@ -609,12 +609,22 @@ is the minimum of the fragmentation `max_message_size` and the configured
 `bytes_per_message`. Single-frame messages that complete immediately are never
 counted against aggregate budgets, since they do not buffer.
 
-Wireframe also applies soft-limit read pacing before hard-cap rejection. When
-buffered assembly bytes reach the soft-pressure threshold (80% of the smaller
-aggregate cap from `bytes_per_connection` and `bytes_in_flight`), the inbound
-connection loop briefly pauses socket reads before polling the next frame. This
-propagates back-pressure to senders while still allowing progress on in-flight
-assemblies.
+Wireframe provides a three-tier protection model for inbound memory budgets:
+
+1. **Per-frame enforcement** — frames that would cause total buffered bytes to
+   exceed the per-connection or in-flight budget are rejected, the offending
+   partial assembly is freed, and the failure is surfaced through the existing
+   deserialization-failure policy (`InvalidData`).
+2. **Soft-limit read pacing** — when buffered assembly bytes reach the
+   soft-pressure threshold (80% of the smaller aggregate cap from
+   `bytes_per_connection` and `bytes_in_flight`), the inbound connection loop
+   briefly pauses socket reads before polling the next frame. This propagates
+   back-pressure to senders while allowing progress on in-flight assemblies.
+3. **Hard-cap connection abort** — if total buffered bytes strictly exceed the
+   aggregate cap (100% of the smaller of `bytes_per_connection` and
+   `bytes_in_flight`), the connection is terminated immediately with
+   `InvalidData`. This is a defence-in-depth safety net; under normal
+   operation, per-frame enforcement prevents this state from being reached.
 
 #### Message key multiplexing (8.2.3)
 
