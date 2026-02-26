@@ -227,17 +227,22 @@ The `wireframe_testing` crate provides codec-aware driver functions that handle
 frame encoding and decoding transparently:
 
 ```rust,no_run
+use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
 use wireframe_testing::{drive_with_codec_payloads, drive_with_codec_frames};
 
 let codec = HotlineFrameCodec::new(4096);
-let app = WireframeApp::new()?.with_codec(codec.clone());
+let payload: Vec<u8> = vec![0x01, 0x02, 0x03];
 
 // Payload-level: returns decoded response payloads as byte vectors.
-let payloads = drive_with_codec_payloads(app, &codec, vec![serialized_envelope]).await?;
+let app = WireframeApp::new()?.with_codec(codec.clone());
+let payloads =
+    drive_with_codec_payloads(app, &codec, vec![payload.clone()]).await?;
 
 // Frame-level: returns decoded codec frames for metadata inspection.
-let frames = drive_with_codec_frames(app, &codec, vec![serialized_envelope]).await?;
+let app = WireframeApp::new()?.with_codec(codec.clone());
+let frames =
+    drive_with_codec_frames(app, &codec, vec![payload]).await?;
 ```
 
 Available codec-aware driver functions:
