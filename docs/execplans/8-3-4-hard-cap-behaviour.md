@@ -258,7 +258,7 @@ soft-limit pacing, hard-cap abort) is now fully implemented and documented.
 - `src/app/frame_handling/mod.rs` (30 lines): re-exports
   `should_pause_inbound_reads` and `soft_limit_pause_duration`.
 
-### BDD test pattern
+### Behaviour-driven development (BDD) test pattern
 
 The project uses a 4-file pattern for BDD tests with `rstest-bdd` v0.5.0:
 
