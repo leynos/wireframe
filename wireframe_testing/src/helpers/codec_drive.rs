@@ -7,6 +7,7 @@
 
 use std::io;
 
+use tokio::io::DuplexStream;
 use wireframe::{
     app::{Packet, WireframeApp},
     codec::FrameCodec,
@@ -18,6 +19,31 @@ use super::{
     codec_ext::{decode_frames_with_codec, encode_payloads_with_codec, extract_payloads},
     drive::drive_internal,
 };
+
+// ---------------------------------------------------------------------------
+// Shared internal helper
+// ---------------------------------------------------------------------------
+
+/// Encode payloads, drive the server handler, and decode response frames.
+///
+/// Every public driver in this module delegates to this function. Keeping the
+/// encode → transport → decode pipeline in one place prevents behavioural
+/// drift between the owned and mutable variants.
+async fn drive_codec_frames_internal<F, H, Fut>(
+    handler: H,
+    codec: &F,
+    payloads: Vec<Vec<u8>>,
+    capacity: usize,
+) -> io::Result<Vec<F::Frame>>
+where
+    F: FrameCodec,
+    H: FnOnce(DuplexStream) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    let encoded = encode_payloads_with_codec(codec, payloads)?;
+    let raw = drive_internal(handler, encoded, capacity).await?;
+    decode_frames_with_codec(codec, raw)
+}
 
 // ---------------------------------------------------------------------------
 // Payload-level drivers (return Vec<Vec<u8>>)
@@ -162,14 +188,13 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    let encoded = encode_payloads_with_codec(codec, payloads)?;
-    let raw = drive_internal(
-        |server| async { app.handle_connection(server).await },
-        encoded,
+    let frames = drive_codec_frames_internal(
+        |server| async move { app.handle_connection(server).await },
+        codec,
+        payloads,
         capacity,
     )
     .await?;
-    let frames = decode_frames_with_codec(codec, raw)?;
     Ok(extract_payloads::<F>(&frames))
 }
 
@@ -244,12 +269,11 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    let encoded = encode_payloads_with_codec(codec, payloads)?;
-    let raw = drive_internal(
+    drive_codec_frames_internal(
         |server| async move { app.handle_connection(server).await },
-        encoded,
+        codec,
+        payloads,
         capacity,
     )
-    .await?;
-    decode_frames_with_codec(codec, raw)
+    .await
 }

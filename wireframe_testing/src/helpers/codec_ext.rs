@@ -24,7 +24,8 @@ use wireframe::codec::FrameCodec;
 /// use wireframe_testing::encode_payloads_with_codec;
 ///
 /// let codec = HotlineFrameCodec::new(4096);
-/// let frames = encode_payloads_with_codec(&codec, vec![vec![1, 2, 3]]).unwrap();
+/// let frames = encode_payloads_with_codec(&codec, vec![vec![1, 2, 3]])
+///     .expect("encoding should succeed for a valid payload");
 /// assert!(!frames.is_empty());
 /// ```
 pub fn encode_payloads_with_codec<F: FrameCodec>(
@@ -51,13 +52,16 @@ pub fn encode_payloads_with_codec<F: FrameCodec>(
 /// Decode raw wire bytes into frames using `codec`.
 ///
 /// The byte vector is fed into the codec's decoder until no more complete
-/// frames can be extracted. Trailing bytes that do not form a complete frame
-/// are silently ignored (matching the behaviour of a connection that is shut
-/// down after the last response).
+/// frames can be extracted. After the main decode loop, `decode_eof` is called
+/// to flush any partial frame remaining in the buffer. If the buffer still
+/// contains unconsumed bytes after `decode_eof` returns `None`, an error is
+/// returned — this catches truncation bugs where the server emits incomplete
+/// trailing data.
 ///
 /// # Errors
 ///
-/// Returns an error if the decoder encounters malformed data.
+/// Returns an error if the decoder encounters malformed data or if trailing
+/// bytes remain that do not form a complete frame.
 ///
 /// ```rust
 /// use wireframe::codec::examples::HotlineFrameCodec;
@@ -65,11 +69,12 @@ pub fn encode_payloads_with_codec<F: FrameCodec>(
 ///
 /// let codec = HotlineFrameCodec::new(4096);
 /// let wire: Vec<u8> = encode_payloads_with_codec(&codec, vec![vec![42]])
-///     .unwrap()
+///     .expect("encoding should succeed")
 ///     .into_iter()
 ///     .flatten()
 ///     .collect();
-/// let frames = decode_frames_with_codec(&codec, wire).unwrap();
+/// let frames = decode_frames_with_codec(&codec, wire)
+///     .expect("decoding should succeed for well-formed wire bytes");
 /// assert_eq!(frames.len(), 1);
 /// ```
 pub fn decode_frames_with_codec<F: FrameCodec>(
@@ -87,6 +92,27 @@ pub fn decode_frames_with_codec<F: FrameCodec>(
     })? {
         frames.push(frame);
     }
+
+    // Flush any partial frame remaining at stream end.
+    while let Some(frame) = decoder.decode_eof(&mut buf).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("codec decode_eof failed: {error}"),
+        )
+    })? {
+        frames.push(frame);
+    }
+
+    if !buf.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "trailing {} byte(s) after decoding — possible truncated frame",
+                buf.len()
+            ),
+        ));
+    }
+
     Ok(frames)
 }
 

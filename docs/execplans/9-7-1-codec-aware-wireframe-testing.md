@@ -100,10 +100,10 @@ codec-aware drivers with `HotlineFrameCodec`.
 
 ## Surprises & discoveries
 
-- `WireframeApp` does not implement `Debug`. The BDD world struct
-  `CodecTestHarnessWorld` stores an `Option<WireframeApp<...>>`, so
-  `#[derive(Debug)]` cannot be used. Resolved with a manual `Debug`
-  implementation that redacts the app field.
+- `WireframeApp` does not implement `Debug`. The behaviour-driven
+  development (BDD) world struct `CodecTestHarnessWorld` stores an
+  `Option<WireframeApp<...>>`, so `#[derive(Debug)]` cannot be used. Resolved
+  with a manual `Debug` implementation that redacts the app field.
 
 - `wireframe_testing` is a dev-dependency of the main crate, not a workspace
   member. Internal `#[cfg(test)]` modules within `wireframe_testing` do not run
@@ -324,11 +324,11 @@ Add module declaration `mod codec_drive;` and re-exports in
 Stage C acceptance: `make check-fmt && make lint` pass. Functions compile and
 are accessible from the crate root.
 
-### Stage D: add rstest unit tests
+### Stage D: add integration tests
 
-Create `wireframe_testing/src/helpers/tests/codec_drive_tests.rs` with unit
-tests using `rstest`. Wire the module from
-`wireframe_testing/src/helpers/tests/mod.rs`.
+Create `tests/codec_test_harness.rs` as an integration test file exercising the
+new codec-aware drivers. (The tests live outside `wireframe_testing` because
+the crate is a dev-dependency, not a workspace member — see Surprises.)
 
 Tests to implement:
 
@@ -439,9 +439,9 @@ Stage G acceptance: all commands exit 0.
 
 Quality criteria (what "done" means):
 
-- Tests: `make test` passes, including the new rstest unit tests in
-  `wireframe_testing/src/helpers/tests/codec_drive_tests.rs` and the new
-  rstest-bdd scenarios in `tests/scenarios/codec_test_harness_scenarios.rs`.
+- Tests: `make test` passes, including the new integration tests in
+  `tests/codec_test_harness.rs` and the new rstest-bdd scenarios in
+  `tests/scenarios/codec_test_harness_scenarios.rs`.
 - Lint: `make lint` passes (Clippy with `-D warnings` on all targets).
 - Format: `make check-fmt` passes.
 - Markdown: `make markdownlint` passes.
@@ -452,7 +452,7 @@ Quality method:
 
 - Run the shell commands in Stage G and verify all exit 0.
 - Verify the new BDD scenarios pass: `cargo test codec_test_harness`.
-- Verify the new unit tests pass: `cargo test --package wireframe_testing`.
+- Verify the new integration tests pass: `cargo test codec_test_harness`.
 
 ## Idempotence and recovery
 

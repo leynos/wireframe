@@ -212,7 +212,7 @@ implementations.
 
 Retrieve the configured codec from a `WireframeApp` instance:
 
-```rust
+```rust,no_run
 use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
 
@@ -226,7 +226,7 @@ let codec_ref = app.codec(); // &HotlineFrameCodec
 The `wireframe_testing` crate provides codec-aware driver functions that handle
 frame encoding and decoding transparently:
 
-```rust
+```rust,no_run
 use wireframe::codec::examples::HotlineFrameCodec;
 use wireframe_testing::{drive_with_codec_payloads, drive_with_codec_frames};
 
