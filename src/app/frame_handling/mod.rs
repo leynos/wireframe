@@ -17,7 +17,7 @@ pub(crate) use assembly::{
     new_message_assembly_state,
     purge_expired_assemblies,
 };
-pub(crate) use backpressure::{MemoryPressureAction, evaluate_memory_pressure};
+pub(crate) use backpressure::{apply_memory_pressure, evaluate_memory_pressure};
 pub(crate) use decode::decode_envelope;
 pub(crate) use reassembly::reassemble_if_needed;
 pub(crate) use response::forward_response;

@@ -9,6 +9,9 @@
 
 use std::time::Duration;
 
+use log::{debug, warn};
+use tokio::{io, time::sleep};
+
 use crate::{app::MemoryBudgets, message_assembler::MessageAssemblyState};
 
 /// Soft-pressure threshold numerator (4/5 == 80%).
@@ -46,6 +49,39 @@ pub(crate) fn evaluate_memory_pressure(
         return MemoryPressureAction::Pause(SOFT_LIMIT_PAUSE_DURATION);
     }
     MemoryPressureAction::Continue
+}
+
+/// Act on the result of [`evaluate_memory_pressure`].
+///
+/// - `Abort`: logs a warning and returns `Err(InvalidData)`.
+/// - `Pause(d)`: logs at debug level, sleeps for `d`, then purges expired assemblies via the
+///   caller-supplied closure.
+/// - `Continue`: no-op.
+///
+/// # Errors
+///
+/// Returns an [`io::Error`] with kind `InvalidData` when the hard cap is
+/// breached.
+pub(crate) async fn apply_memory_pressure(
+    action: MemoryPressureAction,
+    mut purge: impl FnMut(),
+) -> io::Result<()> {
+    match action {
+        MemoryPressureAction::Abort => {
+            warn!("memory budget hard cap exceeded; aborting connection");
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "per-connection memory budget hard cap exceeded",
+            ))
+        }
+        MemoryPressureAction::Pause(duration) => {
+            debug!("soft memory budget pressure; pausing inbound reads");
+            sleep(duration).await;
+            purge();
+            Ok(())
+        }
+        MemoryPressureAction::Continue => Ok(()),
+    }
 }
 
 /// Return `true` when buffered assembly bytes strictly exceed the aggregate

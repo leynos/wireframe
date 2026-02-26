@@ -241,9 +241,18 @@ impl MemoryBudgetHardCapWorld {
         self.send_payload(payload)
     }
 
-    /// Assert that the connection has terminated with an error.
+    /// Assert that the connection has terminated with an error and that no
+    /// payloads were delivered before the abort.
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
+        self.drain_ready_payloads()?;
+        if !self.observed_payloads.is_empty() {
+            return Err(format!(
+                "expected no payloads before abort, but received: {:?}",
+                self.observed_payloads
+            )
+            .into());
+        }
         let server = self.server.take().ok_or("server not initialized")?;
         let result = self.block_on(server)?;
         match result {
@@ -331,5 +340,54 @@ impl MemoryBudgetHardCapWorld {
         }
         self.observed_rx = Some(observed_rx);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod hard_cap_config_tests {
+    use std::str::FromStr;
+
+    use rstest::rstest;
+
+    use super::HardCapConfig;
+
+    #[rstest]
+    fn valid_four_segment_input() {
+        let c = HardCapConfig::from_str("200/2048/8/8").expect("valid input");
+        assert_eq!(
+            (c.timeout_ms, c.per_message, c.per_connection, c.in_flight),
+            (200, 2048, 8, 8)
+        );
+    }
+
+    #[rstest]
+    #[case::missing_first("/64/100/100")]
+    #[case::missing_second("10//100/100")]
+    #[case::missing_third("10/64//100")]
+    #[case::missing_fourth("10/64/100/")]
+    #[case::only_three("10/64/100")]
+    #[case::extra_segment("10/64/100/100/extra")]
+    #[case::alphabetic_timeout("abc/64/100/100")]
+    #[case::alphabetic_budget("10/abc/100/100")]
+    #[case::negative_value("10/64/-1/100")]
+    fn invalid_inputs_are_rejected(#[case] input: &str) {
+        assert!(
+            HardCapConfig::from_str(input).is_err(),
+            "expected Err for {input:?}"
+        );
+    }
+
+    #[rstest]
+    fn zero_timeout_is_accepted() {
+        let c = HardCapConfig::from_str("0/64/100/100").expect("zero timeout is valid");
+        assert_eq!(c.timeout_ms, 0);
+    }
+
+    // Zero budgets parse as valid `usize` values. The non-zero constraint is
+    // enforced later by `start_app()` via `NonZeroUsize::new(...)`.
+    #[rstest]
+    fn zero_budget_parses_successfully() {
+        let c = HardCapConfig::from_str("10/0/100/100").expect("zero budget parses");
+        assert_eq!(c.per_message, 0);
     }
 }

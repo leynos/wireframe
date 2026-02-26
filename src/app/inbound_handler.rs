@@ -7,7 +7,7 @@ use futures::{SinkExt, StreamExt};
 use log::{debug, warn};
 use tokio::{
     io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
-    time::{Duration, sleep, timeout},
+    time::{Duration, timeout},
 };
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
 
@@ -17,7 +17,7 @@ use super::{
     combined_codec::{CombinedCodec, ConnectionCodec},
     envelope::{Envelope, Packet},
     error::SendError,
-    frame_handling::{self, MemoryPressureAction},
+    frame_handling,
 };
 use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
@@ -278,24 +278,14 @@ where
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
-            match frame_handling::evaluate_memory_pressure(
+            let pressure = frame_handling::evaluate_memory_pressure(
                 message_assembly.as_ref(),
                 self.memory_budgets,
-            ) {
-                MemoryPressureAction::Abort => {
-                    warn!("memory budget hard cap exceeded; aborting connection");
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "per-connection memory budget hard cap exceeded",
-                    ));
-                }
-                MemoryPressureAction::Pause(duration) => {
-                    debug!("soft memory budget pressure; pausing inbound reads");
-                    sleep(duration).await;
-                    purge_expired(&mut pipeline, &mut message_assembly);
-                }
-                MemoryPressureAction::Continue => {}
-            }
+            );
+            frame_handling::apply_memory_pressure(pressure, || {
+                purge_expired(&mut pipeline, &mut message_assembly);
+            })
+            .await?;
 
             match timeout(timeout_dur, framed.next()).await {
                 Ok(Some(Ok(frame))) => {

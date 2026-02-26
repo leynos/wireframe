@@ -87,7 +87,7 @@ Success is observable when:
 - Dependencies: if any new crate is required, stop and escalate.
 - Semantics ambiguity: if the project requires a specific hard-cap threshold
   other than 100% of `active_aggregate_limit_bytes`, stop and present options
-  with trade-offs before finalising behaviour.
+  with trade-offs before finalizing behaviour.
 - Iterations: if the same failing gate persists after 3 focused attempts, stop
   and escalate.
 - Time: if any single stage exceeds 4 hours elapsed effort, stop and escalate.
@@ -111,11 +111,11 @@ Success is observable when:
   `inbound_handler.rs`, consuming the existing `total_buffered_bytes()` query
   from the outside.
 
-- Risk: BDD step-text collisions with existing step definitions from
-  `memory_budget_backpressure_steps.rs` or `memory_budgets_steps.rs`. Severity:
-  medium. Likelihood: medium. Mitigation: all new step phrases will use a
-  `hard-cap` prefix (e.g., "a hard-cap inbound app configured as …", "the
-  hard-cap connection terminates with an error").
+- Risk: behaviour-driven development (BDD) step-text collisions with existing
+  step definitions from `memory_budget_backpressure_steps.rs` or
+  `memory_budgets_steps.rs`. Severity: medium. Likelihood: medium. Mitigation:
+  all new step phrases will use a `hard-cap` prefix (e.g., "a hard-cap inbound
+  app configured as …", "the hard-cap connection terminates with an error").
 
 - Risk: The BDD test must prove the connection is terminated, which is harder
   to observe than a delayed payload. Severity: medium. Likelihood: medium.

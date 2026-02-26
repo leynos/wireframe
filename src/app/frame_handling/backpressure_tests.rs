@@ -5,8 +5,7 @@ use std::{error::Error, io, num::NonZeroUsize, time::Duration};
 use rstest::{fixture, rstest};
 
 use super::{
-    MemoryPressureAction,
-    backpressure::{has_hard_cap_been_breached, should_pause_inbound_reads},
+    backpressure::{MemoryPressureAction, has_hard_cap_been_breached, should_pause_inbound_reads},
     evaluate_memory_pressure,
 };
 use crate::{
@@ -230,8 +229,7 @@ impl ExpectedAction {
 #[case::no_budgets_configured(200, false, ExpectedAction::Continue)]
 #[case::below_soft_limit(50, true, ExpectedAction::Continue)]
 #[case::at_soft_limit(80, true, ExpectedAction::Pause)]
-#[case::above_hard_cap(101, true, ExpectedAction::Abort)]
-#[case::abort_takes_priority_over_pause(101, true, ExpectedAction::Abort)]
+#[case::above_hard_cap_abort_takes_priority(101, true, ExpectedAction::Abort)]
 fn evaluate_memory_pressure_behaviour(
     #[case] buffered_bytes: usize,
     #[case] use_budgets: bool,
@@ -249,4 +247,22 @@ fn evaluate_memory_pressure_behaviour(
         .into());
     }
     Ok(())
+}
+
+#[rstest]
+fn evaluate_pause_uses_expected_duration(budgets: TestResult<MemoryBudgets>) -> TestResult {
+    let state = state_with_buffered_bytes(80)?;
+    let action = evaluate_memory_pressure(Some(&state), Some(budgets?));
+    match action {
+        MemoryPressureAction::Pause(duration) => {
+            if duration != Duration::from_millis(5) {
+                return Err(io::Error::other(format!(
+                    "expected 5 ms pause duration, got {duration:?}"
+                ))
+                .into());
+            }
+            Ok(())
+        }
+        other => Err(io::Error::other(format!("expected Pause, got {other:?}")).into()),
+    }
 }
