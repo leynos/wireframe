@@ -17,7 +17,7 @@ use super::{
     combined_codec::{CombinedCodec, ConnectionCodec},
     envelope::{Envelope, Packet},
     error::SendError,
-    frame_handling,
+    frame_handling::{self, MemoryPressureAction},
 };
 use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
@@ -278,13 +278,23 @@ where
         let timeout_dur = Duration::from_millis(self.read_timeout_ms);
 
         loop {
-            if frame_handling::should_pause_inbound_reads(
+            match frame_handling::evaluate_memory_pressure(
                 message_assembly.as_ref(),
                 self.memory_budgets,
             ) {
-                debug!("soft memory budget pressure detected; pausing inbound reads briefly");
-                sleep(frame_handling::soft_limit_pause_duration()).await;
-                purge_expired(&mut pipeline, &mut message_assembly);
+                MemoryPressureAction::Abort => {
+                    warn!("memory budget hard cap exceeded; aborting connection");
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "per-connection memory budget hard cap exceeded",
+                    ));
+                }
+                MemoryPressureAction::Pause(duration) => {
+                    debug!("soft memory budget pressure; pausing inbound reads");
+                    sleep(duration).await;
+                    purge_expired(&mut pipeline, &mut message_assembly);
+                }
+                MemoryPressureAction::Continue => {}
             }
 
             match timeout(timeout_dur, framed.next()).await {

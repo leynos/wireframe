@@ -17,6 +17,7 @@ mod correlation_steps;
 mod fragment_steps;
 mod interleaved_push_queues_steps;
 mod memory_budget_backpressure_steps;
+mod memory_budget_hard_cap_steps;
 mod memory_budgets_steps;
 mod message_assembler_steps;
 mod message_assembly_inbound_steps;

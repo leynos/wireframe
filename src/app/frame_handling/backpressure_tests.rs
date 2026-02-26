@@ -1,10 +1,14 @@
-//! Unit tests for soft-limit back-pressure policy helpers.
+//! Unit tests for memory budget pressure policy helpers.
 
 use std::{error::Error, io, num::NonZeroUsize, time::Duration};
 
 use rstest::{fixture, rstest};
 
-use super::should_pause_inbound_reads;
+use super::{
+    MemoryPressureAction,
+    backpressure::{has_hard_cap_been_breached, should_pause_inbound_reads},
+    evaluate_memory_pressure,
+};
 use crate::{
     app::{BudgetBytes, MemoryBudgets},
     message_assembler::{
@@ -114,6 +118,136 @@ fn uses_smallest_aggregate_budget_dimension() -> TestResult {
     let state = state_with_buffered_bytes(80)?;
     if !should_pause_inbound_reads(Some(&state), Some(budgets)) {
         return Err(io::Error::other("expected pause at derived soft limit threshold").into());
+    }
+    Ok(())
+}
+
+// ---------- hard-cap policy tests ----------
+
+#[rstest]
+fn hard_cap_not_breached_when_budgets_are_not_configured() -> TestResult {
+    let state = state_with_buffered_bytes(200)?;
+    if has_hard_cap_been_breached(Some(&state), None) {
+        return Err(
+            io::Error::other("did not expect breach when budgets are not configured").into(),
+        );
+    }
+    Ok(())
+}
+
+#[rstest]
+fn hard_cap_not_breached_when_state_is_not_available(
+    budgets: TestResult<MemoryBudgets>,
+) -> TestResult {
+    if has_hard_cap_been_breached(None, Some(budgets?)) {
+        return Err(io::Error::other("did not expect breach when state is not available").into());
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case(99, false)]
+#[case(100, false)]
+#[case(101, true)]
+fn hard_cap_threshold_behaviour(
+    #[case] buffered_bytes: usize,
+    #[case] expected_breached: bool,
+    budgets: TestResult<MemoryBudgets>,
+) -> TestResult {
+    let state = state_with_buffered_bytes(buffered_bytes)?;
+    let actual = has_hard_cap_been_breached(Some(&state), Some(budgets?));
+    if actual != expected_breached {
+        return Err(io::Error::other(format!(
+            concat!(
+                "hard cap mismatch: buffered_bytes={}, expected={}, ",
+                "actual={}"
+            ),
+            buffered_bytes, expected_breached, actual
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+#[rstest]
+fn hard_cap_uses_smallest_aggregate_budget_dimension() -> TestResult {
+    let per_message =
+        NonZeroUsize::new(1024).ok_or_else(|| io::Error::other("1024 is non-zero"))?;
+    let per_connection =
+        NonZeroUsize::new(200).ok_or_else(|| io::Error::other("200 is non-zero"))?;
+    let in_flight = NonZeroUsize::new(100).ok_or_else(|| io::Error::other("100 is non-zero"))?;
+    let budgets = MemoryBudgets::new(
+        BudgetBytes::new(per_message),
+        BudgetBytes::new(per_connection),
+        BudgetBytes::new(in_flight),
+    );
+    let state = state_with_buffered_bytes(101)?;
+    if !has_hard_cap_been_breached(Some(&state), Some(budgets)) {
+        return Err(io::Error::other("expected breach at smallest aggregate dimension").into());
+    }
+    Ok(())
+}
+
+// ---------- combined evaluate_memory_pressure tests ----------
+
+#[rstest]
+fn evaluate_returns_continue_when_no_budgets_configured() -> TestResult {
+    let state = state_with_buffered_bytes(200)?;
+    let action = evaluate_memory_pressure(Some(&state), None);
+    if action != MemoryPressureAction::Continue {
+        return Err(
+            io::Error::other(format!("expected Continue without budgets, got {action:?}")).into(),
+        );
+    }
+    Ok(())
+}
+
+#[rstest]
+fn evaluate_returns_continue_below_soft_limit(budgets: TestResult<MemoryBudgets>) -> TestResult {
+    let state = state_with_buffered_bytes(50)?;
+    let action = evaluate_memory_pressure(Some(&state), Some(budgets?));
+    if action != MemoryPressureAction::Continue {
+        return Err(
+            io::Error::other(format!("expected Continue at 50/100 bytes, got {action:?}")).into(),
+        );
+    }
+    Ok(())
+}
+
+#[rstest]
+fn evaluate_returns_pause_at_soft_limit(budgets: TestResult<MemoryBudgets>) -> TestResult {
+    let state = state_with_buffered_bytes(80)?;
+    let action = evaluate_memory_pressure(Some(&state), Some(budgets?));
+    if !matches!(action, MemoryPressureAction::Pause(_)) {
+        return Err(
+            io::Error::other(format!("expected Pause at 80/100 bytes, got {action:?}")).into(),
+        );
+    }
+    Ok(())
+}
+
+#[rstest]
+fn evaluate_returns_abort_above_hard_cap(budgets: TestResult<MemoryBudgets>) -> TestResult {
+    let state = state_with_buffered_bytes(101)?;
+    let action = evaluate_memory_pressure(Some(&state), Some(budgets?));
+    if action != MemoryPressureAction::Abort {
+        return Err(
+            io::Error::other(format!("expected Abort at 101/100 bytes, got {action:?}")).into(),
+        );
+    }
+    Ok(())
+}
+
+#[rstest]
+fn evaluate_abort_takes_priority_over_pause(budgets: TestResult<MemoryBudgets>) -> TestResult {
+    // 101 bytes exceeds both soft limit (80%) and hard cap (100%)
+    let state = state_with_buffered_bytes(101)?;
+    let action = evaluate_memory_pressure(Some(&state), Some(budgets?));
+    if action != MemoryPressureAction::Abort {
+        return Err(io::Error::other(format!(
+            "expected Abort to take priority over Pause, got {action:?}"
+        ))
+        .into());
     }
     Ok(())
 }
