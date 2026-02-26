@@ -10,32 +10,24 @@ use criterion::{BenchmarkId, Criterion, Throughput, black_box};
 #[path = "../tests/common/codec_benchmark_support.rs"]
 mod codec_benchmark_support;
 
+#[path = "../tests/common/codec_fragmentation_benchmark_support.rs"]
+mod codec_fragmentation_benchmark_support;
+
 use codec_benchmark_support::{
-    AllocationBaseline,
-    FRAGMENT_PAYLOAD_CAP_BYTES,
     Measurement,
     PayloadClass,
     VALIDATION_ITERATIONS,
-    allocation_label,
     benchmark_workloads,
     measure_decode,
     measure_encode,
+};
+use codec_fragmentation_benchmark_support::{
+    FRAGMENT_PAYLOAD_CAP_BYTES,
+    MeasurementExt as _,
     measure_fragmentation_overhead,
     measure_fragmented_wrap,
     measure_unfragmented_wrap,
 };
-
-fn keep_shared_support_symbols_reachable() {
-    if let Some(workload) = benchmark_workloads().first().copied() {
-        let _ = allocation_label(
-            workload,
-            AllocationBaseline {
-                wrap_allocations: 0,
-                decode_allocations: 0,
-            },
-        );
-    }
-}
 
 fn fragmented_measurement(payload_class: PayloadClass, iterations: u64) -> Measurement {
     match measure_fragmented_wrap(payload_class, iterations, FRAGMENT_PAYLOAD_CAP_BYTES) {
@@ -136,8 +128,6 @@ fn benchmark_fragmentation_overhead(c: &mut Criterion) {
 
 /// Entrypoint for codec throughput, latency, and fragmentation benchmarks.
 fn main() {
-    keep_shared_support_symbols_reachable();
-
     let mut criterion = Criterion::default().configure_from_args();
     benchmark_encode(&mut criterion);
     benchmark_decode(&mut criterion);

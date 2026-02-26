@@ -19,21 +19,18 @@ use wireframe::codec::{
     examples::{HotlineAdapter, HotlineFrameCodec},
 };
 
-#[expect(
-    dead_code,
-    reason = "FIXME: https://github.com/leynos/wireframe/issues/480 - split shared benchmark \
-              support to avoid importing unused helpers in this bench."
-)]
 #[path = "../tests/common/codec_benchmark_support.rs"]
 mod codec_benchmark_support;
 
+#[path = "../tests/common/codec_alloc_benchmark_support.rs"]
+mod codec_alloc_benchmark_support;
+
+use codec_alloc_benchmark_support::{AllocationBaseline, allocation_label};
 use codec_benchmark_support::{
-    AllocationBaseline,
     BenchmarkWorkload,
     CodecUnderTest,
     LARGE_PAYLOAD_BYTES,
     VALIDATION_ITERATIONS,
-    allocation_label,
     benchmark_workloads,
     measure_decode,
     measure_encode,

@@ -5,15 +5,23 @@ use rstest::fixture;
 #[path = "../common/codec_benchmark_support.rs"]
 mod codec_benchmark_support;
 
+#[path = "../common/codec_fragmentation_benchmark_support.rs"]
+mod codec_fragmentation_benchmark_support;
+
+#[path = "../common/codec_alloc_benchmark_support.rs"]
+mod codec_alloc_benchmark_support;
+
+use codec_alloc_benchmark_support::{AllocationBaseline, allocation_label};
 use codec_benchmark_support::{
-    AllocationBaseline,
-    FRAGMENT_PAYLOAD_CAP_BYTES,
-    FragmentationOverhead,
     VALIDATION_ITERATIONS,
-    allocation_label,
     benchmark_workloads,
     measure_decode,
     measure_encode,
+};
+use codec_fragmentation_benchmark_support::{
+    FRAGMENT_PAYLOAD_CAP_BYTES,
+    FragmentationOverhead,
+    MeasurementExt as _,
     measure_fragmentation_overhead,
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
