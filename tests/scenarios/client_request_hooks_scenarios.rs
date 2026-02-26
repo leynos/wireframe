@@ -35,3 +35,19 @@ fn hooks_execute_in_order(client_request_hooks_world: ClientRequestHooksWorld) {
 fn both_hooks_fire(client_request_hooks_world: ClientRequestHooksWorld) {
     let _ = client_request_hooks_world;
 }
+
+#[scenario(
+    path = "tests/features/client_request_hooks.feature",
+    name = "Before-send hook can mutate outbound frame bytes"
+)]
+fn before_send_hook_mutates_frame(client_request_hooks_world: ClientRequestHooksWorld) {
+    let _ = client_request_hooks_world;
+}
+
+#[scenario(
+    path = "tests/features/client_request_hooks.feature",
+    name = "After-receive hook can mutate inbound bytes before deserialization"
+)]
+fn after_receive_hook_mutates_frame(client_request_hooks_world: ClientRequestHooksWorld) {
+    let _ = client_request_hooks_world;
+}

@@ -3,10 +3,6 @@
 //! Provides server/client coordination for request hook scenarios.
 
 #![expect(
-    clippy::expect_used,
-    reason = "test code uses expect for concise assertions"
-)]
-#![expect(
     clippy::excessive_nesting,
     reason = "spawned server tasks naturally nest several levels deep"
 )]
@@ -35,6 +31,9 @@ use wireframe::{
 pub use wireframe_testing::TestResult;
 use wireframe_testing::{ServerMode, process_frame};
 
+/// Marker byte appended by the `before_send` mutation hook.
+const MARKER_BYTE: u8 = 0xff;
+
 /// Client type alias for request hook tests.
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>;
 
@@ -43,15 +42,20 @@ type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::Tc
 pub struct ClientRequestHooksWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
+    capturing_server: Option<JoinHandle<Vec<Vec<u8>>>>,
     client: Option<TestClient>,
     before_send_count: Arc<AtomicUsize>,
     after_receive_count: Arc<AtomicUsize>,
     marker_log: Arc<Mutex<Vec<u8>>>,
+    received_payload: Option<Vec<u8>>,
 }
 
 impl Drop for ClientRequestHooksWorld {
     fn drop(&mut self) {
         if let Some(handle) = self.server.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.capturing_server.take() {
             handle.abort();
         }
     }
@@ -74,7 +78,9 @@ impl ClientRequestHooksWorld {
         let addr = listener.local_addr()?;
 
         let handle = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("accept client");
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
             let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
             while let Some(Ok(bytes)) = framed.next().await {
@@ -89,6 +95,35 @@ impl ClientRequestHooksWorld {
 
         self.addr = Some(addr);
         self.server = Some(handle);
+        Ok(())
+    }
+
+    /// Spawn a capturing server that records raw frames and echoes them back.
+    ///
+    /// # Errors
+    /// Returns an error if binding fails.
+    pub async fn start_capturing_server(&mut self) -> TestResult {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+
+        let handle = tokio::spawn(async move {
+            let Ok((stream, _)) = listener.accept().await else {
+                return Vec::new();
+            };
+            let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
+            let mut captured = Vec::new();
+
+            while let Some(Ok(bytes)) = framed.next().await {
+                captured.push(bytes.to_vec());
+                if framed.send(bytes.freeze()).await.is_err() {
+                    break;
+                }
+            }
+            captured
+        });
+
+        self.addr = Some(addr);
+        self.capturing_server = Some(handle);
         Ok(())
     }
 
@@ -145,10 +180,14 @@ impl ClientRequestHooksWorld {
         let log_b = Arc::clone(&self.marker_log);
         self.connect_with_hooks(|b| {
             b.before_send(move |_bytes: &mut Vec<u8>| {
-                log_a.lock().expect("lock").push(b'A');
+                if let Ok(mut guard) = log_a.lock() {
+                    guard.push(b'A');
+                }
             })
             .before_send(move |_bytes: &mut Vec<u8>| {
-                log_b.lock().expect("lock").push(b'B');
+                if let Ok(mut guard) = log_b.lock() {
+                    guard.push(b'B');
+                }
             })
         })
         .await
@@ -172,6 +211,36 @@ impl ClientRequestHooksWorld {
         .await
     }
 
+    /// Connect a client with a `before_send` hook that appends a marker byte.
+    ///
+    /// # Errors
+    /// Returns an error if server address is missing or connection fails.
+    pub async fn connect_with_before_send_marker(&mut self) -> TestResult {
+        self.connect_with_hooks(|b| {
+            b.before_send(move |bytes: &mut Vec<u8>| {
+                bytes.push(MARKER_BYTE);
+            })
+        })
+        .await
+    }
+
+    /// Connect a client with an `after_receive` hook that replaces the frame.
+    ///
+    /// # Errors
+    /// Returns an error if server address is missing or connection fails.
+    pub async fn connect_with_after_receive_replacement(&mut self) -> TestResult {
+        let replacement = Envelope::new(42, Some(1), vec![99, 98, 97]);
+        let replacement_bytes = bincode::encode_to_vec(&replacement, bincode::config::standard())?;
+
+        self.connect_with_hooks(move |b| {
+            b.after_receive(move |bytes: &mut bytes::BytesMut| {
+                bytes.clear();
+                bytes.extend_from_slice(&replacement_bytes);
+            })
+        })
+        .await
+    }
+
     /// Send an envelope via the configured client.
     ///
     /// # Errors
@@ -183,7 +252,7 @@ impl ClientRequestHooksWorld {
         Ok(())
     }
 
-    /// Send and receive an envelope via the configured client.
+    /// Send and receive an envelope, storing the received payload.
     ///
     /// # Errors
     /// Returns an error if client is missing or send/receive fails.
@@ -191,7 +260,8 @@ impl ClientRequestHooksWorld {
         let client = self.client.as_mut().ok_or("client missing")?;
         let envelope = Envelope::new(1, None, vec![1, 2, 3]);
         client.send_envelope(envelope).await?;
-        let _response: Envelope = client.receive_envelope().await?;
+        let response: Envelope = client.receive_envelope().await?;
+        self.received_payload = Some(response.payload_bytes().to_vec());
         Ok(())
     }
 
@@ -206,6 +276,23 @@ impl ClientRequestHooksWorld {
         Ok(())
     }
 
+    /// Collect captured frames from the capturing server.
+    ///
+    /// # Errors
+    /// Returns an error if the capturing server is missing or panicked.
+    pub async fn collect_captured_frames(
+        &mut self,
+    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+        // Drop client first so the server sees EOF.
+        self.client.take();
+        let handle = self
+            .capturing_server
+            .take()
+            .ok_or("capturing server missing")?;
+        let frames = handle.await?;
+        Ok(frames)
+    }
+
     /// Get the `before_send` counter value.
     #[must_use]
     pub fn before_send_count(&self) -> usize { self.before_send_count.load(Ordering::SeqCst) }
@@ -215,6 +302,19 @@ impl ClientRequestHooksWorld {
     pub fn after_receive_count(&self) -> usize { self.after_receive_count.load(Ordering::SeqCst) }
 
     /// Get the marker log contents.
+    ///
+    /// # Errors
+    /// Returns an error if the lock is poisoned.
+    pub fn marker_log(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        let guard = self.marker_log.lock().map_err(|e| e.to_string())?;
+        Ok(guard.clone())
+    }
+
+    /// Get the received payload from the last `send_and_receive_envelope`.
     #[must_use]
-    pub fn marker_log(&self) -> Vec<u8> { self.marker_log.lock().expect("lock").clone() }
+    pub fn received_payload(&self) -> Option<&[u8]> { self.received_payload.as_deref() }
+
+    /// The marker byte used by the `before_send` mutation hook.
+    #[must_use]
+    pub fn marker_byte() -> u8 { MARKER_BYTE }
 }

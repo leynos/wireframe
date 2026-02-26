@@ -7,6 +7,7 @@ use std::sync::{
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
+use rstest::{fixture, rstest};
 use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe_testing::ServerMode;
@@ -183,6 +184,20 @@ impl HookLog {
     }
 }
 
+/// Fixture: create a fresh [`HookCounter`].
+#[rustfmt::skip]
+#[fixture]
+fn hook_counter() -> HookCounter {
+    HookCounter::new()
+}
+
+/// Fixture: create a fresh [`HookLog`].
+#[rustfmt::skip]
+#[fixture]
+fn hook_log() -> HookLog {
+    HookLog::new()
+}
+
 /// Helper: test body that sends an envelope.
 async fn send_envelope_test_body(client: &mut TestClient) {
     let envelope = Envelope::new(1, None, vec![1, 2, 3]);
@@ -196,62 +211,59 @@ async fn send_and_receive_test_body(client: &mut TestClient) {
     let _response: Envelope = client.receive_envelope().await.expect("receive envelope");
 }
 
+#[rstest]
 #[tokio::test]
-async fn before_send_hook_invoked_on_send() {
-    let counter = HookCounter::new();
-
+async fn before_send_hook_invoked_on_send(hook_counter: HookCounter) {
     run_hook_test(
-        |b| b.before_send(counter.before_send_hook()),
+        |b| b.before_send(hook_counter.before_send_hook()),
         |client| Box::pin(send_envelope_test_body(client)),
     )
     .await;
 
-    counter.assert_count(1, "before_send hook should be invoked once");
+    hook_counter.assert_count(1, "before_send hook should be invoked once");
 }
 
+#[rstest]
 #[tokio::test]
-async fn after_receive_hook_invoked_on_receive() {
-    let counter = HookCounter::new();
-
+async fn after_receive_hook_invoked_on_receive(hook_counter: HookCounter) {
     run_hook_test(
-        |b| b.after_receive(counter.after_receive_hook()),
+        |b| b.after_receive(hook_counter.after_receive_hook()),
         |client| Box::pin(send_and_receive_test_body(client)),
     )
     .await;
 
-    counter.assert_count(1, "after_receive hook should be invoked once");
+    hook_counter.assert_count(1, "after_receive hook should be invoked once");
 }
 
+#[rstest]
+#[case::before_send(true)]
+#[case::after_receive(false)]
 #[tokio::test]
-async fn multiple_before_send_hooks_execute_in_order() {
-    let log = HookLog::new();
-
+async fn multiple_hooks_execute_in_registration_order(
+    hook_log: HookLog,
+    #[case] is_before_send: bool,
+) {
     run_hook_test(
         |b| {
-            b.before_send(log.before_send_hook(b'A'))
-                .before_send(log.before_send_hook(b'B'))
+            if is_before_send {
+                b.before_send(hook_log.before_send_hook(b'A'))
+                    .before_send(hook_log.before_send_hook(b'B'))
+            } else {
+                b.after_receive(hook_log.after_receive_hook(b'A'))
+                    .after_receive(hook_log.after_receive_hook(b'B'))
+            }
         },
-        |client| Box::pin(send_envelope_test_body(client)),
+        |client| {
+            if is_before_send {
+                Box::pin(send_envelope_test_body(client))
+            } else {
+                Box::pin(send_and_receive_test_body(client))
+            }
+        },
     )
     .await;
 
-    log.assert_entries(b"AB", "hooks should execute in registration order");
-}
-
-#[tokio::test]
-async fn multiple_after_receive_hooks_execute_in_order() {
-    let log = HookLog::new();
-
-    run_hook_test(
-        |b| {
-            b.after_receive(log.after_receive_hook(b'A'))
-                .after_receive(log.after_receive_hook(b'B'))
-        },
-        |client| Box::pin(send_and_receive_test_body(client)),
-    )
-    .await;
-
-    log.assert_entries(b"AB", "hooks should execute in registration order");
+    hook_log.assert_entries(b"AB", "hooks should execute in registration order");
 }
 
 #[tokio::test]
@@ -304,12 +316,11 @@ async fn no_hooks_configured_works_identically() {
 #[derive(bincode::Encode, bincode::BorrowDecode)]
 struct Ping(u8);
 
+#[rstest]
 #[tokio::test]
-async fn before_send_hook_fires_for_plain_send() {
-    let counter = HookCounter::new();
-
+async fn before_send_hook_fires_for_plain_send(hook_counter: HookCounter) {
     let _captured = run_hook_test_with_capture(
-        |b| b.before_send(counter.before_send_hook()),
+        |b| b.before_send(hook_counter.before_send_hook()),
         |client| {
             Box::pin(async move {
                 // Use the plain send() API (not envelope-aware).
@@ -319,7 +330,7 @@ async fn before_send_hook_fires_for_plain_send() {
     )
     .await;
 
-    counter.assert_count(1, "before_send should fire for plain send()");
+    hook_counter.assert_count(1, "before_send should fire for plain send()");
 }
 
 #[tokio::test]

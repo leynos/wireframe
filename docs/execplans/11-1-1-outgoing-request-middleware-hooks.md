@@ -27,7 +27,7 @@ builder. These hooks fire on every message path: `send`, `send_envelope`,
 
 Observable success: a user configures `before_send` and `after_receive`
 closures on the builder, sends a message, receives a response, and both
-closures are invoked with the serialised bytes. All existing tests pass
+closures are invoked with the serialized bytes. All existing tests pass
 unchanged. New unit tests (rstest) and behavioural tests (rstest-bdd v0.5.0)
 validate hook invocation, ordering, mutation, and streaming integration.
 
@@ -84,12 +84,12 @@ Hard invariants. Violation requires escalation, not workarounds.
 
 - Risk: the `builder_field_update!` macro has three arms; adding a field
   requires a one-line addition per arm. Severity: low Likelihood: certain
-  Mitigation: `RequestHooks` is not parameterised by any generic type, so it
+  Mitigation: `RequestHooks` is not parameterized by any generic type, so it
   moves directly (`$self.request_hooks`) in all arms.
 
 ## Progress
 
-- [x] Stage A: design finalised (this document approved)
+- [x] Stage A: design finalized (this document approved)
 - [x] Stage B: scaffolding — types, traits, and builder plumbing
 - [x] Stage C: runtime integration — wire hooks into send/receive/streaming
 - [x] Stage D: unit tests (rstest) in `src/client/tests/request_hooks.rs`
@@ -131,7 +131,7 @@ Hard invariants. Violation requires escalation, not workarounds.
   server's `before_send` hook which operates on `&mut F` (the frame type,
   typically `Vec<u8>`). Operating on typed messages would require the hooks to
   be generic over every message type, making storage impossible without type
-  erasure. Raw-byte hooks can universally inspect or modify the serialised
+  erasure. Raw-byte hooks can universally inspect or modify the serialized
   payload (e.g., prepend an auth token, count bytes).
 
 - Decision: use `Arc<dyn Fn(...)>` (shared, immutable) rather than
@@ -159,9 +159,10 @@ minor deviations noted in Surprises & Discoveries.
 **Actual file counts**: 6 new files created, 16 files modified — exactly as
 estimated (22 total). All files remain under the 400-line constraint.
 
-**Test results**: 7 unit tests in `src/client/tests/request_hooks.rs` and 4 BDD
-scenarios in `tests/scenarios/client_request_hooks_scenarios.rs` all pass. All
-pre-existing tests pass unchanged (backwards compatibility verified).
+**Test results**: 9 `#[tokio::test]` / `#[rstest]` unit tests in
+`src/client/tests/request_hooks.rs` and 6 BDD scenarios in
+`tests/scenarios/client_request_hooks_scenarios.rs` all pass. All pre-existing
+tests pass unchanged (backwards compatibility verified).
 
 **Key lesson**: placing hook invocation helpers in `messaging.rs` rather than
 `runtime.rs` was a pragmatic deviation that avoided unnecessary import
@@ -230,7 +231,7 @@ Streaming path (`ResponseStream::poll_next`):
 
 1. `Pin::new(&mut client.framed).poll_next(cx)` produces `BytesMut`.
 2. **← HOOK INSERTION POINT: `after_receive` hooks modify `&mut BytesMut` →**
-3. `process_frame(&bytes)` deserialises and validates correlation.
+3. `process_frame(&bytes)` deserializes and validates correlation.
 
 ## Plan of work
 
@@ -253,7 +254,7 @@ Estimated addition: ~55 lines → file total ~168 lines.
 `src/client/builder/core.rs` (currently 61 lines).
 
 Add `pub(crate) request_hooks: RequestHooks` to the struct definition and
-initialise it as `RequestHooks::default()` in `new()`.
+initialize it as `RequestHooks::default()` in `new()`.
 
 **B3. Update `builder_field_update!` macro** in `src/client/builder/mod.rs`
 (currently 61 lines).
@@ -450,8 +451,8 @@ Add a new section "Request hooks" after the existing "Connection lifecycle
 hooks" section documenting:
 
 - The `before_send` and `after_receive` hook types.
-- That hooks operate on raw bytes (after serialisation / before
-  deserialisation).
+- That hooks operate on raw bytes (after serialization / before
+  deserialization).
 - That hooks are synchronous `Fn` closures, not async.
 - The registration-order execution semantics.
 - The rationale for synchronous hooks (compatibility with `poll_next`).
@@ -552,12 +553,12 @@ No new external crate dependencies. `bytes::BytesMut` is already available via
 In `src/client/hooks.rs`:
 
 ```rust
-/// Hook invoked after serialisation, before the frame is written to the
+/// Hook invoked after serialization, before the frame is written to the
 /// transport.
 pub type BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>;
 
 /// Hook invoked after a frame is read from the transport, before
-/// deserialisation.
+/// deserialization.
 pub type AfterReceiveHook = Arc<dyn Fn(&mut bytes::BytesMut) + Send + Sync>;
 
 /// Configuration for client request/response hooks.

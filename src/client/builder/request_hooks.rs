@@ -9,10 +9,10 @@ impl<S, P, C> WireframeClientBuilder<S, P, C>
 where
     S: Serializer + Send + Sync,
 {
-    /// Register a hook invoked after serialisation, before each frame is sent.
+    /// Register a hook invoked after serialization, before each frame is sent.
     ///
     /// Multiple hooks may be registered; they execute in registration order.
-    /// Each hook receives a mutable reference to the serialised bytes, allowing
+    /// Each hook receives a mutable reference to the serialized bytes, allowing
     /// inspection or modification (e.g., prepending an authentication token,
     /// incrementing a metrics counter).
     ///
@@ -43,11 +43,11 @@ where
     }
 
     /// Register a hook invoked after each frame is read, before
-    /// deserialisation.
+    /// deserialization.
     ///
     /// Multiple hooks may be registered; they execute in registration order.
     /// Each hook receives a mutable reference to the raw frame bytes, allowing
-    /// inspection or modification before the deserialiser processes them.
+    /// inspection or modification before the deserializer processes them.
     ///
     /// # Examples
     ///

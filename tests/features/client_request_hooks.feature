@@ -26,3 +26,13 @@ Feature: Client request hooks for outgoing and incoming frames
     When the client performs a correlated call via the hooked client
     Then the before_send counter is 1
     And the after_receive counter is 1
+
+  Scenario: Before-send hook can mutate outbound frame bytes
+    Given a client with a before_send hook that appends a marker byte
+    When the client sends an envelope via the hooked client
+    Then the captured frame ends with the marker byte
+
+  Scenario: After-receive hook can mutate inbound bytes before deserialization
+    Given a client with an after_receive hook that replaces the frame
+    When the client sends and receives an envelope via the hooked client
+    Then the received payload reflects the hook mutation
