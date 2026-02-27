@@ -18,6 +18,7 @@ mod codec_performance_benchmarks_scenarios;
 mod codec_property_roundtrip_scenarios;
 mod codec_stateful_scenarios;
 mod correlation_scenarios;
+mod derived_memory_budgets_scenarios;
 mod fragment_scenarios;
 mod interleaved_push_queues_scenarios;
 mod memory_budget_backpressure_scenarios;

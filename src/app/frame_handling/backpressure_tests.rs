@@ -5,7 +5,12 @@ use std::{error::Error, io, num::NonZeroUsize, time::Duration};
 use rstest::{fixture, rstest};
 
 use super::{
-    backpressure::{MemoryPressureAction, has_hard_cap_been_breached, should_pause_inbound_reads},
+    backpressure::{
+        MemoryPressureAction,
+        has_hard_cap_been_breached,
+        resolve_effective_budgets,
+        should_pause_inbound_reads,
+    },
     evaluate_memory_pressure,
 };
 use crate::{
@@ -265,4 +270,69 @@ fn evaluate_pause_uses_expected_duration(budgets: TestResult<MemoryBudgets>) -> 
         }
         other => Err(io::Error::other(format!("expected Pause, got {other:?}")).into()),
     }
+}
+
+// ---------- resolve_effective_budgets tests ----------
+
+#[rstest]
+fn resolve_returns_explicit_budgets_when_configured() -> TestResult {
+    let explicit = custom_budgets(512, 2048, 4096)?;
+    let resolved = resolve_effective_budgets(Some(explicit), 1024);
+    if resolved != explicit {
+        return Err(io::Error::other(format!(
+            "expected explicit budgets {explicit:?}, got {resolved:?}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+#[rstest]
+fn resolve_returns_derived_budgets_when_none() -> TestResult {
+    let resolved = resolve_effective_budgets(None, 1024);
+    if resolved.bytes_per_message().as_usize() != 16_384 {
+        return Err(io::Error::other(format!(
+            "expected derived bytes_per_message=16384, got {}",
+            resolved.bytes_per_message().as_usize()
+        ))
+        .into());
+    }
+    if resolved.bytes_per_connection().as_usize() != 65_536 {
+        return Err(io::Error::other(format!(
+            "expected derived bytes_per_connection=65536, got {}",
+            resolved.bytes_per_connection().as_usize()
+        ))
+        .into());
+    }
+    if resolved.bytes_in_flight().as_usize() != 65_536 {
+        return Err(io::Error::other(format!(
+            "expected derived bytes_in_flight=65536, got {}",
+            resolved.bytes_in_flight().as_usize()
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+#[rstest]
+fn resolve_derived_budgets_change_with_frame_budget() -> TestResult {
+    let small = resolve_effective_budgets(None, 512);
+    let large = resolve_effective_budgets(None, 2048);
+    if small.bytes_per_message().as_usize() >= large.bytes_per_message().as_usize() {
+        return Err(io::Error::other(format!(
+            "expected smaller frame budget to yield smaller per_message: {} vs {}",
+            small.bytes_per_message().as_usize(),
+            large.bytes_per_message().as_usize()
+        ))
+        .into());
+    }
+    if small.bytes_per_connection().as_usize() >= large.bytes_per_connection().as_usize() {
+        return Err(io::Error::other(format!(
+            "expected smaller frame budget to yield smaller per_connection: {} vs {}",
+            small.bytes_per_connection().as_usize(),
+            large.bytes_per_connection().as_usize()
+        ))
+        .into());
+    }
+    Ok(())
 }

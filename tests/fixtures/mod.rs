@@ -14,6 +14,7 @@ pub mod codec_performance_benchmarks;
 pub mod codec_property_roundtrip;
 pub mod codec_stateful;
 pub mod correlation;
+pub mod derived_memory_budgets;
 pub mod fragment;
 pub mod interleaved_push_queues;
 pub mod memory_budget_backpressure;
