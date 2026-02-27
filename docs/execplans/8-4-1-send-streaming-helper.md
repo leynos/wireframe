@@ -129,16 +129,16 @@ Success is observable when:
   `tokio::time::timeout` to fire naturally with real wall-clock time (50ms).
   This is reliable because the reader genuinely blocks.
 - Observation: BDD fixture worlds that share data between a spawned server
-  task and verification methods via `Arc<tokio::sync::Mutex<...>>` cause
-  "no reactor running" panics when `rt.block_on()` is called from outside
-  an async context on a `current_thread` runtime. Fix: redesign the server
-  task to return collected data via `JoinHandle<Vec<...>>`, then await
-  the handle to move data into a plain `Vec` field before verification.
-  This matches the pattern used in `client_streaming` fixtures.
+  task and verification methods via `Arc<tokio::sync::Mutex<...>>` cause "no
+  reactor running" panics when `rt.block_on()` is called from outside an async
+  context on a `current_thread` runtime. Fix: redesign the server task to
+  return collected data via `JoinHandle<Vec<...>>`, then await the handle to
+  move data into a plain `Vec` field before verification. This matches the
+  pattern used in `client_streaming` fixtures.
 - Observation: this project enforces strict clippy lints including
   `indexing_slicing`, `panic_in_result_fn`, `integer_division_remainder_used`,
-  `cast_possible_truncation`, and `allow_attributes_without_reason`. Test
-  code must use `.get()` instead of `[]`, return `Err(...)` instead of
+  `cast_possible_truncation`, and `allow_attributes_without_reason`. Test code
+  must use `.get()` instead of `[]`, return `Err(...)` instead of
   `assert!`/`panic!`, and provide reasons on `#[expect]` attributes.
 
 ## Decision log

@@ -18,6 +18,54 @@ use crate::client::{ClientError, SendStreamingConfig, SendStreamingOutcome};
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
+/// Spawn a server, send a body of `body_size` bytes with the given
+/// `chunk_size`, and verify both the client outcome and the number of
+/// frames the server received.
+async fn test_frames_sent_for_body(
+    protocol_header: &[u8],
+    body_size: usize,
+    chunk_size: usize,
+    expected_frames: u64,
+) -> TestResult {
+    let (server, frames) = spawn_receiving_server().await?;
+    let mut client = create_send_client(server.addr).await?;
+
+    let body_vec;
+    let body: &[u8] = if body_size == 0 {
+        &[]
+    } else {
+        body_vec = test_body(body_size);
+        &body_vec
+    };
+
+    let config = SendStreamingConfig::default().with_chunk_size(chunk_size);
+
+    let outcome = client.send_streaming(protocol_header, body, config).await?;
+
+    if outcome.frames_sent() != expected_frames {
+        return Err(format!(
+            "expected {expected_frames} frames, got {}",
+            outcome.frames_sent()
+        )
+        .into());
+    }
+
+    drop(client);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let expected_len = usize::try_from(expected_frames)?;
+    let received = frames.lock().await;
+    if received.len() != expected_len {
+        return Err(format!(
+            "server should receive {expected_frames} frames, got {}",
+            received.len()
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
 // -----------------------------------------------------------------------
 // Core chunking behaviour
 // -----------------------------------------------------------------------
@@ -110,33 +158,7 @@ async fn frame_payload_contains_correct_body_bytes(protocol_header: Vec<u8>) -> 
 #[rstest]
 #[tokio::test]
 async fn exact_chunk_boundary_produces_single_frame(protocol_header: Vec<u8>) -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
-    let mut client = create_send_client(server.addr).await?;
-
-    let body = test_body(100);
-    let config = SendStreamingConfig::default().with_chunk_size(100);
-
-    let outcome = client
-        .send_streaming(&protocol_header, &body[..], config)
-        .await?;
-
-    if outcome.frames_sent() != 1 {
-        return Err(format!(
-            "exactly chunk_size bytes should produce 1 frame, got {}",
-            outcome.frames_sent()
-        )
-        .into());
-    }
-
-    drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let received = frames.lock().await;
-    if received.len() != 1 {
-        return Err(format!("expected 1 frame, got {}", received.len()).into());
-    }
-
-    Ok(())
+    test_frames_sent_for_body(&protocol_header, 100, 100, 1).await
 }
 
 #[rstest]
@@ -180,29 +202,7 @@ async fn partial_final_chunk(protocol_header: Vec<u8>) -> TestResult {
 #[rstest]
 #[tokio::test]
 async fn empty_body_sends_zero_frames(protocol_header: Vec<u8>) -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
-    let mut client = create_send_client(server.addr).await?;
-
-    let body: &[u8] = &[];
-    let config = SendStreamingConfig::default().with_chunk_size(100);
-
-    let outcome = client
-        .send_streaming(&protocol_header, body, config)
-        .await?;
-
-    if outcome.frames_sent() != 0 {
-        return Err(format!("expected 0 frames, got {}", outcome.frames_sent()).into());
-    }
-
-    drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let received = frames.lock().await;
-    if !received.is_empty() {
-        return Err(format!("server should receive no frames, got {}", received.len()).into());
-    }
-
-    Ok(())
+    test_frames_sent_for_body(&protocol_header, 0, 100, 0).await
 }
 
 // -----------------------------------------------------------------------

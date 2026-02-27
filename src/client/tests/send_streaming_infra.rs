@@ -101,7 +101,7 @@ pub(super) async fn create_send_client(
     >,
     Box<dyn std::error::Error + Send + Sync>,
 > {
-    Ok(WireframeClient::builder().connect(addr).await?)
+    create_send_client_with_max_frame(addr, DEFAULT_MAX_FRAME).await
 }
 
 /// Create a connected `WireframeClient` with a custom max frame length.

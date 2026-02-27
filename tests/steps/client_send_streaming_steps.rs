@@ -9,16 +9,39 @@ use rstest_bdd_macros::{given, then, when};
 
 use crate::fixtures::client_send_streaming::{ClientSendStreamingWorld, TestResult};
 
+/// Start a server using the provided async start function, then connect the
+/// client. An optional synchronous `setup` closure runs first (e.g. to abort
+/// a previous server handle).
+fn start_server_and_connect<F>(
+    world: &mut ClientSendStreamingWorld,
+    setup: Option<fn(&mut ClientSendStreamingWorld)>,
+    start: F,
+) -> TestResult
+where
+    F: for<'a> FnOnce(
+            &'a mut ClientSendStreamingWorld,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>
+        + 'static,
+{
+    if let Some(f) = setup {
+        f(world);
+    }
+    world.block_on(|w| {
+        Box::pin(async {
+            start(w).await?;
+            w.connect_client().await
+        })
+    })?
+}
+
 #[given("a send-streaming receiving server")]
 fn given_receiving_server(
     client_send_streaming_world: &mut ClientSendStreamingWorld,
 ) -> TestResult {
-    client_send_streaming_world.block_on(|w| {
-        Box::pin(async {
-            w.start_receiving_server().await?;
-            w.connect_client().await
-        })
-    })?
+    start_server_and_connect(client_send_streaming_world, None, |w| {
+        Box::pin(w.start_receiving_server())
+    })
 }
 
 #[expect(
@@ -33,13 +56,11 @@ fn given_blocking_reader(client_send_streaming_world: &mut ClientSendStreamingWo
 
 #[given("a send-streaming server that disconnects immediately")]
 fn given_dropping_server(client_send_streaming_world: &mut ClientSendStreamingWorld) -> TestResult {
-    client_send_streaming_world.abort_server();
-    client_send_streaming_world.block_on(|w| {
-        Box::pin(async {
-            w.start_dropping_server().await?;
-            w.connect_client().await
-        })
-    })?
+    start_server_and_connect(
+        client_send_streaming_world,
+        Some(ClientSendStreamingWorld::abort_server),
+        |w| Box::pin(w.start_dropping_server()),
+    )
 }
 
 #[when(
