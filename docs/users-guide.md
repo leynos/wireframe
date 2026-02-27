@@ -1120,6 +1120,8 @@ as `TCP_NODELAY` or buffer size adjustments.
 | Setup hook           | `on_connection_setup(...)`                   | Disabled                                                | Per-connection state is needed for metrics or lifecycle coupling.   |
 | Teardown hook        | `on_connection_teardown(...)`                | Disabled                                                | Close should flush counters or release stateful resources.          |
 | Error hook           | `on_error(...)`                              | Disabled                                                | Transport and decode failures must be routed to observability.      |
+| Before-send hook     | `before_send(...)`                           | Disabled                                                | Inspect or mutate serialized bytes before every outgoing frame.     |
+| After-receive hook   | `after_receive(...)`                         | Disabled                                                | Inspect or mutate raw bytes after every incoming frame is read.     |
 
 ```rust
 use std::{net::SocketAddr, time::Duration};
@@ -1313,6 +1315,54 @@ The setup hook runs after connection establishment (and preamble exchange if
 configured). The teardown hook only runs if a setup hook was configured and
 successfully produced state. The error hook is independent and can be
 configured without a setup hook.
+
+### Client request hooks
+
+The client builder supports **request hooks** that fire on every outgoing and
+incoming frame, enabling symmetric instrumentation with the server middleware
+stack.[^52]
+
+- **Before-send hook** (`before_send`): Invoked after serialization, before
+  each frame is written to the transport. Receives a `&mut Vec<u8>` of the
+  serialized bytes, allowing inspection or mutation (e.g., prepending an
+  authentication token, incrementing a metrics counter).
+- **After-receive hook** (`after_receive`): Invoked after each frame is read
+  from the transport, before deserialization. Receives a `&mut BytesMut` of the
+  raw frame bytes, allowing inspection or mutation before the deserializer
+  processes them.
+
+Multiple hooks of the same kind may be registered; they execute in registration
+order. Hooks are synchronous `Fn` closures—users who need mutable state should
+capture an `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure.
+
+```rust
+use std::{net::SocketAddr, sync::Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use wireframe::client::WireframeClient;
+
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+
+let send_counter = Arc::new(AtomicUsize::new(0));
+let recv_counter = Arc::new(AtomicUsize::new(0));
+let sc = send_counter.clone();
+let rc = recv_counter.clone();
+
+let mut client = WireframeClient::builder()
+    .before_send(move |_bytes: &mut Vec<u8>| {
+        sc.fetch_add(1, Ordering::SeqCst);
+    })
+    .after_receive(move |_bytes: &mut bytes::BytesMut| {
+        rc.fetch_add(1, Ordering::SeqCst);
+    })
+    .connect(addr)
+    .await?;
+```
+
+Request hooks fire on all message paths: `send`, `send_envelope`,
+`receive_envelope`, `call_correlated`, `call_streaming`, and `ResponseStream`
+polling. Clients configured without request hooks behave identically to clients
+that have none registered.
 
 ### Client message API with correlation identifiers
 
@@ -1866,5 +1916,11 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
     validation) and `src/client/error.rs`
     (`ClientError::StreamCorrelationMismatch`). Once terminated, the stream
     returns `None` per the fused-stream convention.
+
+[^52]: Client request hooks implemented in `src/client/hooks.rs`
+    (`BeforeSendHook`, `AfterReceiveHook`, `RequestHooks`),
+    `src/client/builder/request_hooks.rs` (builder methods), and
+    `src/client/messaging.rs` (hook invocation). BDD tests in
+    `tests/features/client_request_hooks.feature`.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md

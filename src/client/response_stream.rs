@@ -159,7 +159,10 @@ where
                 this.terminated = true;
                 Poll::Ready(Some(Err(ClientError::from(e))))
             }
-            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(this.process_frame(&bytes)),
+            Poll::Ready(Some(Ok(mut bytes))) => {
+                this.client.invoke_after_receive_hooks(&mut bytes);
+                Poll::Ready(this.process_frame(&bytes))
+            }
         }
     }
 }

@@ -490,7 +490,7 @@ document so larger deployments can adopt the library confidently.
 
 ### 11.1. Middleware and observability
 
-- [ ] 11.1.1. Add middleware hooks for outgoing requests and incoming frames so
+- [x] 11.1.1. Add middleware hooks for outgoing requests and incoming frames so
   metrics, retries, and authentication tokens can be injected symmetrically
   with server middleware.
 - [ ] 11.1.2. Provide structured logging and tracing spans around connect,

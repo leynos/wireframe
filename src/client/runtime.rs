@@ -14,7 +14,7 @@ use super::{
     ClientCodecConfig,
     ClientError,
     WireframeClientBuilder,
-    hooks::{ClientConnectionTeardownHandler, ClientErrorHandler},
+    hooks::{ClientConnectionTeardownHandler, ClientErrorHandler, RequestHooks},
 };
 use crate::{
     message::{DecodeWith, EncodeWith},
@@ -64,6 +64,8 @@ where
     pub(crate) connection_state: Option<C>,
     pub(crate) on_disconnect: Option<ClientConnectionTeardownHandler<C>>,
     pub(crate) on_error: Option<ClientErrorHandler>,
+    /// Hooks invoked on every outgoing and incoming frame.
+    pub(crate) request_hooks: RequestHooks,
     /// Counter for generating unique correlation identifiers.
     pub(crate) correlation_counter: AtomicU64,
 }
@@ -137,7 +139,7 @@ where
     /// # }
     /// ```
     pub async fn send<M: EncodeWith<S>>(&mut self, message: &M) -> Result<(), ClientError> {
-        let bytes = match self.serializer.serialize(message) {
+        let mut bytes = match self.serializer.serialize(message) {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
@@ -145,6 +147,7 @@ where
                 return Err(err);
             }
         };
+        self.invoke_before_send_hooks(&mut bytes);
         if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;

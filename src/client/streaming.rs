@@ -85,7 +85,7 @@ where
             request.set_correlation_id(Some(correlation_id));
         }
 
-        let bytes = match self.serializer.serialize(&request) {
+        let mut bytes = match self.serializer.serialize(&request) {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
@@ -93,6 +93,7 @@ where
                 return Err(err);
             }
         };
+        self.invoke_before_send_hooks(&mut bytes);
         if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
