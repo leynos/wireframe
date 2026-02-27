@@ -204,10 +204,12 @@ impl CodecPerformanceBenchmarksWorld {
             return Err("fragmented nanos-per-op metric is unavailable".into());
         }
 
-        if overhead.fragmented.operations < overhead.unfragmented.operations {
-            return Err(
-                "fragmented sample recorded fewer operations than unfragmented sample".into(),
-            );
+        if overhead.fragmented.operations != overhead.unfragmented.operations {
+            return Err(format!(
+                "operation count mismatch: fragmented={}, unfragmented={}",
+                overhead.fragmented.operations, overhead.unfragmented.operations
+            )
+            .into());
         }
 
         if overhead.nanos_ratio().is_none() {

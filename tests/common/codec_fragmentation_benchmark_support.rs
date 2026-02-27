@@ -33,10 +33,19 @@ use super::codec_benchmark_support::{
 /// consumers use per-operation timing; the allocation bench does not.
 pub trait MeasurementExt {
     /// Mean duration per operation.
+    ///
+    /// Returns `None` when a mean cannot be computed: either the measurement
+    /// recorded zero operations, or the operation count exceeds `u32::MAX`
+    /// (the internal divisor limit).
     #[must_use]
     fn mean_duration_per_op(self) -> Option<std::time::Duration>;
 
     /// Mean nanoseconds per operation.
+    ///
+    /// Returns `None` under the same conditions as [`mean_duration_per_op`]:
+    /// zero operations or an operation count exceeding `u32::MAX`.
+    ///
+    /// [`mean_duration_per_op`]: MeasurementExt::mean_duration_per_op
     #[must_use]
     fn nanos_per_op(self) -> Option<u128>;
 }
@@ -106,8 +115,6 @@ pub fn measure_fragmented_wrap(
     let fragmenter = Fragmenter::new(fragment_payload_cap);
     let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
     let started = std::time::Instant::now();
-
-    let mut total_operations = 0_u64;
     let mut total_bytes = 0_u64;
 
     for _ in 0..iterations {
@@ -119,12 +126,11 @@ pub fn measure_fragmented_wrap(
                 .map_err(|err| format!("fragment payload encode failed: {err}"))?;
             let frame = codec.wrap_payload(Bytes::from(encoded));
             total_bytes += LengthDelimitedFrameCodec::frame_payload(&frame).len() as u64;
-            total_operations += 1;
         }
     }
 
     Ok(Measurement {
-        operations: total_operations,
+        operations: iterations,
         payload_bytes: total_bytes,
         elapsed: started.elapsed(),
     })

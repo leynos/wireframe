@@ -133,10 +133,7 @@ fn fragmentation_overhead_reports_fragmented_and_unfragmented_results() {
     .expect("fragmentation overhead measurement failed");
 
     assert_eq!(overhead.unfragmented.operations, VALIDATION_ITERATIONS);
-    assert!(
-        overhead.fragmented.operations >= VALIDATION_ITERATIONS,
-        "fragmented path should emit at least one wrapped frame per iteration"
-    );
+    assert_eq!(overhead.fragmented.operations, VALIDATION_ITERATIONS);
     assert!(overhead.fragmented.payload_bytes >= overhead.unfragmented.payload_bytes);
     assert!(overhead.nanos_ratio().is_some());
 }
