@@ -65,6 +65,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::codec::{MAX_FRAME_LENGTH, MIN_FRAME_LENGTH};
 
     #[rstest]
     #[case(1024, 16_384, 65_536, 65_536)]
@@ -87,14 +88,19 @@ mod tests {
     #[test]
     fn default_budgets_clamp_minimum_frame_budget() {
         let budgets = default_memory_budgets(10);
-        assert_eq!(64 * 16, budgets.bytes_per_message().as_usize());
+        assert_eq!(
+            MIN_FRAME_LENGTH * 16,
+            budgets.bytes_per_message().as_usize()
+        );
     }
 
     #[test]
     fn default_budgets_clamp_maximum_frame_budget() {
-        let max_frame: usize = 16 * 1024 * 1024;
-        let budgets = default_memory_budgets(max_frame + 1);
-        assert_eq!(max_frame * 16, budgets.bytes_per_message().as_usize());
+        let budgets = default_memory_budgets(MAX_FRAME_LENGTH + 1);
+        assert_eq!(
+            MAX_FRAME_LENGTH * 16,
+            budgets.bytes_per_message().as_usize()
+        );
     }
 
     #[test]

@@ -59,6 +59,7 @@ impl std::str::FromStr for ExplicitBudgetConfig {
 const ROUTE_ID: u32 = 91;
 const CORRELATION_ID: Option<u64> = Some(20);
 const SPIN_ATTEMPTS: usize = 64;
+const SERVER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Runtime-backed fixture that drives inbound assembly with derived (or
 /// explicit) memory budgets and validates protection tier behaviour.
@@ -271,15 +272,12 @@ impl DerivedMemoryBudgetsWorld {
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
         self.drain_ready_payloads()?;
-        let server = self.server.take().ok_or("server not initialized")?;
-        let result = self.block_on(server)?;
-        match result {
-            Ok(Ok(())) => Err("expected connection to abort, but it completed successfully".into()),
-            Ok(Err(error)) => {
+        match self.join_server()? {
+            Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
+            Err(error) => {
                 self.connection_error = Some(error.to_string());
                 Ok(())
             }
-            Err(join_error) => Err(format!("server task panicked: {join_error}").into()),
         }
     }
 
@@ -317,12 +315,9 @@ impl DerivedMemoryBudgetsWorld {
         }
         // Drop the client so the server sees EOF and can finish cleanly.
         self.client.take();
-        let server = self.server.take().ok_or("server not initialized")?;
-        let result = self.block_on(server)?;
-        match result {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(format!("server task returned error: {error}").into()),
-            Err(join_error) => Err(format!("server task panicked: {join_error}").into()),
+        match self.join_server()? {
+            Ok(()) => Ok(()),
+            Err(error) => Err(format!("server task returned error: {error}").into()),
         }
     }
 
@@ -352,6 +347,19 @@ impl DerivedMemoryBudgetsWorld {
                 self.last_send_error = Some(error.to_string());
                 Err(error)
             }
+        }
+    }
+
+    /// Join the server task with a bounded timeout to prevent indefinite
+    /// hangs. Returns the inner `io::Result` on success, or a timeout error.
+    fn join_server(&mut self) -> TestResult<std::io::Result<()>> {
+        let server = self.server.take().ok_or("server not initialized")?;
+        let join_result =
+            self.block_on(async { tokio::time::timeout(SERVER_JOIN_TIMEOUT, server).await })?;
+        match join_result {
+            Ok(Ok(io_result)) => Ok(io_result),
+            Ok(Err(join_error)) => Err(format!("server task panicked: {join_error}").into()),
+            Err(_elapsed) => Err("server task did not complete within timeout".into()),
         }
     }
 
