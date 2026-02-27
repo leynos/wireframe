@@ -1,8 +1,9 @@
 # Implement `send_streaming(frame_header, body_reader)` transport helper (8.4.1)
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This execution plan (ExecPlan) is a living document. The sections
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
+proceeds.
 
 Status: COMPLETE
 
@@ -102,9 +103,9 @@ Success is observable when:
   Severity: medium Likelihood: medium Mitigation: use `tokio::time::pause()`
   for deterministic virtual time in timeout tests.
 
-- Risk: BDD step text could conflict with existing `client_streaming` steps.
-  Severity: low Likelihood: medium Mitigation: use a `send-streaming` step
-  prefix for all step definitions.
+- Risk: Behaviour-Driven Development (BDD) step text could conflict with
+  existing `client_streaming` steps. Severity: low Likelihood: medium
+  Mitigation: use a `send-streaming` step prefix for all step definitions.
 
 ## Progress
 
@@ -116,7 +117,7 @@ Success is observable when:
   v0.5.0). 4/4 pass.
 - [x] (2026-02-26 00:20Z) Stage D: update documentation (ADR 0002,
   users-guide, roadmap).
-- [x] (2026-02-26 00:25Z) Stage E: run all quality gates and finalise. All
+- [x] (2026-02-26 00:25Z) Stage E: run all quality gates and finalize. All
   gates green.
 
 ## Surprises & discoveries
@@ -161,7 +162,7 @@ Success is observable when:
   `body_reader: R`) rather than typed envelopes. Rationale: ADR 0002 says
   "keeping header semantics protocol-defined". The helper is a transport-level
   utility. It prepends protocol-provided header bytes to each chunk and sends
-  the concatenation as a frame. The caller controls serialisation of headers.
+  the concatenation as a frame. The caller controls serialization of headers.
   Date/Author: 2026-02-26 / ExecPlan draft.
 
 - Decision: return `SendStreamingOutcome` (with `frames_sent: u64`) on success
@@ -214,14 +215,14 @@ Quality gates: `make fmt`, `make check-fmt`, `make lint`, `make test`,
 The wireframe client (`src/client/`) provides a layered API for binary protocol
 communication:
 
-- Layer 1 (`runtime.rs`): raw `send`/`receive` of serialised messages via
+- Layer 1 (`runtime.rs`): raw `send`/`receive` of serialized messages via
   `Framed<T, LengthDelimitedCodec>`.
 - Layer 2 (`messaging.rs`): envelope-aware APIs with correlation ID management.
 - Layer 3 (`streaming.rs` + `response_stream.rs`): inbound streaming response
   consumption.
 
 This plan adds a Layer 1.5 capability: outbound streaming sends that operate on
-raw bytes below the serialisation layer but above the transport.
+raw bytes below the serialization layer but above the transport.
 
 Key types and their locations:
 
@@ -386,10 +387,10 @@ Test cases:
    config. Verify that frames are emitted with payload size =
    `max_frame_length - header_len`.
 
-7. `send_streaming_timeout_returns_timed_out` — use `tokio::time::pause()`.
-   Provide an `AsyncRead` that blocks indefinitely (e.g., a `tokio::io::duplex`
-   where no data is ever written). Set a short timeout. Verify the error is
-   `io::ErrorKind::TimedOut`.
+7. `send_streaming_timeout_returns_timed_out` — provide an `AsyncRead` that
+   blocks indefinitely using an `mpsc`-backed `StreamReader` (see Surprises &
+   Discoveries for why `tokio::time::pause()` with a duplex reader does not
+   work). Set a short timeout. Verify the error is `io::ErrorKind::TimedOut`.
 
 8. `send_streaming_invokes_error_hook_on_failure` — register an error hook
    and verify it is called when a transport error occurs (drop server
@@ -429,7 +430,7 @@ Feature: Client outbound streaming sends
     When the client streams 0 bytes with a 4 byte header and 100 byte chunks
     Then the server receives 0 frames
 
-  Scenario: Client send times out on a slow body reader
+  Scenario: Client send operation times out on a slow body reader
     Given a send-streaming body reader that blocks indefinitely
     When the client streams with a 100 ms timeout
     Then a TimedOut error is returned

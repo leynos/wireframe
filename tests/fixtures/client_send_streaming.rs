@@ -4,7 +4,7 @@ use std::{io, net::SocketAddr, time::Duration};
 
 use futures::StreamExt;
 use rstest::fixture;
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::{io::AsyncWriteExt, net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::client::{ClientError, SendStreamingConfig, WireframeClient};
 pub use wireframe_testing::TestResult;
@@ -25,7 +25,6 @@ pub struct ClientSendStreamingWorld {
     frames_sent: Option<u64>,
     last_error: Option<ClientError>,
     protocol_header: Vec<u8>,
-    use_blocking_reader: bool,
 }
 
 impl std::fmt::Debug for ClientSendStreamingWorld {
@@ -63,7 +62,6 @@ impl ClientSendStreamingWorld {
             frames_sent: None,
             last_error: None,
             protocol_header: vec![0xca, 0xfe, 0xba, 0xbe],
-            use_blocking_reader: false,
         }
     }
 
@@ -108,17 +106,18 @@ impl ClientSendStreamingWorld {
         Ok(())
     }
 
-    /// Start a server that accepts and immediately drops the connection.
+    /// Start a server that accepts and immediately shuts down the write
+    /// side, triggering a deterministic transport error on the client.
     pub async fn start_dropping_server(&mut self) -> TestResult {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         self.addr = Some(listener.local_addr()?);
 
         // Spawn as a `JoinHandle<Vec<Vec<u8>>>` so the type matches.
         self.server = Some(tokio::spawn(async move {
-            let Ok((tcp, _)) = listener.accept().await else {
+            let Ok((mut tcp, _)) = listener.accept().await else {
                 return Vec::new();
             };
-            drop(tcp);
+            let _ = tcp.shutdown().await;
             Vec::new()
         }));
 
@@ -140,13 +139,20 @@ impl ClientSendStreamingWorld {
         }
     }
 
-    /// Mark the world to use a blocking reader for the next send.
-    pub fn set_blocking_reader(&mut self) { self.use_blocking_reader = true; }
-
     /// Perform a streaming send with the given parameters.
-    pub async fn do_send_streaming(&mut self, body_size: usize, chunk_size: usize) -> TestResult {
+    ///
+    /// `header_size` controls the length of the protocol header used for
+    /// this send — the header is resized (truncated or zero-padded) to
+    /// match the requested size.
+    pub async fn do_send_streaming(
+        &mut self,
+        body_size: usize,
+        header_size: usize,
+        chunk_size: usize,
+    ) -> TestResult {
         let client = self.client.as_mut().ok_or("client not connected")?;
-        let header = self.protocol_header.clone();
+        let mut header = self.protocol_header.clone();
+        header.resize(header_size, 0x00);
         let body: Vec<u8> = (0..body_size)
             .map(|i| u8::try_from(i.wrapping_rem(256)).unwrap_or(0))
             .collect();

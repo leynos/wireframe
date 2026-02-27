@@ -44,14 +44,11 @@ fn given_receiving_server(
     })
 }
 
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "step signature mandated by the #[given] proc macro"
-)]
 #[given("a send-streaming body reader that blocks indefinitely")]
-fn given_blocking_reader(client_send_streaming_world: &mut ClientSendStreamingWorld) -> TestResult {
-    client_send_streaming_world.set_blocking_reader();
-    Ok(())
+fn given_blocking_reader(client_send_streaming_world: &mut ClientSendStreamingWorld) {
+    // Marker step: the blocking reader is constructed inside
+    // do_send_streaming_with_timeout to keep lifetime management simple.
+    let _ = client_send_streaming_world;
 }
 
 #[given("a send-streaming server that disconnects immediately")]
@@ -70,11 +67,11 @@ fn given_dropping_server(client_send_streaming_world: &mut ClientSendStreamingWo
 fn when_send_streaming(
     client_send_streaming_world: &mut ClientSendStreamingWorld,
     body_size: usize,
-    _header_size: usize,
+    header_size: usize,
     chunk_size: usize,
 ) -> TestResult {
     client_send_streaming_world
-        .block_on(|w| Box::pin(w.do_send_streaming(body_size, chunk_size)))?
+        .block_on(|w| Box::pin(w.do_send_streaming(body_size, header_size, chunk_size)))?
 }
 
 #[when("the client streams with a {ms:u64} ms timeout")]

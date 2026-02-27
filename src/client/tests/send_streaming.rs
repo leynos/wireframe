@@ -6,6 +6,7 @@ use rstest::rstest;
 
 use super::send_streaming_infra::{
     DEFAULT_MAX_FRAME,
+    blocking_reader,
     create_send_client,
     create_send_client_with_error_hook,
     create_send_client_with_max_frame,
@@ -73,37 +74,7 @@ async fn test_frames_sent_for_body(
 #[rstest]
 #[tokio::test]
 async fn emits_correct_number_of_frames(protocol_header: Vec<u8>) -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
-    let mut client = create_send_client(server.addr).await?;
-
-    let body = test_body(300);
-    let config = SendStreamingConfig::default().with_chunk_size(100);
-
-    let outcome = client
-        .send_streaming(&protocol_header, &body[..], config)
-        .await?;
-
-    if outcome.frames_sent() != 3 {
-        return Err(format!("expected 3 frames, got {}", outcome.frames_sent()).into());
-    }
-
-    // Allow the server to finish reading.
-    drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let received = frames.lock().await;
-    if received.len() != 3 {
-        return Err(format!("server should receive 3 frames, got {}", received.len()).into());
-    }
-
-    // Each frame starts with the protocol header.
-    for (i, frame) in received.iter().enumerate() {
-        if !frame.starts_with(&protocol_header) {
-            return Err(format!("frame {i} should start with protocol header").into());
-        }
-    }
-
-    Ok(())
+    test_frames_sent_for_body(&protocol_header, 300, 100, 3).await
 }
 
 #[rstest]
@@ -248,34 +219,53 @@ async fn auto_derives_chunk_size_from_max_frame_length(protocol_header: Vec<u8>)
     Ok(())
 }
 
+/// Assert that a `send_streaming` result is an I/O error with the
+/// expected `ErrorKind`.
+fn assert_io_error(
+    result: Result<SendStreamingOutcome, ClientError>,
+    expected: io::ErrorKind,
+) -> TestResult {
+    let err = result.err().ok_or("expected error, got Ok")?;
+    match &err {
+        ClientError::Wireframe(crate::WireframeError::Io(io_err)) => {
+            if io_err.kind() != expected {
+                return Err(format!("expected {expected:?}, got {:?}", io_err.kind()).into());
+            }
+        }
+        other => {
+            return Err(format!("expected Wireframe(Io({expected:?})), got {other:?}").into());
+        }
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn rejects_oversized_header() -> TestResult {
     let (server, _frames) = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
-    // Header as large as max_frame_length leaves no room for body.
     let header = vec![0u8; DEFAULT_MAX_FRAME];
-    let body: &[u8] = b"hello";
     let config = SendStreamingConfig::default();
+    assert_io_error(
+        client
+            .send_streaming(&header, b"hello" as &[u8], config)
+            .await,
+        io::ErrorKind::InvalidInput,
+    )
+}
 
-    let result = client.send_streaming(&header, body, config).await;
+#[tokio::test]
+async fn rejects_zero_chunk_size() -> TestResult {
+    let (server, _frames) = spawn_receiving_server().await?;
+    let mut client = create_send_client(server.addr).await?;
 
-    let err = result
-        .err()
-        .ok_or("should reject header >= max_frame_length")?;
-
-    match &err {
-        ClientError::Wireframe(crate::WireframeError::Io(io_err)) => {
-            if io_err.kind() != io::ErrorKind::InvalidInput {
-                return Err(format!("expected InvalidInput, got {:?}", io_err.kind()).into());
-            }
-        }
-        other => {
-            return Err(format!("expected Wireframe(Io(InvalidInput)), got {other:?}").into());
-        }
-    }
-
-    Ok(())
+    let config = SendStreamingConfig::default().with_chunk_size(0);
+    assert_io_error(
+        client
+            .send_streaming(b"\x01", b"hello" as &[u8], config)
+            .await,
+        io::ErrorKind::InvalidInput,
+    )
 }
 
 #[tokio::test]
@@ -320,34 +310,14 @@ async fn timeout_returns_timed_out() -> TestResult {
     let (server, _frames) = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
-    // Create an AsyncRead that blocks indefinitely. The mpsc sender is
-    // held open so the reader never returns EOF.
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<bytes::Bytes, io::Error>>(1);
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-    let reader = tokio_util::io::StreamReader::new(stream);
+    let (reader, _tx) = blocking_reader();
 
     let config = SendStreamingConfig::default()
         .with_chunk_size(10)
         .with_timeout(Duration::from_millis(50));
 
     let result = client.send_streaming(b"\x01", reader, config).await;
-
-    // Keep tx alive so the reader doesn't see EOF prematurely.
-    drop(tx);
-
-    let err = result.err().ok_or("expected timeout error")?;
-    match &err {
-        ClientError::Wireframe(crate::WireframeError::Io(io_err)) => {
-            if io_err.kind() != io::ErrorKind::TimedOut {
-                return Err(format!("expected TimedOut, got {:?}", io_err.kind()).into());
-            }
-        }
-        other => {
-            return Err(format!("expected Wireframe(Io(TimedOut)), got {other:?}").into());
-        }
-    }
-
-    Ok(())
+    assert_io_error(result, io::ErrorKind::TimedOut)
 }
 
 // -----------------------------------------------------------------------
@@ -383,18 +353,13 @@ async fn invokes_error_hook_on_timeout() -> TestResult {
     let (server, _frames) = spawn_receiving_server().await?;
     let (mut client, hook_invoked) = create_send_client_with_error_hook(server.addr).await?;
 
-    // Create an AsyncRead that blocks indefinitely.
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<bytes::Bytes, io::Error>>(1);
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-    let reader = tokio_util::io::StreamReader::new(stream);
+    let (reader, _tx) = blocking_reader();
 
     let config = SendStreamingConfig::default()
         .with_chunk_size(10)
         .with_timeout(Duration::from_millis(50));
 
     let result = client.send_streaming(b"\x01", reader, config).await;
-
-    drop(tx);
 
     if result.is_ok() {
         return Err("expected timeout error, got Ok".into());

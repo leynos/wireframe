@@ -22,7 +22,7 @@ fn empty_body(client_send_streaming_world: ClientSendStreamingWorld) {
 
 #[scenario(
     path = "tests/features/client_send_streaming.feature",
-    name = "Client send times out on a slow body reader"
+    name = "Client send operation times out on a slow body reader"
 )]
 fn timeout_on_slow_reader(client_send_streaming_world: ClientSendStreamingWorld) {
     let _ = client_send_streaming_world;

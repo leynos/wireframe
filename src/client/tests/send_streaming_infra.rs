@@ -14,7 +14,7 @@ use std::{
 
 use futures::StreamExt;
 use rstest::fixture;
-use tokio::net::TcpListener;
+use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use super::streaming_infra::TestServer;
@@ -64,8 +64,8 @@ pub(super) async fn spawn_receiving_server() -> Result<
     Ok((TestServer::from_handle(addr, handle), frames))
 }
 
-/// Spawn a test server that accepts and then immediately drops the
-/// connection, simulating a transport failure.
+/// Spawn a test server that accepts and then immediately shuts down the
+/// write side, triggering a deterministic transport error on the client.
 ///
 /// # Errors
 ///
@@ -76,12 +76,12 @@ pub(super) async fn spawn_dropping_server()
     let addr = listener.local_addr()?;
 
     let handle = tokio::spawn(async move {
-        let Ok((tcp, _)) = listener.accept().await else {
+        let Ok((mut tcp, _)) = listener.accept().await else {
             return;
         };
-        // Drop the connection immediately to trigger a transport error
-        // when the client attempts to write.
-        drop(tcp);
+        // Shut down the write side to trigger a deterministic transport
+        // error when the client attempts to write.
+        let _ = tcp.shutdown().await;
     });
 
     Ok(TestServer::from_handle(addr, handle))
@@ -161,4 +161,26 @@ pub(super) fn test_body(n: usize) -> Vec<u8> {
     (0..n)
         .map(|i| u8::try_from(i.wrapping_rem(256)).unwrap_or(0))
         .collect()
+}
+
+type ByteResult = Result<bytes::Bytes, std::io::Error>;
+type BlockingStream = tokio_stream::wrappers::ReceiverStream<ByteResult>;
+
+/// An `AsyncRead` backed by an mpsc channel, together with the sender
+/// handle that keeps the channel open.
+pub(super) type BlockingReader = (
+    tokio_util::io::StreamReader<BlockingStream, bytes::Bytes>,
+    tokio::sync::mpsc::Sender<ByteResult>,
+);
+
+/// Create an `AsyncRead` that blocks indefinitely.
+///
+/// Returns the reader and the sender handle. The caller must hold the
+/// sender until the test assertion is complete — dropping it causes the
+/// reader to see EOF, which would race with the timeout under test.
+pub(super) fn blocking_reader() -> BlockingReader {
+    let (tx, rx) = tokio::sync::mpsc::channel::<ByteResult>(1);
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+    let reader = tokio_util::io::StreamReader::new(stream);
+    (reader, tx)
 }

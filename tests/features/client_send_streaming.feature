@@ -15,7 +15,7 @@ Feature: Client outbound streaming sends
     When the client streams 0 bytes with a 4 byte header and 100 byte chunks
     Then the send-streaming server receives 0 frames
 
-  Scenario: Client send times out on a slow body reader
+  Scenario: Client send operation times out on a slow body reader
     Given a send-streaming body reader that blocks indefinitely
     When the client streams with a 100 ms timeout
     Then a send-streaming TimedOut error is returned

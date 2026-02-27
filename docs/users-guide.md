@@ -1405,10 +1405,6 @@ println!("sent {} frames", outcome.frames_sent());
 `frames_sent()`. The error hook is invoked on all failure paths, consistent
 with other client send methods.[^53]
 
-[^53]: Implemented in `src/client/send_streaming.rs`. See
-    [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md),
-    Section 4, for design rationale.
-
 ### Client message API with correlation identifiers
 
 The client provides envelope-aware messaging APIs that work with the `Packet`
@@ -1967,5 +1963,9 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
     `src/client/builder/request_hooks.rs` (builder methods), and
     `src/client/messaging.rs` (hook invocation). BDD tests in
     `tests/features/client_request_hooks.feature`.
+
+[^53]: Implemented in `src/client/send_streaming.rs`. See
+    [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md),
+    Section 4, for design rationale.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md

@@ -17,7 +17,7 @@ use std::{io, time::Duration};
 
 use bytes::Bytes;
 use futures::SinkExt;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 use super::{ClientError, runtime::ClientStream};
 use crate::serializer::Serializer;
@@ -183,11 +183,17 @@ where
         body_reader: R,
         config: SendStreamingConfig,
     ) -> Result<SendStreamingOutcome, ClientError> {
-        let effective_chunk_size = effective_chunk_size(
+        let effective_chunk_size = match effective_chunk_size(
             frame_header.len(),
             self.codec_config.max_frame_length_value(),
             &config,
-        )?;
+        ) {
+            Ok(size) => size,
+            Err(err) => {
+                self.invoke_error_hook(&err).await;
+                return Err(err);
+            }
+        };
 
         match config.timeout {
             Some(duration) => match tokio::time::timeout(
@@ -198,6 +204,9 @@ where
             {
                 Ok(result) => result,
                 Err(_elapsed) => {
+                    // Shut down the write side so buffered codec state cannot
+                    // leak into subsequent operations on this connection.
+                    let _ = self.framed.get_mut().shutdown().await;
                     let err = ClientError::from(io::Error::new(
                         io::ErrorKind::TimedOut,
                         "streaming send timed out",
@@ -225,19 +234,24 @@ where
         let mut frames_sent: u64 = 0;
 
         loop {
-            let n = match body_reader.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(e) => {
-                    let err = ClientError::from(e);
-                    self.invoke_error_hook(&err).await;
-                    return Err(err);
+            let n = match read_chunk(&mut body_reader, &mut buf).await {
+                ReadChunk::Eof => break,
+                ReadChunk::Bytes(n) => n,
+                ReadChunk::Err(e) => {
+                    self.invoke_error_hook(&e).await;
+                    return Err(e);
                 }
             };
 
+            let chunk = buf.get(..n).ok_or_else(|| {
+                ClientError::from(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "read returned more bytes than buffer length",
+                ))
+            })?;
             let mut frame = Vec::with_capacity(header_len + n);
             frame.extend_from_slice(frame_header);
-            frame.extend_from_slice(buf.get(..n).unwrap_or(&buf));
+            frame.extend_from_slice(chunk);
 
             if let Err(e) = self.framed.send(Bytes::from(frame)).await {
                 let err = ClientError::from(e);
@@ -251,30 +265,58 @@ where
     }
 }
 
+/// Result of a single chunk read from the body source.
+enum ReadChunk {
+    /// End of input — no more data to send.
+    Eof,
+    /// Successfully read `n` bytes into the buffer.
+    Bytes(usize),
+    /// An I/O error occurred during the read.
+    Err(ClientError),
+}
+
+/// Read the next chunk from `reader` into `buf`, classifying the outcome.
+async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut [u8]) -> ReadChunk {
+    match reader.read(buf).await {
+        Ok(0) => ReadChunk::Eof,
+        Ok(n) => ReadChunk::Bytes(n),
+        Err(e) => ReadChunk::Err(ClientError::from(e)),
+    }
+}
+
 /// Compute the effective chunk size for outbound streaming.
 ///
 /// Returns an error if the header alone fills (or exceeds) the maximum
-/// frame length, leaving no room for body data.
+/// frame length, leaving no room for body data, or if the resolved chunk
+/// size is zero.
 fn effective_chunk_size(
     header_len: usize,
     max_frame_length: usize,
     config: &SendStreamingConfig,
 ) -> Result<usize, ClientError> {
     if header_len >= max_frame_length {
-        let err = ClientError::from(io::Error::new(
+        return Err(ClientError::from(io::Error::new(
             io::ErrorKind::InvalidInput,
             concat!(
                 "frame header length meets or exceeds max frame length; ",
                 "no room for body data",
             ),
-        ));
-        return Err(err);
+        )));
     }
 
     let available = max_frame_length - header_len;
 
-    Ok(match config.chunk_size {
+    let size = match config.chunk_size {
         Some(requested) => requested.min(available),
         None => available,
-    })
+    };
+
+    if size == 0 {
+        return Err(ClientError::from(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "chunk size must be greater than zero",
+        )));
+    }
+
+    Ok(size)
 }
