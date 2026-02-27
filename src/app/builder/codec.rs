@@ -14,6 +14,9 @@ where
     E: Packet,
     F: FrameCodec,
 {
+    /// Return a reference to the configured frame codec.
+    pub fn codec(&self) -> &F { &self.codec }
+
     /// Replace the frame codec used for framing I/O.
     ///
     /// This resets any installed protocol hooks because the frame type may

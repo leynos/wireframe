@@ -13,6 +13,7 @@ mod codec_error_steps;
 mod codec_performance_benchmarks_steps;
 mod codec_property_roundtrip_steps;
 mod codec_stateful_steps;
+mod codec_test_harness_steps;
 mod correlation_steps;
 mod fragment_steps;
 mod interleaved_push_queues_steps;

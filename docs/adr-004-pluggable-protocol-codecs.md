@@ -340,6 +340,33 @@ Roadmap item 9.6.1 is now covered by dedicated criterion benchmark targets:
 The benchmark harness remains internal: no library runtime API changes were
 required to ship these measurements.
 
+### Codec-aware test harness drivers (resolved 2026-02-26)
+
+Roadmap item 9.7.1 extended `wireframe_testing` with codec-aware driver
+functions that accept any `FrameCodec` and handle frame encoding/decoding
+transparently:
+
+- **Payload-level drivers** (`drive_with_codec_payloads` and variants) accept
+  raw payload byte vectors, encode them through the codec, drive the app, and
+  return decoded payload bytes. This covers the common case where tests care
+  only about payload content.
+- **Frame-level drivers** (`drive_with_codec_frames` and variants) follow the
+  same flow but return decoded `F::Frame` values, enabling tests to inspect
+  codec-specific metadata (e.g. transaction identifiers, sequence numbers).
+- **Codec helpers** (`encode_payloads_with_codec`, `decode_frames_with_codec`,
+  `extract_payloads`) provide composable building blocks for custom test
+  patterns.
+
+Design choices:
+
+- The codec is passed explicitly as a `&F` parameter rather than extracted from
+  the app. This avoids coupling to `WireframeApp` field visibility and mirrors
+  the existing `payloads.rs` pattern.
+- No new trait is introduced; the existing `TestSerializer` bound captures
+  serializer constraints while `F: FrameCodec` is added as an orthogonal
+  generic parameter.
+- A `codec()` accessor was added to `WireframeApp` for convenience.
+
 ## Architectural Rationale
 
 A dedicated `FrameCodec` abstraction aligns framing with the protocol boundary
