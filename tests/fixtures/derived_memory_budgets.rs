@@ -143,19 +143,20 @@ impl DerivedMemoryBudgetsWorld {
         Ok(self.runtime()?.block_on(future))
     }
 
-    /// Start the app under test with derived budgets (no explicit
-    /// `.memory_budgets(...)` call).
-    pub fn start_app_derived(&mut self, buffer_capacity: usize) -> TestResult {
-        let Some(fragment_limit) = NonZeroUsize::new(buffer_capacity.saturating_mul(16)) else {
-            return Err("buffer-derived fragment limit should be non-zero".into());
-        };
-        let fragmentation = FragmentationConfig::for_frame_budget(
-            buffer_capacity,
-            fragment_limit,
-            Duration::from_secs(30),
-        )
-        .ok_or("failed to derive fragmentation config for test fixture")?;
+    /// Derive a fragmentation config from the app's clamped frame length.
+    ///
+    /// Uses the codec's actual `max_frame_length()` (post-clamping) to keep
+    /// the test fixture aligned with production derivation behaviour.
+    fn fragmentation_from_app(app: &WireframeApp) -> TestResult<FragmentationConfig> {
+        let clamped = app.length_codec().max_frame_length();
+        let fragment_limit = NonZeroUsize::new(clamped.saturating_mul(16))
+            .ok_or("buffer-derived fragment limit should be non-zero")?;
+        FragmentationConfig::for_frame_budget(clamped, fragment_limit, Duration::from_secs(30))
+            .ok_or_else(|| "failed to derive fragmentation config for test fixture".into())
+    }
 
+    /// Build the handler and payload channel shared by both startup modes.
+    fn build_handler() -> (Handler<Envelope>, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
             let tx = tx.clone();
@@ -164,9 +165,17 @@ impl DerivedMemoryBudgetsWorld {
                 let _ = tx.send(payload);
             })
         });
+        (handler, rx)
+    }
 
-        let app: WireframeApp = WireframeApp::new()?
-            .buffer_capacity(buffer_capacity)
+    /// Start the app under test with derived budgets (no explicit
+    /// `.memory_budgets(...)` call).
+    pub fn start_app_derived(&mut self, buffer_capacity: usize) -> TestResult {
+        let partial = WireframeApp::new()?.buffer_capacity(buffer_capacity);
+        let fragmentation = Self::fragmentation_from_app(&partial)?;
+        let (handler, rx) = Self::build_handler();
+
+        let app = partial
             .fragmentation(Some(fragmentation))
             .with_message_assembler(TestAssembler)
             .route(ROUTE_ID, handler)?;
@@ -181,15 +190,8 @@ impl DerivedMemoryBudgetsWorld {
         buffer_capacity: usize,
         config: ExplicitBudgetConfig,
     ) -> TestResult {
-        let Some(fragment_limit) = NonZeroUsize::new(buffer_capacity.saturating_mul(16)) else {
-            return Err("buffer-derived fragment limit should be non-zero".into());
-        };
-        let fragmentation = FragmentationConfig::for_frame_budget(
-            buffer_capacity,
-            fragment_limit,
-            Duration::from_secs(30),
-        )
-        .ok_or("failed to derive fragmentation config for test fixture")?;
+        let partial = WireframeApp::new()?.buffer_capacity(buffer_capacity);
+        let fragmentation = Self::fragmentation_from_app(&partial)?;
 
         let per_message =
             NonZeroUsize::new(config.per_message).ok_or("per_message must be non-zero")?;
@@ -202,17 +204,9 @@ impl DerivedMemoryBudgetsWorld {
             BudgetBytes::new(in_flight),
         );
 
-        let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
-        let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
-            let tx = tx.clone();
-            let payload = envelope.payload_bytes().to_vec();
-            Box::pin(async move {
-                let _ = tx.send(payload);
-            })
-        });
+        let (handler, rx) = Self::build_handler();
 
-        let app: WireframeApp = WireframeApp::new()?
-            .buffer_capacity(buffer_capacity)
+        let app = partial
             .fragmentation(Some(fragmentation))
             .with_message_assembler(TestAssembler)
             .memory_budgets(budgets)
@@ -311,12 +305,25 @@ impl DerivedMemoryBudgetsWorld {
         .into())
     }
 
-    /// Assert that no connection error has been recorded.
-    pub fn assert_no_connection_error(&self) -> TestResult {
-        if self.connection_error.is_none() {
-            return Ok(());
+    /// Assert that no connection error has occurred.
+    ///
+    /// Checks the server task directly rather than relying solely on the
+    /// cached `connection_error` field, which is only populated by
+    /// `assert_connection_aborted`. This prevents false negatives when the
+    /// server errors after processing frames in non-abort scenarios.
+    pub fn assert_no_connection_error(&mut self) -> TestResult {
+        if let Some(ref error) = self.connection_error {
+            return Err(format!("unexpected connection error: {error}").into());
         }
-        Err(format!("unexpected connection error: {:?}", self.connection_error).into())
+        // Drop the client so the server sees EOF and can finish cleanly.
+        self.client.take();
+        let server = self.server.take().ok_or("server not initialized")?;
+        let result = self.block_on(server)?;
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(format!("server task returned error: {error}").into()),
+            Err(join_error) => Err(format!("server task panicked: {join_error}").into()),
+        }
     }
 
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {

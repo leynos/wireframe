@@ -65,8 +65,9 @@ Success is observable when:
 - `src/app/inbound_handler.rs` is currently 392 lines. Changes must keep it at
   or below 400.
 - Use en-GB-oxendict spelling in all comments and documentation.
-- Follow the BDD 4-file pattern (feature, fixture, steps, scenarios) with
-  globally unique step text using a `derived-budget` prefix.
+- Follow the behaviour-driven development (BDD) 4-file pattern (feature,
+  fixture, steps, scenarios) with globally unique step text using a
+  `derived-budget` prefix.
 - Validate with `rstest` unit tests and `rstest-bdd` v0.5.0 behavioural tests.
 - Follow testing guidance from `docs/rust-testing-with-rstest-fixtures.md`,
   `docs/reliable-testing-in-rust-via-dependency-injection.md`, and
@@ -196,8 +197,8 @@ Success is observable when:
   multiple concurrent assemblies without being so large as to be meaningless.
   Setting `bytes_in_flight` equal to `bytes_per_connection` simplifies the
   mental model. For the default 1024-byte frame, this yields: per_message = 16
-  KiB, per_connection = 64 KiB, in_flight = 64 KiB. Date/Author: 2026-02-26 /
-  plan phase.
+  KiB (kibibytes), per_connection = 64 KiB, in_flight = 64 KiB. Date/Author:
+  2026-02-26 / plan phase.
 
 - Decision: `buffer_capacity()` and `with_codec()` do NOT need to clear
   derived defaults because derivation is lazy (computed at runtime from
