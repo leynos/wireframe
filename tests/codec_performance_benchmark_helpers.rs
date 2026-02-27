@@ -8,21 +8,29 @@ use rstest::rstest;
 #[path = "common/codec_benchmark_support.rs"]
 mod codec_benchmark_support;
 
+#[path = "common/codec_fragmentation_benchmark_support.rs"]
+mod codec_fragmentation_benchmark_support;
+
+#[path = "common/codec_alloc_benchmark_support.rs"]
+mod codec_alloc_benchmark_support;
+
+use codec_alloc_benchmark_support::{AllocationBaseline, allocation_label};
 use codec_benchmark_support::{
-    AllocationBaseline,
     BenchmarkWorkload,
     CodecUnderTest,
-    FRAGMENT_PAYLOAD_CAP_BYTES,
     LARGE_PAYLOAD_BYTES,
     PayloadClass,
     SMALL_PAYLOAD_BYTES,
     VALIDATION_ITERATIONS,
-    allocation_label,
     benchmark_workloads,
     measure_decode,
     measure_encode,
-    measure_fragmentation_overhead,
     payload_for_class,
+};
+use codec_fragmentation_benchmark_support::{
+    FRAGMENT_PAYLOAD_CAP_BYTES,
+    MeasurementExt as _,
+    measure_fragmentation_overhead,
 };
 
 #[rstest]
@@ -125,10 +133,7 @@ fn fragmentation_overhead_reports_fragmented_and_unfragmented_results() {
     .expect("fragmentation overhead measurement failed");
 
     assert_eq!(overhead.unfragmented.operations, VALIDATION_ITERATIONS);
-    assert!(
-        overhead.fragmented.operations >= VALIDATION_ITERATIONS,
-        "fragmented path should emit at least one wrapped frame per iteration"
-    );
+    assert_eq!(overhead.fragmented.operations, VALIDATION_ITERATIONS);
     assert!(overhead.fragmented.payload_bytes >= overhead.unfragmented.payload_bytes);
     assert!(overhead.nanos_ratio().is_some());
 }
