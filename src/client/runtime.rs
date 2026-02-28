@@ -1,6 +1,6 @@
 //! Wireframe client runtime implementation.
 
-use std::{fmt, sync::atomic::AtomicU64};
+use std::{fmt, sync::atomic::AtomicU64, time::Instant};
 
 use bytes::Bytes;
 use futures::SinkExt;
@@ -15,6 +15,8 @@ use super::{
     ClientError,
     WireframeClientBuilder,
     hooks::{ClientConnectionTeardownHandler, ClientErrorHandler, RequestHooks},
+    tracing_config::TracingConfig,
+    tracing_helpers::{call_span, close_span, emit_timing_event, send_span},
 };
 use crate::{
     message::{DecodeWith, EncodeWith},
@@ -66,6 +68,8 @@ where
     pub(crate) on_error: Option<ClientErrorHandler>,
     /// Hooks invoked on every outgoing and incoming frame.
     pub(crate) request_hooks: RequestHooks,
+    /// Tracing configuration for span levels and per-command timing.
+    pub(crate) tracing_config: TracingConfig,
     /// Counter for generating unique correlation identifiers.
     pub(crate) correlation_counter: AtomicU64,
 }
@@ -147,12 +151,16 @@ where
                 return Err(err);
             }
         };
+        let span = send_span(&self.tracing_config, bytes.len());
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         self.invoke_before_send_hooks(&mut bytes);
         if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
             return Err(err);
         }
+        emit_timing_event(timing_start);
         Ok(())
     }
 
@@ -232,8 +240,16 @@ where
         &mut self,
         request: &Req,
     ) -> Result<Resp, ClientError> {
+        let span = call_span(&self.tracing_config);
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.call_timing.then(Instant::now);
         self.send(request).await?;
-        self.receive().await
+        let result = self.receive().await;
+        if result.is_ok() {
+            span.record("result", "ok");
+        }
+        emit_timing_event(timing_start);
+        result
     }
 
     /// Inspect the configured codec settings.
@@ -343,6 +359,10 @@ where
     /// # }
     /// ```
     pub async fn close(mut self) {
+        let span = close_span(&self.tracing_config);
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.close_timing.then(Instant::now);
+
         // Flush pending frames and send EOF before teardown.
         // Ignore errors since we're closing anyway.
         let _ = self.framed.close().await;
@@ -350,5 +370,6 @@ where
         if let (Some(state), Some(handler)) = (self.connection_state.take(), &self.on_disconnect) {
             handler(state).await;
         }
+        emit_timing_event(timing_start);
     }
 }
