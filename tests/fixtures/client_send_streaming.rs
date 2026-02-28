@@ -49,11 +49,15 @@ pub fn client_send_streaming_world() -> ClientSendStreamingWorld {
 /// `src/client/tests/send_streaming_infra.rs`. The two cannot be shared
 /// directly because that helper is `pub(super)` inside the library
 /// crate.
-fn test_body(n: usize) -> Vec<u8> {
-    (0..n)
-        .map(|i| u8::try_from(i.wrapping_rem(256)).unwrap_or(0))
-        .collect()
-}
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "modulo generates a deterministic test byte pattern"
+)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "value is modulo 256, guaranteed to fit in u8"
+)]
+fn test_body(n: usize) -> Vec<u8> { (0..n).map(|i| (i % 256) as u8).collect() }
 
 impl ClientSendStreamingWorld {
     fn new() -> Self {
