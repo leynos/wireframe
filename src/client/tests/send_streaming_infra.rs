@@ -105,13 +105,19 @@ pub(super) async fn spawn_receiving_server()
 /// Spawn a test server that accepts and then immediately shuts down the
 /// write side, triggering a deterministic transport error on the client.
 ///
+/// Returns the server together with a `Notify` that is signalled once the
+/// write-side shutdown has completed, so callers can synchronise
+/// deterministically instead of sleeping.
+///
 /// # Errors
 ///
 /// Returns an error if the TCP listener cannot be bound.
 pub(super) async fn spawn_dropping_server()
--> Result<TestServer, Box<dyn std::error::Error + Send + Sync>> {
+-> Result<(TestServer, Arc<tokio::sync::Notify>), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
+    let shutdown_done = Arc::new(tokio::sync::Notify::new());
+    let notify = shutdown_done.clone();
 
     let handle = tokio::spawn(async move {
         let Ok((mut tcp, _)) = listener.accept().await else {
@@ -120,9 +126,10 @@ pub(super) async fn spawn_dropping_server()
         // Shut down the write side to trigger a deterministic transport
         // error when the client attempts to write.
         let _ = tcp.shutdown().await;
+        notify.notify_one();
     });
 
-    Ok(TestServer::from_handle(addr, handle))
+    Ok((TestServer::from_handle(addr, handle), shutdown_done))
 }
 
 /// Create a connected `WireframeClient` for the given address.

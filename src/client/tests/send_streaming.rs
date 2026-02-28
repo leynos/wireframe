@@ -232,33 +232,33 @@ fn assert_io_error(
     Ok(())
 }
 
-#[tokio::test]
-async fn rejects_oversized_header() -> TestResult {
+/// Spawn a server, create a client, call `send_streaming` with the given
+/// parameters, and assert the result is an I/O error of `expected_error`.
+async fn test_send_streaming_rejects(
+    header: &[u8],
+    body: &[u8],
+    config: SendStreamingConfig,
+    expected_error: io::ErrorKind,
+) -> TestResult {
     let server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
-
-    let header = vec![0u8; DEFAULT_MAX_FRAME];
-    let config = SendStreamingConfig::default();
     assert_io_error(
-        client
-            .send_streaming(&header, b"hello" as &[u8], config)
-            .await,
-        io::ErrorKind::InvalidInput,
+        client.send_streaming(header, body, config).await,
+        expected_error,
     )
 }
 
 #[tokio::test]
-async fn rejects_zero_chunk_size() -> TestResult {
-    let server = spawn_receiving_server().await?;
-    let mut client = create_send_client(server.addr).await?;
+async fn rejects_oversized_header() -> TestResult {
+    let header = vec![0u8; DEFAULT_MAX_FRAME];
+    let config = SendStreamingConfig::default();
+    test_send_streaming_rejects(&header, b"hello", config, io::ErrorKind::InvalidInput).await
+}
 
+#[tokio::test]
+async fn rejects_zero_chunk_size() -> TestResult {
     let config = SendStreamingConfig::default().with_chunk_size(0);
-    assert_io_error(
-        client
-            .send_streaming(b"\x01", b"hello" as &[u8], config)
-            .await,
-        io::ErrorKind::InvalidInput,
-    )
+    test_send_streaming_rejects(b"\x01", b"hello", config, io::ErrorKind::InvalidInput).await
 }
 
 #[tokio::test]
@@ -317,14 +317,11 @@ async fn timeout_returns_timed_out() -> TestResult {
 
 #[tokio::test]
 async fn invokes_error_hook_on_transport_failure() -> TestResult {
-    let server = spawn_dropping_server().await?;
+    let (server, shutdown_done) = spawn_dropping_server().await?;
     let (mut client, hook_invoked) = create_send_client_with_error_hook(server.addr).await?;
 
-    // Give the server time to accept and shut down the write side.
-    // Unlike the receiving-server tests (which await `collect_frames`),
-    // this sleep is unavoidable: we need the kernel to propagate the
-    // shutdown before the client's first write attempt.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Wait for the server to accept and shut down the write side.
+    shutdown_done.notified().await;
 
     // Use a large body to ensure we attempt multiple writes.
     let body = test_body(10_000);

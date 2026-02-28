@@ -142,7 +142,9 @@ where
     /// timeout elapses, no further frames are emitted and
     /// `std::io::ErrorKind::TimedOut` is returned. Any frames already sent
     /// remain sent — callers must assume the operation may have been
-    /// partially successful.
+    /// partially successful. A `TimedOut` error is a transport-level write
+    /// failure; the connection SHOULD be terminated and MUST NOT be reused
+    /// (see ADR 0002, §4).
     ///
     /// # Errors
     ///

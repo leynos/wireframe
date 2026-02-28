@@ -31,8 +31,8 @@ Success is observable when:
   partial frame.
 - Error hooks fire on failure, consistent with other client send methods.
 - Unit tests (`rstest`) validate core chunking, timeout, and error behaviour.
-- Behavioural tests (`rstest-bdd` v0.5.0) validate end-to-end streaming send
-  scenarios.
+- Behavioural (Behaviour-Driven Development, BDD) tests (`rstest-bdd` v0.5.0)
+  validate end-to-end streaming send scenarios.
 - Documentation is updated in ADR 0002, `docs/users-guide.md`, and
   `docs/roadmap.md`.
 - All quality gates pass: `make check-fmt`, `make lint`, `make test`,
@@ -47,9 +47,8 @@ Success is observable when:
 - Do not add new external dependencies.
 - Keep all modified or new source files at or below the 400-line repository
   guideline.
-- `send_streaming` MUST NOT emit a partial frame on timeout.
-- `send_streaming` MUST NOT perform automatic retries.
-- `send_streaming` MUST return `std::io::ErrorKind::TimedOut` on timeout.
+- `send_streaming` MUST NOT emit a partial frame on timeout or perform
+  automatic retries. Timeouts MUST surface as `std::io::ErrorKind::TimedOut`.
 - Callers MUST be able to assume the operation may have been partially
   successful (some frames sent before the error).
 - Follow en-GB-oxendict spelling in comments and documentation.
@@ -106,9 +105,9 @@ Success is observable when:
   with a short wall-clock duration (50 ms). See *Surprises & Discoveries* for
   why `tokio::time::pause()` was rejected.
 
-- Risk: Behaviour-Driven Development (BDD) step text could conflict with
-  existing `client_streaming` steps. Severity: low Likelihood: medium
-  Mitigation: use a `send-streaming` step prefix for all step definitions.
+- Risk: BDD step text could conflict with existing `client_streaming` steps.
+  Severity: low Likelihood: medium Mitigation: use a `send-streaming` step
+  prefix for all step definitions.
 
 ## Progress
 
@@ -714,7 +713,9 @@ where
     /// timeout elapses, no further frames are emitted and
     /// `std::io::ErrorKind::TimedOut` is returned. Any frames already sent
     /// remain sent — callers must assume the operation may have been
-    /// partially successful.
+    /// partially successful. A `TimedOut` error is a transport-level write
+    /// failure; the connection SHOULD be terminated and MUST NOT be reused
+    /// (see ADR 0002, §4).
     ///
     /// # Errors
     ///
