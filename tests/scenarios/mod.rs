@@ -15,6 +15,7 @@ mod client_request_hooks_scenarios;
 mod client_runtime_scenarios;
 mod client_streaming_scenarios;
 mod codec_error_scenarios;
+mod codec_fixtures_scenarios;
 mod codec_performance_benchmarks_scenarios;
 mod codec_property_roundtrip_scenarios;
 mod codec_stateful_scenarios;

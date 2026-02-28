@@ -29,6 +29,7 @@ pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{
     TEST_MAX_FRAME,
     TestSerializer,
+    correlated_hotline_wire,
     decode_frames,
     decode_frames_with_codec,
     decode_frames_with_max,
@@ -50,9 +51,16 @@ pub use helpers::{
     encode_frame,
     encode_payloads_with_codec,
     extract_payloads,
+    mismatched_total_size_wire,
     new_test_codec,
+    oversized_hotline_wire,
     run_app,
     run_with_duplex_server,
+    sequential_hotline_wire,
+    truncated_hotline_header,
+    truncated_hotline_payload,
+    valid_hotline_frame,
+    valid_hotline_wire,
 };
 pub use integration_helpers::{
     CommonTestEnvelope,

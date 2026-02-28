@@ -261,6 +261,50 @@ Supporting helpers for composing custom test patterns:
 - `decode_frames_with_codec` — decode wire bytes to frames.
 - `extract_payloads` — extract payload bytes from decoded frames.
 
+#### Codec test fixtures
+
+The `wireframe_testing` crate provides fixture functions for generating
+Hotline-framed wire bytes covering common test scenarios — valid frames,
+invalid frames, incomplete (truncated) frames, and frames with correlation
+metadata. These fixtures construct raw bytes directly, so they can represent
+malformed data that the encoder would reject:
+
+```rust,no_run
+use wireframe::codec::examples::HotlineFrameCodec;
+use wireframe_testing::{
+    valid_hotline_wire, oversized_hotline_wire,
+    truncated_hotline_header, correlated_hotline_wire,
+    decode_frames_with_codec,
+};
+
+let codec = HotlineFrameCodec::new(4096);
+
+// Valid frame — decodes cleanly.
+let wire = valid_hotline_wire(b"hello", 7);
+let frames = decode_frames_with_codec(&codec, wire).unwrap();
+
+// Oversized frame — rejected with "payload too large".
+let wire = oversized_hotline_wire(4096);
+assert!(decode_frames_with_codec(&codec, wire).is_err());
+
+// Truncated header — rejected with "bytes remaining on stream".
+let wire = truncated_hotline_header();
+assert!(decode_frames_with_codec(&codec, wire).is_err());
+
+// Correlated frames — all share the same transaction ID.
+let wire = correlated_hotline_wire(42, &[b"a", b"b"]);
+let frames = decode_frames_with_codec(&codec, wire).unwrap();
+```
+
+Available fixture functions:
+
+- `valid_hotline_wire` / `valid_hotline_frame` — well-formed frames.
+- `oversized_hotline_wire` — payload exceeds `max_frame_length`.
+- `mismatched_total_size_wire` — header with incorrect `total_size`.
+- `truncated_hotline_header` / `truncated_hotline_payload` — incomplete data.
+- `correlated_hotline_wire` — frames sharing a transaction ID.
+- `sequential_hotline_wire` — frames with incrementing transaction IDs.
+
 #### Zero-copy payload extraction
 
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload

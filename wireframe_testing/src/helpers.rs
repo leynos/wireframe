@@ -12,6 +12,7 @@ use wireframe::{
 mod codec;
 mod codec_drive;
 mod codec_ext;
+mod codec_fixtures;
 mod drive;
 mod payloads;
 mod runtime;
@@ -56,6 +57,16 @@ pub use codec_drive::{
     drive_with_codec_payloads_with_capacity_mut,
 };
 pub use codec_ext::{decode_frames_with_codec, encode_payloads_with_codec, extract_payloads};
+pub use codec_fixtures::{
+    correlated_hotline_wire,
+    mismatched_total_size_wire,
+    oversized_hotline_wire,
+    sequential_hotline_wire,
+    truncated_hotline_header,
+    truncated_hotline_payload,
+    valid_hotline_frame,
+    valid_hotline_wire,
+};
 pub use drive::{
     drive_with_frame,
     drive_with_frame_mut,
