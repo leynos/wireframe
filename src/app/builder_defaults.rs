@@ -68,29 +68,38 @@ mod tests {
     use crate::codec::{MAX_FRAME_LENGTH, MIN_FRAME_LENGTH};
 
     #[rstest]
-    #[case(1024, 16_384, 65_536, 65_536)]
-    #[case(4096, 4096 * 16, 4096 * 64, 4096 * 64)]
-    fn default_budgets_scale_and_use_expected_multipliers(
-        #[case] frame_budget: usize,
-        #[case] expected_message: usize,
-        #[case] expected_connection: usize,
-        #[case] expected_in_flight: usize,
-    ) {
+    #[case(1024)]
+    #[case(4096)]
+    fn default_budgets_scale_and_use_expected_multipliers(#[case] frame_budget: usize) {
         let budgets = default_memory_budgets(frame_budget);
-        assert_eq!(expected_message, budgets.bytes_per_message().as_usize());
         assert_eq!(
-            expected_connection,
+            frame_budget * DEFAULT_MESSAGE_BUDGET_MULTIPLIER,
+            budgets.bytes_per_message().as_usize()
+        );
+        assert_eq!(
+            frame_budget * DEFAULT_CONNECTION_BUDGET_MULTIPLIER,
             budgets.bytes_per_connection().as_usize()
         );
-        assert_eq!(expected_in_flight, budgets.bytes_in_flight().as_usize());
+        assert_eq!(
+            frame_budget * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER,
+            budgets.bytes_in_flight().as_usize()
+        );
     }
 
     #[test]
     fn default_budgets_clamp_minimum_frame_budget() {
         let budgets = default_memory_budgets(10);
         assert_eq!(
-            MIN_FRAME_LENGTH * 16,
+            MIN_FRAME_LENGTH * DEFAULT_MESSAGE_BUDGET_MULTIPLIER,
             budgets.bytes_per_message().as_usize()
+        );
+        assert_eq!(
+            MIN_FRAME_LENGTH * DEFAULT_CONNECTION_BUDGET_MULTIPLIER,
+            budgets.bytes_per_connection().as_usize()
+        );
+        assert_eq!(
+            MIN_FRAME_LENGTH * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER,
+            budgets.bytes_in_flight().as_usize()
         );
     }
 
@@ -98,8 +107,16 @@ mod tests {
     fn default_budgets_clamp_maximum_frame_budget() {
         let budgets = default_memory_budgets(MAX_FRAME_LENGTH + 1);
         assert_eq!(
-            MAX_FRAME_LENGTH * 16,
+            MAX_FRAME_LENGTH * DEFAULT_MESSAGE_BUDGET_MULTIPLIER,
             budgets.bytes_per_message().as_usize()
+        );
+        assert_eq!(
+            MAX_FRAME_LENGTH * DEFAULT_CONNECTION_BUDGET_MULTIPLIER,
+            budgets.bytes_per_connection().as_usize()
+        );
+        assert_eq!(
+            MAX_FRAME_LENGTH * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER,
+            budgets.bytes_in_flight().as_usize()
         );
     }
 

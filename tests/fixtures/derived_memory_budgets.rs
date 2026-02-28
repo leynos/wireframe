@@ -17,8 +17,11 @@ pub use wireframe_testing::TestResult;
 /// Parsed as "`per_message` / `per_connection` / `in_flight`".
 #[derive(Clone, Copy, Debug)]
 pub struct ExplicitBudgetConfig {
+    /// Maximum bytes buffered for a single logical message.
     pub per_message: usize,
+    /// Maximum bytes buffered across all assemblies on one connection.
     pub per_connection: usize,
+    /// Maximum bytes buffered across all in-flight assemblies globally.
     pub in_flight: usize,
 }
 
@@ -240,9 +243,18 @@ impl DerivedMemoryBudgetsWorld {
     }
 
     /// Send multiple non-final first frames for keys in a range.
+    ///
+    /// The first frame is expected to succeed; a failure there indicates a
+    /// genuine fixture problem and is propagated immediately. Subsequent
+    /// send failures are tolerated because budget enforcement may close the
+    /// connection mid-range — the caller observes the outcome via
+    /// `assert_connection_aborted`.
     pub fn send_first_frames_for_range(&mut self, start: u64, end: u64, body: &str) -> TestResult {
         for key in start..=end {
-            if self.send_first_frame(key, body).is_err() {
+            let result = self.send_first_frame(key, body);
+            if key == start {
+                result?;
+            } else if result.is_err() {
                 break;
             }
             self.spin_runtime()?;
