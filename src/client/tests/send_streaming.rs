@@ -28,7 +28,7 @@ async fn test_frames_sent_for_body(
     chunk_size: usize,
     expected_frames: u64,
 ) -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
+    let mut server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let body_vec;
@@ -52,10 +52,9 @@ async fn test_frames_sent_for_body(
     }
 
     drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    let received = server.collect_frames().await?;
 
     let expected_len = usize::try_from(expected_frames)?;
-    let received = frames.lock().await;
     if received.len() != expected_len {
         return Err(format!(
             "server should receive {expected_frames} frames, got {}",
@@ -80,7 +79,7 @@ async fn emits_correct_number_of_frames(protocol_header: Vec<u8>) -> TestResult 
 #[rstest]
 #[tokio::test]
 async fn frame_payload_contains_correct_body_bytes(protocol_header: Vec<u8>) -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
+    let mut server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let body = test_body(250);
@@ -95,9 +94,7 @@ async fn frame_payload_contains_correct_body_bytes(protocol_header: Vec<u8>) -> 
     }
 
     drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let received = frames.lock().await;
+    let received = server.collect_frames().await?;
     let hlen = protocol_header.len();
 
     let f0 = received.first().ok_or("missing frame 0")?;
@@ -135,7 +132,7 @@ async fn exact_chunk_boundary_produces_single_frame(protocol_header: Vec<u8>) ->
 #[rstest]
 #[tokio::test]
 async fn partial_final_chunk(protocol_header: Vec<u8>) -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
+    let mut server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let body = test_body(101);
@@ -154,9 +151,7 @@ async fn partial_final_chunk(protocol_header: Vec<u8>) -> TestResult {
     }
 
     drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let received = frames.lock().await;
+    let received = server.collect_frames().await?;
     let hlen = protocol_header.len();
     let last_frame = received.get(1).ok_or("missing frame 1")?;
     let body_len = last_frame
@@ -183,7 +178,7 @@ async fn empty_body_sends_zero_frames(protocol_header: Vec<u8>) -> TestResult {
 #[rstest]
 #[tokio::test]
 async fn auto_derives_chunk_size_from_max_frame_length(protocol_header: Vec<u8>) -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
+    let mut server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let hlen = protocol_header.len();
@@ -202,9 +197,7 @@ async fn auto_derives_chunk_size_from_max_frame_length(protocol_header: Vec<u8>)
     }
 
     drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let received = frames.lock().await;
+    let received = server.collect_frames().await?;
     // Each frame should be exactly max_frame_length bytes.
     for (i, frame) in received.iter().enumerate() {
         if frame.len() != DEFAULT_MAX_FRAME {
@@ -241,7 +234,7 @@ fn assert_io_error(
 
 #[tokio::test]
 async fn rejects_oversized_header() -> TestResult {
-    let (server, _frames) = spawn_receiving_server().await?;
+    let server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let header = vec![0u8; DEFAULT_MAX_FRAME];
@@ -256,7 +249,7 @@ async fn rejects_oversized_header() -> TestResult {
 
 #[tokio::test]
 async fn rejects_zero_chunk_size() -> TestResult {
-    let (server, _frames) = spawn_receiving_server().await?;
+    let server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let config = SendStreamingConfig::default().with_chunk_size(0);
@@ -270,7 +263,7 @@ async fn rejects_zero_chunk_size() -> TestResult {
 
 #[tokio::test]
 async fn clamps_chunk_size_to_available_capacity() -> TestResult {
-    let (server, frames) = spawn_receiving_server().await?;
+    let mut server = spawn_receiving_server().await?;
     // Use a small max frame to make the test deterministic.
     let mut client = create_send_client_with_max_frame(server.addr, 100).await?;
 
@@ -285,9 +278,7 @@ async fn clamps_chunk_size_to_available_capacity() -> TestResult {
     }
 
     drop(client);
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let received = frames.lock().await;
+    let received = server.collect_frames().await?;
     for (i, frame) in received.iter().enumerate() {
         if frame.len() > 100 {
             return Err(format!(
@@ -307,7 +298,7 @@ async fn clamps_chunk_size_to_available_capacity() -> TestResult {
 
 #[tokio::test]
 async fn timeout_returns_timed_out() -> TestResult {
-    let (server, _frames) = spawn_receiving_server().await?;
+    let server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let (reader, _tx) = blocking_reader();
@@ -329,7 +320,10 @@ async fn invokes_error_hook_on_transport_failure() -> TestResult {
     let server = spawn_dropping_server().await?;
     let (mut client, hook_invoked) = create_send_client_with_error_hook(server.addr).await?;
 
-    // Give the server time to accept and drop the connection.
+    // Give the server time to accept and shut down the write side.
+    // Unlike the receiving-server tests (which await `collect_frames`),
+    // this sleep is unavoidable: we need the kernel to propagate the
+    // shutdown before the client's first write attempt.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Use a large body to ensure we attempt multiple writes.
@@ -350,7 +344,7 @@ async fn invokes_error_hook_on_transport_failure() -> TestResult {
 
 #[tokio::test]
 async fn invokes_error_hook_on_timeout() -> TestResult {
-    let (server, _frames) = spawn_receiving_server().await?;
+    let server = spawn_receiving_server().await?;
     let (mut client, hook_invoked) = create_send_client_with_error_hook(server.addr).await?;
 
     let (reader, _tx) = blocking_reader();
@@ -378,7 +372,7 @@ async fn invokes_error_hook_on_timeout() -> TestResult {
 #[rstest]
 #[tokio::test]
 async fn reports_frames_sent(protocol_header: Vec<u8>) -> TestResult {
-    let (server, _frames) = spawn_receiving_server().await?;
+    let server = spawn_receiving_server().await?;
     let mut client = create_send_client(server.addr).await?;
 
     let body = test_body(500);

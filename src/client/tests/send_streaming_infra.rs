@@ -14,7 +14,7 @@ use std::{
 
 use futures::StreamExt;
 use rstest::fixture;
-use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio::{io::AsyncWriteExt, net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use super::streaming_infra::TestServer;
@@ -32,36 +32,74 @@ pub(super) fn protocol_header() -> Vec<u8> {
     vec![0xCA, 0xFE, 0xBA, 0xBE]
 }
 
-/// Spawn a test server that accepts one connection and reads all frames
-/// sent by the client, collecting them into a shared `Vec<Vec<u8>>`.
+/// A test server that collects all frames sent by the client.
 ///
-/// Returns the server, the shared frame store, and the bound address.
+/// Frames are returned by awaiting the server task via
+/// [`collect_frames`](Self::collect_frames), which provides deterministic
+/// synchronisation without fixed sleeps.
+pub(super) struct ReceivingServer {
+    pub addr: SocketAddr,
+    handle: Option<JoinHandle<Vec<Vec<u8>>>>,
+}
+
+impl ReceivingServer {
+    /// Await the server task and return the collected frames.
+    ///
+    /// The caller must drop the client beforehand so the server sees EOF
+    /// and the task completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the server task panicked or was already
+    /// collected.
+    pub(super) async fn collect_frames(
+        &mut self,
+    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+        let handle = self
+            .handle
+            .take()
+            .ok_or("server handle already collected")?;
+        handle
+            .await
+            .map_err(|e| format!("server task panicked: {e}").into())
+    }
+}
+
+impl Drop for ReceivingServer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
+/// Spawn a test server that accepts one connection and reads all frames
+/// sent by the client, returning them when the connection closes.
 ///
 /// # Errors
 ///
 /// Returns an error if the TCP listener cannot be bound.
-pub(super) async fn spawn_receiving_server() -> Result<
-    (TestServer, Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>),
-    Box<dyn std::error::Error + Send + Sync>,
-> {
+pub(super) async fn spawn_receiving_server()
+-> Result<ReceivingServer, Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
-    let frames: Arc<tokio::sync::Mutex<Vec<Vec<u8>>>> =
-        Arc::new(tokio::sync::Mutex::new(Vec::new()));
-    let frames_clone = frames.clone();
 
     let handle = tokio::spawn(async move {
+        let mut collected = Vec::new();
         let Ok((tcp, _)) = listener.accept().await else {
-            return;
+            return collected;
         };
         let mut transport = Framed::new(tcp, LengthDelimitedCodec::new());
-
         while let Some(Ok(bytes)) = transport.next().await {
-            frames_clone.lock().await.push(bytes.to_vec());
+            collected.push(bytes.to_vec());
         }
+        collected
     });
 
-    Ok((TestServer::from_handle(addr, handle), frames))
+    Ok(ReceivingServer {
+        addr,
+        handle: Some(handle),
+    })
 }
 
 /// Spawn a test server that accepts and then immediately shuts down the

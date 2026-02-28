@@ -100,8 +100,11 @@ Success is observable when:
   terminate the connection. Document this explicitly.
 
 - Risk: unit tests for timeout behaviour can be flaky with real time.
-  Severity: medium Likelihood: medium Mitigation: use `tokio::time::pause()`
-  for deterministic virtual time in timeout tests.
+  Severity: medium Likelihood: medium Mitigation: use an mpsc-backed
+  `StreamReader` (`blocking_reader()` in `send_streaming_infra.rs`) as the body
+  source; the reader genuinely blocks, so `tokio::time::timeout` fires reliably
+  with a short wall-clock duration (50 ms). See *Surprises & Discoveries* for
+  why `tokio::time::pause()` was rejected.
 
 - Risk: Behaviour-Driven Development (BDD) step text could conflict with
   existing `client_streaming` steps. Severity: low Likelihood: medium

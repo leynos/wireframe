@@ -43,6 +43,18 @@ pub fn client_send_streaming_world() -> ClientSendStreamingWorld {
     ClientSendStreamingWorld::new()
 }
 
+/// Generate a body of `n` bytes for testing: cycles through 0–255.
+///
+/// This mirrors the identically named helper in
+/// `src/client/tests/send_streaming_infra.rs`. The two cannot be shared
+/// directly because that helper is `pub(super)` inside the library
+/// crate.
+fn test_body(n: usize) -> Vec<u8> {
+    (0..n)
+        .map(|i| u8::try_from(i.wrapping_rem(256)).unwrap_or(0))
+        .collect()
+}
+
 impl ClientSendStreamingWorld {
     fn new() -> Self {
         let (runtime, runtime_error) = match tokio::runtime::Builder::new_current_thread()
@@ -153,9 +165,7 @@ impl ClientSendStreamingWorld {
         let client = self.client.as_mut().ok_or("client not connected")?;
         let mut header = self.protocol_header.clone();
         header.resize(header_size, 0x00);
-        let body: Vec<u8> = (0..body_size)
-            .map(|i| u8::try_from(i.wrapping_rem(256)).unwrap_or(0))
-            .collect();
+        let body = test_body(body_size);
         let config = SendStreamingConfig::default().with_chunk_size(chunk_size);
 
         match client.send_streaming(&header, &body[..], config).await {
