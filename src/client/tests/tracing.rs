@@ -79,7 +79,7 @@ where
 fn span_assertion(
     span_name: &str,
     required_fields: &[&str],
-) -> impl Fn(&[&str]) -> Result<(), String> {
+) -> impl Fn(&[&str]) -> Result<(), String> + 'static {
     let span = span_name.to_owned();
     let fields: Vec<String> = required_fields.iter().map(|s| (*s).to_owned()).collect();
     move |lines: &[&str]| {
@@ -89,6 +89,18 @@ fn span_assertion(
             .map(|_| ())
             .ok_or_else(|| format!("{span} not found in:\n{}", lines.join("\n")))
     }
+}
+
+/// Run a test operation against an echo client and assert the expected
+/// span appears in logs with the given required fields.
+///
+/// This is a macro rather than a function because `logs_assert` is a
+/// scope-bound local injected by `#[traced_test]` into each test body.
+macro_rules! test_span_emission {
+    ($config:expr, $span_name:expr, $required_fields:expr, $operation:expr $(,)?) => {
+        with_echo_client($config, $operation).await;
+        logs_assert(span_assertion($span_name, $required_fields));
+    };
 }
 
 #[rstest]
@@ -114,57 +126,56 @@ async fn connect_emits_span_with_peer_address() {
 #[traced_test]
 #[tokio::test]
 async fn send_emits_span_with_frame_bytes() {
-    with_echo_client(
+    test_span_emission!(
         TracingConfig::default().with_send_timing(true),
+        "client.send",
+        &["frame.bytes"],
         |mut client, _addr| async move {
             let envelope = Envelope::new(1, None, vec![1, 2, 3]);
             client.send(&envelope).await.expect("send");
         },
-    )
-    .await;
-
-    logs_assert(span_assertion("client.send", &["frame.bytes"]));
+    );
 }
 
 #[rstest]
 #[traced_test]
 #[tokio::test]
 async fn receive_emits_span_with_result() {
-    with_echo_client(
+    test_span_emission!(
         TracingConfig::default().with_receive_timing(true),
+        "client.receive",
+        &[],
         |mut client, _addr| async move {
             let envelope = Envelope::new(1, None, vec![1, 2, 3]);
             client.send(&envelope).await.expect("send");
             let _response: Envelope = client.receive().await.expect("receive");
         },
-    )
-    .await;
-
-    logs_assert(span_assertion("client.receive", &[]));
+    );
 }
 
 #[rstest]
 #[traced_test]
 #[tokio::test]
 async fn call_emits_wrapping_span() {
-    with_echo_client(
+    test_span_emission!(
         TracingConfig::default().with_call_timing(true),
+        "client.call",
+        &[],
         |mut client, _addr| async move {
             let envelope = Envelope::new(1, None, vec![1, 2, 3]);
             let _response: Envelope = client.call(&envelope).await.expect("call");
         },
-    )
-    .await;
-
-    logs_assert(span_assertion("client.call", &[]));
+    );
 }
 
 #[rstest]
 #[traced_test]
 #[tokio::test]
 async fn call_correlated_emits_span_with_correlation_id() {
-    with_echo_client(
+    test_span_emission!(
         TracingConfig::default().with_call_timing(true),
+        "client.call_correlated",
+        &["correlation_id"],
         |mut client, _addr| async move {
             let request = Envelope::new(1, None, vec![1, 2, 3]);
             let _response: Envelope = client
@@ -172,32 +183,22 @@ async fn call_correlated_emits_span_with_correlation_id() {
                 .await
                 .expect("call_correlated");
         },
-    )
-    .await;
-
-    logs_assert(span_assertion(
-        "client.call_correlated",
-        &["correlation_id"],
-    ));
+    );
 }
 
 #[rstest]
 #[traced_test]
 #[tokio::test]
 async fn send_envelope_emits_span_with_correlation_id_and_frame_bytes() {
-    with_echo_client(
+    test_span_emission!(
         TracingConfig::default().with_send_timing(true),
+        "client.send_envelope",
+        &["correlation_id", "frame.bytes"],
         |mut client, _addr| async move {
             let envelope = Envelope::new(1, None, vec![1, 2, 3]);
             let _cid = client.send_envelope(envelope).await.expect("send_envelope");
         },
-    )
-    .await;
-
-    logs_assert(span_assertion(
-        "client.send_envelope",
-        &["correlation_id", "frame.bytes"],
-    ));
+    );
 }
 
 #[rstest]
@@ -291,29 +292,27 @@ async fn timing_disabled_by_default() {
 #[traced_test]
 #[tokio::test]
 async fn timing_enabled_emits_elapsed_us_for_send() {
-    with_echo_client(
+    test_span_emission!(
         TracingConfig::default().with_send_timing(true),
+        "elapsed_us",
+        &[],
         |mut client, _addr| async move {
             let envelope = Envelope::new(1, None, vec![1, 2, 3]);
             client.send(&envelope).await.expect("send");
         },
-    )
-    .await;
-
-    logs_assert(span_assertion("elapsed_us", &[]));
+    );
 }
 
 #[rstest]
 #[traced_test]
 #[tokio::test]
 async fn timing_enabled_for_connect() {
-    with_echo_client(
+    test_span_emission!(
         TracingConfig::default().with_connect_timing(true),
+        "elapsed_us",
+        &[],
         |_client, _addr| async {},
-    )
-    .await;
-
-    logs_assert(span_assertion("elapsed_us", &[]));
+    );
 }
 
 #[rstest]
