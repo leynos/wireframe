@@ -336,3 +336,49 @@ fn resolve_derived_budgets_change_with_frame_budget() -> TestResult {
     }
     Ok(())
 }
+
+// ---------- apply_memory_pressure async tests ----------
+
+#[tokio::test]
+async fn apply_memory_pressure_abort_returns_invalid_data() {
+    use super::backpressure::{MemoryPressureAction, apply_memory_pressure};
+
+    let result = apply_memory_pressure(MemoryPressureAction::Abort, || {}).await;
+    let err = result.expect_err("Abort should return an error");
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidData,
+        "expected InvalidData error kind, got {:?}: {err}",
+        err.kind()
+    );
+}
+
+#[tokio::test]
+async fn apply_memory_pressure_pause_invokes_purge_closure() {
+    use super::backpressure::{MemoryPressureAction, apply_memory_pressure};
+
+    tokio::time::pause();
+
+    let mut purge_called = false;
+    let result = apply_memory_pressure(
+        MemoryPressureAction::Pause(Duration::from_millis(1)),
+        || purge_called = true,
+    )
+    .await;
+    result.expect("Pause should return Ok");
+    assert!(
+        purge_called,
+        "expected purge closure to be called during Pause action"
+    );
+}
+
+#[tokio::test]
+async fn apply_memory_pressure_continue_is_noop() {
+    use super::backpressure::{MemoryPressureAction, apply_memory_pressure};
+
+    let result = apply_memory_pressure(MemoryPressureAction::Continue, || {
+        panic!("purge closure should not be called for Continue action");
+    })
+    .await;
+    result.expect("Continue should return Ok");
+}
