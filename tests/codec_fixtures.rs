@@ -113,36 +113,18 @@ fn truncated_payload_produces_decode_error() -> io::Result<()> {
     assert_decode_fails_with(wire, "bytes remaining")
 }
 
-// ── Correlation metadata fixtures ───────────────────────────────────────
-
-#[test]
-fn correlated_frames_share_transaction_id() -> io::Result<()> {
-    let wire = correlated_hotline_wire(42, &[b"a", b"b", b"c"]);
-    let codec = hotline_codec();
-    let frames = decode_frames_with_codec(&codec, wire)?;
-
-    assert_frame_count(&frames, 3)?;
-
-    for (i, frame) in frames.iter().enumerate() {
-        if frame.transaction_id != 42 {
-            return Err(io::Error::other(format!(
-                "frame {i}: expected transaction_id 42, got {}",
-                frame.transaction_id
-            )));
-        }
+/// Verify each frame carries the expected transaction ID.
+fn assert_transaction_ids(
+    frames: &[wireframe::codec::examples::HotlineFrame],
+    expected_ids: &[u32],
+) -> io::Result<()> {
+    if frames.len() != expected_ids.len() {
+        return Err(io::Error::other(format!(
+            "expected {} frame(s), got {}",
+            expected_ids.len(),
+            frames.len()
+        )));
     }
-    Ok(())
-}
-
-#[test]
-fn sequential_frames_have_incrementing_ids() -> io::Result<()> {
-    let wire = sequential_hotline_wire(10, &[b"x", b"y", b"z"]);
-    let codec = hotline_codec();
-    let frames = decode_frames_with_codec(&codec, wire)?;
-
-    assert_frame_count(&frames, 3)?;
-
-    let expected_ids: &[u32] = &[10, 11, 12];
     for (i, (frame, expected_id)) in frames.iter().zip(expected_ids.iter()).enumerate() {
         if frame.transaction_id != *expected_id {
             return Err(io::Error::other(format!(
@@ -152,4 +134,26 @@ fn sequential_frames_have_incrementing_ids() -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+// ── Correlation metadata fixtures ───────────────────────────────────────
+
+#[test]
+fn correlated_frames_share_transaction_id() -> io::Result<()> {
+    let wire = correlated_hotline_wire(42, &[b"a", b"b", b"c"]);
+    let codec = hotline_codec();
+    let frames = decode_frames_with_codec(&codec, wire)?;
+
+    assert_frame_count(&frames, 3)?;
+    assert_transaction_ids(&frames, &[42, 42, 42])
+}
+
+#[test]
+fn sequential_frames_have_incrementing_ids() -> io::Result<()> {
+    let wire = sequential_hotline_wire(10, &[b"x", b"y", b"z"]);
+    let codec = hotline_codec();
+    let frames = decode_frames_with_codec(&codec, wire)?;
+
+    assert_frame_count(&frames, 3)?;
+    assert_transaction_ids(&frames, &[10, 11, 12])
 }
