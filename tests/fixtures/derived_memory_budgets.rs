@@ -153,6 +153,9 @@ impl DerivedMemoryBudgetsWorld {
     /// the test fixture aligned with production derivation behaviour.
     fn fragmentation_from_app(app: &WireframeApp) -> TestResult<FragmentationConfig> {
         let clamped = app.length_codec().max_frame_length();
+        // The multiplier 16 mirrors `DEFAULT_MESSAGE_SIZE_MULTIPLIER` in
+        // `builder_defaults` (module-private). If that constant changes,
+        // update this value in `fragmentation_from_app` to match.
         let fragment_limit = NonZeroUsize::new(clamped.saturating_mul(16))
             .ok_or("buffer-derived fragment limit should be non-zero")?;
         FragmentationConfig::for_frame_budget(clamped, fragment_limit, Duration::from_secs(30))
