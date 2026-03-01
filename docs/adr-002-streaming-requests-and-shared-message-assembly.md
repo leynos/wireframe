@@ -373,6 +373,28 @@ Precedence is:
 - Explicit budgets always take precedence over derived defaults (ADR-002
   precedence rule: explicit > global caps > derived defaults).
 
+#### Implementation decisions (2026-03-01)
+
+- Roadmap item `8.3.6` adds comprehensive test coverage for the three-tier
+  per-connection memory budget protection model (items `8.3.1` through `8.3.5`).
+- Three `#[tokio::test]` unit tests validate the `apply_memory_pressure()`
+  async function for each `MemoryPressureAction` variant (`Abort` returns
+  `InvalidData`, `Pause` invokes the purge closure, `Continue` is a no-op).
+- A `budget_cleanup` BDD suite (3 scenarios) validates end-to-end cleanup
+  semantics: timeout purge reclaims budget headroom for subsequent frames,
+  completed assemblies reclaim budget for subsequent frames, and connection
+  close frees all partial assemblies via RAII drop of `MessageAssemblyState`.
+- A `budget_transitions` BDD suite (3 scenarios) validates pressure
+  transitions: soft-limit pacing escalates to connection termination after
+  repeated per-frame rejections, assembly completion recovers the connection
+  from soft-limit pressure, and the tightest aggregate dimension
+  (`min(bytes_per_connection, bytes_in_flight)`) controls enforcement when the
+  two dimensions differ.
+- Cleanup relies entirely on Rust's RAII semantics. When `process_stream`
+  returns, its local `message_assembly: Option<MessageAssemblyState>` drops,
+  which drops the internal `HashMap<MessageKey, PartialAssembly>`, freeing all
+  partial body and metadata buffers. No custom `Drop` implementation is needed.
+
 #### Budget enforcement
 
 - Budgets MUST cover: bytes buffered per message, bytes buffered per
