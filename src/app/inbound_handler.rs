@@ -266,12 +266,14 @@ where
             );
         }
         framed.read_buffer_mut().reserve(max_frame_length);
+        let effective_budgets =
+            frame_handling::resolve_effective_budgets(self.memory_budgets, requested_frame_length);
         let mut deser_failures = 0u32;
         let mut message_assembly = self.message_assembler.as_ref().map(|_| {
             frame_handling::new_message_assembly_state(
                 self.fragmentation,
                 requested_frame_length,
-                self.memory_budgets,
+                Some(effective_budgets),
             )
         });
         let mut pipeline = FramePipeline::new(self.fragmentation);
@@ -280,7 +282,7 @@ where
         loop {
             let pressure = frame_handling::evaluate_memory_pressure(
                 message_assembly.as_ref(),
-                self.memory_budgets,
+                Some(effective_budgets),
             );
             frame_handling::apply_memory_pressure(pressure, || {
                 purge_expired(&mut pipeline, &mut message_assembly);

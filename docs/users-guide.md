@@ -679,6 +679,24 @@ Wireframe provides a three-tier protection model for inbound memory budgets:
    `InvalidData`. This is a defence-in-depth safety net; under normal
    operation, per-frame enforcement prevents this state from being reached.
 
+#### Derived budget defaults
+
+When `memory_budgets(...)` is not called on the builder, Wireframe derives
+sensible defaults automatically from `buffer_capacity` (the codec's
+`max_frame_length()`). The derived values use the same multiplier pattern as
+fragmentation defaults:
+
+| Budget field           | Multiplier           | Default (1024-byte frame) |
+| ---------------------- | -------------------- | ------------------------- |
+| `bytes_per_message`    | `frame_budget × 16`  | 16 KiB                    |
+| `bytes_per_connection` | `frame_budget × 64`  | 64 KiB                    |
+| `bytes_in_flight`      | `frame_budget × 64`  | 64 KiB                    |
+
+All three protection tiers (per-frame enforcement, soft-limit read pacing, and
+hard-cap connection abort) are active with derived defaults. Changing
+`buffer_capacity` adjusts derived budgets proportionally. Calling
+`.memory_budgets(...)` overrides the derived defaults entirely.
+
 #### Message key multiplexing (8.2.3)
 
 The `MessageAssemblyState` type manages multiple concurrent message assemblies

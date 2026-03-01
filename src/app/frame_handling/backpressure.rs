@@ -12,7 +12,10 @@ use std::time::Duration;
 use log::{debug, warn};
 use tokio::{io, time::sleep};
 
-use crate::{app::MemoryBudgets, message_assembler::MessageAssemblyState};
+use crate::{
+    app::{MemoryBudgets, builder_defaults::default_memory_budgets},
+    message_assembler::MessageAssemblyState,
+};
 
 /// Soft-pressure threshold numerator (4/5 == 80%).
 const SOFT_LIMIT_NUMERATOR: u128 = 4;
@@ -122,6 +125,19 @@ fn active_aggregate_limit_bytes(budgets: MemoryBudgets) -> usize {
         .bytes_per_connection()
         .as_usize()
         .min(budgets.bytes_in_flight().as_usize())
+}
+
+/// Resolve the effective memory budgets for one connection.
+///
+/// Returns the explicit budgets if configured, or derives sensible
+/// defaults from `frame_budget` using the same multiplier pattern as
+/// fragmentation defaults.
+#[must_use]
+pub(crate) fn resolve_effective_budgets(
+    explicit: Option<MemoryBudgets>,
+    frame_budget: usize,
+) -> MemoryBudgets {
+    explicit.unwrap_or_else(|| default_memory_budgets(frame_budget))
 }
 
 fn is_at_or_above_soft_limit(buffered_bytes: usize, aggregate_limit: usize) -> bool {

@@ -350,6 +350,29 @@ Precedence is:
   total buffered bytes from exceeding the limit. The hard cap catches the edge
   case where this invariant is violated.
 
+#### Implementation decisions (2026-02-27)
+
+- Roadmap item `8.3.5` implements derived default memory budgets. When
+  `WireframeApp::memory_budgets(...)` is not called, sensible defaults are
+  derived at connection time from `codec.max_frame_length()` (the frame budget
+  set via `buffer_capacity()`).
+- Multipliers applied to `frame_budget`:
+  - `bytes_per_message = frame_budget × 16` (aligned with fragmentation's
+    `DEFAULT_MESSAGE_SIZE_MULTIPLIER`).
+  - `bytes_per_connection = frame_budget × 64` (allows four concurrent
+    message assemblies at maximum message size).
+  - `bytes_in_flight = frame_budget × 64` (same as per-connection; the
+    aggregate cap is a single value).
+- Derivation is lazy — budgets are computed at runtime in `process_stream()`
+  via `resolve_effective_budgets()`, not stored on the builder. Changing
+  `buffer_capacity` or swapping codecs adjusts derived defaults automatically.
+- `default_memory_budgets()` lives in `src/app/builder_defaults.rs` alongside
+  `default_fragmentation()`, following the same multiplier-from-frame-budget
+  pattern. `resolve_effective_budgets()` lives in
+  `src/app/frame_handling/backpressure.rs`, co-located with budget evaluation.
+- Explicit budgets always take precedence over derived defaults (ADR-002
+  precedence rule: explicit > global caps > derived defaults).
+
 #### Budget enforcement
 
 - Budgets MUST cover: bytes buffered per message, bytes buffered per

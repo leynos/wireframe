@@ -297,7 +297,7 @@ and standardized per-connection memory budgets.
 - [x] 8.3.3. Implement soft limit (back-pressure by pausing reads) behaviour.
 - [x] 8.3.4. Implement hard cap (abort early, release partial state, surface
   `InvalidData`) behaviour.
-- [ ] 8.3.5. Define derived defaults based on `buffer_capacity` when budgets
+- [x] 8.3.5. Define derived defaults based on `buffer_capacity` when budgets
   are not set explicitly.
 - [ ] 8.3.6. Write tests for budget enforcement, back-pressure, and cleanup
   semantics.
