@@ -58,6 +58,9 @@ pub use codec_drive::{
 };
 pub use codec_ext::{decode_frames_with_codec, encode_payloads_with_codec, extract_payloads};
 pub use codec_fixtures::{
+    MaxFrameLength,
+    PayloadLength,
+    TransactionId,
     correlated_hotline_wire,
     mismatched_total_size_wire,
     oversized_hotline_wire,

@@ -175,16 +175,14 @@ New test coverage:
 
 Files created: 6 (`codec_fixtures.rs` in wireframe\_testing helpers,
 `codec_fixtures.rs` integration tests, `.feature` file, BDD fixture/steps/
-scenarios).
-Files modified: 8 (helpers.rs, lib.rs, three BDD mod.rs files, users-guide.md,
-roadmap.md, adr-004.md).
+scenarios). Files modified: 8 (helpers.rs, lib.rs, three BDD mod.rs files,
+users-guide.md, roadmap.md, adr-004.md).
 
 Key discovery: truncated frame fixtures trigger the `decode_eof` "bytes
 remaining on stream" error path rather than the trailing-bytes check in
-`decode_frames_with_codec`. This is because the default tokio-util
-`decode_eof` implementation detects leftover bytes before the explicit trailing
-check runs. Future fixture work should account for this when designing error
-assertions.
+`decode_frames_with_codec`. This is because the default tokio-util `decode_eof`
+implementation detects leftover bytes before the explicit trailing check runs.
+Future fixture work should account for this when designing error assertions.
 
 ## Context and orientation
 

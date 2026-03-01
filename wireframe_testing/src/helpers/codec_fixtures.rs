@@ -22,6 +22,30 @@ use wireframe::codec::{
     examples::{HotlineFrame, HotlineFrameCodec},
 };
 
+/// A transaction identifier for Hotline protocol frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransactionId(pub u32);
+
+impl From<u32> for TransactionId {
+    fn from(value: u32) -> Self { Self(value) }
+}
+
+/// Maximum permitted frame length for a Hotline codec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaxFrameLength(pub usize);
+
+impl From<usize> for MaxFrameLength {
+    fn from(value: usize) -> Self { Self(value) }
+}
+
+/// Payload length in bytes for a Hotline frame fixture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PayloadLength(pub usize);
+
+impl From<usize> for PayloadLength {
+    fn from(value: usize) -> Self { Self(value) }
+}
+
 /// Hotline header length in bytes: `data_size` (4) + `total_size` (4) +
 /// `transaction_id` (4) + reserved (8).
 const HEADER_LEN: usize = 20;
@@ -43,7 +67,8 @@ const HEADER_LEN: usize = 20;
 /// assert_eq!(frames.len(), 1);
 /// ```
 #[must_use]
-pub fn valid_hotline_wire(payload: &[u8], transaction_id: u32) -> Vec<u8> {
+pub fn valid_hotline_wire(payload: &[u8], transaction_id: impl Into<TransactionId>) -> Vec<u8> {
+    let transaction_id = transaction_id.into().0;
     build_hotline_wire(payload, transaction_id, payload.len(), true)
 }
 
@@ -62,7 +87,11 @@ pub fn valid_hotline_wire(payload: &[u8], transaction_id: u32) -> Vec<u8> {
 /// assert_eq!(&*frame.payload, b"data");
 /// ```
 #[must_use]
-pub fn valid_hotline_frame(payload: &[u8], transaction_id: u32) -> HotlineFrame {
+pub fn valid_hotline_frame(
+    payload: &[u8],
+    transaction_id: impl Into<TransactionId>,
+) -> HotlineFrame {
+    let transaction_id = transaction_id.into().0;
     let codec = HotlineFrameCodec::new(payload.len());
     let mut frame = codec.wrap_payload(Bytes::copy_from_slice(payload));
     frame.transaction_id = transaction_id;
@@ -88,7 +117,8 @@ pub fn valid_hotline_frame(payload: &[u8], transaction_id: u32) -> HotlineFrame 
 /// assert!(err.to_string().contains("payload too large"));
 /// ```
 #[must_use]
-pub fn oversized_hotline_wire(max_frame_length: usize) -> Vec<u8> {
+pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Vec<u8> {
+    let max_frame_length = max_frame_length.into().0;
     let oversized_len = max_frame_length + 1;
     build_hotline_wire(&vec![0xab; oversized_len], 0, oversized_len, true)
 }
@@ -165,7 +195,8 @@ pub fn truncated_hotline_header() -> Vec<u8> {
 /// assert!(err.to_string().contains("bytes remaining"));
 /// ```
 #[must_use]
-pub fn truncated_hotline_payload(payload_len: usize) -> Vec<u8> {
+pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u8> {
+    let payload_len = payload_len.into().0;
     let data_size = u32_from_usize(payload_len);
     let total_size = u32_from_usize(payload_len + HEADER_LEN);
 
@@ -198,7 +229,11 @@ pub fn truncated_hotline_payload(payload_len: usize) -> Vec<u8> {
 /// assert!(frames.iter().all(|f| f.transaction_id == 42));
 /// ```
 #[must_use]
-pub fn correlated_hotline_wire(transaction_id: u32, payloads: &[&[u8]]) -> Vec<u8> {
+pub fn correlated_hotline_wire(
+    transaction_id: impl Into<TransactionId>,
+    payloads: &[&[u8]],
+) -> Vec<u8> {
+    let transaction_id = transaction_id.into().0;
     let mut buf = Vec::new();
     for payload in payloads {
         buf.extend_from_slice(&valid_hotline_wire(payload, transaction_id));
@@ -224,7 +259,11 @@ pub fn correlated_hotline_wire(transaction_id: u32, payloads: &[&[u8]]) -> Vec<u
 /// assert_eq!(frames.len(), 3);
 /// ```
 #[must_use]
-pub fn sequential_hotline_wire(base_transaction_id: u32, payloads: &[&[u8]]) -> Vec<u8> {
+pub fn sequential_hotline_wire(
+    base_transaction_id: impl Into<TransactionId>,
+    payloads: &[&[u8]],
+) -> Vec<u8> {
+    let base_transaction_id = base_transaction_id.into().0;
     let mut buf = Vec::new();
     for (i, payload) in payloads.iter().enumerate() {
         #[expect(
@@ -246,10 +285,11 @@ pub fn sequential_hotline_wire(base_transaction_id: u32, payloads: &[&[u8]]) -> 
 /// `data_size + HEADER_LEN + 1` (deliberately wrong).
 fn build_hotline_wire(
     payload: &[u8],
-    transaction_id: u32,
+    transaction_id: impl Into<TransactionId>,
     data_size: usize,
     correct_total_size: bool,
 ) -> Vec<u8> {
+    let transaction_id = transaction_id.into().0;
     let data_size_u32 = u32_from_usize(data_size);
     let total_size = if correct_total_size {
         u32_from_usize(data_size + HEADER_LEN)

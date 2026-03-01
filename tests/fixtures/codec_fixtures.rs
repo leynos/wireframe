@@ -132,14 +132,7 @@ impl CodecFixturesWorld {
     /// Returns an error if no decode error was captured or it does not
     /// contain the expected message.
     pub fn verify_invalid_data_error(&self) -> TestResult {
-        let err = self
-            .decode_error
-            .as_ref()
-            .ok_or("expected a decode error but decoding succeeded")?;
-        if !err.to_string().contains("payload too large") {
-            return Err(format!("expected 'payload too large' error, got: {err}").into());
-        }
-        Ok(())
+        self.verify_error_message_contains("payload too large")
     }
 
     /// Verify the decoder produced a "bytes remaining" error for truncated
@@ -149,12 +142,17 @@ impl CodecFixturesWorld {
     /// Returns an error if no decode error was captured or it does not
     /// contain the expected message.
     pub fn verify_bytes_remaining_error(&self) -> TestResult {
+        self.verify_error_message_contains("bytes remaining")
+    }
+
+    /// Verify the captured decode error contains `expected_substring`.
+    fn verify_error_message_contains(&self, expected_substring: &str) -> TestResult {
         let err = self
             .decode_error
             .as_ref()
             .ok_or("expected a decode error but decoding succeeded")?;
-        if !err.to_string().contains("bytes remaining") {
-            return Err(format!("expected 'bytes remaining' error, got: {err}").into());
+        if !err.to_string().contains(expected_substring) {
+            return Err(format!("expected '{expected_substring}' error, got: {err}").into());
         }
         Ok(())
     }

@@ -27,8 +27,11 @@ pub mod multi_packet;
 
 pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{
+    MaxFrameLength,
+    PayloadLength,
     TEST_MAX_FRAME,
     TestSerializer,
+    TransactionId,
     correlated_hotline_wire,
     decode_frames,
     decode_frames_with_codec,
