@@ -399,6 +399,30 @@ Wireframe will provide a transport-level helper (conceptually
 This reduces duplicate “read N bytes, stamp header, write frame” loops across
 protocol implementations while keeping header semantics protocol-defined.
 
+#### Implementation decisions — send streaming (2026-02-26)
+
+- Roadmap items `8.4.1`–`8.4.5` are implemented in
+  `src/client/send_streaming.rs`, which lives alongside the inbound
+  `streaming.rs` to form a symmetric inbound/outbound pair.
+- `SendStreamingConfig` is a configuration struct with optional `chunk_size`
+  and `timeout` fields, following the project convention of grouping related
+  parameters in meaningfully named structs. When `chunk_size` is not set, it is
+  auto-derived as `max_frame_length - frame_header.len()`.
+- `SendStreamingOutcome` reports `frames_sent: u64` on successful completion.
+  On failure, the error is returned directly without an outcome; callers must
+  assume the operation may have been partially successful.
+- The timeout wraps the entire `send_streaming` operation (not per-frame).
+  This matches the `preamble_exchange.rs` pattern and prevents unbounded total
+  duration. Per-frame timeouts can be layered on later if needed.
+- Timeout errors surface as
+  `ClientError::Wireframe(WireframeError::Io(TimedOut))`, consistent with how
+  other I/O errors propagate through the client.
+- The error hook is invoked on all failure paths (transport errors and
+  timeouts), consistent with `send`, `send_envelope`, and `call_streaming`.
+- `send_streaming` operates on raw bytes (`frame_header: &[u8]`,
+  `body_reader: R: AsyncRead + Unpin`) rather than typed envelopes, keeping
+  header semantics protocol-defined as specified in this ADR.
+
 Timeouts MUST fail the current send operation and MUST not emit a partial frame.
 
 If a timeout occurs, `send_streaming` MUST return

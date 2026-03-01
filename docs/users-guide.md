@@ -1382,6 +1382,47 @@ Request hooks fire on all message paths: `send`, `send_envelope`,
 polling. Clients configured without request hooks behave identically to clients
 that have none registered.
 
+### Outbound streaming sends
+
+The client supports sending large request bodies as multiple frames using
+`send_streaming`. The caller provides a protocol-defined frame header and an
+`AsyncRead` body source; the helper reads chunks, prepends the header to each
+chunk, and emits framed packets over the transport.
+
+```rust,no_run
+use std::net::SocketAddr;
+use wireframe::client::{SendStreamingConfig, WireframeClient};
+
+# #[tokio::main]
+# async fn main() -> Result<(), wireframe::client::ClientError> {
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid address");
+let mut client = WireframeClient::builder().connect(addr).await?;
+
+let header = [0xCA, 0xFE, 0xBA, 0xBE];
+let body = vec![0u8; 4096];
+let config = SendStreamingConfig::default()
+    .with_chunk_size(512)
+    .with_timeout(std::time::Duration::from_secs(5));
+
+let outcome = client.send_streaming(&header, &body[..], config).await?;
+println!("sent {} frames", outcome.frames_sent());
+# Ok(())
+# }
+```
+
+`SendStreamingConfig` controls chunking and timeout behaviour:
+
+- `with_chunk_size(usize)` — maximum body bytes per frame. When not set, the
+  chunk size is derived as `max_frame_length - header.len()`.
+- `with_timeout(Duration)` — timeout for the entire operation. If the timeout
+  elapses, `std::io::ErrorKind::TimedOut` is returned and no further frames are
+  emitted. Any frames already sent remain sent; callers must assume the
+  operation may have been partially successful.
+
+`SendStreamingOutcome` reports the number of frames emitted via
+`frames_sent()`. The error hook is invoked on all failure paths, consistent
+with other client send methods.[^53]
+
 ### Client message API with correlation identifiers
 
 The client provides envelope-aware messaging APIs that work with the `Packet`
@@ -1940,5 +1981,9 @@ call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
     `src/client/builder/request_hooks.rs` (builder methods), and
     `src/client/messaging.rs` (hook invocation). BDD tests in
     `tests/features/client_request_hooks.feature`.
+
+[^53]: Implemented in `src/client/send_streaming.rs`. See
+    [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md),
+    Section 4, for design rationale.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md

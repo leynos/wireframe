@@ -20,6 +20,7 @@ mod preamble_builder;
 mod preamble_exchange;
 mod response_stream;
 mod runtime;
+mod send_streaming;
 mod socket_option_methods;
 mod streaming;
 
@@ -36,6 +37,7 @@ pub use hooks::{
 };
 pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;
+pub use send_streaming::{SendStreamingConfig, SendStreamingOutcome};
 
 /// Handler invoked after the client successfully writes its preamble.
 ///
