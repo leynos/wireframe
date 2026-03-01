@@ -118,13 +118,7 @@ fn assert_transaction_ids(
     frames: &[wireframe::codec::examples::HotlineFrame],
     expected_ids: &[u32],
 ) -> io::Result<()> {
-    if frames.len() != expected_ids.len() {
-        return Err(io::Error::other(format!(
-            "expected {} frame(s), got {}",
-            expected_ids.len(),
-            frames.len()
-        )));
-    }
+    assert_frame_count(frames, expected_ids.len())?;
     for (i, (frame, expected_id)) in frames.iter().zip(expected_ids.iter()).enumerate() {
         if frame.transaction_id != *expected_id {
             return Err(io::Error::other(format!(

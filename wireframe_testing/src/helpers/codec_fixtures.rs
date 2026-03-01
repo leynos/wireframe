@@ -270,7 +270,7 @@ pub fn sequential_hotline_wire(
             clippy::cast_possible_truncation,
             reason = "fixture payloads slice length will not exceed u32::MAX"
         )]
-        let tid = base_transaction_id + i as u32;
+        let tid = base_transaction_id.wrapping_add(i as u32);
         buf.extend_from_slice(&valid_hotline_wire(payload, tid));
     }
     buf

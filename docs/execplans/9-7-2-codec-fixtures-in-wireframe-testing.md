@@ -428,7 +428,7 @@ Stage C acceptance: `make test` passes with all 4 BDD scenarios green.
 2. Update the relevant design document
    (`docs/hardening-wireframe-a-guide-to-production-resilience.md`) with a
    short note recording the design decision to provide Hotline-specific
-   raw-byte fixtures rather than generic `FrameCodec`-parameterised generators,
+   raw-byte fixtures rather than generic `FrameCodec`-parameterized generators,
    and the rationale (invalid frames require format-specific knowledge).
 
 3. Mark roadmap item `9.7.2` as done in `docs/roadmap.md`: change
