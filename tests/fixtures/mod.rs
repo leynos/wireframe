@@ -11,6 +11,7 @@ pub mod client_request_hooks;
 pub mod client_runtime;
 pub mod client_send_streaming;
 pub mod client_streaming;
+pub mod client_tracing;
 pub mod codec_error;
 pub mod codec_performance_benchmarks;
 pub mod codec_property_roundtrip;

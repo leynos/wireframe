@@ -5,12 +5,17 @@
 //! [`ResponseStream`](super::ResponseStream) that yields data frames until the
 //! protocol's end-of-stream terminator arrives.
 
-use std::sync::atomic::Ordering;
+use std::{sync::atomic::Ordering, time::Instant};
 
 use bytes::Bytes;
 use futures::SinkExt;
 
-use super::{ClientError, ResponseStream, runtime::ClientStream};
+use super::{
+    ClientError,
+    ResponseStream,
+    runtime::ClientStream,
+    tracing_helpers::{emit_timing_event, streaming_span},
+};
 use crate::{
     app::Packet,
     message::{DecodeWith, EncodeWith},
@@ -85,6 +90,10 @@ where
             request.set_correlation_id(Some(correlation_id));
         }
 
+        let span = streaming_span(&self.tracing_config, correlation_id);
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.streaming_timing.then(Instant::now);
+
         let mut bytes = match self.serializer.serialize(&request) {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -93,6 +102,7 @@ where
                 return Err(err);
             }
         };
+        span.record("frame.bytes", bytes.len());
         self.invoke_before_send_hooks(&mut bytes);
         if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
             let err = ClientError::from(e);
@@ -100,6 +110,7 @@ where
             return Err(err);
         }
 
+        emit_timing_event(timing_start);
         Ok(ResponseStream::new(self, correlation_id))
     }
 

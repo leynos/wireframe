@@ -1140,6 +1140,7 @@ as `TCP_NODELAY` or buffer size adjustments.
 | Error hook           | `on_error(...)`                              | Disabled                                                | Transport and decode failures must be routed to observability.      |
 | Before-send hook     | `before_send(...)`                           | Disabled                                                | Inspect or mutate serialized bytes before every outgoing frame.     |
 | After-receive hook   | `after_receive(...)`                         | Disabled                                                | Inspect or mutate raw bytes after every incoming frame is read.     |
+| Tracing config       | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off          | Customise tracing span levels and per-command timing.               |
 
 ```rust
 use std::{net::SocketAddr, time::Duration};
@@ -1422,6 +1423,45 @@ println!("sent {} frames", outcome.frames_sent());
 `SendStreamingOutcome` reports the number of frames emitted via
 `frames_sent()`. The error hook is invoked on all failure paths, consistent
 with other client send methods.[^53]
+
+### Client tracing
+
+The client emits `tracing` spans around every operation. Span levels and
+per-command timing are configurable via `TracingConfig`, which is passed to the
+builder with `tracing_config()`. When no `tracing` subscriber is installed, all
+instrumentation is zero-cost.
+
+Default span levels: `INFO` for lifecycle operations (`connect`, `close`) and
+`DEBUG` for data operations (`send`, `receive`, `call`, `call_streaming`).
+Per-command timing is disabled by default.
+
+```rust
+use std::net::SocketAddr;
+
+use tracing::Level;
+use wireframe::client::{TracingConfig, WireframeClient};
+
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+
+// Enable timing for connect and call, set all spans to TRACE level.
+let config = TracingConfig::default()
+    .with_all_levels(Level::TRACE)
+    .with_connect_timing(true)
+    .with_call_timing(true);
+
+let mut client = WireframeClient::builder()
+    .tracing_config(config)
+    .connect(addr)
+    .await?;
+```
+
+When timing is enabled for an operation, a `DEBUG`-level event recording
+`elapsed_us` is emitted when the operation completes (on both success and error
+paths). Streaming responses emit per-frame `DEBUG` events with
+`stream.frames_received` and a termination event with `stream.frames_total`.
+
+Clients configured without `tracing_config()` use the default configuration and
+behave identically to the pre-tracing API.
 
 ### Client message API with correlation identifiers
 

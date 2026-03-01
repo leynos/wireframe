@@ -67,6 +67,7 @@ length‑delimited codec.
 | Setup hook       | `on_connection_setup(...)`                   | Disabled                                                    | Store per-connection state for metrics, auth context, or counters.         |
 | Teardown hook    | `on_connection_teardown(...)`                | Disabled                                                    | Flush metrics and release per-connection resources on `close()`.           |
 | Error hook       | `on_error(...)`                              | Disabled                                                    | Centralize client transport/decode/correlation error reporting.            |
+| Tracing config   | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off              | Customise tracing span levels and per-command timing.                      |
 
 ### Request/response helpers
 
@@ -240,6 +241,56 @@ can universally inspect or modify the serialized payload.
 `send_envelope()` (messaging.rs), and `call_streaming()` (streaming.rs).
 `after_receive` is wired into `receive_internal()` (messaging.rs) and
 `ResponseStream::poll_next()` (response_stream.rs).
+
+### Tracing instrumentation
+
+Every client operation is wrapped in a `tracing` span with structured fields.
+Span levels are configurable per-operation via `TracingConfig`, with sensible
+defaults: `INFO` for lifecycle operations (connect, close) and `DEBUG` for
+high-frequency data operations (send, receive, call, streaming). When no
+`tracing` subscriber is installed, all instrumentation is zero-cost.
+
+**Span hierarchy and field conventions:**
+
+| Operation           | Span name                | Structured fields                          |
+| ------------------- | ------------------------ | ------------------------------------------ |
+| `connect()`         | `client.connect`         | `peer.addr`                                |
+| `send()`            | `client.send`            | `frame.bytes`                              |
+| `receive()`         | `client.receive`         | `frame.bytes` (deferred), `result`         |
+| `send_envelope()`   | `client.send_envelope`   | `correlation_id`, `frame.bytes`            |
+| `call()`            | `client.call`            | `result` (deferred)                        |
+| `call_correlated()` | `client.call_correlated` | `correlation_id` (deferred), `result`      |
+| `call_streaming()`  | `client.call_streaming`  | `correlation_id`, `frame.bytes` (deferred) |
+| `close()`           | `client.close`           | (none)                                     |
+
+**Per-frame streaming events**: `ResponseStream` emits `tracing::debug!` events
+(not spans) on each received data frame and on stream termination:
+
+- `stream frame received` with `frame.bytes`, `stream.frames_received`, and
+  `correlation_id`.
+- `stream terminated` with `stream.frames_total` and `correlation_id`.
+
+**Per-command timing**: When enabled via `TracingConfig::with_*_timing(true)`,
+an additional `tracing::debug!` event recording `elapsed_us` is emitted when
+the operation completes. Timing events fire on both success and error paths.
+Timing is disabled by default for all operations.
+
+**Design rationale — `Span::enter()` in async methods**: Client methods take
+`&mut self` (exclusive single-task access). Guards are created and dropped
+within the same method body, covering `.await` points sequentially. This
+pattern is explicitly documented as safe by the `tracing` crate when no
+spawning or concurrent access occurs within the span's lifetime.
+
+**Design rationale — `dynamic_span!` macro**: The `tracing` crate requires
+compile-time level constants in `span!` macros. To support user-configurable
+levels per operation, a `macro_rules!` macro in `tracing_helpers.rs` matches on
+the five `Level` variants, delegating to the corresponding
+`tracing::<level>_span!` macro per branch. Each branch has static metadata
+while branch selection is dynamic.
+
+**Design rationale — `ResponseStream` events, not spans**: Creating spans
+inside `poll_next` is problematic because it is synchronous and called many
+times. Events are lightweight and appropriate for per-frame diagnostics.
 
 ### Preamble support
 

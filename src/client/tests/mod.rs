@@ -10,6 +10,7 @@ mod send_streaming_infra;
 mod streaming;
 mod streaming_infra;
 mod streaming_parity;
+mod tracing;
 
 use std::time::Duration;
 

@@ -1,6 +1,6 @@
 //! Connection establishment for `WireframeClientBuilder`.
 
-use std::{net::SocketAddr, sync::atomic::AtomicU64};
+use std::{net::SocketAddr, sync::atomic::AtomicU64, time::Instant};
 
 use bincode::Encode;
 use tokio::net::TcpSocket;
@@ -8,7 +8,12 @@ use tokio_util::codec::Framed;
 
 use super::WireframeClientBuilder;
 use crate::{
-    client::{ClientError, WireframeClient, preamble_exchange::perform_preamble_exchange},
+    client::{
+        ClientError,
+        WireframeClient,
+        preamble_exchange::perform_preamble_exchange,
+        tracing_helpers::{connect_span, emit_timing_event},
+    },
     rewind_stream::RewindStream,
     serializer::Serializer,
 };
@@ -52,6 +57,10 @@ where
         self,
         addr: SocketAddr,
     ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
+        let span = connect_span(&self.tracing_config, &addr.to_string());
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.connect_timing.then(Instant::now);
+
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()?
         } else {
@@ -87,6 +96,7 @@ where
             None
         };
 
+        emit_timing_event(timing_start);
         Ok(WireframeClient {
             framed,
             serializer: self.serializer,
@@ -95,6 +105,7 @@ where
             on_disconnect: self.lifecycle_hooks.on_disconnect,
             on_error: self.lifecycle_hooks.on_error,
             request_hooks: self.request_hooks,
+            tracing_config: self.tracing_config,
             correlation_counter: AtomicU64::new(1),
         })
     }

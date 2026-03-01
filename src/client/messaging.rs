@@ -3,12 +3,16 @@
 //! This module provides methods for sending and receiving envelopes with
 //! automatic correlation ID generation and validation.
 
-use std::sync::atomic::Ordering;
+use std::{sync::atomic::Ordering, time::Instant};
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 
-use super::{ClientError, runtime::ClientStream};
+use super::{
+    ClientError,
+    runtime::ClientStream,
+    tracing_helpers::{call_correlated_span, emit_timing_event, receive_span, send_envelope_span},
+};
 use crate::{
     app::Packet,
     message::{DecodeWith, EncodeWith},
@@ -130,12 +134,16 @@ where
                 return Err(err);
             }
         };
+        let span = send_envelope_span(&self.tracing_config, correlation_id, bytes.len());
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         self.invoke_before_send_hooks(&mut bytes);
         if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
             return Err(err);
         }
+        emit_timing_event(timing_start);
         Ok(correlation_id)
     }
 
@@ -217,7 +225,12 @@ where
     where
         P: Packet + EncodeWith<S> + DecodeWith<S>,
     {
+        let span = call_correlated_span(&self.tracing_config);
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.call_timing.then(Instant::now);
+
         let correlation_id = self.send_envelope(request).await?;
+        span.record("correlation_id", correlation_id);
         let response: P = self.receive_envelope().await?;
 
         // Validate correlation ID matches.
@@ -227,17 +240,26 @@ where
                 expected: Some(correlation_id),
                 received: response_correlation_id,
             };
+            span.record("result", "err");
             self.invoke_error_hook(&err).await;
             return Err(err);
         }
 
+        span.record("result", "ok");
+        emit_timing_event(timing_start);
         Ok(response)
     }
 
     /// Internal helper for receiving and deserializing a frame.
     pub(crate) async fn receive_internal<R: DecodeWith<S>>(&mut self) -> Result<R, ClientError> {
+        let span = receive_span(&self.tracing_config);
+        let _guard = span.enter();
+        let timing_start = self.tracing_config.receive_timing.then(Instant::now);
+
         let Some(frame) = self.framed.next().await else {
             let err = ClientError::disconnected();
+            span.record("result", "err");
+            emit_timing_event(timing_start);
             self.invoke_error_hook(&err).await;
             return Err(err);
         };
@@ -245,19 +267,26 @@ where
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::from(e);
+                span.record("result", "err");
+                emit_timing_event(timing_start);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }
         };
+        span.record("frame.bytes", bytes.len());
         self.invoke_after_receive_hooks(&mut bytes);
         let (message, _consumed) = match self.serializer.deserialize(&bytes) {
             Ok(result) => result,
             Err(e) => {
                 let err = ClientError::decode(e);
+                span.record("result", "err");
+                emit_timing_event(timing_start);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }
         };
+        span.record("result", "ok");
+        emit_timing_event(timing_start);
         Ok(message)
     }
 
