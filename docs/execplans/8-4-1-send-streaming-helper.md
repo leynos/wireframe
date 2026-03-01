@@ -257,7 +257,7 @@ Existing send patterns:
 
 Client test infrastructure:
 
-- `src/client/tests/mod.rs` — unit test module with sub-modules.
+- `src/client/tests/mod.rs` — unit test module with submodules.
 - `src/client/tests/streaming_infra.rs` — `TestServer`, `TestStreamEnvelope`,
   newtypes, `create_test_client()`, `spawn_test_server()`.
 - `src/client/tests/streaming.rs` — inbound streaming unit tests.
