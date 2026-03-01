@@ -367,6 +367,29 @@ Design choices:
   generic parameter.
 - A `codec()` accessor was added to `WireframeApp` for convenience.
 
+### Codec test fixtures (resolved 2026-02-28)
+
+Roadmap item 9.7.2 added codec fixture functions to `wireframe_testing` for
+generating valid, invalid, incomplete, and correlation-bearing Hotline-framed
+wire bytes. These fixtures support test authors exercising error paths without
+hand-crafting raw byte sequences.
+
+Design choices:
+
+- Fixtures produce raw `Vec<u8>` wire bytes rather than typed `HotlineFrame`
+  values. Invalid and malformed frames cannot be represented as valid typed
+  values, and wire bytes are what decoders and test drivers consume directly. A
+  `valid_hotline_frame` convenience function is also provided for tests needing
+  metadata inspection without a wire round-trip.
+- Fixtures are Hotline-specific rather than generic over `FrameCodec`.
+  Generating invalid frames requires knowledge of the specific wire format
+  (header layout, field positions, size constraints). A generic approach would
+  need a `MalformedFrameGenerator` trait, which is over-engineering for a test
+  utility. If additional codecs need fixtures, they can follow the same pattern.
+- Fixtures construct headers directly using big-endian `u32` writes, bypassing
+  the tokio-util encoder. This ensures fixtures are independent of encoder
+  implementation and can represent data the encoder would reject.
+
 ## Architectural Rationale
 
 A dedicated `FrameCodec` abstraction aligns framing with the protocol boundary

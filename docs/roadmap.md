@@ -432,7 +432,7 @@ integration boundaries.
 
 - [x] 9.7.1. Extend `wireframe_testing` with codec-aware drivers that can run
   `WireframeApp` instances configured with custom `FrameCodec` values.
-- [ ] 9.7.2. Add codec fixtures in `wireframe_testing` for generating valid and
+- [x] 9.7.2. Add codec fixtures in `wireframe_testing` for generating valid and
   invalid frames, including oversized payloads and correlation metadata.
 - [ ] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
