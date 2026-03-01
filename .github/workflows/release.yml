@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@c6559452842af6a83b83429129dccaf910e34562
+      - name: Install cross
+        run: cargo install cross
+      - name: Build binaries
+        run: |
+          cross build --target x86_64-unknown-linux-gnu --release
+          cross build --target x86_64-apple-darwin --release
+          cross build --target x86_64-unknown-freebsd --release
+      - name: Prepare dist
+        run: |
+          mkdir -p dist/wireframe_linux_amd64
+          cp target/x86_64-unknown-linux-gnu/release/wireframe dist/wireframe_linux_amd64/
+          mkdir -p dist/wireframe_darwin_amd64
+          cp target/x86_64-apple-darwin/release/wireframe dist/wireframe_darwin_amd64/
+          mkdir -p dist/wireframe_freebsd_amd64
+          cp target/x86_64-unknown-freebsd/release/wireframe dist/wireframe_freebsd_amd64/
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          distribution: goreleaser
+          version: v1.24.0
+          args: release --clean --skip=build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
