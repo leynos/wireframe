@@ -5,6 +5,7 @@ use std::{net::SocketAddr, sync::atomic::AtomicU64, time::Instant};
 use bincode::Encode;
 use tokio::net::TcpSocket;
 use tokio_util::codec::Framed;
+use tracing::Instrument;
 
 use super::WireframeClientBuilder;
 use crate::{
@@ -58,12 +59,15 @@ where
         addr: SocketAddr,
     ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
         let span = connect_span(&self.tracing_config, &addr.to_string());
-        let _guard = span.enter();
         let timing_start = self.tracing_config.connect_timing.then(Instant::now);
 
-        let result = self.connect_inner(addr).await;
-        emit_timing_event(timing_start);
-        result
+        async {
+            let result = self.connect_inner(addr).await;
+            emit_timing_event(timing_start);
+            result
+        }
+        .instrument(span)
+        .await
     }
 
     /// Perform socket creation, connection, preamble exchange, and codec setup.

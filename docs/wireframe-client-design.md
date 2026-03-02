@@ -275,11 +275,18 @@ an additional `tracing::debug!` event recording `elapsed_us` is emitted when
 the operation completes. Timing events fire on both success and error paths.
 Timing is disabled by default for all operations.
 
-**Design rationale — `Span::enter()` in async methods**: Client methods take
-`&mut self` (exclusive single-task access). Guards are created and dropped
-within the same method body, covering `.await` points sequentially. This
-pattern is explicitly documented as safe by the `tracing` crate when no
-spawning or concurrent access occurs within the span's lifetime.
+**Design rationale — async-safe span instrumentation**: `Span::enter()` guards
+must not be held across `.await` points because a multi-threaded runtime may
+poll the future on a different thread, causing the span to be "entered" on the
+wrong thread. Client methods use `tracing::Instrument::instrument(span)` to
+wrap async futures so the span is entered only while the future is polled and
+exited between polls. For purely synchronous sections,
+`Span::in_scope(|| { ... })` is the correct pattern. See the
+[`tracing::Instrument`][instrument-docs] trait and the
+[`#[tracing::instrument]`][attr-docs] attribute for further guidance.
+
+[instrument-docs]: https://docs.rs/tracing/latest/tracing/trait.Instrument.html
+[attr-docs]: https://docs.rs/tracing/latest/tracing/attr.instrument.html
 
 **Design rationale — `dynamic_span!` macro**: The `tracing` crate requires
 compile-time level constants in `span!` macros. To support user-configurable

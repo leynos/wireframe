@@ -137,7 +137,7 @@ async fn receive_emits_span_with_result() {
     test_span_emission!(
         TracingConfig::default().with_receive_timing(true),
         "client.receive",
-        &[],
+        &["result=\"ok\""],
         |mut client, _addr| async move {
             let envelope = Envelope::new(1, None, vec![1, 2, 3]);
             client.send(&envelope).await.expect("send");
@@ -274,7 +274,7 @@ async fn receive_error_records_result_err() {
     let result: Result<Envelope, ClientError> = client.receive().await;
     assert!(result.is_err(), "receive should fail after disconnect");
 
-    logs_assert(span_assertion("client.receive", &[]));
+    logs_assert(span_assertion("client.receive", &["result=\"err\""]));
 }
 
 #[rstest]

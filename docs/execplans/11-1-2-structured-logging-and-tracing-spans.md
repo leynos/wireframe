@@ -62,11 +62,11 @@ Hard invariants. Violation requires escalation, not workarounds.
 ## Risks
 
 - Risk: `Span::enter()` guard held across `.await` in async methods.
-  Severity: medium. Likelihood: low. Mitigation: client methods take
-  `&mut self` (exclusive single-task access, linear async). Guards are created
-  and dropped within the same method body, covering `.await` points
-  sequentially. This pattern is explicitly documented as safe by the `tracing`
-  crate. No spawning or concurrent access occurs within the span's lifetime.
+  Severity: medium. Likelihood: low. Mitigation: client methods use
+  `tracing::Instrument::instrument(span)` to wrap async futures rather than
+  holding a `Span::enter()` guard across `.await` points. This ensures the span
+  is entered only while the future is polled and exited between polls, which is
+  safe under multi-threaded runtimes.
 
 - Risk: `runtime.rs` exceeds 400 lines after adding instrumentation.
   Severity: high. Likelihood: low. Mitigation: current is 354 lines, estimated
@@ -75,7 +75,7 @@ Hard invariants. Violation requires escalation, not workarounds.
 
 - Risk: `dynamic_span!` macro causes binary bloat from 5 instantiations per
   call site. Severity: low. Likelihood: medium. Mitigation: each branch is a
-  single `tracing::*_span!` call. Link-time optimisation (LTO) eliminates
+  single `tracing::*_span!` call. Link-time optimization (LTO) eliminates
   unused branches. Total call sites: 8 — negligible impact.
 
 - Risk: BDD `tracing_subscriber` setup conflicts with other parallel tests.
@@ -168,7 +168,7 @@ All source files remain under 400 lines.
 
 - The `dynamic_span!` macro strategy cleanly solved the compile-time level
   requirement while keeping per-call-site metadata static.
-- Centralising span factories in `tracing_helpers.rs` kept the runtime
+- Centralizing span factories in `tracing_helpers.rs` kept the runtime
   methods clean and consistent.
 - The `builder_field_update!` macro pattern made builder plumbing
   straightforward once all three arms were identified.
@@ -320,7 +320,7 @@ rustdoc and example.
 **A4. Modify `src/client/builder/core.rs`** (63 → ~67 lines)
 
 Add `pub(crate) tracing_config: TracingConfig` field to
-`WireframeClientBuilder`. Initialise as `TracingConfig::default()` in `new()`.
+`WireframeClientBuilder`. Initialize as `TracingConfig::default()` in `new()`.
 
 **A5. Modify `src/client/builder/mod.rs`** (65 → ~75 lines)
 
@@ -349,26 +349,23 @@ Expected: all three exit code 0. Existing tests pass unchanged.
 **B1. Modify `src/client/builder/connect.rs`** (101 → ~120 lines)
 
 At the start of `connect()`, create a connect span and optional timing start.
-Thread `tracing_config` through the `WireframeClient` constructor.
+Thread `tracing_config` through the `WireframeClient` constructor. Use
+`tracing::Instrument::instrument(span)` to wrap the async connect future rather
+than holding a `Span::enter()` guard across `.await`.
 
 ```rust
 let span = connect_span(&self.tracing_config, &addr.to_string());
-let _guard = span.enter();
 let start = self.tracing_config.connect_timing.then(Instant::now);
-// ... existing connect logic ...
+let result = self.connect_inner(addr).instrument(span).await;
 emit_timing_event(start);
-Ok(WireframeClient {
-    // ... existing fields ...
-    tracing_config: self.tracing_config,   // NEW
-    // ...
-})
+result
 ```
 
 **B2. Modify `src/client/runtime.rs`** (354 → ~380 lines)
 
 Add `pub(crate) tracing_config: TracingConfig` field to `WireframeClient`.
 
-Instrument `send()`: after serialisation produces `bytes`, create `send_span`
+Instrument `send()`: after serialization produces `bytes`, create `send_span`
 with `frame.bytes`, emit timing on success.
 
 Instrument `call()`: create `call_span` wrapping the send+receive pair, record
@@ -379,7 +376,7 @@ Instrument `close()`: create `close_span`, emit timing.
 **B3. Modify `src/client/messaging.rs`** (284 → ~330 lines)
 
 Instrument `send_envelope()`: after correlation ID is resolved and
-serialisation succeeds, create `send_envelope_span` with `correlation_id` and
+serialization succeeds, create `send_envelope_span` with `correlation_id` and
 `frame.bytes`.
 
 Instrument `receive_internal()`: create `receive_span`, record `frame.bytes`
@@ -393,11 +390,11 @@ record `result` on completion.
 
 Instrument `call_streaming()`: after correlation ID is resolved, create
 `streaming_span` with `correlation_id`, record `frame.bytes` after
-serialisation.
+serialization.
 
 **B5. Modify `src/client/response_stream.rs`** (168 → ~195 lines)
 
-Add `frame_count: usize` field to `ResponseStream`, initialised to 0. Add
+Add `frame_count: usize` field to `ResponseStream`, initialized to 0. Add
 `pub fn frame_count(&self) -> usize` accessor.
 
 In `poll_next()`, on `Ok(bytes)`: increment frame count, emit `tracing::debug!`

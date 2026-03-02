@@ -9,6 +9,7 @@ use tokio::{
     net::TcpStream,
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tracing::Instrument;
 
 use super::{
     ClientCodecConfig,
@@ -151,12 +152,16 @@ where
                 return Err(err);
             }
         };
-        let span = send_span(&self.tracing_config, bytes.len());
-        let _guard = span.enter();
-        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         self.invoke_before_send_hooks(&mut bytes);
-        let send_result = self.framed.send(Bytes::from(bytes)).await;
-        emit_timing_event(timing_start);
+        let span = send_span(&self.tracing_config, bytes.len());
+        let timing_start = self.tracing_config.send_timing.then(Instant::now);
+        let send_result = async {
+            let result = self.framed.send(Bytes::from(bytes)).await;
+            emit_timing_event(timing_start);
+            result
+        }
+        .instrument(span)
+        .await;
         if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
@@ -242,23 +247,27 @@ where
         request: &Req,
     ) -> Result<Resp, ClientError> {
         let span = call_span(&self.tracing_config);
-        let _guard = span.enter();
         let timing_start = self.tracing_config.call_timing.then(Instant::now);
-        if let Err(err) = self.send(request).await {
-            // Error hook already invoked by send.
-            span.record("result", "err");
-            emit_timing_event(timing_start);
-            return Err(err);
+
+        async {
+            if let Err(err) = self.send(request).await {
+                // Error hook already invoked by send.
+                span.record("result", "err");
+                emit_timing_event(timing_start);
+                return Err(err);
+            }
+            let result = self.receive().await;
+            if result.is_ok() {
+                Self::traced_ok(&span, timing_start);
+            } else {
+                // Error hook already invoked by receive_internal.
+                span.record("result", "err");
+                emit_timing_event(timing_start);
+            }
+            result
         }
-        let result = self.receive().await;
-        if result.is_ok() {
-            Self::traced_ok(&span, timing_start);
-        } else {
-            // Error hook already invoked by receive_internal.
-            span.record("result", "err");
-            emit_timing_event(timing_start);
-        }
-        result
+        .instrument(span.clone())
+        .await
     }
 
     /// Inspect the configured codec settings.
@@ -369,16 +378,21 @@ where
     /// ```
     pub async fn close(mut self) {
         let span = close_span(&self.tracing_config);
-        let _guard = span.enter();
         let timing_start = self.tracing_config.close_timing.then(Instant::now);
 
-        // Flush pending frames and send EOF before teardown.
-        // Ignore errors since we're closing anyway.
-        let _ = self.framed.close().await;
+        async {
+            // Flush pending frames and send EOF before teardown.
+            // Ignore errors since we're closing anyway.
+            let _ = self.framed.close().await;
 
-        if let (Some(state), Some(handler)) = (self.connection_state.take(), &self.on_disconnect) {
-            handler(state).await;
+            if let (Some(state), Some(handler)) =
+                (self.connection_state.take(), &self.on_disconnect)
+            {
+                handler(state).await;
+            }
+            emit_timing_event(timing_start);
         }
-        emit_timing_event(timing_start);
+        .instrument(span)
+        .await;
     }
 }

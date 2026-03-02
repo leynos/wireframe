@@ -7,6 +7,7 @@ use std::{sync::atomic::Ordering, time::Instant};
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
+use tracing::Instrument;
 
 use super::{
     ClientError,
@@ -135,11 +136,15 @@ where
             }
         };
         let span = send_envelope_span(&self.tracing_config, correlation_id, bytes.len());
-        let _guard = span.enter();
         let timing_start = self.tracing_config.send_timing.then(Instant::now);
         self.invoke_before_send_hooks(&mut bytes);
-        let send_result = self.framed.send(Bytes::from(bytes)).await;
-        emit_timing_event(timing_start);
+        let send_result = async {
+            let result = self.framed.send(Bytes::from(bytes)).await;
+            emit_timing_event(timing_start);
+            result
+        }
+        .instrument(span)
+        .await;
         if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
@@ -227,9 +232,23 @@ where
         P: Packet + EncodeWith<S> + DecodeWith<S>,
     {
         let span = call_correlated_span(&self.tracing_config);
-        let _guard = span.enter();
         let timing_start = self.tracing_config.call_timing.then(Instant::now);
 
+        self.call_correlated_inner(request, &span, timing_start)
+            .instrument(span.clone())
+            .await
+    }
+
+    /// Execute the correlated call within an active span.
+    async fn call_correlated_inner<P>(
+        &mut self,
+        request: P,
+        span: &tracing::Span,
+        timing_start: Option<Instant>,
+    ) -> Result<P, ClientError>
+    where
+        P: Packet + EncodeWith<S> + DecodeWith<S>,
+    {
         let correlation_id = match self.send_envelope(request).await {
             Ok(id) => id,
             Err(err) => {
@@ -257,28 +276,38 @@ where
                 expected: Some(correlation_id),
                 received: response_correlation_id,
             };
-            return Err(self.traced_error(&span, timing_start, err).await);
+            return Err(self.traced_error(span, timing_start, err).await);
         }
 
-        Self::traced_ok(&span, timing_start);
+        Self::traced_ok(span, timing_start);
         Ok(response)
     }
 
     /// Internal helper for receiving and deserializing a frame.
     pub(crate) async fn receive_internal<R: DecodeWith<S>>(&mut self) -> Result<R, ClientError> {
         let span = receive_span(&self.tracing_config);
-        let _guard = span.enter();
         let timing_start = self.tracing_config.receive_timing.then(Instant::now);
 
+        self.receive_frame(&span, timing_start)
+            .instrument(span.clone())
+            .await
+    }
+
+    /// Receive and deserialize a single frame within an active span.
+    async fn receive_frame<R: DecodeWith<S>>(
+        &mut self,
+        span: &tracing::Span,
+        timing_start: Option<Instant>,
+    ) -> Result<R, ClientError> {
         let Some(frame) = self.framed.next().await else {
             let err = ClientError::disconnected();
-            return Err(self.traced_error(&span, timing_start, err).await);
+            return Err(self.traced_error(span, timing_start, err).await);
         };
         let mut bytes = match frame {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::from(e);
-                return Err(self.traced_error(&span, timing_start, err).await);
+                return Err(self.traced_error(span, timing_start, err).await);
             }
         };
         span.record("frame.bytes", bytes.len());
@@ -287,10 +316,10 @@ where
             Ok(result) => result,
             Err(e) => {
                 let err = ClientError::decode(e);
-                return Err(self.traced_error(&span, timing_start, err).await);
+                return Err(self.traced_error(span, timing_start, err).await);
             }
         };
-        Self::traced_ok(&span, timing_start);
+        Self::traced_ok(span, timing_start);
         Ok(message)
     }
 

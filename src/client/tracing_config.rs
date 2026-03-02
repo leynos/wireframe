@@ -232,53 +232,68 @@ mod tests {
 
     use super::TracingConfig;
 
+    /// Assert all level fields match the expected pattern.
+    ///
+    /// Order: connect, send, receive, call, streaming, close.
+    fn assert_levels(
+        cfg: &TracingConfig,
+        [connect, send, receive, call, streaming, close]: [Level; 6],
+    ) {
+        assert_eq!(cfg.connect_level, connect, "connect_level");
+        assert_eq!(cfg.send_level, send, "send_level");
+        assert_eq!(cfg.receive_level, receive, "receive_level");
+        assert_eq!(cfg.call_level, call, "call_level");
+        assert_eq!(cfg.streaming_level, streaming, "streaming_level");
+        assert_eq!(cfg.close_level, close, "close_level");
+    }
+
+    /// Assert all timing flags match the expected pattern.
+    ///
+    /// Order: connect, send, receive, call, streaming, close.
+    fn assert_timing_flags(
+        cfg: &TracingConfig,
+        [connect, send, receive, call, streaming, close]: [bool; 6],
+    ) {
+        assert_eq!(cfg.connect_timing, connect, "connect_timing");
+        assert_eq!(cfg.send_timing, send, "send_timing");
+        assert_eq!(cfg.receive_timing, receive, "receive_timing");
+        assert_eq!(cfg.call_timing, call, "call_timing");
+        assert_eq!(cfg.streaming_timing, streaming, "streaming_timing");
+        assert_eq!(cfg.close_timing, close, "close_timing");
+    }
+
     #[test]
     fn default_levels_are_info_for_lifecycle_debug_for_data_ops() {
         let cfg = TracingConfig::default();
-
-        assert_eq!(cfg.connect_level, Level::INFO);
-        assert_eq!(cfg.close_level, Level::INFO);
-
-        assert_eq!(cfg.send_level, Level::DEBUG);
-        assert_eq!(cfg.receive_level, Level::DEBUG);
-        assert_eq!(cfg.call_level, Level::DEBUG);
-        assert_eq!(cfg.streaming_level, Level::DEBUG);
+        assert_levels(
+            &cfg,
+            [
+                Level::INFO,
+                Level::DEBUG,
+                Level::DEBUG,
+                Level::DEBUG,
+                Level::DEBUG,
+                Level::INFO,
+            ],
+        );
     }
 
     #[test]
     fn default_timing_flags_are_all_false() {
         let cfg = TracingConfig::default();
-
-        assert!(!cfg.connect_timing);
-        assert!(!cfg.send_timing);
-        assert!(!cfg.receive_timing);
-        assert!(!cfg.call_timing);
-        assert!(!cfg.streaming_timing);
-        assert!(!cfg.close_timing);
+        assert_timing_flags(&cfg, [false; 6]);
     }
 
     #[test]
     fn with_all_levels_updates_every_level_field() {
         let cfg = TracingConfig::default().with_all_levels(Level::TRACE);
-
-        assert_eq!(cfg.connect_level, Level::TRACE);
-        assert_eq!(cfg.send_level, Level::TRACE);
-        assert_eq!(cfg.receive_level, Level::TRACE);
-        assert_eq!(cfg.call_level, Level::TRACE);
-        assert_eq!(cfg.streaming_level, Level::TRACE);
-        assert_eq!(cfg.close_level, Level::TRACE);
+        assert_levels(&cfg, [Level::TRACE; 6]);
     }
 
     #[test]
     fn with_all_timing_true_enables_every_flag() {
         let cfg = TracingConfig::default().with_all_timing(true);
-
-        assert!(cfg.connect_timing);
-        assert!(cfg.send_timing);
-        assert!(cfg.receive_timing);
-        assert!(cfg.call_timing);
-        assert!(cfg.streaming_timing);
-        assert!(cfg.close_timing);
+        assert_timing_flags(&cfg, [true; 6]);
     }
 
     #[test]
@@ -286,36 +301,30 @@ mod tests {
         let cfg = TracingConfig::default()
             .with_all_timing(true)
             .with_all_timing(false);
-
-        assert!(!cfg.connect_timing);
-        assert!(!cfg.send_timing);
-        assert!(!cfg.receive_timing);
-        assert!(!cfg.call_timing);
-        assert!(!cfg.streaming_timing);
-        assert!(!cfg.close_timing);
+        assert_timing_flags(&cfg, [false; 6]);
     }
 
     #[test]
     fn individual_timing_setters_only_affect_their_flag() {
         let cfg = TracingConfig::default().with_send_timing(true);
-
-        assert!(cfg.send_timing);
-        assert!(!cfg.connect_timing);
-        assert!(!cfg.receive_timing);
-        assert!(!cfg.call_timing);
-        assert!(!cfg.streaming_timing);
-        assert!(!cfg.close_timing);
+        // send ← only this changed
+        assert_timing_flags(&cfg, [false, true, false, false, false, false]);
     }
 
     #[test]
     fn individual_level_setters_only_affect_their_field() {
         let cfg = TracingConfig::default().with_send_level(Level::TRACE);
-
-        assert_eq!(cfg.send_level, Level::TRACE);
-        assert_eq!(cfg.connect_level, Level::INFO);
-        assert_eq!(cfg.receive_level, Level::DEBUG);
-        assert_eq!(cfg.call_level, Level::DEBUG);
-        assert_eq!(cfg.streaming_level, Level::DEBUG);
-        assert_eq!(cfg.close_level, Level::INFO);
+        // send ← only this changed
+        assert_levels(
+            &cfg,
+            [
+                Level::INFO,
+                Level::TRACE,
+                Level::DEBUG,
+                Level::DEBUG,
+                Level::DEBUG,
+                Level::INFO,
+            ],
+        );
     }
 }

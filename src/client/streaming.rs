@@ -9,6 +9,7 @@ use std::{sync::atomic::Ordering, time::Instant};
 
 use bytes::Bytes;
 use futures::SinkExt;
+use tracing::Instrument;
 
 use super::{
     ClientError,
@@ -91,7 +92,6 @@ where
         }
 
         let span = streaming_span(&self.tracing_config, correlation_id);
-        let _guard = span.enter();
         let timing_start = self.tracing_config.streaming_timing.then(Instant::now);
 
         let mut bytes = match self.serializer.serialize(&request) {
@@ -103,10 +103,15 @@ where
                 return Err(err);
             }
         };
-        span.record("frame.bytes", bytes.len());
         self.invoke_before_send_hooks(&mut bytes);
-        let send_result = self.framed.send(Bytes::from(bytes)).await;
-        emit_timing_event(timing_start);
+        span.record("frame.bytes", bytes.len());
+        let send_result = async {
+            let result = self.framed.send(Bytes::from(bytes)).await;
+            emit_timing_event(timing_start);
+            result
+        }
+        .instrument(span)
+        .await;
         if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
