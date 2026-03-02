@@ -12,6 +12,7 @@ mod client_runtime_steps;
 mod client_send_streaming_steps;
 mod client_streaming_steps;
 mod codec_error_steps;
+mod codec_fixtures_steps;
 mod codec_performance_benchmarks_steps;
 mod codec_property_roundtrip_steps;
 mod codec_stateful_steps;
