@@ -242,13 +242,21 @@ impl BudgetTransitionsWorld {
         self.send_payload(payload)
     }
 
-    /// Assert that the connection has terminated with an error.
+    /// Assert that the connection terminated with an `InvalidData` error
+    /// (the kind produced by budget enforcement).
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
         self.drain_ready_payloads()?;
         match self.join_server()? {
             Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
             Err(error) => {
+                if error.kind() != std::io::ErrorKind::InvalidData {
+                    return Err(format!(
+                        "expected budget-related InvalidData error, got {:?}: {error}",
+                        error.kind(),
+                    )
+                    .into());
+                }
                 self.connection_error = Some(error.to_string());
                 Ok(())
             }

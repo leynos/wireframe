@@ -110,6 +110,10 @@ Success is observable when:
 - [x] (2026-03-01) Stage D: documentation and roadmap updates.
 - [x] (2026-03-01) Stage E: all quality gates passed (`fmt`, `check-fmt`,
   `lint`, `test`, `markdownlint`, `nixie`).
+- [x] (2026-03-02) Hardened `assert_connection_aborted` in both
+  `budget_transitions.rs` and `memory_budget_hard_cap.rs` to verify the error
+  kind is `InvalidData` (the kind produced by budget enforcement), rather than
+  accepting any server error.
 
 ## Surprises & discoveries
 
