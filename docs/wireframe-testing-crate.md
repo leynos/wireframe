@@ -237,10 +237,10 @@ Key behaviours:
 - When the `metrics` feature is disabled, the handle should still capture logs
   and return empty metric snapshots.
 
-Proposed public API:
+Implemented public API:
 
 ```rust,no_run
-use metrics_util::debugging::Snapshot;
+use log::Level;
 use wireframe_testing::LoggerHandle;
 
 pub struct ObservabilityHandle { /* fields omitted */ }
@@ -248,9 +248,27 @@ pub struct ObservabilityHandle { /* fields omitted */ }
 impl ObservabilityHandle {
     pub fn new() -> Self;
     pub fn logs(&mut self) -> &mut LoggerHandle;
-    pub fn snapshot(&self) -> Snapshot;
+    pub fn recorder(&self) -> &metrics_util::debugging::DebuggingRecorder;
+    pub fn snapshot(&mut self);
     pub fn clear(&mut self);
     pub fn counter(&self, name: &str, labels: &[(&str, &str)]) -> u64;
+    pub fn counter_without_labels(&self, name: &str) -> u64;
+    pub fn codec_error_counter(
+        &self, error_type: &str, recovery_policy: &str,
+    ) -> u64;
+    pub fn assert_counter(
+        &self, name: &str, labels: &[(&str, &str)], expected: u64,
+    ) -> Result<(), String>;
+    pub fn assert_no_metric(&self, name: &str) -> Result<(), String>;
+    pub fn assert_codec_error_counter(
+        &self, error_type: &str, recovery_policy: &str, expected: u64,
+    ) -> Result<(), String>;
+    pub fn assert_log_contains(
+        &mut self, substring: &str,
+    ) -> Result<(), String>;
+    pub fn assert_log_at_level(
+        &mut self, level: Level, substring: &str,
+    ) -> Result<(), String>;
 }
 
 pub fn observability() -> ObservabilityHandle;

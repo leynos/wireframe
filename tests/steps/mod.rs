@@ -35,6 +35,7 @@ mod partial_frame_feeding_steps;
 mod request_parts_steps;
 mod serializer_boundaries_steps;
 mod stream_end_steps;
+mod test_observability_steps;
 mod unified_codec_steps;
 
 pub(crate) use message_assembly_steps::FrameId;

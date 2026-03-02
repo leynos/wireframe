@@ -434,7 +434,7 @@ integration boundaries.
   `WireframeApp` instances configured with custom `FrameCodec` values.
 - [x] 9.7.2. Add codec fixtures in `wireframe_testing` for generating valid and
   invalid frames, including oversized payloads and correlation metadata.
-- [ ] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
+- [x] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
   recovery policies.[^adr-006]
 - [ ] 9.7.4. Add regression tests in `wireframe_testing` for the `CodecError`

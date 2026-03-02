@@ -24,6 +24,7 @@ pub mod integration_helpers;
 pub mod logging;
 pub mod macros;
 pub mod multi_packet;
+pub mod observability;
 
 pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{
@@ -85,3 +86,4 @@ pub use integration_helpers::{
 pub use logging::{LoggerHandle, logger};
 #[doc(inline)]
 pub use multi_packet::collect_multi_packet;
+pub use observability::ObservabilityHandle;

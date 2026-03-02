@@ -366,6 +366,57 @@ Available fragment-feeding driver functions:
   values.
 - `drive_with_partial_fragments` — fragment AND feed in chunks,
   exercising both fragmentation and partial-frame buffering simultaneously.
+
+#### Test observability
+
+The `wireframe_testing` crate provides an `ObservabilityHandle` that combines
+log capture with metrics recording in a single fixture. This is useful for
+asserting that codec errors, recovery policies, and other instrumentation
+behave correctly under test.
+
+```rust,no_run
+use wireframe_testing::ObservabilityHandle;
+
+let mut obs = ObservabilityHandle::new();
+obs.clear();
+
+// Record metrics via a thread-local recorder.
+metrics::with_local_recorder(obs.recorder(), || {
+    wireframe::metrics::inc_codec_error("framing", "drop");
+});
+
+// Take a snapshot and query the captured counter.
+obs.snapshot();
+assert_eq!(
+    obs.counter(
+        wireframe::metrics::CODEC_ERRORS,
+        &[("error_type", "framing"), ("recovery_policy", "drop")],
+    ),
+    1
+);
+```
+
+The handle serialises access to the global logger via a mutex, so tests using
+it should run serially (`--test-threads=1` for the affected binary). Metrics
+are captured per-thread via `metrics::with_local_recorder`, so metric-emitting
+code must run on the same thread as the handle. For async tests, use
+`#[tokio::test(flavor = "current_thread")]` or
+`tokio::runtime::Runtime::new()?.block_on(...)`.
+
+Available assertion helpers:
+
+- `counter(name, labels)` / `counter_without_labels(name)` — query counter
+  values from the most recent snapshot.
+- `codec_error_counter(error_type, recovery_policy)` — convenience for the
+  `wireframe_codec_errors_total` metric.
+- `assert_counter(name, labels, expected)` — assert a counter matches.
+- `assert_no_metric(name)` — assert no metric with the given name exists.
+- `assert_codec_error_counter(error_type, recovery_policy, expected)` — assert
+  a codec error counter matches.
+- `assert_log_contains(substring)` — assert any captured log contains a
+  substring.
+- `assert_log_at_level(level, substring)` — assert a log at a specific level
+  contains a substring.
 #### Zero-copy payload extraction
 
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload
