@@ -245,14 +245,6 @@ impl MemoryBudgetHardCapWorld {
     /// (the kind produced by budget enforcement) and no payloads were delivered.
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
-        self.drain_ready_payloads()?;
-        if !self.observed_payloads.is_empty() {
-            return Err(format!(
-                "expected no payloads before abort, but received: {:?}",
-                self.observed_payloads
-            )
-            .into());
-        }
         let server = self.server.take().ok_or("server not initialized")?;
         let result = self.block_on(server)?;
         match result {
@@ -266,6 +258,16 @@ impl MemoryBudgetHardCapWorld {
                     .into());
                 }
                 self.connection_error = Some(error.to_string());
+                // Drain after the server task has finished so payloads emitted
+                // during teardown are caught.
+                self.drain_ready_payloads()?;
+                if !self.observed_payloads.is_empty() {
+                    return Err(format!(
+                        "expected no payloads before abort, but received: {:?}",
+                        self.observed_payloads
+                    )
+                    .into());
+                }
                 Ok(())
             }
             Err(join_error) => Err(format!("server task panicked: {join_error}").into()),
@@ -315,20 +317,13 @@ impl MemoryBudgetHardCapWorld {
         });
         self.client = Some(client);
 
-        match send_result {
-            Ok(Ok(())) => {
-                self.last_send_error = None;
-                Ok(())
-            }
-            Ok(Err(error)) => {
-                self.last_send_error = Some(error.to_string());
-                Err(error.into())
-            }
-            Err(error) => {
-                self.last_send_error = Some(error.to_string());
-                Err(error)
-            }
+        let result = send_result.and_then(|io_result| io_result.map_err(Into::into));
+        if let Err(ref error) = result {
+            self.last_send_error = Some(error.to_string());
+        } else {
+            self.last_send_error = None;
         }
+        result
     }
 
     fn spin_runtime(&self) -> TestResult {

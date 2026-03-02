@@ -214,6 +214,11 @@ impl BudgetTransitionsWorld {
     }
 
     /// Send multiple non-final first frames for keys in a range.
+    ///
+    /// Send errors are intentionally ignored: the scenarios that call this
+    /// method overflow the budget, so the server-side connection will abort
+    /// mid-way through. The caller asserts the abort reason separately via
+    /// [`Self::assert_connection_aborted`].
     pub fn send_first_frames_for_range(&mut self, start: u64, end: u64, body: &str) -> TestResult {
         for key in start..=end {
             if self.send_first_frame(key, body).is_err() {
@@ -311,20 +316,13 @@ impl BudgetTransitionsWorld {
         });
         self.client = Some(client);
 
-        match send_result {
-            Ok(Ok(())) => {
-                self.last_send_error = None;
-                Ok(())
-            }
-            Ok(Err(error)) => {
-                self.last_send_error = Some(error.to_string());
-                Err(error.into())
-            }
-            Err(error) => {
-                self.last_send_error = Some(error.to_string());
-                Err(error)
-            }
+        let result = send_result.and_then(|io_result| io_result.map_err(Into::into));
+        if let Err(ref error) = result {
+            self.last_send_error = Some(error.to_string());
+        } else {
+            self.last_send_error = None;
         }
+        result
     }
 
     /// Join the server task with a bounded timeout.
