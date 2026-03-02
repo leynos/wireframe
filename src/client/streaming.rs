@@ -98,19 +98,21 @@ where
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
+                emit_timing_event(timing_start);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }
         };
         span.record("frame.bytes", bytes.len());
         self.invoke_before_send_hooks(&mut bytes);
-        if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
+        let send_result = self.framed.send(Bytes::from(bytes)).await;
+        emit_timing_event(timing_start);
+        if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
             return Err(err);
         }
 
-        emit_timing_event(timing_start);
         Ok(ResponseStream::new(self, correlation_id))
     }
 

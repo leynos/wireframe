@@ -1140,7 +1140,7 @@ as `TCP_NODELAY` or buffer size adjustments.
 | Error hook           | `on_error(...)`                              | Disabled                                                | Transport and decode failures must be routed to observability.      |
 | Before-send hook     | `before_send(...)`                           | Disabled                                                | Inspect or mutate serialized bytes before every outgoing frame.     |
 | After-receive hook   | `after_receive(...)`                         | Disabled                                                | Inspect or mutate raw bytes after every incoming frame is read.     |
-| Tracing config       | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off          | Customise tracing span levels and per-command timing.               |
+| Tracing config       | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off          | Customize tracing span levels and per-command timing.               |
 
 ```rust
 use std::{net::SocketAddr, time::Duration};

@@ -61,6 +61,16 @@ where
         let _guard = span.enter();
         let timing_start = self.tracing_config.connect_timing.then(Instant::now);
 
+        let result = self.connect_inner(addr).await;
+        emit_timing_event(timing_start);
+        result
+    }
+
+    /// Perform socket creation, connection, preamble exchange, and codec setup.
+    async fn connect_inner(
+        self,
+        addr: SocketAddr,
+    ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()?
         } else {
@@ -96,7 +106,6 @@ where
             None
         };
 
-        emit_timing_event(timing_start);
         Ok(WireframeClient {
             framed,
             serializer: self.serializer,

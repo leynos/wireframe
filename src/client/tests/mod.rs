@@ -11,6 +11,7 @@ mod streaming;
 mod streaming_infra;
 mod streaming_parity;
 mod tracing;
+mod tracing_streaming;
 
 use std::time::Duration;
 

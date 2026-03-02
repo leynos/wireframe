@@ -107,6 +107,20 @@ where
     #[must_use]
     pub fn frame_count(&self) -> usize { self.frame_count }
 
+    /// Increment the frame counter and emit a per-frame tracing event for
+    /// successfully decoded data frames.
+    fn on_frame_received(&mut self, frame_bytes: usize, result: Option<&Result<P, ClientError>>) {
+        if let Some(Ok(_)) = result {
+            self.frame_count = self.frame_count.saturating_add(1);
+            tracing::debug!(
+                frame.bytes = frame_bytes,
+                stream.frames_received = self.frame_count,
+                correlation_id = self.correlation_id,
+                "stream frame received"
+            );
+        }
+    }
+
     /// Deserialize raw bytes and validate the resulting packet against the
     /// terminator predicate and expected correlation identifier.
     fn process_frame(&mut self, bytes: &[u8]) -> Option<Result<P, ClientError>> {
@@ -151,10 +165,6 @@ where
 {
     type Item = Result<P, ClientError>;
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "linear poll_next with per-frame tracing events"
-    )]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
@@ -178,15 +188,7 @@ where
                 let frame_bytes = bytes.len();
                 this.client.invoke_after_receive_hooks(&mut bytes);
                 let result = this.process_frame(&bytes);
-                if let Some(Ok(_)) = &result {
-                    this.frame_count = this.frame_count.saturating_add(1);
-                    tracing::debug!(
-                        frame.bytes = frame_bytes,
-                        stream.frames_received = this.frame_count,
-                        correlation_id = this.correlation_id,
-                        "stream frame received"
-                    );
-                }
+                this.on_frame_received(frame_bytes, result.as_ref());
                 Poll::Ready(result)
             }
         }

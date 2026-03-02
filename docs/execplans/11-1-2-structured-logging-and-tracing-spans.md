@@ -34,7 +34,8 @@ Hard invariants. Violation requires escalation, not workarounds.
 - All code must pass `make check-fmt`, `make lint` (clippy `-D warnings`),
   and `make test`.
 - Comments and documentation must use en-GB-oxendict spelling.
-- Tests must use `rstest` fixtures; BDD tests use `rstest-bdd` v0.5.0.
+- Tests must use `rstest` fixtures; behaviour-driven development (BDD) tests
+  use `rstest-bdd` v0.5.0.
 - Existing public API signatures must not change (backwards compatibility).
 - Clients configured without tracing must behave identically to today.
 - The `builder_field_update!` macro in `src/client/builder/mod.rs` must be
@@ -74,8 +75,8 @@ Hard invariants. Violation requires escalation, not workarounds.
 
 - Risk: `dynamic_span!` macro causes binary bloat from 5 instantiations per
   call site. Severity: low. Likelihood: medium. Mitigation: each branch is a
-  single `tracing::*_span!` call. LTO eliminates unused branches. Total call
-  sites: 8 — negligible impact.
+  single `tracing::*_span!` call. Link-time optimisation (LTO) eliminates
+  unused branches. Total call sites: 8 — negligible impact.
 
 - Risk: BDD `tracing_subscriber` setup conflicts with other parallel tests.
   Severity: medium. Likelihood: medium. Mitigation: use
@@ -146,7 +147,7 @@ Hard invariants. Violation requires escalation, not workarounds.
   for users who want to track stream progress without tracing.
 
 - Decision: place span factory functions in a dedicated `tracing_helpers.rs`
-  module, not inline in each method. Rationale: centralises span creation,
+  module, not inline in each method. Rationale: centralizes span creation,
   keeps instrumentation logic out of the hot-path methods, and enables
   consistent span naming and field conventions.
 
@@ -554,7 +555,7 @@ Add a row to the client configuration reference table:
 ```plaintext
 | Tracing config | tracing_config(TracingConfig) |
 | INFO connect/close, DEBUG data ops, timing off |
-| Customise tracing span levels and per-command timing. |
+| Customize tracing span levels and per-command timing. |
 ```
 
 **E2. Update `docs/users-guide.md`.**

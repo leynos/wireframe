@@ -138,12 +138,13 @@ where
         let _guard = span.enter();
         let timing_start = self.tracing_config.send_timing.then(Instant::now);
         self.invoke_before_send_hooks(&mut bytes);
-        if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
+        let send_result = self.framed.send(Bytes::from(bytes)).await;
+        emit_timing_event(timing_start);
+        if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
             return Err(err);
         }
-        emit_timing_event(timing_start);
         Ok(correlation_id)
     }
 
@@ -229,9 +230,25 @@ where
         let _guard = span.enter();
         let timing_start = self.tracing_config.call_timing.then(Instant::now);
 
-        let correlation_id = self.send_envelope(request).await?;
+        let correlation_id = match self.send_envelope(request).await {
+            Ok(id) => id,
+            Err(err) => {
+                // Error hook already invoked by send_envelope.
+                span.record("result", "err");
+                emit_timing_event(timing_start);
+                return Err(err);
+            }
+        };
         span.record("correlation_id", correlation_id);
-        let response: P = self.receive_envelope().await?;
+        let response: P = match self.receive_envelope().await {
+            Ok(response) => response,
+            Err(err) => {
+                // Error hook already invoked by receive_internal.
+                span.record("result", "err");
+                emit_timing_event(timing_start);
+                return Err(err);
+            }
+        };
 
         // Validate correlation ID matches.
         let response_correlation_id = response.correlation_id();
@@ -240,13 +257,10 @@ where
                 expected: Some(correlation_id),
                 received: response_correlation_id,
             };
-            span.record("result", "err");
-            self.invoke_error_hook(&err).await;
-            return Err(err);
+            return Err(self.traced_error(&span, timing_start, err).await);
         }
 
-        span.record("result", "ok");
-        emit_timing_event(timing_start);
+        Self::traced_ok(&span, timing_start);
         Ok(response)
     }
 
@@ -258,19 +272,13 @@ where
 
         let Some(frame) = self.framed.next().await else {
             let err = ClientError::disconnected();
-            span.record("result", "err");
-            emit_timing_event(timing_start);
-            self.invoke_error_hook(&err).await;
-            return Err(err);
+            return Err(self.traced_error(&span, timing_start, err).await);
         };
         let mut bytes = match frame {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::from(e);
-                span.record("result", "err");
-                emit_timing_event(timing_start);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
+                return Err(self.traced_error(&span, timing_start, err).await);
             }
         };
         span.record("frame.bytes", bytes.len());
@@ -279,14 +287,10 @@ where
             Ok(result) => result,
             Err(e) => {
                 let err = ClientError::decode(e);
-                span.record("result", "err");
-                emit_timing_event(timing_start);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
+                return Err(self.traced_error(&span, timing_start, err).await);
             }
         };
-        span.record("result", "ok");
-        emit_timing_event(timing_start);
+        Self::traced_ok(&span, timing_start);
         Ok(message)
     }
 
@@ -295,6 +299,26 @@ where
         if let Some(ref handler) = self.on_error {
             handler(error).await;
         }
+    }
+
+    /// Record a span result, emit timing, invoke the error hook, and return
+    /// the error for early-return paths.
+    pub(crate) async fn traced_error(
+        &self,
+        span: &tracing::Span,
+        timing_start: Option<Instant>,
+        err: ClientError,
+    ) -> ClientError {
+        span.record("result", "err");
+        emit_timing_event(timing_start);
+        self.invoke_error_hook(&err).await;
+        err
+    }
+
+    /// Record a successful span result and emit timing.
+    pub(crate) fn traced_ok(span: &tracing::Span, timing_start: Option<Instant>) {
+        span.record("result", "ok");
+        emit_timing_event(timing_start);
     }
 
     /// Invoke all registered before-send hooks in registration order.

@@ -67,7 +67,7 @@ length‑delimited codec.
 | Setup hook       | `on_connection_setup(...)`                   | Disabled                                                    | Store per-connection state for metrics, auth context, or counters.         |
 | Teardown hook    | `on_connection_teardown(...)`                | Disabled                                                    | Flush metrics and release per-connection resources on `close()`.           |
 | Error hook       | `on_error(...)`                              | Disabled                                                    | Centralize client transport/decode/correlation error reporting.            |
-| Tracing config   | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off              | Customise tracing span levels and per-command timing.                      |
+| Tracing config   | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off              | Customize tracing span levels and per-command timing.                      |
 
 ### Request/response helpers
 

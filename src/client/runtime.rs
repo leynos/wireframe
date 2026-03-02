@@ -155,12 +155,13 @@ where
         let _guard = span.enter();
         let timing_start = self.tracing_config.send_timing.then(Instant::now);
         self.invoke_before_send_hooks(&mut bytes);
-        if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
+        let send_result = self.framed.send(Bytes::from(bytes)).await;
+        emit_timing_event(timing_start);
+        if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
             return Err(err);
         }
-        emit_timing_event(timing_start);
         Ok(())
     }
 
@@ -243,12 +244,20 @@ where
         let span = call_span(&self.tracing_config);
         let _guard = span.enter();
         let timing_start = self.tracing_config.call_timing.then(Instant::now);
-        self.send(request).await?;
+        if let Err(err) = self.send(request).await {
+            // Error hook already invoked by send.
+            span.record("result", "err");
+            emit_timing_event(timing_start);
+            return Err(err);
+        }
         let result = self.receive().await;
         if result.is_ok() {
-            span.record("result", "ok");
+            Self::traced_ok(&span, timing_start);
+        } else {
+            // Error hook already invoked by receive_internal.
+            span.record("result", "err");
+            emit_timing_event(timing_start);
         }
-        emit_timing_event(timing_start);
         result
     }
 
