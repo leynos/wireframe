@@ -119,7 +119,7 @@ pub fn valid_hotline_frame(
 #[must_use]
 pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Vec<u8> {
     let max_frame_length = max_frame_length.into().0;
-    let oversized_len = max_frame_length + 1;
+    let oversized_len = max_frame_length.saturating_add(1);
     build_hotline_wire(&vec![0xab; oversized_len], 0, oversized_len, true)
 }
 
@@ -200,7 +200,7 @@ pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u
     // the buffer provides, guaranteeing a genuinely truncated frame.
     let payload_len = payload_len.into().0.max(1);
     let data_size = u32_from_usize(payload_len);
-    let total_size = u32_from_usize(payload_len + HEADER_LEN);
+    let total_size = u32_from_usize(payload_len.saturating_add(HEADER_LEN));
 
     let half_payload = payload_len / 2;
     let mut buf = Vec::with_capacity(HEADER_LEN + half_payload);
@@ -294,10 +294,10 @@ fn build_hotline_wire(
     let transaction_id = transaction_id.into().0;
     let data_size_u32 = u32_from_usize(data_size);
     let total_size = if correct_total_size {
-        u32_from_usize(data_size + HEADER_LEN)
+        u32_from_usize(data_size.saturating_add(HEADER_LEN))
     } else {
         // Off by one — triggers "invalid total size" in the decoder.
-        u32_from_usize(data_size + HEADER_LEN + 1)
+        u32_from_usize(data_size.saturating_add(HEADER_LEN).saturating_add(1))
     };
 
     let mut buf = Vec::with_capacity(HEADER_LEN + payload.len());

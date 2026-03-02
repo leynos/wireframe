@@ -87,11 +87,12 @@ remain green.
 - Risk: the Hotline decoder returns `Ok(None)` for truncated data (insufficient
   bytes for a header or payload) rather than `Err(...)`. This means
   `decode_frames_with_codec` will treat truncated frames as "no more frames"
-  rather than an error, unless the trailing-bytes check catches it. Fixtures
+  rather than an error, unless `decode_eof` detects unconsumed bytes. Fixtures
   producing truncated data must account for this: they will trigger the
-  trailing-bytes error path in `decode_frames_with_codec`, not a decoder error.
-  Severity: medium. Likelihood: certain. Mitigation: document this in the
-  fixture API and ensure BDD tests assert on trailing-bytes errors specifically.
+  `decode_eof` "bytes remaining on stream" error path in
+  `decode_frames_with_codec`, not a decoder error. Severity: medium.
+  Likelihood: certain. Mitigation: document this in the fixture API and ensure
+  BDD tests assert on "bytes remaining" errors specifically.
 
 - Risk: the `codec_fixtures.rs` module might grow beyond 400 lines if too many
   fixture variants are added. Severity: low. Likelihood: low. Mitigation: start
@@ -274,21 +275,23 @@ provides four categories of fixtures:
 
 **1. Valid frame fixtures** — properly encoded Hotline frames.
 
-`valid_hotline_wire(payload: &[u8], transaction_id: u32) -> Vec<u8>` — builds a
-single valid Hotline frame as raw wire bytes by writing the 20-byte header
-(data\_size, total\_size, transaction\_id, 8 reserved zero bytes) followed by
-the payload. This bypasses the tokio-util encoder so fixtures are independent
-of the encoder implementation.
+`valid_hotline_wire(payload, transaction_id) -> Vec<u8>` where
+`transaction_id: impl Into<TransactionId>` — builds a single valid Hotline
+frame as raw wire bytes by writing the 20-byte header (data\_size, total\_size,
+transaction\_id, 8 reserved zero bytes) followed by the payload. This bypasses
+the tokio-util encoder so fixtures are independent of the encoder
+implementation.
 
-`valid_hotline_frame(payload: &[u8], transaction_id: u32) -> HotlineFrame` —
-returns a typed `HotlineFrame` for tests needing metadata inspection. Delegates
-to `HotlineFrameCodec::wrap_payload` but overrides the `transaction_id`.
+`valid_hotline_frame(payload, transaction_id) -> HotlineFrame` where
+`transaction_id: impl Into<TransactionId>` — returns a typed `HotlineFrame` for
+tests needing metadata inspection. Delegates to
+`HotlineFrameCodec::wrap_payload` but overrides the `transaction_id`.
 
 **2. Invalid frame fixtures** — wire bytes that should cause decode errors.
 
-`oversized_hotline_wire(max_frame_length: usize) -> Vec<u8>` — crafts a Hotline
-header where `data_size` exceeds `max_frame_length` by 1 byte, followed by that
-many payload bytes. The decoder should reject this with
+`oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Vec<u8>`
+— crafts a Hotline header where `data_size` exceeds `max_frame_length` by 1
+byte, followed by that many payload bytes. The decoder should reject this with
 `InvalidData("payload too large")`.
 
 `mismatched_total_size_wire(payload: &[u8]) -> Vec<u8>` — crafts a Hotline
@@ -299,24 +302,29 @@ reject this with `InvalidData("invalid total size")`.
 insufficient for a complete frame.
 
 `truncated_hotline_header() -> Vec<u8>` — returns fewer than 20 bytes (e.g., 10
-bytes of zeroes). The decoder returns `Ok(None)`; when passed to
-`decode_frames_with_codec` the trailing-bytes check produces an error.
+bytes of zeroes). The Hotline decoder returns `Ok(None)` (insufficient bytes);
+when passed to `decode_frames_with_codec` the `decode_eof` call detects
+unconsumed bytes and produces an `InvalidData` error containing "bytes
+remaining".
 
-`truncated_hotline_payload(payload_len: usize) -> Vec<u8>` — writes a valid
-20-byte header claiming `data_size = payload_len` but provides only half the
-payload bytes. The decoder returns `Ok(None)` because the buffer is too short;
-`decode_frames_with_codec` reports trailing bytes.
+`truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u8>` —
+writes a valid 20-byte header claiming `data_size = payload_len` but provides
+only half the payload bytes. The Hotline decoder returns `Ok(None)` because the
+buffer is too short; `decode_frames_with_codec` surfaces this via `decode_eof`
+with an error containing "bytes remaining".
 
 **4. Correlation metadata fixtures** — frames with specific transaction IDs for
 correlation testing.
 
-`correlated_hotline_wire(transaction_id: u32, payloads: &[&[u8]]) -> Vec<u8>` —
-encodes multiple Hotline frames sharing the same `transaction_id`, suitable for
-verifying correlation ID propagation across frame sequences.
+`correlated_hotline_wire(transaction_id, payloads) -> Vec<u8>` where
+`transaction_id: impl Into<TransactionId>` — encodes multiple Hotline frames
+sharing the same `transaction_id`, suitable for verifying correlation ID
+propagation across frame sequences.
 
-`sequential_hotline_wire(base_transaction_id: u32, payloads: &[&[u8]]) -> Vec<u8>`
-— encodes multiple frames with incrementing transaction IDs (`base`,
-`base + 1`, …), suitable for verifying frame ordering.
+`sequential_hotline_wire(base_transaction_id, payloads) -> Vec<u8>` where
+`base_transaction_id: impl Into<TransactionId>` — encodes multiple frames with
+incrementing transaction IDs (`base`, `base + 1`, …), suitable for verifying
+frame ordering.
 
 Register the module in `wireframe_testing/src/helpers.rs` as
 `mod codec_fixtures;` and add `pub use codec_fixtures::*;` exports. Add the
@@ -404,7 +412,7 @@ the codec, wire bytes, decoded frames, and any decode error. Methods:
 `configure_codec(max_frame_length)`, `decode_valid_fixture()`,
 `decode_oversized_fixture()`, `decode_truncated_fixture()`,
 `decode_correlated_fixture()`, `verify_payload_matches()`,
-`verify_invalid_data_error()`, `verify_trailing_bytes_error()`,
+`verify_invalid_data_error()`, `verify_bytes_remaining_error()`,
 `verify_correlated_transaction_ids()`.
 
 **`tests/steps/codec_fixtures_steps.rs`**: Step functions matching the Gherkin
