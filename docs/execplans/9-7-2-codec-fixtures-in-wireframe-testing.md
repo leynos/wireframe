@@ -349,13 +349,13 @@ Tests to implement:
    `mismatched_total_size_wire`, attempt decode, verify `Err` with
    `InvalidData`.
 
-5. `truncated_header_produces_trailing_bytes_error` — call
-   `truncated_hotline_header`, attempt decode, verify `Err` mentioning
-   "trailing".
+5. `truncated_header_produces_decode_error` — call
+   `truncated_hotline_header`, attempt decode, verify `Err` mentioning "bytes
+   remaining".
 
-6. `truncated_payload_produces_trailing_bytes_error` — call
+6. `truncated_payload_produces_decode_error` — call
    `truncated_hotline_payload(100)`, attempt decode, verify `Err` mentioning
-   "trailing".
+   "bytes remaining".
 
 7. `correlated_frames_share_transaction_id` — call `correlated_hotline_wire`
    with `transaction_id = 42` and 3 payloads, decode, verify all 3 frames have
@@ -388,10 +388,10 @@ Feature: Codec test fixtures
     When an oversized fixture frame is decoded
     Then the decoder reports an invalid data error
 
-  Scenario: Truncated fixture produces a trailing bytes error
+  Scenario: Truncated fixture produces a bytes remaining error
     Given a Hotline codec allowing frames up to 4096 bytes
     When a truncated fixture frame is decoded
-    Then the decoder reports trailing bytes
+    Then the decoder reports bytes remaining
 
   Scenario: Correlated fixtures share the same transaction identifier
     Given a Hotline codec allowing frames up to 4096 bytes
@@ -492,14 +492,14 @@ In `wireframe_testing/src/helpers/codec_fixtures.rs`:
 ///
 /// Writes the 20-byte Hotline header (data_size, total_size,
 /// transaction_id, 8 reserved zero bytes) followed by the payload.
-pub fn valid_hotline_wire(payload: &[u8], transaction_id: u32) -> Vec<u8>;
+pub fn valid_hotline_wire(payload: &[u8], transaction_id: impl Into<TransactionId>) -> Vec<u8>;
 
 /// Return a typed `HotlineFrame` with the given payload and transaction ID.
-pub fn valid_hotline_frame(payload: &[u8], transaction_id: u32) -> HotlineFrame;
+pub fn valid_hotline_frame(payload: &[u8], transaction_id: impl Into<TransactionId>) -> HotlineFrame;
 
 /// Build a Hotline frame whose data_size exceeds `max_frame_length` by one
 /// byte. The decoder should reject this with `InvalidData`.
-pub fn oversized_hotline_wire(max_frame_length: usize) -> Vec<u8>;
+pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Vec<u8>;
 
 /// Build a Hotline frame with a mismatched total_size field.
 /// The decoder should reject this with `InvalidData`.
@@ -510,17 +510,17 @@ pub fn truncated_hotline_header() -> Vec<u8>;
 
 /// Return a valid Hotline header claiming `payload_len` bytes of payload,
 /// but provide only half the payload bytes.
-pub fn truncated_hotline_payload(payload_len: usize) -> Vec<u8>;
+pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u8>;
 
 /// Encode multiple Hotline frames sharing the same `transaction_id`.
 pub fn correlated_hotline_wire(
-    transaction_id: u32,
+    transaction_id: impl Into<TransactionId>,
     payloads: &[&[u8]],
 ) -> Vec<u8>;
 
 /// Encode multiple Hotline frames with incrementing transaction IDs.
 pub fn sequential_hotline_wire(
-    base_transaction_id: u32,
+    base_transaction_id: impl Into<TransactionId>,
     payloads: &[&[u8]],
 ) -> Vec<u8>;
 ```

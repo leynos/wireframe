@@ -86,6 +86,8 @@ impl CodecFixturesWorld {
 
     /// Decode `wire` with the configured codec, storing frames or error.
     fn decode_fixture(&mut self, wire: Vec<u8>) -> TestResult {
+        self.decoded_frames.clear();
+        self.decode_error = None;
         let codec = self.codec.as_ref().ok_or("codec not configured")?;
         match wireframe_testing::decode_frames_with_codec(codec, wire) {
             Ok(frames) => self.decoded_frames = frames,

@@ -196,7 +196,9 @@ pub fn truncated_hotline_header() -> Vec<u8> {
 /// ```
 #[must_use]
 pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u8> {
-    let payload_len = payload_len.into().0;
+    // Clamp to at least 1 so the header always claims more payload than
+    // the buffer provides, guaranteeing a genuinely truncated frame.
+    let payload_len = payload_len.into().0.max(1);
     let data_size = u32_from_usize(payload_len);
     let total_size = u32_from_usize(payload_len + HEADER_LEN);
 
