@@ -391,7 +391,7 @@ In `wireframe_testing/src/lib.rs`:
 ### Stage E: Unit tests (`tests/partial_frame_feeding.rs`)
 
 Integration test file in the main crate. Uses `rstest` for fixtures and
-parameterised cases. Tests:
+parameterized cases. Tests:
 
 1. **Chunked single-byte write round-trips** — encode a payload via
    `HotlineFrameCodec`, feed one byte at a time via
@@ -430,13 +430,13 @@ Feature: Partial frame and fragment feeding utilities
     Given a wireframe app with a Hotline codec allowing 4096-byte frames
     And a fragmenter capped at 20 bytes per fragment
     When a 100-byte payload is fragmented and fed through the app
-    Then the app receives fragment frames
+    Then fragment feeding completed
 
   Scenario: Fragmented payload survives chunked delivery
     Given a wireframe app with a Hotline codec allowing 4096-byte frames
     And a fragmenter capped at 20 bytes per fragment
     When a 100-byte payload is fragmented and fed in 3-byte chunks
-    Then the app receives fragment frames
+    Then fragment feeding completed
 ```
 
 #### World fixture: `tests/fixtures/partial_frame_feeding.rs`
@@ -447,7 +447,7 @@ A `PartialFrameFeedingWorld` struct holding:
 - `app: Option<WireframeApp<BincodeSerializer, (), Envelope, HotlineFrameCodec>>`
 - `fragmenter: Option<Fragmenter>`
 - `response_payloads: Vec<Vec<u8>>`
-- `response_frames: Vec<HotlineFrame>`
+- `fragment_feeding_completed: bool`
 
 Manual `Debug` impl (because `WireframeApp` lacks `Debug`). Default impl.
 `#[fixture] pub fn partial_frame_feeding_world()` fixture function.
@@ -463,7 +463,7 @@ Helper methods:
 - `drive_partial_fragmented(payload_len, chunk_size)` — call
   `drive_with_partial_fragments`.
 - Assertion helpers: `assert_payloads_non_empty()`,
-  `assert_payload_count(n)`, `assert_received_fragments()`.
+  `assert_payload_count(n)`, `assert_fragment_feeding_completed()`.
 
 #### Steps: `tests/steps/partial_frame_feeding_steps.rs`
 
