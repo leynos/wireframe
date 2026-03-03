@@ -18,6 +18,7 @@ const ROUTE_ID: u32 = 89;
 const CORRELATION_ID: Option<u64> = Some(10);
 const BUFFER_CAPACITY: usize = 512;
 const SPIN_ATTEMPTS: usize = 64;
+const SERVER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Parsed as
 /// "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
@@ -33,39 +34,31 @@ impl FromStr for HardCapConfig {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        fn parse<T: FromStr>(value: &str, name: &str) -> Result<T, String>
+        where
+            T::Err: fmt::Display,
+        {
+            value.parse().map_err(|e| format!("{name}: {e}"))
+        }
         let mut values = s.split('/').map(str::trim);
-        let timeout_ms = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing timeout_ms")?;
-        let per_message = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing per_message")?;
-        let per_connection = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing per_connection")?;
-        let in_flight = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing in_flight")?;
+        let mut take = |name| {
+            values
+                .next()
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| format!("missing {name}"))
+        };
+        let timeout_ms = take("timeout_ms")?;
+        let per_message = take("per_message")?;
+        let per_connection = take("per_connection")?;
+        let in_flight = take("in_flight")?;
         if values.next().is_some() {
             return Err("unexpected trailing segments".to_string());
         }
         Ok(Self {
-            timeout_ms: timeout_ms
-                .parse()
-                .map_err(|error| format!("timeout_ms: {error}"))?,
-            per_message: per_message
-                .parse()
-                .map_err(|error| format!("per_message: {error}"))?,
-            per_connection: per_connection
-                .parse()
-                .map_err(|error| format!("per_connection: {error}"))?,
-            in_flight: in_flight
-                .parse()
-                .map_err(|error| format!("in_flight: {error}"))?,
+            timeout_ms: parse(timeout_ms, "timeout_ms")?,
+            per_message: parse(per_message, "per_message")?,
+            per_connection: parse(per_connection, "per_connection")?,
+            in_flight: parse(in_flight, "in_flight")?,
         })
     }
 }
@@ -81,24 +74,6 @@ pub struct MemoryBudgetHardCapWorld {
     observed_payloads: Vec<Vec<u8>>,
     last_send_error: Option<String>,
     connection_error: Option<String>,
-}
-
-impl MemoryBudgetHardCapWorld {
-    fn with_runtime(
-        runtime: Option<tokio::runtime::Runtime>,
-        runtime_error: Option<String>,
-    ) -> Self {
-        Self {
-            runtime,
-            runtime_error,
-            client: None,
-            server: None,
-            observed_rx: None,
-            observed_payloads: Vec::new(),
-            last_send_error: None,
-            connection_error: None,
-        }
-    }
 }
 
 impl Default for MemoryBudgetHardCapWorld {
@@ -134,6 +109,22 @@ pub fn memory_budget_hard_cap_world() -> MemoryBudgetHardCapWorld {
 }
 
 impl MemoryBudgetHardCapWorld {
+    fn with_runtime(
+        runtime: Option<tokio::runtime::Runtime>,
+        runtime_error: Option<String>,
+    ) -> Self {
+        Self {
+            runtime,
+            runtime_error,
+            client: None,
+            server: None,
+            observed_rx: None,
+            observed_payloads: Vec::new(),
+            last_send_error: None,
+            connection_error: None,
+        }
+    }
+
     fn runtime(&self) -> TestResult<&tokio::runtime::Runtime> {
         self.runtime.as_ref().ok_or_else(|| {
             self.runtime_error
@@ -245,11 +236,9 @@ impl MemoryBudgetHardCapWorld {
     /// (the kind produced by budget enforcement) and no payloads were delivered.
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
-        let server = self.server.take().ok_or("server not initialized")?;
-        let result = self.block_on(server)?;
-        match result {
-            Ok(Ok(())) => Err("expected connection to abort, but it completed successfully".into()),
-            Ok(Err(error)) => {
+        match self.join_server()? {
+            Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
+            Err(error) => {
                 if error.kind() != std::io::ErrorKind::InvalidData {
                     return Err(format!(
                         "expected budget-related InvalidData error, got {:?}: {error}",
@@ -270,7 +259,6 @@ impl MemoryBudgetHardCapWorld {
                 }
                 Ok(())
             }
-            Err(join_error) => Err(format!("server task panicked: {join_error}").into()),
         }
     }
 
@@ -324,6 +312,17 @@ impl MemoryBudgetHardCapWorld {
             self.last_send_error = None;
         }
         result
+    }
+
+    fn join_server(&mut self) -> TestResult<std::io::Result<()>> {
+        let server = self.server.take().ok_or("server not initialized")?;
+        let join_result =
+            self.block_on(async { tokio::time::timeout(SERVER_JOIN_TIMEOUT, server).await })?;
+        match join_result {
+            Ok(Ok(io_result)) => Ok(io_result),
+            Ok(Err(join_error)) => Err(format!("server task panicked: {join_error}").into()),
+            Err(_elapsed) => Err("server task did not complete within timeout".into()),
+        }
     }
 
     fn spin_runtime(&self) -> TestResult {
