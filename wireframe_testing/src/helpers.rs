@@ -14,6 +14,8 @@ mod codec_drive;
 mod codec_ext;
 mod codec_fixtures;
 mod drive;
+mod fragment_drive;
+mod partial_frame;
 mod payloads;
 mod runtime;
 
@@ -79,6 +81,19 @@ pub use drive::{
     drive_with_frames_mut,
     drive_with_frames_with_capacity,
     drive_with_frames_with_capacity_mut,
+};
+pub use fragment_drive::{
+    drive_with_fragment_frames,
+    drive_with_fragments,
+    drive_with_fragments_mut,
+    drive_with_fragments_with_capacity,
+    drive_with_partial_fragments,
+};
+pub use partial_frame::{
+    drive_with_partial_codec_frames,
+    drive_with_partial_frames,
+    drive_with_partial_frames_mut,
+    drive_with_partial_frames_with_capacity,
 };
 pub use payloads::{drive_with_bincode, drive_with_payloads, drive_with_payloads_mut};
 pub use runtime::{run_app, run_with_duplex_server};
