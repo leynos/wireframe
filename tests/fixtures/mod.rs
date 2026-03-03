@@ -4,6 +4,7 @@
 //! here.
 
 pub mod budget_cleanup;
+mod budget_config_parser;
 pub mod budget_enforcement;
 pub mod budget_transitions;
 pub mod client_lifecycle;

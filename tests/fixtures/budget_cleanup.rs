@@ -14,6 +14,8 @@ use wireframe::{
 };
 pub use wireframe_testing::TestResult;
 
+use super::budget_config_parser::parse_standard_budget_config;
+
 const ROUTE_ID: u32 = 92;
 const CORRELATION_ID: Option<u64> = Some(21);
 const BUFFER_CAPACITY: usize = 512;
@@ -34,39 +36,12 @@ impl FromStr for CleanupConfig {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut values = s.split('/').map(str::trim);
-        let timeout_ms = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing timeout_ms")?;
-        let per_message = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing per_message")?;
-        let per_connection = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing per_connection")?;
-        let in_flight = values
-            .next()
-            .filter(|value| !value.is_empty())
-            .ok_or("missing in_flight")?;
-        if values.next().is_some() {
-            return Err("unexpected trailing segments".to_string());
-        }
+        let parsed = parse_standard_budget_config(s)?;
         Ok(Self {
-            timeout_ms: timeout_ms
-                .parse()
-                .map_err(|error| format!("timeout_ms: {error}"))?,
-            per_message: per_message
-                .parse()
-                .map_err(|error| format!("per_message: {error}"))?,
-            per_connection: per_connection
-                .parse()
-                .map_err(|error| format!("per_connection: {error}"))?,
-            in_flight: in_flight
-                .parse()
-                .map_err(|error| format!("in_flight: {error}"))?,
+            timeout_ms: parsed.timeout_ms,
+            per_message: parsed.per_message,
+            per_connection: parsed.per_connection,
+            in_flight: parsed.in_flight,
         })
     }
 }
@@ -293,20 +268,13 @@ impl BudgetCleanupWorld {
         });
         self.client = Some(client);
 
-        match send_result {
-            Ok(Ok(())) => {
-                self.last_send_error = None;
-                Ok(())
-            }
-            Ok(Err(error)) => {
-                self.last_send_error = Some(error.to_string());
-                Err(error.into())
-            }
-            Err(error) => {
-                self.last_send_error = Some(error.to_string());
-                Err(error)
-            }
+        let result = send_result.and_then(|io_result| io_result.map_err(Into::into));
+        if let Err(ref error) = result {
+            self.last_send_error = Some(error.to_string());
+        } else {
+            self.last_send_error = None;
         }
+        result
     }
 
     /// Join the server task with a bounded timeout to prevent indefinite
