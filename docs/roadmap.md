@@ -299,7 +299,7 @@ and standardized per-connection memory budgets.
   `InvalidData`) behaviour.
 - [x] 8.3.5. Define derived defaults based on `buffer_capacity` when budgets
   are not set explicitly.
-- [ ] 8.3.6. Write tests for budget enforcement, back-pressure, and cleanup
+- [x] 8.3.6. Write tests for budget enforcement, back-pressure, and cleanup
   semantics.
 
 ### 8.4. Transport helper

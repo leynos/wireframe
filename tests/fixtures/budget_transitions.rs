@@ -1,4 +1,5 @@
-//! Behavioural fixture for hard-cap memory budget connection abort scenarios.
+//! Behavioural fixture for budget pressure transitions and dimension
+//! interaction scenarios (8.3.6).
 
 use std::{fmt, future::Future, num::NonZeroUsize, str::FromStr, time::Duration};
 
@@ -14,8 +15,8 @@ use wireframe::{
 };
 pub use wireframe_testing::TestResult;
 
-const ROUTE_ID: u32 = 89;
-const CORRELATION_ID: Option<u64> = Some(10);
+const ROUTE_ID: u32 = 93;
+const CORRELATION_ID: Option<u64> = Some(22);
 const BUFFER_CAPACITY: usize = 512;
 const SPIN_ATTEMPTS: usize = 64;
 const SERVER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -23,49 +24,57 @@ const SERVER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 /// Parsed as
 /// "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
 #[derive(Clone, Copy, Debug)]
-pub struct HardCapConfig {
+pub struct TransitionConfig {
     pub timeout_ms: u64,
     pub per_message: usize,
     pub per_connection: usize,
     pub in_flight: usize,
 }
 
-impl FromStr for HardCapConfig {
+impl FromStr for TransitionConfig {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        fn parse<T: FromStr>(value: &str, name: &str) -> Result<T, String>
-        where
-            T::Err: fmt::Display,
-        {
-            value.parse().map_err(|e| format!("{name}: {e}"))
-        }
         let mut values = s.split('/').map(str::trim);
-        let mut take = |name| {
-            values
-                .next()
-                .filter(|v| !v.is_empty())
-                .ok_or_else(|| format!("missing {name}"))
-        };
-        let timeout_ms = take("timeout_ms")?;
-        let per_message = take("per_message")?;
-        let per_connection = take("per_connection")?;
-        let in_flight = take("in_flight")?;
+        let timeout_ms = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing timeout_ms")?;
+        let per_message = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing per_message")?;
+        let per_connection = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing per_connection")?;
+        let in_flight = values
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or("missing in_flight")?;
         if values.next().is_some() {
             return Err("unexpected trailing segments".to_string());
         }
         Ok(Self {
-            timeout_ms: parse(timeout_ms, "timeout_ms")?,
-            per_message: parse(per_message, "per_message")?,
-            per_connection: parse(per_connection, "per_connection")?,
-            in_flight: parse(in_flight, "in_flight")?,
+            timeout_ms: timeout_ms
+                .parse()
+                .map_err(|error| format!("timeout_ms: {error}"))?,
+            per_message: per_message
+                .parse()
+                .map_err(|error| format!("per_message: {error}"))?,
+            per_connection: per_connection
+                .parse()
+                .map_err(|error| format!("per_connection: {error}"))?,
+            in_flight: in_flight
+                .parse()
+                .map_err(|error| format!("in_flight: {error}"))?,
         })
     }
 }
 
 /// Runtime-backed fixture that drives inbound assembly with memory budgets
-/// and validates connection termination behaviour.
-pub struct MemoryBudgetHardCapWorld {
+/// and validates pressure-level transitions and dimension interactions.
+pub struct BudgetTransitionsWorld {
     runtime: Option<tokio::runtime::Runtime>,
     runtime_error: Option<String>,
     client: Option<Framed<DuplexStream, LengthDelimitedCodec>>,
@@ -76,39 +85,7 @@ pub struct MemoryBudgetHardCapWorld {
     connection_error: Option<String>,
 }
 
-impl Default for MemoryBudgetHardCapWorld {
-    fn default() -> Self {
-        match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(runtime) => Self::with_runtime(Some(runtime), None),
-            Err(error) => {
-                Self::with_runtime(None, Some(format!("failed to create runtime: {error}")))
-            }
-        }
-    }
-}
-
-impl fmt::Debug for MemoryBudgetHardCapWorld {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MemoryBudgetHardCapWorld")
-            .field("client_initialized", &self.client.is_some())
-            .field("server_initialized", &self.server.is_some())
-            .field("observed_payloads", &self.observed_payloads.len())
-            .field("last_send_error", &self.last_send_error)
-            .field("connection_error", &self.connection_error)
-            .finish_non_exhaustive()
-    }
-}
-
-/// Construct the default world used by hard-cap memory budget BDD tests.
-#[fixture]
-pub fn memory_budget_hard_cap_world() -> MemoryBudgetHardCapWorld {
-    MemoryBudgetHardCapWorld::default()
-}
-
-impl MemoryBudgetHardCapWorld {
+impl BudgetTransitionsWorld {
     fn with_runtime(
         runtime: Option<tokio::runtime::Runtime>,
         runtime_error: Option<String>,
@@ -124,7 +101,42 @@ impl MemoryBudgetHardCapWorld {
             connection_error: None,
         }
     }
+}
 
+impl Default for BudgetTransitionsWorld {
+    fn default() -> Self {
+        match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => Self::with_runtime(Some(runtime), None),
+            Err(error) => {
+                Self::with_runtime(None, Some(format!("failed to create runtime: {error}")))
+            }
+        }
+    }
+}
+
+impl fmt::Debug for BudgetTransitionsWorld {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BudgetTransitionsWorld")
+            .field("client_initialized", &self.client.is_some())
+            .field("server_initialized", &self.server.is_some())
+            .field("observed_payloads", &self.observed_payloads.len())
+            .field("last_send_error", &self.last_send_error)
+            .field("connection_error", &self.connection_error)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Construct the default world used by budget transitions BDD tests.
+#[rustfmt::skip]
+#[fixture]
+pub fn budget_transitions_world() -> BudgetTransitionsWorld {
+    BudgetTransitionsWorld::default()
+}
+
+impl BudgetTransitionsWorld {
     fn runtime(&self) -> TestResult<&tokio::runtime::Runtime> {
         self.runtime.as_ref().ok_or_else(|| {
             self.runtime_error
@@ -139,13 +151,13 @@ impl MemoryBudgetHardCapWorld {
         F: Future<Output = T>,
     {
         if tokio::runtime::Handle::try_current().is_ok() {
-            return Err("nested Tokio runtime detected in hard-cap fixture".into());
+            return Err("nested Tokio runtime detected in transitions fixture".into());
         }
         Ok(self.runtime()?.block_on(future))
     }
 
     /// Start the app under test using the supplied budget and timeout config.
-    pub fn start_app(&mut self, config: HardCapConfig) -> TestResult {
+    pub fn start_app(&mut self, config: TransitionConfig) -> TestResult {
         let Some(fragment_limit) = NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)) else {
             return Err("buffer-derived fragment limit should be non-zero".into());
         };
@@ -184,7 +196,7 @@ impl MemoryBudgetHardCapWorld {
             .route(ROUTE_ID, handler)?;
 
         let codec = app.length_codec();
-        let (client_stream, server_stream) = tokio::io::duplex(2048);
+        let (client_stream, server_stream) = tokio::io::duplex(64 * 1024);
         let client = Framed::new(client_stream, codec);
 
         self.block_on(async { tokio::time::pause() })?;
@@ -202,10 +214,13 @@ impl MemoryBudgetHardCapWorld {
     }
 
     /// Send multiple non-final first frames for keys in a range.
+    ///
+    /// Send errors are intentionally ignored: the scenarios that call this
+    /// method overflow the budget, so the server-side connection will abort
+    /// mid-way through. The caller asserts the abort reason separately via
+    /// [`Self::assert_connection_aborted`].
     pub fn send_first_frames_for_range(&mut self, start: u64, end: u64, body: &str) -> TestResult {
         for key in start..=end {
-            // Ignore send errors — the connection may close mid-way through
-            // and we want to observe the connection error, not the send error.
             if self.send_first_frame(key, body).is_err() {
                 break;
             }
@@ -233,9 +248,10 @@ impl MemoryBudgetHardCapWorld {
     }
 
     /// Assert that the connection terminated with an `InvalidData` error
-    /// (the kind produced by budget enforcement) and no payloads were delivered.
+    /// (the kind produced by budget enforcement).
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
+        self.drain_ready_payloads()?;
         match self.join_server()? {
             Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
             Err(error) => {
@@ -247,16 +263,6 @@ impl MemoryBudgetHardCapWorld {
                     .into());
                 }
                 self.connection_error = Some(error.to_string());
-                // Drain after the server task has finished so payloads emitted
-                // during teardown are caught.
-                self.drain_ready_payloads()?;
-                if !self.observed_payloads.is_empty() {
-                    return Err(format!(
-                        "expected no payloads before abort, but received: {:?}",
-                        self.observed_payloads
-                    )
-                    .into());
-                }
                 Ok(())
             }
         }
@@ -284,12 +290,17 @@ impl MemoryBudgetHardCapWorld {
         .into())
     }
 
-    /// Assert that no connection error has been recorded.
-    pub fn assert_no_connection_error(&self) -> TestResult {
-        if self.connection_error.is_none() {
-            return Ok(());
+    /// Assert that no connection error has occurred.
+    pub fn assert_no_connection_error(&mut self) -> TestResult {
+        if let Some(ref error) = self.connection_error {
+            return Err(format!("unexpected connection error: {error}").into());
         }
-        Err(format!("unexpected connection error: {:?}", self.connection_error).into())
+        // Drop the client so the server sees EOF and can finish cleanly.
+        self.client.take();
+        match self.join_server()? {
+            Ok(()) => Ok(()),
+            Err(error) => Err(format!("server task returned error: {error}").into()),
+        }
     }
 
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
@@ -314,6 +325,7 @@ impl MemoryBudgetHardCapWorld {
         result
     }
 
+    /// Join the server task with a bounded timeout.
     fn join_server(&mut self) -> TestResult<std::io::Result<()>> {
         let server = self.server.take().ok_or("server not initialized")?;
         let join_result =
@@ -341,54 +353,5 @@ impl MemoryBudgetHardCapWorld {
         }
         self.observed_rx = Some(observed_rx);
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod hard_cap_config_tests {
-    use std::str::FromStr;
-
-    use rstest::rstest;
-
-    use super::HardCapConfig;
-
-    #[rstest]
-    fn valid_four_segment_input() {
-        let c = HardCapConfig::from_str("200/2048/8/8").expect("valid input");
-        assert_eq!(
-            (c.timeout_ms, c.per_message, c.per_connection, c.in_flight),
-            (200, 2048, 8, 8)
-        );
-    }
-
-    #[rstest]
-    #[case::missing_first("/64/100/100")]
-    #[case::missing_second("10//100/100")]
-    #[case::missing_third("10/64//100")]
-    #[case::missing_fourth("10/64/100/")]
-    #[case::only_three("10/64/100")]
-    #[case::extra_segment("10/64/100/100/extra")]
-    #[case::alphabetic_timeout("abc/64/100/100")]
-    #[case::alphabetic_budget("10/abc/100/100")]
-    #[case::negative_value("10/64/-1/100")]
-    fn invalid_inputs_are_rejected(#[case] input: &str) {
-        assert!(
-            HardCapConfig::from_str(input).is_err(),
-            "expected Err for {input:?}"
-        );
-    }
-
-    #[rstest]
-    fn zero_timeout_is_accepted() {
-        let c = HardCapConfig::from_str("0/64/100/100").expect("zero timeout is valid");
-        assert_eq!(c.timeout_ms, 0);
-    }
-
-    // Zero budgets parse as valid `usize` values. The non-zero constraint is
-    // enforced later by `start_app()` via `NonZeroUsize::new(...)`.
-    #[rstest]
-    fn zero_budget_parses_successfully() {
-        let c = HardCapConfig::from_str("10/0/100/100").expect("zero budget parses");
-        assert_eq!(c.per_message, 0);
     }
 }
