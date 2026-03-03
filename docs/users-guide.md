@@ -417,6 +417,7 @@ Available assertion helpers:
   substring.
 - `assert_log_at_level(level, substring)` — assert a log at a specific level
   contains a substring.
+
 #### Zero-copy payload extraction
 
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload
