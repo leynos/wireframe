@@ -121,24 +121,23 @@ This is roadmap item 9.7.3, implementing ADR-006
 ## Surprises & discoveries
 
 - `metrics_util::debugging::Snapshotter::snapshot()` is destructive: it
-  uses `c.swap(0, Ordering::SeqCst)` to atomically drain counter values
-  to zero on each call. This means calling `counter()` multiple times
-  after a single metric recording returns 0 on all calls after the first
-  if each call takes a fresh snapshot. Fix: store the snapshot result in
-  a `captured: Vec<SnapshotEntry>` field and query it for subsequent
-  counter lookups. The explicit `snapshot()` method drains once; counter
-  methods read the stored vector. Date: 2026-03-02.
+  uses `c.swap(0, Ordering::SeqCst)` to atomically drain counter values to zero
+  on each call. This means calling `counter()` multiple times after a single
+  metric recording returns 0 on all calls after the first if each call takes a
+  fresh snapshot. Fix: store the snapshot result in a
+  `captured: Vec<SnapshotEntry>` field and query it for subsequent counter
+  lookups. The explicit `snapshot()` method drains once; counter methods read
+  the stored vector. Date: 2026-03-02.
 
 - `metrics::Unit` and `metrics::SharedString` live in the `metrics`
   crate, not `metrics_util`. The snapshot tuple type is
-  `(CompositeKey, Option<Unit>, Option<SharedString>, DebugValue)` where
-  `Unit` and `SharedString` are re-exported from `metrics`. Date:
-  2026-03-02.
+  `(CompositeKey, Option<Unit>, Option<SharedString>, DebugValue)` where `Unit`
+  and `SharedString` are re-exported from `metrics`. Date: 2026-03-02.
 
 - `cargo check -p wireframe_testing` panics with a feature resolver
-  error because `wireframe_testing` is not a workspace member. Building
-  via the workspace root (`cargo check` or `cargo test --test ...`) works
-  fine. Date: 2026-03-02.
+  error because `wireframe_testing` is not a workspace member. Building via the
+  workspace root (`cargo check` or `cargo test --test ...`) works fine. Date:
+  2026-03-02.
 
 ## Decision log
 
@@ -179,17 +178,17 @@ All quality gates pass:
 - `make test` — exit 0. 13 new integration tests and 4 new BDD
   scenarios all green.
 
-Key design insight: the `DebuggingRecorder`'s snapshot is destructive
-(atomic swap to zero), so the `ObservabilityHandle` caches the snapshot
-result in a `Vec<SnapshotEntry>` field. Users call `snapshot()` once
-after recording metrics, then query the cached vector via `counter()`
-and related methods. This was not anticipated in the original design
-doc but is essential for correct multi-query usage.
+Key design insight: the `DebuggingRecorder`'s snapshot is destructive (atomic
+swap to zero), so the `ObservabilityHandle` caches the snapshot result in a
+`Vec<SnapshotEntry>` field. Users call `snapshot()` once after recording
+metrics, then query the cached vector via `counter()` and related methods. This
+was not anticipated in the original design doc but is essential for correct
+multi-query usage.
 
-The implemented API extends the design doc's proposed API with
-additional convenience methods for codec error assertions and log
-assertions, as these are the primary use cases for the harness in
-upcoming codec regression tests (9.7.4).
+The implemented API extends the design doc's proposed API with additional
+convenience methods for codec error assertions and log assertions, as these are
+the primary use cases for the harness in upcoming codec regression tests
+(9.7.4).
 
 ## Context and orientation
 
@@ -341,8 +340,8 @@ Counter queries:
   `counter(name, &[])`.
 
 - `codec_error_counter(&self, error_type: &str, recovery_policy: &str) -> u64`
-  — convenience calling `self.counter` with `CODEC_ERRORS` and the
-  `error_type` / `recovery_policy` label pair.
+  — convenience calling `self.counter` with `CODEC_ERRORS` and the `error_type`
+  / `recovery_policy` label pair.
 
 Counter assertions (return `Result<(), String>` for clippy compliance):
 

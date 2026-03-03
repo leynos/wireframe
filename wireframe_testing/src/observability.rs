@@ -58,6 +58,81 @@ use crate::logging::LoggerHandle;
 /// A single entry from a metrics snapshot.
 type SnapshotEntry = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
 
+/// Owned metric label pairs for use with counter queries.
+///
+/// Provides a builder API and conversions from `&[(&str, &str)]` so
+/// callers can use either literal slices or the builder pattern.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wireframe_testing::observability::Labels;
+///
+/// // Builder pattern
+/// let labels = Labels::new()
+///     .with("error_type", "framing")
+///     .with("recovery_policy", "drop");
+///
+/// // From a literal array
+/// let labels: Labels = [("error_type", "framing"), ("recovery_policy", "drop")].into();
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Labels(Vec<(String, String)>);
+
+impl Labels {
+    /// Create an empty label set.
+    #[must_use]
+    pub fn new() -> Self { Self::default() }
+
+    /// Append a key-value pair, returning `self` for chaining.
+    #[must_use]
+    pub fn with(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.0.push((key.into(), value.into()));
+        self
+    }
+
+    /// Convert to temporary borrowed pairs for internal queries.
+    pub(crate) fn as_str_pairs(&self) -> Vec<(&str, &str)> {
+        self.0
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect()
+    }
+}
+
+impl From<&[(&str, &str)]> for Labels {
+    fn from(pairs: &[(&str, &str)]) -> Self {
+        Self(
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+        )
+    }
+}
+
+impl<const N: usize> From<[(&str, &str); N]> for Labels {
+    fn from(pairs: [(&str, &str); N]) -> Self {
+        Self(
+            pairs
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                .collect(),
+        )
+    }
+}
+
+impl<const N: usize> From<&[(&str, &str); N]> for Labels {
+    fn from(pairs: &[(&str, &str); N]) -> Self {
+        Self(
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+        )
+    }
+}
+
 /// Combined log and metrics capture for test assertions.
 ///
 /// `ObservabilityHandle` composes a [`LoggerHandle`] (for log capture)
@@ -194,18 +269,27 @@ impl ObservabilityHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// use wireframe_testing::ObservabilityHandle;
+    /// use wireframe_testing::{ObservabilityHandle, observability::Labels};
     ///
     /// let mut obs = ObservabilityHandle::new();
     /// obs.snapshot();
+    ///
+    /// // Slice syntax (unchanged from previous API)
     /// let count = obs.counter(
     ///     "wireframe_frames_processed_total",
     ///     &[("direction", "inbound")],
     /// );
+    ///
+    /// // Builder syntax
+    /// let count = obs.counter(
+    ///     "wireframe_frames_processed_total",
+    ///     Labels::new().with("direction", "inbound"),
+    /// );
     /// ```
     #[must_use]
-    pub fn counter(&self, name: &str, labels: &[(&str, &str)]) -> u64 {
-        find_counter(&self.captured, name, labels)
+    pub fn counter(&self, name: &str, labels: impl Into<Labels>) -> u64 {
+        let labels = labels.into();
+        find_counter(&self.captured, name, &labels.as_str_pairs())
     }
 
     /// Query a counter value by name without label filtering.
@@ -220,7 +304,7 @@ impl ObservabilityHandle {
     /// let count = obs.counter_without_labels("wireframe_connection_panics_total");
     /// ```
     #[must_use]
-    pub fn counter_without_labels(&self, name: &str) -> u64 { self.counter(name, &[]) }
+    pub fn counter_without_labels(&self, name: &str) -> u64 { self.counter(name, Labels::new()) }
 
     /// Query the codec error counter by error type and recovery policy.
     ///
@@ -260,20 +344,31 @@ impl ObservabilityHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// use wireframe_testing::ObservabilityHandle;
+    /// use wireframe_testing::{ObservabilityHandle, observability::Labels};
     ///
     /// let mut obs = ObservabilityHandle::new();
     /// obs.snapshot();
+    ///
+    /// // Slice syntax
     /// obs.assert_counter("wireframe_connection_panics_total", &[], 0)
     ///     .expect("counter should be zero");
+    ///
+    /// // Builder syntax
+    /// obs.assert_counter(
+    ///     "wireframe_codec_errors_total",
+    ///     Labels::new().with("error_type", "framing"),
+    ///     0,
+    /// )
+    /// .expect("counter should be zero");
     /// ```
     pub fn assert_counter(
         &self,
         name: &str,
-        labels: &[(&str, &str)],
+        labels: impl Into<Labels>,
         expected: u64,
     ) -> Result<(), String> {
-        let actual = self.counter(name, labels);
+        let labels = labels.into();
+        let actual = find_counter(&self.captured, name, &labels.as_str_pairs());
         if actual == expected {
             Ok(())
         } else {
@@ -369,17 +464,11 @@ impl ObservabilityHandle {
     ///     .expect("should find log message");
     /// ```
     pub fn assert_log_contains(&mut self, substring: &str) -> Result<(), String> {
-        let mut records = Vec::new();
-        while let Some(record) = self.logger.pop() {
-            let msg = record.args().to_string();
-            if msg.contains(substring) {
-                return Ok(());
-            }
-            records.push(msg);
-        }
-        Err(format!(
-            "no log record containing {substring:?}; captured: {records:?}"
-        ))
+        self.assert_log_matches(
+            |record| record.args().to_string().contains(substring),
+            |record| record.args().to_string(),
+            |records| format!("no log record containing {substring:?}; captured: {records:?}"),
+        )
     }
 
     /// Assert a log at the given level contains the substring.
@@ -402,17 +491,36 @@ impl ObservabilityHandle {
     ///     .expect("should find warning");
     /// ```
     pub fn assert_log_at_level(&mut self, level: Level, substring: &str) -> Result<(), String> {
+        self.assert_log_matches(
+            |record| record.level() == level && record.args().to_string().contains(substring),
+            |record| format!("[{}] {}", record.level(), record.args()),
+            |records| format!("no {level} log containing {substring:?}; captured: {records:?}"),
+        )
+    }
+
+    /// Helper to search logs matching a predicate.
+    ///
+    /// Drains the log buffer and returns Ok if any record satisfies the
+    /// predicate. The `format_record` closure formats captured records
+    /// for the error message.
+    fn assert_log_matches<F, G>(
+        &mut self,
+        predicate: F,
+        format_record: G,
+        error_msg: impl FnOnce(&[String]) -> String,
+    ) -> Result<(), String>
+    where
+        F: Fn(&logtest::Record) -> bool,
+        G: Fn(&logtest::Record) -> String,
+    {
         let mut records = Vec::new();
         while let Some(record) = self.logger.pop() {
-            let msg = record.args().to_string();
-            if record.level() == level && msg.contains(substring) {
+            if predicate(&record) {
                 return Ok(());
             }
-            records.push(format!("[{}] {msg}", record.level()));
+            records.push(format_record(&record));
         }
-        Err(format!(
-            "no {level} log containing {substring:?}; captured: {records:?}"
-        ))
+        Err(error_msg(&records))
     }
 }
 

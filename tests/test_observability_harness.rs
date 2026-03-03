@@ -14,7 +14,7 @@ fn counter_returns_zero_for_unrecorded_metric() {
     let mut obs = ObservabilityHandle::new();
     obs.snapshot();
     assert_eq!(
-        obs.counter("nonexistent_metric", &[]),
+        obs.counter("nonexistent_metric", []),
         0,
         "unrecorded counter should return 0"
     );
@@ -47,7 +47,7 @@ fn counter_with_labels_filters_correctly() {
     assert_eq!(
         obs.counter(
             wireframe::metrics::CODEC_ERRORS,
-            &[("error_type", "framing"), ("recovery_policy", "drop")],
+            [("error_type", "framing"), ("recovery_policy", "drop")],
         ),
         2,
         "framing/drop counter should be 2"
@@ -55,7 +55,7 @@ fn counter_with_labels_filters_correctly() {
     assert_eq!(
         obs.counter(
             wireframe::metrics::CODEC_ERRORS,
-            &[("error_type", "eof"), ("recovery_policy", "disconnect"),],
+            [("error_type", "eof"), ("recovery_policy", "disconnect")],
         ),
         1,
         "eof/disconnect counter should be 1"
@@ -76,25 +76,30 @@ fn codec_error_counter_convenience_method() {
     );
 }
 
+/// Creates an [`ObservabilityHandle`] with an optional metric increment,
+/// then takes a snapshot so the handle is ready for assertions.
+fn setup_obs_with_metric(record_metric: bool) -> ObservabilityHandle {
+    let mut obs = ObservabilityHandle::new();
+    if record_metric {
+        metrics::with_local_recorder(obs.recorder(), || {
+            wireframe::metrics::inc_connection_panics();
+        });
+    }
+    obs.snapshot();
+    obs
+}
+
 #[test]
 fn assert_counter_passes_on_match() {
-    let mut obs = ObservabilityHandle::new();
-    metrics::with_local_recorder(obs.recorder(), || {
-        wireframe::metrics::inc_connection_panics();
-    });
-    obs.snapshot();
-    let result = obs.assert_counter(wireframe::metrics::CONNECTION_PANICS, &[], 1);
+    let obs = setup_obs_with_metric(true);
+    let result = obs.assert_counter(wireframe::metrics::CONNECTION_PANICS, [], 1);
     assert!(result.is_ok(), "assert_counter should pass on match");
 }
 
 #[test]
 fn assert_counter_fails_on_mismatch() {
-    let mut obs = ObservabilityHandle::new();
-    metrics::with_local_recorder(obs.recorder(), || {
-        wireframe::metrics::inc_connection_panics();
-    });
-    obs.snapshot();
-    let result = obs.assert_counter(wireframe::metrics::CONNECTION_PANICS, &[], 99);
+    let obs = setup_obs_with_metric(true);
+    let result = obs.assert_counter(wireframe::metrics::CONNECTION_PANICS, [], 99);
     assert!(result.is_err(), "assert_counter should fail on mismatch");
 }
 
@@ -108,11 +113,7 @@ fn assert_no_metric_passes_when_absent() {
 
 #[test]
 fn assert_no_metric_fails_when_present() {
-    let mut obs = ObservabilityHandle::new();
-    metrics::with_local_recorder(obs.recorder(), || {
-        wireframe::metrics::inc_connection_panics();
-    });
-    obs.snapshot();
+    let obs = setup_obs_with_metric(true);
     let result = obs.assert_no_metric(wireframe::metrics::CONNECTION_PANICS);
     assert!(
         result.is_err(),
