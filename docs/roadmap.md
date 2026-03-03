@@ -52,6 +52,18 @@ the request and response lifecycle.
 - [x] 1.5.1. Develop integration tests for core request and response
   functionality (`tests/server.rs`, `tests/routes.rs`).
 
+### 1.6. Tenant context and identity isolation
+
+- [x] 1.6.1. Establish tenant primitives and request context plumbing
+  (`src/tenant/`, `src/context/`, `src/extractor/context.rs`).
+  - [x] Add `TenantId`, `TenantSlug`, and `Tenant` domain primitives.
+  - [x] Model initial tenancy as one owning user per tenant, while
+    preserving a separate user-versus-tenant identity model for future
+    team and organisation tenants.
+  - [x] Replace message-only audit context usage with cross-cutting
+    `RequestContext` carrying tenant, correlation, causation, user, and
+    session identifiers.
+
 ## 2. Middleware and extensibility (complete)
 
 This phase focused on building the middleware system, a key feature for

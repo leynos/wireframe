@@ -20,6 +20,7 @@ pub mod codec;
 pub mod error;
 pub use error::{Result, WireframeError};
 pub mod connection;
+pub mod context;
 pub mod correlation;
 #[cfg(not(loom))]
 pub mod extractor;
@@ -43,5 +44,6 @@ pub mod serializer;
 #[cfg(not(loom))]
 pub mod server;
 pub mod session;
+pub mod tenant;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_helpers;

@@ -15,6 +15,7 @@
 pub use crate::message::serde_bridge::{IntoSerdeMessage, SerdeMessage};
 pub use crate::{
     app::{Envelope, Handler, Middleware, WireframeApp},
+    context::RequestContext,
     error::{Result, WireframeError},
     message::{DecodeWith, DeserializeContext, EncodeWith, Message},
     response::Response,

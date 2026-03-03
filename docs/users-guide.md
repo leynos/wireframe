@@ -1591,6 +1591,102 @@ entries during lookups. Helpers insert and remove handles, bulk-prune stale
 entries, or return live handle/identifier pairs for background tasks that need
 to enumerate active sessions.[^40]
 
+## Tenant primitives and request context
+
+Wireframe provides domain primitives for multi-tenant applications and a
+cross-cutting request context that threads identity and tracing information
+through the handler pipeline.
+
+### Identity types
+
+Four types model tenant and user identity:
+
+- `TenantId(u64)` — unique numeric tenant identifier.
+- `TenantSlug(String)` — human-readable, URL-friendly tenant name.
+- `UserId(u64)` — unique numeric user identifier (distinct from tenant).
+- `Tenant` — aggregate combining `TenantId`, `TenantSlug`, and an owning
+  `UserId`.
+
+The initial tenancy model uses one owning user per tenant. `UserId` and
+`TenantId` are intentionally separate types to preserve a distinct
+user-versus-tenant identity model for future team and organisation tenants.
+
+All identity types live in `wireframe::tenant` and support `Clone`, `Debug`,
+`PartialEq`, `Eq`, `Hash`, `Display`, and serde `Serialize`/`Deserialize`.
+
+### Request context
+
+`RequestContext` carries cross-cutting identifiers through the request pipeline:
+
+```rust
+use wireframe::{
+    context::{CausationId, CorrelationId, RequestContext, SessionId},
+    tenant::{TenantId, UserId},
+};
+
+let ctx = RequestContext::new()
+    .with_tenant_id(TenantId::new(1))
+    .with_user_id(UserId::new(42))
+    .with_correlation_id(CorrelationId::new(100))
+    .with_causation_id(CausationId::new(50))
+    .with_session_id(SessionId::new(7));
+```
+
+All fields are `Option`-wrapped, allowing the same type to serve both
+tenant-aware and tenant-agnostic operations.
+
+### Extraction
+
+`RequestContext` implements `FromMessageRequest`, making it available as a
+handler parameter. When no context has been registered, extraction returns a
+default (all-`None`) context rather than failing:
+
+```rust
+use wireframe::{
+    context::RequestContext,
+    extractor::{FromMessageRequest, MessageRequest, Payload},
+    tenant::TenantId,
+};
+
+let req = MessageRequest::new();
+req.insert_state(
+    RequestContext::new().with_tenant_id(TenantId::new(1)),
+);
+let ctx = RequestContext::from_message_request(&req, &mut Payload::default())
+    .expect("extraction is infallible");
+assert_eq!(ctx.tenant_id(), Some(TenantId::new(1)));
+```
+
+### Enforcing tenant-awareness
+
+For operations that require a tenant, call `require_tenant_id()` (or
+`require_user_id()`) on the extracted context. These methods return `Result`
+types that make the absence of required identifiers explicit at the call site:
+
+```rust
+use wireframe::{context::RequestContext, tenant::TenantId};
+
+fn create_widget(ctx: &RequestContext) -> Result<(), Box<dyn std::error::Error>> {
+    let tenant = ctx.require_tenant_id()?;
+    // Use tenant for the operation...
+    Ok(())
+}
+```
+
+### Bridging existing correlation identifiers
+
+`RequestContext::from_raw_correlation` converts the existing raw `Option<u64>`
+correlation pattern into a typed context:
+
+```rust
+use wireframe::context::{CorrelationId, RequestContext};
+
+let ctx = RequestContext::from_raw_correlation(Some(42));
+assert_eq!(ctx.correlation_id(), Some(CorrelationId::new(42)));
+```
+
+`RequestContext` is also available from `wireframe::prelude::*`.
+
 ## Streaming responses
 
 The `Response` enum models several reply styles: a single frame, a vector of

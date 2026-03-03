@@ -5,6 +5,7 @@
 //! payload bytes or inspect connection info before your handler runs.
 
 mod connection_info;
+mod context;
 mod error;
 mod message;
 mod request;
