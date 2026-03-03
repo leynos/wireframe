@@ -35,6 +35,7 @@ mod message_assembly_inbound_scenarios;
 mod message_assembly_scenarios;
 mod multi_packet_scenarios;
 mod panic_scenarios;
+mod partial_frame_feeding_scenarios;
 mod request_parts_scenarios;
 mod serializer_boundaries_scenarios;
 mod stream_end_scenarios;

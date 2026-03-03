@@ -305,6 +305,67 @@ Available fixture functions:
 - `correlated_hotline_wire` — frames sharing a transaction ID.
 - `sequential_hotline_wire` — frames with incrementing transaction IDs.
 
+#### Feeding partial frames and fragments
+
+Real networks rarely deliver a complete codec frame in a single TCP read.
+The `wireframe_testing` crate provides drivers that simulate these
+conditions so that codec buffering logic can be exercised in tests.
+
+**Chunked-write drivers** encode payloads via a codec, concatenate the wire
+bytes, and write them in configurable chunk sizes (including one byte at a
+time):
+
+```rust,no_run
+use std::num::NonZeroUsize;
+use wireframe::app::WireframeApp;
+use wireframe::codec::examples::HotlineFrameCodec;
+use wireframe_testing::drive_with_partial_frames;
+
+let codec = HotlineFrameCodec::new(4096);
+let app = WireframeApp::new()?.with_codec(codec.clone());
+let chunk = NonZeroUsize::new(1).expect("non-zero");
+let payloads =
+    drive_with_partial_frames(app, &codec, vec![vec![1, 2, 3]], chunk)
+        .await?;
+```
+
+Available chunked-write driver functions:
+
+- `drive_with_partial_frames` / `drive_with_partial_frames_with_capacity` —
+  owned app, returns payload bytes.
+- `drive_with_partial_frames_mut` — mutable app reference, returns payload
+  bytes.
+- `drive_with_partial_codec_frames` — owned app, returns decoded `F::Frame`
+  values.
+
+**Fragment-feeding drivers** accept a raw payload, fragment it with a
+`Fragmenter`, encode each fragment into a codec frame, and feed the frames
+through the app:
+
+```rust,no_run
+use std::num::NonZeroUsize;
+use wireframe::app::WireframeApp;
+use wireframe::codec::examples::HotlineFrameCodec;
+use wireframe::fragment::Fragmenter;
+use wireframe_testing::drive_with_fragments;
+
+let codec = HotlineFrameCodec::new(4096);
+let app = WireframeApp::new()?.with_codec(codec.clone());
+let fragmenter = Fragmenter::new(NonZeroUsize::new(20).unwrap());
+let payloads =
+    drive_with_fragments(app, &codec, &fragmenter, vec![0; 100]).await?;
+```
+
+Available fragment-feeding driver functions:
+
+- `drive_with_fragments` / `drive_with_fragments_with_capacity` — owned
+  app, returns payload bytes.
+- `drive_with_fragments_mut` — mutable app reference, returns payload
+  bytes.
+- `drive_with_fragment_frames` — owned app, returns decoded `F::Frame`
+  values.
+- `drive_with_partial_fragments` — fragment AND feed in chunks,
+  exercising both fragmentation and partial-frame buffering simultaneously.
 #### Zero-copy payload extraction
 
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload

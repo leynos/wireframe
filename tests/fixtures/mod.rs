@@ -32,6 +32,7 @@ pub mod message_assembly;
 pub mod message_assembly_inbound;
 pub mod multi_packet;
 pub mod panic;
+pub mod partial_frame_feeding;
 pub mod request_parts;
 pub mod serializer_boundaries;
 pub mod stream_end;

@@ -313,7 +313,7 @@ and standardized per-connection memory budgets.
 
 ### 8.5. Testkit utilities
 
-- [ ] 8.5.1. Add utilities for feeding partial frames or fragments into an
+- [x] 8.5.1. Add utilities for feeding partial frames or fragments into an
   in-process app.
 - [ ] 8.5.2. Add slow reader and writer simulation for back-pressure testing.
 - [ ] 8.5.3. Add deterministic assertion helpers for reassembly outcomes.

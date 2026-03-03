@@ -31,6 +31,7 @@ mod message_assembly_inbound_steps;
 mod message_assembly_steps;
 mod multi_packet_steps;
 mod panic_steps;
+mod partial_frame_feeding_steps;
 mod request_parts_steps;
 mod serializer_boundaries_steps;
 mod stream_end_steps;
