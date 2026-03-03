@@ -111,7 +111,9 @@ impl PartialFrameFeedingWorld {
 
         let mut payloads = Vec::with_capacity(count);
         for i in 0..count {
-            let env = Envelope::new(1, Some(7), vec![u8::try_from(i).unwrap_or(0)]);
+            let byte = u8::try_from(i)
+                .map_err(|_| format!("payload index {i} exceeds u8 range; use count <= 256"))?;
+            let env = Envelope::new(1, Some(7), vec![byte]);
             payloads.push(BincodeSerializer.serialize(&env)?);
         }
 

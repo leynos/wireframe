@@ -57,19 +57,20 @@ impl ChunkConfig {
 /// `write_all` calls with a chunked iteration that slices the concatenated
 /// wire bytes into fixed-size pieces.
 ///
-/// ```rust
-/// use std::num::NonZeroUsize;
+/// This function is `pub(super)` and not exported from the crate. Use one
+/// of the public `drive_with_partial_*` wrappers instead.
 ///
-/// use tokio::io::{AsyncWriteExt, DuplexStream};
-/// use wireframe_testing::helpers::partial_frame::drive_chunked_internal;
-///
+/// ```rust,ignore
 /// async fn echo(mut s: DuplexStream) { let _ = s.write_all(&[1, 2]).await; }
 ///
-/// # async fn demo() -> std::io::Result<()> {
-/// let out = drive_chunked_internal(echo, vec![0], NonZeroUsize::new(1).unwrap(), 64).await?;
+/// let out = drive_chunked_internal(
+///     echo,
+///     vec![0],
+///     NonZeroUsize::new(1).expect("non-zero"),
+///     64,
+/// )
+/// .await?;
 /// assert_eq!(out, [1, 2]);
-/// # Ok(())
-/// # }
 /// ```
 pub(super) async fn drive_chunked_internal<F, Fut>(
     server_fn: F,

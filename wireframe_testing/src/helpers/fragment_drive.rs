@@ -1,18 +1,20 @@
 //! Fragment-aware in-memory driving helpers.
 //!
 //! These functions fragment a payload using a [`Fragmenter`], encode each
-//! fragment via [`encode_fragment_payload`], wrap the results in codec frames,
-//! and feed them through a [`WireframeApp`]. This allows test authors to
-//! verify that fragmented messages survive the full application pipeline
-//! without manually constructing fragment wire bytes.
+//! fragment via [`encode_fragment_payload`], wrap the `FRAG`-prefixed bytes
+//! inside a serialized [`Envelope`] packet, and feed the results through a
+//! [`WireframeApp`] as codec frames. Wrapping in an `Envelope` ensures the
+//! application's deserializer accepts the frames instead of accumulating
+//! consecutive deserialization failures.
 
 use std::{io, num::NonZeroUsize};
 
 use tokio::io::DuplexStream;
 use wireframe::{
-    app::{Packet, WireframeApp},
+    app::{Envelope, Packet, WireframeApp},
     codec::FrameCodec,
     fragment::{Fragmenter, encode_fragment_payload},
+    serializer::{BincodeSerializer, Serializer},
 };
 
 use super::{
@@ -27,8 +29,19 @@ use super::{
 // Shared fragment encoding
 // ---------------------------------------------------------------------------
 
-/// Fragment `payload` and encode each fragment into a codec-ready payload.
-fn fragment_and_encode(fragmenter: &Fragmenter, payload: Vec<u8>) -> io::Result<Vec<Vec<u8>>> {
+/// Fragment `payload`, encode each fragment, and wrap the result in
+/// serialized [`Envelope`] packets so the app's deserializer accepts them.
+///
+/// Each fragment is encoded via [`encode_fragment_payload`] into
+/// `FRAG`-prefixed bytes, then placed as the `payload` field of an
+/// `Envelope` and serialized with [`BincodeSerializer`]. This matches
+/// the inbound path the application expects: deserialize the codec frame
+/// payload as an `Envelope`, then hand it to the fragment reassembler.
+fn fragment_and_encode(
+    fragmenter: &Fragmenter,
+    payload: Vec<u8>,
+    route_id: u32,
+) -> io::Result<Vec<Vec<u8>>> {
     let batch = fragmenter.fragment_bytes(payload).map_err(|err| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -39,10 +52,17 @@ fn fragment_and_encode(fragmenter: &Fragmenter, payload: Vec<u8>) -> io::Result<
         .into_iter()
         .map(|frame| {
             let (header, body) = frame.into_parts();
-            encode_fragment_payload(header, &body).map_err(|err| {
+            let frag_bytes = encode_fragment_payload(header, &body).map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("fragment encoding failed: {err}"),
+                )
+            })?;
+            let env = Envelope::new(route_id, None, frag_bytes);
+            BincodeSerializer.serialize(&env).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("envelope serialization failed: {err}"),
                 )
             })
         })
@@ -53,6 +73,11 @@ fn fragment_and_encode(fragmenter: &Fragmenter, payload: Vec<u8>) -> io::Result<
 // Shared internal helper
 // ---------------------------------------------------------------------------
 
+/// Default route identifier used when wrapping fragment payloads in
+/// [`Envelope`] packets. Matches the route typically registered by test
+/// applications built with `WireframeApp::route(1, ...)`.
+const DEFAULT_FRAGMENT_ROUTE_ID: u32 = 1;
+
 /// Bundles the fragmenter, payload, and duplex buffer capacity needed by
 /// [`drive_fragments_internal`].
 struct FragmentRequest<'a> {
@@ -60,6 +85,8 @@ struct FragmentRequest<'a> {
     fragmenter: &'a Fragmenter,
     /// Raw payload bytes to fragment and feed.
     payload: Vec<u8>,
+    /// Route identifier for the wrapping [`Envelope`].
+    route_id: u32,
     /// Duplex stream buffer capacity.
     capacity: usize,
 }
@@ -70,6 +97,7 @@ impl<'a> FragmentRequest<'a> {
         Self {
             fragmenter,
             payload,
+            route_id: DEFAULT_FRAGMENT_ROUTE_ID,
             capacity: DEFAULT_CAPACITY,
         }
     }
@@ -92,8 +120,9 @@ where
     H: FnOnce(DuplexStream) -> Fut,
     Fut: std::future::Future<Output = ()> + Send,
 {
-    let fragment_payloads = fragment_and_encode(request.fragmenter, request.payload)?;
-    let encoded = encode_payloads_with_codec(codec, fragment_payloads)?;
+    let serialized_envelopes =
+        fragment_and_encode(request.fragmenter, request.payload, request.route_id)?;
+    let encoded = encode_payloads_with_codec(codec, serialized_envelopes)?;
     let raw = drive_internal(handler, encoded, request.capacity).await?;
     decode_frames_with_codec(codec, raw)
 }
@@ -119,7 +148,7 @@ where
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
 /// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
-/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).unwrap());
+/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).expect("non-zero"));
 /// let payloads = drive_with_fragments(app, &codec, &fragmenter, vec![0; 50]).await?;
 /// # Ok(())
 /// # }
@@ -155,7 +184,7 @@ where
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
 /// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
-/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).unwrap());
+/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).expect("non-zero"));
 /// let payloads =
 ///     drive_with_fragments_with_capacity(app, &codec, &fragmenter, vec![0; 50], 8192).await?;
 /// # Ok(())
@@ -202,7 +231,7 @@ where
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
 /// let mut app = WireframeApp::new().expect("app").with_codec(codec.clone());
-/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).unwrap());
+/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).expect("non-zero"));
 /// let payloads = drive_with_fragments_mut(&mut app, &codec, &fragmenter, vec![0; 50]).await?;
 /// # Ok(())
 /// # }
@@ -251,7 +280,7 @@ where
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
 /// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
-/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).unwrap());
+/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).expect("non-zero"));
 /// let frames = drive_with_fragment_frames(app, &codec, &fragmenter, vec![0; 50]).await?;
 /// # Ok(())
 /// # }
@@ -297,7 +326,7 @@ where
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
 /// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
-/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).unwrap());
+/// let fragmenter = Fragmenter::new(NonZeroUsize::new(20).expect("non-zero"));
 /// let chunk = NonZeroUsize::new(3).expect("non-zero");
 /// let payloads =
 ///     drive_with_partial_fragments(app, &codec, &fragmenter, vec![0; 50], chunk).await?;
@@ -317,8 +346,8 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    let fragment_payloads = fragment_and_encode(fragmenter, payload)?;
-    let encoded = encode_payloads_with_codec(codec, fragment_payloads)?;
+    let serialized_envelopes = fragment_and_encode(fragmenter, payload, DEFAULT_FRAGMENT_ROUTE_ID)?;
+    let encoded = encode_payloads_with_codec(codec, serialized_envelopes)?;
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
     let raw = drive_chunked_internal(
         |server| async move { app.handle_connection(server).await },

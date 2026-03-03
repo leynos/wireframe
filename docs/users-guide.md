@@ -309,7 +309,7 @@ Available fixture functions:
 
 Real networks rarely deliver a complete codec frame in a single TCP read.
 The `wireframe_testing` crate provides drivers that simulate these
-conditions so you can exercise your codec's buffering logic in tests.
+conditions so that codec buffering logic can be exercised in tests.
 
 **Chunked-write drivers** encode payloads via a codec, concatenate the wire
 bytes, and write them in configurable chunk sizes (including one byte at a

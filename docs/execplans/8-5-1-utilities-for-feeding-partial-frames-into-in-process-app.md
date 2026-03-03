@@ -28,8 +28,9 @@ After this work, library consumers gain two new families of test helpers:
    This lets test authors verify that fragmented messages survive the full app
    pipeline without manually constructing fragment wire bytes.
 
-Success is observable by running `make test` and seeing the new unit and BDD
-tests pass (they will fail before the implementation and pass after).
+Success is observable by running `make test` and seeing the new unit and
+behaviour-driven development (BDD) tests pass (they will fail before the
+implementation and pass after).
 
 ## Constraints
 
@@ -97,13 +98,14 @@ tests pass (they will fail before the implementation and pass after).
 
 ## Surprises & discoveries
 
-- Fragment payloads are `FRAG`-prefixed raw bytes, not valid `Envelope`
-  serialisations. The app receives them via the codec but cannot route
-  them (no matching envelope), so it produces no response. Fragment-feeding
-  tests therefore verify successful I/O completion (no error) rather than
-  non-empty responses. This is a correct reflection of the pipeline: the
-  test utilities exercise the codec/transport layer, not the application
-  routing layer.
+- Fragment payloads are `FRAG`-prefixed raw bytes produced by
+  `encode_fragment_payload`. These must be wrapped inside a serialized
+  `Envelope` before codec framing so the application's deserializer
+  accepts them. Without wrapping, accumulating deserialization failures
+  would close the connection after 10 frames (see
+  `MAX_DESER_FAILURES` in `src/app/inbound_handler.rs`).
+  `fragment_and_encode` now creates an `Envelope` with route ID 1 for
+  each fragment and serializes it with `BincodeSerializer`.
 
 ## Decision log
 

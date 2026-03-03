@@ -47,17 +47,35 @@ fn serialize_envelope(payload: &[u8]) -> io::Result<Vec<u8>> {
 // Chunked-write (partial frame) tests
 // ---------------------------------------------------------------------------
 
+fn deserialize_envelope(bytes: &[u8]) -> io::Result<Envelope> {
+    let (env, _) = BincodeSerializer
+        .deserialize::<Envelope>(bytes)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("deserialize: {e}")))?;
+    Ok(env)
+}
+
 async fn test_partial_frames_with_chunk(payload: &[u8], chunk_size: usize) -> io::Result<()> {
     let codec = hotline_codec();
     let app = build_echo_app(codec.clone())?;
     let serialized = serialize_envelope(payload)?;
     let chunk = NonZeroUsize::new(chunk_size).ok_or_else(|| io::Error::other("non-zero"))?;
 
-    let payloads = drive_with_partial_frames(app, &codec, vec![serialized], chunk).await?;
+    let response = drive_with_partial_frames(app, &codec, vec![serialized], chunk).await?;
 
-    if payloads.is_empty() {
+    if response.is_empty() {
         return Err(io::Error::other("expected non-empty response payloads"));
     }
+
+    let expected = Envelope::new(1, Some(7), payload.to_vec());
+    for (idx, bytes) in response.iter().enumerate() {
+        let env = deserialize_envelope(bytes)?;
+        if env != expected {
+            return Err(io::Error::other(format!(
+                "envelope mismatch at index {idx}: expected {expected:?}, got {env:?}"
+            )));
+        }
+    }
+
     Ok(())
 }
 
@@ -79,12 +97,37 @@ async fn partial_frames_multiple_payloads() -> io::Result<()> {
     let p2 = serialize_envelope(&[2])?;
     let chunk = NonZeroUsize::new(3).ok_or_else(|| io::Error::other("non-zero"))?;
 
-    let payloads = drive_with_partial_frames(app, &codec, vec![p1, p2], chunk).await?;
+    let response = drive_with_partial_frames(app, &codec, vec![p1, p2], chunk).await?;
 
-    if payloads.len() != 2 {
+    if response.len() != 2 {
         return Err(io::Error::other(format!(
             "expected 2 response payloads, got {}",
-            payloads.len()
+            response.len()
+        )));
+    }
+
+    let expected_first = Envelope::new(1, Some(7), vec![1]);
+    let expected_second = Envelope::new(1, Some(7), vec![2]);
+
+    let first = deserialize_envelope(
+        response
+            .first()
+            .ok_or_else(|| io::Error::other("missing first payload"))?,
+    )?;
+    let second = deserialize_envelope(
+        response
+            .get(1)
+            .ok_or_else(|| io::Error::other("missing second payload"))?,
+    )?;
+
+    if first != expected_first {
+        return Err(io::Error::other(format!(
+            "first payload mismatch: expected {expected_first:?}, got {first:?}"
+        )));
+    }
+    if second != expected_second {
+        return Err(io::Error::other(format!(
+            "second payload mismatch: expected {expected_second:?}, got {second:?}"
         )));
     }
     Ok(())
@@ -135,10 +178,10 @@ async fn partial_frames_mut_allows_reuse() -> io::Result<()> {
 // Fragment feeding tests
 // ---------------------------------------------------------------------------
 
-// Fragment payloads are FRAG-prefixed raw bytes, not valid Envelope
-// serializations. The app receives and processes them but does not produce a
-// routed response. Verifying no I/O error confirms the full transport pipeline
-// (fragment → encode → transport → decode) works end to end.
+// Fragment payloads are FRAG-prefixed bytes wrapped in serialized Envelopes.
+// The app deserializes each frame successfully, but the no-op route handler
+// does not produce a response. Verifying no I/O error confirms the full
+// transport pipeline (fragment → envelope → encode → transport → decode).
 
 #[tokio::test]
 async fn fragment_round_trip() -> io::Result<()> {
