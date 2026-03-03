@@ -53,22 +53,48 @@ fn fragment_and_encode(fragmenter: &Fragmenter, payload: Vec<u8>) -> io::Result<
 // Shared internal helper
 // ---------------------------------------------------------------------------
 
+/// Bundles the fragmenter, payload, and duplex buffer capacity needed by
+/// [`drive_fragments_internal`].
+struct FragmentRequest<'a> {
+    /// Fragmenter that splits the payload into fragment frames.
+    fragmenter: &'a Fragmenter,
+    /// Raw payload bytes to fragment and feed.
+    payload: Vec<u8>,
+    /// Duplex stream buffer capacity.
+    capacity: usize,
+}
+
+impl<'a> FragmentRequest<'a> {
+    /// Create a request with the default duplex buffer capacity.
+    fn new(fragmenter: &'a Fragmenter, payload: Vec<u8>) -> Self {
+        Self {
+            fragmenter,
+            payload,
+            capacity: DEFAULT_CAPACITY,
+        }
+    }
+
+    /// Override the duplex buffer capacity.
+    fn with_capacity(mut self, capacity: usize) -> Self {
+        self.capacity = capacity;
+        self
+    }
+}
+
 /// Fragment, encode, transport, and decode — returning full codec frames.
 async fn drive_fragments_internal<F, H, Fut>(
     handler: H,
     codec: &F,
-    fragmenter: &Fragmenter,
-    payload: Vec<u8>,
-    capacity: usize,
+    request: FragmentRequest<'_>,
 ) -> io::Result<Vec<F::Frame>>
 where
     F: FrameCodec,
     H: FnOnce(DuplexStream) -> Fut,
     Fut: std::future::Future<Output = ()> + Send,
 {
-    let fragment_payloads = fragment_and_encode(fragmenter, payload)?;
+    let fragment_payloads = fragment_and_encode(request.fragmenter, request.payload)?;
     let encoded = encode_payloads_with_codec(codec, fragment_payloads)?;
-    let raw = drive_internal(handler, encoded, capacity).await?;
+    let raw = drive_internal(handler, encoded, request.capacity).await?;
     decode_frames_with_codec(codec, raw)
 }
 
@@ -151,9 +177,7 @@ where
     let frames = drive_fragments_internal(
         |server| async move { app.handle_connection(server).await },
         codec,
-        fragmenter,
-        payload,
-        capacity,
+        FragmentRequest::new(fragmenter, payload).with_capacity(capacity),
     )
     .await?;
     Ok(extract_payloads::<F>(&frames))
@@ -198,9 +222,7 @@ where
     let frames = drive_fragments_internal(
         |server| async move { app.handle_connection(server).await },
         codec,
-        fragmenter,
-        payload,
-        DEFAULT_CAPACITY,
+        FragmentRequest::new(fragmenter, payload),
     )
     .await?;
     Ok(extract_payloads::<F>(&frames))
@@ -249,9 +271,7 @@ where
     drive_fragments_internal(
         |server| async move { app.handle_connection(server).await },
         codec,
-        fragmenter,
-        payload,
-        DEFAULT_CAPACITY,
+        FragmentRequest::new(fragmenter, payload),
     )
     .await
 }

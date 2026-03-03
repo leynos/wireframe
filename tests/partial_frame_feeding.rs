@@ -47,12 +47,11 @@ fn serialize_envelope(payload: &[u8]) -> io::Result<Vec<u8>> {
 // Chunked-write (partial frame) tests
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn partial_frames_single_byte_chunks() -> io::Result<()> {
+async fn test_partial_frames_with_chunk(payload: &[u8], chunk_size: usize) -> io::Result<()> {
     let codec = hotline_codec();
     let app = build_echo_app(codec.clone())?;
-    let serialized = serialize_envelope(&[10, 20, 30])?;
-    let chunk = NonZeroUsize::new(1).ok_or_else(|| io::Error::other("non-zero"))?;
+    let serialized = serialize_envelope(payload)?;
+    let chunk = NonZeroUsize::new(chunk_size).ok_or_else(|| io::Error::other("non-zero"))?;
 
     let payloads = drive_with_partial_frames(app, &codec, vec![serialized], chunk).await?;
 
@@ -63,18 +62,13 @@ async fn partial_frames_single_byte_chunks() -> io::Result<()> {
 }
 
 #[tokio::test]
+async fn partial_frames_single_byte_chunks() -> io::Result<()> {
+    test_partial_frames_with_chunk(&[10, 20, 30], 1).await
+}
+
+#[tokio::test]
 async fn partial_frames_misaligned_chunks() -> io::Result<()> {
-    let codec = hotline_codec();
-    let app = build_echo_app(codec.clone())?;
-    let serialized = serialize_envelope(&[1, 2, 3, 4, 5])?;
-    let chunk = NonZeroUsize::new(7).ok_or_else(|| io::Error::other("non-zero"))?;
-
-    let payloads = drive_with_partial_frames(app, &codec, vec![serialized], chunk).await?;
-
-    if payloads.is_empty() {
-        return Err(io::Error::other("expected non-empty response payloads"));
-    }
-    Ok(())
+    test_partial_frames_with_chunk(&[1, 2, 3, 4, 5], 7).await
 }
 
 #[tokio::test]

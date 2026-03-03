@@ -19,6 +19,37 @@ use super::{
     codec_ext::{decode_frames_with_codec, encode_payloads_with_codec, extract_payloads},
 };
 
+/// Configuration for chunked-write delivery.
+///
+/// Combines the chunk size (how many bytes to write per call) with the
+/// duplex buffer capacity used by the in-memory stream.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ChunkConfig {
+    /// Number of bytes per write call.
+    pub chunk_size: NonZeroUsize,
+    /// Duplex stream buffer capacity.
+    pub capacity: usize,
+}
+
+impl ChunkConfig {
+    /// Create a configuration with the given chunk size and the default
+    /// duplex buffer capacity.
+    pub fn new(chunk_size: NonZeroUsize) -> Self {
+        Self {
+            chunk_size,
+            capacity: DEFAULT_CAPACITY,
+        }
+    }
+
+    /// Create a configuration with an explicit duplex buffer capacity.
+    pub fn with_capacity(chunk_size: NonZeroUsize, capacity: usize) -> Self {
+        Self {
+            chunk_size,
+            capacity,
+        }
+    }
+}
+
 /// Drive a server function by writing `wire_bytes` in chunks of
 /// `chunk_size` bytes, forcing partial-frame reads on the server side.
 ///
@@ -102,8 +133,7 @@ async fn drive_partial_frames_internal<F, H, Fut>(
     handler: H,
     codec: &F,
     payloads: Vec<Vec<u8>>,
-    chunk_size: NonZeroUsize,
-    capacity: usize,
+    config: ChunkConfig,
 ) -> io::Result<Vec<F::Frame>>
 where
     F: FrameCodec,
@@ -112,7 +142,8 @@ where
 {
     let encoded = encode_payloads_with_codec(codec, payloads)?;
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
-    let raw = drive_chunked_internal(handler, wire_bytes, chunk_size, capacity).await?;
+    let raw =
+        drive_chunked_internal(handler, wire_bytes, config.chunk_size, config.capacity).await?;
     decode_frames_with_codec(codec, raw)
 }
 
@@ -200,8 +231,7 @@ where
         |server| async move { app.handle_connection(server).await },
         codec,
         payloads,
-        chunk_size,
-        capacity,
+        ChunkConfig::with_capacity(chunk_size, capacity),
     )
     .await?;
     Ok(extract_payloads::<F>(&frames))
@@ -246,8 +276,7 @@ where
         |server| async move { app.handle_connection(server).await },
         codec,
         payloads,
-        chunk_size,
-        DEFAULT_CAPACITY,
+        ChunkConfig::new(chunk_size),
     )
     .await?;
     Ok(extract_payloads::<F>(&frames))
@@ -297,8 +326,7 @@ where
         |server| async move { app.handle_connection(server).await },
         codec,
         payloads,
-        chunk_size,
-        DEFAULT_CAPACITY,
+        ChunkConfig::new(chunk_size),
     )
     .await
 }
