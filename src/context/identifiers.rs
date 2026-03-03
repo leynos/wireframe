@@ -177,6 +177,24 @@ mod tests {
 
     use super::*;
 
+    macro_rules! test_id_equality_and_hash {
+        ($name:ident, $ty:ty, $val_a:expr, $val_b:expr) => {
+            #[test]
+            fn $name() {
+                let a = <$ty>::new($val_a);
+                let b = <$ty>::new($val_a);
+                let c = <$ty>::new($val_b);
+                assert_eq!(a, b);
+                assert_ne!(a, c);
+
+                let mut set = HashSet::new();
+                set.insert(a);
+                assert!(set.contains(&b));
+                assert!(!set.contains(&c));
+            }
+        };
+    }
+
     #[test]
     fn correlation_id_round_trip() {
         let id = CorrelationId::new(42);
@@ -189,19 +207,7 @@ mod tests {
         assert_eq!(format!("{}", CorrelationId::new(7)), "CorrelationId(7)");
     }
 
-    #[test]
-    fn correlation_id_equality_and_hash() {
-        let a = CorrelationId::new(1);
-        let b = CorrelationId::new(1);
-        let c = CorrelationId::new(2);
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-
-        let mut set = HashSet::new();
-        set.insert(a);
-        assert!(set.contains(&b));
-        assert!(!set.contains(&c));
-    }
+    test_id_equality_and_hash!(correlation_id_equality_and_hash, CorrelationId, 1, 2);
 
     #[test]
     fn causation_id_round_trip() {
@@ -215,19 +221,7 @@ mod tests {
         assert_eq!(format!("{}", CausationId::new(3)), "CausationId(3)");
     }
 
-    #[test]
-    fn causation_id_equality_and_hash() {
-        let a = CausationId::new(10);
-        let b = CausationId::new(10);
-        let c = CausationId::new(20);
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-
-        let mut set = HashSet::new();
-        set.insert(a);
-        assert!(set.contains(&b));
-        assert!(!set.contains(&c));
-    }
+    test_id_equality_and_hash!(causation_id_equality_and_hash, CausationId, 10, 20);
 
     #[test]
     fn session_id_round_trip() {
@@ -241,17 +235,5 @@ mod tests {
         assert_eq!(format!("{}", SessionId::new(9)), "SessionId(9)");
     }
 
-    #[test]
-    fn session_id_equality_and_hash() {
-        let a = SessionId::new(5);
-        let b = SessionId::new(5);
-        let c = SessionId::new(6);
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-
-        let mut set = HashSet::new();
-        set.insert(a);
-        assert!(set.contains(&b));
-        assert!(!set.contains(&c));
-    }
+    test_id_equality_and_hash!(session_id_equality_and_hash, SessionId, 5, 6);
 }

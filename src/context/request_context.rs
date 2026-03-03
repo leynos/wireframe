@@ -35,7 +35,8 @@ use crate::tenant::{TenantId, UserId};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[expect(
     clippy::struct_field_names,
-    reason = "fields are domain identifiers; the _id suffix is the domain name, not a naming defect"
+    reason = "fields are domain identifiers; the _id suffix is the domain name, not a naming \
+              defect"
 )]
 pub struct RequestContext {
     tenant_id: Option<TenantId>,

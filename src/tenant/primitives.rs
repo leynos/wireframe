@@ -259,9 +259,22 @@ impl Tenant {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::{collections::HashSet, hash::Hash};
 
     use super::*;
+
+    fn test_equality_and_hash<T: Eq + Hash + Copy + fmt::Debug>(ctor: fn(u64) -> T) {
+        let a = ctor(1);
+        let b = ctor(1);
+        let c = ctor(2);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+
+        let mut set = HashSet::new();
+        set.insert(a);
+        assert!(set.contains(&b));
+        assert!(!set.contains(&c));
+    }
 
     #[test]
     fn tenant_id_round_trip() {
@@ -276,18 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn tenant_id_equality_and_hash() {
-        let a = TenantId::new(1);
-        let b = TenantId::new(1);
-        let c = TenantId::new(2);
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-
-        let mut set = HashSet::new();
-        set.insert(a);
-        assert!(set.contains(&b));
-        assert!(!set.contains(&c));
-    }
+    fn tenant_id_equality_and_hash() { test_equality_and_hash(TenantId::new); }
 
     #[test]
     fn tenant_slug_from_str() {
@@ -332,18 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn user_id_equality_and_hash() {
-        let a = UserId::new(10);
-        let b = UserId::new(10);
-        let c = UserId::new(20);
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-
-        let mut set = HashSet::new();
-        set.insert(a);
-        assert!(set.contains(&b));
-        assert!(!set.contains(&c));
-    }
+    fn user_id_equality_and_hash() { test_equality_and_hash(UserId::new); }
 
     #[test]
     fn tenant_construction_and_accessors() {

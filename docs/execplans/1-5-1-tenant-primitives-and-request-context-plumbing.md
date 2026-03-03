@@ -108,28 +108,22 @@ Hard invariants. Violation requires escalation, not workarounds.
 ## Surprises & discoveries
 
 - Observation: `MessageRequest` does not implement `Debug`, so BDD
-  world structs holding it cannot derive `Debug`.
-  Evidence: compilation error when using `#[derive(Debug)]` on
-  `RequestContextWorld`.
-  Impact: required a manual `Debug` impl that redacts the
-  `MessageRequest` field. This matches the known gotcha for
-  `WireframeApp` (also lacks `Debug`).
+  world structs holding it cannot derive `Debug`. Evidence: compilation error
+  when using `#[derive(Debug)]` on `RequestContextWorld`. Impact: required a
+  manual `Debug` impl that redacts the `MessageRequest` field. This matches the
+  known gotcha for `WireframeApp` (also lacks `Debug`).
 
 - Observation: rstest-bdd matches fixture parameters by name; a
-  leading underscore prefix (`_request_context_world`) breaks the
-  match.
+  leading underscore prefix (`_request_context_world`) breaks the match.
   Evidence: `default_context` scenario panicked with "missing fixtures:
-  `_request_context_world`".
-  Impact: unused fixture parameters in step functions must use
-  `let _ = param;` instead of prefixing with `_`.
+  `_request_context_world`". Impact: unused fixture parameters in step
+  functions must use `let _ = param;` instead of prefixing with `_`.
 
 - Observation: clippy `struct_field_names` fires when all fields of a
-  struct share the same postfix (`_id`).
-  Evidence: `RequestContext` has `tenant_id`, `user_id`, `session_id`,
-  `correlation_id`, `causation_id`.
-  Impact: added a scoped `#[expect(clippy::struct_field_names)]` with
-  a reason string. The `_id` suffix is the domain name, not a naming
-  defect.
+  struct share the same postfix (`_id`). Evidence: `RequestContext` has
+  `tenant_id`, `user_id`, `session_id`, `correlation_id`, `causation_id`.
+  Impact: added a scoped `#[expect(clippy::struct_field_names)]` with a reason
+  string. The `_id` suffix is the domain name, not a naming defect.
 
 ## Decision log
 
@@ -207,10 +201,10 @@ All acceptance criteria met. The implementation delivers:
 Quality gates: `make check-fmt`, `make lint`, `make test`, and
 `make markdownlint` all pass.
 
-Lessons: (1) always use manual `Debug` impls for test world structs
-holding framework types that lack `Debug`; (2) never prefix rstest-bdd
-fixture parameters with `_` — use `let _ = param` instead;
-(3) `struct_field_names` clippy lint fires on identity-heavy structs.
+Lessons: (1) always use manual `Debug` impls for test world structs holding
+framework types that lack `Debug`; (2) never prefix rstest-bdd fixture
+parameters with `_` — use `let _ = param` instead; (3) `struct_field_names`
+clippy lint fires on identity-heavy structs.
 
 ## Context and orientation
 
