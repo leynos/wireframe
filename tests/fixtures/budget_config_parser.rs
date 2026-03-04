@@ -48,3 +48,77 @@ where
 {
     value.parse().map_err(|error| format!("{name}: {error}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{StandardBudgetConfig, parse_standard_budget_config};
+
+    #[test]
+    fn parse_standard_budget_config_parses_valid_input() {
+        let parsed =
+            parse_standard_budget_config("200/2048/8/8").expect("valid input should parse");
+        assert_eq!(
+            parsed,
+            StandardBudgetConfig {
+                timeout_ms: 200,
+                per_message: 2048,
+                per_connection: 8,
+                in_flight: 8,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_standard_budget_config_reports_missing_segments() {
+        assert_eq!(
+            parse_standard_budget_config("/10/20/30").expect_err("timeout should be required"),
+            "missing timeout_ms"
+        );
+        assert_eq!(
+            parse_standard_budget_config("10//20/30").expect_err("per-message should be required"),
+            "missing per_message"
+        );
+        assert_eq!(
+            parse_standard_budget_config("10/20//30")
+                .expect_err("per-connection should be required"),
+            "missing per_connection"
+        );
+        assert_eq!(
+            parse_standard_budget_config("10/20/30/").expect_err("in-flight should be required"),
+            "missing in_flight"
+        );
+    }
+
+    #[test]
+    fn parse_standard_budget_config_reports_trailing_segments() {
+        assert_eq!(
+            parse_standard_budget_config("10/20/30/40/extra")
+                .expect_err("unexpected segments should fail"),
+            "unexpected trailing segments"
+        );
+    }
+
+    #[test]
+    fn parse_standard_budget_config_reports_parse_failures_with_field_name() {
+        assert_eq!(
+            parse_standard_budget_config("bad/20/30/40")
+                .expect_err("timeout parse failure should be reported"),
+            "timeout_ms: invalid digit found in string"
+        );
+        assert_eq!(
+            parse_standard_budget_config("10/bad/30/40")
+                .expect_err("per-message parse failure should be reported"),
+            "per_message: invalid digit found in string"
+        );
+        assert_eq!(
+            parse_standard_budget_config("10/20/bad/40")
+                .expect_err("per-connection parse failure should be reported"),
+            "per_connection: invalid digit found in string"
+        );
+        assert_eq!(
+            parse_standard_budget_config("10/20/30/bad")
+                .expect_err("in-flight parse failure should be reported"),
+            "in_flight: invalid digit found in string"
+        );
+    }
+}
