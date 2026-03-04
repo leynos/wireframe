@@ -4,10 +4,6 @@
 //! into a shared buffer for assertion in step definitions.
 
 #![expect(
-    clippy::expect_used,
-    reason = "test code uses expect for concise assertions"
-)]
-#![expect(
     clippy::excessive_nesting,
     reason = "async closures within spawned echo server are inherently nested"
 )]
@@ -65,6 +61,7 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CaptureWriter {
 
 /// Test world for client tracing BDD scenarios.
 pub struct ClientTracingWorld {
+    runtime: tokio::runtime::Runtime,
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
     client: Option<TestClient>,
@@ -76,13 +73,18 @@ pub struct ClientTracingWorld {
 impl Drop for ClientTracingWorld {
     fn drop(&mut self) {
         if let Some(handle) = self.server.take() {
-            handle.abort();
+            self.runtime.block_on(async move { handle.abort() });
         }
     }
 }
 
 /// Create a new `ClientTracingWorld` with default tracing config.
 fn new_world(config: TracingConfig) -> ClientTracingWorld {
+    #[expect(
+        clippy::expect_used,
+        reason = "fixture constructor has no fallible return path"
+    )]
+    let runtime = tokio::runtime::Runtime::new().expect("create test runtime");
     let captured = Arc::new(Mutex::new(Vec::new()));
     let writer = CaptureWriter::new(Arc::clone(&captured));
 
@@ -95,6 +97,7 @@ fn new_world(config: TracingConfig) -> ClientTracingWorld {
     let guard = tracing::subscriber::set_default(subscriber);
 
     ClientTracingWorld {
+        runtime,
         addr: None,
         server: None,
         client: None,
@@ -143,6 +146,13 @@ impl ClientTracingWorld {
 
     /// Update the tracing config.
     pub fn set_tracing_config(&mut self, config: TracingConfig) { self.tracing_config = config; }
+
+    /// Return a cloned handle to the owned Tokio runtime.
+    ///
+    /// Callers use `let rt = world.handle(); rt.block_on(world.some_async_method())`
+    /// to run async methods: cloning the handle first avoids conflicting
+    /// borrows between the runtime and the `&mut self` taken by async methods.
+    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
 
     /// Connect to the server with the current tracing config.
     ///
@@ -194,7 +204,9 @@ impl ClientTracingWorld {
 
     /// Check whether captured tracing output contains a needle.
     pub fn output_contains(&self, needle: &str) -> bool {
-        let buf = self.captured.lock().expect("lock captured buffer");
+        let Ok(buf) = self.captured.lock() else {
+            return false;
+        };
         let output = String::from_utf8_lossy(&buf);
         output.contains(needle)
     }
@@ -207,7 +219,10 @@ impl ClientTracingWorld {
         if self.output_contains(needle) {
             Ok(())
         } else {
-            let buf = self.captured.lock().expect("lock captured buffer");
+            let buf = self
+                .captured
+                .lock()
+                .map_err(|e| std::io::Error::other(format!("lock captured buffer: {e}")))?;
             let output = String::from_utf8_lossy(&buf);
             Err(format!("expected output to contain {needle:?}, got:\n{output}").into())
         }
