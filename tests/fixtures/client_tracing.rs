@@ -61,7 +61,8 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CaptureWriter {
 
 /// Test world for client tracing BDD scenarios.
 pub struct ClientTracingWorld {
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
+    runtime_error: Option<String>,
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
     client: Option<TestClient>,
@@ -72,19 +73,18 @@ pub struct ClientTracingWorld {
 
 impl Drop for ClientTracingWorld {
     fn drop(&mut self) {
-        if let Some(handle) = self.server.take() {
-            self.runtime.block_on(async move { handle.abort() });
+        if let (Some(runtime), Some(handle)) = (self.runtime.as_ref(), self.server.take()) {
+            runtime.block_on(async move { handle.abort() });
         }
     }
 }
 
 /// Create a new `ClientTracingWorld` with default tracing config.
 fn new_world(config: TracingConfig) -> ClientTracingWorld {
-    #[expect(
-        clippy::expect_used,
-        reason = "fixture constructor has no fallible return path"
-    )]
-    let runtime = tokio::runtime::Runtime::new().expect("create test runtime");
+    let (runtime, runtime_error) = match tokio::runtime::Runtime::new() {
+        Ok(rt) => (Some(rt), None),
+        Err(err) => (None, Some(format!("failed to create runtime: {err}"))),
+    };
     let captured = Arc::new(Mutex::new(Vec::new()));
     let writer = CaptureWriter::new(Arc::clone(&captured));
 
@@ -98,6 +98,7 @@ fn new_world(config: TracingConfig) -> ClientTracingWorld {
 
     ClientTracingWorld {
         runtime,
+        runtime_error,
         addr: None,
         server: None,
         client: None,
@@ -149,10 +150,23 @@ impl ClientTracingWorld {
 
     /// Return a cloned handle to the owned Tokio runtime.
     ///
-    /// Callers use `let rt = world.handle(); rt.block_on(world.some_async_method())`
+    /// Callers use `let rt = world.handle()?; rt.block_on(world.some_async_method())`
     /// to run async methods: cloning the handle first avoids conflicting
     /// borrows between the runtime and the `&mut self` taken by async methods.
-    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
+    ///
+    /// # Errors
+    /// Returns an error if the runtime failed to initialize.
+    pub fn handle(&self) -> TestResult<tokio::runtime::Handle> {
+        self.runtime
+            .as_ref()
+            .map(|rt| rt.handle().clone())
+            .ok_or_else(|| {
+                self.runtime_error
+                    .clone()
+                    .unwrap_or_else(|| "runtime unavailable".to_string())
+                    .into()
+            })
+    }
 
     /// Connect to the server with the current tracing config.
     ///

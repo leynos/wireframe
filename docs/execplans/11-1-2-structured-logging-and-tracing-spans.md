@@ -10,10 +10,11 @@ Status: COMPLETE
 ## Purpose / big picture
 
 Roadmap item 11.1.2 requires structured logging and tracing spans around client
-connect, send, receive, and stream lifecycle events, plus configuration for
-per-command timing. After this change, every client operation emits a `tracing`
-span with structured fields (frame size, correlation ID, operation result, peer
-address, stream frame count). Users optionally enable per-command elapsed-time
+connect, call, send, receive, close, and stream lifecycle events, plus
+configuration for per-command timing. After this change, every client operation
+emits a `tracing` span with structured fields (frame size, correlation ID,
+operation result, peer address, stream frame count). Users optionally enable
+per-command elapsed-time
 events via a `TracingConfig` builder method. When no `tracing` subscriber is
 installed, all instrumentation is zero-cost.
 
