@@ -21,8 +21,8 @@ Observable success: a user configures `TracingConfig` on the builder, performs
 connect/send/receive/call/streaming/close, and each operation produces a
 tracing span at the configured level with structured fields. Timing events
 appear when enabled. All existing tests pass unchanged. New unit tests using
-rstest with `tracing-test`, and BDD tests using rstest-bdd v0.5.0, validate the
-instrumentation.
+rstest with `tracing-test`, and behaviour-driven development (BDD) tests using
+rstest-bdd v0.5.0, validate the instrumentation.
 
 ## Constraints
 
@@ -34,8 +34,7 @@ Hard invariants. Violation requires escalation, not workarounds.
 - All code must pass `make check-fmt`, `make lint` (clippy `-D warnings`),
   and `make test`.
 - Comments and documentation must use en-GB-oxendict spelling.
-- Tests must use `rstest` fixtures; behaviour-driven development (BDD) tests
-  use `rstest-bdd` v0.5.0.
+- Tests must use `rstest` fixtures; BDD tests use `rstest-bdd` v0.5.0.
 - Existing public API signatures must not change (backwards compatibility).
 - Clients configured without tracing must behave identically to today.
 - The `builder_field_update!` macro in `src/client/builder/mod.rs` must be

@@ -127,17 +127,18 @@ where
             envelope.set_correlation_id(Some(correlation_id));
         }
 
+        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         let mut bytes = match self.serializer.serialize(&envelope) {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
+                emit_timing_event(timing_start);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }
         };
-        let span = send_envelope_span(&self.tracing_config, correlation_id, bytes.len());
-        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         self.invoke_before_send_hooks(&mut bytes);
+        let span = send_envelope_span(&self.tracing_config, correlation_id, bytes.len());
         let send_result = async {
             let result = self.framed.send(Bytes::from(bytes)).await;
             emit_timing_event(timing_start);

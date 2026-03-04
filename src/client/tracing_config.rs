@@ -228,6 +228,11 @@ impl TracingConfig {
 
 #[cfg(test)]
 mod tests {
+    //! Verifies `TracingConfig` default values, bulk setters, and per-field
+    //! setter isolation. Helpers `assert_levels` and `assert_timing_flags`
+    //! compare all six operation slots in a single call.
+
+    use rstest::rstest;
     use tracing::Level;
 
     use super::TracingConfig;
@@ -304,27 +309,67 @@ mod tests {
         assert_timing_flags(&cfg, [false; 6]);
     }
 
-    #[test]
-    fn individual_timing_setters_only_affect_their_flag() {
-        let cfg = TracingConfig::default().with_send_timing(true);
-        // send ← only this changed
-        assert_timing_flags(&cfg, [false, true, false, false, false, false]);
+    #[rstest]
+    #[case::connect(
+        TracingConfig::default().with_connect_timing(true),
+        [true, false, false, false, false, false],
+    )]
+    #[case::send(
+        TracingConfig::default().with_send_timing(true),
+        [false, true, false, false, false, false],
+    )]
+    #[case::receive(
+        TracingConfig::default().with_receive_timing(true),
+        [false, false, true, false, false, false],
+    )]
+    #[case::call(
+        TracingConfig::default().with_call_timing(true),
+        [false, false, false, true, false, false],
+    )]
+    #[case::streaming(
+        TracingConfig::default().with_streaming_timing(true),
+        [false, false, false, false, true, false],
+    )]
+    #[case::close(
+        TracingConfig::default().with_close_timing(true),
+        [false, false, false, false, false, true],
+    )]
+    fn individual_timing_setters_only_affect_their_flag(
+        #[case] cfg: TracingConfig,
+        #[case] expected: [bool; 6],
+    ) {
+        assert_timing_flags(&cfg, expected);
     }
 
-    #[test]
-    fn individual_level_setters_only_affect_their_field() {
-        let cfg = TracingConfig::default().with_send_level(Level::TRACE);
-        // send ← only this changed
-        assert_levels(
-            &cfg,
-            [
-                Level::INFO,
-                Level::TRACE,
-                Level::DEBUG,
-                Level::DEBUG,
-                Level::DEBUG,
-                Level::INFO,
-            ],
-        );
+    #[rstest]
+    #[case::connect(
+        TracingConfig::default().with_connect_level(Level::TRACE),
+        [Level::TRACE, Level::DEBUG, Level::DEBUG, Level::DEBUG, Level::DEBUG, Level::INFO],
+    )]
+    #[case::send(
+        TracingConfig::default().with_send_level(Level::TRACE),
+        [Level::INFO, Level::TRACE, Level::DEBUG, Level::DEBUG, Level::DEBUG, Level::INFO],
+    )]
+    #[case::receive(
+        TracingConfig::default().with_receive_level(Level::TRACE),
+        [Level::INFO, Level::DEBUG, Level::TRACE, Level::DEBUG, Level::DEBUG, Level::INFO],
+    )]
+    #[case::call(
+        TracingConfig::default().with_call_level(Level::TRACE),
+        [Level::INFO, Level::DEBUG, Level::DEBUG, Level::TRACE, Level::DEBUG, Level::INFO],
+    )]
+    #[case::streaming(
+        TracingConfig::default().with_streaming_level(Level::TRACE),
+        [Level::INFO, Level::DEBUG, Level::DEBUG, Level::DEBUG, Level::TRACE, Level::INFO],
+    )]
+    #[case::close(
+        TracingConfig::default().with_close_level(Level::TRACE),
+        [Level::INFO, Level::DEBUG, Level::DEBUG, Level::DEBUG, Level::DEBUG, Level::TRACE],
+    )]
+    fn individual_level_setters_only_affect_their_field(
+        #[case] cfg: TracingConfig,
+        #[case] expected: [Level; 6],
+    ) {
+        assert_levels(&cfg, expected);
     }
 }

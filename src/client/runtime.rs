@@ -144,17 +144,18 @@ where
     /// # }
     /// ```
     pub async fn send<M: EncodeWith<S>>(&mut self, message: &M) -> Result<(), ClientError> {
+        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         let mut bytes = match self.serializer.serialize(message) {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
+                emit_timing_event(timing_start);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }
         };
         self.invoke_before_send_hooks(&mut bytes);
         let span = send_span(&self.tracing_config, bytes.len());
-        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         let send_result = async {
             let result = self.framed.send(Bytes::from(bytes)).await;
             emit_timing_event(timing_start);
