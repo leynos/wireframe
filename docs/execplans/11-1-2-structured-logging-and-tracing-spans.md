@@ -14,8 +14,8 @@ connect, call, send, receive, close, and stream lifecycle events, plus
 configuration for per-command timing. After this change, every client operation
 emits a `tracing` span with structured fields (frame size, correlation ID,
 operation result, peer address, stream frame count). Users optionally enable
-per-command elapsed-time
-events via a `TracingConfig` builder method. When no `tracing` subscriber is
+per-command elapsed-time events via a `TracingConfig` builder method. When no
+`tracing` subscriber is
 installed, all instrumentation is zero-cost.
 
 Observable success: a user configures `TracingConfig` on the builder, performs
