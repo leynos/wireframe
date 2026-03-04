@@ -86,4 +86,4 @@ pub use integration_helpers::{
 pub use logging::{LoggerHandle, logger};
 #[doc(inline)]
 pub use multi_packet::collect_multi_packet;
-pub use observability::{Labels, ObservabilityHandle};
+pub use observability::{Labels, ObservabilityHandle, observability as obs_handle};

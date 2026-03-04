@@ -71,21 +71,21 @@ This is roadmap item 9.7.3, implementing ADR-006
   `tests/` directory as integration tests, because `wireframe_testing` is a
   dev-dependency, not a workspace member.
 - The `wireframe_testing` crate does not currently depend on the `metrics`
-  crate (only `metrics-util`). Adding `metrics = "0.24.2"` is the only new
+  crate (only `metrics-util`). Adding `metrics = "0.24.3"` is the only new
   dependency permitted by the ADR.
 
 ## Tolerances (exception triggers)
 
 - Scope: if implementation requires more than 18 new/modified files or 1200
   net changed lines, stop and re-scope.
-- Dependencies: if any new external crate beyond `metrics = "0.24.2"` is
+- Dependencies: if any new external crate beyond `metrics = "0.24.3"` is
   required, stop and escalate.
 - Interface: if a public API signature on the main `wireframe` crate or
   existing `wireframe_testing` APIs must change, stop and escalate.
 - Iterations: if the same failing root cause persists after 3 fix attempts,
   stop and document options in the Decision Log.
-- Line budget: if `wireframe_testing/src/observability.rs` approaches 350
-  lines, split into submodules before proceeding.
+- Line budget: if any file under `wireframe_testing/src/observability/`
+  approaches 350 lines, split further before proceeding.
 
 ## Risks
 
@@ -196,11 +196,14 @@ the primary use cases for the harness in upcoming codec regression tests
 
 ```plaintext
 wireframe_testing/
-  Cargo.toml                        # dependencies (has metrics-util 0.20, NOT metrics)
-  src/lib.rs                        # public re-exports (78 lines)
-  src/logging.rs                    # LoggerHandle wrapping logtest::Logger (81 lines)
-  src/helpers.rs                    # TestSerializer trait, constants (84 lines)
-  src/helpers/codec_fixtures.rs     # Hotline codec fixtures (317 lines)
+  Cargo.toml                        # dependencies (metrics 0.24, metrics-util 0.20)
+  src/lib.rs                        # public re-exports
+  src/logging.rs                    # LoggerHandle wrapping logtest::Logger
+  src/observability/mod.rs          # ObservabilityHandle, queries, fixture
+  src/observability/labels.rs       # Labels type and From conversions
+  src/observability/assertions.rs   # assertion helpers and find_counter
+  src/helpers.rs                    # TestSerializer trait, constants
+  src/helpers/codec_fixtures.rs     # Hotline codec fixtures
   src/helpers/codec_ext.rs          # encode/decode with FrameCodec (145 lines)
 
 src/
@@ -230,7 +233,7 @@ docs/
 `LoggerHandle` (in `wireframe_testing/src/logging.rs`) wraps a
 `MutexGuard<'static, Logger>` from the `logtest` crate. It implements
 `Deref`/`DerefMut` to `Logger`, providing `pop() -> Option<Record>` for
-draining log entries and `clear()` to drain all. It is an rstest `#[fixture]`.
+draining log entries and `clear()` to drain all. It is a rstest `#[fixture]`.
 
 `DebuggingRecorder` (from `metrics_util::debugging`) creates a `Snapshotter`
 via `.snapshotter()`. After recording metrics within
@@ -251,9 +254,9 @@ Step parameters must use the full fixture name. World fixtures use
 `wireframe_codec_errors_total` counter with `error_type` and `recovery_policy`
 labels. Both parameters are `&'static str`.
 
-### Proposed API from design doc
+### Original proposed API from design doc
 
-`docs/wireframe-testing-crate.md` specifies this public API:
+`docs/wireframe-testing-crate.md` originally specified this minimal API:
 
 ```rust
 pub struct ObservabilityHandle { /* fields omitted */ }
@@ -269,30 +272,32 @@ impl ObservabilityHandle {
 pub fn observability() -> ObservabilityHandle;
 ```
 
-This plan extends the proposed API with additional convenience methods for
-codec error assertions and log assertions, as the harness's stated purpose is
-"asserting codec failures and recovery policies."
+The shipped API extends this with `Labels` (supporting `impl Into<Labels>` for
+ergonomic label passing), convenience methods for codec error assertions and
+log assertions, and a module split into `mod.rs`, `labels.rs`, and
+`assertions.rs`. See the "Public API surface" section below for the current
+signatures.
 
 ## Plan of work
 
 ### Stage A: dependency and scaffolding
 
-Add `metrics = "0.24.2"` to `wireframe_testing/Cargo.toml` under
+Add `metrics = "0.24.3"` to `wireframe_testing/Cargo.toml` under
 `[dependencies]`. This is required for `metrics::with_local_recorder`.
 
-Create `wireframe_testing/src/observability.rs` as an empty module with a `//!`
-doc comment.
+Create `wireframe_testing/src/observability/mod.rs` as an empty module with a
+`//!` doc comment.
 
 Edit `wireframe_testing/src/lib.rs` to add `pub mod observability;` after the
 existing module declarations (after line 26, `pub mod multi_packet;`) and add
 re-exports: `pub use observability::{ObservabilityHandle, observability};`.
 
-Stage A acceptance: `cargo check -p wireframe_testing` compiles.
+Stage A acceptance: `cargo check` (workspace root) compiles.
 
 ### Stage B: core ObservabilityHandle implementation
 
 Implement the `ObservabilityHandle` struct in
-`wireframe_testing/src/observability.rs`.
+`wireframe_testing/src/observability/mod.rs`.
 
 The struct owns three fields:
 
@@ -323,7 +328,7 @@ pub fn observability() -> ObservabilityHandle {
 }
 ```
 
-Stage B acceptance: `cargo check -p wireframe_testing` compiles.
+Stage B acceptance: `cargo check` (workspace root) compiles.
 
 ### Stage C: assertion helper methods
 
@@ -364,7 +369,7 @@ Log assertions (return `Result<(), String>`):
 - `assert_log_at_level(&mut self, level: log::Level, substring: &str)
   -> Result<(), String>` — same as above but also filters by level.
 
-Stage C acceptance: `cargo check -p wireframe_testing` compiles.
+Stage C acceptance: `cargo check` (workspace root) compiles.
 
 ### Stage D: integration tests (rstest)
 
@@ -558,63 +563,40 @@ retried. No destructive operations are involved.
 In `wireframe_testing/Cargo.toml`:
 
 ```toml
-metrics = "0.24.2"
+metrics = "0.24.3"
 ```
 
 ### Public API surface
 
-In `wireframe_testing/src/observability.rs`:
+The observability module is split into three files under
+`wireframe_testing/src/observability/`:
+
+- `mod.rs` — `ObservabilityHandle` struct, core query methods, and the
+  rstest fixture.
+- `labels.rs` — `Labels` type and `From` conversions.
+- `assertions.rs` — assertion methods and `find_counter` helper.
 
 ```rust
 use log::Level;
-use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
-use rstest::fixture;
+use metrics_util::debugging::DebuggingRecorder;
 
-use crate::logging::LoggerHandle;
+use wireframe_testing::observability::Labels;
 
-/// Combined log and metrics capture for test assertions.
-///
-/// `ObservabilityHandle` composes a [`LoggerHandle`] (for log capture)
-/// with a [`DebuggingRecorder`] (for metrics capture). Acquiring the
-/// handle locks the global logger mutex and creates a fresh thread-local
-/// metrics recorder.
-///
-/// # Thread safety
-///
-/// Logs are captured globally via a serializing mutex. Metrics are
-/// captured on the current thread via
-/// [`metrics::with_local_recorder`]. Metric-emitting code must run on
-/// the same thread as the handle for capture to work. For async tests,
-/// use `#[tokio::test(flavor = "current_thread")]` or
-/// `Runtime::new()?.block_on(...)`.
-///
-/// # Examples
-///
-/// ```
-/// use wireframe_testing::observability;
-///
-/// let mut obs = observability();
-/// obs.clear();
-/// log::info!("captured");
-/// ```
-pub struct ObservabilityHandle {
-    logger: LoggerHandle,
-    recorder: DebuggingRecorder,
-    snapshotter: Snapshotter,
-}
+pub struct ObservabilityHandle { /* fields omitted */ }
 
 impl ObservabilityHandle {
     pub fn new() -> Self;
     pub fn logs(&mut self) -> &mut LoggerHandle;
     pub fn recorder(&self) -> &DebuggingRecorder;
+    pub fn snapshot(&mut self);
     pub fn clear(&mut self);
-    pub fn counter(&self, name: &str, labels: &[(&str, &str)]) -> u64;
+    pub fn counter(&self, name: &str, labels: impl Into<Labels>) -> u64;
     pub fn counter_without_labels(&self, name: &str) -> u64;
     pub fn codec_error_counter(
         &self, error_type: &str, recovery_policy: &str,
     ) -> u64;
     pub fn assert_counter(
-        &self, name: &str, labels: &[(&str, &str)], expected: u64,
+        &self, name: &str, labels: impl Into<Labels>, expected: u64,
     ) -> Result<(), String>;
     pub fn assert_no_metric(&self, name: &str) -> Result<(), String>;
     pub fn assert_codec_error_counter(
@@ -628,27 +610,28 @@ impl ObservabilityHandle {
     ) -> Result<(), String>;
 }
 
-#[rustfmt::skip]
 #[fixture]
 pub fn observability() -> ObservabilityHandle;
 ```
 
 ### Files to create
 
-| File                                              | Purpose                   | Est. lines |
-| ------------------------------------------------- | ------------------------- | ---------- |
-| `wireframe_testing/src/observability.rs`          | Core observability module | 200-280    |
-| `tests/test_observability_harness.rs`             | Integration tests         | 200-300    |
-| `tests/features/test_observability.feature`       | BDD feature file          | 25-30      |
-| `tests/fixtures/test_observability.rs`            | BDD world fixture         | 100-150    |
-| `tests/steps/test_observability_steps.rs`         | BDD step definitions      | 60-80      |
-| `tests/scenarios/test_observability_scenarios.rs` | BDD scenario wiring       | 30-40      |
+| File                                                | Purpose                   | Est. lines |
+| --------------------------------------------------- | ------------------------- | ---------- |
+| `wireframe_testing/src/observability/mod.rs`        | Handle, queries, fixture  | 250-300    |
+| `wireframe_testing/src/observability/labels.rs`     | Labels type and From impl | 70-80      |
+| `wireframe_testing/src/observability/assertions.rs` | Assertion helpers         | 200-250    |
+| `tests/test_observability_harness.rs`               | Integration tests         | 200-300    |
+| `tests/features/test_observability.feature`         | BDD feature file          | 25-30      |
+| `tests/fixtures/test_observability.rs`              | BDD world fixture         | 100-150    |
+| `tests/steps/test_observability_steps.rs`           | BDD step definitions      | 60-80      |
+| `tests/scenarios/test_observability_scenarios.rs`   | BDD scenario wiring       | 30-40      |
 
 ### Files to modify
 
 | File                                 | Change                                    |
 | ------------------------------------ | ----------------------------------------- |
-| `wireframe_testing/Cargo.toml`       | Add `metrics = "0.24.2"`                  |
+| `wireframe_testing/Cargo.toml`       | Add `metrics = "0.24.3"`                  |
 | `wireframe_testing/src/lib.rs`       | Add `pub mod observability;` + re-exports |
 | `tests/fixtures/mod.rs`              | Add `pub mod test_observability;`         |
 | `tests/steps/mod.rs`                 | Add `mod test_observability_steps;`       |
@@ -657,7 +640,7 @@ pub fn observability() -> ObservabilityHandle;
 | `docs/roadmap.md`                    | Tick 9.7.3 checkbox                       |
 | `docs/users-guide.md`                | Add test observability section            |
 
-Total: 6 new + 8 modified = 14 files (within 18-file tolerance).
+Total: 8 new + 8 modified = 16 files (within 18-file tolerance).
 
 ### Artifacts and notes
 

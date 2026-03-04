@@ -307,9 +307,9 @@ Available fixture functions:
 
 #### Feeding partial frames and fragments
 
-Real networks rarely deliver a complete codec frame in a single TCP read.
-The `wireframe_testing` crate provides drivers that simulate these
-conditions so that codec buffering logic can be exercised in tests.
+Real networks rarely deliver a complete codec frame in a single TCP read. The
+`wireframe_testing` crate provides drivers that simulate these conditions so
+that codec buffering logic can be exercised in tests.
 
 **Chunked-write drivers** encode payloads via a codec, concatenate the wire
 bytes, and write them in configurable chunk sizes (including one byte at a
@@ -396,7 +396,7 @@ assert_eq!(
 );
 ```
 
-The handle serialises access to the global logger via a mutex, so tests using
+The handle serializes access to the global logger via a mutex, so tests using
 it should run serially (`--test-threads=1` for the affected binary). Metrics
 are captured per-thread via `metrics::with_local_recorder`, so metric-emitting
 code must run on the same thread as the handle. For async tests, use

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Accepted (2026-03-02). Unified test observability harness
+(`ObservabilityHandle`) added to `wireframe_testing`, combining log capture and
+metrics recording in a single fixture for deterministic assertions.
 
 ## Date
 
