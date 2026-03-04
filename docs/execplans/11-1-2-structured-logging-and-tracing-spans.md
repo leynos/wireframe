@@ -66,7 +66,7 @@ Hard invariants. Violation requires escalation, not workarounds.
   `tracing::Instrument::instrument(span)` to wrap async futures rather than
   holding a `Span::enter()` guard across `.await` points. This ensures the span
   is entered only while the future is polled and exited between polls, which is
-  safe under multi-threaded runtimes.
+  safe under multithreaded runtimes.
 
 - Risk: `runtime.rs` exceeds 400 lines after adding instrumentation.
   Severity: high. Likelihood: low. Mitigation: current is 354 lines, estimated
@@ -143,7 +143,7 @@ Hard invariants. Violation requires escalation, not workarounds.
 
 - Decision: add a `frame_count` field and `frame_count()` accessor to
   `ResponseStream`. Rationale: enables structured `stream.frames_received` and
-  `stream.frames_total` fields in tracing events. Also useful as a public API
+  `stream.frames_total` fields in tracing events. Also, useful as a public API
   for users who want to track stream progress without tracing.
 
 - Decision: place span factory functions in a dedicated `tracing_helpers.rs`
