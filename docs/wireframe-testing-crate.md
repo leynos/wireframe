@@ -311,7 +311,11 @@ async fn captures_metrics() -> std::io::Result<()> {
     let mut obs = obs_handle();
     obs.clear();
 
-    inc_frames(Direction::Inbound);
+    metrics::with_local_recorder(obs.recorder(), || {
+        inc_frames(Direction::Inbound);
+    });
+
+    obs.snapshot();
     assert_eq!(
         obs.counter(FRAMES_PROCESSED, &[("direction", "inbound")]),
         1

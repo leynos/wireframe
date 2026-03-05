@@ -291,7 +291,7 @@ Create `wireframe_testing/src/observability/mod.rs` as an empty module with a
 
 Edit `wireframe_testing/src/lib.rs` to add `pub mod observability;` after the
 existing module declarations (after line 26, `pub mod multi_packet;`) and add
-re-exports: `pub use observability::{ObservabilityHandle, observability};`.
+re-exports: `pub use observability::{ObservabilityHandle, obs_handle};`.
 
 Stage A acceptance: `cargo check` (workspace root) compiles.
 
