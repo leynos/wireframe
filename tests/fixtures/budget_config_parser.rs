@@ -6,9 +6,24 @@ use std::{fmt, str::FromStr};
 /// "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StandardBudgetConfig {
+    /// Send timeout in milliseconds for each operation.
+    ///
+    /// This must be a non-negative integer that fits in `u64`.
     pub timeout_ms: u64,
+    /// Maximum payload size in bytes allowed for a single message.
+    ///
+    /// Fixture scenarios typically use positive values to avoid immediate
+    /// budget rejection.
     pub per_message: usize,
+    /// Maximum aggregate bytes that may be buffered per connection.
+    ///
+    /// This represents the connection-level memory ceiling used by budget
+    /// checks.
     pub per_connection: usize,
+    /// Maximum number of in-flight messages permitted per connection.
+    ///
+    /// Values greater than zero allow concurrency; lower values tighten back
+    /// pressure behaviour in fixture scenarios.
     pub in_flight: usize,
 }
 
