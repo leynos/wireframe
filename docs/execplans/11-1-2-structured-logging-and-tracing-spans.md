@@ -194,7 +194,7 @@ All source files remain under 400 lines.
 
 ## Context and orientation
 
-The wireframe crate (`/home/user/project`) is a Rust async networking framework
+The wireframe crate (run from the repository root) is a Rust async networking framework
 using Tokio. The client subsystem lives in `src/client/`:
 
 ```plaintext
@@ -569,7 +569,7 @@ In `docs/roadmap.md`, change `- [ ] 11.1.2.` to `- [x] 11.1.2.`.
 ```bash
 set -o pipefail
 make fmt 2>&1 | tee /tmp/wireframe-fmt.log; echo "fmt exit: $?"
-make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/wireframe-mdlint.log; echo "mdlint exit: $?"
+make markdownlint 2>&1 | tee /tmp/wireframe-mdlint.log; echo "mdlint exit: $?"
 make check-fmt 2>&1 | tee /tmp/wireframe-check-fmt.log; echo "check-fmt exit: $?"
 make lint 2>&1 | tee /tmp/wireframe-lint.log; echo "lint exit: $?"
 make test 2>&1 | tee /tmp/wireframe-test.log; echo "test exit: $?"
@@ -577,7 +577,7 @@ make test 2>&1 | tee /tmp/wireframe-test.log; echo "test exit: $?"
 
 ## Concrete steps
 
-All commands run from `/home/user/project`.
+All commands run from the repository root.
 
 After each stage, run validation:
 
@@ -598,7 +598,7 @@ Quality criteria (what "done" means):
   BDD scenarios in `tests/scenarios/client_tracing_scenarios.rs` all pass.
 - `make lint` passes with zero warnings.
 - `make check-fmt` passes.
-- `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2` passes.
+- `make markdownlint` passes.
 - All pre-existing client tests pass unchanged (backwards compatibility).
 - The `TracingConfig` type and `tracing_config()` builder method are public.
 - The `frame_count()` method on `ResponseStream` is public.
