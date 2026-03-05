@@ -222,9 +222,9 @@ tests/
   features/                         # Gherkin feature files
 
 docs/
-  adr-006-test-observability.md     # ADR (status: Proposed)
+  adr-006-test-observability.md     # ADR (status: Accepted)
   wireframe-testing-crate.md        # Design doc with proposed ObservabilityHandle API
-  roadmap.md                        # line 437: - [ ] 9.7.3.
+  roadmap.md                        # line 437: - [x] 9.7.3.
   users-guide.md                    # Testing section at line 224
 ```
 
