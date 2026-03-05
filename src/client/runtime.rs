@@ -1,6 +1,6 @@
 //! Wireframe client runtime implementation.
 
-use std::{fmt, sync::atomic::AtomicU64};
+use std::{fmt, sync::atomic::AtomicU64, time::Instant};
 
 use bytes::Bytes;
 use futures::SinkExt;
@@ -9,12 +9,15 @@ use tokio::{
     net::TcpStream,
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tracing::Instrument;
 
 use super::{
     ClientCodecConfig,
     ClientError,
     WireframeClientBuilder,
     hooks::{ClientConnectionTeardownHandler, ClientErrorHandler, RequestHooks},
+    tracing_config::TracingConfig,
+    tracing_helpers::{call_span, close_span, emit_timing_event, send_span},
 };
 use crate::{
     message::{DecodeWith, EncodeWith},
@@ -66,6 +69,8 @@ where
     pub(crate) on_error: Option<ClientErrorHandler>,
     /// Hooks invoked on every outgoing and incoming frame.
     pub(crate) request_hooks: RequestHooks,
+    /// Tracing configuration for span levels and per-command timing.
+    pub(crate) tracing_config: TracingConfig,
     /// Counter for generating unique correlation identifiers.
     pub(crate) correlation_counter: AtomicU64,
 }
@@ -139,16 +144,26 @@ where
     /// # }
     /// ```
     pub async fn send<M: EncodeWith<S>>(&mut self, message: &M) -> Result<(), ClientError> {
+        let timing_start = self.tracing_config.send_timing.then(Instant::now);
         let mut bytes = match self.serializer.serialize(message) {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
+                emit_timing_event(timing_start);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }
         };
         self.invoke_before_send_hooks(&mut bytes);
-        if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
+        let span = send_span(&self.tracing_config, bytes.len());
+        let send_result = async {
+            let result = self.framed.send(Bytes::from(bytes)).await;
+            emit_timing_event(timing_start);
+            result
+        }
+        .instrument(span)
+        .await;
+        if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
             return Err(err);
@@ -232,8 +247,28 @@ where
         &mut self,
         request: &Req,
     ) -> Result<Resp, ClientError> {
-        self.send(request).await?;
-        self.receive().await
+        let span = call_span(&self.tracing_config);
+        let timing_start = self.tracing_config.call_timing.then(Instant::now);
+
+        async {
+            if let Err(err) = self.send(request).await {
+                // Error hook already invoked by send.
+                span.record("result", "err");
+                emit_timing_event(timing_start);
+                return Err(err);
+            }
+            let result = self.receive().await;
+            if result.is_ok() {
+                Self::traced_ok(&span, timing_start);
+            } else {
+                // Error hook already invoked by receive_internal.
+                span.record("result", "err");
+                emit_timing_event(timing_start);
+            }
+            result
+        }
+        .instrument(span.clone())
+        .await
     }
 
     /// Inspect the configured codec settings.
@@ -343,12 +378,22 @@ where
     /// # }
     /// ```
     pub async fn close(mut self) {
-        // Flush pending frames and send EOF before teardown.
-        // Ignore errors since we're closing anyway.
-        let _ = self.framed.close().await;
+        let span = close_span(&self.tracing_config);
+        let timing_start = self.tracing_config.close_timing.then(Instant::now);
 
-        if let (Some(state), Some(handler)) = (self.connection_state.take(), &self.on_disconnect) {
-            handler(state).await;
+        async {
+            // Flush pending frames and send EOF before teardown.
+            // Ignore errors since we're closing anyway.
+            let _ = self.framed.close().await;
+
+            if let (Some(state), Some(handler)) =
+                (self.connection_state.take(), &self.on_disconnect)
+            {
+                handler(state).await;
+            }
+            emit_timing_event(timing_start);
         }
+        .instrument(span)
+        .await;
     }
 }

@@ -1,14 +1,20 @@
 //! Connection establishment for `WireframeClientBuilder`.
 
-use std::{net::SocketAddr, sync::atomic::AtomicU64};
+use std::{net::SocketAddr, sync::atomic::AtomicU64, time::Instant};
 
 use bincode::Encode;
 use tokio::net::TcpSocket;
 use tokio_util::codec::Framed;
+use tracing::Instrument;
 
 use super::WireframeClientBuilder;
 use crate::{
-    client::{ClientError, WireframeClient, preamble_exchange::perform_preamble_exchange},
+    client::{
+        ClientError,
+        WireframeClient,
+        preamble_exchange::perform_preamble_exchange,
+        tracing_helpers::{connect_span, emit_timing_event},
+    },
     rewind_stream::RewindStream,
     serializer::Serializer,
 };
@@ -49,6 +55,23 @@ where
     /// # }
     /// ```
     pub async fn connect(
+        self,
+        addr: SocketAddr,
+    ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
+        let span = connect_span(&self.tracing_config, &addr.to_string());
+        let timing_start = self.tracing_config.connect_timing.then(Instant::now);
+
+        async {
+            let result = self.connect_inner(addr).await;
+            emit_timing_event(timing_start);
+            result
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Perform socket creation, connection, preamble exchange, and codec setup.
+    async fn connect_inner(
         self,
         addr: SocketAddr,
     ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
@@ -95,6 +118,7 @@ where
             on_disconnect: self.lifecycle_hooks.on_disconnect,
             on_error: self.lifecycle_hooks.on_error,
             request_hooks: self.request_hooks,
+            tracing_config: self.tracing_config,
             correlation_counter: AtomicU64::new(1),
         })
     }

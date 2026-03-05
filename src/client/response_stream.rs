@@ -67,6 +67,7 @@ where
     client: &'a mut super::WireframeClient<S, T, C>,
     correlation_id: u64,
     terminated: bool,
+    frame_count: usize,
     _phantom: PhantomData<fn() -> P>,
 }
 
@@ -89,6 +90,7 @@ where
             client,
             correlation_id,
             terminated: false,
+            frame_count: 0,
             _phantom: PhantomData,
         }
     }
@@ -100,6 +102,24 @@ where
     /// Returns `true` if the stream has received the end-of-stream terminator.
     #[must_use]
     pub fn is_terminated(&self) -> bool { self.terminated }
+
+    /// Returns the number of data frames received so far.
+    #[must_use]
+    pub fn frame_count(&self) -> usize { self.frame_count }
+
+    /// Increment the frame counter and emit a per-frame tracing event for
+    /// successfully decoded data frames.
+    fn on_frame_received(&mut self, frame_bytes: usize, result: Option<&Result<P, ClientError>>) {
+        if let Some(Ok(_)) = result {
+            self.frame_count = self.frame_count.saturating_add(1);
+            tracing::debug!(
+                frame.bytes = frame_bytes,
+                stream.frames_received = self.frame_count,
+                correlation_id = self.correlation_id,
+                "stream frame received"
+            );
+        }
+    }
 
     /// Deserialize raw bytes and validate the resulting packet against the
     /// terminator predicate and expected correlation identifier.
@@ -116,6 +136,11 @@ where
         // without a per-request correlation stamp are handled cleanly.
         if packet.is_stream_terminator() {
             self.terminated = true;
+            tracing::debug!(
+                stream.frames_total = self.frame_count,
+                correlation_id = self.correlation_id,
+                "stream terminated"
+            );
             return None;
         }
 
@@ -160,8 +185,11 @@ where
                 Poll::Ready(Some(Err(ClientError::from(e))))
             }
             Poll::Ready(Some(Ok(mut bytes))) => {
+                let frame_bytes = bytes.len();
                 this.client.invoke_after_receive_hooks(&mut bytes);
-                Poll::Ready(this.process_frame(&bytes))
+                let result = this.process_frame(&bytes);
+                this.on_frame_received(frame_bytes, result.as_ref());
+                Poll::Ready(result)
             }
         }
     }

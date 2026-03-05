@@ -493,9 +493,9 @@ document so larger deployments can adopt the library confidently.
 - [x] 11.1.1. Add middleware hooks for outgoing requests and incoming frames so
   metrics, retries, and authentication tokens can be injected symmetrically
   with server middleware.
-- [ ] 11.1.2. Provide structured logging and tracing spans around connect,
-  send, receive, and stream lifecycle events, plus configuration for
-  per-command timing.
+- [x] 11.1.2. Provide structured logging and tracing spans around connect,
+  send, receive, call, stream, and close lifecycle events, plus configuration
+  for per-command timing.
 
 ### 11.2. Connection pooling and concurrency
 

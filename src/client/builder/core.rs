@@ -6,6 +6,7 @@ use crate::{
         SocketOptions,
         hooks::{LifecycleHooks, RequestHooks},
         preamble_exchange::PreambleConfig,
+        tracing_config::TracingConfig,
     },
     serializer::BincodeSerializer,
 };
@@ -32,6 +33,7 @@ pub struct WireframeClientBuilder<S = BincodeSerializer, P = (), C = ()> {
     pub(crate) preamble_config: Option<PreambleConfig<P>>,
     pub(crate) lifecycle_hooks: LifecycleHooks<C>,
     pub(crate) request_hooks: RequestHooks,
+    pub(crate) tracing_config: TracingConfig,
 }
 
 impl WireframeClientBuilder<BincodeSerializer, (), ()> {
@@ -54,6 +56,7 @@ impl WireframeClientBuilder<BincodeSerializer, (), ()> {
             preamble_config: None,
             lifecycle_hooks: LifecycleHooks::default(),
             request_hooks: RequestHooks::default(),
+            tracing_config: TracingConfig::default(),
         }
     }
 }

@@ -23,6 +23,8 @@ mod runtime;
 mod send_streaming;
 mod socket_option_methods;
 mod streaming;
+mod tracing_config;
+mod tracing_helpers;
 
 pub use builder::WireframeClientBuilder;
 pub use codec_config::ClientCodecConfig;
@@ -38,6 +40,7 @@ pub use hooks::{
 pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;
 pub use send_streaming::{SendStreamingConfig, SendStreamingOutcome};
+pub use tracing_config::TracingConfig;
 
 /// Handler invoked after the client successfully writes its preamble.
 ///

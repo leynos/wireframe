@@ -5,12 +5,18 @@
 //! [`ResponseStream`](super::ResponseStream) that yields data frames until the
 //! protocol's end-of-stream terminator arrives.
 
-use std::sync::atomic::Ordering;
+use std::{sync::atomic::Ordering, time::Instant};
 
 use bytes::Bytes;
 use futures::SinkExt;
+use tracing::Instrument;
 
-use super::{ClientError, ResponseStream, runtime::ClientStream};
+use super::{
+    ClientError,
+    ResponseStream,
+    runtime::ClientStream,
+    tracing_helpers::{emit_timing_event, streaming_span},
+};
 use crate::{
     app::Packet,
     message::{DecodeWith, EncodeWith},
@@ -85,16 +91,28 @@ where
             request.set_correlation_id(Some(correlation_id));
         }
 
+        let span = streaming_span(&self.tracing_config, correlation_id);
+        let timing_start = self.tracing_config.streaming_timing.then(Instant::now);
+
         let mut bytes = match self.serializer.serialize(&request) {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err = ClientError::Serialize(e);
+                emit_timing_event(timing_start);
                 self.invoke_error_hook(&err).await;
                 return Err(err);
             }
         };
         self.invoke_before_send_hooks(&mut bytes);
-        if let Err(e) = self.framed.send(Bytes::from(bytes)).await {
+        span.record("frame.bytes", bytes.len());
+        let send_result = async {
+            let result = self.framed.send(Bytes::from(bytes)).await;
+            emit_timing_event(timing_start);
+            result
+        }
+        .instrument(span)
+        .await;
+        if let Err(e) = send_result {
             let err = ClientError::from(e);
             self.invoke_error_hook(&err).await;
             return Err(err);

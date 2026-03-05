@@ -28,6 +28,7 @@ macro_rules! builder_field_update {
             preamble_config: $self.preamble_config,
             lifecycle_hooks: $self.lifecycle_hooks,
             request_hooks: $self.request_hooks,
+            tracing_config: $self.tracing_config,
         }
     };
     // Preamble change: preserves S and C, moves lifecycle_hooks unchanged
@@ -39,6 +40,7 @@ macro_rules! builder_field_update {
             preamble_config: $value,
             lifecycle_hooks: $self.lifecycle_hooks,
             request_hooks: $self.request_hooks,
+            tracing_config: $self.tracing_config,
         }
     };
     // Lifecycle hooks change: preserves S and P, changes C
@@ -50,6 +52,7 @@ macro_rules! builder_field_update {
             preamble_config: $self.preamble_config,
             lifecycle_hooks: $value,
             request_hooks: $self.request_hooks,
+            tracing_config: $self.tracing_config,
         }
     };
 }
@@ -61,5 +64,6 @@ mod lifecycle;
 mod preamble;
 mod request_hooks;
 mod serializer;
+mod tracing;
 
 pub use core::WireframeClientBuilder;
