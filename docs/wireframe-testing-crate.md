@@ -273,7 +273,7 @@ impl ObservabilityHandle {
     ) -> Result<(), String>;
 }
 
-pub fn observability() -> ObservabilityHandle;
+pub fn obs_handle() -> ObservabilityHandle;
 ```
 
 Tests using `ObservabilityHandle` should not run concurrently; the global lock
@@ -291,7 +291,7 @@ messages that include call-site information in debug builds.
 use std::sync::Arc;
 
 use wireframe::app::{Envelope, WireframeApp};
-use wireframe_testing::{decode_frames, drive_with_bincode, observability};
+use wireframe_testing::{decode_frames, drive_with_bincode, obs_handle};
 
 #[tokio::test]
 async fn round_trips_with_codec() -> std::io::Result<()> {
@@ -308,7 +308,7 @@ async fn round_trips_with_codec() -> std::io::Result<()> {
 async fn captures_metrics() -> std::io::Result<()> {
     use wireframe::metrics::{Direction, FRAMES_PROCESSED, inc_frames};
 
-    let mut obs = observability();
+    let mut obs = obs_handle();
     obs.clear();
 
     inc_frames(Direction::Inbound);

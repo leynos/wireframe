@@ -267,16 +267,21 @@ impl ObservabilityHandle {
 /// rstest fixture returning an [`ObservabilityHandle`] for test
 /// assertions.
 ///
+/// Named `obs_handle` (rather than `observability`) to avoid a name
+/// collision with the `observability` module at the crate root,
+/// following the `logging` → `logger` naming convention used by
+/// [`crate::logger`].
+///
 /// # Examples
 ///
 /// ```no_run
-/// use wireframe_testing::observability::observability;
+/// use wireframe_testing::obs_handle;
 ///
-/// let mut obs = observability();
+/// let mut obs = obs_handle();
 /// obs.clear();
 /// ```
 #[fixture]
-pub fn observability() -> ObservabilityHandle {
+pub fn obs_handle() -> ObservabilityHandle {
     // Acquire the global logger and create a fresh metrics recorder
     ObservabilityHandle::new()
 }

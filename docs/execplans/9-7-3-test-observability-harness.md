@@ -22,9 +22,9 @@ combines log capture with metrics recording in a single fixture. A test author
 can write:
 
 ```rust
-use wireframe_testing::observability;
+use wireframe_testing::obs_handle;
 
-let mut obs = observability();
+let mut obs = obs_handle();
 obs.clear();
 
 metrics::with_local_recorder(obs.recorder(), || {
@@ -256,7 +256,11 @@ labels. Both parameters are `&'static str`.
 
 ### Original proposed API from design doc
 
-`docs/wireframe-testing-crate.md` originally specified this minimal API:
+`docs/wireframe-testing-crate.md` originally specified this minimal API. The
+snippet below is **historical** — the shipped signatures differ. In particular,
+`counter(&self, name: &str, labels: &[(&str, &str)])`, `ObservabilityHandle`,
+and `observability()` shown here are from the original proposal; the shipped
+public signatures accept `impl Into<Labels>` instead of raw label slices.
 
 ```rust
 pub struct ObservabilityHandle { /* fields omitted */ }
@@ -272,11 +276,8 @@ impl ObservabilityHandle {
 pub fn observability() -> ObservabilityHandle;
 ```
 
-The shipped API extends this with `Labels` (supporting `impl Into<Labels>` for
-ergonomic label passing), convenience methods for codec error assertions and
-log assertions, and a module split into `mod.rs`, `labels.rs`, and
-`assertions.rs`. See the "Public API surface" section below for the current
-signatures.
+See the [Public API surface](#public-api-surface) section for the current
+shipped signatures.
 
 ## Plan of work
 
@@ -323,7 +324,7 @@ Implement the rstest fixture:
 ```rust
 #[rustfmt::skip]
 #[fixture]
-pub fn observability() -> ObservabilityHandle {
+pub fn obs_handle() -> ObservabilityHandle {
     ObservabilityHandle::new()
 }
 ```
@@ -471,7 +472,7 @@ Stage E acceptance: `make test` passes with all 4 BDD scenarios green.
 3. Update `docs/users-guide.md` — add a new subsection "Test
    observability" under the testing section (after the "Codec test fixtures"
    subsection, around line 300) documenting `ObservabilityHandle`, the
-   `observability()` fixture, and the assertion helpers with a code example
+   `obs_handle()` fixture, and the assertion helpers with a code example
    showing the `with_local_recorder` + `counter()` pattern. Use en-GB-oxendict
    spelling.
 
@@ -611,7 +612,7 @@ impl ObservabilityHandle {
 }
 
 #[fixture]
-pub fn observability() -> ObservabilityHandle;
+pub fn obs_handle() -> ObservabilityHandle;
 ```
 
 ### Files to create
