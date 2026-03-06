@@ -1,4 +1,4 @@
-# Implement configurable client connection pooling with preamble preservation (11.2.1)
+# Implement hybrid client connection pooling with `bb8` and custom per-socket admission/fairness controls (11.2.1)
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -14,11 +14,20 @@ already-negotiated preamble state on reused sockets, enforces a bounded number
 of admitted operations per socket, and recycles idle sockets to avoid stale
 connections.
 
+This plan adopts a hybrid implementation strategy:
+
+- use `bb8` for connection lifecycle, idle reaping, and timeout mechanics; and
+- layer Wireframe-specific per-socket admission and fairness policies on top.
+
 After this change, a library consumer can build a pooled client from the
 existing `WireframeClientBuilder`, configure pool size/in-flight/idle settings,
 and acquire pooled client leases for request work. Reused leases stay on warm
 connections (no repeated preamble handshake), while idle connections are
 re-established automatically when they exceed the configured idle threshold.
+
+Trade-off accepted for `11.2.1`: more functionality now with battle-tested pool
+operations. If we later need deeper per-socket multiplex control, we will
+review and potentially revise the pool internals in a follow-up phase.
 
 Observable success:
 
@@ -42,7 +51,8 @@ Observable success:
   - reused warm sockets must not replay preamble;
   - recycled sockets must run preamble again.
 - Per-socket in-flight limiting must be explicit and configurable.
-- No new external dependencies may be introduced.
+- Introduce `bb8` as the pool lifecycle dependency.
+- Do not introduce additional pool crates beyond `bb8` for this milestone.
 - Unit tests must use `rstest` fixtures/patterns.
 - Behavioural tests must use `rstest-bdd` v0.5.0 with the existing
   `feature + fixture + steps + scenarios` layout.
@@ -67,7 +77,8 @@ Observable success:
   escalate.
 - Size: if net change exceeds 2200 lines before tests/docs, stop and escalate.
 - Interface: if any existing public API must break, stop and escalate.
-- Dependencies: if a new crate is required, stop and escalate.
+- Dependencies: if a new crate other than `bb8` is required, stop and
+  escalate.
 - Ambiguity: if in-flight semantics cannot be made coherent without also
   implementing `11.2.2` fairness/pool-handle work, stop and escalate with
   alternatives.
@@ -98,9 +109,16 @@ Observable success:
   Severity: medium. Likelihood: medium. Mitigation: keep fixture and step
   parameter names identical and avoid underscore-prefixed fixture parameters.
 
+- Risk: `bb8`'s checkout model may not directly represent Wireframe's
+  per-socket admission/fairness semantics. Severity: medium. Likelihood:
+  medium. Mitigation: wrap pooled connections in a Wireframe-managed lease
+  layer that enforces admission limits and fairness before socket use.
+
 ## Progress
 
 - [x] (2026-03-05 17:47Z) Drafted ExecPlan for `11.2.1`.
+- [x] (2026-03-06 09:42Z) Revised strategy to the hybrid `bb8` + custom
+  admission/fairness approach.
 - [ ] Stage A: finalize pool interface and internal module boundaries.
 - [ ] Stage B: add failing unit and behavioural tests for the three roadmap
   behaviours.
@@ -127,6 +145,13 @@ Observable success:
   rather than changing `connect(...)` behaviour. Rationale: keeps existing
   client API stable and allows opt-in adoption. Date/Author: 2026-03-05 / plan
   phase.
+
+- Decision: use a hybrid implementation with `bb8` for lifecycle/reaping/
+  timeout mechanics and a Wireframe-owned wrapper for per-socket admission and
+  fairness controls. Rationale: this delivers battle-tested pooling behaviour
+  quickly while preserving Wireframe-specific control points. If deeper
+  multiplex control is needed later, that can be reviewed without blocking
+  `11.2.1`. Date/Author: 2026-03-06 / plan revision.
 
 - Decision: define in-flight limiting as a per-socket admission bound enforced
   by permits (not transport-level multiplexing fairness). Rationale: satisfies
@@ -179,10 +204,17 @@ Terms used in this plan:
 ### Stage A: Interface and scaffolding (no behavioural change)
 
 Add a dedicated pool surface and keep it isolated from existing runtime files.
+Wire `bb8` in this stage as the lifecycle engine.
 
 Create a new client pool module tree under `src/client/pool/` (for example
 `mod.rs`, `config.rs`, `slot.rs`, `lease.rs`, and `pool.rs`) and expose public
 types via `src/client/mod.rs`.
+
+Add a `bb8` manager for Wireframe client sockets that encapsulates:
+
+- connect path (socket options + preamble exchange + framed client creation);
+- health check/reconnect rules; and
+- lifecycle hooks for close/recycle paths.
 
 Introduce a public configuration type:
 
@@ -247,16 +279,17 @@ add clock-control support before proceeding.
 ### Stage C: Implement pool mechanics
 
 Implement the pool internals with clear ownership and RAII cleanup semantics.
+Use `bb8::Pool` as the underlying connection lifecycle primitive.
 
 Expected internal shape:
 
-- `WireframeClientPool` owning N socket slots;
+- `WireframeClientPool` wrapping a `bb8::Pool<WireframeConnectionManager>`;
 - per-slot admission control (permit/semaphore style);
 - per-slot exclusive client access for actual transport operations;
 - lease object (`PooledClientLease`) that updates last-used timestamps and
   releases admission permits on drop;
-- idle-recycle path on acquire that closes stale socket and reconnects with the
-  original builder settings, including preamble exchange.
+- idle-recycle and timeout mechanics delegated to `bb8` configuration, with
+  Wireframe rules enforced at acquire/use boundaries.
 
 Operational rules:
 
@@ -270,9 +303,9 @@ If internal configuration must be cloned for reconnect, add narrowly scoped
 `Clone` implementations/bounds required for pooled usage and document those
 bounds in rustdoc.
 
-Go/no-go check: if implementation requires transport-level fairness scheduling
-or cross-socket multiplexing policies, defer that work and escalate as `11.2.2`
-scope.
+Go/no-go check: if `bb8` cannot support required preamble-preserving reuse plus
+idle recycling semantics without unacceptable hacks, stop and escalate with
+alternatives before implementation continues.
 
 ### Stage D: Documentation, roadmap, and hardening
 
@@ -400,10 +433,17 @@ impl<S, C> std::ops::Deref for PooledClientLease<S, C> {
 impl<S, C> std::ops::DerefMut for PooledClientLease<S, C> {}
 ```
 
-No new crate dependencies are introduced.
+Dependencies for this milestone:
+
+- `bb8` for pool lifecycle/reaping/timeout behaviour.
+- existing Tokio/Futures/Wireframe crates for admission/fairness wrapper.
 
 ## Revision note
 
 - 2026-03-05: Initial draft created for roadmap item `11.2.1`, with staged
   implementation, test strategy (`rstest` + `rstest-bdd`), explicit tolerance
   gates, and required documentation/roadmap updates.
+- 2026-03-06: Revised to a hybrid pool strategy: `bb8` for lifecycle/reaping/
+  timeout mechanics plus Wireframe-specific per-socket admission and fairness
+  controls. Captured trade-off: faster, battle-tested pooling now; revisit
+  deeper per-socket multiplex control later if needed.

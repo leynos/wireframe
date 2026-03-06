@@ -410,13 +410,27 @@ cargo run --example client_echo_login --features examples
   echoed payload as the acknowledgement provides a runnable, typed, end-to-end
   demonstration without introducing server-only behaviour.
 
+## Decision record for 11.2.1 (planned)
+
+- Decision: adopt a hybrid connection pool model for `11.2.1`.
+- Implementation split:
+  - use `bb8` for connection lifecycle, idle reaping, and timeout mechanics;
+  - layer Wireframe-specific per-socket admission and fairness policy on top
+    of pooled checkout.
+- Rationale: this provides more functionality now with battle-tested pooling
+  operation, while retaining explicit control over Wireframe protocol
+  constraints.
+- Follow-up posture: if deeper per-socket multiplex control is required later,
+  revisit the hybrid boundary and evaluate whether to extend or replace the
+  wrapper layer.
+
 ## Future work
 
 This initial design focuses on a basic request/response workflow. Future
 extensions might include:
 
 - Middleware support for outgoing and incoming frames.
-- Connection pooling for protocols that open multiple simultaneous connections.
+- Extended per-socket multiplex control beyond the initial hybrid pool layer.
 - Helper traits for streaming or multiplexed protocols.
 
 By leveraging the existing abstractions for framing and serialization, client
