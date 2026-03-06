@@ -28,6 +28,19 @@ where
     _permit: OwnedSemaphorePermit,
 }
 
+macro_rules! dispatch_on_connection {
+    ($self:ident, | $conn:ident | $op:expr) => {{
+        let mut $conn = $self.slot.checkout().await?;
+        let result = $op.await;
+        if let Err(err) = &result
+            && Self::should_recycle(err)
+        {
+            $conn.mark_broken();
+        }
+        result
+    }};
+}
+
 impl<S, P, C> PooledClientLease<S, P, C>
 where
     S: Serializer + Clone + Send + Sync + 'static,
@@ -52,14 +65,7 @@ where
     /// Returns [`ClientError`] when checkout, serialization, or transport I/O
     /// fails.
     pub async fn send<M: EncodeWith<S>>(&self, message: &M) -> Result<(), ClientError> {
-        let mut connection = self.slot.checkout().await?;
-        let result = connection.send(message).await;
-        if let Err(err) = &result
-            && Self::should_recycle(err)
-        {
-            connection.mark_broken();
-        }
-        result
+        dispatch_on_connection!(self, |conn| conn.send(message))
     }
 
     /// Receive one message from the leased socket.
@@ -68,14 +74,7 @@ where
     ///
     /// Returns [`ClientError`] when checkout, decode, or transport I/O fails.
     pub async fn receive<M: DecodeWith<S>>(&self) -> Result<M, ClientError> {
-        let mut connection = self.slot.checkout().await?;
-        let result = connection.receive().await;
-        if let Err(err) = &result
-            && Self::should_recycle(err)
-        {
-            connection.mark_broken();
-        }
-        result
+        dispatch_on_connection!(self, |conn| conn.receive())
     }
 
     /// Send one request and await one response over the leased socket.
@@ -89,14 +88,7 @@ where
         Req: EncodeWith<S>,
         Resp: DecodeWith<S>,
     {
-        let mut connection = self.slot.checkout().await?;
-        let result = connection.call(request).await;
-        if let Err(err) = &result
-            && Self::should_recycle(err)
-        {
-            connection.mark_broken();
-        }
-        result
+        dispatch_on_connection!(self, |conn| conn.call(request))
     }
 
     /// Send one envelope and return the correlation ID used.
@@ -109,14 +101,7 @@ where
     where
         M: Packet + EncodeWith<S>,
     {
-        let mut connection = self.slot.checkout().await?;
-        let result = connection.send_envelope(envelope).await;
-        if let Err(err) = &result
-            && Self::should_recycle(err)
-        {
-            connection.mark_broken();
-        }
-        result
+        dispatch_on_connection!(self, |conn| conn.send_envelope(envelope))
     }
 
     /// Receive one envelope from the leased socket.
@@ -128,14 +113,7 @@ where
     where
         M: Packet + DecodeWith<S>,
     {
-        let mut connection = self.slot.checkout().await?;
-        let result = connection.receive_envelope().await;
-        if let Err(err) = &result
-            && Self::should_recycle(err)
-        {
-            connection.mark_broken();
-        }
-        result
+        dispatch_on_connection!(self, |conn| conn.receive_envelope())
     }
 
     /// Send one envelope and await its correlated response.
@@ -148,13 +126,6 @@ where
     where
         M: Packet + EncodeWith<S> + DecodeWith<S>,
     {
-        let mut connection = self.slot.checkout().await?;
-        let result = connection.call_correlated(request).await;
-        if let Err(err) = &result
-            && Self::should_recycle(err)
-        {
-            connection.mark_broken();
-        }
-        result
+        dispatch_on_connection!(self, |conn| conn.call_correlated(request))
     }
 }
