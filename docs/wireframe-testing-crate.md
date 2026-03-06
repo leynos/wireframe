@@ -172,6 +172,53 @@ The pacing applies to the client side of the in-memory duplex stream:
 - `capacity` controls how quickly the duplex buffer saturates, which is useful
   when asserting back-pressure behaviour.
 
+Accessibility caption: Sequence diagram showing a test spawning an async
+runtime task that drives slow-I/O helpers, optionally pacing writes into the
+app and reads back out of it through Tokio time delays before returning the
+captured bytes for back-pressure assertions.
+
+```mermaid
+sequenceDiagram
+    actor Test as Test
+    participant Runtime as TokioRuntime
+    participant Helper as SlowIoHelpers
+    participant App as WireframeApp
+    participant Writer as SlowWriterPacer
+    participant Reader as SlowReaderPacer
+    participant Time as TokioTime
+
+    Test->>Runtime: spawn async test
+    Runtime->>Helper: drive_with_slow_io_payloads(app, payloads, config)
+
+    alt writer pacing configured
+        Helper->>Writer: start_paced_writes(payloads, config.writer)
+        loop for each chunk
+            Writer->>Time: sleep(config.writer.delay)
+            Time-->>Writer: wake
+            Writer->>App: send_chunk()
+        end
+    else no writer pacing
+        Helper->>App: send_all_payloads()
+    end
+
+    alt reader pacing configured
+        Helper->>Reader: start_paced_reads(config.reader)
+        loop while app_has_output
+            Reader->>Time: sleep(config.reader.delay)
+            Time-->>Reader: wake
+            Reader->>App: read_chunk()
+            App-->>Reader: chunk_bytes
+            Reader-->>Helper: append_to_output(chunk_bytes)
+        end
+    else no reader pacing
+        Helper->>App: read_all_output()
+        App-->>Helper: all_bytes
+    end
+
+    Helper-->>Runtime: Result<Vec<u8>>
+    Runtime-->>Test: assert_backpressure_behaviour()
+```
+
 Public entry points:
 
 - `drive_with_slow_frames` for pre-framed raw bytes.

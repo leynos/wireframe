@@ -108,7 +108,7 @@ observable when:
 - Observation: full-repo `markdownlint` and therefore `make fmt` still fail on
   pre-existing markdown issues outside this item, including
   `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`
-  and older execplan numbering style violations. Evidence:
+   and older execplan numbering style violations. Evidence:
   `/tmp/8-5-2-markdownlint.log`, `/tmp/8-5-2-fmt.log`. Impact: validate the
   touched docs with targeted `markdownlint` until the baseline is repaired.
 
@@ -146,9 +146,9 @@ observable when:
 ## Outcomes & retrospective
 
 Implemented as planned. `wireframe_testing` now provides first-class slow
-reader and writer simulation via `SlowIoPacing` and `SlowIoConfig`, with
-public helpers for raw frames, default length-delimited payloads, and
-codec-aware payload/frame round trips.
+reader and writer simulation via `SlowIoPacing` and `SlowIoConfig`, with public
+helpers for raw frames, default length-delimited payloads, and codec-aware
+payload/frame round trips.
 
 Integration coverage now proves:
 
