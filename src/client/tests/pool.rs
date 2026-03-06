@@ -193,18 +193,19 @@ async fn run_ping_round_trip(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the task requires this helper signature"
-)]
+/// Scenario values for [`run_two_lease_scenario`].
+struct TwoLeaseParams {
+    first_ping: u8,
+    second_ping: u8,
+    expected_preamble_count: usize,
+    expected_connection_count: usize,
+}
+
 async fn run_two_lease_scenario<F, Fut>(
     config: ClientPoolConfig,
     preamble_callback_count: Arc<AtomicUsize>,
-    first_ping: u8,
-    second_ping: u8,
     between_leases: F,
-    expected_preamble_count: usize,
-    expected_connection_count: usize,
+    params: TwoLeaseParams,
 ) -> TestResult
 where
     F: FnOnce() -> Fut,
@@ -213,15 +214,15 @@ where
     let server = PoolTestServer::start().await?;
     let pool = build_pooled_client(server.addr, config, preamble_callback_count.clone()).await?;
 
-    run_ping_round_trip(&pool, first_ping).await?;
+    run_ping_round_trip(&pool, params.first_ping).await?;
     between_leases().await;
-    run_ping_round_trip(&pool, second_ping).await?;
+    run_ping_round_trip(&pool, params.second_ping).await?;
     assert_eq!(
         preamble_callback_count.load(Ordering::SeqCst),
-        expected_preamble_count
+        params.expected_preamble_count
     );
-    assert_eq!(server.preamble_count(), expected_preamble_count);
-    assert_eq!(server.connection_count(), expected_connection_count);
+    assert_eq!(server.preamble_count(), params.expected_preamble_count);
+    assert_eq!(server.connection_count(), params.expected_connection_count);
 
     Ok(())
 }
@@ -232,11 +233,13 @@ async fn pooled_reuse_preserves_preamble_state(client_pool_config: ClientPoolCon
     run_two_lease_scenario(
         client_pool_config.pool_size(1),
         Arc::new(AtomicUsize::new(0)),
-        7,
-        8,
         || async {},
-        1,
-        1,
+        TwoLeaseParams {
+            first_ping: 7,
+            second_ping: 8,
+            expected_preamble_count: 1,
+            expected_connection_count: 1,
+        },
     )
     .await
 }
@@ -275,14 +278,16 @@ async fn idle_timeout_recycles_socket_and_replays_preamble(
     run_two_lease_scenario(
         client_pool_config.pool_size(1).idle_timeout(idle_timeout),
         Arc::new(AtomicUsize::new(0)),
-        1,
-        2,
         || async move {
             advance(idle_timeout + idle_timeout).await;
             tokio::task::yield_now().await;
         },
-        2,
-        2,
+        TwoLeaseParams {
+            first_ping: 1,
+            second_ping: 2,
+            expected_preamble_count: 2,
+            expected_connection_count: 2,
+        },
     )
     .await
 }
