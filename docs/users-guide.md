@@ -1298,6 +1298,10 @@ as `TCP_NODELAY` or buffer size adjustments.
 | Before-send hook     | `before_send(...)`                           | Disabled                                                | Inspect or mutate serialized bytes before every outgoing frame.     |
 | After-receive hook   | `after_receive(...)`                         | Disabled                                                | Inspect or mutate raw bytes after every incoming frame is read.     |
 | Tracing config       | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off          | Customize tracing span levels and per-command timing.               |
+| Pool connect         | `connect_pool(addr, ClientPoolConfig)`       | Disabled                                                | Warm socket reuse or bounded socket fan-out is required.            |
+| Pool size            | `ClientPoolConfig::pool_size(n)`             | `4`                                                     | More than one warm physical socket should be maintained.            |
+| Per-socket admission | `max_in_flight_per_socket(n)`                | `1`                                                     | More than one caller may queue work against the same warm socket.   |
+| Idle recycle         | `idle_timeout(Duration)`                     | `600s`                                                  | Idle sockets should be replaced before they become stale.           |
 
 ```rust
 use std::{net::SocketAddr, time::Duration};
@@ -1374,6 +1378,56 @@ cargo run --example echo --features examples
 # terminal 2
 cargo run --example client_echo_login --features examples
 ```
+
+### Client pools
+
+Use `connect_pool` when one warm socket is too little, but opening a new TCP
+connection for every request is too expensive. `WireframeClientPool` keeps a
+bounded set of warm sockets, preserves preamble state on reuse, and recycles
+idle sockets after the configured timeout.
+
+```rust,no_run
+use std::{net::SocketAddr, time::Duration};
+
+use wireframe::client::{ClientPoolConfig, WireframeClient};
+
+#[derive(bincode::Encode, bincode::Decode)]
+struct Ping(u8);
+
+#[derive(bincode::Encode, bincode::Decode, Debug, PartialEq)]
+struct Pong(u8);
+
+# #[tokio::main]
+# async fn main() -> Result<(), wireframe::client::ClientError> {
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+let pool = WireframeClient::builder()
+    .connect_pool(
+        addr,
+        ClientPoolConfig::default()
+            .pool_size(2)
+            .max_in_flight_per_socket(2)
+            .idle_timeout(Duration::from_secs(30)),
+    )
+    .await?;
+
+let lease = pool.acquire().await?;
+let pong: Pong = lease.call(&Ping(1)).await?;
+assert_eq!(pong, Pong(1));
+
+pool.close().await;
+# Ok(())
+# }
+```
+
+Pooled leases forward the common request methods instead of exposing a mutable
+reference to a long-lived `WireframeClient`. That keeps actual socket I/O
+serialized per physical connection while still allowing multiple callers to be
+admitted against the same warm slot. Treat `max_in_flight_per_socket` as an
+admission budget, not as a guarantee of parallel writes on one TCP stream.
+
+Preamble callbacks and setup hooks run per physical socket creation. Warm reuse
+keeps the existing preamble state; idle recycle closes the old socket and
+creates a fresh one, which reruns preamble and setup.
 
 ### Client preamble exchange
 

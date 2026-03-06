@@ -106,6 +106,16 @@ pub(crate) struct LifecycleHooks<C> {
     pub(crate) on_error: Option<ClientErrorHandler>,
 }
 
+impl<C> Clone for LifecycleHooks<C> {
+    fn clone(&self) -> Self {
+        Self {
+            on_connect: self.on_connect.clone(),
+            on_disconnect: self.on_disconnect.clone(),
+            on_error: self.on_error.clone(),
+        }
+    }
+}
+
 impl<C> Default for LifecycleHooks<C> {
     fn default() -> Self {
         Self {
@@ -170,7 +180,7 @@ pub type AfterReceiveHook = Arc<dyn Fn(&mut BytesMut) + Send + Sync>;
 /// Stores hooks that fire on every outgoing frame (after serialization) and
 /// every incoming frame (before deserialization). Multiple hooks of each type
 /// may be registered; they execute in registration order.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct RequestHooks {
     /// Hooks invoked before each outgoing frame is sent.
     pub(crate) before_send: Vec<BeforeSendHook>,

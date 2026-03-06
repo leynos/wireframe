@@ -21,6 +21,20 @@ pub(crate) struct PreambleConfig<P> {
     pub(crate) timeout: Option<Duration>,
 }
 
+impl<P> Clone for PreambleConfig<P>
+where
+    P: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            preamble: self.preamble.clone(),
+            on_success: self.on_success.clone(),
+            on_failure: self.on_failure.clone(),
+            timeout: self.timeout,
+        }
+    }
+}
+
 impl<P> PreambleConfig<P>
 where
     P: Encode + Send + Sync + 'static,

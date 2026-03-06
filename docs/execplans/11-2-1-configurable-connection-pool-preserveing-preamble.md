@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -119,12 +119,12 @@ Observable success:
 - [x] (2026-03-05 17:47Z) Drafted ExecPlan for `11.2.1`.
 - [x] (2026-03-06 09:42Z) Revised strategy to the hybrid `bb8` + custom
   admission/fairness approach.
-- [ ] Stage A: finalize pool interface and internal module boundaries.
-- [ ] Stage B: add failing unit and behavioural tests for the three roadmap
+- [x] Stage A: finalize pool interface and internal module boundaries.
+- [x] Stage B: add failing unit and behavioural tests for the three roadmap
   behaviours.
-- [ ] Stage C: implement pool config, acquisition, in-flight limits, and idle
+- [x] Stage C: implement pool config, acquisition, in-flight limits, and idle
   recycling.
-- [ ] Stage D: update design docs, user guide, roadmap, and run full gates.
+- [x] Stage D: update design docs, user guide, roadmap, and run full gates.
 
 ## Surprises & Discoveries
 
@@ -138,6 +138,21 @@ Observable success:
 - Observation: `src/client/runtime.rs` is at 399 lines.
   Evidence: `wc -l src/client/runtime.rs`. Impact: all pool implementation must
   live in new modules/submodules.
+
+- Observation: deterministic idle recycling was more reliable on the slot
+  checkout path than by waiting for `bb8`'s background reaper alone.
+  Evidence: targeted idle-recycle test initially stayed on the warm socket
+  after virtual time advance; adding lazy recycle on checkout made the
+  behaviour deterministic. Impact: the final implementation still uses `bb8`
+  for socket lifecycle, but Wireframe now enforces idle recycle at acquire/use
+  boundaries as well.
+
+- Observation: `make markdownlint` still fails on pre-existing unrelated
+  baseline issues in
+  `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`.
+  Evidence: MD013 line-length failures at lines 186 and 476 during this task's
+  validation run. Impact: all code/test gates for `11.2.1` are green, but full
+  repository markdown lint remains blocked by unrelated existing content.
 
 ## Decision Log
 
@@ -165,8 +180,22 @@ Observable success:
 
 ## Outcomes & Retrospective
 
-Not started. This section must be completed during implementation and finalized
-when status moves to `COMPLETE`.
+Implemented with a slightly narrower lease API than the initial draft:
+
+- `WireframeClientPool<S, P, C>` is the public pool type.
+- `PooledClientLease<S, P, C>` forwards pooled request methods instead of
+  dereferencing to `WireframeClient`.
+- Each physical socket is backed by its own `bb8` pool with `max_size = 1`;
+  Wireframe owns slot selection and per-socket admission permits above that.
+
+Validation evidence:
+
+- targeted unit tests for warm reuse, admission limiting, and idle recycle;
+- targeted rstest-bdd scenarios for the same behaviours;
+- passing `make check-fmt`, `make lint`, `make test`, `make test-doc`,
+  `make doctest-benchmark`, and `make nixie`; and
+- `make markdownlint` attempted but still failing only on unrelated baseline
+  MD013 issues in `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`.
 
 ## Context and orientation
 

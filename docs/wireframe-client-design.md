@@ -410,19 +410,34 @@ cargo run --example client_echo_login --features examples
   echoed payload as the acknowledgement provides a runnable, typed, end-to-end
   demonstration without introducing server-only behaviour.
 
-## Decision record for 11.2.1 (planned)
+## Decision record for 11.2.1
 
-- Decision: adopt a hybrid connection pool model for `11.2.1`.
+- Decision: ship client pooling as a hybrid of `bb8` and Wireframe-owned slot
+  admission.
 - Implementation split:
-  - use `bb8` for connection lifecycle, idle reaping, and timeout mechanics;
-  - layer Wireframe-specific per-socket admission and fairness policy on top
-    of pooled checkout.
-- Rationale: this provides more functionality now with battle-tested pooling
-  operation, while retaining explicit control over Wireframe protocol
-  constraints.
-- Follow-up posture: if deeper per-socket multiplex control is required later,
-  revisit the hybrid boundary and evaluate whether to extend or replace the
-  wrapper layer.
+  - each physical socket is backed by a dedicated `bb8` pool with
+    `max_size = 1`;
+  - `WireframeClientPool` owns multiple such slots, one per physical socket;
+  - `PooledClientLease` forwards request methods (`send`, `receive`, `call`,
+    `send_envelope`, `receive_envelope`, `call_correlated`) through its slot
+    rather than dereferencing to a long-lived mutable `WireframeClient`.
+- Rationale: this keeps socket lifecycle, reconnect, and idle recycle on
+  battle-tested `bb8` machinery while preserving explicit Wireframe control
+  over how many operations may target one warm socket.
+- Preamble lifecycle:
+  - preamble exchange runs once when `connect_pool` creates each physical
+    socket;
+  - warm reuse keeps the negotiated socket and does not replay preamble;
+  - if a slot is idle past its configured timeout, the next checkout lazily
+    recycles the socket and reruns the preamble.
+- Admission semantics:
+  - `max_in_flight_per_socket` is an admission budget, not a promise of
+    parallel writes on one transport;
+  - leases may coexist up to that budget, but actual socket I/O remains
+    serialized by the slot's single checked-out client connection.
+- Follow-up posture: if future roadmap items require deeper multiplex fairness
+  or true per-socket concurrent transport use, revisit this boundary and decide
+  whether to extend or replace the slot wrapper.
 
 ## Future work
 
