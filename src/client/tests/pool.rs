@@ -179,31 +179,66 @@ fn build_pooled_client(
         .connect_pool(addr, config)
 }
 
+async fn run_ping_round_trip(
+    pool: &crate::client::WireframeClientPool<
+        crate::serializer::BincodeSerializer,
+        ClientHello,
+        (),
+    >,
+    ping: u8,
+) -> Result<(), crate::client::ClientError> {
+    let lease = pool.acquire().await?;
+    let reply: Pong = lease.call(&Ping(ping)).await?;
+    assert_eq!(reply, Pong(ping));
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the task requires this helper signature"
+)]
+async fn run_two_lease_scenario<F, Fut>(
+    config: ClientPoolConfig,
+    preamble_callback_count: Arc<AtomicUsize>,
+    first_ping: u8,
+    second_ping: u8,
+    between_leases: F,
+    expected_preamble_count: usize,
+    expected_connection_count: usize,
+) -> TestResult
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let server = PoolTestServer::start().await?;
+    let pool = build_pooled_client(server.addr, config, preamble_callback_count.clone()).await?;
+
+    run_ping_round_trip(&pool, first_ping).await?;
+    between_leases().await;
+    run_ping_round_trip(&pool, second_ping).await?;
+    assert_eq!(
+        preamble_callback_count.load(Ordering::SeqCst),
+        expected_preamble_count
+    );
+    assert_eq!(server.preamble_count(), expected_preamble_count);
+    assert_eq!(server.connection_count(), expected_connection_count);
+
+    Ok(())
+}
+
 #[rstest]
 #[tokio::test]
 async fn pooled_reuse_preserves_preamble_state(client_pool_config: ClientPoolConfig) -> TestResult {
-    let server = PoolTestServer::start().await?;
-    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
-    let pool = build_pooled_client(
-        server.addr,
+    run_two_lease_scenario(
         client_pool_config.pool_size(1),
-        preamble_callback_count.clone(),
+        Arc::new(AtomicUsize::new(0)),
+        7,
+        8,
+        || async {},
+        1,
+        1,
     )
-    .await?;
-
-    let lease = pool.acquire().await?;
-    let first: Pong = lease.call(&Ping(7)).await?;
-    assert_eq!(first, Pong(7));
-    drop(lease);
-
-    let lease = pool.acquire().await?;
-    let second: Pong = lease.call(&Ping(8)).await?;
-    assert_eq!(second, Pong(8));
-
-    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 1);
-    assert_eq!(server.preamble_count(), 1);
-    assert_eq!(server.connection_count(), 1);
-    Ok(())
+    .await
 }
 
 #[rstest]
@@ -236,30 +271,18 @@ async fn pool_enforces_per_socket_in_flight_limit(
 async fn idle_timeout_recycles_socket_and_replays_preamble(
     client_pool_config: ClientPoolConfig,
 ) -> TestResult {
-    let server = PoolTestServer::start().await?;
-    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
     let idle_timeout = Duration::from_millis(50);
-    let pool = build_pooled_client(
-        server.addr,
+    run_two_lease_scenario(
         client_pool_config.pool_size(1).idle_timeout(idle_timeout),
-        preamble_callback_count.clone(),
+        Arc::new(AtomicUsize::new(0)),
+        1,
+        2,
+        || async move {
+            advance(idle_timeout + idle_timeout).await;
+            tokio::task::yield_now().await;
+        },
+        2,
+        2,
     )
-    .await?;
-
-    let lease = pool.acquire().await?;
-    let first: Pong = lease.call(&Ping(1)).await?;
-    assert_eq!(first, Pong(1));
-    drop(lease);
-
-    advance(idle_timeout + idle_timeout).await;
-    tokio::task::yield_now().await;
-
-    let lease = pool.acquire().await?;
-    let second: Pong = lease.call(&Ping(2)).await?;
-    assert_eq!(second, Pong(2));
-
-    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
-    assert_eq!(server.preamble_count(), 2);
-    assert_eq!(server.connection_count(), 2);
-    Ok(())
+    .await
 }
