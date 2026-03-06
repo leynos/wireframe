@@ -4,13 +4,13 @@
 //! admission permits across those slots so multiple callers can target the
 //! same warm socket while transport access remains serialized per socket.
 
+mod client_pool;
 mod config;
 mod lease;
 mod managed;
 mod manager;
-mod client_pool;
 mod slot;
 
-pub use config::ClientPoolConfig;
 pub use client_pool::WireframeClientPool;
+pub use config::ClientPoolConfig;
 pub use lease::PooledClientLease;

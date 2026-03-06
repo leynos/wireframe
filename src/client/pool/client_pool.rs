@@ -24,10 +24,7 @@ use crate::{
     serializer::Serializer,
 };
 
-type AcquirePermit<S, P, C> = (
-    Arc<PoolSlot<S, P, C>>,
-    tokio::sync::OwnedSemaphorePermit,
-);
+type AcquirePermit<S, P, C> = (Arc<PoolSlot<S, P, C>>, tokio::sync::OwnedSemaphorePermit);
 
 type AcquirePermitFuture<S, P, C> =
     Pin<Box<dyn Future<Output = Result<AcquirePermit<S, P, C>, ClientError>> + Send>>;
