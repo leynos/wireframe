@@ -141,6 +141,48 @@ Behavioural details:
 - I/O failures, framing errors, and server task panics are all returned as
   `io::Error` values, so tests can assert on error handling.
 
+### Slow-I/O drivers
+
+Roadmap item `8.5.2` extends the in-memory harness with explicit slow reader
+and slow writer simulation. The public surface uses one pacing type plus one
+driver config:
+
+```rust,no_run
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe_testing::{SlowIoConfig, SlowIoPacing};
+
+let writer = SlowIoPacing::new(
+    NonZeroUsize::new(8).expect("non-zero"),
+    Duration::from_millis(5),
+);
+let reader = SlowIoPacing::new(
+    NonZeroUsize::new(32).expect("non-zero"),
+    Duration::from_millis(5),
+);
+let config = SlowIoConfig::new()
+    .with_writer_pacing(writer)
+    .with_reader_pacing(reader)
+    .with_capacity(64);
+```
+
+The pacing applies to the client side of the in-memory duplex stream:
+
+- `writer_pacing` throttles bytes written into the app.
+- `reader_pacing` throttles bytes drained from the app.
+- `capacity` controls how quickly the duplex buffer saturates, which is useful
+  when asserting back-pressure behaviour.
+
+Public entry points:
+
+- `drive_with_slow_frames` for pre-framed raw bytes.
+- `drive_with_slow_payloads` for default length-delimited payloads.
+- `drive_with_slow_codec_payloads` for codec-aware payload round trips.
+- `drive_with_slow_codec_frames` for codec-aware frame assertions.
+
+These helpers are intentionally additive rather than replacing the existing
+drivers. Existing tests keep the simpler fast-path helpers, while
+back-pressure-focused tests opt into explicit pacing.
+
 ### Buffer capacity and limits
 
 The duplex stream buffer defaults to `TEST_MAX_FRAME`, matching the shared

@@ -37,6 +37,7 @@ pub mod panic;
 pub mod partial_frame_feeding;
 pub mod request_parts;
 pub mod serializer_boundaries;
+pub mod slow_io_backpressure;
 pub mod stream_end;
 pub mod test_observability;
 pub mod unified_codec;

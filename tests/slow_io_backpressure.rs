@@ -1,0 +1,233 @@
+//! Integration tests for slow reader and writer simulation helpers in
+//! `wireframe_testing`.
+#![cfg(not(loom))]
+
+use std::{io, num::NonZeroUsize, sync::Arc, time::Duration};
+
+use futures::future::BoxFuture;
+use rstest::rstest;
+use tokio::task::JoinHandle;
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    codec::examples::HotlineFrameCodec,
+    serializer::{BincodeSerializer, Serializer},
+};
+use wireframe_testing::{
+    SlowIoConfig,
+    SlowIoPacing,
+    drive_with_codec_payloads,
+    drive_with_slow_codec_payloads,
+    drive_with_slow_frames,
+};
+
+const MAX_CAPACITY_PLUS_ONE: usize = (1024 * 1024 * 10) + 1;
+
+fn hotline_codec() -> HotlineFrameCodec { HotlineFrameCodec::new(4096) }
+
+fn build_echo_app(
+    codec: HotlineFrameCodec,
+) -> io::Result<WireframeApp<BincodeSerializer, (), Envelope, HotlineFrameCodec>> {
+    WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .map_err(|e| io::Error::other(format!("app init: {e}")))?
+        .with_codec(codec)
+        .route(
+            1,
+            Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) }),
+        )
+        .map_err(|e| io::Error::other(format!("route: {e}")))
+}
+
+fn build_length_delimited_echo_app() -> io::Result<WireframeApp<BincodeSerializer, (), Envelope>> {
+    WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .map_err(|e| io::Error::other(format!("app init: {e}")))?
+        .route(
+            1,
+            Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) }),
+        )
+        .map_err(|e| io::Error::other(format!("route: {e}")))
+}
+
+fn serialize_envelope(payload: &[u8]) -> io::Result<Vec<u8>> {
+    BincodeSerializer
+        .serialize(&Envelope::new(1, Some(7), payload.to_vec()))
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("serialize: {e}")))
+}
+
+fn deserialize_echo_lengths(bytes: &[Vec<u8>]) -> io::Result<Vec<usize>> {
+    bytes
+        .iter()
+        .map(|raw| {
+            let (env, _) = BincodeSerializer
+                .deserialize::<Envelope>(raw)
+                .map_err(|e| {
+                    io::Error::new(io::ErrorKind::InvalidData, format!("deserialize: {e}"))
+                })?;
+            Ok(env.payload_bytes().len())
+        })
+        .collect()
+}
+
+fn join_error(error: &tokio::task::JoinError) -> io::Error {
+    io::Error::other(format!("join failed: {error}"))
+}
+
+async fn assert_task_pending(task: &JoinHandle<io::Result<Vec<Vec<u8>>>>) -> io::Result<()> {
+    tokio::task::yield_now().await;
+    if task.is_finished() {
+        return Err(io::Error::other("expected paced drive to remain pending"));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn slow_writer_delays_inbound_completion() -> io::Result<()> {
+    let codec = hotline_codec();
+    let payload = vec![b'a'; 64];
+    let serialized = serialize_envelope(&payload)?;
+
+    let baseline_app = build_echo_app(codec.clone())?;
+    let baseline =
+        drive_with_codec_payloads(baseline_app, &codec, vec![serialized.clone()]).await?;
+    let baseline_lengths = deserialize_echo_lengths(&baseline)?;
+    if baseline_lengths != vec![payload.len()] {
+        return Err(io::Error::other(format!(
+            "unexpected baseline echo lengths: {baseline_lengths:?}"
+        )));
+    }
+
+    let paced_app = build_echo_app(codec.clone())?;
+    let pacing = SlowIoPacing::new(
+        NonZeroUsize::new(8).ok_or_else(|| io::Error::other("non-zero"))?,
+        Duration::from_millis(5),
+    );
+    let config = SlowIoConfig::new().with_writer_pacing(pacing);
+    let task = tokio::spawn(async move {
+        drive_with_slow_codec_payloads(paced_app, &codec, vec![serialized], config).await
+    });
+
+    assert_task_pending(&task).await?;
+    tokio::time::advance(Duration::from_millis(20)).await;
+    assert_task_pending(&task).await?;
+
+    tokio::time::advance(Duration::from_millis(100)).await;
+    let response = task.await.map_err(|error| join_error(&error))??;
+    let lengths = deserialize_echo_lengths(&response)?;
+    if lengths != vec![payload.len()] {
+        return Err(io::Error::other(format!(
+            "unexpected paced echo lengths: {lengths:?}"
+        )));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn slow_reader_delays_outbound_draining() -> io::Result<()> {
+    let codec = hotline_codec();
+    let payload = vec![b'b'; 256];
+    let serialized = serialize_envelope(&payload)?;
+
+    let baseline_app = build_echo_app(codec.clone())?;
+    let baseline =
+        drive_with_codec_payloads(baseline_app, &codec, vec![serialized.clone()]).await?;
+    let baseline_lengths = deserialize_echo_lengths(&baseline)?;
+    if baseline_lengths != vec![payload.len()] {
+        return Err(io::Error::other(format!(
+            "unexpected baseline echo lengths: {baseline_lengths:?}"
+        )));
+    }
+
+    let paced_app = build_echo_app(codec.clone())?;
+    let pacing = SlowIoPacing::new(
+        NonZeroUsize::new(16).ok_or_else(|| io::Error::other("non-zero"))?,
+        Duration::from_millis(5),
+    );
+    let config = SlowIoConfig::new()
+        .with_reader_pacing(pacing)
+        .with_capacity(64);
+    let task = tokio::spawn(async move {
+        drive_with_slow_codec_payloads(paced_app, &codec, vec![serialized], config).await
+    });
+
+    assert_task_pending(&task).await?;
+    tokio::time::advance(Duration::from_millis(20)).await;
+    assert_task_pending(&task).await?;
+
+    tokio::time::advance(Duration::from_millis(200)).await;
+    let response = task.await.map_err(|error| join_error(&error))??;
+    let lengths = deserialize_echo_lengths(&response)?;
+    if lengths != vec![payload.len()] {
+        return Err(io::Error::other(format!(
+            "unexpected paced echo lengths: {lengths:?}"
+        )));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn combined_slow_reader_and_writer_round_trip_cleanly() -> io::Result<()> {
+    let codec = hotline_codec();
+    let payload_a = vec![b'c'; 48];
+    let payload_b = vec![b'd'; 96];
+    let serialized_a = serialize_envelope(&payload_a)?;
+    let serialized_b = serialize_envelope(&payload_b)?;
+    let app = build_echo_app(codec.clone())?;
+
+    let writer = SlowIoPacing::new(
+        NonZeroUsize::new(12).ok_or_else(|| io::Error::other("non-zero"))?,
+        Duration::from_millis(5),
+    );
+    let reader = SlowIoPacing::new(
+        NonZeroUsize::new(24).ok_or_else(|| io::Error::other("non-zero"))?,
+        Duration::from_millis(5),
+    );
+    let config = SlowIoConfig::new()
+        .with_writer_pacing(writer)
+        .with_reader_pacing(reader)
+        .with_capacity(64);
+    let task = tokio::spawn(async move {
+        drive_with_slow_codec_payloads(app, &codec, vec![serialized_a, serialized_b], config).await
+    });
+
+    assert_task_pending(&task).await?;
+    tokio::time::advance(Duration::from_millis(250)).await;
+    let response = task.await.map_err(|error| join_error(&error))??;
+    let lengths = deserialize_echo_lengths(&response)?;
+    if lengths != vec![payload_a.len(), payload_b.len()] {
+        return Err(io::Error::other(format!(
+            "unexpected combined echo lengths: {lengths:?}"
+        )));
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case(0, "capacity must be greater than zero")]
+#[case(MAX_CAPACITY_PLUS_ONE, "capacity must not exceed 10485760 bytes")]
+#[tokio::test(flavor = "current_thread")]
+async fn invalid_slow_io_config_is_rejected(
+    #[case] capacity: usize,
+    #[case] expected: &str,
+) -> io::Result<()> {
+    let app = build_length_delimited_echo_app()?;
+    let error = drive_with_slow_frames(
+        app,
+        vec![vec![1, 2, 3]],
+        SlowIoConfig::new().with_capacity(capacity),
+    )
+    .await
+    .expect_err("invalid config should fail");
+
+    if error.kind() != io::ErrorKind::InvalidInput {
+        return Err(io::Error::other(format!(
+            "expected InvalidInput, got {:?}",
+            error.kind()
+        )));
+    }
+    if error.to_string() != expected {
+        return Err(io::Error::other(format!(
+            "expected error {expected:?}, got {:?}",
+            error.to_string()
+        )));
+    }
+    Ok(())
+}

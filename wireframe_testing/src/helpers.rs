@@ -18,6 +18,7 @@ mod fragment_drive;
 mod partial_frame;
 mod payloads;
 mod runtime;
+mod slow_io;
 
 #[cfg(test)]
 mod tests;
@@ -97,3 +98,11 @@ pub use partial_frame::{
 };
 pub use payloads::{drive_with_bincode, drive_with_payloads, drive_with_payloads_mut};
 pub use runtime::{run_app, run_with_duplex_server};
+pub use slow_io::{
+    SlowIoConfig,
+    SlowIoPacing,
+    drive_with_slow_codec_frames,
+    drive_with_slow_codec_payloads,
+    drive_with_slow_frames,
+    drive_with_slow_payloads,
+};
