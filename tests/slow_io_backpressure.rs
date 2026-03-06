@@ -119,36 +119,25 @@ async fn run_paced_codec_test(
     Ok(())
 }
 
+#[rstest]
+#[case::slow_writer_delays_inbound_completion((8, vec![b'a'; 64], false, None, 100))]
+#[case::slow_reader_delays_outbound_draining((16, vec![b'b'; 256], true, Some(64_usize), 200))]
 #[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn slow_writer_delays_inbound_completion() -> io::Result<()> {
-    let pacing = SlowIoPacing::new(
-        NonZeroUsize::new(8).ok_or_else(|| io::Error::other("non-zero"))?,
-        Duration::from_millis(5),
-    );
-    run_paced_codec_test(
-        vec![b'a'; 64],
-        hotline_codec(),
-        SlowIoConfig::new().with_writer_pacing(pacing),
-        100,
-    )
-    .await
-}
-
-#[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn slow_reader_delays_outbound_draining() -> io::Result<()> {
-    let pacing = SlowIoPacing::new(
-        NonZeroUsize::new(16).ok_or_else(|| io::Error::other("non-zero"))?,
-        Duration::from_millis(5),
-    );
-    run_paced_codec_test(
-        vec![b'b'; 256],
-        hotline_codec(),
-        SlowIoConfig::new()
-            .with_reader_pacing(pacing)
-            .with_capacity(64),
-        200,
-    )
-    .await
+async fn paced_codec_single_payload(
+    #[case] case: (usize, Vec<u8>, bool, Option<usize>, u64),
+) -> io::Result<()> {
+    let (chunk_size, payload, slow_reader, capacity, final_advance_millis) = case;
+    let chunk = NonZeroUsize::new(chunk_size).ok_or_else(|| io::Error::other("non-zero"))?;
+    let pacing = SlowIoPacing::new(chunk, Duration::from_millis(5));
+    let mut config = if slow_reader {
+        SlowIoConfig::new().with_reader_pacing(pacing)
+    } else {
+        SlowIoConfig::new().with_writer_pacing(pacing)
+    };
+    if let Some(cap) = capacity {
+        config = config.with_capacity(cap);
+    }
+    run_paced_codec_test(payload, hotline_codec(), config, final_advance_millis).await
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
