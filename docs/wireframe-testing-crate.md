@@ -29,7 +29,8 @@ deterministically without external exporters.
 - `src/helpers.rs` provides in-memory drivers and codec-aware encode/decode
   helpers.
 - `src/integration_helpers.rs` exposes shared helpers for integration tests.
-- `src/observability.rs` implements the observability harness from ADR 006.
+- `src/observability/` implements the observability harness from ADR 006,
+  split into `mod.rs`, `labels.rs`, and `assertions.rs`.
 - `src/logging.rs` retains the standalone `LoggerHandle` fixture.
 - `src/fixtures/` (or `src/codec_fixtures.rs`) stores reusable frame fixtures
   for the default codec and example codecs.
@@ -47,7 +48,7 @@ futures = "0.3"
 tokio-util = { version = "0.7", features = ["codec"] }
 log = "0.4"
 logtest = "2"
-metrics = "0.24.2"
+metrics = "0.24.3"
 metrics-util = "0.20.0"
 rstest = "0.18.2"
 ```
@@ -237,23 +238,42 @@ Key behaviours:
 - When the `metrics` feature is disabled, the handle should still capture logs
   and return empty metric snapshots.
 
-Proposed public API:
+Implemented public API:
 
 ```rust,no_run
-use metrics_util::debugging::Snapshot;
+use log::Level;
 use wireframe_testing::LoggerHandle;
+use wireframe_testing::observability::Labels;
 
 pub struct ObservabilityHandle { /* fields omitted */ }
 
 impl ObservabilityHandle {
     pub fn new() -> Self;
     pub fn logs(&mut self) -> &mut LoggerHandle;
-    pub fn snapshot(&self) -> Snapshot;
+    pub fn recorder(&self) -> &metrics_util::debugging::DebuggingRecorder;
+    pub fn snapshot(&mut self);
     pub fn clear(&mut self);
-    pub fn counter(&self, name: &str, labels: &[(&str, &str)]) -> u64;
+    pub fn counter(&self, name: &str, labels: impl Into<Labels>) -> u64;
+    pub fn counter_without_labels(&self, name: &str) -> u64;
+    pub fn codec_error_counter(
+        &self, error_type: &str, recovery_policy: &str,
+    ) -> u64;
+    pub fn assert_counter(
+        &self, name: &str, labels: impl Into<Labels>, expected: u64,
+    ) -> Result<(), String>;
+    pub fn assert_no_metric(&self, name: &str) -> Result<(), String>;
+    pub fn assert_codec_error_counter(
+        &self, error_type: &str, recovery_policy: &str, expected: u64,
+    ) -> Result<(), String>;
+    pub fn assert_log_contains(
+        &mut self, substring: &str,
+    ) -> Result<(), String>;
+    pub fn assert_log_at_level(
+        &mut self, level: Level, substring: &str,
+    ) -> Result<(), String>;
 }
 
-pub fn observability() -> ObservabilityHandle;
+pub fn obs_handle() -> ObservabilityHandle;
 ```
 
 Tests using `ObservabilityHandle` should not run concurrently; the global lock
@@ -271,7 +291,7 @@ messages that include call-site information in debug builds.
 use std::sync::Arc;
 
 use wireframe::app::{Envelope, WireframeApp};
-use wireframe_testing::{decode_frames, drive_with_bincode, observability};
+use wireframe_testing::{decode_frames, drive_with_bincode, obs_handle};
 
 #[tokio::test]
 async fn round_trips_with_codec() -> std::io::Result<()> {
@@ -288,10 +308,14 @@ async fn round_trips_with_codec() -> std::io::Result<()> {
 async fn captures_metrics() -> std::io::Result<()> {
     use wireframe::metrics::{Direction, FRAMES_PROCESSED, inc_frames};
 
-    let mut obs = observability();
+    let mut obs = obs_handle();
     obs.clear();
 
-    inc_frames(Direction::Inbound);
+    metrics::with_local_recorder(obs.recorder(), || {
+        inc_frames(Direction::Inbound);
+    });
+
+    obs.snapshot();
     assert_eq!(
         obs.counter(FRAMES_PROCESSED, &[("direction", "inbound")]),
         1

@@ -100,12 +100,12 @@ implementation and pass after).
 
 - Fragment payloads are `FRAG`-prefixed raw bytes produced by
   `encode_fragment_payload`. These must be wrapped inside a serialized
-  `Envelope` before codec framing so the application's deserializer
-  accepts them. Without wrapping, accumulating deserialization failures
-  would close the connection after 10 frames (see
-  `MAX_DESER_FAILURES` in `src/app/inbound_handler.rs`).
-  `fragment_and_encode` now creates an `Envelope` with route ID 1 for
-  each fragment and serializes it with `BincodeSerializer`.
+  `Envelope` before codec framing so the application's deserializer accepts
+  them. Without wrapping, accumulating deserialization failures would close the
+  connection after 10 frames (see `MAX_DESER_FAILURES` in
+  `src/app/inbound_handler.rs`). `fragment_and_encode` now creates an
+  `Envelope` with route ID 1 for each fragment and serializes it with
+  `BincodeSerializer`.
 
 ## Decision log
 
@@ -183,8 +183,8 @@ Established BDD pattern (exemplified by `codec_test_harness`):
    `tokio::runtime::Runtime::new()?.block_on()`).
 4. Scenario bindings: `tests/scenarios/<name>_scenarios.rs` (uses
    `#[scenario(path = "...", name = "...")]`;
-   `#[expect(unused_variables, reason = "rstest-bdd wires steps
-   via parameters without using them directly")]`).
+   `#[expect(unused_variables, reason = "rstest-bdd wires steps`
+   `via parameters without using them directly")]`).
 5. Module registration: add `mod <name>;` to `tests/fixtures/mod.rs`,
    `mod <name>_steps;` to `tests/steps/mod.rs`, `mod <name>_scenarios;` to
    `tests/scenarios/mod.rs`.
@@ -474,8 +474,8 @@ Step functions delegating to world methods, following the
 #### Scenarios: `tests/scenarios/partial_frame_feeding_scenarios.rs`
 
 One `#[scenario]` function per feature scenario, each with
-`#[expect(unused_variables, reason = "rstest-bdd wires steps
-via parameters without using them directly")]`.
+`#[expect(unused_variables, reason = "rstest-bdd wires steps`
+`via parameters without using them directly")]`.
 
 ### Stage G: Update `docs/users-guide.md`
 

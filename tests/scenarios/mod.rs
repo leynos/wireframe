@@ -40,4 +40,5 @@ mod partial_frame_feeding_scenarios;
 mod request_parts_scenarios;
 mod serializer_boundaries_scenarios;
 mod stream_end_scenarios;
+mod test_observability_scenarios;
 mod unified_codec_scenarios;
