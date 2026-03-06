@@ -435,6 +435,41 @@ cargo run --example client_echo_login --features examples
     parallel writes on one transport;
   - leases may coexist up to that budget, but actual socket I/O remains
     serialized by the slot's single checked-out client connection.
+- For screen readers: the following flowchart shows how
+  `WireframeClientPool::acquire()` selects a slot, enforces the per-socket
+  admission limit, decides between warm reuse and idle recycle, reruns the
+  preamble only for recycled or newly opened sockets, and returns a
+  `PooledClientLease` whose drop releases the permit and refreshes slot usage
+  time.
+
+```mermaid
+flowchart TD
+    A[Start acquire on WireframeClientPool] --> B[Select PoolSlot]
+    B --> C[Try to obtain in-flight permit]
+    C -->|no permit available| D[Wait or fail according to policy]
+    C -->|permit acquired| E[Check if slot has existing client]
+    E -->|no client| F[Open new TcpStream]
+    E -->|client exists| G[Compute elapsed_idle = now - last_used]
+
+    G -->|elapsed_idle > idle_timeout| H[Recycle socket]
+    G -->|elapsed_idle <= idle_timeout| I[Reuse existing client]
+
+    H --> J[Close existing client and TcpStream]
+    J --> F
+
+    F --> K[Run preamble on new TcpStream]
+    K --> L[Construct new WireframeClient]
+    L --> M[Store client in slot and set last_used = now]
+
+    I --> N[Update last_used = now]
+
+    M --> O[Create PooledClientLease for slot]
+    N --> O
+    O --> P[Return PooledClientLease to caller]
+    P --> Q[On lease drop, release permit and update last_used]
+    Q --> R[End]
+```
+
 - Follow-up posture: if future roadmap items require deeper multiplex fairness
   or true per-socket concurrent transport use, revisit this boundary and decide
   whether to extend or replace the slot wrapper.
