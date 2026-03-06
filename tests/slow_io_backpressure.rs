@@ -21,8 +21,13 @@ use wireframe_testing::{
 };
 
 const MAX_CAPACITY_PLUS_ONE: usize = (1024 * 1024 * 10) + 1;
+type EchoRoute = Arc<dyn Fn(&Envelope) -> BoxFuture<'static, ()> + Send + Sync>;
 
 fn hotline_codec() -> HotlineFrameCodec { HotlineFrameCodec::new(4096) }
+
+fn echo_route() -> EchoRoute {
+    Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) })
+}
 
 fn build_echo_app(
     codec: HotlineFrameCodec,
@@ -30,20 +35,14 @@ fn build_echo_app(
     WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .map_err(|e| io::Error::other(format!("app init: {e}")))?
         .with_codec(codec)
-        .route(
-            1,
-            Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) }),
-        )
+        .route(1, echo_route())
         .map_err(|e| io::Error::other(format!("route: {e}")))
 }
 
 fn build_length_delimited_echo_app() -> io::Result<WireframeApp<BincodeSerializer, (), Envelope>> {
     WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .map_err(|e| io::Error::other(format!("app init: {e}")))?
-        .route(
-            1,
-            Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) }),
-        )
+        .route(1, echo_route())
         .map_err(|e| io::Error::other(format!("route: {e}")))
 }
 
@@ -79,15 +78,20 @@ async fn assert_task_pending(task: &JoinHandle<io::Result<Vec<Vec<u8>>>>) -> io:
     Ok(())
 }
 
-#[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn slow_writer_delays_inbound_completion() -> io::Result<()> {
-    let codec = hotline_codec();
-    let payload = vec![b'a'; 64];
+async fn run_paced_codec_test(
+    payload: Vec<u8>,
+    codec: HotlineFrameCodec,
+    config: SlowIoConfig,
+    final_advance_millis: u64,
+) -> io::Result<()> {
     let serialized = serialize_envelope(&payload)?;
 
-    let baseline_app = build_echo_app(codec.clone())?;
-    let baseline =
-        drive_with_codec_payloads(baseline_app, &codec, vec![serialized.clone()]).await?;
+    let baseline = drive_with_codec_payloads(
+        build_echo_app(codec.clone())?,
+        &codec,
+        vec![serialized.clone()],
+    )
+    .await?;
     let baseline_lengths = deserialize_echo_lengths(&baseline)?;
     if baseline_lengths != vec![payload.len()] {
         return Err(io::Error::other(format!(
@@ -96,11 +100,6 @@ async fn slow_writer_delays_inbound_completion() -> io::Result<()> {
     }
 
     let paced_app = build_echo_app(codec.clone())?;
-    let pacing = SlowIoPacing::new(
-        NonZeroUsize::new(8).ok_or_else(|| io::Error::other("non-zero"))?,
-        Duration::from_millis(5),
-    );
-    let config = SlowIoConfig::new().with_writer_pacing(pacing);
     let task = tokio::spawn(async move {
         drive_with_slow_codec_payloads(paced_app, &codec, vec![serialized], config).await
     });
@@ -109,7 +108,7 @@ async fn slow_writer_delays_inbound_completion() -> io::Result<()> {
     tokio::time::advance(Duration::from_millis(20)).await;
     assert_task_pending(&task).await?;
 
-    tokio::time::advance(Duration::from_millis(100)).await;
+    tokio::time::advance(Duration::from_millis(final_advance_millis)).await;
     let response = task.await.map_err(|error| join_error(&error))??;
     let lengths = deserialize_echo_lengths(&response)?;
     if lengths != vec![payload.len()] {
@@ -121,46 +120,35 @@ async fn slow_writer_delays_inbound_completion() -> io::Result<()> {
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn slow_writer_delays_inbound_completion() -> io::Result<()> {
+    let pacing = SlowIoPacing::new(
+        NonZeroUsize::new(8).ok_or_else(|| io::Error::other("non-zero"))?,
+        Duration::from_millis(5),
+    );
+    run_paced_codec_test(
+        vec![b'a'; 64],
+        hotline_codec(),
+        SlowIoConfig::new().with_writer_pacing(pacing),
+        100,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn slow_reader_delays_outbound_draining() -> io::Result<()> {
-    let codec = hotline_codec();
-    let payload = vec![b'b'; 256];
-    let serialized = serialize_envelope(&payload)?;
-
-    let baseline_app = build_echo_app(codec.clone())?;
-    let baseline =
-        drive_with_codec_payloads(baseline_app, &codec, vec![serialized.clone()]).await?;
-    let baseline_lengths = deserialize_echo_lengths(&baseline)?;
-    if baseline_lengths != vec![payload.len()] {
-        return Err(io::Error::other(format!(
-            "unexpected baseline echo lengths: {baseline_lengths:?}"
-        )));
-    }
-
-    let paced_app = build_echo_app(codec.clone())?;
     let pacing = SlowIoPacing::new(
         NonZeroUsize::new(16).ok_or_else(|| io::Error::other("non-zero"))?,
         Duration::from_millis(5),
     );
-    let config = SlowIoConfig::new()
-        .with_reader_pacing(pacing)
-        .with_capacity(64);
-    let task = tokio::spawn(async move {
-        drive_with_slow_codec_payloads(paced_app, &codec, vec![serialized], config).await
-    });
-
-    assert_task_pending(&task).await?;
-    tokio::time::advance(Duration::from_millis(20)).await;
-    assert_task_pending(&task).await?;
-
-    tokio::time::advance(Duration::from_millis(200)).await;
-    let response = task.await.map_err(|error| join_error(&error))??;
-    let lengths = deserialize_echo_lengths(&response)?;
-    if lengths != vec![payload.len()] {
-        return Err(io::Error::other(format!(
-            "unexpected paced echo lengths: {lengths:?}"
-        )));
-    }
-    Ok(())
+    run_paced_codec_test(
+        vec![b'b'; 256],
+        hotline_codec(),
+        SlowIoConfig::new()
+            .with_reader_pacing(pacing)
+            .with_capacity(64),
+        200,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
