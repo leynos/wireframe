@@ -45,10 +45,9 @@ where
     type Target = WireframeClient<S, RewindStream<TcpStream>, C>;
 
     fn deref(&self) -> &Self::Target {
-        match self.client.as_ref() {
-            Some(client) => client,
-            None => panic!("managed client connection must hold a client (dropped in Drop)"),
-        }
+        self.client
+            .as_ref()
+            .expect("managed client connection must hold a client (dropped in Drop)")
     }
 }
 
@@ -58,10 +57,9 @@ where
     C: Send + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        match self.client.as_mut() {
-            Some(client) => client,
-            None => panic!("managed client connection must hold a client (dropped in Drop)"),
-        }
+        self.client
+            .as_mut()
+            .expect("managed client connection must hold a client (dropped in Drop)")
     }
 }
 
