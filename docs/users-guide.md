@@ -460,7 +460,7 @@ Available slow-I/O helper functions:
   output bytes.
 - `drive_with_slow_codec_payloads` — codec-aware payloads, returns decoded
   payload byte vectors.
-- `drive_with_slow_codec_frames` — codec-aware payloads, returns decoded
+- `drive_with_slow_codec_frames` — codec-aware frames, returns decoded
   `F::Frame` values.
 
 These helpers are designed for deterministic tests under paused Tokio time. Use

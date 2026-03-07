@@ -21,7 +21,8 @@ observable when:
 1. New `rstest` integration tests fail before implementation and pass after.
 2. New `rstest-bdd` v0.5.0 scenarios prove slow-reader and slow-writer
    behaviour.
-3. Documentation describes the new public helper API and expected behaviour.
+3. Documentation describes the new public helper application programming
+   interface (API) and expected behaviour.
 4. `docs/roadmap.md` marks `8.5.2` as done.
 
 ## Constraints
@@ -373,7 +374,7 @@ pub struct SlowIoConfig {
     pub capacity: usize,
 }
 
-pub async fn drive_with_slow_io_payloads<S, C, E>(
+pub async fn drive_with_slow_payloads<S, C, E>(
     app: wireframe::app::WireframeApp<S, C, E>,
     payloads: Vec<Vec<u8>>,
     config: SlowIoConfig,

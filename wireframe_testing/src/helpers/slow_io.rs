@@ -6,16 +6,13 @@
 
 use std::{io, num::NonZeroUsize, time::Duration};
 
-use bytes::BytesMut;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, DuplexStream, split},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, split},
     time::sleep,
 };
-use tokio_util::codec::{Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Packet, WireframeApp},
-    codec::FrameCodec,
-    frame::LengthFormat,
+    codec::{FrameCodec, LengthDelimitedFrameCodec},
 };
 
 use super::{
@@ -23,7 +20,6 @@ use super::{
     MAX_CAPACITY,
     TestSerializer,
     codec_ext::{decode_frames_with_codec, encode_payloads_with_codec, extract_payloads},
-    new_test_codec,
 };
 
 /// Pacing configuration for one I/O direction.
@@ -122,7 +118,7 @@ async fn write_with_optional_pacing<W>(
     pacing: Option<SlowIoPacing>,
 ) -> io::Result<()>
 where
-    W: AsyncWriteExt + Unpin,
+    W: AsyncWrite + Unpin,
 {
     match pacing {
         None => writer.write_all(bytes).await,
@@ -132,9 +128,9 @@ where
             let mut offset = 0;
             while offset < total {
                 let end = (offset + step).min(total);
-                let chunk = bytes
-                    .get(offset..end)
-                    .ok_or_else(|| io::Error::other("writer chunk slice out of bounds"))?;
+                let chunk = bytes.get(offset..end).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::Other, "writer chunk slice out of bounds")
+                })?;
                 writer.write_all(chunk).await?;
                 offset = end;
                 pause_between_chunks(pacing.delay, offset < total).await;
@@ -149,7 +145,7 @@ async fn read_with_optional_pacing<R>(
     pacing: Option<SlowIoPacing>,
 ) -> io::Result<Vec<u8>>
 where
-    R: AsyncReadExt + Unpin,
+    R: AsyncRead + Unpin,
 {
     match pacing {
         None => {
@@ -159,17 +155,19 @@ where
         }
         Some(pacing) => {
             let mut out = Vec::new();
+            let mut should_pause_before_read = false;
             let mut buf = vec![0; pacing.chunk_size.get()];
             loop {
+                pause_between_chunks(pacing.delay, should_pause_before_read).await;
                 let read = reader.read(&mut buf).await?;
                 if read == 0 {
                     break;
                 }
-                let chunk = buf
-                    .get(..read)
-                    .ok_or_else(|| io::Error::other("reader chunk slice out of bounds"))?;
+                let chunk = buf.get(..read).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::Other, "reader chunk slice out of bounds")
+                })?;
                 out.extend_from_slice(chunk);
-                pause_between_chunks(pacing.delay, true).await;
+                should_pause_before_read = true;
             }
             Ok(out)
         }
@@ -198,7 +196,10 @@ where
             Ok(()) => Ok(()),
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
-                Err(io::Error::other(format!("server task failed: {panic_msg}")))
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("server task failed: {panic_msg}"),
+                ))
             }
         }
     };
@@ -216,37 +217,9 @@ where
 }
 
 fn encode_length_delimited_payloads(payloads: Vec<Vec<u8>>) -> io::Result<Vec<u8>> {
-    let mut codec: LengthDelimitedCodec = new_test_codec(DEFAULT_CAPACITY);
-    let mut wire = Vec::new();
-    for payload in payloads {
-        let header_len = LengthFormat::default().bytes();
-        let mut buf = BytesMut::with_capacity(payload.len() + header_len);
-        codec.encode(payload.into(), &mut buf).map_err(|error| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("frame encode failed: {error}"),
-            )
-        })?;
-        wire.extend_from_slice(&buf);
-    }
-    Ok(wire)
-}
-
-async fn drive_slow_codec_frames_internal<F, H, Fut>(
-    handler: H,
-    codec: &F,
-    payloads: Vec<Vec<u8>>,
-    config: SlowIoConfig,
-) -> io::Result<Vec<F::Frame>>
-where
-    F: FrameCodec,
-    H: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
-{
-    let encoded = encode_payloads_with_codec(codec, payloads)?;
-    let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
-    let raw = drive_slow_internal(handler, wire_bytes, config).await?;
-    decode_frames_with_codec(codec, raw)
+    let codec = LengthDelimitedFrameCodec::new(DEFAULT_CAPACITY);
+    let frames = encode_payloads_with_codec(&codec, payloads)?;
+    Ok(frames.into_iter().flatten().collect())
 }
 
 /// Drive `app` with pre-framed bytes using optional slow writer and reader
@@ -359,11 +332,13 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    drive_slow_codec_frames_internal(
+    let encoded = encode_payloads_with_codec(codec, payloads)?;
+    let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
+    let raw = drive_slow_internal(
         |server| async move { app.handle_connection(server).await },
-        codec,
-        payloads,
+        wire_bytes,
         config,
     )
-    .await
+    .await?;
+    decode_frames_with_codec(codec, raw)
 }

@@ -15,9 +15,13 @@ use wireframe::{
 use wireframe_testing::{
     SlowIoConfig,
     SlowIoPacing,
+    decode_frames,
     drive_with_codec_payloads,
     drive_with_slow_codec_payloads,
     drive_with_slow_frames,
+    drive_with_slow_payloads,
+    encode_frame,
+    new_test_codec,
 };
 
 const MAX_CAPACITY_PLUS_ONE: usize = (1024 * 1024 * 10) + 1;
@@ -27,6 +31,12 @@ fn hotline_codec() -> HotlineFrameCodec { HotlineFrameCodec::new(4096) }
 
 fn echo_route() -> EchoRoute {
     Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) })
+}
+
+fn panic_route() -> EchoRoute {
+    Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> {
+        Box::pin(async { panic!("intentional handler panic for test") })
+    })
 }
 
 fn build_echo_app(
@@ -64,6 +74,30 @@ fn deserialize_echo_lengths(bytes: &[Vec<u8>]) -> io::Result<Vec<usize>> {
             Ok(env.payload_bytes().len())
         })
         .collect()
+}
+
+fn deserialize_echo_payloads(bytes: &[Vec<u8>]) -> io::Result<Vec<Vec<u8>>> {
+    bytes
+        .iter()
+        .map(|raw| {
+            let (env, _) = BincodeSerializer
+                .deserialize::<Envelope>(raw)
+                .map_err(|e| {
+                    io::Error::new(io::ErrorKind::InvalidData, format!("deserialize: {e}"))
+                })?;
+            Ok(env.payload_bytes().to_vec())
+        })
+        .collect()
+}
+
+fn build_panic_app(
+    codec: HotlineFrameCodec,
+) -> io::Result<WireframeApp<BincodeSerializer, (), Envelope, HotlineFrameCodec>> {
+    WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .map_err(|e| io::Error::other(format!("app init: {e}")))?
+        .with_codec(codec)
+        .route(1, panic_route())
+        .map_err(|e| io::Error::other(format!("route: {e}")))
 }
 
 fn join_error(error: &tokio::task::JoinError) -> io::Error {
@@ -114,6 +148,75 @@ async fn run_paced_codec_test(
     if lengths != vec![payload.len()] {
         return Err(io::Error::other(format!(
             "unexpected paced echo lengths: {lengths:?}"
+        )));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn slow_frames_echo_happy_path() -> io::Result<()> {
+    let payload_a = serialize_envelope(b"foo")?;
+    let payload_b = serialize_envelope(b"bar")?;
+    let mut codec = new_test_codec(4096);
+    let frame_a = encode_frame(&mut codec, payload_a.clone())?;
+    let frame_b = encode_frame(&mut codec, payload_b.clone())?;
+    let expected = [frame_a.clone(), frame_b.clone()].concat();
+    let config = SlowIoConfig::new()
+        .with_writer_pacing(SlowIoPacing::new(
+            NonZeroUsize::new(2).ok_or_else(|| io::Error::other("non-zero"))?,
+            Duration::ZERO,
+        ))
+        .with_reader_pacing(SlowIoPacing::new(
+            NonZeroUsize::new(3).ok_or_else(|| io::Error::other("non-zero"))?,
+            Duration::ZERO,
+        ))
+        .with_capacity(32);
+
+    let output = drive_with_slow_frames(
+        build_length_delimited_echo_app()?,
+        vec![frame_a, frame_b],
+        config,
+    )
+    .await?;
+
+    if output != expected {
+        return Err(io::Error::other(format!(
+            "unexpected raw output bytes: expected {expected:?}, got {output:?}"
+        )));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn slow_payloads_echo_happy_path() -> io::Result<()> {
+    let expected_payloads = vec![b"hello".to_vec(), b"world".to_vec(), b"slow-io".to_vec()];
+    let serialized_payloads = expected_payloads
+        .iter()
+        .map(|payload| serialize_envelope(payload))
+        .collect::<io::Result<Vec<_>>>()?;
+    let config = SlowIoConfig::new()
+        .with_writer_pacing(SlowIoPacing::new(
+            NonZeroUsize::new(3).ok_or_else(|| io::Error::other("non-zero"))?,
+            Duration::ZERO,
+        ))
+        .with_reader_pacing(SlowIoPacing::new(
+            NonZeroUsize::new(2).ok_or_else(|| io::Error::other("non-zero"))?,
+            Duration::ZERO,
+        ))
+        .with_capacity(32);
+
+    let output = drive_with_slow_payloads(
+        build_length_delimited_echo_app()?,
+        serialized_payloads,
+        config,
+    )
+    .await?;
+    let frames = decode_frames(output)?;
+    let payloads = deserialize_echo_payloads(&frames)?;
+
+    if payloads != expected_payloads {
+        return Err(io::Error::other(format!(
+            "unexpected echoed payloads: expected {expected_payloads:?}, got {payloads:?}"
         )));
     }
     Ok(())
@@ -172,6 +275,40 @@ async fn combined_slow_reader_and_writer_round_trip_cleanly() -> io::Result<()> 
     if lengths != vec![payload_a.len(), payload_b.len()] {
         return Err(io::Error::other(format!(
             "unexpected combined echo lengths: {lengths:?}"
+        )));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn panic_in_server_is_mapped_to_io_error_other() -> io::Result<()> {
+    let codec = hotline_codec();
+    let serialized = serialize_envelope(b"panic-test-payload")?;
+    let error = drive_with_slow_codec_payloads(
+        build_panic_app(codec.clone())?,
+        &codec,
+        vec![serialized],
+        SlowIoConfig::new(),
+    )
+    .await
+    .expect_err("panic should be mapped into io::Error");
+
+    if error.kind() != io::ErrorKind::Other {
+        return Err(io::Error::other(format!(
+            "expected Other kind for panic mapping, got {:?}",
+            error.kind()
+        )));
+    }
+
+    let message = error.to_string();
+    if !message.contains("server task failed") {
+        return Err(io::Error::other(format!(
+            "panic-mapping error missing preface: {message}"
+        )));
+    }
+    if !message.contains("intentional handler panic for test") {
+        return Err(io::Error::other(format!(
+            "panic-mapping error missing panic message: {message}"
         )));
     }
     Ok(())
