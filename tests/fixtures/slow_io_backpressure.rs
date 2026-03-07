@@ -216,6 +216,10 @@ impl SlowIoBackpressureWorld {
     }
 
     fn start_drive(&mut self, payload_len: usize, config: SlowIoConfig) -> TestResult {
+        if self.task.as_ref().is_some_and(|task| !task.is_finished()) {
+            return Err("slow-io drive is already running".into());
+        }
+
         let app = self.build_app()?;
         let codec = HotlineFrameCodec::new(
             self.max_frame_length

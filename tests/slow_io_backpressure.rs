@@ -271,10 +271,12 @@ async fn combined_slow_reader_and_writer_round_trip_cleanly() -> io::Result<()> 
     assert_task_pending(&task).await?;
     tokio::time::advance(Duration::from_millis(250)).await;
     let response = task.await.map_err(|error| join_error(&error))??;
-    let lengths = deserialize_echo_lengths(&response)?;
-    if lengths != vec![payload_a.len(), payload_b.len()] {
+    let actual_payloads = deserialize_echo_payloads(&response)?;
+    let expected_payloads = vec![payload_a.clone(), payload_b.clone()];
+    if actual_payloads != expected_payloads {
         return Err(io::Error::other(format!(
-            "unexpected combined echo lengths: {lengths:?}"
+            "unexpected combined echo payloads: expected {expected_payloads:?}, got \
+             {actual_payloads:?}"
         )));
     }
     Ok(())

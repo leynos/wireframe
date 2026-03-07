@@ -73,7 +73,7 @@ observable when:
 - [x] (2026-03-05 17:40Z) Drafted ExecPlan for roadmap item `8.5.2`.
 - [x] (2026-03-06 00:10Z) Updated scope tolerance to fit the required helper,
   BDD, and documentation footprint.
-- [x] (2026-03-06 01:35Z) Finalised additive slow-I/O helper API around
+- [x] (2026-03-06 01:35Z) Finalized additive slow-I/O helper API around
   `SlowIoPacing` and `SlowIoConfig`.
 - [x] (2026-03-06 01:35Z) Implemented slow writer and slow reader simulation in
   `wireframe_testing`.
@@ -81,7 +81,7 @@ observable when:
   reader pacing, combined pacing, and config validation.
 - [x] (2026-03-06 01:35Z) Added `rstest-bdd` feature, fixture, steps, and
   scenario bindings for slow-I/O back-pressure behaviour.
-- [x] (2026-03-06 01:35Z) Updated design docs, users guide, and roadmap entry
+- [x] (2026-03-06 01:35Z) Updated design docs, user's guide, and roadmap entry
   `8.5.2`.
 - [x] (2026-03-06 01:35Z) Ran quality gates and captured logs. Rust gates pass;
   full-repo `markdownlint` still reports pre-existing baseline issues outside
@@ -199,7 +199,7 @@ Relevant current files and why they matter:
 
 ## Plan of work
 
-### Stage A: Finalise slow-I/O helper contract (no behavioural changes yet)
+### Stage A: Finalize slow-I/O helper contract (no behavioural changes yet)
 
 Define additive API in a new helper module (for example
 `wireframe_testing/src/helpers/slow_io.rs`) with:
