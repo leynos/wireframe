@@ -35,6 +35,8 @@ fn when_client_pool_exhausts_in_flight_budget(
 
 #[when("client pool idles past the recycle timeout")]
 fn when_client_pool_idles_past_timeout(client_pool_world: &mut ClientPoolWorld) -> TestResult {
+    // This scenario uses paused time plus `advance()`, which is only
+    // deterministic on a current-thread runtime.
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;

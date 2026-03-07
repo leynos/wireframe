@@ -86,6 +86,21 @@ impl ClientError {
             "connection closed by peer",
         ))
     }
+
+    /// Return `true` when this error leaves the underlying connection unsafe
+    /// to reuse in the pool.
+    #[must_use]
+    pub fn should_recycle_connection(&self) -> bool {
+        match self {
+            Self::Wireframe(_)
+            | Self::PreambleWrite(_)
+            | Self::PreambleRead(_)
+            | Self::PreambleTimeout
+            | Self::CorrelationMismatch { .. }
+            | Self::StreamCorrelationMismatch { .. } => true,
+            Self::Serialize(_) | Self::PreambleEncode(_) => false,
+        }
+    }
 }
 
 impl From<io::Error> for ClientError {
@@ -126,5 +141,32 @@ mod tests {
             ),
             "decode errors should map to ClientError::Wireframe(WireframeError::Protocol(_))"
         );
+    }
+
+    #[test]
+    fn should_recycle_connection_returns_true_for_transport_and_protocol_failures() {
+        let io_error = ClientError::from(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "transport failure",
+        ));
+        let decode_error = ClientError::decode(Box::new(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "decode failure",
+        )));
+        let correlation_error = ClientError::CorrelationMismatch {
+            expected: Some(1),
+            received: Some(2),
+        };
+
+        assert!(io_error.should_recycle_connection());
+        assert!(decode_error.should_recycle_connection());
+        assert!(correlation_error.should_recycle_connection());
+    }
+
+    #[test]
+    fn should_recycle_connection_returns_false_for_serialize_failures() {
+        let error = ClientError::Serialize(Box::new(io::Error::other("serialize failure")));
+
+        assert!(!error.should_recycle_connection());
     }
 }

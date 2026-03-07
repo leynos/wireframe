@@ -1,7 +1,6 @@
 //! `ClientPoolWorld` fixture for rstest-bdd pooled-client scenarios.
 
 use std::{
-    net::SocketAddr,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -9,137 +8,17 @@ use std::{
     time::Duration,
 };
 
-use futures::{FutureExt, SinkExt, StreamExt};
 use rstest::fixture;
-use tokio::{net::TcpListener, task::JoinHandle, time::timeout};
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio::time::timeout;
 use wireframe::{
-    client::{ClientPoolConfig, WireframeClient, WireframeClientPool},
-    preamble::{read_preamble, write_preamble},
-    serializer::BincodeSerializer,
+    client::ClientPoolConfig,
+    test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
 };
 pub use wireframe_testing::TestResult;
 
-#[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-pub struct ClientHello {
-    version: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-struct ServerAck {
-    accepted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-struct Ping(u8);
-
-#[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
-struct Pong(u8);
-
-struct PoolServer {
-    addr: SocketAddr,
-    preamble_count: Arc<AtomicUsize>,
-    connection_count: Arc<AtomicUsize>,
-    handle: JoinHandle<()>,
-}
-
-async fn handle_pool_connection(
-    mut stream: tokio::net::TcpStream,
-    preamble_count: Arc<AtomicUsize>,
-    connection_count: Arc<AtomicUsize>,
-) {
-    connection_count.fetch_add(1, Ordering::SeqCst);
-    let preamble = read_preamble::<_, ClientHello>(&mut stream).await;
-    let Ok((_hello, _leftover)) = preamble else {
-        return;
-    };
-    preamble_count.fetch_add(1, Ordering::SeqCst);
-    if write_preamble(&mut stream, &ServerAck { accepted: true })
-        .await
-        .is_err()
-    {
-        return;
-    }
-
-    let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
-    loop {
-        let frame = framed.next().await;
-        let Some(Ok(bytes)) = frame else {
-            break;
-        };
-        let decoded = bincode::decode_from_slice::<Ping, _>(&bytes, bincode::config::standard());
-        let Ok((ping, _)) = decoded else {
-            break;
-        };
-        let payload = bincode::encode_to_vec(Pong(ping.0), bincode::config::standard());
-        let Ok(payload) = payload else {
-            break;
-        };
-        if framed.send(payload.into()).await.is_err() {
-            break;
-        }
-    }
-}
-
-async fn run_pool_accept_loop(
-    listener: TcpListener,
-    preamble_count: Arc<AtomicUsize>,
-    connection_count: Arc<AtomicUsize>,
-) {
-    loop {
-        let accept_result = listener.accept().await;
-        let Ok((stream, _)) = accept_result else {
-            break;
-        };
-        tokio::spawn(handle_pool_connection(
-            stream,
-            preamble_count.clone(),
-            connection_count.clone(),
-        ));
-    }
-}
-
-async fn read_ack(stream: &mut tokio::net::TcpStream) -> std::io::Result<Vec<u8>> {
-    let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
-        .await
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    if ack.accepted {
-        Ok(leftover)
-    } else {
-        Err(std::io::Error::other("server rejected preamble"))
-    }
-}
-
-impl PoolServer {
-    async fn start() -> std::io::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let preamble_count = Arc::new(AtomicUsize::new(0));
-        let connection_count = Arc::new(AtomicUsize::new(0));
-        let server_preamble_count = preamble_count.clone();
-        let server_connection_count = connection_count.clone();
-        let handle = tokio::spawn(run_pool_accept_loop(
-            listener,
-            server_preamble_count,
-            server_connection_count,
-        ));
-
-        Ok(Self {
-            addr,
-            preamble_count,
-            connection_count,
-            handle,
-        })
-    }
-}
-
-impl Drop for PoolServer {
-    fn drop(&mut self) { self.handle.abort(); }
-}
-
 pub struct ClientPoolWorld {
-    pool: Option<WireframeClientPool<BincodeSerializer, ClientHello, ()>>,
-    server: Option<PoolServer>,
+    pool: Option<TestClientPool>,
+    server: Option<PoolTestServer>,
     preamble_callback_count: Arc<AtomicUsize>,
     blocked_third_acquire: bool,
     recovered_after_release: bool,
@@ -167,25 +46,13 @@ pub fn client_pool_world() -> ClientPoolWorld {
 
 impl ClientPoolWorld {
     async fn start_server(&mut self) -> TestResult {
-        self.server = Some(PoolServer::start().await?);
+        self.server = Some(PoolTestServer::start().await?);
         Ok(())
     }
 
     async fn connect_pool(&mut self, config: ClientPoolConfig) -> TestResult {
         let addr = self.server.as_ref().ok_or("server missing")?.addr;
-        let preamble_callback_count = self.preamble_callback_count.clone();
-        let pool = WireframeClient::builder()
-            .with_preamble(ClientHello { version: 1 })
-            .on_preamble_success(move |_preamble, stream| {
-                let preamble_callback_count = preamble_callback_count.clone();
-                async move {
-                    preamble_callback_count.fetch_add(1, Ordering::SeqCst);
-                    read_ack(stream).await
-                }
-                .boxed()
-            })
-            .connect_pool(addr, config)
-            .await?;
+        let pool = build_pooled_client(addr, config, self.preamble_callback_count.clone()).await?;
         self.pool = Some(pool);
         Ok(())
     }
@@ -270,8 +137,7 @@ impl ClientPoolWorld {
     pub fn warm_reuse_preserved(&self) -> bool {
         self.preamble_callback_count.load(Ordering::SeqCst) == 1
             && self.server.as_ref().is_some_and(|server| {
-                server.preamble_count.load(Ordering::SeqCst) == 1
-                    && server.connection_count.load(Ordering::SeqCst) == 1
+                server.preamble_count() == 1 && server.connection_count() == 1
             })
     }
 
@@ -283,8 +149,7 @@ impl ClientPoolWorld {
         self.reconnected_after_idle
             && self.preamble_callback_count.load(Ordering::SeqCst) == 2
             && self.server.as_ref().is_some_and(|server| {
-                server.preamble_count.load(Ordering::SeqCst) == 2
-                    && server.connection_count.load(Ordering::SeqCst) == 2
+                server.preamble_count() == 2 && server.connection_count() == 2
             })
     }
 }

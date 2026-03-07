@@ -45,10 +45,9 @@ where
     type Target = WireframeClient<S, RewindStream<TcpStream>, C>;
 
     fn deref(&self) -> &Self::Target {
-        if let Some(client) = self.client.as_ref() {
-            client
-        } else {
-            panic!("managed client connection should always hold a client");
+        match self.client.as_ref() {
+            Some(client) => client,
+            None => panic!("managed client connection must hold a client (dropped in Drop)"),
         }
     }
 }
@@ -59,10 +58,9 @@ where
     C: Send + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        if let Some(client) = self.client.as_mut() {
-            client
-        } else {
-            panic!("managed client connection should always hold a client");
+        match self.client.as_mut() {
+            Some(client) => client,
+            None => panic!("managed client connection must hold a client (dropped in Drop)"),
         }
     }
 }
@@ -73,12 +71,22 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
-        if let Some(client) = self.client.take()
-            && let Ok(handle) = Handle::try_current()
-        {
+        let Some(client) = self.client.take() else {
+            return;
+        };
+
+        if let Ok(handle) = Handle::try_current() {
             handle.spawn(async move {
                 client.close().await;
             });
+            return;
+        }
+
+        if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            runtime.block_on(client.close());
         }
     }
 }

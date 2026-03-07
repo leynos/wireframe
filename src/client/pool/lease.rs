@@ -10,7 +10,6 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use super::slot::PoolSlot;
 use crate::{
-    WireframeError,
     app::Packet,
     client::ClientError,
     message::{DecodeWith, EncodeWith},
@@ -54,9 +53,7 @@ where
         }
     }
 
-    fn should_recycle(err: &ClientError) -> bool {
-        matches!(err, ClientError::Wireframe(WireframeError::Io(_)))
-    }
+    fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
 
     /// Send one message over the leased socket.
     ///

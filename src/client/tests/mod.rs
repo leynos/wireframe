@@ -4,6 +4,7 @@ mod error_handling;
 mod helpers;
 mod lifecycle;
 mod messaging;
+#[cfg(feature = "pool")]
 mod pool;
 mod request_hooks;
 mod send_streaming;

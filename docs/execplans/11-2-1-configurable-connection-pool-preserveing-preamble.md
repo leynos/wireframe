@@ -26,8 +26,8 @@ connections (no repeated preamble handshake), while idle connections are
 re-established automatically when they exceed the configured idle threshold.
 
 Trade-off accepted for `11.2.1`: more functionality now with battle-tested pool
-operations. If we later need deeper per-socket multiplex control, we will
-review and potentially revise the pool internals in a follow-up phase.
+operations. If deeper per-socket multiplex control is needed later, the pool
+internals will be reviewed and potentially revised in a follow-up phase.
 
 Observable success:
 
@@ -54,8 +54,8 @@ Observable success:
 - Introduce `bb8` as the pool lifecycle dependency.
 - Do not introduce additional pool crates beyond `bb8` for this milestone.
 - Unit tests must use `rstest` fixtures/patterns.
-- Behavioural tests must use `rstest-bdd` v0.5.0 with the existing
-  `feature + fixture + steps + scenarios` layout.
+- Behaviour-driven development (BDD) tests must use `rstest-bdd` v0.5.0 with
+  the existing `feature + fixture + steps + scenarios` layout.
 - BDD fixture parameter names in step functions must match fixture function
   names exactly.
 - Design decisions must be added to `docs/wireframe-client-design.md`.
@@ -140,17 +140,17 @@ Observable success:
   live in new modules/submodules.
 
 - Observation: deterministic idle recycling was more reliable on the slot
-  checkout path than by waiting for `bb8`'s background reaper alone.
-  Evidence: targeted idle-recycle test initially stayed on the warm socket
-  after virtual time advance; adding lazy recycle on checkout made the
-  behaviour deterministic. Impact: the final implementation still uses `bb8`
-  for socket lifecycle, but Wireframe now enforces idle recycle at acquire/use
-  boundaries as well.
+  checkout path than by waiting for `bb8`'s background reaper alone. Evidence:
+  targeted idle-recycle test initially stayed on the warm socket after virtual
+  time advance; adding lazy recycle on checkout made the behaviour
+  deterministic. Impact: the final implementation still uses `bb8` for socket
+  lifecycle, but Wireframe now enforces idle recycle at acquire/use boundaries
+  as well.
 
 - Observation: `make markdownlint` still fails on pre-existing unrelated
   baseline issues in
   `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`.
-  Evidence: MD013 line-length failures at lines 186 and 476 during this task's
+   Evidence: MD013 line-length failures at lines 186 and 476 during this task's
   validation run. Impact: all code/test gates for `11.2.1` are green, but full
   repository markdown lint remains blocked by unrelated existing content.
 
@@ -195,7 +195,8 @@ Validation evidence:
 - passing `make check-fmt`, `make lint`, `make test`, `make test-doc`,
   `make doctest-benchmark`, and `make nixie`; and
 - `make markdownlint` attempted but still failing only on unrelated baseline
-  MD013 issues in `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`.
+  MD013 issues in
+  `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`.
 
 ## Context and orientation
 
@@ -444,23 +445,43 @@ impl<S, P, C> WireframeClientBuilder<S, P, C> {
         self,
         addr: SocketAddr,
         pool_config: ClientPoolConfig,
-    ) -> Result<WireframeClientPool<S, C>, ClientError>;
+    ) -> Result<WireframeClientPool<S, P, C>, ClientError>;
 }
 
 // src/client/pool/pool.rs
-pub struct WireframeClientPool<S, C> { /* private */ }
-impl<S, C> WireframeClientPool<S, C> {
-    pub async fn acquire(&self) -> Result<PooledClientLease<S, C>, ClientError>;
+pub struct WireframeClientPool<S, P, C> { /* private */ }
+impl<S, P, C> WireframeClientPool<S, P, C> {
+    pub async fn acquire(&self) -> Result<PooledClientLease<S, P, C>, ClientError>;
     pub async fn close(self);
 }
 
 // src/client/pool/lease.rs
-pub struct PooledClientLease<S, C> { /* private */ }
-impl<S, C> std::ops::Deref for PooledClientLease<S, C> {
-    type Target = WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>;
+pub struct PooledClientLease<S, P, C> { /* private */ }
+impl<S, P, C> PooledClientLease<S, P, C> {
+    pub async fn send<M: EncodeWith<S>>(&self, message: &M)
+        -> Result<(), ClientError>;
+    pub async fn receive<M: DecodeWith<S>>(&self) -> Result<M, ClientError>;
+    pub async fn call<Req, Resp>(&self, request: &Req)
+        -> Result<Resp, ClientError>
+    where
+        Req: EncodeWith<S>,
+        Resp: DecodeWith<S>;
+    pub async fn send_envelope<M>(&self, envelope: M) -> Result<u64, ClientError>
+    where
+        M: Packet + EncodeWith<S>;
+    pub async fn receive_envelope<M>(&self) -> Result<M, ClientError>
+    where
+        M: Packet + DecodeWith<S>;
+    pub async fn call_correlated<M>(&self, request: M)
+        -> Result<M, ClientError>
+    where
+        M: Packet + EncodeWith<S> + DecodeWith<S>;
 }
-impl<S, C> std::ops::DerefMut for PooledClientLease<S, C> {}
 ```
+
+`PooledClientLease` no longer dereferences to `WireframeClient`; it forwards
+the pooled request methods directly so the pool retains ownership of per-socket
+checkout and recycle behaviour.
 
 Dependencies for this milestone:
 

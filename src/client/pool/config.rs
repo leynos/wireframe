@@ -42,6 +42,8 @@ impl Default for ClientPoolConfig {
 
 impl ClientPoolConfig {
     /// Set the number of physical sockets maintained by the pool.
+    ///
+    /// Values below `1` are clamped to `1`.
     #[must_use]
     pub fn pool_size(mut self, size: usize) -> Self {
         self.pool_size = size.max(1);
@@ -49,6 +51,8 @@ impl ClientPoolConfig {
     }
 
     /// Set the admission limit per physical socket.
+    ///
+    /// Values below `1` are clamped to `1`.
     #[must_use]
     pub fn max_in_flight_per_socket(mut self, limit: usize) -> Self {
         self.max_in_flight_per_socket = limit.max(1);
@@ -56,6 +60,8 @@ impl ClientPoolConfig {
     }
 
     /// Set how long an idle socket stays warm before being recycled.
+    ///
+    /// Durations below `1 ms` are clamped to `1 ms`.
     #[must_use]
     pub fn idle_timeout(mut self, timeout: Duration) -> Self {
         self.idle_timeout = timeout.max(Duration::from_millis(1));

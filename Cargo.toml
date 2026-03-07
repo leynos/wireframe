@@ -16,7 +16,7 @@ path = "src/lib.rs"
 doctest = true
 
 [package.metadata.docs.rs]
-features = ["metrics"]
+features = ["metrics", "pool"]
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
@@ -46,13 +46,13 @@ itoa = "1.0"
 static_assertions = "1.1.0"
 derive_more = { version = "2.0.1", features = ["display", "from"] }
 socket2 = "0.6.0"
-bb8 = "0.9.1"
+bb8 = { version = "0.9.1", optional = true }
 
 [dev-dependencies]
 rstest = "0.26.1"
 rstest-bdd = "0.5.0"
 rstest-bdd-macros = { version = "0.5.0", features = ["strict-compile-time-validation"] }
-wireframe = { path = ".", features = ["test-support"] }
+wireframe = { path = ".", features = ["test-support", "pool"] }
 wireframe_testing = { path = "./wireframe_testing" }
 logtest = "2.0.0"
 proptest = "1.7.0"
@@ -83,6 +83,7 @@ metrics-exporter-prometheus = { version = "0.17.2", optional = true, features = 
 [features]
 default = ["metrics", "serializer-bincode"]
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
+pool = ["dep:bb8"]
 serializer-bincode = []
 serializer-serde = []
 advanced-tests = []
@@ -189,7 +190,7 @@ required-features = ["examples"]
 [[test]]
 name = "bdd"
 path = "tests/bdd/mod.rs"
-required-features = ["advanced-tests"]
+required-features = ["advanced-tests", "pool"]
 
 [[test]]
 name = "concurrency_loom"

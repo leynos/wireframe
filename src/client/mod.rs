@@ -17,6 +17,7 @@ mod connect_parts;
 mod error;
 mod hooks;
 mod messaging;
+#[cfg(feature = "pool")]
 mod pool;
 mod preamble_builder;
 mod preamble_exchange;
@@ -39,6 +40,7 @@ pub use hooks::{
     ClientConnectionTeardownHandler,
     ClientErrorHandler,
 };
+#[cfg(feature = "pool")]
 pub use pool::{ClientPoolConfig, PooledClientLease, WireframeClientPool};
 pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;

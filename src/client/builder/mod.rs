@@ -61,6 +61,7 @@ mod codec;
 mod connect;
 mod core;
 mod lifecycle;
+#[cfg(feature = "pool")]
 mod pool;
 mod preamble;
 mod request_hooks;

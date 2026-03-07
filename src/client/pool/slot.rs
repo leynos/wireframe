@@ -2,7 +2,7 @@
 
 use std::{
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
@@ -25,7 +25,7 @@ where
     pub(crate) pool: Pool<WireframeConnectionManager<S, P, C>>,
     permits: Arc<Semaphore>,
     idle_timeout: Duration,
-    last_returned_at: tokio::sync::Mutex<Option<Instant>>,
+    last_returned_at: Mutex<Option<Instant>>,
 }
 
 impl<S, P, C> PoolSlot<S, P, C>
@@ -43,7 +43,7 @@ where
             pool,
             permits: Arc::new(Semaphore::new(max_in_flight_per_socket)),
             idle_timeout,
-            last_returned_at: tokio::sync::Mutex::new(None),
+            last_returned_at: Mutex::new(None),
         }
     }
 
@@ -62,25 +62,13 @@ where
     }
 
     pub(crate) async fn checkout(&self) -> Result<SlotConnection<'_, S, P, C>, ClientError> {
-        let should_recycle = self.should_recycle_idle().await;
-        let mut connection = self.pool.get().await.map_err(|err| match err {
-            bb8::RunError::User(error) => error,
-            bb8::RunError::TimedOut => ClientError::from(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "pooled connection checkout timed out",
-            )),
-        })?;
+        let mut connection = self.get_connection().await?;
 
-        if should_recycle {
+        if self.should_recycle_idle() {
             connection.mark_broken();
             drop(connection);
-            connection = self.pool.get().await.map_err(|err| match err {
-                bb8::RunError::User(error) => error,
-                bb8::RunError::TimedOut => ClientError::from(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "pooled connection checkout timed out",
-                )),
-            })?;
+            self.clear_last_returned_at();
+            connection = self.get_connection().await?;
         }
 
         Ok(SlotConnection {
@@ -89,11 +77,31 @@ where
         })
     }
 
-    async fn should_recycle_idle(&self) -> bool {
-        let last_returned_at = self.last_returned_at.lock().await;
-        last_returned_at
+    async fn get_connection(
+        &self,
+    ) -> Result<PooledConnection<'_, WireframeConnectionManager<S, P, C>>, ClientError> {
+        self.pool.get().await.map_err(|err| match err {
+            bb8::RunError::User(error) => error,
+            bb8::RunError::TimedOut => ClientError::from(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "pooled connection checkout timed out",
+            )),
+        })
+    }
+
+    fn should_recycle_idle(&self) -> bool {
+        self.lock_last_returned_at()
             .as_ref()
             .is_some_and(|returned_at| returned_at.elapsed() >= self.idle_timeout)
+    }
+
+    fn clear_last_returned_at(&self) { *self.lock_last_returned_at() = None; }
+
+    fn lock_last_returned_at(&self) -> MutexGuard<'_, Option<Instant>> {
+        match self.last_returned_at.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
     }
 }
 
@@ -104,7 +112,7 @@ where
     C: Send + 'static,
 {
     connection: PooledConnection<'a, WireframeConnectionManager<S, P, C>>,
-    last_returned_at: &'a tokio::sync::Mutex<Option<Instant>>,
+    last_returned_at: &'a Mutex<Option<Instant>>,
 }
 
 impl<S, P, C> Deref for SlotConnection<'_, S, P, C>
@@ -134,12 +142,15 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
-        if let Ok(mut last_returned_at) = self.last_returned_at.try_lock() {
-            if self.connection.is_broken() {
-                *last_returned_at = None;
-            } else {
-                *last_returned_at = Some(Instant::now());
-            }
+        let mut last_returned_at = match self.last_returned_at.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        if self.connection.is_broken() {
+            *last_returned_at = None;
+        } else {
+            *last_returned_at = Some(Instant::now());
         }
     }
 }

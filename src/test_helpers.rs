@@ -16,8 +16,20 @@ use crate::message_assembler::{
 };
 
 pub mod frame_codec;
+#[cfg(feature = "pool")]
+pub mod pool_client;
 
 pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
+#[cfg(feature = "pool")]
+pub use pool_client::{
+    ClientHello,
+    Ping,
+    Pong,
+    PoolServerBehavior,
+    PoolTestServer,
+    TestClientPool,
+    build_pooled_client,
+};
 
 /// Test-friendly message assembler implementation that shares parsing logic.
 #[derive(Clone, Copy, Debug, Default)]
