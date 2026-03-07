@@ -15,6 +15,13 @@ use tokio::{
 use super::manager::WireframeConnectionManager;
 use crate::{client::ClientError, serializer::Serializer};
 
+fn recover_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 /// One physical socket slot backed by a `bb8` pool of size one.
 pub(crate) struct PoolSlot<S, P, C>
 where
@@ -98,10 +105,7 @@ where
     fn clear_last_returned_at(&self) { *self.lock_last_returned_at() = None; }
 
     fn lock_last_returned_at(&self) -> MutexGuard<'_, Option<Instant>> {
-        match self.last_returned_at.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
+        recover_mutex(&self.last_returned_at)
     }
 }
 
@@ -142,10 +146,7 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
-        let mut last_returned_at = match self.last_returned_at.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut last_returned_at = recover_mutex(self.last_returned_at);
 
         if self.connection.is_broken() {
             *last_returned_at = None;

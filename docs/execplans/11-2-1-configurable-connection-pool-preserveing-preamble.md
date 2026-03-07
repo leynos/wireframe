@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: COMPLETE
+Status: COMPLETE (all validation commands currently pass)
 
 ## Purpose / big picture
 
@@ -147,12 +147,12 @@ Observable success:
   lifecycle, but Wireframe now enforces idle recycle at acquire/use boundaries
   as well.
 
-- Observation: `make markdownlint` still fails on pre-existing unrelated
-  baseline issues in
-  `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`.
-   Evidence: MD013 line-length failures at lines 186 and 476 during this task's
-  validation run. Impact: all code/test gates for `11.2.1` are green, but full
-  repository markdown lint remains blocked by unrelated existing content.
+- Observation: `make markdownlint` failed earlier in planning because of
+  unrelated baseline issues elsewhere in the repository, but those baseline
+  failures no longer block the current tree. Evidence: the final validation run
+  for this milestone now completes with `make markdownlint` exiting `0`.
+  Impact: the final status remains complete and the validation commands listed
+  in this plan are internally consistent.
 
 ## Decision Log
 
@@ -194,9 +194,7 @@ Validation evidence:
 - targeted rstest-bdd scenarios for the same behaviours;
 - passing `make check-fmt`, `make lint`, `make test`, `make test-doc`,
   `make doctest-benchmark`, and `make nixie`; and
-- `make markdownlint` attempted but still failing only on unrelated baseline
-  MD013 issues in
-  `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`.
+- passing `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2`.
 
 ## Context and orientation
 

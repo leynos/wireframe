@@ -190,6 +190,11 @@ required-features = ["examples"]
 [[test]]
 name = "bdd"
 path = "tests/bdd/mod.rs"
+required-features = ["advanced-tests"]
+
+[[test]]
+name = "bdd_pool"
+path = "tests/bdd_pool/mod.rs"
 required-features = ["advanced-tests", "pool"]
 
 [[test]]

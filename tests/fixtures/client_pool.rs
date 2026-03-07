@@ -96,9 +96,10 @@ impl ClientPoolWorld {
             .is_err();
 
         drop(first);
-        self.recovered_after_release = timeout(Duration::from_millis(100), pool.acquire())
-            .await
-            .is_ok();
+        self.recovered_after_release = matches!(
+            timeout(Duration::from_millis(100), pool.acquire()).await,
+            Ok(Ok(_))
+        );
         drop(second);
         Ok(())
     }
