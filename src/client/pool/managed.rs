@@ -4,7 +4,10 @@
 //! `bb8` and guarantees connection teardown hooks still run when the pooled
 //! connection is dropped or reaped.
 
-use std::ops::{Deref, DerefMut};
+use std::{
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
+};
 
 use tokio::{net::TcpStream, runtime::Handle};
 
@@ -16,7 +19,7 @@ where
     S: Serializer + Send + Sync + 'static,
     C: Send + 'static,
 {
-    client: Option<WireframeClient<S, RewindStream<TcpStream>, C>>,
+    client: ManuallyDrop<WireframeClient<S, RewindStream<TcpStream>, C>>,
     is_broken: bool,
 }
 
@@ -27,7 +30,7 @@ where
 {
     pub(crate) fn new(client: WireframeClient<S, RewindStream<TcpStream>, C>) -> Self {
         Self {
-            client: Some(client),
+            client: ManuallyDrop::new(client),
             is_broken: false,
         }
     }
@@ -44,11 +47,7 @@ where
 {
     type Target = WireframeClient<S, RewindStream<TcpStream>, C>;
 
-    fn deref(&self) -> &Self::Target {
-        self.client
-            .as_ref()
-            .expect("managed client connection must hold a client (dropped in Drop)")
-    }
+    fn deref(&self) -> &Self::Target { &self.client }
 }
 
 impl<S, C> DerefMut for ManagedClientConnection<S, C>
@@ -56,11 +55,7 @@ where
     S: Serializer + Send + Sync + 'static,
     C: Send + 'static,
 {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.client
-            .as_mut()
-            .expect("managed client connection must hold a client (dropped in Drop)")
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.client }
 }
 
 impl<S, C> Drop for ManagedClientConnection<S, C>
@@ -69,9 +64,9 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
-        let Some(client) = self.client.take() else {
-            return;
-        };
+        // SAFETY: `client` is valid here; `ManuallyDrop::take` is called
+        // exactly once, in `Drop`, before the memory is freed.
+        let client = unsafe { ManuallyDrop::take(&mut self.client) };
 
         if let Ok(handle) = Handle::try_current() {
             handle.spawn(async move {
