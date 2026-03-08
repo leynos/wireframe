@@ -62,31 +62,24 @@ fn serialize_envelope(payload: &[u8]) -> io::Result<Vec<u8>> {
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("serialize: {e}")))
 }
 
+fn deserialize_single_envelope(raw: &[u8]) -> io::Result<Envelope> {
+    let (env, _) = BincodeSerializer
+        .deserialize::<Envelope>(raw)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("deserialize: {e}")))?;
+    Ok(env)
+}
+
 fn deserialize_echo_lengths(bytes: &[Vec<u8>]) -> io::Result<Vec<usize>> {
     bytes
         .iter()
-        .map(|raw| {
-            let (env, _) = BincodeSerializer
-                .deserialize::<Envelope>(raw)
-                .map_err(|e| {
-                    io::Error::new(io::ErrorKind::InvalidData, format!("deserialize: {e}"))
-                })?;
-            Ok(env.payload_bytes().len())
-        })
+        .map(|raw| Ok(deserialize_single_envelope(raw)?.payload_bytes().len()))
         .collect()
 }
 
 fn deserialize_echo_payloads(bytes: &[Vec<u8>]) -> io::Result<Vec<Vec<u8>>> {
     bytes
         .iter()
-        .map(|raw| {
-            let (env, _) = BincodeSerializer
-                .deserialize::<Envelope>(raw)
-                .map_err(|e| {
-                    io::Error::new(io::ErrorKind::InvalidData, format!("deserialize: {e}"))
-                })?;
-            Ok(env.payload_bytes().to_vec())
-        })
+        .map(|raw| Ok(deserialize_single_envelope(raw)?.payload_bytes().to_vec()))
         .collect()
 }
 
