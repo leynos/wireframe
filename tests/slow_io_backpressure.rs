@@ -63,17 +63,19 @@ fn serialize_envelope(payload: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 fn deserialize_single_envelope(raw: &[u8]) -> io::Result<Envelope> {
-    let (env, _) = BincodeSerializer
+    let (env, consumed) = BincodeSerializer
         .deserialize::<Envelope>(raw)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("deserialize: {e}")))?;
+    if consumed != raw.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "deserialize: trailing bytes after envelope: consumed {consumed} of {}",
+                raw.len()
+            ),
+        ));
+    }
     Ok(env)
-}
-
-fn deserialize_echo_lengths(bytes: &[Vec<u8>]) -> io::Result<Vec<usize>> {
-    bytes
-        .iter()
-        .map(|raw| Ok(deserialize_single_envelope(raw)?.payload_bytes().len()))
-        .collect()
 }
 
 fn deserialize_echo_payloads(bytes: &[Vec<u8>]) -> io::Result<Vec<Vec<u8>>> {
@@ -119,10 +121,12 @@ async fn run_paced_codec_test(
         vec![serialized.clone()],
     )
     .await?;
-    let baseline_lengths = deserialize_echo_lengths(&baseline)?;
-    if baseline_lengths != vec![payload.len()] {
+    let expected_payloads = vec![payload.clone()];
+    let baseline_payloads = deserialize_echo_payloads(&baseline)?;
+    if baseline_payloads != expected_payloads {
         return Err(io::Error::other(format!(
-            "unexpected baseline echo lengths: {baseline_lengths:?}"
+            "unexpected baseline echo payloads: expected {expected_payloads:?}, got \
+             {baseline_payloads:?}"
         )));
     }
 
@@ -137,10 +141,10 @@ async fn run_paced_codec_test(
 
     tokio::time::advance(Duration::from_millis(final_advance_millis)).await;
     let response = task.await.map_err(|error| join_error(&error))??;
-    let lengths = deserialize_echo_lengths(&response)?;
-    if lengths != vec![payload.len()] {
+    let payloads = deserialize_echo_payloads(&response)?;
+    if payloads != expected_payloads {
         return Err(io::Error::other(format!(
-            "unexpected paced echo lengths: {lengths:?}"
+            "unexpected paced echo payloads: expected {expected_payloads:?}, got {payloads:?}"
         )));
     }
     Ok(())
