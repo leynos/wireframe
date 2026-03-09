@@ -280,6 +280,18 @@ Tests using `ObservabilityHandle` should not run concurrently; the global lock
 serializes access, so favour a shared fixture or a dedicated serial test binary
 for observability assertions.
 
+The codec-error regression coverage added for roadmap item 9.7.4 establishes a
+recommended pattern for taxonomy assertions:
+
+- keep executable regressions in the repository-root `tests/` directory,
+  because `wireframe_testing` is a dev-dependency rather than a workspace
+  member;
+- use the default `LengthDelimitedFrameCodec` directly when the test must
+  retain typed `EofError` information, because the generic helper surface
+  intentionally normalizes decoder failures to `io::Error`; and
+- use `ObservabilityHandle` to assert that the chosen
+  `error_type`/`recovery_policy` label pair is what the regression records.
+
 ## Helper macros
 
 Keep `push_expect!` and `recv_expect!` for concise async assertions, with error

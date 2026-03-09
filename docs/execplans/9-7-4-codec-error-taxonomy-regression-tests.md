@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -104,17 +104,19 @@ as done only after all quality gates pass.
 - [x] (2026-03-06) Read the roadmap item, 9.1.2 ExecPlan, ADR-004, the
   hardening and testing guides, and the current `wireframe_testing` public
   surface.
-- [ ] Stage A: define the exact regression matrix and write failing `rstest`
-  coverage.
-- [ ] Stage B: add only the minimum missing helper or fixture surface, if any,
-  to make the regression tests expressible through `wireframe_testing`.
-- [ ] Stage C: add `rstest-bdd` scenarios and world fixtures that exercise the
-  same behaviours end-to-end.
-- [ ] Stage D: update the relevant design document, audit
-  `docs/users-guide.md`, and mark `docs/roadmap.md` item 9.7.4 done when the
-  feature is actually complete.
-- [ ] Stage E: run formatting, lint, unit, behavioural, and documentation
-  quality gates and capture evidence.
+- [x] (2026-03-09) Stage A: add `rstest` regression coverage in
+  `tests/test_codec_error_regressions.rs`.
+- [x] (2026-03-09) Stage B: confirm the existing helper surface is sufficient;
+  no new public `wireframe_testing` helper API was required.
+- [x] (2026-03-09) Stage C: add `rstest-bdd` scenarios and a dedicated world in
+  `tests/features/codec_error_regressions.feature`,
+  `tests/fixtures/codec_error_regressions.rs`,
+  `tests/steps/codec_error_regressions_steps.rs`, and
+  `tests/scenarios/codec_error_regressions_scenarios.rs`.
+- [x] (2026-03-09) Stage D: update `docs/wireframe-testing-crate.md` and mark
+  `docs/roadmap.md` item 9.7.4 done.
+- [x] (2026-03-09) Stage E: run formatting, lint, unit, behavioural, and
+  documentation quality gates and capture evidence.
 
 ## Surprises & Discoveries
 
@@ -128,6 +130,10 @@ as done only after all quality gates pass.
 - `docs/users-guide.md` already documents the `CodecError` taxonomy,
   `RecoveryPolicyHook`, and the codec-error metric labels, so the user-guide
   delta should stay small unless a new public test helper is exported.
+- The generic `wireframe_testing::decode_frames_with_codec` helper erases the
+  typed decoder error into `io::Error` text, so typed EOF regressions need to
+  call the default codec's decoder directly and use `wireframe_testing` only
+  for framing helpers and observability capture.
 
 ## Decision Log
 
@@ -152,12 +158,44 @@ as done only after all quality gates pass.
   helper if the red tests show repeated boilerplate that obscures the intended
   regression. Date/Author: 2026-03-06 / Codex.
 
+- Decision: do not add a new public helper just to preserve typed `EofError`
+  values. Rationale: the generic helper API is intentionally codec-agnostic and
+  normalizes failures to `io::Error`; preserving typed EOF values would require
+  a more opinionated helper than this roadmap item justifies. The implemented
+  regressions therefore combine `wireframe_testing` framing helpers and
+  observability capture with direct `LengthDelimitedFrameCodec` decoder calls.
+  Date/Author: 2026-03-09 / Codex.
+
 ## Outcomes & Retrospective
 
-To be completed when implementation finishes. This section must state which
-cases were pinned, whether any helper APIs were added, which documentation was
-updated, which commands were run, and whether roadmap item 9.7.4 was marked
-done.
+Completed on 2026-03-09.
+
+The implemented regression suite adds:
+
+- `tests/test_codec_error_regressions.rs` with `rstest` coverage for
+  representative taxonomy-to-policy mappings, typed EOF classification for the
+  default codec, custom hook override labelling, and malformed Hotline fixture
+  regressions; and
+- a matching `rstest-bdd` suite that exercises the same behaviours through a
+  dedicated world fixture and `ObservabilityHandle`.
+
+No new public helper API was added to `wireframe_testing`, so
+`docs/users-guide.md` did not need an update. The lasting design note was
+recorded in `docs/wireframe-testing-crate.md`, and `docs/roadmap.md` now marks
+9.7.4 done.
+
+Validation commands and outcomes recorded for Stage E:
+
+- `make fmt`
+- `make check-fmt`
+- `make lint`
+- `make test`
+- `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2`
+
+All five commands passed on 2026-03-09. No `docs/users-guide.md` update was
+needed because the implementation did not change the public consumer API; it
+only added regression coverage and a production bug fix that preserves the
+documented `CodecError` contract.
 
 ## Context and orientation
 
