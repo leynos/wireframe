@@ -222,8 +222,8 @@ Terms used in this plan:
   `WireframeClient` instance.
 - Preamble state: negotiated handshake outcome and any leftover bytes captured
   through existing preamble exchange callbacks.
-- In-flight admission: the count of operations currently admitted to execute on
-  a socket.
+- In-flight admission: the count of operations currently admitted for
+  execution on a socket.
 - Idle recycle: replacing a socket that has been unused for longer than
   configured timeout.
 
