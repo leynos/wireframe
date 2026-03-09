@@ -121,7 +121,7 @@ async fn run_paced_codec_test(
         vec![serialized.clone()],
     )
     .await?;
-    let expected_payloads = vec![payload.clone()];
+    let expected_payloads = vec![payload];
     let baseline_payloads = deserialize_echo_payloads(&baseline)?;
     if baseline_payloads != expected_payloads {
         return Err(io::Error::other(format!(
