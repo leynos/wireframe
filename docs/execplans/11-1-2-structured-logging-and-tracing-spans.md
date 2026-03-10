@@ -15,7 +15,6 @@ configuration for per-command timing. After this change, every client operation
 emits a `tracing` span with structured fields (frame size, correlation ID,
 operation result, peer address, stream frame count). Users optionally enable
 per-command elapsed-time events via a `TracingConfig` builder method. When no
-<<<<<<< LEFT
 `tracing` subscriber is installed, the macros compile down to no-op
 instrumentation. Installing a subscriber enables the spans and timing events,
 which then incur runtime overhead.

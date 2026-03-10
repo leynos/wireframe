@@ -429,8 +429,11 @@ through `SlowIoConfig`:
 
 ```rust,no_run
 use std::{num::NonZeroUsize, time::Duration};
-use wireframe::app::WireframeApp;
-use wireframe::codec::examples::HotlineFrameCodec;
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    codec::examples::HotlineFrameCodec,
+    serializer::{BincodeSerializer, Serializer},
+};
 use wireframe_testing::{
     SlowIoConfig, SlowIoPacing, drive_with_slow_codec_payloads,
 };
@@ -448,9 +451,13 @@ let config = SlowIoConfig::new()
     ))
     .with_capacity(64);
 
-let payloads =
-    drive_with_slow_codec_payloads(app, &codec, vec![vec![1, 2, 3]], config)
-        .await?;
+let request = BincodeSerializer.serialize(&Envelope::new(
+    1,
+    Some(7),
+    vec![1, 2, 3],
+))?;
+let payloads = drive_with_slow_codec_payloads(app, &codec, vec![request], config)
+    .await?;
 ```
 
 Available slow-I/O helper functions:

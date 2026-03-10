@@ -188,7 +188,7 @@ sequenceDiagram
     participant Time as TokioTime
 
     Test->>Runtime: spawn async test
-    Runtime->>Helper: drive_with_slow_io_payloads(app, payloads, config)
+    Runtime->>Helper: drive_with_slow_payloads(app, payloads, config)
 
     alt writer pacing configured
         Helper->>Writer: start_paced_writes(payloads, config.writer)

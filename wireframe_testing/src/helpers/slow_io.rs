@@ -205,7 +205,7 @@ async fn drive_slow_internal<F, Fut>(
 ) -> io::Result<Vec<u8>>
 where
     F: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = ()>,
 {
     let config = config.validate()?;
     let (client, server) = tokio::io::duplex(config.capacity);
@@ -249,14 +249,18 @@ fn encode_length_delimited_payloads(payloads: Vec<Vec<u8>>) -> io::Result<Vec<u8
 /// ```rust
 /// # use std::{num::NonZeroUsize, time::Duration};
 /// # use wireframe::app::WireframeApp;
-/// # use wireframe_testing::{drive_with_slow_frames, SlowIoConfig, SlowIoPacing};
+/// # use wireframe_testing::{
+/// #     drive_with_slow_frames, encode_frame, new_test_codec, SlowIoConfig, SlowIoPacing,
+/// # };
 /// # async fn demo() -> std::io::Result<()> {
 /// let app = WireframeApp::new().expect("failed to initialize app");
+/// let mut codec = new_test_codec(4096);
+/// let frame = encode_frame(&mut codec, vec![1, 2, 3])?;
 /// let config = SlowIoConfig::new().with_writer_pacing(SlowIoPacing::new(
 ///     NonZeroUsize::new(2).expect("non-zero"),
 ///     Duration::from_millis(5),
 /// ));
-/// let out = drive_with_slow_frames(app, vec![vec![1, 2, 3]], config).await?;
+/// let out = drive_with_slow_frames(app, vec![frame], config).await?;
 /// # let _ = out;
 /// # Ok(())
 /// # }

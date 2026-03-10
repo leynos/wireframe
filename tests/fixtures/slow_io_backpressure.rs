@@ -335,9 +335,16 @@ impl SlowIoBackpressureWorld {
         let raw = outputs
             .first()
             .ok_or("missing echoed payload after length check")?;
-        let (env, _) = BincodeSerializer
+        let (env, consumed) = BincodeSerializer
             .deserialize::<Envelope>(raw)
             .map_err(|e| format!("deserialize: {e}"))?;
+        if consumed != raw.len() {
+            return Err(format!(
+                "deserialize: trailing bytes after envelope: consumed {consumed} of {}",
+                raw.len()
+            )
+            .into());
+        }
         let actual_len = env.payload_bytes().len();
         if actual_len != expected_len {
             return Err(
