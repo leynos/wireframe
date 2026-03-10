@@ -102,6 +102,30 @@ impl SlowIoConfig {
                 format!("capacity must not exceed {MAX_CAPACITY} bytes"),
             ));
         }
+        if let Some(writer_pacing) = self.writer_pacing {
+            if writer_pacing.chunk_size.get() > self.capacity {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "writer chunk size {} must not exceed capacity {}",
+                        writer_pacing.chunk_size.get(),
+                        self.capacity
+                    ),
+                ));
+            }
+        }
+        if let Some(reader_pacing) = self.reader_pacing {
+            if reader_pacing.chunk_size.get() > self.capacity {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "reader chunk size {} must not exceed capacity {}",
+                        reader_pacing.chunk_size.get(),
+                        self.capacity
+                    ),
+                ));
+            }
+        }
         Ok(self)
     }
 }
@@ -128,9 +152,9 @@ where
             let mut offset = 0;
             while offset < total {
                 let end = (offset + step).min(total);
-                let chunk = bytes.get(offset..end).ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::Other, "writer chunk slice out of bounds")
-                })?;
+                let chunk = bytes
+                    .get(offset..end)
+                    .ok_or_else(|| io::Error::other("writer chunk slice out of bounds"))?;
                 writer.write_all(chunk).await?;
                 offset = end;
                 pause_between_chunks(pacing.delay, offset < total).await;
@@ -163,9 +187,9 @@ where
                 if read == 0 {
                     break;
                 }
-                let chunk = buf.get(..read).ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::Other, "reader chunk slice out of bounds")
-                })?;
+                let chunk = buf
+                    .get(..read)
+                    .ok_or_else(|| io::Error::other("reader chunk slice out of bounds"))?;
                 out.extend_from_slice(chunk);
                 should_pause_before_read = true;
             }
@@ -196,10 +220,7 @@ where
             Ok(()) => Ok(()),
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("server task failed: {panic_msg}"),
-                ))
+                Err(io::Error::other(format!("server task failed: {panic_msg}")))
             }
         }
     };

@@ -155,8 +155,8 @@ async fn slow_frames_echo_happy_path() -> io::Result<()> {
     let payload_a = serialize_envelope(b"foo")?;
     let payload_b = serialize_envelope(b"bar")?;
     let mut codec = new_test_codec(4096);
-    let frame_a = encode_frame(&mut codec, payload_a.clone())?;
-    let frame_b = encode_frame(&mut codec, payload_b.clone())?;
+    let frame_a = encode_frame(&mut codec, payload_a)?;
+    let frame_b = encode_frame(&mut codec, payload_b)?;
     let expected = [frame_a.clone(), frame_b.clone()].concat();
     let config = SlowIoConfig::new()
         .with_writer_pacing(SlowIoPacing::new(
@@ -332,21 +332,48 @@ async fn panic_in_server_is_mapped_to_io_error_other() -> io::Result<()> {
 }
 
 #[rstest]
-#[case(0, "capacity must be greater than zero")]
-#[case(MAX_CAPACITY_PLUS_ONE, "capacity must not exceed 10485760 bytes")]
+#[case::zero_capacity(0, None, "capacity must be greater than zero")]
+#[case::capacity_exceeds_max(
+    MAX_CAPACITY_PLUS_ONE,
+    None,
+    "capacity must not exceed 10485760 bytes"
+)]
+#[case::writer_chunk_exceeds_capacity(
+    8,
+    Some((false, 9)),
+    "writer chunk size 9 must not exceed capacity 8"
+)]
+#[case::reader_chunk_exceeds_capacity(
+    8,
+    Some((true, 9)),
+    "reader chunk size 9 must not exceed capacity 8"
+)]
 #[tokio::test(flavor = "current_thread")]
 async fn invalid_slow_io_config_is_rejected(
     #[case] capacity: usize,
+    #[case] pacing: Option<(bool, usize)>,
     #[case] expected: &str,
 ) -> io::Result<()> {
     let app = build_length_delimited_echo_app()?;
-    let error = drive_with_slow_frames(
-        app,
-        vec![vec![1, 2, 3]],
-        SlowIoConfig::new().with_capacity(capacity),
-    )
-    .await
-    .expect_err("invalid config should fail");
+    let mut config = SlowIoConfig::new().with_capacity(capacity);
+    if let Some((is_reader_pacing, chunk_size)) = pacing {
+        let chunk = NonZeroUsize::new(chunk_size).ok_or_else(|| {
+            io::Error::other(if is_reader_pacing {
+                "invalid reader pacing chunk size: must be non-zero"
+            } else {
+                "invalid writer pacing chunk size: must be non-zero"
+            })
+        })?;
+        let pacing = SlowIoPacing::new(chunk, Duration::ZERO);
+        config = if is_reader_pacing {
+            config.with_reader_pacing(pacing)
+        } else {
+            config.with_writer_pacing(pacing)
+        };
+    }
+    let error = drive_with_slow_frames(app, vec![vec![1, 2, 3]], config)
+        .await
+        .expect_err("invalid config should fail");
 
     if error.kind() != io::ErrorKind::InvalidInput {
         return Err(io::Error::other(format!(
