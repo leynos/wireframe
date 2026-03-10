@@ -410,13 +410,77 @@ cargo run --example client_echo_login --features examples
   echoed payload as the acknowledgement provides a runnable, typed, end-to-end
   demonstration without introducing server-only behaviour.
 
+## Decision record for 11.2.1
+
+- Decision: ship client pooling as a hybrid of `bb8` and Wireframe-owned slot
+  admission.
+- Implementation split:
+  - each physical socket is backed by a dedicated `bb8` pool with
+    `max_size = 1`;
+  - `WireframeClientPool` owns multiple such slots, one per physical socket;
+  - `PooledClientLease` forwards request methods (`send`, `receive`, `call`,
+    `send_envelope`, `receive_envelope`, `call_correlated`) through its slot
+    rather than dereferencing to a long-lived mutable `WireframeClient`.
+- Rationale: this keeps socket lifecycle, reconnect, and idle recycle on
+  battle-tested `bb8` machinery while preserving explicit Wireframe control
+  over how many operations may target one warm socket.
+- Preamble lifecycle:
+  - preamble exchange runs once when `connect_pool` creates each physical
+    socket;
+  - warm reuse keeps the negotiated socket and does not replay preamble;
+  - if a slot is idle past its configured timeout, the next checkout lazily
+    recycles the socket and reruns the preamble.
+- Admission semantics:
+  - `max_in_flight_per_socket` is an admission budget, not a promise of
+    parallel writes on one transport;
+  - leases may coexist up to that budget, but actual socket I/O remains
+    serialized by the slot's single checked-out client connection.
+- For screen readers: the following flowchart shows how
+  `WireframeClientPool::acquire()` selects a slot, enforces the per-socket
+  admission limit, decides between warm reuse and idle recycle, reruns the
+  preamble only for recycled or newly opened sockets, and returns a
+  `PooledClientLease` whose drop releases the permit and refreshes slot usage
+  time.
+
+```mermaid
+flowchart TD
+    A[Start acquire on WireframeClientPool] --> B[Select PoolSlot]
+    B --> C[Try to obtain in-flight permit]
+    C -->|no permit available| D[Wait or fail according to policy]
+    C -->|permit acquired| E[Check if slot has existing client]
+    E -->|no client| F[Open new TcpStream]
+    E -->|client exists| G[Compute elapsed_idle = now - last_used]
+
+    G -->|elapsed_idle > idle_timeout| H[Recycle socket]
+    G -->|elapsed_idle <= idle_timeout| I[Reuse existing client]
+
+    H --> J[Close existing client and TcpStream]
+    J --> F
+
+    F --> K[Run preamble on new TcpStream]
+    K --> L[Construct new WireframeClient]
+    L --> M[Store client in slot and set last_used = now]
+
+    I --> N[Update last_used = now]
+
+    M --> O[Create PooledClientLease for slot]
+    N --> O
+    O --> P[Return PooledClientLease to caller]
+    P --> Q[On lease drop, release permit and update last_used]
+    Q --> R[End]
+```
+
+- Follow-up posture: if future roadmap items require deeper multiplex fairness
+  or true per-socket concurrent transport use, revisit this boundary and decide
+  whether to extend or replace the slot wrapper.
+
 ## Future work
 
 This initial design focuses on a basic request/response workflow. Future
 extensions might include:
 
 - Middleware support for outgoing and incoming frames.
-- Connection pooling for protocols that open multiple simultaneous connections.
+- Extended per-socket multiplex control beyond the initial hybrid pool layer.
 - Helper traits for streaming or multiplexed protocols.
 
 By leveraging the existing abstractions for framing and serialization, client

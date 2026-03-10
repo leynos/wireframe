@@ -13,9 +13,12 @@ use tokio::net::TcpStream;
 mod builder;
 mod codec_config;
 mod config;
+mod connect_parts;
 mod error;
 mod hooks;
 mod messaging;
+#[cfg(feature = "pool")]
+mod pool;
 mod preamble_builder;
 mod preamble_exchange;
 mod response_stream;
@@ -37,6 +40,8 @@ pub use hooks::{
     ClientConnectionTeardownHandler,
     ClientErrorHandler,
 };
+#[cfg(feature = "pool")]
+pub use pool::{ClientPoolConfig, PooledClientLease, WireframeClientPool};
 pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;
 pub use send_streaming::{SendStreamingConfig, SendStreamingOutcome};

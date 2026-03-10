@@ -499,7 +499,7 @@ document so larger deployments can adopt the library confidently.
 
 ### 11.2. Connection pooling and concurrency
 
-- [ ] 11.2.1. Implement a configurable connection pool that preserves preamble
+- [x] 11.2.1. Implement a configurable connection pool that preserves preamble
   state, enforces in-flight request limits per socket, and recycles idle
   connections.
 - [ ] 11.2.2. Expose a `PoolHandle` API with fairness policies so callers can
@@ -515,7 +515,7 @@ document so larger deployments can adopt the library confidently.
 
 ### 11.4. Docs and adoption
 
-- [ ] 11.4.1. Update the user guide with migration advice for the pooled client
+- [x] 11.4.1. Update the user guide with migration advice for the pooled client
   and document known limitations or out-of-scope behaviours.
 - [ ] 11.4.2. Add a troubleshooting section that enumerates the most common
   client misconfigurations (codec length mismatch, preamble errors, TLS issues)

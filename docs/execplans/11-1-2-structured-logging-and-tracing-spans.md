@@ -15,8 +15,9 @@ configuration for per-command timing. After this change, every client operation
 emits a `tracing` span with structured fields (frame size, correlation ID,
 operation result, peer address, stream frame count). Users optionally enable
 per-command elapsed-time events via a `TracingConfig` builder method. When no
-`tracing` subscriber is
-installed, all instrumentation is zero-cost.
+`tracing` subscriber is installed, the macros compile down to no-op
+instrumentation. Installing a subscriber enables the spans and timing events,
+which then incur runtime overhead.
 
 Observable success: a user configures `TracingConfig` on the builder, performs
 connect/send/receive/call/streaming/close, and each operation produces a
@@ -194,8 +195,8 @@ All source files remain under 400 lines.
 
 ## Context and orientation
 
-The wireframe crate (run from the repository root) is a Rust async networking framework
-using Tokio. The client subsystem lives in `src/client/`:
+The wireframe crate (run from the repository root) is a Rust async networking
+framework using Tokio. The client subsystem lives in `src/client/`:
 
 ```plaintext
 src/client/
