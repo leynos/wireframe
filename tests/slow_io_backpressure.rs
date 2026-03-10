@@ -160,11 +160,15 @@ async fn slow_frames_echo_happy_path() -> io::Result<()> {
     let expected = [frame_a.clone(), frame_b.clone()].concat();
     let config = SlowIoConfig::new()
         .with_writer_pacing(SlowIoPacing::new(
-            NonZeroUsize::new(2).ok_or_else(|| io::Error::other("non-zero"))?,
+            NonZeroUsize::new(2).ok_or_else(|| {
+                io::Error::other("invalid writer pacing chunk size: must be non-zero")
+            })?,
             Duration::ZERO,
         ))
         .with_reader_pacing(SlowIoPacing::new(
-            NonZeroUsize::new(3).ok_or_else(|| io::Error::other("non-zero"))?,
+            NonZeroUsize::new(3).ok_or_else(|| {
+                io::Error::other("invalid reader pacing chunk size: must be non-zero")
+            })?,
             Duration::ZERO,
         ))
         .with_capacity(32);
@@ -193,11 +197,15 @@ async fn slow_payloads_echo_happy_path() -> io::Result<()> {
         .collect::<io::Result<Vec<_>>>()?;
     let config = SlowIoConfig::new()
         .with_writer_pacing(SlowIoPacing::new(
-            NonZeroUsize::new(3).ok_or_else(|| io::Error::other("non-zero"))?,
+            NonZeroUsize::new(3).ok_or_else(|| {
+                io::Error::other("invalid writer pacing chunk size: must be non-zero")
+            })?,
             Duration::ZERO,
         ))
         .with_reader_pacing(SlowIoPacing::new(
-            NonZeroUsize::new(2).ok_or_else(|| io::Error::other("non-zero"))?,
+            NonZeroUsize::new(2).ok_or_else(|| {
+                io::Error::other("invalid reader pacing chunk size: must be non-zero")
+            })?,
             Duration::ZERO,
         ))
         .with_capacity(32);
@@ -227,7 +235,13 @@ async fn paced_codec_single_payload(
     #[case] case: (usize, Vec<u8>, bool, Option<usize>, u64),
 ) -> io::Result<()> {
     let (chunk_size, payload, slow_reader, capacity, final_advance_millis) = case;
-    let chunk = NonZeroUsize::new(chunk_size).ok_or_else(|| io::Error::other("non-zero"))?;
+    let chunk = NonZeroUsize::new(chunk_size).ok_or_else(|| {
+        io::Error::other(if slow_reader {
+            "invalid reader pacing chunk size: must be non-zero"
+        } else {
+            "invalid writer pacing chunk size: must be non-zero"
+        })
+    })?;
     let pacing = SlowIoPacing::new(chunk, Duration::from_millis(5));
     let mut config = if slow_reader {
         SlowIoConfig::new().with_reader_pacing(pacing)
@@ -250,11 +264,15 @@ async fn combined_slow_reader_and_writer_round_trip_cleanly() -> io::Result<()> 
     let app = build_echo_app(codec.clone())?;
 
     let writer = SlowIoPacing::new(
-        NonZeroUsize::new(12).ok_or_else(|| io::Error::other("non-zero"))?,
+        NonZeroUsize::new(12).ok_or_else(|| {
+            io::Error::other("invalid writer pacing chunk size: must be non-zero")
+        })?,
         Duration::from_millis(5),
     );
     let reader = SlowIoPacing::new(
-        NonZeroUsize::new(24).ok_or_else(|| io::Error::other("non-zero"))?,
+        NonZeroUsize::new(24).ok_or_else(|| {
+            io::Error::other("invalid reader pacing chunk size: must be non-zero")
+        })?,
         Duration::from_millis(5),
     );
     let config = SlowIoConfig::new()
