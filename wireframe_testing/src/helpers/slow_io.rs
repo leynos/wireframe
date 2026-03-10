@@ -64,6 +64,26 @@ impl Default for SlowIoConfig {
     }
 }
 
+fn validate_pacing_chunk_size(
+    pacing: Option<SlowIoPacing>,
+    direction: &str,
+    capacity: usize,
+) -> io::Result<()> {
+    if let Some(p) = pacing {
+        if p.chunk_size.get() > capacity {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "{direction} chunk size {} must not exceed capacity {}",
+                    p.chunk_size.get(),
+                    capacity
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl SlowIoConfig {
     /// Create a config using the default duplex capacity and no pacing.
     pub fn new() -> Self { Self::default() }
@@ -102,30 +122,8 @@ impl SlowIoConfig {
                 format!("capacity must not exceed {MAX_CAPACITY} bytes"),
             ));
         }
-        if let Some(writer_pacing) = self.writer_pacing {
-            if writer_pacing.chunk_size.get() > self.capacity {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "writer chunk size {} must not exceed capacity {}",
-                        writer_pacing.chunk_size.get(),
-                        self.capacity
-                    ),
-                ));
-            }
-        }
-        if let Some(reader_pacing) = self.reader_pacing {
-            if reader_pacing.chunk_size.get() > self.capacity {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "reader chunk size {} must not exceed capacity {}",
-                        reader_pacing.chunk_size.get(),
-                        self.capacity
-                    ),
-                ));
-            }
-        }
+        validate_pacing_chunk_size(self.writer_pacing, "writer", self.capacity)?;
+        validate_pacing_chunk_size(self.reader_pacing, "reader", self.capacity)?;
         Ok(self)
     }
 }
