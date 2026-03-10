@@ -243,6 +243,13 @@ impl SlowIoBackpressureWorld {
             .task
             .take()
             .ok_or("slow-io drive has not been started")?;
+        if !task.is_finished() {
+            self.task = Some(task);
+            return Err(
+                "slow-io drive is still pending; advance Tokio time before collecting outputs"
+                    .into(),
+            );
+        }
         let join_result = self.block_on(task)?;
         let outputs = join_result.map_err(|error| format!("join failed: {error}"))??;
         self.outputs = Some(outputs);

@@ -190,10 +190,11 @@ sequenceDiagram
     Test->>Runtime: spawn async test
     Runtime->>Helper: drive_with_slow_payloads(app, payloads, config)
 
-    alt writer pacing configured
-        Helper->>Writer: start_paced_writes(payloads, config.writer)
-        loop for each chunk
-            Writer->>Time: sleep(config.writer.delay)
+    alt writer_pacing configured
+        Helper->>Writer: start_paced_writes(payloads, config.writer_pacing)
+        Writer->>App: send_first_chunk()
+        loop for each remaining chunk
+            Writer->>Time: sleep(config.writer_pacing.delay)
             Time-->>Writer: wake
             Writer->>App: send_chunk()
         end
@@ -201,10 +202,13 @@ sequenceDiagram
         Helper->>App: send_all_payloads()
     end
 
-    alt reader pacing configured
-        Helper->>Reader: start_paced_reads(config.reader)
-        loop while app_has_output
-            Reader->>Time: sleep(config.reader.delay)
+    alt reader_pacing configured
+        Helper->>Reader: start_paced_reads(config.reader_pacing)
+        Reader->>App: read_first_chunk()
+        App-->>Reader: first_chunk_bytes
+        Reader-->>Helper: append_to_output(first_chunk_bytes)
+        loop while app_has_more_output
+            Reader->>Time: sleep(config.reader_pacing.delay)
             Time-->>Reader: wake
             Reader->>App: read_chunk()
             App-->>Reader: chunk_bytes

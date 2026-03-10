@@ -253,11 +253,12 @@ fn encode_length_delimited_payloads(payloads: Vec<Vec<u8>>) -> io::Result<Vec<u8
 /// #     drive_with_slow_frames, encode_frame, new_test_codec, SlowIoConfig, SlowIoPacing,
 /// # };
 /// # async fn demo() -> std::io::Result<()> {
-/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let app =
+///     WireframeApp::new().map_err(|error| std::io::Error::other(format!("app init: {error}")))?;
 /// let mut codec = new_test_codec(4096);
 /// let frame = encode_frame(&mut codec, vec![1, 2, 3])?;
 /// let config = SlowIoConfig::new().with_writer_pacing(SlowIoPacing::new(
-///     NonZeroUsize::new(2).expect("non-zero"),
+///     NonZeroUsize::new(2).ok_or_else(|| std::io::Error::other("chunk size must be non-zero"))?,
 ///     Duration::from_millis(5),
 /// ));
 /// let out = drive_with_slow_frames(app, vec![frame], config).await?;
@@ -310,19 +311,28 @@ where
 ///
 /// ```rust
 /// # use std::{num::NonZeroUsize, time::Duration};
-/// # use wireframe::app::WireframeApp;
+/// # use wireframe::{
+/// #     app::{Envelope, WireframeApp},
+/// #     serializer::{BincodeSerializer, Serializer},
+/// # };
 /// # use wireframe::codec::examples::HotlineFrameCodec;
 /// # use wireframe_testing::{
 /// #     drive_with_slow_codec_payloads, SlowIoConfig, SlowIoPacing,
 /// # };
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
-/// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
+/// let app = WireframeApp::new()
+///     .map_err(|error| std::io::Error::other(format!("app init: {error}")))?
+///     .with_codec(codec.clone());
 /// let config = SlowIoConfig::new().with_reader_pacing(SlowIoPacing::new(
-///     NonZeroUsize::new(32).expect("non-zero"),
+///     NonZeroUsize::new(32)
+///         .ok_or_else(|| std::io::Error::other("chunk size must be non-zero"))?,
 ///     Duration::from_millis(5),
 /// ));
-/// let out = drive_with_slow_codec_payloads(app, &codec, vec![vec![1]], config).await?;
+/// let request = BincodeSerializer
+///     .serialize(&Envelope::new(1, Some(7), vec![1]))
+///     .map_err(|error| std::io::Error::other(format!("serialize: {error}")))?;
+/// let out = drive_with_slow_codec_payloads(app, &codec, vec![request], config).await?;
 /// # let _ = out;
 /// # Ok(())
 /// # }
