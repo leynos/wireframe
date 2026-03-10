@@ -28,6 +28,7 @@ pub mod observability;
 
 pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{
+    MAX_SLOW_IO_CAPACITY,
     MaxFrameLength,
     PayloadLength,
     SlowIoConfig,

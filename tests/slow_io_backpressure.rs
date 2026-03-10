@@ -13,6 +13,7 @@ use wireframe::{
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::{
+    MAX_SLOW_IO_CAPACITY,
     SlowIoConfig,
     SlowIoPacing,
     decode_frames,
@@ -24,7 +25,7 @@ use wireframe_testing::{
     new_test_codec,
 };
 
-const MAX_CAPACITY_PLUS_ONE: usize = (1024 * 1024 * 10) + 1;
+const MAX_CAPACITY_PLUS_ONE: usize = MAX_SLOW_IO_CAPACITY + 1;
 type EchoRoute = Arc<dyn Fn(&Envelope) -> BoxFuture<'static, ()> + Send + Sync>;
 
 fn hotline_codec() -> HotlineFrameCodec { HotlineFrameCodec::new(4096) }
@@ -332,27 +333,27 @@ async fn panic_in_server_is_mapped_to_io_error_other() -> io::Result<()> {
 }
 
 #[rstest]
-#[case::zero_capacity(0, None, "capacity must be greater than zero")]
+#[case::zero_capacity(0, None, "capacity must be greater than zero".to_string())]
 #[case::capacity_exceeds_max(
     MAX_CAPACITY_PLUS_ONE,
     None,
-    "capacity must not exceed 10485760 bytes"
+    format!("capacity must not exceed {} bytes", MAX_SLOW_IO_CAPACITY)
 )]
 #[case::writer_chunk_exceeds_capacity(
     8,
     Some((false, 9)),
-    "writer chunk size 9 must not exceed capacity 8"
+    "writer chunk size 9 must not exceed capacity 8".to_string()
 )]
 #[case::reader_chunk_exceeds_capacity(
     8,
     Some((true, 9)),
-    "reader chunk size 9 must not exceed capacity 8"
+    "reader chunk size 9 must not exceed capacity 8".to_string()
 )]
 #[tokio::test(flavor = "current_thread")]
 async fn invalid_slow_io_config_is_rejected(
     #[case] capacity: usize,
     #[case] pacing: Option<(bool, usize)>,
-    #[case] expected: &str,
+    #[case] expected: String,
 ) -> io::Result<()> {
     let app = build_length_delimited_echo_app()?;
     let mut config = SlowIoConfig::new().with_capacity(capacity);

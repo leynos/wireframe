@@ -17,10 +17,12 @@ use wireframe::{
 
 use super::{
     DEFAULT_CAPACITY,
-    MAX_CAPACITY,
     TestSerializer,
     codec_ext::{decode_frames_with_codec, encode_payloads_with_codec, extract_payloads},
 };
+
+/// Maximum duplex capacity supported by the slow-I/O helpers.
+pub const MAX_SLOW_IO_CAPACITY: usize = 1024 * 1024 * 10;
 
 /// Pacing configuration for one I/O direction.
 ///
@@ -116,10 +118,10 @@ impl SlowIoConfig {
                 "capacity must be greater than zero",
             ));
         }
-        if self.capacity > MAX_CAPACITY {
+        if self.capacity > MAX_SLOW_IO_CAPACITY {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("capacity must not exceed {MAX_CAPACITY} bytes"),
+                format!("capacity must not exceed {MAX_SLOW_IO_CAPACITY} bytes"),
             ));
         }
         validate_pacing_chunk_size(self.writer_pacing, "writer", self.capacity)?;
