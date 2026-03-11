@@ -141,6 +141,103 @@ Behavioural details:
 - I/O failures, framing errors, and server task panics are all returned as
   `io::Error` values, so tests can assert on error handling.
 
+### Slow-I/O drivers
+
+Roadmap item `8.5.2` extends the in-memory harness with explicit slow reader
+and slow writer simulation. The public surface uses one pacing type plus one
+driver config:
+
+```rust,no_run
+# fn example() -> Result<(), Box<dyn std::error::Error>> {
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe_testing::{SlowIoConfig, SlowIoPacing};
+
+let writer = SlowIoPacing::new(
+    NonZeroUsize::new(8).ok_or_else(|| std::io::Error::other("chunk size must be non-zero"))?,
+    Duration::from_millis(5),
+);
+let reader = SlowIoPacing::new(
+    NonZeroUsize::new(32).ok_or_else(|| std::io::Error::other("chunk size must be non-zero"))?,
+    Duration::from_millis(5),
+);
+let config = SlowIoConfig::new()
+    .with_writer_pacing(writer)
+    .with_reader_pacing(reader)
+    .with_capacity(64);
+# let _ = config;
+# Ok(())
+# }
+```
+
+The pacing applies to the client side of the in-memory duplex stream:
+
+- `writer_pacing` throttles bytes written into the app.
+- `reader_pacing` throttles bytes drained from the app.
+- `capacity` controls how quickly the duplex buffer saturates, which is useful
+  when asserting back-pressure behaviour.
+
+Accessibility caption: Sequence diagram showing a test spawning an async
+runtime task that drives slow-I/O helpers, optionally pacing writes into the
+app and reads back out of it through Tokio time delays before returning the
+captured bytes for back-pressure assertions.
+
+```mermaid
+sequenceDiagram
+    actor Test as Test
+    participant Runtime as TokioRuntime
+    participant Helper as SlowIoHelpers
+    participant App as WireframeApp
+    participant Writer as SlowWriterPacer
+    participant Reader as SlowReaderPacer
+    participant Time as TokioTime
+
+    Test->>Runtime: spawn async test
+    Runtime->>Helper: drive_with_slow_payloads(app, payloads, config)
+
+    alt writer_pacing configured
+        Helper->>Writer: start_paced_writes(payloads, config.writer_pacing)
+        Writer->>App: send_first_chunk()
+        loop for each remaining chunk
+            Writer->>Time: sleep(config.writer_pacing.delay)
+            Time-->>Writer: wake
+            Writer->>App: send_chunk()
+        end
+    else no writer pacing
+        Helper->>App: send_all_payloads()
+    end
+
+    alt reader_pacing configured
+        Helper->>Reader: start_paced_reads(config.reader_pacing)
+        Reader->>App: read_first_chunk()
+        App-->>Reader: first_chunk_bytes
+        Reader-->>Helper: append_to_output(first_chunk_bytes)
+        loop while app_has_more_output
+            Reader->>Time: sleep(config.reader_pacing.delay)
+            Time-->>Reader: wake
+            Reader->>App: read_chunk()
+            App-->>Reader: chunk_bytes
+            Reader-->>Helper: append_to_output(chunk_bytes)
+        end
+    else no reader pacing
+        Helper->>App: read_all_output()
+        App-->>Helper: all_bytes
+    end
+
+    Helper-->>Runtime: Result<Vec<u8>>
+    Runtime-->>Test: assert_backpressure_behaviour()
+```
+
+Public entry points:
+
+- `drive_with_slow_frames` for pre-framed raw bytes.
+- `drive_with_slow_payloads` for default length-delimited payloads.
+- `drive_with_slow_codec_payloads` for codec-aware payload round trips.
+- `drive_with_slow_codec_frames` for codec-aware frame assertions.
+
+These helpers are intentionally additive rather than replacing the existing
+drivers. Existing tests keep the simpler fast-path helpers, while
+back-pressure-focused tests opt into explicit pacing.
+
 ### Buffer capacity and limits
 
 The duplex stream buffer defaults to `TEST_MAX_FRAME`, matching the shared

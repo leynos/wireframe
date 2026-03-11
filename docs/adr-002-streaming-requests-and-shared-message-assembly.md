@@ -472,6 +472,13 @@ These utilities should build on the existing `wireframe_testing` companion
 crate, and may be re-exported as `wireframe::testkit` behind a dedicated
 feature to keep the core crate lightweight.[^testing]
 
+Implementation note for roadmap item `8.5.2`: `wireframe_testing` now exposes
+`SlowIoPacing` and `SlowIoConfig`, together with slow-I/O driver helpers for
+raw frames, default length-delimited payloads, and codec-aware payload/frame
+round trips. The pacing model is additive and duplex-based: tests can slow the
+client write direction, the client read direction, or both, while keeping the
+rest of the in-process app harness unchanged.
+
 ## Consequences
 
 - Wireframe gains an explicit “streaming request body” surface alongside the

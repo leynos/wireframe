@@ -229,7 +229,7 @@ mod tests {
                 .iter()
                 .find(|line| {
                     line.contains("connection task panicked")
-                        && line.contains("panic=Any")
+                        && line.contains("panic=boom")
                         && line.contains(&format!("peer_addr=Some({peer_addr})"))
                 })
                 .map(|_| ())
@@ -345,7 +345,7 @@ mod tests {
                 .iter()
                 .find(|line| {
                     line.contains("connection task panicked")
-                        && line.contains("panic=Any")
+                        && line.contains("panic=boom")
                         && line.contains(&format!("peer_addr=Some({peer_addr})"))
                 })
                 .map(|_| ())

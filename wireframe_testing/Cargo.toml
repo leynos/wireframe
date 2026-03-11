@@ -11,7 +11,7 @@ categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe_testing"
 
 [dependencies]
-tokio = { version = "1", features = ["macros", "rt", "io-util"] }
+tokio = { version = "1", features = ["macros", "rt", "io-util", "time"] }
 wireframe = { version = "0.2.0", path = ".." }
 bincode = "^2.0"
 bytes = "^1.0"

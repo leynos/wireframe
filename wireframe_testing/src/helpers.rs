@@ -18,6 +18,7 @@ mod fragment_drive;
 mod partial_frame;
 mod payloads;
 mod runtime;
+mod slow_io;
 
 #[cfg(test)]
 mod tests;
@@ -44,7 +45,7 @@ impl<T> TestSerializer for T where
 }
 
 pub(crate) const DEFAULT_CAPACITY: usize = 4096;
-pub(crate) const MAX_CAPACITY: usize = 1024 * 1024 * 10; // 10MB limit
+pub(crate) const MAX_CAPACITY: usize = slow_io::MAX_SLOW_IO_CAPACITY;
 pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
 /// Shared frame cap used by helpers and tests to avoid drift.
 pub const TEST_MAX_FRAME: usize = DEFAULT_CAPACITY;
@@ -97,3 +98,12 @@ pub use partial_frame::{
 };
 pub use payloads::{drive_with_bincode, drive_with_payloads, drive_with_payloads_mut};
 pub use runtime::{run_app, run_with_duplex_server};
+pub use slow_io::{
+    MAX_SLOW_IO_CAPACITY,
+    SlowIoConfig,
+    SlowIoPacing,
+    drive_with_slow_codec_frames,
+    drive_with_slow_codec_payloads,
+    drive_with_slow_frames,
+    drive_with_slow_payloads,
+};

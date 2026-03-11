@@ -418,6 +418,62 @@ Available assertion helpers:
 - `assert_log_at_level(level, substring)` — assert a log at a specific level
   contains a substring.
 
+#### Simulating slow readers and writers
+
+Back-pressure tests often need more than partial-frame delivery. The
+`wireframe_testing` crate also provides slow-I/O helpers that pace the client
+write side, the client read side, or both directions at once.
+
+Use `SlowIoPacing` to define a chunk size and inter-chunk delay, then apply it
+through `SlowIoConfig`:
+
+```rust,no_run
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    codec::examples::HotlineFrameCodec,
+    serializer::{BincodeSerializer, Serializer},
+};
+use wireframe_testing::{
+    SlowIoConfig, SlowIoPacing, drive_with_slow_codec_payloads,
+};
+
+let codec = HotlineFrameCodec::new(4096);
+let app = WireframeApp::new()?.with_codec(codec.clone());
+let config = SlowIoConfig::new()
+    .with_writer_pacing(SlowIoPacing::new(
+        NonZeroUsize::new(8).expect("non-zero"),
+        Duration::from_millis(5),
+    ))
+    .with_reader_pacing(SlowIoPacing::new(
+        NonZeroUsize::new(32).expect("non-zero"),
+        Duration::from_millis(5),
+    ))
+    .with_capacity(64);
+
+let request = BincodeSerializer.serialize(&Envelope::new(
+    1,
+    Some(7),
+    vec![1, 2, 3],
+))?;
+let payloads = drive_with_slow_codec_payloads(app, &codec, vec![request], config)
+    .await?;
+```
+
+Available slow-I/O helper functions:
+
+- `drive_with_slow_frames` — pre-framed bytes, returns raw output bytes.
+- `drive_with_slow_payloads` — default length-delimited payloads, returns raw
+  output bytes.
+- `drive_with_slow_codec_payloads` — codec-aware payloads, returns decoded
+  payload byte vectors.
+- `drive_with_slow_codec_frames` — codec-aware frames, returns decoded
+  `F::Frame` values.
+
+These helpers are designed for deterministic tests under paused Tokio time. Use
+small duplex capacities together with reader pacing when you need the app's
+outbound writes to hit back-pressure quickly.
+
 #### Zero-copy payload extraction
 
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload

@@ -28,8 +28,11 @@ pub mod observability;
 
 pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{
+    MAX_SLOW_IO_CAPACITY,
     MaxFrameLength,
     PayloadLength,
+    SlowIoConfig,
+    SlowIoPacing,
     TEST_MAX_FRAME,
     TestSerializer,
     TransactionId,
@@ -61,6 +64,10 @@ pub use helpers::{
     drive_with_partial_frames_with_capacity,
     drive_with_payloads,
     drive_with_payloads_mut,
+    drive_with_slow_codec_frames,
+    drive_with_slow_codec_payloads,
+    drive_with_slow_frames,
+    drive_with_slow_payloads,
     encode_frame,
     encode_payloads_with_codec,
     extract_payloads,
