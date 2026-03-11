@@ -104,8 +104,12 @@ impl FromStr for CombinedDriveConfig {
         };
         if parts.next().is_some() {
             return Err(format!(
-                "expected combined config \
-                 payload_len/writer_chunk/writer_delay/reader_chunk/reader_delay/capacity, got {s}"
+                concat!(
+                    "expected combined config ",
+                    "payload_len/writer_chunk/writer_delay/reader_chunk/reader_delay/capacity, \
+                     got {s}"
+                ),
+                s = s
             ));
         }
         Ok(Self {
