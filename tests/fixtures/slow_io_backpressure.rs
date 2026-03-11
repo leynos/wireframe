@@ -15,8 +15,7 @@ use wireframe_testing::{SlowIoConfig, SlowIoPacing, drive_with_slow_codec_payloa
 /// Runtime-backed world for behavioural tests covering slow reader and writer
 /// simulation.
 pub struct SlowIoBackpressureWorld {
-    runtime: Option<tokio::runtime::Runtime>,
-    runtime_error: Option<String>,
+    runtime: tokio::runtime::Runtime,
     max_frame_length: Option<usize>,
     task: Option<tokio::task::JoinHandle<io::Result<Vec<Vec<u8>>>>>,
     outputs: Option<Vec<Vec<u8>>>,
@@ -135,31 +134,6 @@ impl FromStr for CombinedDriveConfig {
     }
 }
 
-impl Default for SlowIoBackpressureWorld {
-    fn default() -> Self {
-        match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .start_paused(true)
-            .build()
-        {
-            Ok(runtime) => Self {
-                runtime: Some(runtime),
-                runtime_error: None,
-                max_frame_length: None,
-                task: None,
-                outputs: None,
-            },
-            Err(error) => Self {
-                runtime: None,
-                runtime_error: Some(format!("failed to create runtime: {error}")),
-                max_frame_length: None,
-                task: None,
-                outputs: None,
-            },
-        }
-    }
-}
-
 impl fmt::Debug for SlowIoBackpressureWorld {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SlowIoBackpressureWorld")
@@ -173,20 +147,20 @@ impl fmt::Debug for SlowIoBackpressureWorld {
 /// Construct the default world used by slow-I/O behavioural tests.
 #[rustfmt::skip]
 #[fixture]
-pub fn slow_io_backpressure_world() -> SlowIoBackpressureWorld {
-    SlowIoBackpressureWorld::default()
+pub fn slow_io_backpressure_world() -> TestResult<SlowIoBackpressureWorld> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build()?;
+    Ok(SlowIoBackpressureWorld {
+        runtime,
+        max_frame_length: None,
+        task: None,
+        outputs: None,
+    })
 }
 
 impl SlowIoBackpressureWorld {
-    fn runtime(&self) -> TestResult<&tokio::runtime::Runtime> {
-        self.runtime.as_ref().ok_or_else(|| {
-            self.runtime_error
-                .clone()
-                .unwrap_or_else(|| "runtime unavailable".to_string())
-                .into()
-        })
-    }
-
     fn block_on<F, T>(&self, future: F) -> TestResult<T>
     where
         F: Future<Output = T>,
@@ -194,7 +168,7 @@ impl SlowIoBackpressureWorld {
         if tokio::runtime::Handle::try_current().is_ok() {
             return Err("nested Tokio runtime detected in slow-io fixture".into());
         }
-        Ok(self.runtime()?.block_on(future))
+        Ok(self.runtime.block_on(future))
     }
 
     fn build_app(
@@ -233,7 +207,7 @@ impl SlowIoBackpressureWorld {
         let payload = Self::serialize_request(payload_len)?;
 
         self.outputs = None;
-        self.task = Some(self.runtime()?.spawn(async move {
+        self.task = Some(self.runtime.spawn(async move {
             drive_with_slow_codec_payloads(app, &codec, vec![payload], config).await
         }));
         Ok(())

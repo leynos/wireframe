@@ -8,7 +8,7 @@ use crate::fixtures::slow_io_backpressure::*;
     path = "tests/features/slow_io_backpressure.feature",
     name = "Slow writer delays request completion"
 )]
-fn slow_writer_delays(slow_io_backpressure_world: SlowIoBackpressureWorld) {
+fn slow_writer_delays(slow_io_backpressure_world: TestResult<SlowIoBackpressureWorld>) {
     let _ = slow_io_backpressure_world;
 }
 
@@ -16,7 +16,7 @@ fn slow_writer_delays(slow_io_backpressure_world: SlowIoBackpressureWorld) {
     path = "tests/features/slow_io_backpressure.feature",
     name = "Slow reader delays response draining"
 )]
-fn slow_reader_delays(slow_io_backpressure_world: SlowIoBackpressureWorld) {
+fn slow_reader_delays(slow_io_backpressure_world: TestResult<SlowIoBackpressureWorld>) {
     let _ = slow_io_backpressure_world;
 }
 
@@ -24,6 +24,6 @@ fn slow_reader_delays(slow_io_backpressure_world: SlowIoBackpressureWorld) {
     path = "tests/features/slow_io_backpressure.feature",
     name = "Combined slow reader and writer still round-trips correctly"
 )]
-fn combined_slow_io_round_trip(slow_io_backpressure_world: SlowIoBackpressureWorld) {
+fn combined_slow_io_round_trip(slow_io_backpressure_world: TestResult<SlowIoBackpressureWorld>) {
     let _ = slow_io_backpressure_world;
 }
