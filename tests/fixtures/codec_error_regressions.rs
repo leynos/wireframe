@@ -1,37 +1,32 @@
 //! BDD world for codec-error regression scenarios backed by
 //! `wireframe_testing`.
 
-use bytes::BytesMut;
 use rstest::fixture;
-use tokio_util::codec::Decoder;
-use wireframe::{
-    byte_order::write_network_u32,
-    codec::{
-        CodecError,
-        CodecErrorContext,
-        EofError,
-        FrameCodec,
-        FramingError,
-        LengthDelimitedFrameCodec,
-        RecoveryPolicy,
-        RecoveryPolicyHook,
-    },
+use wireframe::codec::{
+    CodecError,
+    CodecErrorContext,
+    EofError,
+    FramingError,
+    RecoveryPolicy,
+    RecoveryPolicyHook,
 };
+use wireframe_testing::ObservabilityHandle;
 pub use wireframe_testing::TestResult;
-use wireframe_testing::{ObservabilityHandle, encode_frame, new_test_codec};
+
+#[path = "../common/codec_error_regression_support.rs"]
+mod codec_error_regression_support;
+
+use codec_error_regression_support::{
+    StrictRecoveryHook,
+    classify_eof,
+    encoded_default_frame,
+    truncated_payload_wire,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PartialEofKind {
     MidHeader,
     MidFrame,
-}
-
-struct StrictRecoveryHook;
-
-impl RecoveryPolicyHook for StrictRecoveryHook {
-    fn recovery_policy(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
-        RecoveryPolicy::Disconnect
-    }
 }
 
 #[derive(Default)]
@@ -136,10 +131,10 @@ impl CodecErrorRegressionsWorld {
             .copied()
             .ok_or_else(|| format!("missing partial EOF classification at index {index}"))?;
 
-        match (expected, actual) {
-            (PartialEofKind::MidHeader, EofError::MidHeader { .. })
-            | (PartialEofKind::MidFrame, EofError::MidFrame { .. }) => Ok(()),
-            _ => Err(format!("expected {expected:?}, got {actual:?}").into()),
+        if matches_partial_eof_kind(expected, &actual) {
+            Ok(())
+        } else {
+            Err(format!("expected {expected:?}, got {actual:?}").into())
         }
     }
 
@@ -163,11 +158,6 @@ impl CodecErrorRegressionsWorld {
     }
 }
 
-fn encoded_default_frame(payload: &[u8]) -> TestResult<Vec<u8>> {
-    let mut codec = new_test_codec(1024);
-    encode_frame(&mut codec, payload.to_vec()).map_err(Into::into)
-}
-
 fn partial_header_wire() -> TestResult<Vec<u8>> {
     let wire = encoded_default_frame(&[1, 2, 3, 4])?;
     wire.get(..2)
@@ -175,51 +165,14 @@ fn partial_header_wire() -> TestResult<Vec<u8>> {
         .ok_or_else(|| "expected at least two header bytes".into())
 }
 
-fn partial_payload_wire(payload: &[u8]) -> TestResult<Vec<u8>> {
-    let expected = u32::try_from(payload.len())?;
-    let partial_len = payload.len().saturating_sub(1);
-    let mut wire = Vec::with_capacity(4 + partial_len);
-    wire.extend_from_slice(&write_network_u32(expected));
-    wire.extend_from_slice(
-        payload
-            .get(..partial_len)
-            .ok_or("partial payload slice should be available")?,
-    );
-    Ok(wire)
-}
+fn partial_payload_wire(payload: &[u8]) -> TestResult<Vec<u8>> { truncated_payload_wire(payload) }
 
-fn classify_eof(bytes: &[u8], consume_frame_before_eof: bool) -> TestResult<EofError> {
-    let codec = LengthDelimitedFrameCodec::new(1024);
-    let mut decoder = codec.decoder();
-    let mut buffer = BytesMut::from(bytes);
-
-    if consume_frame_before_eof {
-        let frame = decoder.decode(&mut buffer)?;
-        if frame.is_none() {
-            return Err("expected a complete frame before EOF".into());
-        }
-    }
-
-    match decoder.decode_eof(&mut buffer) {
-        Ok(None) => Ok(EofError::CleanClose),
-        Ok(Some(_)) => Err("unexpected extra frame while classifying EOF".into()),
-        Err(error) => extract_eof_error(&error),
-    }
-}
-
-fn extract_eof_error(error: &std::io::Error) -> TestResult<EofError> {
-    let mut current = error
-        .get_ref()
-        .map(|inner| inner as &(dyn std::error::Error + 'static));
-
-    while let Some(err) = current {
-        if let Some(eof) = err.downcast_ref::<EofError>() {
-            return Ok(*eof);
-        }
-        current = err.source();
-    }
-
-    Err(format!("expected wrapped EofError, got {error}").into())
+fn matches_partial_eof_kind(expected: PartialEofKind, actual: &EofError) -> bool {
+    matches!(
+        (expected, actual),
+        (PartialEofKind::MidHeader, EofError::MidHeader { .. })
+            | (PartialEofKind::MidFrame, EofError::MidFrame { .. })
+    )
 }
 
 #[cfg(test)]
@@ -238,10 +191,10 @@ mod tests {
         #[case] build: fn() -> TestResult<Vec<u8>>,
     ) -> TestResult {
         let actual = classify_eof(&build()?, false)?;
-        match (expected, actual) {
-            (PartialEofKind::MidHeader, EofError::MidHeader { .. })
-            | (PartialEofKind::MidFrame, EofError::MidFrame { .. }) => Ok(()),
-            _ => Err(format!("expected {expected:?}, got {actual:?}").into()),
+        if matches_partial_eof_kind(expected, &actual) {
+            Ok(())
+        } else {
+            Err(format!("expected {expected:?}, got {actual:?}").into())
         }
     }
 

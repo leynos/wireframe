@@ -2,31 +2,32 @@
 //! `wireframe_testing`.
 #![cfg(not(loom))]
 
-use bytes::BytesMut;
 use rstest::rstest;
-use tokio_util::codec::Decoder;
-use wireframe::{
-    byte_order::write_network_u32,
-    codec::{
-        CodecError,
-        CodecErrorContext,
-        EofError,
-        FrameCodec,
-        FramingError,
-        LENGTH_HEADER_SIZE,
-        LengthDelimitedFrameCodec,
-        ProtocolError,
-        RecoveryPolicy,
-        RecoveryPolicyHook,
-    },
+use wireframe::codec::{
+    CodecError,
+    CodecErrorContext,
+    EofError,
+    FramingError,
+    LENGTH_HEADER_SIZE,
+    ProtocolError,
+    RecoveryPolicy,
+    RecoveryPolicyHook,
 };
 use wireframe_testing::{
     ObservabilityHandle,
     decode_frames_with_codec,
-    encode_frame,
-    new_test_codec,
     oversized_hotline_wire,
     truncated_hotline_header,
+};
+
+#[path = "common/codec_error_regression_support.rs"]
+mod codec_error_regression_support;
+
+use codec_error_regression_support::{
+    StrictRecoveryHook,
+    classify_eof,
+    encoded_default_frame,
+    truncated_payload_wire,
 };
 
 fn record_codec_error(obs: &mut ObservabilityHandle, error: &CodecError, policy: RecoveryPolicy) {
@@ -34,64 +35,6 @@ fn record_codec_error(obs: &mut ObservabilityHandle, error: &CodecError, policy:
         wireframe::metrics::inc_codec_error(error.error_type(), policy.as_str());
     });
     obs.snapshot();
-}
-
-fn extract_eof_error(error: &std::io::Error) -> EofError {
-    let mut current = error
-        .get_ref()
-        .map(|inner| inner as &(dyn std::error::Error + 'static));
-
-    while let Some(err) = current {
-        if let Some(eof) = err.downcast_ref::<EofError>() {
-            return *eof;
-        }
-        current = err.source();
-    }
-
-    panic!("expected io::Error to wrap EofError, got {error}");
-}
-
-fn classify_eof(bytes: &[u8], consume_frame_before_eof: bool) -> EofError {
-    let codec = LengthDelimitedFrameCodec::new(1024);
-    let mut decoder = codec.decoder();
-    let mut buffer = BytesMut::from(bytes);
-
-    if consume_frame_before_eof {
-        let frame = match decoder.decode(&mut buffer) {
-            Ok(frame) => frame,
-            Err(error) => panic!("complete frame should decode before EOF classification: {error}"),
-        };
-        assert!(frame.is_some(), "expected one complete frame before EOF");
-    }
-
-    match decoder.decode_eof(&mut buffer) {
-        Ok(None) => EofError::CleanClose,
-        Ok(Some(_)) => panic!("expected EOF classification, got unexpected trailing frame"),
-        Err(error) => extract_eof_error(&error),
-    }
-}
-
-fn encoded_default_frame(payload: &[u8]) -> Vec<u8> {
-    let mut codec = new_test_codec(1024);
-    match encode_frame(&mut codec, payload.to_vec()) {
-        Ok(wire) => wire,
-        Err(error) => panic!("default test codec should encode: {error}"),
-    }
-}
-
-fn truncated_payload_wire(payload: &[u8]) -> Vec<u8> {
-    let expected = match u32::try_from(payload.len()) {
-        Ok(expected) => expected,
-        Err(error) => panic!("payload length should fit in u32: {error}"),
-    };
-    let partial_len = payload.len().saturating_sub(1);
-    let mut wire = Vec::with_capacity(LENGTH_HEADER_SIZE + partial_len);
-    wire.extend_from_slice(&write_network_u32(expected));
-    let Some(partial) = payload.get(..partial_len) else {
-        panic!("partial payload slice should be available");
-    };
-    wire.extend_from_slice(partial);
-    wire
 }
 
 struct TaxonomyCase {
@@ -112,27 +55,28 @@ enum DefaultEofCase {
 impl DefaultEofCase {
     fn wire(self) -> Vec<u8> {
         match self {
-            Self::CleanClose => encoded_default_frame(&[1, 2, 3, 4]),
+            Self::CleanClose => match encoded_default_frame(&[1, 2, 3, 4]) {
+                Ok(wire) => wire,
+                Err(error) => panic!("default test codec should encode: {error}"),
+            },
             Self::MidHeader => {
-                let full = encoded_default_frame(&[1, 2, 3, 4]);
+                let full = match encoded_default_frame(&[1, 2, 3, 4]) {
+                    Ok(wire) => wire,
+                    Err(error) => panic!("default test codec should encode: {error}"),
+                };
                 match full.get(..2) {
                     Some(prefix) => prefix.to_vec(),
                     None => panic!("encoded frame should contain at least two header bytes"),
                 }
             }
-            Self::MidFrame => truncated_payload_wire(&[1, 2, 3, 4]),
+            Self::MidFrame => match truncated_payload_wire(&[1, 2, 3, 4]) {
+                Ok(wire) => wire,
+                Err(error) => panic!("partial payload wire should encode: {error}"),
+            },
         }
     }
 
     fn consumes_complete_frame(self) -> bool { matches!(self, Self::CleanClose) }
-}
-
-struct StrictRecoveryHook;
-
-impl RecoveryPolicyHook for StrictRecoveryHook {
-    fn recovery_policy(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
-        RecoveryPolicy::Disconnect
-    }
 }
 
 #[rstest]
@@ -221,7 +165,10 @@ fn default_codec_eof_classification_remains_stable(
     #[case] case: DefaultEofCase,
     #[case] expected: EofError,
 ) {
-    let actual = classify_eof(&case.wire(), case.consumes_complete_frame());
+    let actual = match classify_eof(&case.wire(), case.consumes_complete_frame()) {
+        Ok(actual) => actual,
+        Err(error) => panic!("default codec EOF classification should succeed: {error}"),
+    };
     assert_eq!(actual, expected);
 
     let error = CodecError::Eof(actual);

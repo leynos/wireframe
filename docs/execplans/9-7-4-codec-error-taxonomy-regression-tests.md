@@ -190,7 +190,7 @@ Validation commands and outcomes recorded for Stage E:
 - `make check-fmt`
 - `make lint`
 - `make test`
-- `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2`
+- `make markdownlint`
 
 All five commands passed on 2026-03-09. No `docs/users-guide.md` update was
 needed because the implementation did not change the public consumer API; it
@@ -254,7 +254,7 @@ on the 9.1.2 contract:
 - at least one malformed-wire regression that uses a `wireframe_testing`
   fixture or helper rather than bespoke byte construction.
 
-Use `#[rstest]` parameterization instead of repeated hand-written tests. Tests
+Use `#[rstest]` parameterization instead of repeated handwritten tests. Tests
 that rely on `ObservabilityHandle` should use
 `#[tokio::test(flavor = "current_thread")]` when async code is involved.
 
@@ -337,7 +337,7 @@ Green and full validation phase:
 
 ```sh
 set -o pipefail && make fmt 2>&1 | tee /tmp/9-7-4-fmt.log
-set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/9-7-4-markdownlint.log
+set -o pipefail && make markdownlint 2>&1 | tee /tmp/9-7-4-markdownlint.log
 set -o pipefail && make check-fmt 2>&1 | tee /tmp/9-7-4-check-fmt.log
 set -o pipefail && make lint 2>&1 | tee /tmp/9-7-4-lint.log
 set -o pipefail && make test 2>&1 | tee /tmp/9-7-4-test.log
