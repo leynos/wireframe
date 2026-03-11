@@ -148,21 +148,25 @@ and slow writer simulation. The public surface uses one pacing type plus one
 driver config:
 
 ```rust,no_run
+# fn example() -> Result<(), Box<dyn std::error::Error>> {
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe_testing::{SlowIoConfig, SlowIoPacing};
 
 let writer = SlowIoPacing::new(
-    NonZeroUsize::new(8).expect("non-zero"),
+    NonZeroUsize::new(8).ok_or_else(|| std::io::Error::other("chunk size must be non-zero"))?,
     Duration::from_millis(5),
 );
 let reader = SlowIoPacing::new(
-    NonZeroUsize::new(32).expect("non-zero"),
+    NonZeroUsize::new(32).ok_or_else(|| std::io::Error::other("chunk size must be non-zero"))?,
     Duration::from_millis(5),
 );
 let config = SlowIoConfig::new()
     .with_writer_pacing(writer)
     .with_reader_pacing(reader)
     .with_capacity(64);
+# let _ = config;
+# Ok(())
+# }
 ```
 
 The pacing applies to the client side of the in-memory duplex stream:

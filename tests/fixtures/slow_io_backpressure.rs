@@ -135,6 +135,7 @@ impl Default for SlowIoBackpressureWorld {
     fn default() -> Self {
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
+            .start_paused(true)
             .build()
         {
             Ok(runtime) => Self {
@@ -227,7 +228,6 @@ impl SlowIoBackpressureWorld {
         );
         let payload = Self::serialize_request(payload_len)?;
 
-        self.block_on(async { tokio::time::pause() })?;
         self.outputs = None;
         self.task = Some(self.runtime()?.spawn(async move {
             drive_with_slow_codec_payloads(app, &codec, vec![payload], config).await
@@ -327,7 +327,10 @@ impl SlowIoBackpressureWorld {
 
     /// Advance Tokio virtual time.
     pub fn advance_millis(&mut self, millis: u64) -> TestResult {
-        self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
+        self.block_on(async {
+            tokio::time::advance(Duration::from_millis(millis)).await;
+            tokio::task::yield_now().await;
+        })?;
         Ok(())
     }
 
