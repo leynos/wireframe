@@ -1,9 +1,10 @@
 //! Step definitions for message assembly multiplexing and continuity validation.
 
-use std::{fmt::Debug, str::FromStr};
+use std::str::FromStr;
 
 use rstest_bdd_macros::{given, then, when};
 use wireframe::message_assembler::{FrameSequence, MessageKey};
+use wireframe_testing::reassembly::MessageAssemblyErrorExpectation;
 
 use crate::fixtures::message_assembly::{
     AssemblyConfig,
@@ -59,61 +60,6 @@ impl FromStr for TimeoutParam {
     type Err = std::num::ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u64>().map(TimeoutParam) }
-}
-
-/// Frame identification combining key and sequence.
-#[derive(Debug, Clone, Copy)]
-pub struct FrameId {
-    pub key: MessageKey,
-    pub sequence: FrameSequence,
-}
-
-impl FrameId {
-    pub fn new(key: u64, sequence: u32) -> Self {
-        Self {
-            key: MessageKey(key),
-            sequence: FrameSequence(sequence),
-        }
-    }
-}
-
-/// Helper function to reduce duplication in Then step assertions.
-fn assert_condition(condition: bool, error_msg: impl Into<String>) -> TestResult {
-    if condition {
-        Ok(())
-    } else {
-        Err(error_msg.into().into())
-    }
-}
-
-fn assert_error<F>(
-    world: &MessageAssemblyWorld,
-    check: F,
-    description: impl Into<String>,
-) -> TestResult
-where
-    F: FnOnce(&MessageAssemblyWorld) -> bool,
-{
-    assert_condition(
-        check(world),
-        format!("{}; got {:?}", description.into(), world.last_error()),
-    )
-}
-
-fn assert_equals<T: PartialEq + Debug>(
-    actual: &T,
-    expected: &T,
-    context: impl Into<String>,
-) -> TestResult {
-    assert_condition(
-        actual == expected,
-        format!(
-            "{}: expected {:?}, got {:?}",
-            context.into(),
-            expected,
-            actual
-        ),
-    )
 }
 
 // =============================================================================
@@ -248,10 +194,7 @@ fn when_purge_expired(message_assembly_world: &mut MessageAssemblyWorld) -> Test
 
 #[then("the assembly result is incomplete")]
 fn then_result_incomplete(message_assembly_world: &mut MessageAssemblyWorld) -> TestResult {
-    assert_condition(
-        message_assembly_world.last_result_is_incomplete(),
-        "expected incomplete result",
-    )
+    message_assembly_world.assert_result_incomplete()
 }
 
 #[then("the assembly completes with body {body:string}")]
@@ -259,10 +202,7 @@ fn then_completes_with_body(
     message_assembly_world: &mut MessageAssemblyWorld,
     body: String,
 ) -> TestResult {
-    let actual = message_assembly_world
-        .last_completed_body()
-        .ok_or("expected completed message")?;
-    assert_equals(&actual, &body.as_bytes(), "body mismatch")
+    message_assembly_world.assert_completed_body(body.as_bytes())
 }
 
 #[then("key {key:MessageKeyParam} completes with body {body:string}")]
@@ -271,14 +211,7 @@ fn then_key_completes(
     key: MessageKeyParam,
     body: String,
 ) -> TestResult {
-    let actual = message_assembly_world
-        .completed_body_for_key(key.to_key())
-        .ok_or_else(|| format!("expected completed message for key {}", key.0))?;
-    assert_equals(
-        &actual,
-        &body.as_bytes(),
-        format!("body mismatch for key {}", key.0),
-    )
+    message_assembly_world.assert_completed_body_for_key(key.to_key(), body.as_bytes())
 }
 
 #[then("the buffered count is {count:CountParam}")]
@@ -286,8 +219,7 @@ fn then_buffered_count(
     message_assembly_world: &mut MessageAssemblyWorld,
     count: CountParam,
 ) -> TestResult {
-    let actual = message_assembly_world.buffered_count();
-    assert_equals(&actual, &count.0, "buffered count mismatch")
+    message_assembly_world.assert_buffered_count(count.0)
 }
 
 #[rustfmt::skip]
@@ -297,11 +229,10 @@ fn then_error_sequence_mismatch(
     expected: SequenceParam,
     found: SequenceParam,
 ) -> TestResult {
-    assert_error(
-        message_assembly_world,
-        |world| world.is_sequence_mismatch(expected.to_seq(), found.to_seq()),
-        "expected sequence mismatch error",
-    )
+    message_assembly_world.assert_error(MessageAssemblyErrorExpectation::SequenceMismatch {
+        expected: expected.to_seq(),
+        found: found.to_seq(),
+    })
 }
 
 #[then(
@@ -312,12 +243,10 @@ fn then_error_duplicate_frame(
     key: MessageKeyParam,
     sequence: SequenceParam,
 ) -> TestResult {
-    let frame_id = FrameId::new(key.0, sequence.0);
-    assert_error(
-        message_assembly_world,
-        |world| world.is_duplicate_frame(frame_id),
-        "expected duplicate frame error",
-    )
+    message_assembly_world.assert_error(MessageAssemblyErrorExpectation::DuplicateFrame {
+        key: key.to_key(),
+        sequence: sequence.to_seq(),
+    })
 }
 
 #[then("the error is missing first frame for key {key:MessageKeyParam}")]
@@ -325,11 +254,8 @@ fn then_error_missing_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
 ) -> TestResult {
-    assert_error(
-        message_assembly_world,
-        |world| world.is_missing_first_frame(key.to_key()),
-        "expected missing first frame error",
-    )
+    message_assembly_world
+        .assert_error(MessageAssemblyErrorExpectation::MissingFirstFrame { key: key.to_key() })
 }
 
 #[then("the error is duplicate first frame for key {key:MessageKeyParam}")]
@@ -337,11 +263,8 @@ fn then_error_duplicate_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
 ) -> TestResult {
-    assert_error(
-        message_assembly_world,
-        |world| world.is_duplicate_first_frame(key.to_key()),
-        "expected duplicate first frame error",
-    )
+    message_assembly_world
+        .assert_error(MessageAssemblyErrorExpectation::DuplicateFirstFrame { key: key.to_key() })
 }
 
 #[then("the error is message too large for key {key:MessageKeyParam}")]
@@ -349,11 +272,8 @@ fn then_error_message_too_large(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
 ) -> TestResult {
-    assert_error(
-        message_assembly_world,
-        |world| world.is_message_too_large(key.to_key()),
-        "expected message too large error",
-    )
+    message_assembly_world
+        .assert_error(MessageAssemblyErrorExpectation::MessageTooLarge { key: key.to_key() })
 }
 
 #[then("key {key:MessageKeyParam} was evicted")]
@@ -361,8 +281,5 @@ fn then_key_evicted(
     message_assembly_world: &mut MessageAssemblyWorld,
     key: MessageKeyParam,
 ) -> TestResult {
-    assert_condition(
-        message_assembly_world.was_evicted(key.to_key()),
-        format!("expected key {} to be evicted", key.0),
-    )
+    message_assembly_world.assert_evicted(key.to_key())
 }

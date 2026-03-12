@@ -20,16 +20,22 @@ use wireframe::message_assembler::{
     EnvelopeRouting,
     FirstFrameHeader,
     FirstFrameInput,
-    FrameSequence,
     MessageAssemblyError,
     MessageAssemblyState,
     MessageKey,
-    MessageSeriesError,
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
-
-use crate::scenarios::steps::FrameId;
+use wireframe_testing::reassembly::{
+    MessageAssemblyErrorExpectation,
+    MessageAssemblySnapshot,
+    assert_message_assembly_buffered_count,
+    assert_message_assembly_completed,
+    assert_message_assembly_completed_for_key,
+    assert_message_assembly_error,
+    assert_message_assembly_evicted,
+    assert_message_assembly_incomplete,
+};
 
 /// Configuration for message assembly state initialisation.
 #[derive(Debug, Clone, Copy)]
@@ -92,6 +98,20 @@ pub fn message_assembly_world() -> MessageAssemblyWorld {
 }
 
 impl MessageAssemblyWorld {
+    fn snapshot(&self) -> MessageAssemblySnapshot<'_> {
+        MessageAssemblySnapshot::new(
+            self.last_result.as_ref(),
+            &self.completed_messages,
+            &self.evicted_keys,
+            self.state
+                .as_ref()
+                .map_or(0, MessageAssemblyState::buffered_count),
+            self.state
+                .as_ref()
+                .map_or(0, MessageAssemblyState::total_buffered_bytes),
+        )
+    }
+
     /// Initialise the assembly state with size limit and timeout.
     ///
     /// # Panics
@@ -246,95 +266,27 @@ impl MessageAssemblyWorld {
         Ok(())
     }
 
-    /// Number of partial assemblies currently buffered.
-    #[must_use]
-    pub fn buffered_count(&self) -> usize {
-        self.state
-            .as_ref()
-            .map_or(0, MessageAssemblyState::buffered_count)
+    pub fn assert_result_incomplete(&self) -> TestResult {
+        assert_message_assembly_incomplete(self.snapshot())
     }
 
-    /// Whether the last result indicates an incomplete assembly.
-    #[must_use]
-    pub fn last_result_is_incomplete(&self) -> bool { matches!(self.last_result, Some(Ok(None))) }
-
-    /// Body of the most recently completed message.
-    #[must_use]
-    pub fn last_completed_body(&self) -> Option<&[u8]> {
-        self.completed_messages.last().map(AssembledMessage::body)
+    pub fn assert_completed_body(&self, expected: &[u8]) -> TestResult {
+        assert_message_assembly_completed(self.snapshot(), expected)
     }
 
-    /// Body of the completed message for the given key.
-    #[must_use]
-    pub fn completed_body_for_key(&self, key: MessageKey) -> Option<&[u8]> {
-        self.completed_messages
-            .iter()
-            .rev()
-            .find(|m| m.message_key() == key)
-            .map(AssembledMessage::body)
+    pub fn assert_completed_body_for_key(&self, key: MessageKey, expected: &[u8]) -> TestResult {
+        assert_message_assembly_completed_for_key(self.snapshot(), key, expected)
     }
 
-    /// Last error, if any.
-    #[must_use]
-    pub fn last_error(&self) -> Option<&MessageAssemblyError> {
-        match &self.last_result {
-            Some(Err(e)) => Some(e),
-            _ => None,
-        }
+    pub fn assert_buffered_count(&self, expected: usize) -> TestResult {
+        assert_message_assembly_buffered_count(self.snapshot(), expected)
     }
 
-    /// Whether the last error is a sequence mismatch.
-    #[must_use]
-    pub fn is_sequence_mismatch(&self, expected: FrameSequence, found: FrameSequence) -> bool {
-        matches!(
-            self.last_error(),
-            Some(MessageAssemblyError::Series(MessageSeriesError::SequenceMismatch {
-                expected: e,
-                found: f,
-            })) if *e == expected && *f == found
-        )
+    pub fn assert_error(&self, expected: MessageAssemblyErrorExpectation) -> TestResult {
+        assert_message_assembly_error(self.snapshot(), expected)
     }
 
-    /// Whether the last error is a duplicate frame.
-    #[must_use]
-    pub fn is_duplicate_frame(&self, frame_id: FrameId) -> bool {
-        matches!(
-            self.last_error(),
-            Some(MessageAssemblyError::Series(MessageSeriesError::DuplicateFrame {
-                key: k,
-                sequence: s,
-            })) if *k == frame_id.key && *s == frame_id.sequence
-        )
+    pub fn assert_evicted(&self, key: MessageKey) -> TestResult {
+        assert_message_assembly_evicted(self.snapshot(), key)
     }
-
-    /// Whether the last error is a missing first frame.
-    #[must_use]
-    pub fn is_missing_first_frame(&self, key: MessageKey) -> bool {
-        matches!(
-            self.last_error(),
-            Some(MessageAssemblyError::Series(MessageSeriesError::MissingFirstFrame { key: k })) if *k == key
-        )
-    }
-
-    /// Whether the last error is a duplicate first frame.
-    #[must_use]
-    pub fn is_duplicate_first_frame(&self, key: MessageKey) -> bool {
-        matches!(
-            self.last_error(),
-            Some(MessageAssemblyError::DuplicateFirstFrame { key: k }) if *k == key
-        )
-    }
-
-    /// Whether the last error is message too large.
-    #[must_use]
-    pub fn is_message_too_large(&self, key: MessageKey) -> bool {
-        matches!(
-            self.last_error(),
-            Some(MessageAssemblyError::MessageTooLarge { key: k, .. }) if *k == key
-        )
-    }
-
-    /// Whether the given key was evicted.
-    #[must_use]
-    pub fn was_evicted(&self, key: MessageKey) -> bool { self.evicted_keys.contains(&key) }
 }

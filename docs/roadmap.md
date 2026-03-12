@@ -316,7 +316,7 @@ and standardized per-connection memory budgets.
 - [x] 8.5.1. Add utilities for feeding partial frames or fragments into an
   in-process app.
 - [x] 8.5.2. Add slow reader and writer simulation for back-pressure testing.
-- [ ] 8.5.3. Add deterministic assertion helpers for reassembly outcomes.
+- [x] 8.5.3. Add deterministic assertion helpers for reassembly outcomes.
 - [ ] 8.5.4. Export utilities as `wireframe::testkit` behind a dedicated
   feature.
 

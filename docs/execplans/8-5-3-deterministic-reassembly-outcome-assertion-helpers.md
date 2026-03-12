@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: DONE
 
 ## Purpose / big picture
 
@@ -112,14 +112,26 @@ passes and the public documentation is updated.
   `tests/steps/message_assembly_steps.rs`, and
   `tests/fixtures/fragment/reassembly.rs`.
 - [x] (2026-03-11 00:00Z) Drafted this ExecPlan.
-- [ ] Finalize the public assertion API shape in `wireframe_testing`.
-- [ ] Implement helper module(s) and exports.
-- [ ] Refactor the existing BDD worlds and steps to consume the helper API.
-- [ ] Add `rstest` integration tests for the public helper surface.
-- [ ] Add or extend `rstest-bdd` scenarios covering helper-backed assertions.
-- [ ] Update design and user documentation.
-- [ ] Run all relevant quality gates.
-- [ ] Mark roadmap item `8.5.3` done.
+- [x] (2026-03-12 00:00Z) Finalized the public assertion API shape in
+  `wireframe_testing` as a dedicated `reassembly` module with separate
+  message-assembly and fragment-reassembly helpers.
+- [x] (2026-03-12 00:00Z) Implemented helper modules and exports in
+  `wireframe_testing/src/reassembly/` and re-exported them from
+  `wireframe_testing/src/lib.rs`.
+- [x] (2026-03-12 00:00Z) Refactored the existing BDD worlds and steps to
+  consume the helper API via thin wrapper methods instead of bespoke pattern
+  matches.
+- [x] (2026-03-12 00:00Z) Added `rstest` integration tests for the public
+  helper surface in `tests/reassembly_assertion_helpers.rs`.
+- [x] (2026-03-12 00:00Z) Extended the `rstest-bdd` coverage by switching the
+  message-assembly and fragment-reassembly fixtures/steps to the helper-backed
+  assertions.
+- [x] (2026-03-12 00:00Z) Updated design and user documentation, including the
+  ADR implementation note and the users guide entry for the new public API.
+- [x] (2026-03-12 00:00Z) Ran the relevant quality gates for code, tests,
+  doctests, formatting, markdown, and Mermaid validation.
+- [x] (2026-03-12 00:00Z) Marked roadmap item `8.5.3` done in
+  `docs/roadmap.md`.
 
 ## Surprises & Discoveries
 
@@ -136,6 +148,22 @@ passes and the public documentation is updated.
 - Observation: `wireframe_testing` helper tests cannot live under
   `wireframe_testing/src/**` because that crate is not a workspace member and
   would not be exercised by `make test`.
+
+- Observation: the cleanest public API was not one giant assertion enum. The
+  implementation stayed easier to explain and easier to lint by exposing two
+  separate expectation families: `MessageAssemblyErrorExpectation` and
+  `FragmentReassemblyErrorExpectation`.
+
+- Observation: the strict Clippy configuration shaped the helper tests and
+  fixtures. A reusable test constructor with five parameters triggered
+  `clippy::too_many_arguments`, and a wildcard arm over the fragment error enum
+  triggered `clippy::match_wildcard_for_single_variants`, so the final tests
+  build snapshots inline and the fixture matches variants explicitly.
+
+- Observation: repo-wide markdown validation was previously blocked by older
+  execplans with ordered-list numbering problems. Those baseline MD029 issues
+  had to be corrected in this session before `make markdownlint` could pass for
+  the full repository.
 
 ## Decision Log
 
@@ -154,15 +182,52 @@ passes and the public documentation is updated.
   universal error enum. Rationale: the domains overlap conceptually but expose
   different state and different error types. Date/Author: 2026-03-11 / Codex
 
+- Decision: make the public helpers return
+  `wireframe_testing::integration_helpers::TestResult<()>` rather than panic.
+  Rationale: the same helpers must compose cleanly in `rstest` functions that
+  return `Result` and in `rstest-bdd` step functions, and deterministic error
+  messages are more useful than assertion macro panics. Date/Author: 2026-03-12
+  / Codex
+
+- Decision: keep the existing BDD scenarios and fixture worlds, but reduce
+  them to snapshot builders and thin wrapper methods around the public helper
+  functions. Rationale: this preserves scenario readability while moving the
+  core assertion semantics into the reusable testkit surface required by the
+  roadmap item. Date/Author: 2026-03-12 / Codex
+
 ## Outcomes & Retrospective
 
-This section remains intentionally incomplete until implementation finishes.
-Completion requires:
+Implementation completed on 2026-03-12.
 
-- a public helper module in `wireframe_testing`;
-- passing `rstest` and `rstest-bdd` coverage for the helper API;
-- updated design and user documentation; and
-- `docs/roadmap.md` updated from `[ ] 8.5.3` to `[x] 8.5.3`.
+Delivered artefacts:
+
+- new public `wireframe_testing::reassembly` helper modules for
+  message-assembly and fragment-reassembly assertions;
+- root-level `rstest` coverage in
+  `tests/reassembly_assertion_helpers.rs` because `wireframe_testing` is not a
+  workspace member;
+- helper-backed message-assembly and fragment-reassembly BDD worlds/steps; and
+- updated user-facing and design-facing documentation, plus the roadmap item
+  marked done.
+
+Validation completed with:
+
+- targeted helper and BDD coverage during implementation:
+  `cargo test --test reassembly_assertion_helpers --all-features`,
+  `cargo test --test bdd --all-features -- message_assembly`, and
+  `cargo test --test bdd --all-features -- fragment`;
+- repository quality gates:
+  `make fmt`, `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2`,
+  `make check-fmt`, `make lint`, `make test`, `make test-doc`,
+  `make doctest-benchmark`, and `make nixie`.
+
+Retrospective:
+
+- Extracting the assertions into `wireframe_testing` reduced duplication and
+  improved diagnostic consistency without changing runtime behaviour.
+- The public snapshot-plus-expectation pattern scales better than fixture-local
+  boolean helpers because it keeps scenario steps declarative while allowing
+  integration tests to assert exact failure semantics.
 
 ## Context and orientation
 

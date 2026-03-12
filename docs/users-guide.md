@@ -367,6 +367,51 @@ Available fragment-feeding driver functions:
 - `drive_with_partial_fragments` — fragment AND feed in chunks,
   exercising both fragmentation and partial-frame buffering simultaneously.
 
+#### Asserting reassembly outcomes
+
+The `wireframe_testing::reassembly` module provides non-panicking assertion
+helpers for both transport fragment reassembly and protocol message assembly.
+The API is built around lightweight snapshot structs so the same helper can be
+used from `rstest` tests and `rstest-bdd` step definitions.
+
+```rust,no_run
+use wireframe::message_assembler::MessageKey;
+use wireframe_testing::reassembly::{
+    MessageAssemblySnapshot, assert_message_assembly_completed_for_key,
+};
+
+# fn check(snapshot: MessageAssemblySnapshot<'_>) -> wireframe_testing::TestResult {
+assert_message_assembly_completed_for_key(snapshot, MessageKey(7), b"done")?;
+# Ok(())
+# }
+```
+
+Available message-assembly assertion helpers:
+
+- `assert_message_assembly_incomplete` — verify the latest assembly is still
+  awaiting more frames.
+- `assert_message_assembly_completed` — verify the latest assembly completed
+  with a specific body.
+- `assert_message_assembly_completed_for_key` — verify the most recent
+  completed message for a specific `MessageKey`.
+- `assert_message_assembly_error` — verify structured failures such as
+  sequence mismatch, duplicate first frame, and budget errors.
+- `assert_message_assembly_buffered_count` /
+  `assert_message_assembly_total_buffered_bytes` — verify cleanup and memory
+  accounting side effects.
+- `assert_message_assembly_evicted` — verify timeout-based eviction.
+
+Available fragment-reassembly assertion helpers:
+
+- `assert_fragment_reassembly_absent` — verify no full message has been
+  reconstructed yet.
+- `assert_fragment_reassembly_completed_len` — verify reconstructed payload
+  length.
+- `assert_fragment_reassembly_error` — verify over-limit and ordering errors.
+- `assert_fragment_reassembly_buffered_messages` — verify buffered partial
+  message count.
+- `assert_fragment_reassembly_evicted` — verify timeout-based eviction.
+
 #### Test observability
 
 The `wireframe_testing` crate provides an `ObservabilityHandle` that combines
