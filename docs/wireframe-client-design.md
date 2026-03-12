@@ -474,6 +474,40 @@ flowchart TD
   or true per-socket concurrent transport use, revisit this boundary and decide
   whether to extend or replace the slot wrapper.
 
+## Decision record for 11.2.2
+
+- Decision: `PoolHandle` represents the fairness identity of one logical
+  session, not affinity to one physical socket.
+- Rationale: callers needed a durable identity so repeated pooled acquisition
+  by one busy workflow could not crowd out other waiting workflows. Tying the
+  handle to fairness instead of socket ownership preserves warm-socket reuse
+  without implying transport pinning.
+- Scheduling model:
+  - `WireframeClientPool` now owns shared inner state plus a handle scheduler;
+  - `pool.handle()` registers one stable logical-session ID;
+  - blocked `PoolHandle::acquire()` calls queue against that scheduler, which
+    obtains a real slot permit before waking the chosen handle.
+- Fairness distinction:
+  - slot rotation still decides which physical socket to try first across the
+    pool's warm connections;
+  - handle fairness decides which logical session receives the next lease when
+    contention exists.
+- Policy set:
+  - `PoolFairnessPolicy::RoundRobin` is the default because it gives stable
+    logical sessions turns in rotation under repeated contention;
+  - `PoolFairnessPolicy::Fifo` is available when callers want blocked handles
+    served strictly in arrival order.
+- API boundary:
+  - `PoolHandle` exposes fair `acquire()` plus safe whole-operation helpers
+    such as `call()`;
+  - `PooledClientLease` remains the low-level surface for split-phase workflows
+    (`send` followed later by `receive`) because the pool still does not
+    demultiplex arbitrary responses across shared handles.
+- Back-pressure posture:
+  - handle fairness is additive above the existing slot-permit budget;
+  - the scheduler never bypasses `max_in_flight_per_socket`, serialized socket
+    access, or idle recycle behaviour inherited from `11.2.1`.
+
 ## Future work
 
 This initial design focuses on a basic request/response workflow. Future

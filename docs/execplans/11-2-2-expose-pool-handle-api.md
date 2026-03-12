@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -131,12 +131,15 @@ only where they remain safe on a shared pool.
 - [x] (2026-03-10 00:00Z) Reviewed roadmap item `11.2.2`, the completed
   `11.2.1` pool implementation, relevant design/testing docs, and project notes.
 - [x] (2026-03-10 00:00Z) Drafted this ExecPlan.
-- [ ] Stage A: confirm the public API boundary and internal scheduler shape.
-- [ ] Stage B: add failing unit and behavioural tests that define fairness and
-  back-pressure behaviour.
-- [ ] Stage C: implement `PoolHandle`, fairness policies, and scheduler-backed
-  lease acquisition.
-- [ ] Stage D: update design docs, users' guide, roadmap, and run full gates.
+- [x] (2026-03-12 00:00Z) Stage A: confirmed the public API boundary and
+  internal scheduler shape around `ClientPoolInner`, `PoolHandle`, and
+  `PoolScheduler`.
+- [x] (2026-03-12 00:00Z) Stage B: added unit and behavioural tests that
+  define fairness and back-pressure behaviour.
+- [x] (2026-03-12 00:00Z) Stage C: implemented `PoolHandle`, fairness
+  policies, and scheduler-backed lease acquisition.
+- [x] (2026-03-12 00:00Z) Stage D: updated design docs, users' guide,
+  roadmap, and ran full gates.
 
 ## Surprises & Discoveries
 
@@ -160,6 +163,12 @@ only where they remain safe on a shared pool.
   so the pooled test target and any new pool docs are covered by the standard
   gates. Evidence: `Makefile`. Impact: no bespoke validation target is needed,
   only the standard gates plus Markdown/doc gates.
+
+- Observation: the scheduler can remain lightweight if it queues blocked
+  handles and obtains real slot permits in a spawned service loop rather than
+  maintaining a permanently running background task. Evidence:
+  `src/client/pool/scheduler.rs`. Impact: no extra shutdown protocol was
+  needed; lease drop simply kicks the scheduler when capacity returns.
 
 ## Decision Log
 
@@ -449,9 +458,35 @@ Observable completion criteria:
 
 ## Outcomes & Retrospective
 
-Pending implementation. Complete this section at the end of the feature with:
-
-- the final public API surface;
-- any deviations from this draft plan;
-- validation results with the exact commands that passed; and
-- lessons learned about fairness, pool ergonomics, and follow-up work.
+- Final public API surface:
+  - `ClientPoolConfig::fairness_policy(...)`
+  - `PoolFairnessPolicy::{RoundRobin, Fifo}`
+  - `WireframeClientPool::handle()`
+  - `PoolHandle::acquire(&mut self)`
+  - `PoolHandle::call(&mut self, ...)`
+- Implementation summary:
+  - `WireframeClientPool` now wraps shared `ClientPoolInner` state;
+  - `PoolScheduler` queues blocked handles and obtains real slot permits before
+    handing back a `PooledClientLease`;
+  - `PooledClientLease` remains the split-phase API, while `PoolHandle` is the
+    fairness-aware logical-session API.
+- Validation completed before full gates:
+  - `cargo test --lib client::tests::pool_handle --features pool -- --nocapture`
+  - `cargo test --test bdd_pool --features "advanced-tests pool" -- --nocapture`
+- Final quality gates passed:
+  - `set -o pipefail && make fmt | tee /tmp/wireframe-11-2-2-fmt.log`
+  - `set -o pipefail && make check-fmt | tee /tmp/wireframe-11-2-2-check-fmt.log`
+  - `set -o pipefail && make lint | tee /tmp/wireframe-11-2-2-lint.log`
+  - `set -o pipefail && make test | tee /tmp/wireframe-11-2-2-test.log`
+  - `set -o pipefail && make test-doc | tee /tmp/wireframe-11-2-2-test-doc.log`
+  - `set -o pipefail && make doctest-benchmark | tee /tmp/wireframe-11-2-2-doctest-benchmark.log`
+  - `set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 | tee /tmp/wireframe-11-2-2-markdownlint.log`
+  - `set -o pipefail && make nixie | tee /tmp/wireframe-11-2-2-nixie.log`
+- Lessons learned:
+  - fairness is easiest to explain when the scheduler operates on logical
+    session handles rather than trying to retrofit identity into repeated
+    stateless `pool.acquire()` calls;
+  - a real lease grant must include a real slot permit, otherwise fairness is
+    only advisory and collapses back into permit races;
+  - keeping `PooledClientLease` separate from `PoolHandle` avoids implying
+    response demultiplexing that the current pool does not implement.

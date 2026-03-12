@@ -41,7 +41,13 @@ pub use hooks::{
     ClientErrorHandler,
 };
 #[cfg(feature = "pool")]
-pub use pool::{ClientPoolConfig, PooledClientLease, WireframeClientPool};
+pub use pool::{
+    ClientPoolConfig,
+    PoolFairnessPolicy,
+    PoolHandle,
+    PooledClientLease,
+    WireframeClientPool,
+};
 pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;
 pub use send_streaming::{SendStreamingConfig, SendStreamingOutcome};

@@ -1383,13 +1383,14 @@ cargo run --example client_echo_login --features examples
 
 Use `connect_pool` when one warm socket is too little, but opening a new TCP
 connection for every request is too expensive. `WireframeClientPool` keeps a
-bounded set of warm sockets, preserves preamble state on reuse, and recycles
-idle sockets after the configured timeout.
+bounded set of warm sockets, preserves preamble state on reuse, recycles idle
+sockets after the configured timeout, and can schedule blocked logical sessions
+fairly through `PoolHandle`.
 
 ```rust,no_run
 use std::{net::SocketAddr, time::Duration};
 
-use wireframe::client::{ClientPoolConfig, WireframeClient};
+use wireframe::client::{ClientPoolConfig, PoolFairnessPolicy, WireframeClient};
 
 #[derive(bincode::Encode, bincode::Decode)]
 struct Ping(u8);
@@ -1406,7 +1407,8 @@ let pool = WireframeClient::builder()
         ClientPoolConfig::default()
             .pool_size(2)
             .max_in_flight_per_socket(2)
-            .idle_timeout(Duration::from_secs(30)),
+            .idle_timeout(Duration::from_secs(30))
+            .fairness_policy(PoolFairnessPolicy::RoundRobin),
     )
     .await?;
 
@@ -1424,6 +1426,55 @@ reference to a long-lived `WireframeClient`. That keeps actual socket I/O
 serialized per physical connection while still allowing multiple callers to be
 admitted against the same warm slot. Treat `max_in_flight_per_socket` as an
 admission budget, not as a guarantee of parallel writes on one TCP stream.
+
+Create a `PoolHandle` when one logical session needs repeated pooled access and
+you want that session to participate in the configured fairness policy over
+time:
+
+```rust,no_run
+# use std::net::SocketAddr;
+use wireframe::client::{ClientPoolConfig, PoolFairnessPolicy, PoolHandle, WireframeClient};
+
+#[derive(bincode::Encode, bincode::Decode)]
+struct Ping(u8);
+
+#[derive(bincode::Encode, bincode::Decode, Debug, PartialEq)]
+struct Pong(u8);
+
+# #[tokio::main]
+# async fn main() -> Result<(), wireframe::client::ClientError> {
+let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
+let pool = WireframeClient::builder()
+    .connect_pool(
+        addr,
+        ClientPoolConfig::default()
+            .pool_size(1)
+            .fairness_policy(PoolFairnessPolicy::RoundRobin),
+    )
+    .await?;
+
+let mut session_a: PoolHandle<_, _, _> = pool.handle();
+let mut session_b = pool.handle();
+
+let pong_a: Pong = session_a.call(&Ping(1)).await?;
+let pong_b: Pong = session_b.call(&Ping(2)).await?;
+
+assert_eq!(pong_a, Pong(1));
+assert_eq!(pong_b, Pong(2));
+# Ok(())
+# }
+```
+
+Use `pool.handle()` instead of repeated `pool.acquire()` when a long-lived
+workflow should receive fair turns relative to other workflows. Fairness
+policies order blocked handles; they do not create a second queue outside the
+pool or bypass its back-pressure. If all permits are busy, the waiting handle
+still blocks until capacity returns.
+
+Continue using `PooledClientLease` for explicit split-phase work such as
+`send()` followed later by `receive()`. `PoolHandle` does not pin a logical
+session to one socket and does not demultiplex arbitrary responses across
+shared handles.
 
 Preamble callbacks and setup hooks run per physical socket creation. Warm reuse
 keeps the existing preamble state; idle recycle closes the old socket and
