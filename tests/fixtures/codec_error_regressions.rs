@@ -11,7 +11,7 @@ use wireframe::codec::{
     RecoveryPolicyHook,
 };
 use wireframe_testing::ObservabilityHandle;
-pub use wireframe_testing::TestResult;
+pub(crate) use wireframe_testing::TestResult;
 
 #[path = "../common/codec_error_regression_support.rs"]
 mod codec_error_regression_support;
@@ -30,7 +30,7 @@ enum PartialEofKind {
 }
 
 #[derive(Default)]
-pub struct CodecErrorRegressionsWorld {
+pub(crate) struct CodecErrorRegressionsWorld {
     obs: Option<ObservabilityHandle>,
     last_eof: Option<EofError>,
     partial_eofs: Vec<EofError>,
@@ -48,12 +48,12 @@ impl std::fmt::Debug for CodecErrorRegressionsWorld {
 
 #[rustfmt::skip]
 #[fixture]
-pub fn codec_error_regressions_world() -> CodecErrorRegressionsWorld {
+pub(crate) fn codec_error_regressions_world() -> CodecErrorRegressionsWorld {
     CodecErrorRegressionsWorld::default()
 }
 
 impl CodecErrorRegressionsWorld {
-    pub fn acquire(&mut self) {
+    pub(crate) fn acquire(&mut self) {
         let mut obs = ObservabilityHandle::new();
         obs.clear();
         self.obs = Some(obs);
@@ -61,7 +61,7 @@ impl CodecErrorRegressionsWorld {
         self.partial_eofs.clear();
     }
 
-    pub fn record_default_oversized_error(&mut self) -> TestResult {
+    pub(crate) fn record_default_oversized_error(&mut self) -> TestResult {
         let error = CodecError::Framing(FramingError::OversizedFrame {
             size: 2048,
             max: 1024,
@@ -69,7 +69,7 @@ impl CodecErrorRegressionsWorld {
         self.record_metric(&error, error.default_recovery_policy())
     }
 
-    pub fn observe_clean_close(&mut self) -> TestResult {
+    pub(crate) fn observe_clean_close(&mut self) -> TestResult {
         let wire = encoded_default_frame(&[1, 2, 3, 4])?;
         let actual = classify_eof(&wire, true)?;
         self.last_eof = Some(actual);
@@ -77,21 +77,21 @@ impl CodecErrorRegressionsWorld {
         self.record_metric(&error, error.default_recovery_policy())
     }
 
-    pub fn observe_partial_header(&mut self) -> TestResult {
+    pub(crate) fn observe_partial_header(&mut self) -> TestResult {
         let wire = partial_header_wire()?;
         let actual = classify_eof(&wire, false)?;
         self.partial_eofs.push(actual);
         Ok(())
     }
 
-    pub fn observe_partial_payload(&mut self) -> TestResult {
+    pub(crate) fn observe_partial_payload(&mut self) -> TestResult {
         let wire = partial_payload_wire(&[1, 2, 3, 4])?;
         let actual = classify_eof(&wire, false)?;
         self.partial_eofs.push(actual);
         Ok(())
     }
 
-    pub fn record_strict_hook_override(&mut self) -> TestResult {
+    pub(crate) fn record_strict_hook_override(&mut self) -> TestResult {
         let hook = StrictRecoveryHook;
         let error = CodecError::Framing(FramingError::OversizedFrame {
             size: 2048,
@@ -101,7 +101,7 @@ impl CodecErrorRegressionsWorld {
         self.record_metric(&error, policy)
     }
 
-    pub fn assert_codec_error_count(
+    pub(crate) fn assert_codec_error_count(
         &mut self,
         error_type: &str,
         recovery_policy: &str,
@@ -116,7 +116,7 @@ impl CodecErrorRegressionsWorld {
             .map_err(Into::into)
     }
 
-    pub fn assert_last_clean_close(&self) -> TestResult {
+    pub(crate) fn assert_last_clean_close(&self) -> TestResult {
         match self.last_eof {
             Some(EofError::CleanClose) => Ok(()),
             Some(other) => Err(format!("expected clean close, got {other:?}").into()),
@@ -149,11 +149,11 @@ impl CodecErrorRegressionsWorld {
         Ok(())
     }
 
-    pub fn assert_first_partial_mid_header(&self) -> TestResult {
+    pub(crate) fn assert_first_partial_mid_header(&self) -> TestResult {
         self.assert_partial_kind(0, PartialEofKind::MidHeader)
     }
 
-    pub fn assert_second_partial_mid_frame(&self) -> TestResult {
+    pub(crate) fn assert_second_partial_mid_frame(&self) -> TestResult {
         self.assert_partial_kind(1, PartialEofKind::MidFrame)
     }
 }

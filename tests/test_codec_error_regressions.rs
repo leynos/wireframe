@@ -48,6 +48,7 @@ struct TaxonomyCase {
 #[derive(Clone, Copy, Debug)]
 enum DefaultEofCase {
     CleanClose,
+    ZeroLengthPayload,
     MidHeader,
     MidFrame,
 }
@@ -59,6 +60,7 @@ impl DefaultEofCase {
                 Ok(wire) => wire,
                 Err(error) => panic!("default test codec should encode: {error}"),
             },
+            Self::ZeroLengthPayload => vec![0, 0, 0, 0],
             Self::MidHeader => {
                 let full = match encoded_default_frame(&[1, 2, 3, 4]) {
                     Ok(wire) => wire,
@@ -76,7 +78,9 @@ impl DefaultEofCase {
         }
     }
 
-    fn consumes_complete_frame(self) -> bool { matches!(self, Self::CleanClose) }
+    fn consumes_complete_frame(self) -> bool {
+        matches!(self, Self::CleanClose | Self::ZeroLengthPayload)
+    }
 }
 
 #[rstest]
@@ -125,6 +129,30 @@ impl DefaultEofCase {
         expected_clean_close: true,
     }
 )]
+#[case::mid_header(
+    TaxonomyCase {
+        error: CodecError::Eof(EofError::MidHeader {
+            bytes_received: 2,
+            header_size: LENGTH_HEADER_SIZE,
+        }),
+        expected_type: "eof",
+        expected_policy: RecoveryPolicy::Disconnect,
+        expected_disconnect: true,
+        expected_clean_close: false,
+    }
+)]
+#[case::mid_frame(
+    TaxonomyCase {
+        error: CodecError::Eof(EofError::MidFrame {
+            bytes_received: 3,
+            expected: 4,
+        }),
+        expected_type: "eof",
+        expected_policy: RecoveryPolicy::Disconnect,
+        expected_disconnect: true,
+        expected_clean_close: false,
+    }
+)]
 fn taxonomy_cases_emit_expected_recovery_labels(#[case] case: TaxonomyCase) {
     assert_eq!(case.error.error_type(), case.expected_type);
     assert_eq!(case.error.default_recovery_policy(), case.expected_policy);
@@ -147,6 +175,7 @@ fn taxonomy_cases_emit_expected_recovery_labels(#[case] case: TaxonomyCase) {
 
 #[rstest]
 #[case::clean_close(DefaultEofCase::CleanClose, EofError::CleanClose)]
+#[case::zero_length_payload(DefaultEofCase::ZeroLengthPayload, EofError::CleanClose)]
 #[case::mid_header(
     DefaultEofCase::MidHeader,
     EofError::MidHeader {
