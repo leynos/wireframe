@@ -781,7 +781,10 @@ assert_eq!(parts.metadata(), &[0x01, 0x02]);
 Unlike `PacketParts` (which carries the raw payload for envelope
 reconstruction), `RequestParts` carries only protocol-defined metadata required
 to interpret the streaming body. The body itself is consumed through a separate
-stream, enabling back-pressure and incremental processing.[^46]
+stream, enabling back-pressure and incremental processing.[^46] When
+`MessageAssembler` is configured, this split happens after any transport
+fragment reassembly, so handlers and protocol extractors see protocol-level
+metadata rather than lower-level fragment state.
 
 ### Message assembler hook
 
@@ -833,6 +836,12 @@ When configured, this hook now runs on the inbound connection path after
 transport fragmentation reassembly and before handler dispatch. Incomplete
 assemblies remain buffered per message key until completion or timeout eviction.
 
+The assembler's output drives the handler-facing request shape:
+
+- fully assembled messages continue through the buffered request path; and
+- streaming-capable messages surface as `RequestParts` plus
+  `RequestBodyStream` / `StreamingBody`.
+
 Message-assembly parsing and continuity failures are treated as inbound
 deserialization failures and follow the existing failure threshold policy.
 
@@ -874,6 +883,10 @@ deserialization-failure policy (`InvalidData`). The effective per-message limit
 is the minimum of the fragmentation `max_message_size` and the configured
 `bytes_per_message`. Single-frame messages that complete immediately are never
 counted against aggregate budgets, since they do not buffer.
+
+If `memory_budgets(...)` is not configured explicitly, Wireframe derives the
+same three fields from `buffer_capacity`, so the protection model remains
+active even on the default path.
 
 Wireframe provides a three-tier protection model for inbound memory budgets:
 
@@ -1074,7 +1087,8 @@ Handlers can opt into streaming request bodies using the `StreamingBody`
 extractor or by accepting a `RequestBodyStream` directly. The framework creates
 a bounded channel and forwards body chunks as they arrive; back-pressure
 propagates automatically when the handler consumes slower than the network
-delivers.
+delivers. Routing and correlation metadata stay available immediately through
+`RequestParts`, so handlers can begin work before the full body is assembled.
 
 ```rust,no_run
 use tokio::io::AsyncReadExt;
@@ -1131,8 +1145,10 @@ async fn with_extractor(parts: RequestParts, body: StreamingBody) {
 
 Back-pressure is enforced via bounded channels: when the internal buffer fills,
 the framework pauses reading from the socket until the handler drains pending
-chunks. This prevents memory exhaustion under slow consumer conditions. The
-`body_channel` helper creates channels with configurable capacity:
+chunks. This prevents memory exhaustion under slow consumer conditions. When
+the request arrived through `MessageAssembler`, the same per-connection memory
+budgets continue to govern partial buffered state before chunks reach the
+handler. The `body_channel` helper creates channels with configurable capacity:
 
 ```rust
 use wireframe::request::body_channel;

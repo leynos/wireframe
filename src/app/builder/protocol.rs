@@ -41,8 +41,11 @@ where
 
     /// Install a [`MessageAssembler`] implementation.
     ///
-    /// The assembler parses protocol-specific frame headers to support
-    /// multi-frame request assembly once the inbound pipeline integrates it.
+    /// The assembler parses protocol-specific frame headers for multi-frame
+    /// request assembly on the inbound pipeline. Wireframe applies the hook
+    /// after any transport fragmentation reassembly and before handler
+    /// dispatch, producing either buffered requests or streaming request
+    /// bodies.
     ///
     /// # Examples
     ///

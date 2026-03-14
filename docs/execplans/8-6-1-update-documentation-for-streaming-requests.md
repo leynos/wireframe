@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -124,16 +124,16 @@ Success is observable when:
 
 - [x] (2026-03-14 00:00Z) Drafted this ExecPlan after auditing the roadmap,
   ADR 0002, current design docs, user guide, and the existing test surface.
-- [ ] Stage A: build a documentation-claim matrix and decide the minimum set of
+- [x] Stage A: build a documentation-claim matrix and decide the minimum set of
   in-place edits needed across the three roadmap documents.
-- [ ] Stage B: revise the three target design documents and record any new
+- [x] Stage B: revise the three target design documents and record any new
   design decisions in the relevant design document.
-- [ ] Stage C: update `docs/users-guide.md` and any public Rustdoc examples
+- [x] Stage C: update `docs/users-guide.md` and any public Rustdoc examples
   that need to reflect the documented public interface.
-- [ ] Stage D: close the missing behavioural-test coverage for streaming
+- [x] Stage D: close the missing behavioural-test coverage for streaming
   request bodies and add any smaller focused `rstest` coverage required by new
   claims.
-- [ ] Stage E: run all relevant quality gates and mark roadmap items `8.6.1`
+- [x] Stage E: run all relevant quality gates and mark roadmap items `8.6.1`
   through `8.6.3` done.
 
 ## Surprises & discoveries
@@ -169,6 +169,13 @@ Success is observable when:
   evidence first and add only narrowly scoped follow-up tests if new
   documentation claims are not already covered.
 
+- Observation: the missing behavioural gap for inbound streaming requests could
+  be closed without introducing another runtime-heavy integration harness.
+  Evidence: a focused `rstest-bdd` fixture around `body_channel`,
+  `StreamingBody`, and `RequestBodyReader` covered the public API guarantees
+  that were previously unit-test-only. Impact: phase `8.6` stayed within scope
+  and avoided duplicating the heavier inbound message-assembly harness.
+
 ## Decision log
 
 - Decision: treat roadmap phase `8.6` as a documentation harmonization and
@@ -193,20 +200,30 @@ Success is observable when:
   Rationale: a documentation checkbox should mean the docs are trustworthy and
   demonstrably aligned with the code. Date/Author: 2026-03-14 / Codex
 
+- Decision: cover the streaming-request behavioural gap at the public request
+  API boundary instead of through a second full inbound-actor integration
+  fixture. Rationale: the missing guarantees were handler-facing stream
+  semantics (`AsyncRead` adaptation, back-pressure, and error propagation), and
+  those behaviours are exercised more directly through the request API than
+  through another transport harness. Date/Author: 2026-03-14 / Codex
+
 ## Outcomes & retrospective
 
-This plan is still in draft state. No implementation has started yet.
+Completed deliverables:
 
-Expected deliverables at completion:
-
-- revised design guidance in the three roadmap-target documents;
-- an updated `docs/users-guide.md` section set wherever public consumer-facing
-  guidance is stale;
-- one focused behavioural suite for streaming request bodies, plus any narrow
-  unit-test additions needed to support new claims;
+- revised composition and budget guidance in
+  `docs/generic-message-fragmentation-and-re-assembly-design.md`;
+- revised inbound streaming-request guidance in
+  `docs/multi-packet-and-streaming-responses-design.md`;
+- revised capability-maturity language in
+  `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`;
+- synced public guidance in `docs/users-guide.md` and public Rustdoc on
+  `WireframeApp::with_message_assembler` and `WireframeApp::memory_budgets`;
+- a focused `rstest-bdd` suite for `tests/features/streaming_request.feature`;
 - updated roadmap checkboxes for `8.6.1`, `8.6.2`, and `8.6.3`; and
-- full captured gate logs proving the documentation and validation changes are
-  complete.
+- captured gate logs for `make fmt`, `make markdownlint`, `make check-fmt`,
+  `make lint`, `make test`, `make test-doc`, `make doctest-benchmark`, and
+  `make nixie`.
 
 ## Context and orientation
 

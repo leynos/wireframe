@@ -40,5 +40,6 @@ pub mod request_parts;
 pub mod serializer_boundaries;
 pub mod slow_io_backpressure;
 pub mod stream_end;
+pub mod streaming_request;
 pub mod test_observability;
 pub mod unified_codec;

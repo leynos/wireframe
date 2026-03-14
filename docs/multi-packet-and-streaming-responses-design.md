@@ -577,18 +577,31 @@ Handlers that opt into streaming request bodies receive two components:
 - `RequestBodyStream` yields body chunks incrementally, allowing handlers to
   process large payloads without buffering the entire message in memory.
 
-See [ADR 0002][adr-0002] for the canonical type definitions. The exact field
-names and types may evolve; protocol authors should consult the published API
-documentation for current signatures.
+In the current API, `RequestParts` exposes `id()`, `correlation_id()`, and
+`metadata()`. `RequestBodyStream` is a pinned boxed stream of
+`Result<Bytes, std::io::Error>`, and `RequestBodyReader` adapts that stream to
+`AsyncRead` for parser reuse. Handlers can also use the `StreamingBody`
+extractor when they prefer an extractor-based signature over taking the stream
+type directly.
+
+The key design point is that routing metadata becomes available before the body
+is complete. A handler can inspect `RequestParts` immediately, then decide
+whether to consume the body lazily, stream it into a parser, or stop early.
 
 ### 11.2 Opt-in semantics
 
 The default remains "buffered request" to preserve Wireframe's existing
 transparent assembly ergonomics for small messages and simple protocols.
-Handlers MAY opt into streaming by declaring a compatible extractor signature.
+Handlers opt into streaming by declaring a compatible signature such as:
 
-Wireframe MAY expose an `AsyncRead` adaptor for `RequestBodyStream` so protocol
-crates can reuse existing parsers that expect `AsyncRead` rather than `Stream`.
+- `async fn handle(parts: RequestParts, body: RequestBodyStream)`;
+- `async fn handle(parts: RequestParts, body: StreamingBody)`; or
+- a handler that converts `StreamingBody` into `RequestBodyReader` for
+  `AsyncRead`-based parsing.
+
+If a handler does not opt in, Wireframe preserves the buffered request path.
+This keeps the small-message path ergonomic and means protocol crates can adopt
+streaming only where large inbound bodies justify the extra complexity.
 
 ### 11.3 Symmetry with response streaming
 
@@ -602,6 +615,15 @@ Streaming request bodies mirror `Response::Stream`:
 Both directions apply the same per-connection memory budgets and back-pressure
 semantics, ensuring consistent resource accounting across the duplex channel.
 
+The symmetry is conceptual, not identical in shape:
+
+- outbound streaming emits protocol frames chosen by the handler; and
+- inbound streaming emits request-body chunks after Wireframe has already
+  separated protocol metadata into `RequestParts`.
+
+That separation is what lets request handlers start work before the full body
+arrives without exposing lower transport concerns.
+
 ### 11.4 Composition with MessageAssembler
 
 When a protocol uses the `MessageAssembler` abstraction for multi-frame message
@@ -612,7 +634,29 @@ assembly, the assembler produces either:
 
 The assembler handles protocol-specific continuity rules (ordering, missing
 frames, duplicate frames) while Wireframe provides shared buffering machinery
-and limit enforcement. See [ADR 0002][adr-0002] for the complete specification.
+and limit enforcement.
+
+The inbound ordering is fixed:
+
+1. transport framing decodes one packet;
+2. optional transport fragmentation reassembles that packet if required;
+3. `MessageAssembler` maps protocol packets into one logical request; and
+4. the handler receives either a buffered body or `RequestParts` plus a
+   streaming body.
+
+This means a protocol-specific assembler never needs to understand transport
+fragments. It only sees complete protocol packets.
+
+Per-connection memory budgets apply to the shared inbound assembly pipeline.
+That includes buffered request assembly and any streaming-request state that
+has not yet been consumed by the handler. Wireframe enforces:
+
+- per-frame rejection when a new chunk would exceed the configured caps;
+- soft-pressure read pacing at 80% of the smaller aggregate budget; and
+- hard-cap abort with `InvalidData` if total buffered bytes strictly exceed the
+  aggregate cap.
+
+See [ADR 0002][adr-0002] for the complete specification.
 
 [adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
 

@@ -39,6 +39,11 @@ where
     }
 
     /// Configure per-connection memory budgets for inbound buffering.
+    ///
+    /// These budgets apply across the shared inbound assembly pipeline,
+    /// including protocol-level message assembly and streaming request
+    /// hand-off state. Wireframe uses them for per-frame rejection,
+    /// soft-pressure read pacing, and hard-cap connection aborts.
     #[must_use]
     pub fn memory_budgets(mut self, budgets: MemoryBudgets) -> Self {
         self.memory_budgets = Some(budgets);
