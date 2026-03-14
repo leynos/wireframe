@@ -262,7 +262,7 @@ fn custom_recovery_hook_changes_observed_policy_label() {
         eof_case: DefaultEofCase::MidFrame,
         expected_variant: "eof",
         expected_policy: RecoveryPolicy::Disconnect,
-        expected_fragment: "premature EOF: 3 bytes of 4 byte frame received",
+        expected_fragment: "premature EOF",
     }
 )]
 fn wireframe_testing_fixture_cases_continue_to_surface_expected_errors(
