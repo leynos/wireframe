@@ -437,7 +437,8 @@ integration boundaries.
 - [x] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
   recovery policies.[^adr-006]
-- [ ] 9.7.4. Add regression tests in `wireframe_testing` for the `CodecError`
+- [x] 9.7.4. Add regression tests backed by `wireframe_testing` for the
+      `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
 
 ## 10. Wireframe client library foundation

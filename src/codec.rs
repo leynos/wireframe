@@ -161,12 +161,14 @@ impl Decoder for LengthDelimitedDecoder {
             return Ok(None);
         }
 
+        let eof_context = EofContext::from_buffer(src);
+
         // Try to decode any remaining data
         match self.inner.decode_eof(src) {
             Ok(Some(frame)) => Ok(Some(BytesMut::freeze(frame))),
             // Inner decoder returns Ok(None) for incomplete data at EOF - synthesise
             // our structured EOF error with context about what was received.
-            Ok(None) => Err(build_eof_error(src)),
+            Ok(None) => Err(build_eof_error(eof_context)),
             // Inner decoder returned an error. Preserve framing errors (InvalidData)
             // like oversized frames to maintain correct recovery policy (Drop vs
             // Disconnect). For all other errors (typically incomplete data indicated
@@ -178,8 +180,29 @@ impl Decoder for LengthDelimitedDecoder {
                     inner_error = %e,
                     "inner decoder error at EOF, converting to structured EOF error"
                 );
-                Err(build_eof_error(src))
+                Err(build_eof_error(eof_context))
             }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EofContext {
+    bytes_received: usize,
+    expected: Option<usize>,
+}
+
+impl EofContext {
+    fn from_buffer(src: &BytesMut) -> Self {
+        let bytes_received = src.len();
+        let expected = src
+            .get(..LENGTH_HEADER_SIZE)
+            .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
+            .and_then(|bytes| usize::try_from(read_network_u32(bytes)).ok());
+
+        Self {
+            bytes_received,
+            expected,
         }
     }
 }
@@ -192,20 +215,12 @@ impl Decoder for LengthDelimitedDecoder {
 ///   connection closed before the full frame header could be read.
 /// - [`EofError::MidFrame`]: Header complete but payload truncated. The length prefix was
 ///   successfully read but the connection closed before the full payload arrived.
-fn build_eof_error(src: &BytesMut) -> io::Error {
-    let bytes_received = src.len();
-
-    // Use safe accessor to extract the length header if present
-    let expected = src
-        .get(..LENGTH_HEADER_SIZE)
-        .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
-        .and_then(|bytes| usize::try_from(read_network_u32(bytes)).ok());
-
-    match expected {
+fn build_eof_error(context: EofContext) -> io::Error {
+    match context.expected {
         Some(expected) => {
             // EOF during payload read - we have a header but incomplete payload
             CodecError::Eof(EofError::MidFrame {
-                bytes_received: bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
+                bytes_received: context.bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
                 expected,
             })
             .into()
@@ -213,7 +228,7 @@ fn build_eof_error(src: &BytesMut) -> io::Error {
         None => {
             // EOF during header read
             CodecError::Eof(EofError::MidHeader {
-                bytes_received,
+                bytes_received: context.bytes_received,
                 header_size: LENGTH_HEADER_SIZE,
             })
             .into()

@@ -299,9 +299,13 @@ impl From<CodecError> for io::Error {
     fn from(err: CodecError) -> Self {
         match err {
             CodecError::Io(e) => e,
-            CodecError::Framing(e) => io::Error::new(io::ErrorKind::InvalidData, e),
-            CodecError::Protocol(e) => io::Error::new(io::ErrorKind::InvalidData, e),
-            CodecError::Eof(e) => io::Error::new(io::ErrorKind::UnexpectedEof, e),
+            CodecError::Framing(e) => {
+                io::Error::new(io::ErrorKind::InvalidData, CodecError::Framing(e))
+            }
+            CodecError::Protocol(e) => {
+                io::Error::new(io::ErrorKind::InvalidData, CodecError::Protocol(e))
+            }
+            CodecError::Eof(e) => io::Error::new(io::ErrorKind::UnexpectedEof, CodecError::Eof(e)),
         }
     }
 }
