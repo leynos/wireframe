@@ -56,7 +56,8 @@ pub fn encode_payloads_with_codec<F: FrameCodec>(
 /// to flush any partial frame remaining in the buffer. If the buffer still
 /// contains unconsumed bytes after `decode_eof` returns `None`, an error is
 /// returned — this catches truncation bugs where the server emits incomplete
-/// trailing data.
+/// trailing data. Decoder errors are preserved so callers can inspect any
+/// underlying structured codec errors through the `io::Error` source chain.
 ///
 /// # Errors
 ///
@@ -84,22 +85,12 @@ pub fn decode_frames_with_codec<F: FrameCodec>(
     let mut decoder = codec.decoder();
     let mut buf = BytesMut::from(bytes.as_slice());
     let mut frames = Vec::new();
-    while let Some(frame) = decoder.decode(&mut buf).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("codec decode failed: {error}"),
-        )
-    })? {
+    while let Some(frame) = decoder.decode(&mut buf)? {
         frames.push(frame);
     }
 
     // Flush any partial frame remaining at stream end.
-    while let Some(frame) = decoder.decode_eof(&mut buf).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("codec decode_eof failed: {error}"),
-        )
-    })? {
+    while let Some(frame) = decoder.decode_eof(&mut buf)? {
         frames.push(frame);
     }
 

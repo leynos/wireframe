@@ -180,6 +180,7 @@ mod tests {
     //! Unit tests for the BDD world helper logic.
 
     use rstest::rstest;
+    use wireframe::{byte_order::write_network_u32, codec::LENGTH_HEADER_SIZE};
 
     use super::*;
 
@@ -205,6 +206,27 @@ mod tests {
             return Err(format!("expected clean close, got {actual:?}").into());
         }
         Ok(())
+    }
+
+    #[test]
+    fn zero_length_frame_requires_prior_consumption_for_eof_classification() -> TestResult {
+        let mut wire = Vec::with_capacity(LENGTH_HEADER_SIZE);
+        wire.extend_from_slice(&write_network_u32(0));
+
+        match classify_eof(&wire, false) {
+            Ok(actual) => Err(format!(
+                "expected classify_eof to reject an unconsumed zero-length frame, got {actual:?}"
+            )
+            .into()),
+            Err(error) => {
+                let text = error.to_string();
+                if text.contains("unexpected extra frame while classifying EOF") {
+                    Ok(())
+                } else {
+                    Err(format!("expected unconsumed zero-length frame error, got {text}").into())
+                }
+            }
+        }
     }
 
     #[test]

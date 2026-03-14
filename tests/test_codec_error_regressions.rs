@@ -9,16 +9,12 @@ use wireframe::codec::{
     EofError,
     FramingError,
     LENGTH_HEADER_SIZE,
+    LengthDelimitedFrameCodec,
     ProtocolError,
     RecoveryPolicy,
     RecoveryPolicyHook,
 };
-use wireframe_testing::{
-    ObservabilityHandle,
-    decode_frames_with_codec,
-    oversized_hotline_wire,
-    truncated_hotline_header,
-};
+use wireframe_testing::{ObservabilityHandle, decode_frames_with_codec};
 
 #[path = "common/codec_error_regression_support.rs"]
 mod codec_error_regression_support;
@@ -37,12 +33,35 @@ fn record_codec_error(obs: &mut ObservabilityHandle, error: &CodecError, policy:
     obs.snapshot();
 }
 
+fn extract_codec_error(error: &std::io::Error) -> &CodecError {
+    let mut current = error
+        .get_ref()
+        .map(|inner| inner as &(dyn std::error::Error + 'static));
+
+    while let Some(err) = current {
+        if let Some(codec_error) = err.downcast_ref::<CodecError>() {
+            return codec_error;
+        }
+        current = err.source();
+    }
+
+    panic!("decode helper should preserve a wrapped CodecError: {error}");
+}
+
 struct TaxonomyCase {
     error: CodecError,
     expected_type: &'static str,
     expected_policy: RecoveryPolicy,
     expected_disconnect: bool,
     expected_clean_close: bool,
+}
+
+struct HelperDecodeCase {
+    wire: Vec<u8>,
+    max_frame_length: usize,
+    expected_variant: &'static str,
+    expected_policy: RecoveryPolicy,
+    expected_fragment: &'static str,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -231,19 +250,46 @@ fn custom_recovery_hook_changes_observed_policy_label() {
 }
 
 #[rstest]
-#[case::oversized(oversized_hotline_wire(64), 64, "payload too large")]
-#[case::truncated_header(truncated_hotline_header(), 4096, "bytes remaining")]
+#[case::oversized(
+    HelperDecodeCase {
+        wire: vec![0, 0, 0, 65],
+        max_frame_length: 64,
+        expected_variant: "framing",
+        expected_policy: RecoveryPolicy::Drop,
+        expected_fragment: "frame exceeds max length",
+    }
+)]
+#[case::truncated_header(
+    HelperDecodeCase {
+        wire: vec![0, 0],
+        max_frame_length: 4096,
+        expected_variant: "eof",
+        expected_policy: RecoveryPolicy::Disconnect,
+        expected_fragment: "premature EOF during header",
+    }
+)]
 fn wireframe_testing_fixture_cases_continue_to_surface_expected_errors(
-    #[case] wire: Vec<u8>,
-    #[case] max_frame_length: usize,
-    #[case] expected_fragment: &str,
+    #[case] case: HelperDecodeCase,
 ) {
-    let codec = wireframe::codec::examples::HotlineFrameCodec::new(max_frame_length);
-    let error =
-        decode_frames_with_codec(&codec, wire).expect_err("fixture input should fail to decode");
+    let codec = LengthDelimitedFrameCodec::new(case.max_frame_length);
+    let error = decode_frames_with_codec(&codec, case.wire)
+        .expect_err("fixture input should fail to decode");
+    let codec_error = extract_codec_error(&error);
+
+    assert_eq!(
+        codec_error.error_type(),
+        case.expected_variant,
+        "wrong codec error category for helper regression"
+    );
+    assert_eq!(
+        codec_error.default_recovery_policy(),
+        case.expected_policy,
+        "wrong recovery policy for helper regression"
+    );
 
     assert!(
-        error.to_string().contains(expected_fragment),
-        "expected error containing '{expected_fragment}', got: {error}"
+        error.to_string().contains(case.expected_fragment),
+        "expected error containing '{}', got: {error}",
+        case.expected_fragment
     );
 }

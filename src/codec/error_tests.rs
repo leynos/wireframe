@@ -129,12 +129,20 @@ fn io_error_from_eof_variants_preserves_eof_error(#[case] variant: EofError) {
 
     assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
 
-    let inner = io_err
+    let mut current = io_err
         .get_ref()
-        .expect("expected inner error for EOF variant");
-    let eof = inner
-        .downcast_ref::<EofError>()
-        .expect("expected EofError to be preserved");
+        .map(|inner| inner as &(dyn std::error::Error + 'static));
+    let mut eof = None;
+
+    while let Some(err) = current {
+        if let Some(found) = err.downcast_ref::<EofError>() {
+            eof = Some(found);
+            break;
+        }
+        current = err.source();
+    }
+
+    let eof = eof.expect("expected EofError to be preserved");
     assert_eq!(*eof, variant);
 }
 
