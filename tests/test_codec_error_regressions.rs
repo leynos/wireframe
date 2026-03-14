@@ -57,8 +57,7 @@ struct TaxonomyCase {
 }
 
 struct HelperDecodeCase {
-    wire: Vec<u8>,
-    max_frame_length: usize,
+    eof_case: DefaultEofCase,
     expected_variant: &'static str,
     expected_policy: RecoveryPolicy,
     expected_fragment: &'static str,
@@ -250,29 +249,27 @@ fn custom_recovery_hook_changes_observed_policy_label() {
 }
 
 #[rstest]
-#[case::oversized(
+#[case::mid_header(
     HelperDecodeCase {
-        wire: vec![0, 0, 0, 65],
-        max_frame_length: 64,
-        expected_variant: "framing",
-        expected_policy: RecoveryPolicy::Drop,
-        expected_fragment: "frame exceeds max length",
-    }
-)]
-#[case::truncated_header(
-    HelperDecodeCase {
-        wire: vec![0, 0],
-        max_frame_length: 4096,
+        eof_case: DefaultEofCase::MidHeader,
         expected_variant: "eof",
         expected_policy: RecoveryPolicy::Disconnect,
         expected_fragment: "premature EOF during header",
     }
 )]
+#[case::mid_frame(
+    HelperDecodeCase {
+        eof_case: DefaultEofCase::MidFrame,
+        expected_variant: "eof",
+        expected_policy: RecoveryPolicy::Disconnect,
+        expected_fragment: "premature EOF: 3 bytes of 4 byte frame received",
+    }
+)]
 fn wireframe_testing_fixture_cases_continue_to_surface_expected_errors(
     #[case] case: HelperDecodeCase,
 ) {
-    let codec = LengthDelimitedFrameCodec::new(case.max_frame_length);
-    let error = decode_frames_with_codec(&codec, case.wire)
+    let codec = LengthDelimitedFrameCodec::new(4096);
+    let error = decode_frames_with_codec(&codec, case.eof_case.wire())
         .expect_err("fixture input should fail to decode");
     let codec_error = extract_codec_error(&error);
 
