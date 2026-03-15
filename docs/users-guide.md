@@ -470,9 +470,9 @@ Available slow-I/O helper functions:
 - `drive_with_slow_codec_frames` — codec-aware frames, returns decoded
   `F::Frame` values.
 
-These helpers are designed for deterministic tests under paused Tokio time. Use
-small duplex capacities together with reader pacing when you need the app's
-outbound writes to hit back-pressure quickly.
+These helpers are designed for deterministic tests under paused Tokio time. Small
+duplex capacities should be used together with reader pacing when the app's
+outbound writes must hit back-pressure quickly.
 
 #### Zero-copy payload extraction
 
@@ -665,8 +665,8 @@ no change is required for bincode-compatible types.
 - Metadata-aware serializers can implement
   `Serializer::deserialize_with_context` to inspect `DeserializeContext`.
 - `Serializer` is not object-safe (`Self: Sized` on serializer entry points), so
-  using `dyn Serializer` directly is unsupported unless you provide concrete
-  wrappers. For migration, keep concrete serializer types in `EncodeWith` /
+  using `dyn Serializer` directly is unsupported unless concrete wrappers are
+  provided. For migration, keep concrete serializer types in `EncodeWith` /
   `DecodeWith` bounds, retain
   `wireframe::serializer::MessageCompatibilitySerializer` for legacy
   `Message`-based payloads, and use `SerdeMessage` with `SerdeSerializerBridge`
