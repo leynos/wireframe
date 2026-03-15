@@ -79,6 +79,16 @@ impl ClientPoolHandleWorld {
         Ok(())
     }
 
+    fn pool_preamble_count_is(&self, expected: usize) -> bool {
+        self.preamble_callback_count.load(Ordering::SeqCst) == expected
+    }
+
+    fn server_state_matches(&self, preamble_count: usize, connection_count: usize) -> bool {
+        self.server.as_ref().is_some_and(|s| {
+            s.preamble_count() == preamble_count && s.connection_count() == connection_count
+        })
+    }
+
     pub async fn run_round_robin_scenario(&mut self) -> TestResult {
         self.connect_handle_pool(PoolFairnessPolicy::RoundRobin)
             .await?;
@@ -155,10 +165,8 @@ impl ClientPoolHandleWorld {
         if first != Pong(1) || second != Pong(2) {
             return Err("unexpected warm reuse response sequence".into());
         }
-        let warm_reuse_preserved = self.preamble_callback_count.load(Ordering::SeqCst) == 1
-            && self.server.as_ref().is_some_and(|server| {
-                server.preamble_count() == 1 && server.connection_count() == 1
-            });
+        let warm_reuse_preserved =
+            self.pool_preamble_count_is(1) && self.server_state_matches(1, 1);
 
         tokio::time::advance(idle_timeout + idle_timeout).await;
         tokio::task::yield_now().await;
@@ -166,10 +174,8 @@ impl ClientPoolHandleWorld {
         let third: Pong = handle.call(&Ping(3)).await?;
         self.warm_reuse_then_recycle = third == Pong(3)
             && warm_reuse_preserved
-            && self.preamble_callback_count.load(Ordering::SeqCst) == 2
-            && self.server.as_ref().is_some_and(|server| {
-                server.preamble_count() == 2 && server.connection_count() == 2
-            });
+            && self.pool_preamble_count_is(2)
+            && self.server_state_matches(2, 2);
         Ok(())
     }
 

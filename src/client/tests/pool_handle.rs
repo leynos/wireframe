@@ -35,6 +35,15 @@ async fn build_handle_pool(
     Ok((server, pool))
 }
 
+async fn build_preamble_pool(
+    config: ClientPoolConfig,
+) -> Result<(PoolTestServer, TestClientPool, Arc<AtomicUsize>), ClientError> {
+    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
+    let server = PoolTestServer::start().await?;
+    let pool = build_pooled_client(server.addr, config, preamble_callback_count.clone()).await?;
+    Ok((server, pool, preamble_callback_count))
+}
+
 async fn acquire_and_record(
     mut handle: PoolHandle<
         crate::serializer::BincodeSerializer,
@@ -148,14 +157,8 @@ async fn handle_acquire_respects_back_pressure(client_pool_config: ClientPoolCon
 async fn handle_path_preserves_warm_reuse_and_preamble(
     client_pool_config: ClientPoolConfig,
 ) -> TestResult {
-    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
-    let server = PoolTestServer::start().await?;
-    let pool = build_pooled_client(
-        server.addr,
-        client_pool_config.pool_size(1),
-        preamble_callback_count.clone(),
-    )
-    .await?;
+    let (server, pool, preamble_callback_count) =
+        build_preamble_pool(client_pool_config.pool_size(1)).await?;
     let mut handle = pool.handle();
 
     let first: Pong = handle.call(&Ping(7)).await?;
@@ -174,15 +177,9 @@ async fn handle_path_preserves_warm_reuse_and_preamble(
 async fn handle_path_recycles_after_idle_timeout(
     client_pool_config: ClientPoolConfig,
 ) -> TestResult {
-    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
-    let server = PoolTestServer::start().await?;
     let idle_timeout = Duration::from_millis(50);
-    let pool = build_pooled_client(
-        server.addr,
-        client_pool_config.pool_size(1).idle_timeout(idle_timeout),
-        preamble_callback_count.clone(),
-    )
-    .await?;
+    let (server, pool, preamble_callback_count) =
+        build_preamble_pool(client_pool_config.pool_size(1).idle_timeout(idle_timeout)).await?;
     let mut handle = pool.handle();
 
     let first: Pong = handle.call(&Ping(1)).await?;

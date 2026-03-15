@@ -480,7 +480,9 @@ Observable completion criteria:
   - `set -o pipefail && make test | tee /tmp/wireframe-11-2-2-test.log`
   - `set -o pipefail && make test-doc | tee /tmp/wireframe-11-2-2-test-doc.log`
   - `set -o pipefail && make doctest-benchmark | tee /tmp/wireframe-11-2-2-doctest-benchmark.log`
-  - `set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 | tee /tmp/wireframe-11-2-2-markdownlint.log`
+  - `set -o pipefail && make markdownlint
+    MDLINT=/root/.bun/bin/markdownlint-cli2 | tee
+    /tmp/wireframe-11-2-2-markdownlint.log`
   - `set -o pipefail && make nixie | tee /tmp/wireframe-11-2-2-nixie.log`
 - Lessons learned:
   - fairness is easiest to explain when the scheduler operates on logical
