@@ -244,6 +244,24 @@ pub fn parse_error_kind(value: &str) -> Result<io::ErrorKind, String> {
     }
 }
 
+/// Newtype that lets BDD macros capture an `io::ErrorKind` directly from a
+/// Gherkin step string via `FromStr`.
+pub struct ErrorKindArg(pub io::ErrorKind);
+
+impl std::str::FromStr for ErrorKindArg {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_error_kind(s).map(ErrorKindArg)
+    }
+}
+
+impl From<ErrorKindArg> for io::ErrorKind {
+    fn from(arg: ErrorKindArg) -> Self {
+        arg.0
+    }
+}
+
 fn assert_field_eq<T>(label: &str, expected: T, observed: T) -> TestResult
 where
     T: PartialEq + fmt::Debug,

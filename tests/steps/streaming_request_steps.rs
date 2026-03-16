@@ -2,11 +2,7 @@
 
 use rstest_bdd_macros::{given, then, when};
 
-use crate::fixtures::streaming_request::{StreamingRequestWorld, TestResult, parse_error_kind};
-
-fn try_parse_error_kind(kind: &str) -> TestResult<std::io::ErrorKind> {
-    parse_error_kind(kind).map_err(Into::into)
-}
+use crate::fixtures::streaming_request::{ErrorKindArg, StreamingRequestWorld, TestResult};
 
 #[given("a streaming request body channel with capacity {capacity:usize}")]
 fn given_request_body_channel(
@@ -54,10 +50,9 @@ fn when_body_chunk_is_sent_with_timeout(
 #[when("a request body error of kind {kind:string} is sent")]
 fn when_request_body_error_is_sent(
     streaming_request_world: &mut StreamingRequestWorld,
-    kind: String,
+    kind: ErrorKindArg,
 ) -> TestResult {
-    let kind = try_parse_error_kind(&kind)?;
-    streaming_request_world.send_error(kind)
+    streaming_request_world.send_error(kind.into())
 }
 
 #[when("the streaming body is read through the AsyncRead adapter")]
@@ -95,8 +90,7 @@ fn then_one_chunk_is_received(streaming_request_world: &mut StreamingRequestWorl
 #[then("the last stream error kind is {kind:string}")]
 fn then_last_stream_error_kind_is(
     streaming_request_world: &mut StreamingRequestWorld,
-    kind: String,
+    kind: ErrorKindArg,
 ) -> TestResult {
-    let kind = try_parse_error_kind(&kind)?;
-    streaming_request_world.assert_last_error_kind(kind)
+    streaming_request_world.assert_last_error_kind(kind.into())
 }
