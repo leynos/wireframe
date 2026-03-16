@@ -231,15 +231,7 @@ pub fn assert_message_assembly_buffered_count(
     snapshot: MessageAssemblySnapshot<'_>,
     expected: usize,
 ) -> TestResult {
-    if snapshot.buffered_count == expected {
-        Ok(())
-    } else {
-        Err(format!(
-            "expected buffered_count={expected}, got {}",
-            snapshot.buffered_count
-        )
-        .into())
-    }
+    assert_usize_field(snapshot.buffered_count, expected, "buffered_count")
 }
 
 /// Assert that the buffered-byte accounting equals `expected`.
@@ -265,15 +257,11 @@ pub fn assert_message_assembly_total_buffered_bytes(
     snapshot: MessageAssemblySnapshot<'_>,
     expected: usize,
 ) -> TestResult {
-    if snapshot.total_buffered_bytes == expected {
-        Ok(())
-    } else {
-        Err(format!(
-            "expected total_buffered_bytes={expected}, got {}",
-            snapshot.total_buffered_bytes
-        )
-        .into())
-    }
+    assert_usize_field(
+        snapshot.total_buffered_bytes,
+        expected,
+        "total_buffered_bytes",
+    )
 }
 
 /// Assert that `key` was evicted during the most recent expiry purge.
@@ -309,6 +297,14 @@ fn assert_body_eq(actual: &[u8], expected: &[u8], context: &str) -> TestResult {
         Ok(())
     } else {
         Err(format!("{context} mismatch: expected {expected:?}, got {actual:?}").into())
+    }
+}
+
+fn assert_usize_field(actual: usize, expected: usize, field_name: &str) -> TestResult {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("expected {field_name}={expected}, got {actual}").into())
     }
 }
 
