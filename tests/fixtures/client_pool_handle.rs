@@ -12,7 +12,14 @@ use rstest::fixture;
 use tokio::{sync::Mutex, time::timeout};
 use wireframe::{
     client::{ClientPoolConfig, PoolFairnessPolicy},
-    test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
+    test_helpers::{
+        Ping,
+        Pong,
+        PoolTestServer,
+        TestClientPool,
+        acquire_and_record,
+        build_pooled_client,
+    },
 };
 pub use wireframe_testing::TestResult;
 
@@ -95,13 +102,13 @@ impl ClientPoolHandleWorld {
         let pool = self.pool.as_ref().ok_or("pool missing")?;
         let grants = Arc::new(Mutex::new(Vec::new()));
 
-        let left = tokio::spawn(run_repeated_acquire(
+        let left = tokio::spawn(acquire_and_record(
             pool.handle(),
             "session-a",
             3,
             Arc::clone(&grants),
         ));
-        let right = tokio::spawn(run_repeated_acquire(
+        let right = tokio::spawn(acquire_and_record(
             pool.handle(),
             "session-b",
             3,
@@ -206,40 +213,21 @@ async fn spawn_fifo_waiters(
     tokio::task::JoinHandle<Result<(), wireframe::client::ClientError>>,
     tokio::task::JoinHandle<Result<(), wireframe::client::ClientError>>,
 ) {
-    let first = tokio::spawn(run_repeated_acquire(
+    let first = tokio::spawn(acquire_and_record(
         pool.handle(),
         "first",
         1,
         Arc::clone(&grants),
     ));
     tokio::task::yield_now().await;
-    let second = tokio::spawn(run_repeated_acquire(
+    let second = tokio::spawn(acquire_and_record(
         pool.handle(),
         "second",
         1,
         Arc::clone(&grants),
     ));
     tokio::task::yield_now().await;
-    let third = tokio::spawn(run_repeated_acquire(pool.handle(), "third", 1, grants));
+    let third = tokio::spawn(acquire_and_record(pool.handle(), "third", 1, grants));
     tokio::task::yield_now().await;
     (first, second, third)
-}
-
-async fn run_repeated_acquire(
-    mut handle: wireframe::client::PoolHandle<
-        wireframe::serializer::BincodeSerializer,
-        wireframe::test_helpers::ClientHello,
-        (),
-    >,
-    label: &'static str,
-    rounds: usize,
-    grants: Arc<Mutex<Vec<&'static str>>>,
-) -> Result<(), wireframe::client::ClientError> {
-    for _ in 0..rounds {
-        let lease = handle.acquire().await?;
-        grants.lock().await.push(label);
-        tokio::task::yield_now().await;
-        drop(lease);
-    }
-    Ok(())
 }

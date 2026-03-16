@@ -60,8 +60,9 @@ where
     }
 
     fn enqueue_waiter(&mut self, handle_id: u64, sender: WaiterSender<S, P, C>) {
-        self.waiters.insert(handle_id, sender);
-        self.fifo_waiters.push_back(handle_id);
+        if self.waiters.insert(handle_id, sender).is_none() {
+            self.fifo_waiters.push_back(handle_id);
+        }
     }
 
     fn has_waiters(&self) -> bool { !self.waiters.is_empty() }
@@ -140,14 +141,32 @@ where
         inner: Arc<ClientPoolInner<S, P, C>>,
         handle_id: u64,
     ) -> Result<PooledClientLease<S, P, C>, ClientError> {
-        if let Some(lease) = inner.try_acquire_immediately() {
-            return Ok(lease);
+        if inner.is_shutdown() {
+            return Err(ClientError::disconnected());
         }
 
         let (sender, receiver) = oneshot::channel();
         recover_mutex(&self.state).enqueue_waiter(handle_id, sender);
-        self.kick(inner);
+
+        if let Some(lease) = inner.try_acquire_immediately() {
+            if let Some(waiter) = self.take_next_waiter_or_stop() {
+                let _ = waiter.send(Ok(lease));
+            } else {
+                std::mem::forget(receiver);
+                return Ok(lease);
+            }
+        } else {
+            self.kick(inner);
+        }
+
         receiver.await.map_err(|_| ClientError::disconnected())?
+    }
+
+    pub(crate) fn notify_shutdown(&self) {
+        let mut state = recover_mutex(&self.state);
+        while let Some(waiter) = state.take_next_waiter(self.fairness_policy) {
+            let _ = waiter.send(Err(ClientError::disconnected()));
+        }
     }
 
     pub(crate) fn notify_capacity_available(

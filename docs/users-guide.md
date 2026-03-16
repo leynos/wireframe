@@ -1428,8 +1428,7 @@ admitted against the same warm slot. Treat `max_in_flight_per_socket` as an
 admission budget, not as a guarantee of parallel writes on one TCP stream.
 
 Create a `PoolHandle` when one logical session needs repeated pooled access and
-you want that session to participate in the configured fairness policy over
-time:
+that session should participate in the configured fairness policy over time:
 
 ```rust,no_run
 # use std::net::SocketAddr;

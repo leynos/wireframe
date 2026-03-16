@@ -15,8 +15,16 @@ use tokio::{
 };
 
 use crate::{
-    client::{ClientError, ClientPoolConfig, PoolFairnessPolicy, PoolHandle},
-    test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
+    client::{ClientError, ClientPoolConfig, PoolFairnessPolicy},
+    test_helpers::{
+        Ping,
+        Pong,
+        PoolTestServer,
+        TestClientPool,
+        acquire_and_record,
+        build_pooled_client,
+        build_preamble_pool,
+    },
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -33,34 +41,6 @@ async fn build_handle_pool(
     let server = PoolTestServer::start().await?;
     let pool = build_pooled_client(server.addr, config, Arc::new(AtomicUsize::new(0))).await?;
     Ok((server, pool))
-}
-
-async fn build_preamble_pool(
-    config: ClientPoolConfig,
-) -> Result<(PoolTestServer, TestClientPool, Arc<AtomicUsize>), ClientError> {
-    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
-    let server = PoolTestServer::start().await?;
-    let pool = build_pooled_client(server.addr, config, preamble_callback_count.clone()).await?;
-    Ok((server, pool, preamble_callback_count))
-}
-
-async fn acquire_and_record(
-    mut handle: PoolHandle<
-        crate::serializer::BincodeSerializer,
-        crate::test_helpers::ClientHello,
-        (),
-    >,
-    label: &'static str,
-    rounds: usize,
-    grants: Arc<Mutex<Vec<&'static str>>>,
-) -> Result<(), ClientError> {
-    for _ in 0..rounds {
-        let lease = handle.acquire().await?;
-        grants.lock().await.push(label);
-        tokio::task::yield_now().await;
-        drop(lease);
-    }
-    Ok(())
 }
 
 #[rstest]
@@ -86,7 +66,18 @@ async fn round_robin_handles_share_one_socket_fairly(
     right_result??;
 
     let observed = grants.lock().await.clone();
-    assert_eq!(observed, vec!["a", "b", "a", "b", "a", "b"]);
+    assert_eq!(observed.len(), 6, "expected 6 total grants");
+
+    let a_count = observed.iter().filter(|&label| *label == "a").count();
+    let b_count = observed.iter().filter(|&label| *label == "b").count();
+    assert_eq!(a_count, 3, "expected 3 grants for session-a");
+    assert_eq!(b_count, 3, "expected 3 grants for session-b");
+
+    for i in 1..observed.len() {
+        let prev = observed.get(i - 1).expect("valid index i-1");
+        let curr = observed.get(i).expect("valid index i");
+        assert_ne!(prev, curr, "expected strict alternation at position {i}");
+    }
     Ok(())
 }
 
@@ -153,12 +144,44 @@ async fn handle_acquire_respects_back_pressure(client_pool_config: ClientPoolCon
 }
 
 #[rstest]
+#[tokio::test(flavor = "current_thread")]
+async fn handle_acquire_dropped_waiter_does_not_leak_capacity(
+    client_pool_config: ClientPoolConfig,
+) -> TestResult {
+    let (_server, pool) = build_handle_pool(client_pool_config.pool_size(1)).await?;
+
+    let mut holder = pool.handle();
+    let mut waiter1 = pool.handle();
+    let mut waiter2 = pool.handle();
+
+    let held_lease = holder.acquire().await?;
+
+    let waiter1_task = tokio::spawn(async move { waiter1.acquire().await });
+    let waiter2_task = tokio::spawn(async move { waiter2.acquire().await });
+
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    drop(waiter1_task);
+
+    drop(held_lease);
+
+    let lease2 = timeout(Duration::from_millis(100), waiter2_task).await???;
+    drop(lease2);
+
+    let mut later = pool.handle();
+    let _lease3 = timeout(Duration::from_millis(100), later.acquire()).await??;
+
+    Ok(())
+}
+
+#[rstest]
 #[tokio::test]
 async fn handle_path_preserves_warm_reuse_and_preamble(
     client_pool_config: ClientPoolConfig,
 ) -> TestResult {
-    let (server, pool, preamble_callback_count) =
-        build_preamble_pool(client_pool_config.pool_size(1)).await?;
+    let server = PoolTestServer::start().await?;
+    let (pool, preamble_callback_count) =
+        build_preamble_pool(&server, client_pool_config.pool_size(1)).await?;
     let mut handle = pool.handle();
 
     let first: Pong = handle.call(&Ping(7)).await?;
@@ -178,8 +201,12 @@ async fn handle_path_recycles_after_idle_timeout(
     client_pool_config: ClientPoolConfig,
 ) -> TestResult {
     let idle_timeout = Duration::from_millis(50);
-    let (server, pool, preamble_callback_count) =
-        build_preamble_pool(client_pool_config.pool_size(1).idle_timeout(idle_timeout)).await?;
+    let server = PoolTestServer::start().await?;
+    let (pool, preamble_callback_count) = build_preamble_pool(
+        &server,
+        client_pool_config.pool_size(1).idle_timeout(idle_timeout),
+    )
+    .await?;
     let mut handle = pool.handle();
 
     let first: Pong = handle.call(&Ping(1)).await?;

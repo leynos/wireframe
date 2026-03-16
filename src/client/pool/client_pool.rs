@@ -5,7 +5,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -40,6 +40,7 @@ where
     pub(crate) slots: Arc<[Arc<PoolSlot<S, P, C>>]>,
     pub(crate) next_slot: AtomicUsize,
     pub(crate) scheduler: Arc<PoolScheduler<S, P, C>>,
+    shutdown: AtomicBool,
 }
 
 /// Pool of warm wireframe client sockets.
@@ -85,6 +86,7 @@ where
                 slots: Arc::from(slots),
                 next_slot: AtomicUsize::new(0),
                 scheduler: Arc::new(PoolScheduler::new(fairness_policy)),
+                shutdown: AtomicBool::new(false),
             }),
         })
     }
@@ -129,6 +131,7 @@ where
 
     /// Close the pool and drop all warm sockets.
     pub async fn close(self) {
+        self.inner.shutdown();
         tokio::task::yield_now().await;
         drop(self);
     }
@@ -140,10 +143,20 @@ where
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    pub(crate) fn try_acquire_immediately(&self) -> Option<PooledClientLease<S, P, C>> {
+    pub(crate) fn is_shutdown(&self) -> bool { self.shutdown.load(Ordering::Acquire) }
+
+    pub(crate) fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        self.scheduler.notify_shutdown();
+    }
+
+    pub(crate) fn try_acquire_immediately(self: &Arc<Self>) -> Option<PooledClientLease<S, P, C>> {
+        if self.is_shutdown() {
+            return None;
+        }
         self.ordered_slots().into_iter().find_map(|slot| {
             slot.try_acquire_permit()
-                .map(|permit| PooledClientLease::new(slot, permit, None))
+                .map(|permit| PooledClientLease::new(slot, permit, Some(Arc::clone(self))))
         })
     }
 
