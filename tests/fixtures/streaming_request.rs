@@ -205,16 +205,7 @@ impl StreamingRequestWorld {
 
     /// Assert the collected body matches the expected bytes.
     pub fn assert_collected_body(&self, expected: &str) -> TestResult {
-        if self.collected_body == expected.as_bytes() {
-            return Ok(());
-        }
-
-        Err(format!(
-            "expected body {:?}, observed {:?}",
-            expected.as_bytes(),
-            self.collected_body
-        )
-        .into())
+        assert_field_eq("body", expected.as_bytes(), self.collected_body.as_slice())
     }
 
     /// Assert that back-pressure blocked the timed send.
@@ -228,15 +219,7 @@ impl StreamingRequestWorld {
 
     /// Assert the number of successful chunks seen before termination.
     pub fn assert_collected_chunks(&self, expected: usize) -> TestResult {
-        if self.collected_chunks == expected {
-            return Ok(());
-        }
-
-        Err(format!(
-            "expected {expected} collected chunks, observed {}",
-            self.collected_chunks
-        )
-        .into())
+        assert_field_eq("collected chunks count", expected, self.collected_chunks)
     }
 
     /// Assert the last observed error kind.
@@ -259,6 +242,16 @@ pub fn parse_error_kind(value: &str) -> Result<io::ErrorKind, String> {
         "timed out" => Ok(io::ErrorKind::TimedOut),
         other => Err(format!("unsupported error kind: {other}")),
     }
+}
+
+fn assert_field_eq<T>(label: &str, expected: T, observed: T) -> TestResult
+where
+    T: PartialEq + fmt::Debug,
+{
+    if expected == observed {
+        return Ok(());
+    }
+    Err(format!("expected {label} {expected:?}, observed {observed:?}").into())
 }
 
 enum NextChunk {

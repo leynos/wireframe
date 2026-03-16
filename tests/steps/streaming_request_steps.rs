@@ -4,6 +4,10 @@ use rstest_bdd_macros::{given, then, when};
 
 use crate::fixtures::streaming_request::{StreamingRequestWorld, TestResult, parse_error_kind};
 
+fn try_parse_error_kind(kind: &str) -> TestResult<std::io::ErrorKind> {
+    parse_error_kind(kind).map_err(Into::into)
+}
+
 #[given("a streaming request body channel with capacity {capacity:usize}")]
 fn given_request_body_channel(
     streaming_request_world: &mut StreamingRequestWorld,
@@ -52,10 +56,7 @@ fn when_request_body_error_is_sent(
     streaming_request_world: &mut StreamingRequestWorld,
     kind: String,
 ) -> TestResult {
-    let kind = match parse_error_kind(&kind) {
-        Ok(kind) => kind,
-        Err(err) => return Err(err.into()),
-    };
+    let kind = try_parse_error_kind(&kind)?;
     streaming_request_world.send_error(kind)
 }
 
@@ -96,9 +97,6 @@ fn then_last_stream_error_kind_is(
     streaming_request_world: &mut StreamingRequestWorld,
     kind: String,
 ) -> TestResult {
-    let kind = match parse_error_kind(&kind) {
-        Ok(kind) => kind,
-        Err(err) => return Err(err.into()),
-    };
+    let kind = try_parse_error_kind(&kind)?;
     streaming_request_world.assert_last_error_kind(kind)
 }
