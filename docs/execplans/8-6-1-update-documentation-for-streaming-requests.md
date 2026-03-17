@@ -51,8 +51,8 @@ Success is observable when:
   and public API examples needed to make the documented behaviour trustworthy.
 - Do not introduce new product behaviour merely to make the documents read
   better. If documentation work exposes an implementation bug, fix only the
-  smallest issue required to align the code with ADR 0002 and document the
-  decision.
+  smallest issue required to align the code with Architecture Decision Record
+  (ADR) 0002 and document the decision.
 - Preserve existing public API signatures unless a contradiction in the current
   API surface makes the documentation impossible to write accurately. If that
   happens, stop and escalate.
@@ -157,7 +157,7 @@ Success is observable when:
   coverage in `tests/streaming_request.rs`, but there is no matching
   behavioural suite under `tests/features/`. Impact: the implementation cannot
   honestly claim both unit and behavioural validation for the inbound streaming
-  half of ADR 0002 until that BDD gap is closed.
+  half of ADR 0002 until that behaviour-driven development (BDD) gap is closed.
 
 - Observation: `MessageAssembler` and memory budgets already have substantial
   behavioural coverage through existing feature files such as
@@ -582,7 +582,7 @@ If repo-wide Markdown or doctest gates fail only because of unrelated baseline
 debt, stop before marking the roadmap item done and record the exact blocking
 files in `Decision Log`.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Key evidence gathered during planning:
 
