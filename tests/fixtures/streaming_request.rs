@@ -219,7 +219,7 @@ impl StreamingRequestWorld {
 
     /// Assert the number of successful chunks seen before termination.
     pub fn assert_collected_chunks(&self, expected: usize) -> TestResult {
-        assert_field_eq("collected chunks count", expected, self.collected_chunks)
+        assert_field_eq("collected chunks count", &expected, &self.collected_chunks)
     }
 
     /// Assert the last observed error kind.
@@ -251,20 +251,16 @@ pub struct ErrorKindArg(pub io::ErrorKind);
 impl std::str::FromStr for ErrorKindArg {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parse_error_kind(s).map(ErrorKindArg)
-    }
+    fn from_str(s: &str) -> Result<Self, Self::Err> { parse_error_kind(s).map(ErrorKindArg) }
 }
 
 impl From<ErrorKindArg> for io::ErrorKind {
-    fn from(arg: ErrorKindArg) -> Self {
-        arg.0
-    }
+    fn from(arg: ErrorKindArg) -> Self { arg.0 }
 }
 
-fn assert_field_eq<T>(label: &str, expected: T, observed: T) -> TestResult
+fn assert_field_eq<T>(label: &str, expected: &T, observed: &T) -> TestResult
 where
-    T: PartialEq + fmt::Debug,
+    T: PartialEq + fmt::Debug + ?Sized,
 {
     if expected == observed {
         return Ok(());
