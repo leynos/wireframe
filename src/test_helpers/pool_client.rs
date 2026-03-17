@@ -142,12 +142,12 @@ pub fn build_pooled_client(
 ///
 /// Returns an error if the server cannot be started or the pool connection fails.
 pub async fn build_preamble_pool(
-    server: &PoolTestServer,
     config: ClientPoolConfig,
-) -> Result<(TestClientPool, Arc<AtomicUsize>), ClientError> {
+) -> Result<(PoolTestServer, TestClientPool, Arc<AtomicUsize>), ClientError> {
     let preamble_callback_count = Arc::new(AtomicUsize::new(0));
+    let server = PoolTestServer::start().await?;
     let pool = build_pooled_client(server.addr, config, preamble_callback_count.clone()).await?;
-    Ok((pool, preamble_callback_count))
+    Ok((server, pool, preamble_callback_count))
 }
 
 /// Acquire and release a lease repeatedly, recording each grant in a shared log.

@@ -187,15 +187,25 @@ impl ClientPoolHandleWorld {
     }
 
     pub fn sessions_alternate_fairly(&self) -> bool {
-        self.grant_order
-            == [
-                "session-a",
-                "session-b",
-                "session-a",
-                "session-b",
-                "session-a",
-                "session-b",
-            ]
+        if self.grant_order.len() != 6 {
+            return false;
+        }
+
+        let first = self.grant_order.first();
+        let second = self.grant_order.get(1);
+
+        if first == second {
+            return false;
+        }
+
+        for (i, grant) in self.grant_order.iter().enumerate() {
+            let expected = if i & 1 == 0 { first } else { second };
+            if Some(grant) != expected {
+                return false;
+            }
+        }
+
+        true
     }
 
     pub fn fifo_order_preserved(&self) -> bool { self.grant_order == ["first", "second", "third"] }

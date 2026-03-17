@@ -12,6 +12,7 @@ use std::{
 use bb8::Pool;
 use bincode::Encode;
 use futures::{Future, future::select_all};
+use tokio::sync::Notify;
 
 use super::{
     ClientPoolConfig,
@@ -41,6 +42,7 @@ where
     pub(crate) next_slot: AtomicUsize,
     pub(crate) scheduler: Arc<PoolScheduler<S, P, C>>,
     shutdown: AtomicBool,
+    shutdown_notify: Notify,
 }
 
 /// Pool of warm wireframe client sockets.
@@ -87,6 +89,7 @@ where
                 next_slot: AtomicUsize::new(0),
                 scheduler: Arc::new(PoolScheduler::new(fairness_policy)),
                 shutdown: AtomicBool::new(false),
+                shutdown_notify: Notify::new(),
             }),
         })
     }
@@ -145,8 +148,11 @@ where
 {
     pub(crate) fn is_shutdown(&self) -> bool { self.shutdown.load(Ordering::Acquire) }
 
+    pub(crate) async fn shutdown_notified(&self) { self.shutdown_notify.notified().await; }
+
     pub(crate) fn shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
+        self.shutdown_notify.notify_waiters();
         self.scheduler.notify_shutdown();
     }
 

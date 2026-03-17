@@ -149,11 +149,14 @@ where
         recover_mutex(&self.state).enqueue_waiter(handle_id, sender);
 
         if let Some(lease) = inner.try_acquire_immediately() {
-            if let Some(waiter) = self.take_next_waiter_or_stop() {
-                let _ = waiter.send(Ok(lease));
-            } else {
-                std::mem::forget(receiver);
+            let Some(waiter) = self.take_next_waiter_or_stop() else {
+                drop(receiver);
                 return Ok(lease);
+            };
+
+            if waiter.send(Ok(lease)).is_err() {
+                drop(receiver);
+                return Err(ClientError::disconnected());
             }
         } else {
             self.kick(inner);
@@ -214,19 +217,36 @@ where
     }
 
     async fn service_waiters(self: Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
-        loop {
-            let Some(sender) = self.take_next_waiter_or_stop() else {
-                break;
-            };
+        while let Some(sender) = self.take_next_waiter_or_stop() {
+            self.service_one_waiter(sender, Arc::clone(&inner)).await;
+        }
+    }
 
-            let result = inner.acquire_slot_permit().await.map(|(slot, permit)| {
-                PooledClientLease::new(slot, permit, Some(Arc::clone(&inner)))
-            });
-            if let Err(send_result) = sender.send(result)
-                && let Ok(lease) = send_result
-            {
-                drop(lease);
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! macro internally uses % for random branch selection"
+    )]
+    async fn service_one_waiter(
+        &self,
+        sender: WaiterSender<S, P, C>,
+        inner: Arc<ClientPoolInner<S, P, C>>,
+    ) {
+        let result = tokio::select! {
+            permit_result = inner.acquire_slot_permit() => {
+                permit_result.map(|(slot, permit)| {
+                    PooledClientLease::new(slot, permit, Some(Arc::clone(&inner)))
+                })
             }
+            () = inner.shutdown_notified() => {
+                let _ = sender.send(Err(ClientError::disconnected()));
+                return;
+            }
+        };
+
+        if let Err(send_result) = sender.send(result)
+            && let Ok(lease) = send_result
+        {
+            drop(lease);
         }
     }
 }

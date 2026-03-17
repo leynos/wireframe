@@ -161,7 +161,8 @@ async fn handle_acquire_dropped_waiter_does_not_leak_capacity(
 
     tokio::time::sleep(Duration::from_millis(25)).await;
 
-    drop(waiter1_task);
+    waiter1_task.abort();
+    let _ = waiter1_task.await;
 
     drop(held_lease);
 
@@ -179,9 +180,8 @@ async fn handle_acquire_dropped_waiter_does_not_leak_capacity(
 async fn handle_path_preserves_warm_reuse_and_preamble(
     client_pool_config: ClientPoolConfig,
 ) -> TestResult {
-    let server = PoolTestServer::start().await?;
-    let (pool, preamble_callback_count) =
-        build_preamble_pool(&server, client_pool_config.pool_size(1)).await?;
+    let (server, pool, preamble_callback_count) =
+        build_preamble_pool(client_pool_config.pool_size(1)).await?;
     let mut handle = pool.handle();
 
     let first: Pong = handle.call(&Ping(7)).await?;
@@ -201,12 +201,8 @@ async fn handle_path_recycles_after_idle_timeout(
     client_pool_config: ClientPoolConfig,
 ) -> TestResult {
     let idle_timeout = Duration::from_millis(50);
-    let server = PoolTestServer::start().await?;
-    let (pool, preamble_callback_count) = build_preamble_pool(
-        &server,
-        client_pool_config.pool_size(1).idle_timeout(idle_timeout),
-    )
-    .await?;
+    let (server, pool, preamble_callback_count) =
+        build_preamble_pool(client_pool_config.pool_size(1).idle_timeout(idle_timeout)).await?;
     let mut handle = pool.handle();
 
     let first: Pong = handle.call(&Ping(1)).await?;
