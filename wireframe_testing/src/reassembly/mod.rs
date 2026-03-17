@@ -10,6 +10,7 @@
 //! can be reused from `rstest` integration tests and `rstest-bdd` step
 //! functions without relying on `assert!` or `panic!`.
 
+mod assert_helpers;
 mod fragment;
 mod message;
 mod message_error;

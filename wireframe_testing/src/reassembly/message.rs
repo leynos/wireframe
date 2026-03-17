@@ -2,7 +2,10 @@
 
 use wireframe::message_assembler::{AssembledMessage, MessageAssemblyError, MessageKey};
 
-use super::message_error::{MessageAssemblyErrorExpectation, matches_message_error};
+use super::{
+    assert_helpers::{assert_body_eq, assert_usize_field},
+    message_error::{MessageAssemblyErrorExpectation, matches_message_error},
+};
 use crate::integration_helpers::TestResult;
 
 /// Snapshot of the observable state around a message-assembly assertion.
@@ -289,22 +292,6 @@ pub fn assert_message_assembly_evicted(
         Ok(())
     } else {
         Err(format!("expected key {key} to be evicted").into())
-    }
-}
-
-fn assert_body_eq(actual: &[u8], expected: &[u8], context: &str) -> TestResult {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(format!("{context} mismatch: expected {expected:?}, got {actual:?}").into())
-    }
-}
-
-fn assert_usize_field(actual: usize, expected: usize, field_name: &str) -> TestResult {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(format!("expected {field_name}={expected}, got {actual}").into())
     }
 }
 

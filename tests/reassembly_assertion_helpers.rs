@@ -29,6 +29,7 @@ use wireframe_testing::reassembly::{
     assert_message_assembly_error,
     assert_message_assembly_evicted,
     assert_message_assembly_incomplete,
+    assert_message_assembly_total_buffered_bytes,
 };
 
 fn routing() -> EnvelopeRouting {
@@ -50,6 +51,8 @@ fn message_assertion_helpers_accept_incomplete_and_counts() {
     assert_message_assembly_incomplete(snapshot).expect("incomplete assertion should pass");
     assert_message_assembly_buffered_count(snapshot, 1)
         .expect("buffered-count assertion should pass");
+    assert_message_assembly_total_buffered_bytes(snapshot, 5)
+        .expect("total-buffered-bytes assertion should pass");
 }
 
 #[test]
@@ -92,6 +95,44 @@ fn message_assertion_helpers_accept_completed_bodies() {
     },
     MessageAssemblyErrorExpectation::MessageTooLarge {
         key: MessageKey(9),
+    }
+)]
+#[case(
+    MessageAssemblyError::Series(MessageSeriesError::MissingFirstFrame {
+        key: MessageKey(11),
+    }),
+    MessageAssemblyErrorExpectation::MissingFirstFrame {
+        key: MessageKey(11),
+    }
+)]
+#[case(
+    MessageAssemblyError::Series(MessageSeriesError::DuplicateFrame {
+        key: MessageKey(5),
+        sequence: FrameSequence(2),
+    }),
+    MessageAssemblyErrorExpectation::DuplicateFrame {
+        key: MessageKey(5),
+        sequence: FrameSequence(2),
+    }
+)]
+#[case(
+    MessageAssemblyError::ConnectionBudgetExceeded {
+        key: MessageKey(6),
+        attempted: 50,
+        limit: std::num::NonZeroUsize::MIN,
+    },
+    MessageAssemblyErrorExpectation::ConnectionBudgetExceeded {
+        key: MessageKey(6),
+    }
+)]
+#[case(
+    MessageAssemblyError::InFlightBudgetExceeded {
+        key: MessageKey(8),
+        attempted: 100,
+        limit: std::num::NonZeroUsize::MIN,
+    },
+    MessageAssemblyErrorExpectation::InFlightBudgetExceeded {
+        key: MessageKey(8),
     }
 )]
 fn message_assertion_helpers_match_errors(
@@ -183,4 +224,35 @@ fn fragment_assertion_helpers_track_eviction() {
 
     assert_fragment_reassembly_evicted(snapshot, MessageId::new(23))
         .expect("fragment eviction assertion should pass");
+}
+
+#[test]
+fn fragment_error_assertion_fails_when_no_error_present() {
+    let snapshot = FragmentReassemblySnapshot::new(None, None, &[], 0);
+
+    let err = assert_fragment_reassembly_error(
+        snapshot,
+        FragmentReassemblyErrorExpectation::IndexMismatch,
+    )
+    .expect_err("error assertion should fail when no error is present");
+
+    let message = err.to_string();
+    assert!(
+        message.contains("no reassembly error"),
+        "diagnostic should mention missing error, got: {message}"
+    );
+}
+
+#[test]
+fn fragment_completed_len_fails_when_no_message_reassembled() {
+    let snapshot = FragmentReassemblySnapshot::new(None, None, &[], 0);
+
+    let err = assert_fragment_reassembly_completed_len(snapshot, 1)
+        .expect_err("completed_len should fail when last_reassembled is None");
+
+    let message = err.to_string();
+    assert!(
+        message.contains("no message reassembled"),
+        "diagnostic should reference missing reassembled message, got: {message}"
+    );
 }

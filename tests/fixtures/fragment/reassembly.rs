@@ -114,21 +114,9 @@ impl FragmentWorld {
     /// Returns an error if no reassembly error was captured or it was not a
     /// message-too-large error.
     pub fn assert_reassembly_over_limit(&self) -> TestResult {
-        let Some(message_id) = self
-            .last_reassembly_error
-            .as_ref()
-            .and_then(|err| match err {
-                wireframe::fragment::ReassemblyError::MessageTooLarge { message_id, .. } => {
-                    Some(*message_id)
-                }
-                wireframe::fragment::ReassemblyError::Fragment(_) => None,
-            })
-        else {
-            return Err("expected message-too-large reassembly error".into());
-        };
         assert_fragment_reassembly_error(
             self.reassembly_snapshot()?,
-            FragmentReassemblyErrorExpectation::MessageTooLarge { message_id },
+            FragmentReassemblyErrorExpectation::MessageTooLargeAny,
         )
     }
 

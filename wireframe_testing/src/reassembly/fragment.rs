@@ -2,6 +2,7 @@
 
 use wireframe::fragment::{FragmentError, MessageId, ReassembledMessage, ReassemblyError};
 
+use super::assert_helpers::assert_usize_field;
 use crate::integration_helpers::TestResult;
 
 /// Snapshot of the observable state around a fragment-reassembly assertion.
@@ -43,11 +44,13 @@ impl<'a> FragmentReassemblySnapshot<'a> {
 /// Expected fragment-reassembly error shape.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FragmentReassemblyErrorExpectation {
-    /// Expect an over-limit assembled message.
+    /// Expect an over-limit assembled message for a specific identifier.
     MessageTooLarge {
         /// Message identifier that exceeded the cap.
         message_id: MessageId,
     },
+    /// Expect an over-limit assembled message regardless of identifier.
+    MessageTooLargeAny,
     /// Expect an out-of-order fragment.
     IndexMismatch,
     /// Expect a fragment from the wrong logical message.
@@ -110,12 +113,7 @@ pub fn assert_fragment_reassembly_completed_len(
     let Some(message) = snapshot.last_reassembled else {
         return Err("no message reassembled".into());
     };
-    let actual = message.payload().len();
-    if actual == expected_len {
-        Ok(())
-    } else {
-        Err(format!("payload length mismatch: expected {expected_len}, got {actual}").into())
-    }
+    assert_usize_field(message.payload().len(), expected_len, "payload length")
 }
 
 /// Assert that the last reassembly error matches `expected`.
@@ -180,15 +178,7 @@ pub fn assert_fragment_reassembly_buffered_messages(
     snapshot: FragmentReassemblySnapshot<'_>,
     expected: usize,
 ) -> TestResult {
-    if snapshot.buffered_messages == expected {
-        Ok(())
-    } else {
-        Err(format!(
-            "expected {expected} buffered messages, got {}",
-            snapshot.buffered_messages
-        )
-        .into())
-    }
+    assert_usize_field(snapshot.buffered_messages, expected, "buffered messages")
 }
 
 /// Assert that `message_id` was evicted during the most recent purge.
@@ -235,6 +225,9 @@ fn matches_fragment_error(
                     ..
                 } if *actual_id == message_id
             )
+        }
+        FragmentReassemblyErrorExpectation::MessageTooLargeAny => {
+            matches!(err, ReassemblyError::MessageTooLarge { .. })
         }
         FragmentReassemblyErrorExpectation::IndexMismatch => matches!(
             err,
