@@ -70,8 +70,8 @@ where
     ///   [`fifo_queue`](Self::fifo_queue). Deregistered handles are pruned lazily during dequeue in
     ///   [`take_next_fifo_waiter`](Self::take_next_fifo_waiter).
     /// - [`PoolFairnessPolicy::RoundRobin`]: Only enqueues if `handle_id` exists in
-    ///   [`handle_waiters`](Self::handle_waiters). If the handle is unregistered, the sender is
-    ///   silently dropped, which causes the waiter to receive a disconnection error.
+    ///   [`handle_waiters`](Self::handle_waiters). If the handle is unregistered, this returns
+    ///   `false` so the caller can log and fail fast instead of dropping the waiter silently.
     ///
     /// # Invariant
     ///
@@ -83,14 +83,18 @@ where
         handle_id: u64,
         sender: WaiterSender<S, P, C>,
         policy: PoolFairnessPolicy,
-    ) {
+    ) -> bool {
         match policy {
             PoolFairnessPolicy::Fifo => {
                 self.fifo_queue.push_back((handle_id, sender));
+                true
             }
             PoolFairnessPolicy::RoundRobin => {
                 if let Some(queue) = self.handle_waiters.get_mut(&handle_id) {
                     queue.push_back(sender);
+                    true
+                } else {
+                    false
                 }
             }
         }
@@ -179,7 +183,14 @@ where
         }
 
         let (sender, receiver) = oneshot::channel();
-        recover_mutex(&self.state).enqueue_waiter(handle_id, sender, self.fairness_policy);
+        if !recover_mutex(&self.state).enqueue_waiter(handle_id, sender, self.fairness_policy) {
+            tracing::warn!(
+                handle_id,
+                fairness_policy = ?self.fairness_policy,
+                "pooled handle enqueue attempted for unregistered handle"
+            );
+            return Err(ClientError::disconnected());
+        }
 
         if let Some(lease) = inner.try_acquire_immediately() {
             let Some(waiter) = self.take_next_waiter_or_stop() else {
@@ -281,5 +292,57 @@ where
         {
             drop(lease);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::serializer::BincodeSerializer;
+
+    type TestState = SchedulerState<BincodeSerializer, (), ()>;
+
+    #[test]
+    fn round_robin_enqueue_rejects_unknown_handles() {
+        let mut state = TestState::new();
+        let (sender, _receiver) = oneshot::channel();
+
+        let was_enqueued = state.enqueue_waiter(42, sender, PoolFairnessPolicy::RoundRobin);
+
+        assert!(
+            !was_enqueued,
+            "unknown round-robin handles must be rejected"
+        );
+        assert!(
+            state
+                .take_next_waiter(PoolFairnessPolicy::RoundRobin)
+                .is_none(),
+            "rejected round-robin waiters must not remain queued"
+        );
+    }
+
+    #[test]
+    fn deregister_handle_purges_fifo_entries_for_that_handle() {
+        let mut state = TestState::new();
+        state.register_handle(1);
+        state.register_handle(2);
+
+        let (removed_sender, _removed_receiver) = oneshot::channel();
+        let (kept_sender, _kept_receiver) = oneshot::channel();
+
+        assert!(state.enqueue_waiter(1, removed_sender, PoolFairnessPolicy::Fifo));
+        assert!(state.enqueue_waiter(2, kept_sender, PoolFairnessPolicy::Fifo));
+
+        state.deregister_handle(1);
+
+        let next_waiter = state.take_next_waiter(PoolFairnessPolicy::Fifo);
+        assert!(
+            next_waiter.is_some(),
+            "remaining registered waiter should still be queued"
+        );
+        assert!(
+            state.take_next_waiter(PoolFairnessPolicy::Fifo).is_none(),
+            "deregistered handle entries must be removed eagerly"
+        );
     }
 }
