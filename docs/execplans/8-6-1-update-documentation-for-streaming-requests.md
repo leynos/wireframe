@@ -182,30 +182,30 @@ Success is observable when:
   validation-closure task, not as a new architecture design pass. Rationale:
   ADR 0002 and the implementation already define the feature; the missing work
   is accurate narrative, cross-linking, and proof that the documented behaviour
-  is exercised. Date/Author: 2026-03-14 / Codex
+  is exercised. Date/Author: 2026-03-14 / Codex.
 
 - Decision: add one focused `rstest-bdd` suite for streaming request bodies
   unless the audit uncovers an existing hidden equivalent. Rationale: the
   prompt requires both unit and behavioural validation, and the current inbound
-  streaming coverage is unit-only. Date/Author: 2026-03-14 / Codex
+  streaming coverage is unit-only. Date/Author: 2026-03-14 / Codex.
 
 - Decision: update `docs/users-guide.md` and public Rustdoc examples only where
   public consumer guidance would otherwise be stale or incomplete. Rationale:
   this keeps scope aligned with the roadmap item while still meeting the
   prompt's requirement to reflect public interface changes. Date/Author:
-  2026-03-14 / Codex
+  2026-03-14 / Codex.
 
 - Decision: mark roadmap items `8.6.1` through `8.6.3` done only after the
   docs, behavioural coverage, doctest gates, and repo quality gates all pass.
   Rationale: a documentation checkbox should mean the docs are trustworthy and
-  demonstrably aligned with the code. Date/Author: 2026-03-14 / Codex
+  demonstrably aligned with the code. Date/Author: 2026-03-14 / Codex.
 
 - Decision: cover the streaming-request behavioural gap at the public request
   API boundary instead of through a second full inbound-actor integration
   fixture. Rationale: the missing guarantees were handler-facing stream
   semantics (`AsyncRead` adaptation, back-pressure, and error propagation), and
   those behaviours are exercised more directly through the request API than
-  through another transport harness. Date/Author: 2026-03-14 / Codex
+  through another transport harness. Date/Author: 2026-03-14 / Codex.
 
 ## Outcomes & retrospective
 
@@ -338,7 +338,7 @@ It should explicitly answer:
 2. what `MessageAssembler` is responsible for;
 3. the exact ordering through the inbound pipeline;
 4. how budgets are shared across both layers; and
-5. what operators or protocol authors must configure so the two layers do not
+5. what operators or protocol authors must configure, so the two layers do not
    fight each other.
 
 In `docs/multi-packet-and-streaming-responses-design.md`, revise section `11`
@@ -396,7 +396,7 @@ rewriting.
 
 Validation at the end of Stage C:
 
-- a new user can follow the guide without needing to read the ADR first; and
+- a new user can follow the guide without needing to read the ADR first, and
 - any Rustdoc examples touched by this stage are ready for `make test-doc`.
 
 ### Stage D: close validation gaps before claiming the docs are complete
@@ -530,7 +530,7 @@ Run all commands from `/home/user/project`.
 
 ## Validation and acceptance
 
-Acceptance means all of the following are true:
+Acceptance means the following are true:
 
 - Documentation:
   - the three roadmap-target design documents describe the same composition
@@ -575,7 +575,7 @@ If a gate fails halfway through:
 
 1. read the saved log under `/tmp/8-6-*.log`;
 2. fix the smallest relevant issue;
-3. rerun only the failed targeted gate first; and
+3. rerun only the failed targeted gate first, and
 4. rerun the full final gate set before touching the roadmap checkboxes.
 
 If repo-wide Markdown or doctest gates fail only because of unrelated baseline

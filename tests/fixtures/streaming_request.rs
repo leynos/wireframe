@@ -126,14 +126,18 @@ impl StreamingRequestWorld {
     /// Returns an error if the channel is unavailable.
     pub fn send_chunk_with_timeout(&mut self, chunk: &str, timeout_ms: u64) -> TestResult {
         let sender = self.sender.clone().ok_or("request body sender missing")?;
-        let blocked = self.block_on(async move {
+        let timeout_result = self.block_on(async move {
             tokio::time::timeout(
                 Duration::from_millis(timeout_ms),
                 sender.send(Ok(Bytes::from(chunk.to_owned()))),
             )
             .await
-            .is_err()
         })?;
+        let blocked = match timeout_result {
+            Err(_) => true,                         // Timeout elapsed → blocked by backpressure
+            Ok(Ok(())) => false,                    // Send succeeded → not blocked
+            Ok(Err(err)) => return Err(err.into()), // Send failed → propagate channel error
+        };
         self.send_blocked_by_backpressure = Some(blocked);
         Ok(())
     }
