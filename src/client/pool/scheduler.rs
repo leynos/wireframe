@@ -58,8 +58,26 @@ where
         self.handle_waiters.remove(&handle_id);
         self.round_robin_order
             .retain(|queued_id| *queued_id != handle_id);
+        self.fifo_queue
+            .retain(|(queued_id, _)| *queued_id != handle_id);
     }
 
+    /// Enqueues a waiter for the given handle according to the fairness policy.
+    ///
+    /// # Policy-specific behaviour
+    ///
+    /// - [`PoolFairnessPolicy::Fifo`]: Always enqueues `(handle_id, sender)` into
+    ///   [`fifo_queue`](Self::fifo_queue). Deregistered handles are pruned lazily during dequeue in
+    ///   [`take_next_fifo_waiter`](Self::take_next_fifo_waiter).
+    /// - [`PoolFairnessPolicy::RoundRobin`]: Only enqueues if `handle_id` exists in
+    ///   [`handle_waiters`](Self::handle_waiters). If the handle is unregistered, the sender is
+    ///   silently dropped, which causes the waiter to receive a disconnection error.
+    ///
+    /// # Invariant
+    ///
+    /// For round-robin policy, callers must ensure the handle is registered before
+    /// calling this method. For FIFO policy, registration status does not matter as
+    /// invalid entries are filtered during dequeue.
     fn enqueue_waiter(
         &mut self,
         handle_id: u64,
