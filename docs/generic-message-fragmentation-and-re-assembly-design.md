@@ -437,6 +437,20 @@ When both layers are enabled, Wireframe applies them in the following order:
    - a streaming request body that the handler consumes incrementally.
 4. Route and invoke handlers.
 
+In operational terms, each layer owns a distinct hand-off:
+
+- the transport codec and optional `FragmentAdapter` are responsible only for
+  delivering one complete protocol packet;
+- `MessageAssembler::parse_frame_header` classifies that packet as either the
+  first frame or a continuation frame for one logical message;
+- Wireframe strips the parsed protocol header, tracks assembly state by
+  message key, and decides whether the body should stay buffered or become a
+  stream; and
+- handlers observe only the protocol-facing request shape:
+  - a buffered payload via the existing request path, or
+  - `RequestParts` plus `RequestBodyStream` / `StreamingBody` for incremental
+    consumption.
+
 For screen readers: the following sequence diagram shows the decode → fragment
 reassembly → message assembly → handler pipeline.
 
@@ -468,18 +482,38 @@ on the app instance and is applied in the inbound runtime pipeline in
 `WireframeApp` connection handling, after transport reassembly and before
 handler dispatch.
 
+For protocol authors, the boundary rule is simple:
+
+- use fragmentation when one protocol packet exceeds the transport frame
+  budget;
+- use `MessageAssembler` when one logical request spans multiple protocol
+  packets; and
+- enable both when a large logical request may itself contain transport
+  fragments.
+
+Fragmentation is transport plumbing. `MessageAssembler` is protocol continuity.
+
 ### 9.3 Memory budget integration
 
 Per-connection memory budgets apply across both layers. Budgets cover:
 
-- bytes buffered per message (existing `max_message_size`);
+- bytes buffered per message;
 - bytes buffered per connection; and
 - bytes buffered across in-flight assemblies.
 
-When budgets are approached, Wireframe applies back-pressure by pausing further
-reads and assembly work. When a hard cap is exceeded, Wireframe aborts early,
-releases partial state, and surfaces `std::io::ErrorKind::InvalidData` from the
-inbound processing path.
+These limits are configured through `WireframeApp::memory_budgets(...)`. When
+that builder is not called explicitly, Wireframe derives defaults from the
+current `buffer_capacity`, so the same protection model still applies.
+
+Budget enforcement is shared across the full inbound assembly pipeline:
+
+1. **Per-frame enforcement** rejects any newly arrived frame that would exceed
+   the configured message or aggregate caps.
+2. **Soft-pressure pacing** pauses inbound reads once buffered bytes reach 80%
+   of the smaller aggregate budget (`bytes_per_connection` and
+   `bytes_in_flight`).
+3. **Hard-cap abort** terminates the connection if total buffered bytes
+   strictly exceed that aggregate cap.
 
 The soft-limit implementation paces reads by inserting a short pause before
 polling the next inbound frame once buffered bytes reach 80% of the smaller
@@ -490,9 +524,17 @@ aggregate cap (100%), the connection is terminated immediately with
 `InvalidData` as a defence-in-depth safety net.
 
 If both transport fragmentation and `MessageAssembler` are enabled, the
-effective message cap is whichever guard triggers first. Operators should set
-the fragmentation `max_message_size` and the message assembly per-message cap
-to compatible values to avoid surprising early termination.
+effective message cap is whichever guard triggers first:
+
+- fragmentation's `max_message_size` for one reassembled transport packet; or
+- message assembly's `bytes_per_message` budget for one logical request.
+
+Operators should set those limits to compatible values. Otherwise a request may
+be valid at the protocol layer but still terminate early at the transport
+boundary, or vice versa.
+
+Single-frame requests that complete immediately do not count against aggregate
+buffer budgets because they do not remain buffered in assembly state.
 
 See [ADR 0002][adr-0002] for the complete budget configuration surface and
 failure mode semantics.

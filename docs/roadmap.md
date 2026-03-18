@@ -322,11 +322,11 @@ and standardized per-connection memory budgets.
 
 ### 8.6. Documentation
 
-- [ ] 8.6.1. Update `generic-message-fragmentation-and-re-assembly-design.md`
+- [x] 8.6.1. Update `generic-message-fragmentation-and-re-assembly-design.md`
   with composition guidance.
-- [ ] 8.6.2. Update `multi-packet-and-streaming-responses-design.md` with a
+- [x] 8.6.2. Update `multi-packet-and-streaming-responses-design.md` with a
   streaming request body section.
-- [ ] 8.6.3. Update
+- [x] 8.6.3. Update
   `the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`
   with MessageAssembler and budget details.
 

@@ -98,10 +98,12 @@ incremental processing of large inbound payloads. The default remains buffered
 request handling to preserve existing ergonomics for small messages and simple
 protocols.
 
-At a high level, `RequestParts` separates routing metadata from the body, and
-`RequestBodyStream` yields body chunks as a pinned, boxed stream. See [ADR
-0002][adr-0002] for the canonical type definitions; the exact field names and
-types shown there are illustrative and may evolve before stabilization.
+This is now a concrete part of the public API rather than a future sketch.
+`RequestParts` separates routing metadata from the body, while
+`RequestBodyStream` yields body chunks as a pinned boxed stream. Protocol
+crates can adapt that stream to `AsyncRead` through `RequestBodyReader`, and
+extractor-based handlers can use `StreamingBody` for the same underlying
+capability.
 
 Completion of a streaming response is signalled by a protocol-defined
 terminator frame. The new `stream_end_frame` hook allows implementations to
@@ -229,6 +231,15 @@ applies them in order: transport reassembly first, then message assembly. This
 ensures protocol crates migrating to `MessageAssembler` do not need to
 special-case transport fragments.
 
+This capability has moved from design intent to implemented maturity:
+
+- applications register assemblers with
+  `WireframeApp::with_message_assembler(...)`;
+- the inbound runtime path applies the assembler after transport reassembly and
+  before handler dispatch; and
+- handlers receive either a buffered request or a streaming request body based
+  on the assembler's framing outcome.
+
 ## III. Capability Maturity: From Functional to Production-Grade
 
 A feature-complete library is not necessarily a mature one. The road to
@@ -301,6 +312,14 @@ Rust's ownership model and `Drop` trait are the foundation of resource safety.
     limit). When a hard cap is exceeded, Wireframe aborts early, releases
     partial state, and surfaces `std::io::ErrorKind::InvalidData` from the
     inbound processing path.
+
+    This now ships as a three-tier protection model:
+
+    - per-frame rejection when an incoming frame would exceed the configured
+      caps;
+    - soft-pressure read pacing at 80% of the smaller aggregate budget; and
+    - immediate connection abort when buffered bytes strictly exceed the hard
+      aggregate cap.
 
   - **Timeouts:** The reassembly logic will include a non-optional,
     configurable timeout to automatically purge partial messages that are
