@@ -116,6 +116,35 @@ pub fn assert_fragment_reassembly_completed_len(
     assert_usize_field(message.payload().len(), expected_len, "payload length")
 }
 
+/// Assert that the last reassembled payload bytes equal `expected`.
+///
+/// # Errors
+///
+/// Returns an error if no message was reassembled or the payload bytes differ.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use wireframe_testing::reassembly::{
+///     FragmentReassemblySnapshot,
+///     assert_fragment_reassembly_completed_bytes,
+/// };
+///
+/// # fn run(snapshot: FragmentReassemblySnapshot<'_>) -> wireframe_testing::TestResult {
+/// assert_fragment_reassembly_completed_bytes(snapshot, b"hello")?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn assert_fragment_reassembly_completed_bytes(
+    snapshot: FragmentReassemblySnapshot<'_>,
+    expected: &[u8],
+) -> TestResult {
+    let Some(message) = snapshot.last_reassembled else {
+        return Err("no message reassembled".into());
+    };
+    super::assert_helpers::assert_body_eq(message.payload(), expected, "reassembled payload")
+}
+
 /// Assert that the last reassembly error matches `expected`.
 ///
 /// # Errors

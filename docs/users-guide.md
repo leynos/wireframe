@@ -407,7 +407,11 @@ Available fragment-reassembly assertion helpers:
   reconstructed yet.
 - `assert_fragment_reassembly_completed_len` — verify reconstructed payload
   length.
-- `assert_fragment_reassembly_error` — verify over-limit and ordering errors.
+- `assert_fragment_reassembly_error` — verify reassembly errors including
+  `MessageTooLarge` (over-limit message for a specific or any identifier),
+  `IndexMismatch` (out-of-order fragment), `MessageMismatch` (fragment from
+  wrong logical message), `SeriesComplete` (duplicate/late fragment after
+  completion), and `IndexOverflow` (fragment index overflow).
 - `assert_fragment_reassembly_buffered_messages` — verify buffered partial
   message count.
 - `assert_fragment_reassembly_evicted` — verify timeout-based eviction.

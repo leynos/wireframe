@@ -55,6 +55,32 @@ impl<'a> MessageAssemblySnapshot<'a> {
             total_buffered_bytes,
         }
     }
+
+    /// Get the last completed message from the most recent assembly result.
+    ///
+    /// Returns `None` if the last result was not a successful completion.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe_testing::reassembly::MessageAssemblySnapshot;
+    ///
+    /// # fn check(snapshot: MessageAssemblySnapshot<'_>) {
+    /// if let Some(message) = snapshot.last_completed_message() {
+    ///     let routing = message.routing();
+    ///     let metadata = message.metadata();
+    ///     let body = message.body();
+    ///     // Perform routing, metadata, or body assertions
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn last_completed_message(&self) -> Option<&'a AssembledMessage> {
+        match self.last_result {
+            Some(Ok(Some(message))) => Some(message),
+            _ => None,
+        }
+    }
 }
 
 /// Assert that the last message-assembly result remained incomplete.

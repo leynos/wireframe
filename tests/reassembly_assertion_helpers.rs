@@ -199,6 +199,14 @@ fn fragment_assertion_helpers_accept_absent_completed_and_counts() {
     }
 )]
 #[case(
+    wireframe::fragment::ReassemblyError::MessageTooLarge {
+        message_id: MessageId::new(99),
+        attempted: 20,
+        limit: std::num::NonZeroUsize::MIN,
+    },
+    FragmentReassemblyErrorExpectation::MessageTooLargeAny
+)]
+#[case(
     wireframe::fragment::ReassemblyError::Fragment(
         wireframe::fragment::FragmentError::IndexMismatch {
             expected: wireframe::fragment::FragmentIndex::new(1),
@@ -206,6 +214,29 @@ fn fragment_assertion_helpers_accept_absent_completed_and_counts() {
         }
     ),
     FragmentReassemblyErrorExpectation::IndexMismatch
+)]
+#[case(
+    wireframe::fragment::ReassemblyError::Fragment(
+        wireframe::fragment::FragmentError::MessageMismatch {
+            expected: MessageId::new(5),
+            found: MessageId::new(7),
+        }
+    ),
+    FragmentReassemblyErrorExpectation::MessageMismatch
+)]
+#[case(
+    wireframe::fragment::ReassemblyError::Fragment(
+        wireframe::fragment::FragmentError::SeriesComplete
+    ),
+    FragmentReassemblyErrorExpectation::SeriesComplete
+)]
+#[case(
+    wireframe::fragment::ReassemblyError::Fragment(
+        wireframe::fragment::FragmentError::IndexOverflow {
+            last: wireframe::fragment::FragmentIndex::new(u32::MAX - 1),
+        }
+    ),
+    FragmentReassemblyErrorExpectation::IndexOverflow
 )]
 fn fragment_assertion_helpers_match_errors(
     #[case] error: wireframe::fragment::ReassemblyError,

@@ -20,6 +20,7 @@ pub use fragment::{
     FragmentReassemblySnapshot,
     assert_fragment_reassembly_absent,
     assert_fragment_reassembly_buffered_messages,
+    assert_fragment_reassembly_completed_bytes,
     assert_fragment_reassembly_completed_len,
     assert_fragment_reassembly_error,
     assert_fragment_reassembly_evicted,
