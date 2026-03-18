@@ -470,9 +470,9 @@ Available slow-I/O helper functions:
 - `drive_with_slow_codec_frames` — codec-aware frames, returns decoded
   `F::Frame` values.
 
-These helpers are designed for deterministic tests under paused Tokio time. Small
-duplex capacities should be used together with reader pacing when the app's
-outbound writes must hit back-pressure quickly.
+These helpers are designed for deterministic tests under paused Tokio time.
+Small duplex capacities should be used together with reader pacing when the
+app's outbound writes must hit back-pressure quickly.
 
 #### Zero-copy payload extraction
 

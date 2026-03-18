@@ -30,9 +30,9 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    waiters: HashMap<u64, WaiterSender<S, P, C>>,
-    fifo_waiters: VecDeque<u64>,
-    round_robin_handles: VecDeque<u64>,
+    fifo_queue: VecDeque<(u64, WaiterSender<S, P, C>)>,
+    round_robin_order: VecDeque<u64>,
+    handle_waiters: HashMap<u64, VecDeque<WaiterSender<S, P, C>>>,
 }
 
 impl<S, P, C> SchedulerState<S, P, C>
@@ -43,29 +43,44 @@ where
 {
     fn new() -> Self {
         Self {
-            waiters: HashMap::new(),
-            fifo_waiters: VecDeque::new(),
-            round_robin_handles: VecDeque::new(),
+            fifo_queue: VecDeque::new(),
+            round_robin_order: VecDeque::new(),
+            handle_waiters: HashMap::new(),
         }
     }
 
-    fn register_handle(&mut self, handle_id: u64) { self.round_robin_handles.push_back(handle_id); }
+    fn register_handle(&mut self, handle_id: u64) {
+        self.handle_waiters.insert(handle_id, VecDeque::new());
+        self.round_robin_order.push_back(handle_id);
+    }
 
     fn deregister_handle(&mut self, handle_id: u64) {
-        self.waiters.remove(&handle_id);
-        self.fifo_waiters
-            .retain(|queued_id| *queued_id != handle_id);
-        self.round_robin_handles
+        self.handle_waiters.remove(&handle_id);
+        self.round_robin_order
             .retain(|queued_id| *queued_id != handle_id);
     }
 
-    fn enqueue_waiter(&mut self, handle_id: u64, sender: WaiterSender<S, P, C>) {
-        if self.waiters.insert(handle_id, sender).is_none() {
-            self.fifo_waiters.push_back(handle_id);
+    fn enqueue_waiter(
+        &mut self,
+        handle_id: u64,
+        sender: WaiterSender<S, P, C>,
+        policy: PoolFairnessPolicy,
+    ) {
+        match policy {
+            PoolFairnessPolicy::Fifo => {
+                self.fifo_queue.push_back((handle_id, sender));
+            }
+            PoolFairnessPolicy::RoundRobin => {
+                if let Some(queue) = self.handle_waiters.get_mut(&handle_id) {
+                    queue.push_back(sender);
+                }
+            }
         }
     }
 
-    fn has_waiters(&self) -> bool { !self.waiters.is_empty() }
+    fn has_waiters(&self) -> bool {
+        !self.fifo_queue.is_empty() || self.handle_waiters.values().any(|queue| !queue.is_empty())
+    }
 
     fn take_next_waiter(&mut self, policy: PoolFairnessPolicy) -> Option<WaiterSender<S, P, C>> {
         match policy {
@@ -75,8 +90,8 @@ where
     }
 
     fn take_next_fifo_waiter(&mut self) -> Option<WaiterSender<S, P, C>> {
-        while let Some(handle_id) = self.fifo_waiters.pop_front() {
-            if let Some(sender) = self.waiters.remove(&handle_id) {
+        while let Some((handle_id, sender)) = self.fifo_queue.pop_front() {
+            if self.handle_waiters.contains_key(&handle_id) {
                 return Some(sender);
             }
         }
@@ -84,13 +99,13 @@ where
     }
 
     fn take_next_round_robin_waiter(&mut self) -> Option<WaiterSender<S, P, C>> {
-        let len = self.round_robin_handles.len();
+        let len = self.round_robin_order.len();
         for _ in 0..len {
-            let handle_id = self.round_robin_handles.pop_front()?;
-            self.round_robin_handles.push_back(handle_id);
-            if let Some(sender) = self.waiters.remove(&handle_id) {
-                self.fifo_waiters
-                    .retain(|queued_id| *queued_id != handle_id);
+            let handle_id = self.round_robin_order.pop_front()?;
+            self.round_robin_order.push_back(handle_id);
+            if let Some(queue) = self.handle_waiters.get_mut(&handle_id)
+                && let Some(sender) = queue.pop_front()
+            {
                 return Some(sender);
             }
         }
@@ -146,7 +161,7 @@ where
         }
 
         let (sender, receiver) = oneshot::channel();
-        recover_mutex(&self.state).enqueue_waiter(handle_id, sender);
+        recover_mutex(&self.state).enqueue_waiter(handle_id, sender, self.fairness_policy);
 
         if let Some(lease) = inner.try_acquire_immediately() {
             let Some(waiter) = self.take_next_waiter_or_stop() else {
