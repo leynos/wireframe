@@ -81,6 +81,57 @@ impl<'a> MessageAssemblySnapshot<'a> {
             _ => None,
         }
     }
+
+    /// Extract the last completed message from the snapshot.
+    ///
+    /// Returns `None` if the last result was not a completed message.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe_testing::reassembly::MessageAssemblySnapshot;
+    ///
+    /// # fn run(snapshot: MessageAssemblySnapshot<'_>) {
+    /// if let Some(message) = snapshot.last_completed() {
+    ///     let _routing = message.routing();
+    ///     let _metadata = message.metadata();
+    ///     let _body = message.body();
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn last_completed(&self) -> Option<&'a AssembledMessage> {
+        match self.last_result {
+            Some(Ok(Some(message))) => Some(message),
+            _ => None,
+        }
+    }
+
+    /// Extract the most recent completed message for a given key.
+    ///
+    /// Returns `None` if no message was completed for the given key.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use wireframe::message_assembler::MessageKey;
+    /// use wireframe_testing::reassembly::MessageAssemblySnapshot;
+    ///
+    /// # fn run(snapshot: MessageAssemblySnapshot<'_>) {
+    /// if let Some(message) = snapshot.completed_for_key(MessageKey(7)) {
+    ///     let _routing = message.routing();
+    ///     let _metadata = message.metadata();
+    ///     let _body = message.body();
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn completed_for_key(&self, key: MessageKey) -> Option<&'a AssembledMessage> {
+        self.completed_messages
+            .iter()
+            .rev()
+            .find(|message| message.message_key() == key)
+    }
 }
 
 /// Assert that the last message-assembly result remained incomplete.
@@ -115,6 +166,10 @@ pub fn assert_message_assembly_incomplete(snapshot: MessageAssemblySnapshot<'_>)
 
 /// Assert that the last message-assembly operation completed with `expected`.
 ///
+/// For tests that need to also verify routing or metadata, use
+/// [`MessageAssemblySnapshot::last_completed`] to extract the full
+/// [`AssembledMessage`] and access its fields directly.
+///
 /// # Errors
 ///
 /// Returns an error if the last result did not complete or if the body differs.
@@ -136,20 +191,21 @@ pub fn assert_message_assembly_completed(
     snapshot: MessageAssemblySnapshot<'_>,
     expected: &[u8],
 ) -> TestResult {
-    let message = match snapshot.last_result {
-        Some(Ok(Some(message))) => message,
-        _ => {
-            return Err(format!(
-                "expected completed message assembly, got {}",
-                describe_last_result(snapshot.last_result)
-            )
-            .into());
-        }
+    let Some(message) = snapshot.last_completed() else {
+        return Err(format!(
+            "expected completed message assembly, got {}",
+            describe_last_result(snapshot.last_result)
+        )
+        .into());
     };
     assert_body_eq(message.body(), expected, "completed message body")
 }
 
 /// Assert that the most recent completed message for `key` matches `expected`.
+///
+/// For tests that need to also verify routing or metadata, use
+/// [`MessageAssemblySnapshot::completed_for_key`] to extract the full
+/// [`AssembledMessage`] and access its fields directly.
 ///
 /// # Errors
 ///
@@ -174,12 +230,7 @@ pub fn assert_message_assembly_completed_for_key(
     key: MessageKey,
     expected: &[u8],
 ) -> TestResult {
-    let Some(message) = snapshot
-        .completed_messages
-        .iter()
-        .rev()
-        .find(|message| message.message_key() == key)
-    else {
+    let Some(message) = snapshot.completed_for_key(key) else {
         return Err(
             format!("expected completed message for key {key}, but none was recorded").into(),
         );

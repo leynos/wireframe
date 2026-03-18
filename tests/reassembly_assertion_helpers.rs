@@ -200,8 +200,8 @@ fn fragment_assertion_helpers_accept_absent_completed_and_counts() {
 )]
 #[case(
     wireframe::fragment::ReassemblyError::MessageTooLarge {
-        message_id: MessageId::new(99),
-        attempted: 20,
+        message_id: MessageId::new(42),
+        attempted: 100,
         limit: std::num::NonZeroUsize::MIN,
     },
     FragmentReassemblyErrorExpectation::MessageTooLargeAny
@@ -233,7 +233,7 @@ fn fragment_assertion_helpers_accept_absent_completed_and_counts() {
 #[case(
     wireframe::fragment::ReassemblyError::Fragment(
         wireframe::fragment::FragmentError::IndexOverflow {
-            last: wireframe::fragment::FragmentIndex::new(u32::MAX - 1),
+            last: wireframe::fragment::FragmentIndex::new(999),
         }
     ),
     FragmentReassemblyErrorExpectation::IndexOverflow

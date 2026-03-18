@@ -2,7 +2,7 @@
 
 use wireframe::fragment::{FragmentError, MessageId, ReassembledMessage, ReassemblyError};
 
-use super::assert_helpers::assert_usize_field;
+use super::assert_helpers::{assert_body_eq, assert_usize_field};
 use crate::integration_helpers::TestResult;
 
 /// Snapshot of the observable state around a fragment-reassembly assertion.
@@ -116,11 +116,13 @@ pub fn assert_fragment_reassembly_completed_len(
     assert_usize_field(message.payload().len(), expected_len, "payload length")
 }
 
-/// Assert that the last reassembled payload bytes equal `expected`.
+/// Assert that the last reassembled payload bytes match `expected`.
+///
+/// This helper performs both length and byte-by-byte content verification.
 ///
 /// # Errors
 ///
-/// Returns an error if no message was reassembled or the payload bytes differ.
+/// Returns an error if no message was reassembled or the payload differs.
 ///
 /// # Examples
 ///
@@ -142,7 +144,7 @@ pub fn assert_fragment_reassembly_completed_bytes(
     let Some(message) = snapshot.last_reassembled else {
         return Err("no message reassembled".into());
     };
-    super::assert_helpers::assert_body_eq(message.payload(), expected, "reassembled payload")
+    assert_body_eq(message.payload(), expected, "reassembled payload")
 }
 
 /// Assert that the last reassembly error matches `expected`.
