@@ -98,7 +98,14 @@ impl StreamingRequestWorld {
     }
 
     /// Create a fresh request body channel.
-    pub fn create_channel(&mut self, capacity: usize) {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if capacity is zero.
+    pub fn create_channel(&mut self, capacity: usize) -> TestResult {
+        if capacity == 0 {
+            return Err("request body channel capacity must be greater than zero".into());
+        }
         let (sender, stream) = body_channel(capacity);
         self.sender = Some(sender);
         self.stream = Some(stream);
@@ -106,6 +113,7 @@ impl StreamingRequestWorld {
         self.collected_chunks = 0;
         self.last_error_kind = None;
         self.send_blocked_by_backpressure = None;
+        Ok(())
     }
 
     /// Send a body chunk into the request stream.
@@ -183,6 +191,7 @@ impl StreamingRequestWorld {
     ///
     /// Returns an error if the stream is unavailable.
     pub fn drain_stream(&mut self) -> TestResult {
+        self.sender = None;
         let mut stream = self.stream.take().ok_or("request body stream missing")?;
         let observed = self.block_on(async move {
             let mut chunks = Vec::new();

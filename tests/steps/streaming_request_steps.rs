@@ -8,8 +8,8 @@ use crate::fixtures::streaming_request::{ErrorKindArg, StreamingRequestWorld, Te
 fn given_request_body_channel(
     streaming_request_world: &mut StreamingRequestWorld,
     capacity: usize,
-) {
-    streaming_request_world.create_channel(capacity);
+) -> TestResult {
+    streaming_request_world.create_channel(capacity)
 }
 
 #[when("body chunks {first:string} and {second:string} are sent")]
