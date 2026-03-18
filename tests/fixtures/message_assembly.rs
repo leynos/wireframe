@@ -266,26 +266,56 @@ impl MessageAssemblyWorld {
         Ok(())
     }
 
+    /// Assert that the last message-assembly result remained incomplete.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the last result is missing, completed, or failed.
     pub fn assert_result_incomplete(&self) -> TestResult {
         assert_message_assembly_incomplete(self.snapshot())
     }
 
+    /// Assert that the last message-assembly operation completed with the given body.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the last result did not complete or if the body differs.
     pub fn assert_completed_body(&self, expected: &[u8]) -> TestResult {
         assert_message_assembly_completed(self.snapshot(), expected)
     }
 
+    /// Assert that the most recent completed message for `key` matches the expected body.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no completed message exists for `key` or the body differs.
     pub fn assert_completed_body_for_key(&self, key: MessageKey, expected: &[u8]) -> TestResult {
         assert_message_assembly_completed_for_key(self.snapshot(), key, expected)
     }
 
+    /// Assert that `expected` assemblies are still buffered.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffered count differs.
     pub fn assert_buffered_count(&self, expected: usize) -> TestResult {
         assert_message_assembly_buffered_count(self.snapshot(), expected)
     }
 
+    /// Assert that the last message-assembly error matches `expected`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no error was captured or the error does not match.
     pub fn assert_error(&self, expected: MessageAssemblyErrorExpectation) -> TestResult {
         assert_message_assembly_error(self.snapshot(), expected)
     }
 
+    /// Assert that `key` was evicted during the most recent expiry purge.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `key` is not in the recorded eviction list.
     pub fn assert_evicted(&self, key: MessageKey) -> TestResult {
         assert_message_assembly_evicted(self.snapshot(), key)
     }

@@ -371,7 +371,7 @@ Available fragment-feeding driver functions:
 
 The `wireframe_testing::reassembly` module provides non-panicking assertion
 helpers for both transport fragment reassembly and protocol message assembly.
-The API is built around lightweight snapshot structs so the same helper can be
+The API is built around lightweight snapshot structs, so the same helper can be
 used from `rstest` tests and `rstest-bdd` step definitions.
 
 ```rust,no_run

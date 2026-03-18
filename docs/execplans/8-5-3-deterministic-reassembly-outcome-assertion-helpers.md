@@ -419,7 +419,7 @@ set -o pipefail && make lint 2>&1 | tee /tmp/8-5-3-lint.log
 set -o pipefail && make test 2>&1 | tee /tmp/8-5-3-test.log
 set -o pipefail && make test-doc 2>&1 | tee /tmp/8-5-3-test-doc.log
 set -o pipefail && make doctest-benchmark 2>&1 | tee /tmp/8-5-3-doctest-benchmark.log
-set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/8-5-3-markdownlint.log
+set -o pipefail && make markdownlint 2>&1 | tee /tmp/8-5-3-markdownlint.log
 set -o pipefail && make nixie 2>&1 | tee /tmp/8-5-3-nixie.log
 ```
 

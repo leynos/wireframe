@@ -243,7 +243,7 @@ back-pressure-focused tests opt into explicit pacing.
 ### Reassembly assertion helpers
 
 Roadmap item `8.5.3` adds a public `wireframe_testing::reassembly` module for
-deterministic assertions over two related domains:
+deterministic assertions over two related but independent domains:
 
 - transport fragment reassembly driven by `wireframe::fragment::Reassembler`;
   and
@@ -278,8 +278,8 @@ assert_message_assembly_error(
 Message-assembly helpers cover incomplete, completed, errored, buffered, and
 evicted outcomes. Fragment helpers cover absent, completed, errored, buffered,
 and evicted outcomes. The snapshots are intentionally caller-built views over
-current state, which keeps the helper module independent from any one test
-world or fixture shape.
+current state, which keeps the helper module independent of any one test world
+or fixture shape.
 
 ### Buffer capacity and limits
 
