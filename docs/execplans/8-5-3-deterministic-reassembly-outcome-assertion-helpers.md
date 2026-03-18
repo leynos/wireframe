@@ -217,9 +217,8 @@ Validation completed with:
   `cargo test --test bdd --all-features -- message_assembly`, and
   `cargo test --test bdd --all-features -- fragment`;
 - repository quality gates:
-  `make fmt`, `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2`,
-  `make check-fmt`, `make lint`, `make test`, `make test-doc`,
-  `make doctest-benchmark`, and `make nixie`.
+  `make fmt`, `make markdownlint`, `make check-fmt`, `make lint`, `make test`,
+  `make test-doc`, `make doctest-benchmark`, and `make nixie`.
 
 Retrospective:
 
