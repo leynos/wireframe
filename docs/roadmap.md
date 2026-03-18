@@ -503,7 +503,7 @@ document so larger deployments can adopt the library confidently.
 - [x] 11.2.1. Implement a configurable connection pool that preserves preamble
   state, enforces in-flight request limits per socket, and recycles idle
   connections.
-- [ ] 11.2.2. Expose a `PoolHandle` API with fairness policies so callers can
+- [x] 11.2.2. Expose a `PoolHandle` API with fairness policies, so callers can
   multiplex many logical sessions without violating back-pressure.
 
 ### 11.3. Streaming helpers and test utilities

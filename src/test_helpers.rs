@@ -28,7 +28,9 @@ pub use pool_client::{
     PoolServerBehavior,
     PoolTestServer,
     TestClientPool,
+    acquire_and_record,
     build_pooled_client,
+    build_preamble_pool,
 };
 
 /// Test-friendly message assembler implementation that shares parsing logic.

@@ -3,5 +3,11 @@
 #[path = "../steps/client_pool_steps.rs"]
 mod client_pool_steps;
 
+#[path = "../steps/client_pool_handle_steps.rs"]
+mod client_pool_handle_steps;
+
 #[path = "../scenarios/client_pool_scenarios.rs"]
 mod client_pool_scenarios;
+
+#[path = "../scenarios/client_pool_handle_scenarios.rs"]
+mod client_pool_handle_scenarios;

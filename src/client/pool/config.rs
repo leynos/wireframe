@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use super::policy::PoolFairnessPolicy;
+
 const DEFAULT_POOL_SIZE: usize = 4;
 const DEFAULT_MAX_IN_FLIGHT_PER_SOCKET: usize = 1;
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
@@ -13,21 +15,24 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 /// ```
 /// use std::time::Duration;
 ///
-/// use wireframe::client::ClientPoolConfig;
+/// use wireframe::client::{ClientPoolConfig, PoolFairnessPolicy};
 ///
 /// let config = ClientPoolConfig::default()
 ///     .pool_size(2)
 ///     .max_in_flight_per_socket(3)
-///     .idle_timeout(Duration::from_secs(30));
+///     .idle_timeout(Duration::from_secs(30))
+///     .fairness_policy(PoolFairnessPolicy::Fifo);
 /// assert_eq!(config.pool_size_value(), 2);
 /// assert_eq!(config.max_in_flight_per_socket_value(), 3);
 /// assert_eq!(config.idle_timeout_value(), Duration::from_secs(30));
+/// assert_eq!(config.fairness_policy_value(), PoolFairnessPolicy::Fifo);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClientPoolConfig {
     pool_size: usize,
     max_in_flight_per_socket: usize,
     idle_timeout: Duration,
+    fairness_policy: PoolFairnessPolicy,
 }
 
 impl Default for ClientPoolConfig {
@@ -36,6 +41,7 @@ impl Default for ClientPoolConfig {
             pool_size: DEFAULT_POOL_SIZE,
             max_in_flight_per_socket: DEFAULT_MAX_IN_FLIGHT_PER_SOCKET,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
+            fairness_policy: PoolFairnessPolicy::RoundRobin,
         }
     }
 }
@@ -68,6 +74,13 @@ impl ClientPoolConfig {
         self
     }
 
+    /// Set how blocked `PoolHandle`s are ordered when capacity returns.
+    #[must_use]
+    pub fn fairness_policy(mut self, fairness_policy: PoolFairnessPolicy) -> Self {
+        self.fairness_policy = fairness_policy;
+        self
+    }
+
     /// Return the configured number of physical sockets.
     #[must_use]
     pub const fn pool_size_value(&self) -> usize { self.pool_size }
@@ -79,4 +92,8 @@ impl ClientPoolConfig {
     /// Return the configured idle recycle timeout.
     #[must_use]
     pub const fn idle_timeout_value(&self) -> Duration { self.idle_timeout }
+
+    /// Return the configured handle fairness policy.
+    #[must_use]
+    pub const fn fairness_policy_value(&self) -> PoolFairnessPolicy { self.fairness_policy }
 }

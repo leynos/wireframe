@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::{FutureExt, SinkExt, StreamExt};
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::{
@@ -134,6 +134,40 @@ pub fn build_pooled_client(
             .boxed()
         })
         .connect_pool(addr, config)
+}
+
+/// Build a pooled client with a preamble counter for tracking warm reuse.
+///
+/// # Errors
+///
+/// Returns an error if the server cannot be started or the pool connection fails.
+pub async fn build_preamble_pool(
+    config: ClientPoolConfig,
+) -> Result<(PoolTestServer, TestClientPool, Arc<AtomicUsize>), ClientError> {
+    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
+    let server = PoolTestServer::start().await?;
+    let pool = build_pooled_client(server.addr, config, preamble_callback_count.clone()).await?;
+    Ok((server, pool, preamble_callback_count))
+}
+
+/// Acquire and release a lease repeatedly, recording each grant in a shared log.
+///
+/// # Errors
+///
+/// Returns an error if any `acquire()` call fails.
+pub async fn acquire_and_record(
+    mut handle: crate::client::PoolHandle<BincodeSerializer, ClientHello, ()>,
+    label: &'static str,
+    rounds: usize,
+    grants: Arc<Mutex<Vec<&'static str>>>,
+) -> Result<(), ClientError> {
+    for _ in 0..rounds {
+        let lease = handle.acquire().await?;
+        grants.lock().await.push(label);
+        tokio::task::yield_now().await;
+        drop(lease);
+    }
+    Ok(())
 }
 
 async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState) {

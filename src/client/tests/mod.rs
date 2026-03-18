@@ -6,6 +6,8 @@ mod lifecycle;
 mod messaging;
 #[cfg(feature = "pool")]
 mod pool;
+#[cfg(feature = "pool")]
+mod pool_handle;
 mod request_hooks;
 mod send_streaming;
 mod send_streaming_infra;

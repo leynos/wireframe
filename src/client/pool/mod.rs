@@ -6,11 +6,16 @@
 
 mod client_pool;
 mod config;
+mod handle;
 mod lease;
 mod managed;
 mod manager;
+mod policy;
+mod scheduler;
 mod slot;
 
 pub use client_pool::WireframeClientPool;
 pub use config::ClientPoolConfig;
+pub use handle::PoolHandle;
 pub use lease::PooledClientLease;
+pub use policy::PoolFairnessPolicy;

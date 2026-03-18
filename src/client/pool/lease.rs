@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tokio::sync::OwnedSemaphorePermit;
 
-use super::slot::PoolSlot;
+use super::{client_pool::ClientPoolInner, slot::PoolSlot};
 use crate::{
     app::Packet,
     client::ClientError,
@@ -25,6 +25,7 @@ where
 {
     slot: Arc<PoolSlot<S, P, C>>,
     _permit: OwnedSemaphorePermit,
+    release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
 }
 
 macro_rules! dispatch_on_connection {
@@ -46,10 +47,15 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    pub(crate) fn new(slot: Arc<PoolSlot<S, P, C>>, permit: OwnedSemaphorePermit) -> Self {
+    pub(crate) fn new(
+        slot: Arc<PoolSlot<S, P, C>>,
+        permit: OwnedSemaphorePermit,
+        release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
+    ) -> Self {
         Self {
             slot,
             _permit: permit,
+            release_inner,
         }
     }
 
@@ -124,5 +130,18 @@ where
         M: Packet + EncodeWith<S> + DecodeWith<S>,
     {
         dispatch_on_connection!(self, |conn| conn.call_correlated(request))
+    }
+}
+
+impl<S, P, C> Drop for PooledClientLease<S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: bincode::Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    fn drop(&mut self) {
+        if let Some(inner) = &self.release_inner {
+            inner.scheduler.notify_capacity_available(Arc::clone(inner));
+        }
     }
 }
