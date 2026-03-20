@@ -41,5 +41,3 @@ mod stream_end_steps;
 mod streaming_request_steps;
 mod test_observability_steps;
 mod unified_codec_steps;
-
-pub(crate) use message_assembly_steps::FrameId;

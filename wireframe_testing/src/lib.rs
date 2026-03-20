@@ -25,6 +25,7 @@ pub mod logging;
 pub mod macros;
 pub mod multi_packet;
 pub mod observability;
+pub mod reassembly;
 
 pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{

@@ -2,17 +2,32 @@
 
 use std::{num::NonZeroUsize, time::Duration};
 
-use super::{
-    FragmentError,
-    FragmentHeader,
-    FragmentWorld,
-    MessageId,
-    Reassembler,
-    ReassemblyError,
-    TestResult,
+use wireframe_testing::reassembly::{
+    FragmentReassemblyErrorExpectation,
+    FragmentReassemblySnapshot,
+    assert_fragment_reassembly_absent,
+    assert_fragment_reassembly_buffered_messages,
+    assert_fragment_reassembly_completed_len,
+    assert_fragment_reassembly_error,
+    assert_fragment_reassembly_evicted,
 };
 
+use super::{FragmentHeader, FragmentWorld, MessageId, Reassembler, TestResult};
+
 impl FragmentWorld {
+    fn reassembly_snapshot(&self) -> FragmentReassemblySnapshot<'_> {
+        let buffered_count = self
+            .reassembler
+            .as_ref()
+            .map_or(0, wireframe::fragment::Reassembler::buffered_len);
+        FragmentReassemblySnapshot::new(
+            self.last_reassembled.as_ref(),
+            self.last_reassembly_error.as_ref(),
+            &self.last_evicted,
+            buffered_count,
+        )
+    }
+
     /// Configure a reassembler with size and timeout guards.
     ///
     /// # Errors
@@ -82,14 +97,7 @@ impl FragmentWorld {
     /// Returns an error if no message has been reassembled or the length does
     /// not match the expectation.
     pub fn assert_reassembled_len(&self, expected_len: usize) -> TestResult {
-        let message = self
-            .last_reassembled
-            .as_ref()
-            .ok_or("no message reassembled")?;
-        if message.payload().len() != expected_len {
-            return Err("payload length mismatch".into());
-        }
-        Ok(())
+        assert_fragment_reassembly_completed_len(self.reassembly_snapshot(), expected_len)
     }
 
     /// Assert that no message has been fully reassembled.
@@ -97,33 +105,7 @@ impl FragmentWorld {
     /// # Errors
     /// Returns an error if a message has already been reassembled.
     pub fn assert_no_reassembly(&self) -> TestResult {
-        if self.last_reassembled.is_some() {
-            return Err("unexpected reassembled message present".into());
-        }
-        Ok(())
-    }
-
-    /// Helper for asserting on the latest captured reassembly error.
-    ///
-    /// # Errors
-    /// Returns an error when no reassembly error was captured or the predicate
-    /// does not match the error variant.
-    fn assert_reassembly_error_matches<F>(
-        &self,
-        predicate: F,
-        expected_description: &str,
-    ) -> TestResult
-    where
-        F: FnOnce(&ReassemblyError) -> bool,
-    {
-        let err = self
-            .last_reassembly_error
-            .as_ref()
-            .ok_or("no reassembly error captured")?;
-        if !predicate(err) {
-            return Err(format!("expected {expected_description}, got {err}").into());
-        }
-        Ok(())
+        assert_fragment_reassembly_absent(self.reassembly_snapshot())
     }
 
     /// Assert the latest reassembly error signalled an over-limit message.
@@ -132,9 +114,9 @@ impl FragmentWorld {
     /// Returns an error if no reassembly error was captured or it was not a
     /// message-too-large error.
     pub fn assert_reassembly_over_limit(&self) -> TestResult {
-        self.assert_reassembly_error_matches(
-            |err| matches!(err, ReassemblyError::MessageTooLarge { .. }),
-            "message-too-large error",
+        assert_fragment_reassembly_error(
+            self.reassembly_snapshot(),
+            FragmentReassemblyErrorExpectation::MessageTooLargeAny,
         )
     }
 
@@ -145,32 +127,18 @@ impl FragmentWorld {
     /// Returns an error if no reassembly error was captured or it was not an
     /// index-mismatch error.
     pub fn assert_reassembly_out_of_order(&self) -> TestResult {
-        self.assert_reassembly_error_matches(
-            |err| {
-                matches!(
-                    err,
-                    ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
-                )
-            },
-            "out-of-order error",
+        assert_fragment_reassembly_error(
+            self.reassembly_snapshot(),
+            FragmentReassemblyErrorExpectation::IndexMismatch,
         )
     }
 
     /// Assert the number of buffered partial messages.
     ///
     /// # Errors
-    /// Returns an error if the reassembler is missing or the buffered count
-    /// differs from the expectation.
+    /// Returns an error if the buffered count differs from the expectation.
     pub fn assert_buffered_messages(&self, expected: usize) -> TestResult {
-        let reassembler = self
-            .reassembler
-            .as_ref()
-            .ok_or("reassembler not configured")?;
-        let actual = reassembler.buffered_len();
-        if actual != expected {
-            return Err(format!("expected {expected} buffered messages, got {actual}").into());
-        }
-        Ok(())
+        assert_fragment_reassembly_buffered_messages(self.reassembly_snapshot(), expected)
     }
 
     /// Assert that the most recent purge evicted a specific message identifier.
@@ -178,9 +146,6 @@ impl FragmentWorld {
     /// # Errors
     /// Returns an error if the expected message identifier was not evicted.
     pub fn assert_evicted_message(&self, message_id: u64) -> TestResult {
-        if !self.last_evicted.contains(&MessageId::new(message_id)) {
-            return Err(format!("message {message_id} was not evicted").into());
-        }
-        Ok(())
+        assert_fragment_reassembly_evicted(self.reassembly_snapshot(), MessageId::new(message_id))
     }
 }

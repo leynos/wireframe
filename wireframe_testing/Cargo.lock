@@ -1829,6 +1829,7 @@ dependencies = [
  "futures",
  "log",
  "logtest",
+ "metrics",
  "metrics-util",
  "rstest",
  "thiserror",

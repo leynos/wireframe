@@ -29,6 +29,8 @@ deterministically without external exporters.
 - `src/helpers.rs` provides in-memory drivers and codec-aware encode/decode
   helpers.
 - `src/integration_helpers.rs` exposes shared helpers for integration tests.
+- `src/reassembly/` contains deterministic assertion helpers for fragment and
+  message-assembly outcomes.
 - `src/observability/` implements the observability harness from ADR 006,
   split into `mod.rs`, `labels.rs`, and `assertions.rs`.
 - `src/logging.rs` retains the standalone `LoggerHandle` fixture.
@@ -237,6 +239,47 @@ Public entry points:
 These helpers are intentionally additive rather than replacing the existing
 drivers. Existing tests keep the simpler fast-path helpers, while
 back-pressure-focused tests opt into explicit pacing.
+
+### Reassembly assertion helpers
+
+Roadmap item `8.5.3` adds a public `wireframe_testing::reassembly` module for
+deterministic assertions over two related but independent domains:
+
+- transport fragment reassembly driven by `wireframe::fragment::Reassembler`;
+  and
+- protocol message assembly driven by
+  `wireframe::message_assembler::MessageAssemblyState`.
+
+The API uses typed snapshots plus typed expectation enums rather than macros.
+That design keeps the helpers usable from ordinary integration tests and from
+`rstest-bdd` step definitions, both of which prefer `Result`-returning helper
+functions over panic-only assertions.
+
+```rust,no_run
+use wireframe::message_assembler::{FrameSequence, MessageKey};
+use wireframe_testing::reassembly::{
+    MessageAssemblyErrorExpectation,
+    MessageAssemblySnapshot,
+    assert_message_assembly_error,
+};
+
+# fn check(snapshot: MessageAssemblySnapshot<'_>) -> wireframe_testing::TestResult {
+assert_message_assembly_error(
+    snapshot,
+    MessageAssemblyErrorExpectation::SequenceMismatch {
+        expected: FrameSequence(2),
+        found: FrameSequence(3),
+    },
+)?;
+# Ok(())
+# }
+```
+
+Message-assembly helpers cover incomplete, completed, errored, buffered, and
+evicted outcomes. Fragment helpers cover absent, completed, errored, buffered,
+and evicted outcomes. The snapshots are intentionally caller-built views over
+current state, which keeps the helper module independent of any one test world
+or fixture shape.
 
 ### Buffer capacity and limits
 

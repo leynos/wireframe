@@ -479,6 +479,12 @@ round trips. The pacing model is additive and duplex-based: tests can slow the
 client write direction, the client read direction, or both, while keeping the
 rest of the in-process app harness unchanged.
 
+Implementation note for roadmap item `8.5.3`: `wireframe_testing::reassembly`
+now provides snapshot-based assertion helpers for both `Reassembler` and
+`MessageAssemblyState`. The helpers use typed expectation enums and return
+`TestResult<()>` instead of panicking, which keeps them reusable from `rstest`
+integration tests and `rstest-bdd` step definitions.
+
 ## Consequences
 
 - Wireframe gains an explicit “streaming request body” surface alongside the
