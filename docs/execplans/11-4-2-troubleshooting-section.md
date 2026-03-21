@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETED
 
 ## Purpose / big picture
 
@@ -125,17 +125,25 @@ Observable success means:
 
 - [x] (2026-03-21 00:00Z) Drafted the initial ExecPlan for roadmap item
   `11.4.2`.
-- [ ] Stage A: audit the current client error surface and resolve the
-  `PreambleWrite` documentation gap.
-- [ ] Stage B: add failing `rstest` coverage for the documented
-  misconfiguration signals.
-- [ ] Stage C: add failing `rstest-bdd` behavioural scenarios covering the same
-  diagnostics.
-- [ ] Stage D: rewrite the troubleshooting guidance in
-  [`docs/users-guide.md`] and update [`docs/wireframe-client-design.md`] with
-  the chosen wording and rationale.
-- [ ] Stage E: run all required quality gates, update [`docs/roadmap.md`], and
-  capture the final outcome in this ExecPlan.
+- [x] (2026-03-21 00:45Z) Stage A: confirmed that
+  [`src/client/preamble_exchange.rs`] still reports write-side preamble
+  failures through `ClientError::PreambleEncode`, not `PreambleWrite`, and
+  aligned the docs to the reachable error surface instead of widening client
+  behaviour.
+- [x] (2026-03-21 00:55Z) Stage B: added `rstest`-style integration coverage
+  for TLS-like wrong-protocol bytes in [`tests/client_runtime.rs`] and invalid
+  preamble acknowledgement bytes in [`tests/client_preamble.rs`].
+- [x] (2026-03-21 01:05Z) Stage C: extended the existing BDD suites in
+  [`tests/features/client_runtime.feature`] and
+  [`tests/features/client_preamble.feature`], plus their fixture, step, and
+  scenario wiring, to cover the same diagnostics behaviourally.
+- [x] (2026-03-21 01:15Z) Stage D: rewrote the troubleshooting guidance in
+  [`docs/users-guide.md`], aligned [`docs/wireframe-client-design.md`], and
+  added an explicit `11.4.2` decision record.
+- [x] (2026-03-21 01:35Z) Stage E: ran the Rust and doc quality gates, updated
+  [`docs/roadmap.md`], and recorded the final validation outcome below. Full
+  `make markdownlint` still reports unrelated legacy MD029 failures in older
+  execplans; targeted lint for the touched docs passes.
 
 ## Surprises & Discoveries
 
@@ -166,6 +174,13 @@ Observable success means:
   as future work, so `11.4.2` must stay within documentation and diagnostics
   for deployment mismatches.
 
+- The initial full-suite `make test` run failed once in the existing
+  `client::tests::send_streaming::invokes_error_hook_on_transport_failure` test
+  with `expected transport error, got Ok`. An isolated rerun of that test
+  passed, and a subsequent full `make test` rerun passed cleanly, so the
+  failure behaved like a transient baseline flake rather than a regression from
+  this work.
+
 ## Decision Log
 
 - Decision: keep this milestone focused on documentation accuracy plus testable
@@ -187,18 +202,48 @@ Observable success means:
   `WireframeClient` has native TLS configuration today. Date/Author: 2026-03-21
   / planning phase.
 
-- Pending decision: decide whether to make `ClientError::PreambleWrite`
-  reachable or to stop mentioning it in client troubleshooting prose.
-  Rationale: the current design doc mentions it, but the implementation does
-  not emit it. The docs and tests must converge on one truth. Date/Author: to
-  be recorded during Stage A.
+- Decision: keep `ClientError::PreambleWrite` out of the troubleshooting prose
+  and instead document the currently emitted variants (`PreambleTimeout`,
+  `PreambleRead`, and `PreambleEncode`). Rationale: `write_preamble(...)`
+  returns `bincode::EncodeError`, including write-side I/O, so the current
+  client path does not emit `ClientError::PreambleWrite`. Date/Author:
+  2026-03-21 / implementation.
 
 ## Outcomes & Retrospective
 
-Not started. When implementation completes, replace this section with a short
-summary of the shipped troubleshooting guidance, the final test coverage added,
-the exact roadmap update performed, and any lessons learned about the client
-error surface.
+Shipped outcomes:
+
+- [`docs/users-guide.md`] now expands `Client troubleshooting` into structured
+  guidance for codec length mismatches, preamble timeout/read/encode failures,
+  TLS or wrong-protocol port mismatches, correlation mismatches, streaming
+  contention, and transport disconnects.
+- [`docs/wireframe-client-design.md`] now mirrors that wording, records that
+  `PreambleWrite` is not currently user-observable, and adds a dedicated
+  `11.4.2` decision record.
+- [`docs/roadmap.md`] marks `11.4.2` complete.
+- New executable evidence now covers the roadmap's missing cases:
+  - [`tests/client_runtime.rs`] adds
+    `client_surfaces_tls_protocol_mismatch_as_wireframe_io`;
+  - [`tests/client_preamble.rs`] adds
+    `client_invalid_preamble_response_surfaces_preamble_read`;
+  - [`tests/features/client_runtime.feature`] and
+    [`tests/features/client_preamble.feature`] add matching BDD scenarios,
+    with supporting fixture, step, and scenario updates.
+
+Validation summary:
+
+- Passed: `make fmt`
+- Passed: `make nixie`
+- Passed: `make check-fmt`
+- Passed: `make lint`
+- Passed: `make test` (after one transient rerun)
+- Passed: `make test-doc`
+- Passed: `make doctest-benchmark`
+- Passed: targeted `markdownlint-cli2` on
+  [`docs/users-guide.md`], [`docs/wireframe-client-design.md`],
+  [`docs/roadmap.md`], and this ExecPlan
+- Known unrelated baseline: full `make markdownlint` still fails on legacy
+  MD029 ordered-list numbering in older execplans outside the scope of `11.4.2`
 
 ## Context and orientation
 

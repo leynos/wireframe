@@ -22,3 +22,9 @@ Feature: Wireframe client runtime
     And a wireframe client configured with max frame length 2048
     When the client sends a login request for username "guest"
     Then the client decodes a login acknowledgement for username "guest"
+
+  Scenario: Client reports TLS port mismatch as a transport error
+    Given a non-Wireframe server that replies with TLS record bytes
+    And a wireframe client configured with max frame length 1024
+    When the client sends an oversized payload of 32 bytes
+    Then the client reports a Wireframe transport error

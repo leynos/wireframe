@@ -177,6 +177,43 @@ impl ClientRuntimeWorld {
         Ok(())
     }
 
+    /// Start a server that replies with TLS-like bytes instead of Wireframe frames.
+    ///
+    /// # Errors
+    /// Returns an error if binding or spawning the server fails.
+    pub fn start_tls_mismatch_server(&self) -> TestResult {
+        let listener = self.block_on(async { TcpListener::bind("127.0.0.1:0").await })??;
+        let addr = listener.local_addr()?;
+        let handle = self.runtime()?.spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let Ok((mut stream, _)) = listener.accept().await else {
+                warn!("client runtime TLS-mismatch server failed to accept connection");
+                return;
+            };
+            let mut request_buf = [0_u8; 64];
+            match stream.read(&mut request_buf).await {
+                Ok(_) => {}
+                Err(err) => {
+                    warn!("client runtime TLS-mismatch server failed to read request: {err:?}");
+                    return;
+                }
+            }
+            let tls_record = [0x16_u8, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
+            if let Err(err) = stream.write_all(&tls_record).await {
+                warn!("client runtime TLS-mismatch server failed to write response: {err:?}");
+                return;
+            }
+            if let Err(err) = stream.shutdown().await {
+                warn!("client runtime TLS-mismatch server failed to shutdown: {err:?}");
+            }
+        });
+
+        self.addr.set(Some(addr));
+        *self.server.borrow_mut() = Some(handle);
+        Ok(())
+    }
+
     /// Connect a client using the specified maximum frame length.
     ///
     /// # Errors

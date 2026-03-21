@@ -650,7 +650,7 @@ document so larger deployments can adopt the library confidently.
 
 - [x] 12.4.1. Update the user guide with migration advice for the pooled client
   and document known limitations or out-of-scope behaviours.
-- [ ] 12.4.2. Add a troubleshooting section that enumerates the most common
+- [x] 12.4.2. Add a troubleshooting section that enumerates the most common
   client misconfigurations (codec length mismatch, preamble errors, TLS issues)
   and how to detect them.
 

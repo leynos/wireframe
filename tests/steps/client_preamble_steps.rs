@@ -22,6 +22,12 @@ fn given_slow_server(client_preamble_world: &mut ClientPreambleWorld) -> TestRes
     rt.block_on(client_preamble_world.start_slow_server())
 }
 
+#[given("a preamble-aware server that replies with invalid acknowledgement bytes")]
+fn given_invalid_ack_server(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_preamble_world.start_invalid_ack_server())
+}
+
 #[given("a standard echo server without preamble support")]
 fn given_standard_server(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
@@ -41,6 +47,12 @@ fn when_connect_with_version(
 fn when_connect_with_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(client_preamble_world.connect_with_ack())
+}
+
+#[when("a client connects with a preamble and expects an acknowledgement read error")]
+fn when_connect_with_invalid_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_preamble_world.connect_with_invalid_ack())
 }
 
 #[when("a client connects with a {timeout_ms:u64}ms preamble timeout")]
@@ -96,6 +108,15 @@ fn then_receives_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestRes
 fn then_timeout_error(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
     if !client_preamble_world.was_timeout_error() {
         return Err("expected timeout error".into());
+    }
+    client_preamble_world.abort_server();
+    Ok(())
+}
+
+#[then("the client fails with a preamble read error")]
+fn then_preamble_read_error(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
+    if !client_preamble_world.was_preamble_read_error() {
+        return Err("expected preamble read error".into());
     }
     client_preamble_world.abort_server();
     Ok(())

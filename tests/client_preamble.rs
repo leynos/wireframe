@@ -10,7 +10,12 @@ use std::{
 
 use futures::FutureExt;
 use rstest::rstest;
-use tokio::{io::AsyncReadExt, net::TcpListener, sync::oneshot, time::timeout};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::oneshot,
+    time::timeout,
+};
 use wireframe::{
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
@@ -251,6 +256,65 @@ async fn client_preamble_write_only_no_response() -> TestResult {
         .await?;
 
     timeout(Duration::from_secs(1), success_rx).await??;
+    server.await?;
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn client_invalid_preamble_response_surfaces_preamble_read() -> TestResult {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let (failure_holder, failure_rx) = channel_holder::<()>();
+
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
+            .await
+            .expect("read preamble");
+        stream
+            .write_all(&[0xff, 0x00, 0x01])
+            .await
+            .expect("write junk");
+    });
+
+    let result = WireframeClient::builder()
+        .with_preamble(TestPreamble::new(7))
+        .on_preamble_success(|_preamble, stream| {
+            async move {
+                let (_ack, leftover) = read_preamble::<_, ServerAck>(stream)
+                    .await
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                Ok(leftover)
+            }
+            .boxed()
+        })
+        .on_preamble_failure({
+            let holder = failure_holder.clone();
+            move |err, _stream| {
+                let holder = holder.clone();
+                async move {
+                    assert!(
+                        matches!(err, ClientError::PreambleRead(_)),
+                        "expected PreambleRead, got {err:?}",
+                    );
+                    if let Some(tx) = take_sender(&holder) {
+                        let _ = tx.send(());
+                    }
+                    Ok(())
+                }
+                .boxed()
+            }
+        })
+        .connect(addr)
+        .await;
+
+    assert!(
+        matches!(result, Err(ClientError::PreambleRead(_))),
+        "expected PreambleRead error"
+    );
+    timeout(Duration::from_secs(1), failure_rx).await??;
+
     server.await?;
     Ok(())
 }
