@@ -441,6 +441,55 @@ integration boundaries.
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
 
+### 9.8. Formal verification checks
+
+- [ ] 9.8.1. Establish the formal verification workspace, tooling, and
+  automation described in `formal-verification-methods-in-wireframe.md`.
+  - [ ] Convert the root manifest into a hybrid workspace while keeping the
+    root package as the default member.
+  - [ ] Add `crates/wireframe-verification` as an internal crate for
+    Stateright models and shared verification harnesses.
+  - [ ] Add pinned Kani and Verus tool metadata plus repo-local install and run
+    scripts.
+  - [ ] Add `make test-verification`, `make kani`, `make kani-full`,
+    `make verus`, `make formal-pr`, and `make formal-nightly`.
+  - [ ] Add separate CI jobs for Stateright, Kani smoke, and Verus proofs
+    without changing the existing `build-test` coverage flow.
+- [ ] 9.8.2. Resolve the protocol contracts that formal checks depend on.
+  Requires 9.8.1.
+  - [ ] Decide whether length-prefix widths are limited to `1`, `2`, `4`, and
+    `8` or expanded to the full `1..=8` range, then align constructors,
+    conversions, and tests.
+  - [ ] Decide whether `total_body_len` is authoritative or advisory, then
+    rename or enforce it consistently in the message assembly path.
+  - [ ] Document the intended fairness and priority guarantees for
+    `ConnectionActor` before encoding them as model properties.
+- [ ] 9.8.3. Add bounded Kani checks for frame, fragment, and message-series
+  logic. Requires 9.8.1 and 9.8.2.
+  - [ ] Add smoke harnesses for supported length-prefix round-trips and
+    unsupported-width behaviour in `src/frame/*`.
+  - [ ] Add harnesses for `FragmentSeries`, `Reassembler`, and `MessageSeries`
+    covering duplicates, gaps, completion, and oversize cleanup.
+  - [ ] Extend existing Proptest coverage for fragment round-trips and mixed
+    actor action traces where Kani bounds would be too small.
+- [ ] 9.8.4. Add Stateright model checks for `ConnectionActor`. Requires 9.8.1
+  and 9.8.2.
+  - [ ] Model queue arrivals, active response and multi-packet outputs,
+    shutdown races, fairness state, and terminal markers in
+    `crates/wireframe-verification`.
+  - [ ] Add a shared checker harness that separates safety from reachability
+    properties and reports both deterministically.
+  - [ ] Gate a bounded breadth-first search (BFS) model run in pull requests
+    and a deeper run in scheduled or manual workflows.
+- [ ] 9.8.5. Add Verus proofs for message assembly invariants. Requires 9.8.1
+  and 9.8.2.
+  - [ ] Enforce the chosen `total_body_len` contract in runtime code before
+    relying on proofs.
+  - [ ] Add proof-only modules under `verus/` for declared-total and
+    buffered-byte accounting invariants.
+  - [ ] Document proof trigger discipline and contributor expectations for
+    running `make verus`.
+
 ## 10. Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
