@@ -261,6 +261,36 @@ Use that layout:
         └── kani.rs
 ```
 
+The repository split is easier to reason about if the crate boundaries and CI
+targets are viewed together: the main `wireframe` crate owns Kani harnesses,
+`crates/wireframe-verification` owns the Stateright model, and `verus/` owns
+proof-only files, while CI moves from the ordinary build gate into the
+tool-specific jobs.
+
+For screen readers: The following flowchart shows the `wireframe` crate feeding
+Kani, `wireframe-verification` feeding Stateright, `verus/` feeding Verus, and
+the CI rollout moving from build to Kani to Stateright to Verus.
+
+```mermaid
+flowchart TD
+    main["wireframe crate<br/>Kani harnesses"]
+    verification["crates/wireframe-verification<br/>Stateright model"]
+    proofs["verus/<br/>proof tree"]
+
+    build["build-test<br/>build"]
+    kani["kani-smoke / make kani<br/>Kani"]
+    stateright["stateright-models / make test-verification<br/>wireframe-verification + Stateright"]
+    verus["verus-proofs / make verus<br/>verus/ + Verus"]
+
+    main --> kani
+    verification --> stateright
+    proofs --> verus
+
+    build --> kani
+    kani --> stateright
+    stateright --> verus
+```
+
 ### Why this split is better than a single “formal” crate
 
 This is the central architectural recommendation in this document.
@@ -824,7 +854,7 @@ stateright-models:
   steps:
     - uses: actions/checkout@v5
     - name: Setup Rust
-      uses: leynos/shared-actions/.github/actions/setup-rust@...
+      uses: leynos/shared-actions/.github/actions/setup-rust@<PINNED_SHA>
     - name: Run Stateright verification crate
       run: make test-verification
 ```
@@ -848,7 +878,7 @@ kani-smoke:
   steps:
     - uses: actions/checkout@v5
     - name: Setup Rust
-      uses: leynos/shared-actions/.github/actions/setup-rust@...
+      uses: leynos/shared-actions/.github/actions/setup-rust@<PINNED_SHA>
     - name: Install Kani
       run: scripts/install-kani.sh
     - name: Run Kani smoke harnesses
@@ -964,6 +994,36 @@ The implementation order in Wireframe should be:
 1. decide the `total_body_len` contract
 2. enforce it in runtime code if authoritative
 3. write Verus proofs for declared total and budget accounting
+
+Those phases line up with the operational rollout: build plumbing lands first,
+then Kani harnesses in the main crate, then the Stateright model in
+`wireframe-verification`, and finally Verus proofs under `verus/`.
+
+For screen readers: The following flowchart shows the rollout order from build
+to Kani to Stateright to Verus, with each phase mapped to its CI target and
+repository component.
+
+```mermaid
+flowchart TD
+    phase1["Phase 1<br/>build"]
+    phase2["Phase 2<br/>Kani"]
+    phase3["Phase 3<br/>Stateright"]
+    phase4["Phase 4<br/>Verus"]
+
+    ci1["build-test"]
+    ci2["kani-smoke / make kani<br/>wireframe crate + Kani"]
+    ci3["stateright-models / make test-verification<br/>wireframe-verification + Stateright"]
+    ci4["verus-proofs / make verus<br/>verus/ + Verus"]
+
+    phase1 --> phase2
+    phase2 --> phase3
+    phase3 --> phase4
+
+    phase1 --> ci1
+    phase2 --> ci2
+    phase3 --> ci3
+    phase4 --> ci4
+```
 
 That sequence is deliberate. It pushes the most bug-finding value to the front
 and delays the most proof-maintenance cost until after Wireframe has settled
