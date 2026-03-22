@@ -53,6 +53,42 @@ pub fn client_streaming_world() -> ClientStreamingWorld {
 }
 
 impl ClientStreamingWorld {
+    fn build_request() -> StreamTestEnvelope {
+        StreamTestEnvelope {
+            id: MessageId::new(99),
+            correlation_id: None,
+            payload: Payload::new(vec![]),
+        }
+    }
+
+    fn reset_state(&mut self) {
+        self.received_frames.clear();
+        self.typed_items.clear();
+        self.last_error = None;
+        self.stream_terminated_cleanly = false;
+        self.shared_rate_limit_blocked = None;
+    }
+
+    async fn drain_stream<St, Item, F>(&mut self, mut stream: St, mut push: F)
+    where
+        St: futures::Stream<Item = Result<Item, ClientError>> + Unpin,
+        F: FnMut(&mut Self, Item),
+    {
+        loop {
+            match stream.next().await {
+                Some(Ok(item)) => push(self, item),
+                Some(Err(e)) => {
+                    self.last_error = Some(e);
+                    break;
+                }
+                None => {
+                    self.stream_terminated_cleanly = true;
+                    break;
+                }
+            }
+        }
+    }
+
     /// Build a new runtime-backed client streaming world.
     fn new() -> Self {
         let (runtime, runtime_error) = match tokio::runtime::Builder::new_current_thread()
@@ -104,75 +140,33 @@ impl ClientStreamingWorld {
 
     /// Send a streaming request and consume the response stream.
     pub async fn send_streaming_request(&mut self) -> TestResult {
-        let client = self.client.as_mut().ok_or("client not connected")?;
-
-        let request = StreamTestEnvelope {
-            id: MessageId::new(99),
-            correlation_id: None,
-            payload: Payload::new(vec![]),
-        };
-
-        let mut stream = client.call_streaming::<StreamTestEnvelope>(request).await?;
-
-        self.received_frames.clear();
-        self.typed_items.clear();
-        self.last_error = None;
-        self.stream_terminated_cleanly = false;
-        self.shared_rate_limit_blocked = None;
-
-        loop {
-            match stream.next().await {
-                Some(Ok(frame)) => {
-                    self.received_frames.push(frame);
-                }
-                Some(Err(e)) => {
-                    self.last_error = Some(e);
-                    break;
-                }
-                None => {
-                    self.stream_terminated_cleanly = true;
-                    break;
-                }
-            }
+        let request = Self::build_request();
+        self.reset_state();
+        let mut client = self.client.take().ok_or("client not connected")?;
+        {
+            let stream = client.call_streaming::<StreamTestEnvelope>(request).await?;
+            self.drain_stream(stream, |world, frame| world.received_frames.push(frame))
+                .await;
         }
+        self.client = Some(client);
 
         Ok(())
     }
 
     /// Send a streaming request and collect only typed data items.
     pub async fn send_typed_streaming_request(&mut self) -> TestResult {
-        let client = self.client.as_mut().ok_or("client not connected")?;
-
-        let request = StreamTestEnvelope {
-            id: MessageId::new(99),
-            correlation_id: None,
-            payload: Payload::new(vec![]),
-        };
-
-        let mut stream = client
-            .call_streaming::<StreamTestEnvelope>(request)
-            .await?
-            .typed_with(map_streaming_item);
-
-        self.received_frames.clear();
-        self.typed_items.clear();
-        self.last_error = None;
-        self.stream_terminated_cleanly = false;
-        self.shared_rate_limit_blocked = None;
-
-        loop {
-            match stream.next().await {
-                Some(Ok(item)) => self.typed_items.push(item),
-                Some(Err(e)) => {
-                    self.last_error = Some(e);
-                    break;
-                }
-                None => {
-                    self.stream_terminated_cleanly = true;
-                    break;
-                }
-            }
+        let request = Self::build_request();
+        self.reset_state();
+        let mut client = self.client.take().ok_or("client not connected")?;
+        {
+            let stream = client
+                .call_streaming::<StreamTestEnvelope>(request)
+                .await?
+                .typed_with(map_streaming_item);
+            self.drain_stream(stream, |world, item| world.typed_items.push(item))
+                .await;
         }
+        self.client = Some(client);
 
         Ok(())
     }

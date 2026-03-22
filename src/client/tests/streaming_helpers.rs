@@ -29,6 +29,27 @@ fn build_request(correlation_id: CorrelationId) -> super::streaming_infra::TestS
     )
 }
 
+async fn collect_typed_items<F>(
+    cid: CorrelationId,
+    frames: Vec<super::streaming_infra::TestStreamEnvelope>,
+    mapper: F,
+) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>
+where
+    F: FnMut(super::streaming_infra::TestStreamEnvelope) -> Result<Option<Vec<u8>>, ClientError>
+        + Send
+        + Unpin
+        + 'static,
+{
+    let (mut client, _server) = setup_streaming_test(frames).await?;
+    let items: Vec<Vec<u8>> = client
+        .call_streaming(build_request(cid))
+        .await?
+        .typed_with(mapper)
+        .try_collect()
+        .await?;
+    Ok(items)
+}
+
 #[rstest]
 #[tokio::test]
 async fn typed_response_stream_yields_mapped_items_in_order(
@@ -53,14 +74,7 @@ async fn typed_response_stream_yields_mapped_items_in_order(
         ),
         super::streaming_infra::TestStreamEnvelope::terminator(cid),
     ];
-    let (mut client, _server) = setup_streaming_test(frames).await?;
-
-    let items: Vec<Vec<u8>> = client
-        .call_streaming(build_request(cid))
-        .await?
-        .typed_with(|frame| Ok(Some(frame.payload)))
-        .try_collect()
-        .await?;
+    let items = collect_typed_items(cid, frames, |frame| Ok(Some(frame.payload))).await?;
 
     assert_eq!(items, vec![vec![10], vec![20], vec![30]]);
     Ok(())
@@ -90,20 +104,14 @@ async fn typed_response_stream_skips_control_frames(
         ),
         super::streaming_infra::TestStreamEnvelope::terminator(cid),
     ];
-    let (mut client, _server) = setup_streaming_test(frames).await?;
-
-    let items: Vec<Vec<u8>> = client
-        .call_streaming(build_request(cid))
-        .await?
-        .typed_with(|frame| {
-            if frame.payload == vec![200] {
-                Ok(None)
-            } else {
-                Ok(Some(frame.payload))
-            }
-        })
-        .try_collect()
-        .await?;
+    let items = collect_typed_items(cid, frames, |frame| {
+        if frame.payload == vec![200] {
+            Ok(None)
+        } else {
+            Ok(Some(frame.payload))
+        }
+    })
+    .await?;
 
     assert_eq!(items, vec![vec![1], vec![2]]);
     Ok(())
