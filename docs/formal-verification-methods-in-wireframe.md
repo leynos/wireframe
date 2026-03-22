@@ -289,7 +289,7 @@ Add a workspace section to the root manifest:
 
 ```toml
 [workspace]
-members = [".", "wireframe_testing", "crates/wireframe-verification"]
+members = [".", "crates/wireframe-verification"]
 default-members = ["."]
 resolver = "3"
 ```
@@ -1025,14 +1025,12 @@ organisational friction.
 
 ## References
 
-[^1]: Wireframe `Cargo.toml`:
-      <https://github.com/leynos/wireframe/blob/main/Cargo.toml>
-[^2]: Wireframe `tests/advanced/concurrency_loom.rs`:
-      <https://github.com/leynos/wireframe/blob/main/tests/advanced/concurrency_loom.rs>
-[^3]: Wireframe `tests/advanced/interaction_fuzz.rs`:
-      <https://github.com/leynos/wireframe/blob/main/tests/advanced/interaction_fuzz.rs>
-[^4]: Wireframe `src/connection/mod.rs`:
-      <https://github.com/leynos/wireframe/blob/main/src/connection/mod.rs>
+[^1]: Wireframe [`Cargo.toml`](../Cargo.toml)
+[^2]: Wireframe
+      [`tests/advanced/concurrency_loom.rs`](../tests/advanced/concurrency_loom.rs)
+[^3]: Wireframe
+      [`tests/advanced/interaction_fuzz.rs`](../tests/advanced/interaction_fuzz.rs)
+[^4]: Wireframe [`src/connection/mod.rs`](../src/connection/mod.rs)
 [^5]: Verus guide: <https://verus-lang.github.io/verus/guide/>
 [^6]: Chutoro README: <https://github.com/leynos/chutoro/blob/main/README.md>
 [^7]: Chutoro `Makefile`: <https://github.com/leynos/chutoro/blob/main/Makefile>
@@ -1049,28 +1047,24 @@ organisational friction.
        <https://github.com/leynos/mxd/blob/main/crates/mxd-verification/tests/verification_harness.rs>
 [^14]: Stateright crate documentation:
        <https://docs.rs/stateright/latest/stateright/>
-[^15]: Wireframe `Makefile`:
-       <https://github.com/leynos/wireframe/blob/main/Makefile>
-[^16]: Wireframe CI workflow:
-       <https://github.com/leynos/wireframe/blob/main/.github/workflows/ci.yml>
-[^17]: Wireframe `src/frame/format.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/frame/format.rs>
-[^18]: Wireframe `src/frame/conversion.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/frame/conversion.rs>
-[^19]: Wireframe `src/fragment/fragmenter.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/fragment/fragmenter.rs>
-[^20]: Wireframe `src/fragment/series.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/fragment/series.rs>
-[^21]: Wireframe `src/fragment/reassembler.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/fragment/reassembler.rs>
-[^22]: Wireframe `src/message_assembler/header.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/message_assembler/header.rs>
-[^23]: Wireframe `src/message_assembler/series.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/message_assembler/series.rs>
-[^24]: Wireframe `src/message_assembler/state.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/message_assembler/state.rs>
-[^25]: Wireframe `src/fairness.rs`:
-       <https://github.com/leynos/wireframe/blob/main/src/fairness.rs>
+[^15]: Wireframe [`Makefile`](../Makefile)
+[^16]: Wireframe
+       [CI workflow](../.github/workflows/ci.yml)
+[^17]: Wireframe [`src/frame/format.rs`](../src/frame/format.rs)
+[^18]: Wireframe
+       [`src/frame/conversion.rs`](../src/frame/conversion.rs)
+[^19]: Wireframe
+       [`src/fragment/fragmenter.rs`](../src/fragment/fragmenter.rs)
+[^20]: Wireframe [`src/fragment/series.rs`](../src/fragment/series.rs)
+[^21]: Wireframe
+       [`src/fragment/reassembler.rs`](../src/fragment/reassembler.rs)
+[^22]: Wireframe
+       [`src/message_assembler/header.rs`](../src/message_assembler/header.rs)
+[^23]: Wireframe
+       [`src/message_assembler/series.rs`](../src/message_assembler/series.rs)
+[^24]: Wireframe
+       [`src/message_assembler/state.rs`](../src/message_assembler/state.rs)
+[^25]: Wireframe [`src/fairness.rs`](../src/fairness.rs)
 [^26]: Cargo workspace reference:
        <https://doc.rust-lang.org/cargo/reference/workspaces.html>
 [^27]: Chutoro `verus/edge_harvest_proofs.rs`:
