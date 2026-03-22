@@ -791,7 +791,7 @@ formal: formal-pr ## Default formal suite
 Two notes:
 
 1. `cargo test` is the better starting point for the Stateright crate because
-   it minimises the delta from current Wireframe practice. If the wider repo
+   it minimizes the delta from current Wireframe practice. If the wider repo
    later migrates to `nextest`, this target should change to match.
 2. The Kani target names should stay **explicit**. Chutoro’s smoke targets are
    explicit harness names, not magical directory scans, and that is a good
@@ -1021,7 +1021,7 @@ If only the first tranche of this work lands, it should be:
 4. Stateright on `src/connection/*`.
 
 That will give Wireframe the highest bug-finding return for the least
-organisational friction.
+organizational friction.
 
 ## References
 
