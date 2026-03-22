@@ -971,7 +971,7 @@ the relevant contracts.
 
 ## What to avoid
 
-A few anti-patterns are worth ruling out explicitly.
+A few antipatterns are worth ruling out explicitly.
 
 ### Do not verify the Tokio actor with Verus first
 
