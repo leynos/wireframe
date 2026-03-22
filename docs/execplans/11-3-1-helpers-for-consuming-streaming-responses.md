@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: DONE
 
 ## Purpose / big picture
 
@@ -153,12 +153,13 @@ Observable success:
   documents plus the existing 11.x execplans and current client streaming
   implementation.
 - [x] (2026-03-21 00:00Z) Drafted this ExecPlan.
-- [ ] Stage A: finalize the public helper shape and module boundaries.
-- [ ] Stage B: add failing `rstest` unit tests and `rstest-bdd` behavioural
-  scenarios for typed streaming consumption.
-- [ ] Stage C: implement the helper trait, adapter type, exports, and Rustdoc
-  examples.
-- [ ] Stage D: update design docs, users' guide, roadmap, and run the full
+- [x] Stage A: finalized the public helper shape and module boundaries with
+  `client::StreamingResponseExt` and `client::TypedResponseStream`.
+- [x] Stage B: added `rstest` unit tests and `rstest-bdd` behavioural
+  scenarios for typed streaming consumption and control-frame skipping.
+- [x] Stage C: implemented the helper trait, adapter type, exports, and
+  Rustdoc examples.
+- [x] Stage D: updated design docs, users' guide, roadmap, and ran the full
   validation suite.
 
 ## Surprises & Discoveries
@@ -189,6 +190,12 @@ Observable success:
   `src/client/response_stream.rs` and `src/client/streaming.rs` are 196 and 168
   lines respectively. Evidence: `wc -l` inspection during planning. Impact: use
   new modules and focused test files.
+
+- Observation: the blanket extension-trait implementation stays small only if
+  the helper requires `Unpin` at the call site. Evidence:
+  `src/client/streaming_helpers.rs`. Impact: `typed_with` remains broadly
+  usable with `ResponseStream` and simple test streams without introducing a
+  new pin-projection dependency for `11.3.1`.
 
 ## Decision Log
 
@@ -442,3 +449,24 @@ To be completed during implementation. At minimum, record:
 - whether a trait-only design was sufficient or a macro was also added;
 - the validation commands that passed; and
 - any follow-up work intentionally deferred to `11.3.2` or later.
+
+- Final public API: `client::StreamingResponseExt::typed_with` returning
+  `client::TypedResponseStream`. The shipped helper remains client-side for
+  `Stream<Item = Result<P, ClientError>>`; it was not generalized to
+  `response::FrameStream` in `11.3.1`.
+- Trait-only outcome: sufficient. No macro was added.
+- Validation status so far: targeted `cargo test typed_response_stream
+  --all-features` and `cargo test client_streaming
+  --all-features` passed during implementation before the full Makefile gates.
+- Full validation passed:
+  - `make fmt`
+  - `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2`
+  - `make check-fmt`
+  - `make lint`
+  - `make test`
+  - `make test-doc`
+  - `make doctest-benchmark`
+  - `make nixie`
+- Follow-up deferred: broadening the helper to `response::FrameStream` remains
+  future work if a shared error model proves worthwhile beyond the client-side
+  `ClientError` path.

@@ -13,6 +13,7 @@ use wireframe::{
 use super::{
     ClientStreamingWorld,
     TestResult,
+    TypedStreamingItem,
     server::{
         build_interleaved_priority_frames,
         build_rate_limited_priority_frames,
@@ -27,6 +28,8 @@ use super::{
 pub enum StreamingServerMode {
     /// Send `data_count` data frames then a terminator.
     Normal { data_count: usize },
+    /// Send data frames interleaved with control frames, then a terminator.
+    ControlInterleaved,
     /// Send one frame with a wrong correlation ID.
     Mismatch,
     /// Send `data_count` data frames then drop the connection.
@@ -106,6 +109,16 @@ where
             send_data_and_terminator(framed_transport, cid, data_count).await;
             true
         }
+        StreamingServerMode::ControlInterleaved => {
+            let frames = vec![
+                StreamTestEnvelope::data(MessageId::new(1), cid, Payload::new(vec![1])),
+                StreamTestEnvelope::data(MessageId::new(200), cid, Payload::new(vec![200])),
+                StreamTestEnvelope::data(MessageId::new(2), cid, Payload::new(vec![2])),
+                StreamTestEnvelope::data(MessageId::new(201), cid, Payload::new(vec![201])),
+                StreamTestEnvelope::terminator(cid),
+            ];
+            send_stream_frames(framed_transport, frames).await
+        }
         StreamingServerMode::Mismatch => {
             send_mismatch_frame(framed_transport, cid).await;
             true
@@ -136,6 +149,12 @@ impl ClientStreamingWorld {
     /// Start a streaming server that returns a mismatched correlation ID.
     pub async fn start_mismatch_server(&mut self) -> TestResult {
         self.start_server(StreamingServerMode::Mismatch).await
+    }
+
+    /// Start a server that interleaves control frames with data frames.
+    pub async fn start_control_interleaved_server(&mut self) -> TestResult {
+        self.start_server(StreamingServerMode::ControlInterleaved)
+            .await
     }
 
     /// Start a server that sends `data_count` frames then disconnects.
@@ -209,6 +228,19 @@ impl ClientStreamingWorld {
                 )
                 .into());
             }
+        }
+        Ok(())
+    }
+
+    /// Verify typed items arrived in order after control frames were skipped.
+    pub fn verify_typed_item_order(&self, expected: &[u8]) -> TestResult {
+        let actual: Vec<u8> = self
+            .typed_items
+            .iter()
+            .map(TypedStreamingItem::value)
+            .collect();
+        if actual != expected {
+            return Err(format!("expected typed items {expected:?}, got {actual:?}").into());
         }
         Ok(())
     }

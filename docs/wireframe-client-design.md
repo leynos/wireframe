@@ -397,6 +397,10 @@ cargo run --example client_echo_login --features examples
 - Streaming borrow contention: `ResponseStream` holds `&mut WireframeClient`,
   so parallel `send`/`receive` calls must wait until the stream is dropped or
   drained.
+- Typed streaming helpers: `StreamingResponseExt::typed_with` is the
+  recommended ergonomic layer for multiplexed protocols that need to skip
+  control frames while preserving the underlying `ResponseStream` transport and
+  borrow semantics.
 - Disconnects during calls: `ClientError::Wireframe(WireframeError::Io(_))`
   usually means peer closure or transport interruption; retry policies should
   treat these as network faults.
@@ -473,6 +477,19 @@ flowchart TD
 - Follow-up posture: if future roadmap items require deeper multiplex fairness
   or true per-socket concurrent transport use, revisit this boundary and decide
   whether to extend or replace the slot wrapper.
+
+## Decision record for 11.3.1
+
+- Decision: ship streaming-response consumption as a trait plus adapter stream
+  instead of a macro-first API.
+- Rationale: `StreamingResponseExt::typed_with` keeps ordinary Rust control
+  flow visible, makes the "map frame to optional item" contract explicit, and
+  lets downstream protocols skip control frames without reimplementing the same
+  `while let Some(result)` loop around `ResponseStream`.
+- Constraint preserved: the helper remains additive. It wraps
+  `ResponseStream`, so correlation validation, terminator handling, transport
+  back-pressure, and the exclusive `&mut WireframeClient` borrow all continue
+  to behave exactly as the base streaming API documents.
 
 ## Decision record for 11.2.2
 

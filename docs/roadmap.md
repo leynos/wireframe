@@ -640,7 +640,7 @@ document so larger deployments can adopt the library confidently.
 
 ### 12.3. Streaming helpers and test utilities
 
-- [ ] 12.3.1. Ship helper traits or macros for consuming streaming responses
+- [x] 12.3.1. Ship helper traits or macros for consuming streaming responses
   (for example typed iterators over `Response::Stream`) so multiplexed
   protocols remain ergonomic.
 - [ ] 12.3.2. Publish reusable test harnesses that spin up an in-process server

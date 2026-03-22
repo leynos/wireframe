@@ -71,6 +71,15 @@ fn given_shared_rate_limit_server(client_streaming_world: &mut ClientStreamingWo
     })
 }
 
+#[given("a streaming server that interleaves control and data frames")]
+fn given_control_interleaved_server(
+    client_streaming_world: &mut ClientStreamingWorld,
+) -> TestResult {
+    with_server_restart(client_streaming_world, |world| {
+        Box::pin(world.start_control_interleaved_server())
+    })
+}
+
 #[when("the client sends a streaming request with {count:usize} data frames")]
 fn when_streaming_request_with_count(
     client_streaming_world: &mut ClientStreamingWorld,
@@ -85,6 +94,11 @@ fn when_streaming_request_with_count(
 #[when("the client sends a streaming request")]
 fn when_streaming_request(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
     client_streaming_world.block_on(|w| Box::pin(w.send_streaming_request()))?
+}
+
+#[when("the client consumes the stream through the typed helper")]
+fn when_typed_streaming_request(client_streaming_world: &mut ClientStreamingWorld) -> TestResult {
+    client_streaming_world.block_on(|w| Box::pin(w.send_typed_streaming_request()))?
 }
 
 #[then("all {count:usize} data frames are received in order")]
@@ -136,4 +150,22 @@ fn then_shared_rate_limit_symmetry(
     client_streaming_world: &mut ClientStreamingWorld,
 ) -> TestResult {
     client_streaming_world.verify_shared_rate_limit_symmetry()
+}
+
+#[then("typed items are received in order as {expected}")]
+fn then_typed_items_received(
+    client_streaming_world: &mut ClientStreamingWorld,
+    expected: String,
+) -> TestResult {
+    let expected_items = expected
+        .split(',')
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .trim()
+                .parse::<u8>()
+                .map_err(|e| format!("invalid typed item {value:?}: {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    client_streaming_world.verify_typed_item_order(&expected_items)
 }

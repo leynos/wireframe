@@ -10,7 +10,7 @@ use futures::StreamExt;
 use rstest::fixture;
 use tokio::task::JoinHandle;
 use wireframe::{
-    client::{ClientError, WireframeClient},
+    client::{ClientError, StreamingResponseExt, WireframeClient},
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
 };
@@ -29,6 +29,7 @@ pub struct ClientStreamingWorld {
     server: Option<JoinHandle<()>>,
     client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>,
     received_frames: Vec<StreamTestEnvelope>,
+    typed_items: Vec<TypedStreamingItem>,
     last_error: Option<ClientError>,
     stream_terminated_cleanly: bool,
     shared_rate_limit_blocked: Option<bool>,
@@ -68,6 +69,7 @@ impl ClientStreamingWorld {
             server: None,
             client: None,
             received_frames: Vec::new(),
+            typed_items: Vec::new(),
             last_error: None,
             stream_terminated_cleanly: false,
             shared_rate_limit_blocked: None,
@@ -113,6 +115,7 @@ impl ClientStreamingWorld {
         let mut stream = client.call_streaming::<StreamTestEnvelope>(request).await?;
 
         self.received_frames.clear();
+        self.typed_items.clear();
         self.last_error = None;
         self.stream_terminated_cleanly = false;
         self.shared_rate_limit_blocked = None;
@@ -134,5 +137,76 @@ impl ClientStreamingWorld {
         }
 
         Ok(())
+    }
+
+    /// Send a streaming request and collect only typed data items.
+    pub async fn send_typed_streaming_request(&mut self) -> TestResult {
+        let client = self.client.as_mut().ok_or("client not connected")?;
+
+        let request = StreamTestEnvelope {
+            id: MessageId::new(99),
+            correlation_id: None,
+            payload: Payload::new(vec![]),
+        };
+
+        let mut stream = client
+            .call_streaming::<StreamTestEnvelope>(request)
+            .await?
+            .typed_with(map_streaming_item);
+
+        self.received_frames.clear();
+        self.typed_items.clear();
+        self.last_error = None;
+        self.stream_terminated_cleanly = false;
+        self.shared_rate_limit_blocked = None;
+
+        loop {
+            match stream.next().await {
+                Some(Ok(item)) => self.typed_items.push(item),
+                Some(Err(e)) => {
+                    self.last_error = Some(e);
+                    break;
+                }
+                None => {
+                    self.stream_terminated_cleanly = true;
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypedStreamingItem(u8);
+
+impl TypedStreamingItem {
+    pub const fn value(&self) -> u8 { self.0 }
+}
+
+fn map_streaming_item(
+    frame: StreamTestEnvelope,
+) -> Result<Option<TypedStreamingItem>, ClientError> {
+    match frame.id.get() {
+        1 | 2 | 3 | 4 | 10 | 11 => {
+            let value = frame
+                .payload
+                .into_inner()
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    ClientError::from(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "missing payload byte",
+                    ))
+                })?;
+            Ok(Some(TypedStreamingItem(value)))
+        }
+        200 | 201 | 250 => Ok(None),
+        other => Err(ClientError::from(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("unexpected frame id {other}"),
+        ))),
     }
 }
