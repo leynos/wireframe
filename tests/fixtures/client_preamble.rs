@@ -15,7 +15,12 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::FutureExt;
 use rstest::fixture;
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio::{
+    io::AsyncWriteExt,
+    net::TcpListener,
+    sync::oneshot,
+    task::JoinHandle,
+};
 use wireframe::{
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
@@ -96,6 +101,22 @@ pub fn client_preamble_world() -> ClientPreambleWorld {
 }
 
 impl ClientPreambleWorld {
+    async fn spawn_server<F, Fut>(&mut self, handler: F) -> TestResult
+    where
+        F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            handler(stream).await;
+        });
+        self.addr = Some(addr);
+        self.server = Some(handle);
+        Ok(())
+    }
+
     /// Start a preamble-aware echo server.
     ///
     /// # Errors
@@ -104,22 +125,16 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept or read fails.
     pub async fn start_preamble_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
         let (tx, rx) = oneshot::channel::<TestPreamble>();
-        let handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
+        self.server_preamble_rx = Some(rx);
+        self.spawn_server(|mut stream| async move {
             let (preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
                 .await
                 .expect("read preamble");
             let _ = tx.send(preamble);
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        self.server_preamble_rx = Some(rx);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a preamble-aware server that sends acknowledgement.
@@ -130,10 +145,7 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept, read, or write fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|mut stream| async move {
             let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
                 .await
                 .expect("read preamble");
@@ -141,11 +153,8 @@ impl ClientPreambleWorld {
                 .await
                 .expect("write ack");
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a preamble-aware server that replies with invalid acknowledgement bytes.
@@ -156,12 +165,7 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept, read, or write fails.
     pub async fn start_invalid_ack_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            use tokio::io::AsyncWriteExt;
-
-            let (mut stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|mut stream| async move {
             let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
                 .await
                 .expect("read preamble");
@@ -169,11 +173,8 @@ impl ClientPreambleWorld {
                 .write_all(&[0xff, 0x00, 0x01])
                 .await
                 .expect("write invalid acknowledgement");
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a server that never responds (for timeout testing).
@@ -184,16 +185,10 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept fails.
     pub async fn start_slow_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (_stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|_stream| async move {
             tokio::time::sleep(Duration::from_secs(10)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a standard echo server without preamble support.
@@ -204,16 +199,10 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept fails.
     pub async fn start_standard_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (_stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|_stream| async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Connect with preamble and success callback.
