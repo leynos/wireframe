@@ -117,6 +117,55 @@ impl ClientPreambleWorld {
         Ok(())
     }
 
+    /// Store the outcome of a connect attempt that carries no failure signal.
+    ///
+    /// On success the client is retained; on failure the error is recorded.
+    async fn store_connect_result(
+        &mut self,
+        result: Result<
+            WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
+            ClientError,
+        >,
+    ) {
+        match result {
+            Ok(client) => {
+                self.client = Some(client);
+            }
+            Err(e) => {
+                self.last_error = Some(e);
+            }
+        }
+    }
+
+    /// Store the outcome of a connect attempt that exposes a failure-callback signal.
+    ///
+    /// On success the client is retained. On failure the error is recorded and,
+    /// if the failure signal fires within one second, `failure_callback_invoked`
+    /// is set.
+    async fn store_connect_result_with_failure_signal(
+        &mut self,
+        result: Result<
+            WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
+            ClientError,
+        >,
+        failure_rx: oneshot::Receiver<()>,
+    ) {
+        match result {
+            Ok(client) => {
+                self.client = Some(client);
+            }
+            Err(e) => {
+                self.last_error = Some(e);
+                if tokio::time::timeout(Duration::from_secs(1), failure_rx)
+                    .await
+                    .is_ok()
+                {
+                    self.failure_callback_invoked = true;
+                }
+            }
+        }
+    }
+
     /// Start a preamble-aware echo server.
     ///
     /// # Errors
@@ -322,20 +371,8 @@ impl ClientPreambleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-                if tokio::time::timeout(Duration::from_secs(1), failure_rx)
-                    .await
-                    .is_ok()
-                {
-                    self.failure_callback_invoked = true;
-                }
-            }
-        }
+        self.store_connect_result_with_failure_signal(result, failure_rx)
+            .await;
         Ok(())
     }
 
@@ -372,20 +409,8 @@ impl ClientPreambleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(error) => {
-                self.last_error = Some(error);
-                if tokio::time::timeout(Duration::from_secs(1), failure_rx)
-                    .await
-                    .is_ok()
-                {
-                    self.failure_callback_invoked = true;
-                }
-            }
-        }
+        self.store_connect_result_with_failure_signal(result, failure_rx)
+            .await;
         Ok(())
     }
 
@@ -396,15 +421,7 @@ impl ClientPreambleWorld {
     pub async fn connect_without_preamble(&mut self) -> TestResult {
         let addr = self.addr.ok_or("server address missing")?;
         let result = WireframeClient::builder().connect(addr).await;
-
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
+        self.store_connect_result(result).await;
         Ok(())
     }
 
