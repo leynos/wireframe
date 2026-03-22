@@ -142,6 +142,12 @@ pub fn assert_message_assembly_error(
     }
 }
 
+macro_rules! assert_snapshot_usize_field {
+    ($snapshot:expr, $field:ident, $expected:expr) => {
+        assert_usize_field($snapshot.$field, $expected, stringify!($field))
+    };
+}
+
 /// Assert that `expected` assemblies are still buffered.
 ///
 /// # Errors
@@ -151,7 +157,7 @@ pub fn assert_message_assembly_buffered_count(
     snapshot: MessageAssemblySnapshot<'_>,
     expected: usize,
 ) -> TestResult {
-    assert_usize_field(snapshot.buffered_count, expected, "buffered_count")
+    assert_snapshot_usize_field!(snapshot, buffered_count, expected)
 }
 
 /// Assert that the buffered-byte accounting equals `expected`.
@@ -163,11 +169,7 @@ pub fn assert_message_assembly_total_buffered_bytes(
     snapshot: MessageAssemblySnapshot<'_>,
     expected: usize,
 ) -> TestResult {
-    assert_usize_field(
-        snapshot.total_buffered_bytes,
-        expected,
-        "total_buffered_bytes",
-    )
+    assert_snapshot_usize_field!(snapshot, total_buffered_bytes, expected)
 }
 
 /// Assert that `key` was evicted during the most recent expiry purge.
