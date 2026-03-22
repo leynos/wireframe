@@ -317,7 +317,7 @@ and standardized per-connection memory budgets.
   in-process app.
 - [x] 8.5.2. Add slow reader and writer simulation for back-pressure testing.
 - [x] 8.5.3. Add deterministic assertion helpers for reassembly outcomes.
-- [ ] 8.5.4. Export utilities as `wireframe::testkit` behind a dedicated
+- [x] 8.5.4. Export utilities as `wireframe::testkit` behind a dedicated
   feature.
 
 ### 8.6. Documentation

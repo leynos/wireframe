@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: IMPLEMENTED
 
 ## Purpose / big picture
 
@@ -41,8 +41,8 @@ Success is observable when all of the following are true:
 4. Existing `wireframe_testing` users remain source-compatible for the covered
    helpers.
 5. `docs/users-guide.md`,
-   `docs/adr-002-streaming-requests-and-shared-message-assembly.md`,
-   and `docs/roadmap.md` reflect the delivered feature.
+   `docs/adr-002-streaming-requests-and-shared-message-assembly.md`, and
+   `docs/roadmap.md` reflect the delivered feature.
 
 ## Constraints
 
@@ -126,15 +126,18 @@ Success is observable when all of the following are true:
   `wireframe` cannot depend on `wireframe_testing` without creating a Cargo
   cycle.
 - [x] (2026-03-21 00:00Z) Drafted this ExecPlan.
-- [ ] Implement the `testkit` feature and the new `wireframe::testkit` module
-  in the main crate.
-- [ ] Convert the covered `wireframe_testing` exports into compatibility
-  re-exports or thin wrappers over the new root module.
-- [ ] Add `rstest` integration tests covering the new root export.
-- [ ] Add `rstest-bdd` behavioural coverage that imports `wireframe::testkit`
-  directly.
-- [ ] Update ADR 0002, `docs/users-guide.md`, and `docs/roadmap.md`.
-- [ ] Run the required validation suite and record outcomes.
+- [x] (2026-03-22 00:00Z) Implemented the `testkit` feature and the new
+  `wireframe::testkit` module in the main crate.
+- [x] (2026-03-22 00:00Z) Converted the covered `wireframe_testing` exports
+  into compatibility re-exports over the new root module.
+- [x] (2026-03-22 00:00Z) Added `rstest` integration tests covering the new
+  root export.
+- [x] (2026-03-22 00:00Z) Added `rstest-bdd` behavioural coverage that imports
+  `wireframe::testkit` directly.
+- [x] (2026-03-22 00:00Z) Updated ADR 0002, `docs/users-guide.md`, and
+  `docs/roadmap.md`.
+- [x] (2026-03-22 00:00Z) Ran the required validation suite and recorded
+  outcomes.
 
 ## Surprises & Discoveries
 
@@ -153,6 +156,18 @@ Success is observable when all of the following are true:
 - Observation: the behavioural test target `tests/bdd/mod.rs` only runs with
   the `advanced-tests` feature, so `make test` alone is not enough to satisfy
   the roadmap's `rstest-bdd` requirement for this item.
+
+- Observation: `wireframe::testkit::TestError` cannot refer unconditionally to
+  `client::ClientError` or `server::ServerError`, because those modules do not
+  exist under `loom` builds. The enum variants therefore need
+  `#[cfg(not(loom))]` gating even though the feature itself is primarily for
+  non-loom test harnesses.
+
+- Observation: the existing tracing unit test
+  `client::tests::tracing_streaming::response_stream_emits_frame_events` flaked
+  once during the first full `make test` run by missing the expected
+  `"stream terminated"` log line. An isolated rerun and the subsequent full
+  rerun both passed without code changes.
 
 ## Decision Log
 
@@ -177,10 +192,32 @@ Success is observable when all of the following are true:
 
 Not started yet. This section must be updated after implementation with:
 
-- the final `wireframe::testkit` API that shipped;
-- the compatibility strategy used in `wireframe_testing`;
-- the exact validation commands run and their outcomes; and
-- any follow-up work or limitations intentionally left out of `8.5.4`.
+- Final shipped API:
+  `wireframe::testkit` now exposes the phase-8.5 chunked partial-frame drivers,
+  fragment-feeding drivers, slow-I/O helpers, reassembly assertion helpers, and
+  shared `TestError` / `TestResult` types behind the opt-in `testkit` feature.
+- Compatibility strategy:
+  `wireframe_testing` now enables `wireframe`'s `testkit` feature and forwards
+  the covered helper families through compatibility re-exports, while leaving
+  unrelated helper families in place.
+- Behavioural proof:
+  added a focused root-surface integration test file
+  (`tests/testkit_exports.rs`) and a matching `rstest-bdd` feature/fixture flow
+  (`tests/features/testkit_export.feature`) that import `wireframe::testkit`
+  directly.
+- Validation:
+  - `make fmt` — passed.
+  - `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2` — passed.
+  - `make nixie` — passed.
+  - `make check-fmt` — passed.
+  - `make lint` — passed.
+  - first `make test` — failed once on the pre-existing flaky tracing test
+    `client::tests::tracing_streaming::response_stream_emits_frame_events`.
+  - `cargo test --lib
+    client::tests::tracing_streaming::response_stream_emits_frame_events --
+    --nocapture` — passed and emitted the expected `"stream terminated"`
+    event.
+  - second `make test` — passed.
 
 ## Context and orientation
 

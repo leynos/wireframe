@@ -42,4 +42,5 @@ pub mod slow_io_backpressure;
 pub mod stream_end;
 pub mod streaming_request;
 pub mod test_observability;
+pub mod testkit_export;
 pub mod unified_codec;

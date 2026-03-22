@@ -45,3 +45,5 @@ pub mod server;
 pub mod session;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_helpers;
+#[cfg(feature = "testkit")]
+pub mod testkit;

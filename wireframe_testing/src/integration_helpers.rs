@@ -8,11 +8,10 @@
 use std::net::TcpListener as StdTcpListener;
 
 use rstest::fixture;
-use thiserror::Error;
+pub use wireframe::testkit::{TestError, TestResult};
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
     correlation::CorrelatableFrame,
-    fragment::{FragmentationError, ReassemblyError},
     serializer::BincodeSerializer,
 };
 
@@ -137,86 +136,6 @@ impl Packet for CommonTestEnvelope {
 
 /// Default app type used by integration test suites.
 pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
-
-/// Error type for integration test helpers.
-#[derive(Debug, Error)]
-pub enum TestError {
-    /// IO error surfaced while exercising test utilities.
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-    /// Assertion or other message-driven failure.
-    #[error("{0}")]
-    Msg(String),
-    #[error("wireframe error: {0}")]
-    Wireframe(wireframe::WireframeError),
-    #[error(transparent)]
-    Client(#[from] wireframe::client::ClientError),
-    #[error(transparent)]
-    Server(#[from] wireframe::server::ServerError),
-    #[error(transparent)]
-    Push(#[from] wireframe::push::PushError),
-    #[error(transparent)]
-    PushConfig(#[from] wireframe::push::PushConfigError),
-    #[error(transparent)]
-    ConnectionState(#[from] wireframe::connection::ConnectionStateError),
-    #[error(transparent)]
-    Reassembly(#[from] ReassemblyError),
-    #[error(transparent)]
-    Fragmentation(#[from] FragmentationError),
-    #[error(transparent)]
-    Codec(#[from] wireframe::codec::CodecError),
-    #[error(transparent)]
-    Encode(#[from] bincode::error::EncodeError),
-    #[error(transparent)]
-    Decode(#[from] bincode::error::DecodeError),
-    #[error(transparent)]
-    Join(#[from] tokio::task::JoinError),
-    #[error(transparent)]
-    Timeout(#[from] tokio::time::error::Elapsed),
-    #[error(transparent)]
-    OneshotRecv(#[from] tokio::sync::oneshot::error::RecvError),
-    #[error(transparent)]
-    OneshotTryRecv(#[from] tokio::sync::oneshot::error::TryRecvError),
-    #[error(transparent)]
-    MpscTryRecv(#[from] tokio::sync::mpsc::error::TryRecvError),
-    #[error(transparent)]
-    ParseInt(#[from] std::num::ParseIntError),
-    #[error(transparent)]
-    TryFromInt(#[from] std::num::TryFromIntError),
-    #[error(transparent)]
-    Utf8(#[from] std::str::Utf8Error),
-    #[error(transparent)]
-    FromUtf8(#[from] std::string::FromUtf8Error),
-    #[error(transparent)]
-    AddrParse(#[from] std::net::AddrParseError),
-}
-
-impl From<String> for TestError {
-    fn from(value: String) -> Self { Self::Msg(value) }
-}
-
-impl From<&str> for TestError {
-    fn from(value: &str) -> Self { Self::Msg(value.to_string()) }
-}
-
-impl From<wireframe::WireframeError> for TestError {
-    fn from(value: wireframe::WireframeError) -> Self { Self::Wireframe(value) }
-}
-
-impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {
-    fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self { Self::Msg(err.to_string()) }
-}
-
-impl<T> From<tokio::sync::mpsc::error::TrySendError<T>> for TestError {
-    fn from(err: tokio::sync::mpsc::error::TrySendError<T>) -> Self { Self::Msg(err.to_string()) }
-}
-
-impl From<Box<dyn std::error::Error + Send + Sync>> for TestError {
-    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self { Self::Msg(err.to_string()) }
-}
-
-/// Shared result type for integration tests.
-pub type TestResult<T = ()> = Result<T, TestError>;
 
 /// Default `WireframeApp` factory for integration tests.
 ///
