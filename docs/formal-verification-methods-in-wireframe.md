@@ -569,7 +569,7 @@ properties.[^13]
 3. **`on_command_end` fires at most once per logical command**
 
 4. **No output-source resurrection after terminal shutdown**
-   - depending on the exact contract you choose
+   - depending on the specific contract selected
 
 5. **Priority order is preserved where required**
    - for example, high before low when both are immediately ready
