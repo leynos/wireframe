@@ -39,7 +39,7 @@ Chutoro or mxd wholesale. Instead, use a hybrid of both:
 That split gives Wireframe a pragmatic verification stack:
 
 - **Proptest** stays in place for broad, generated behavioural coverage.
-- **Loom** stays in place for real synchronisation interleavings on queue
+- **Loom** stays in place for real synchronization interleavings on queue
   internals.
 - **Kani** adds exhaustive bounded checking for small protocol logic.
 - **Stateright** adds explicit state-space exploration for the connection actor.
@@ -926,7 +926,7 @@ the behaviour of shared queue state under concurrent producers.[^2]
 
 The right relationship is:
 
-- **Loom** for real synchronisation interleavings over concrete concurrent code
+- **Loom** for real synchronization interleavings over concrete concurrent code
 - **Stateright** for abstract protocol-state interleavings over the connection
   actor
 
