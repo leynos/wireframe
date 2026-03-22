@@ -441,6 +441,105 @@ integration boundaries.
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
 
+### 9.8. Formal verification checks
+
+- [ ] 9.8.1. Establish the formal verification workspace, tooling, and
+  automation. See the
+  [formal verification guide](formal-verification-methods-in-wireframe.md),
+  especially “Recommended repository layout”, “Recommended Makefile changes”,
+  and “Recommended CI changes”.
+  - [ ] Convert the root manifest into a hybrid workspace while keeping the
+    root package as the default member. See
+    [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
+  - [ ] Add `crates/wireframe-verification` as an internal crate for
+    Stateright models and shared verification harnesses. See
+    [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
+    and
+    [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
+  - [ ] Add pinned Kani and Verus tool metadata plus repo-local install and run
+    scripts. See
+    [formal-verification-methods-in-wireframe.md §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
+    and
+    [§Verus should *not* live inside the main build](formal-verification-methods-in-wireframe.md#why-verus-should-not-live-inside-the-main-build).
+  - [ ] Add `make test-verification`, `make kani`, `make kani-full`,
+    `make verus`, `make formal-pr`, and `make formal-nightly`. See
+    [formal-verification-methods-in-wireframe.md §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
+  - [ ] Add separate CI jobs for Stateright, Kani smoke, and Verus proofs
+    without changing the existing `build-test` coverage flow. See
+    [formal-verification-methods-in-wireframe.md §Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
+- [ ] 9.8.2. Resolve the protocol contracts that formal checks depend on.
+  Requires 9.8.1. See the
+  [formal verification guide](formal-verification-methods-in-wireframe.md),
+  especially “Decisions Wireframe should make before writing proofs”.
+  - [ ] Decide whether length-prefix widths are limited to `1`, `2`, `4`, and
+    `8` or expanded to the full `1..=8` range, then align constructors,
+    conversions, and tests. See
+    [formal-verification-methods-in-wireframe.md
+    §What widths does Wireframe actually support for length prefixes?](formal-verification-methods-in-wireframe.md#1-what-widths-does-wireframe-actually-support-for-length-prefixes).
+  - [ ] Decide whether `total_body_len` is authoritative or advisory, then
+    rename or enforce it consistently in the message assembly path. See
+    [formal-verification-methods-in-wireframe.md
+    §Is `total_body_len` authoritative or advisory?](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory).
+  - [ ] Document the intended fairness and priority guarantees for
+    `ConnectionActor` before encoding them as model properties. See
+    [formal-verification-methods-in-wireframe.md
+    §What fairness guarantee does `ConnectionActor` actually make?](formal-verification-methods-in-wireframe.md#3-what-fairness-guarantee-does-connectionactor-actually-make).
+- [ ] 9.8.3. Add bounded Kani checks for frame, fragment, and message-series
+  logic. Requires 9.8.1 and 9.8.2. See
+  [formal-verification-methods-in-wireframe.md §Kani integration](formal-verification-methods-in-wireframe.md#kani-integration)
+   and
+  [§Recommended Kani targets](formal-verification-methods-in-wireframe.md#recommended-kani-targets).
+  - [ ] Add smoke harnesses for supported length-prefix round-trips and
+    unsupported-width behaviour in `src/frame/*`. See
+    [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses).
+  - [ ] Add harnesses for `FragmentSeries`, `Reassembler`, and `MessageSeries`
+    covering duplicates, gaps, completion, and oversize cleanup. See
+    [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses)
+    and
+    [§Phase 2 full harnesses](formal-verification-methods-in-wireframe.md#phase-2-full-harnesses).
+  - [ ] Extend existing Proptest coverage for fragment round-trips and mixed
+    actor action traces where Kani bounds would be too small. See
+    [formal-verification-methods-in-wireframe.md §Second priority: `src/fragment/*`](formal-verification-methods-in-wireframe.md#second-priority-srcfragment)
+    and
+    [§How Proptest and Loom fit after these changes](formal-verification-methods-in-wireframe.md#how-proptest-and-loom-fit-after-these-changes).
+- [ ] 9.8.4. Add Stateright model checks for `ConnectionActor`. Requires 9.8.1
+  and 9.8.2. See
+  [formal-verification-methods-in-wireframe.md §Stateright integration](formal-verification-methods-in-wireframe.md#stateright-integration).
+  - [ ] Model queue arrivals, active response and multi-packet outputs,
+    shutdown races, fairness state, and terminal markers in
+    `crates/wireframe-verification`. See
+    [formal-verification-methods-in-wireframe.md §Model scope](formal-verification-methods-in-wireframe.md#model-scope).
+  - [ ] Add a shared checker harness that separates safety from reachability
+    properties and reports both deterministically. See
+    [formal-verification-methods-in-wireframe.md §Properties to encode](formal-verification-methods-in-wireframe.md#properties-to-encode)
+    and
+    [§Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness).
+  - [ ] Gate a bounded breadth-first search (BFS) model run in pull requests
+    and a deeper run in scheduled or manual workflows. See
+    [formal-verification-methods-in-wireframe.md §Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness)
+    and
+    [§Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
+- [ ] 9.8.5. Add Verus proofs for message assembly invariants. Requires 9.8.1
+  and 9.8.2. See
+  [formal-verification-methods-in-wireframe.md §Verus integration](formal-verification-methods-in-wireframe.md#verus-integration)
+   and
+  [§What Verus should prove in Wireframe](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
+  - [ ] Enforce the chosen `total_body_len` contract in runtime code before
+    relying on proofs. See
+    [formal-verification-methods-in-wireframe.md §Is `total_body_len` authoritative or advisory?](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
+    and
+    [§What Verus should prove in Wireframe](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
+  - [ ] Add proof-only modules under `verus/` for declared-total and
+    buffered-byte accounting invariants. See
+    [formal-verification-methods-in-wireframe.md §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
+    and
+    [§Representative proof tree](formal-verification-methods-in-wireframe.md#representative-proof-tree).
+  - [ ] Document proof trigger discipline and contributor expectations for
+    running `make verus`. See
+    [formal-verification-methods-in-wireframe.md §Trigger discipline](formal-verification-methods-in-wireframe.md#trigger-discipline)
+    and
+    [§Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
+
 ## 10. Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
