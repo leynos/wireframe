@@ -89,6 +89,27 @@ impl ClientStreamingWorld {
         }
     }
 
+    async fn execute_streaming<St, Item>(
+        &mut self,
+        build_stream: impl for<'a> FnOnce(
+            &'a mut WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<St, ClientError>> + 'a>,
+        >,
+        mut push: impl FnMut(&mut Self, Item),
+    ) -> TestResult
+    where
+        St: futures::Stream<Item = Result<Item, ClientError>> + Unpin,
+    {
+        let request = Self::build_request();
+        self.reset_state();
+        let mut client = self.client.take().ok_or("client not connected")?;
+        let stream = build_stream(&mut client).await?;
+        self.drain_stream(stream, &mut push).await;
+        self.client = Some(client);
+        Ok(())
+    }
+
     /// Build a new runtime-backed client streaming world.
     fn new() -> Self {
         let (runtime, runtime_error) = match tokio::runtime::Builder::new_current_thread()
@@ -141,34 +162,28 @@ impl ClientStreamingWorld {
     /// Send a streaming request and consume the response stream.
     pub async fn send_streaming_request(&mut self) -> TestResult {
         let request = Self::build_request();
-        self.reset_state();
-        let mut client = self.client.take().ok_or("client not connected")?;
-        {
-            let stream = client.call_streaming::<StreamTestEnvelope>(request).await?;
-            self.drain_stream(stream, |world, frame| world.received_frames.push(frame))
-                .await;
-        }
-        self.client = Some(client);
-
-        Ok(())
+        self.execute_streaming(
+            |client| Box::pin(client.call_streaming(request)),
+            |world, frame| world.received_frames.push(frame),
+        )
+        .await
     }
 
     /// Send a streaming request and collect only typed data items.
     pub async fn send_typed_streaming_request(&mut self) -> TestResult {
         let request = Self::build_request();
-        self.reset_state();
-        let mut client = self.client.take().ok_or("client not connected")?;
-        {
-            let stream = client
-                .call_streaming::<StreamTestEnvelope>(request)
-                .await?
-                .typed_with(map_streaming_item);
-            self.drain_stream(stream, |world, item| world.typed_items.push(item))
-                .await;
-        }
-        self.client = Some(client);
-
-        Ok(())
+        self.execute_streaming(
+            |client| {
+                Box::pin(async move {
+                    client
+                        .call_streaming(request)
+                        .await
+                        .map(|s| s.typed_with(map_streaming_item))
+                })
+            },
+            |world, item| world.typed_items.push(item),
+        )
+        .await
     }
 }
 
