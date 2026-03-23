@@ -15,12 +15,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::FutureExt;
 use rstest::fixture;
-use tokio::{
-    io::AsyncWriteExt,
-    net::TcpListener,
-    sync::oneshot,
-    task::JoinHandle,
-};
+use tokio::{io::AsyncWriteExt, net::TcpListener, sync::oneshot, task::JoinHandle};
 use wireframe::{
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
