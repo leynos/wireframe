@@ -89,7 +89,10 @@ impl ClientStreamingWorld {
         }
     }
 
-    #[allow(clippy::type_complexity, reason = "HRTB trait bound requires explicit Pin<Box<dyn Future>> return type")]
+    #[allow(
+        clippy::type_complexity,
+        reason = "HRTB trait bound requires explicit Pin<Box<dyn Future>> return type"
+    )]
     async fn execute_stream_call<St, Item>(
         &mut self,
         build_stream: impl for<'a> FnOnce(
@@ -175,7 +178,9 @@ impl ClientStreamingWorld {
     /// Send a streaming request and consume the response stream.
     pub async fn send_streaming_request(&mut self) -> TestResult {
         self.execute_stream_call(
-            move |client| Box::pin(client.call_streaming::<StreamTestEnvelope>(Self::build_request())),
+            move |client| {
+                Box::pin(client.call_streaming::<StreamTestEnvelope>(Self::build_request()))
+            },
             |world, frame| world.received_frames.push(frame),
         )
         .await
