@@ -192,8 +192,7 @@ status from `Proposed` to `Accepted` with today's date and a brief summary.
 
 ## Concrete steps
 
-All commands run from the repository root:
-`/data/leynos/Projects/wireframe.worktrees/mutation-testing`.
+All commands run from the repository root.
 
 **Stage B — create workflow file:**
 

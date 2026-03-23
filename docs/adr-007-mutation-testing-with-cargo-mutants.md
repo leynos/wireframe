@@ -33,7 +33,7 @@ back into test-improvement work.
 - Avoid blocking the existing CI pipeline — mutation runs are slow and should
   not gate pull requests.
 - Allow manual runs on arbitrary branches for ad hoc validation.
-- Minimise maintenance burden: prefer a single-binary tool that understands
+- Minimize maintenance burden: prefer a single-binary tool that understands
   Cargo workspaces natively.
 
 ## Options Considered
@@ -142,9 +142,9 @@ jobs:
           if [ -f mutants.out/outcomes.json ]; then
             echo "## Mutation testing results" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            caught=$(jq '[.[] | select(.scenario == "Mutant" and .summary == "CaughtMutant")] | length' mutants.out/outcomes.json)
-            missed=$(jq '[.[] | select(.scenario == "Mutant" and .summary == "MissedMutant")] | length' mutants.out/outcomes.json)
-            timeout=$(jq '[.[] | select(.scenario == "Mutant" and .summary == "Timeout")] | length' mutants.out/outcomes.json)
+            caught=$(jq '[.outcomes[] | select(.scenario != "Baseline" and .summary == "CaughtMutant")] | length' mutants.out/outcomes.json)
+            missed=$(jq '[.outcomes[] | select(.scenario != "Baseline" and .summary == "MissedMutant")] | length' mutants.out/outcomes.json)
+            timeout=$(jq '[.outcomes[] | select(.scenario != "Baseline" and .summary == "Timeout")] | length' mutants.out/outcomes.json)
             echo "- **Caught:** ${caught}" >> "$GITHUB_STEP_SUMMARY"
             echo "- **Missed (survived):** ${missed}" >> "$GITHUB_STEP_SUMMARY"
             echo "- **Timeout:** ${timeout}" >> "$GITHUB_STEP_SUMMARY"
@@ -155,9 +155,10 @@ jobs:
               echo "| File | Line | Mutation |" >> "$GITHUB_STEP_SUMMARY"
               echo "| ---- | ---- | ------- |" >> "$GITHUB_STEP_SUMMARY"
               jq -r '
-                .[]
-                | select(.scenario == "Mutant" and .summary == "MissedMutant")
-                | "| \(.mutant.source_file) | \(.mutant.line) | \(.mutant.description) |"
+                .outcomes[]
+                | select(.scenario != "Baseline" and .summary == "MissedMutant")
+                | .scenario.Mutant as $m
+                | "| \($m.file) | \($m.span.start.line) | \($m.name) |"
               ' mutants.out/outcomes.json >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
