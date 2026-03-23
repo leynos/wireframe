@@ -490,18 +490,18 @@ Wireframe's protocol, framing, and message assembly layers.
   records the decision, constructors enforce the chosen set, and existing tests
   cover rejected widths.
 - [ ] 10.2.2. Treat `total_body_len` as either authoritative or advisory and
-  enforce or rename it consistently across the message assembly path; record the
-  decision in an ADR and add tests for both conforming and violating inputs.
-  Requires 10.1.1. See the formal verification guide[^fv-guide] §"Is
-  `total_body_len` authoritative or advisory?". Success criteria: an ADR records
-  the decision, runtime code enforces the chosen semantics, and tests verify
-  both conforming and violating inputs.
+  enforce or rename it consistently across the message assembly path; record
+  the decision in an ADR and add tests for both conforming and violating
+  inputs. Requires 10.1.1. See the formal verification guide[^fv-guide] §"Is
+  `total_body_len` authoritative or advisory?". Success criteria: an ADR
+  records the decision, runtime code enforces the chosen semantics, and tests
+  verify both conforming and violating inputs.
 - [ ] 10.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
   Requires 10.1.1. See the formal verification guide[^fv-guide] §"What fairness
-  guarantee does `ConnectionActor` actually make?". Success criteria: the design
-  document enumerates each guarantee as a named property that can be referenced
-  by Stateright model checks.
+  guarantee does `ConnectionActor` actually make?". Success criteria: the
+  design document enumerates each guarantee as a named property that can be
+  referenced by Stateright model checks.
 
 ### 10.3. Kani bounded model checks
 
