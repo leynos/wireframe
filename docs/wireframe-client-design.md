@@ -112,7 +112,7 @@ The parity checks cover two guarantees:
 - Rate limiting remains cross-priority and symmetric, so one priority cannot
   bypass limits imposed on another.
 
-This validation was added for roadmap item `10.3.2` and does not introduce new
+This validation was added for roadmap item `11.3.2` and does not introduce new
 public client API methods.
 
 ### Implementation decisions
@@ -401,11 +401,11 @@ cargo run --example client_echo_login --features examples
   usually means peer closure or transport interruption; retry policies should
   treat these as network faults.
 
-## Decision record for 10.4.1
+## Decision record for 11.4.1
 
 - Decision: treat login acknowledgement in the echo example as the echoed login
   payload decoded as `LoginAck`.
-- Rationale: roadmap item 10.4.1 explicitly targets the existing `echo` server.
+- Rationale: roadmap item 11.4.1 explicitly targets the existing `echo` server.
   The echo server does not synthesize new response payloads, so decoding the
   echoed payload as the acknowledgement provides a runnable, typed, end-to-end
   demonstration without introducing server-only behaviour.

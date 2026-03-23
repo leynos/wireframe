@@ -441,232 +441,263 @@ integration boundaries.
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
 
-### 9.8. Formal verification checks
+## 10. Formal verification
 
-- [ ] 9.8.1. Establish the formal verification workspace, tooling, and
-  automation. See the
-  [formal verification guide](formal-verification-methods-in-wireframe.md),
-  especially “Recommended repository layout”, “Recommended Makefile changes”,
-  and “Recommended CI changes”.
-  - [ ] Convert the root manifest into a hybrid workspace while keeping the
-    root package as the default member. See
-    [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
-  - [ ] Add `crates/wireframe-verification` as an internal crate for
-    Stateright models and shared verification harnesses. See
-    [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
-    and
-    [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
-  - [ ] Add pinned Kani and Verus tool metadata plus repo-local install and run
-    scripts. See
-    [formal-verification-methods-in-wireframe.md §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
-    and
-    [§Verus should *not* live inside the main build](formal-verification-methods-in-wireframe.md#why-verus-should-not-live-inside-the-main-build).
-  - [ ] Add `make test-verification`, `make kani`, `make kani-full`,
-    `make verus`, `make formal-pr`, and `make formal-nightly`. See
-    [formal-verification-methods-in-wireframe.md §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
-  - [ ] Add separate CI jobs for Stateright, Kani smoke, and Verus proofs
-    without changing the existing `build-test` coverage flow. See
-    [formal-verification-methods-in-wireframe.md §Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
-- [ ] 9.8.2. Resolve the protocol contracts that formal checks depend on.
-  Requires 9.8.1. See the
-  [formal verification guide](formal-verification-methods-in-wireframe.md),
-  especially “Decisions Wireframe should make before writing proofs”.
-  - [ ] Decide whether length-prefix widths are limited to `1`, `2`, `4`, and
-    `8` or expanded to the full `1..=8` range, then align constructors,
-    conversions, and tests. See
-    [formal-verification-methods-in-wireframe.md
-    §What widths does Wireframe actually support for length prefixes?](formal-verification-methods-in-wireframe.md#1-what-widths-does-wireframe-actually-support-for-length-prefixes).
-  - [ ] Decide whether `total_body_len` is authoritative or advisory, then
-    rename or enforce it consistently in the message assembly path. See
-    [formal-verification-methods-in-wireframe.md
-    §Is `total_body_len` authoritative or advisory?](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory).
-  - [ ] Document the intended fairness and priority guarantees for
-    `ConnectionActor` before encoding them as model properties. See
-    [formal-verification-methods-in-wireframe.md
-    §What fairness guarantee does `ConnectionActor` actually make?](formal-verification-methods-in-wireframe.md#3-what-fairness-guarantee-does-connectionactor-actually-make).
-- [ ] 9.8.3. Add bounded Kani checks for frame, fragment, and message-series
-  logic. Requires 9.8.1 and 9.8.2. See
-  [formal-verification-methods-in-wireframe.md §Kani integration](formal-verification-methods-in-wireframe.md#kani-integration)
+This phase establishes the formal verification infrastructure and applies
+bounded model checking, state-space exploration, and deductive proofs to
+Wireframe's protocol, framing, and message assembly layers.
+
+### 10.1. Verification workspace and tooling
+
+- [ ] 10.1.1. Convert the root manifest into a hybrid workspace while keeping
+  the root package as the default member. See
+  [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
+   Success criteria: `cargo build` and `cargo test --workspace` pass with the
+  new layout.
+- [ ] 10.1.2. Add `crates/wireframe-verification` as an internal crate for
+  Stateright models and shared verification harnesses. See
+  [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
    and
-  [§Recommended Kani targets](formal-verification-methods-in-wireframe.md#recommended-kani-targets).
-  - [ ] Add smoke harnesses for supported length-prefix round-trips and
-    unsupported-width behaviour in `src/frame/*`. See
-    [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses).
-  - [ ] Add harnesses for `FragmentSeries`, `Reassembler`, and `MessageSeries`
-    covering duplicates, gaps, completion, and oversize cleanup. See
-    [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses)
-    and
-    [§Phase 2 full harnesses](formal-verification-methods-in-wireframe.md#phase-2-full-harnesses).
-  - [ ] Extend existing Proptest coverage for fragment round-trips and mixed
-    actor action traces where Kani bounds would be too small. See
-    [formal-verification-methods-in-wireframe.md §Second priority: `src/fragment/*`](formal-verification-methods-in-wireframe.md#second-priority-srcfragment)
-    and
-    [§How Proptest and Loom fit after these changes](formal-verification-methods-in-wireframe.md#how-proptest-and-loom-fit-after-these-changes).
-- [ ] 9.8.4. Add Stateright model checks for `ConnectionActor`. Requires 9.8.1
-  and 9.8.2. See
-  [formal-verification-methods-in-wireframe.md §Stateright integration](formal-verification-methods-in-wireframe.md#stateright-integration).
-  - [ ] Model queue arrivals, active response and multi-packet outputs,
-    shutdown races, fairness state, and terminal markers in
-    `crates/wireframe-verification`. See
-    [formal-verification-methods-in-wireframe.md §Model scope](formal-verification-methods-in-wireframe.md#model-scope).
-  - [ ] Add a shared checker harness that separates safety from reachability
-    properties and reports both deterministically. See
-    [formal-verification-methods-in-wireframe.md §Properties to encode](formal-verification-methods-in-wireframe.md#properties-to-encode)
-    and
-    [§Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness).
-  - [ ] Gate a bounded breadth-first search (BFS) model run in pull requests
-    and a deeper run in scheduled or manual workflows. See
-    [formal-verification-methods-in-wireframe.md §Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness)
-    and
-    [§Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
-- [ ] 9.8.5. Add Verus proofs for message assembly invariants. Requires 9.8.1
-  and 9.8.2. See
-  [formal-verification-methods-in-wireframe.md §Verus integration](formal-verification-methods-in-wireframe.md#verus-integration)
+  [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
+   Success criteria: the crate compiles, is included as a workspace member, and
+  contains a placeholder Stateright model that passes `cargo test`.
+- [ ] 10.1.3. Add pinned Kani and Verus tool metadata plus repo-local install
+  and run scripts. See
+  [formal-verification-methods-in-wireframe.md §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
+   and
+  [§Verus should *not* live inside the main build](formal-verification-methods-in-wireframe.md#why-verus-should-not-live-inside-the-main-build).
+   Success criteria: a contributor can run `./scripts/install-kani.sh` and
+  `./scripts/install-verus.sh` to obtain pinned versions.
+- [ ] 10.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
+  `make verus`, `make formal-pr`, and `make formal-nightly` Makefile targets.
+  See
+  [formal-verification-methods-in-wireframe.md §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
+   Success criteria: each target is accepted by `mbake validate Makefile` and
+  returns exit 0 on a clean tree.
+- [ ] 10.1.5. Add separate CI jobs for Stateright, Kani smoke, and Verus
+  proofs without changing the existing `build-test` coverage flow. See
+  [formal-verification-methods-in-wireframe.md §Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
+   Success criteria: CI pipelines pass on the default branch with the new jobs
+  visible and green.
+
+### 10.2. Protocol contract decisions
+
+- [ ] 10.2.1. Decide whether length-prefix widths are limited to `1`, `2`,
+  `4`, and `8` or expanded to the full `1..=8` range, then align constructors,
+  conversions, and tests. Requires 10.1.1. See the [formal verification
+  guide][fv-guide] §"What widths does Wireframe actually support for length
+  prefixes?". Success criteria: an ADR records the decision, constructors
+  enforce the chosen set, and existing tests cover rejected widths.
+- [ ] 10.2.2. Decide whether `total_body_len` is authoritative or advisory,
+  then rename or enforce it consistently in the message assembly path. Requires
+  10.1.1. See the [formal verification guide][fv-guide] §"Is `total_body_len`
+  authoritative or advisory?". Success criteria: an ADR records the decision,
+  runtime code enforces the chosen semantics, and tests verify both conforming
+  and violating inputs.
+- [ ] 10.2.3. Document the intended fairness and priority guarantees for
+  `ConnectionActor` before encoding them as model properties. Requires 10.1.1.
+  See the [formal verification guide][fv-guide] §"What fairness guarantee does
+  `ConnectionActor` actually make?". Success criteria: the design document
+  enumerates each guarantee as a named property that can be referenced by
+  Stateright model checks.
+
+### 10.3. Kani bounded model checks
+
+- [ ] 10.3.1. Add smoke harnesses for supported length-prefix round-trips and
+  unsupported-width rejection in `src/frame/*`. See
+  [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses).
+   Requires 10.1.3 and 10.2.1. Success criteria: `make kani` completes with all
+  harnesses verified.
+- [ ] 10.3.2. Add harnesses for `FragmentSeries`, `Reassembler`, and
+  `MessageSeries` covering duplicates, gaps, completion, and oversize cleanup.
+  See
+  [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses)
+   and
+  [§Phase 2 full harnesses](formal-verification-methods-in-wireframe.md#phase-2-full-harnesses).
+   Requires 10.1.3 and 10.2.2. Success criteria: `make kani-full` completes
+  with all fragment and assembly harnesses verified.
+- [ ] 10.3.3. Extend existing Proptest coverage for fragment round-trips and
+  mixed actor action traces where Kani bounds would be too small. See
+  [formal-verification-methods-in-wireframe.md §Second priority: `src/fragment/*`](formal-verification-methods-in-wireframe.md#second-priority-srcfragment)
+   and
+  [§How Proptest and Loom fit after these changes](formal-verification-methods-in-wireframe.md#how-proptest-and-loom-fit-after-these-changes).
+   Requires 10.3.1. Success criteria: `make test` includes the new Proptest
+  property tests and they pass.
+
+### 10.4. Stateright model checks
+
+- [ ] 10.4.1. Model queue arrivals, active response and multi-packet outputs,
+  shutdown races, fairness state, and terminal markers in
+  `crates/wireframe-verification`. See
+  [formal-verification-methods-in-wireframe.md §Model scope](formal-verification-methods-in-wireframe.md#model-scope).
+   Requires 10.1.2 and 10.2.3. Success criteria: the model compiles and a
+  bounded BFS run completes without panics or assertion failures.
+- [ ] 10.4.2. Add a shared checker harness that separates safety properties
+  from reachability properties and reports both deterministically. See
+  [formal-verification-methods-in-wireframe.md §Properties to encode](formal-verification-methods-in-wireframe.md#properties-to-encode)
+   and
+  [§Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness).
+   Requires 10.4.1. Success criteria: `make test-verification` exercises the
+  checker and reports property results.
+- [ ] 10.4.3. Gate a bounded breadth-first search (BFS) model run in pull
+  request CI and a deeper run in scheduled or manual workflows. See
+  [formal-verification-methods-in-wireframe.md §Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness)
+   and
+  [§Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
+   Requires 10.1.5 and 10.4.2. Success criteria: the PR CI job completes within
+  5 minutes; the nightly job explores a deeper state space.
+
+### 10.5. Verus proofs for message assembly
+
+- [ ] 10.5.1. Enforce the chosen `total_body_len` contract in runtime code
+  before relying on proofs. See
+  [formal-verification-methods-in-wireframe.md §Is `total_body_len` authoritative or advisory?](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
    and
   [§What Verus should prove in Wireframe](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
-  - [ ] Enforce the chosen `total_body_len` contract in runtime code before
-    relying on proofs. See
-    [formal-verification-methods-in-wireframe.md §Is `total_body_len` authoritative or advisory?](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
-    and
-    [§What Verus should prove in Wireframe](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
-  - [ ] Add proof-only modules under `verus/` for declared-total and
-    buffered-byte accounting invariants. See
-    [formal-verification-methods-in-wireframe.md §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
-    and
-    [§Representative proof tree](formal-verification-methods-in-wireframe.md#representative-proof-tree).
-  - [ ] Document proof trigger discipline and contributor expectations for
-    running `make verus`. See
-    [formal-verification-methods-in-wireframe.md §Trigger discipline](formal-verification-methods-in-wireframe.md#trigger-discipline)
-    and
-    [§Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
+   Requires 10.2.2. Success criteria: runtime assertions or checks enforce the
+  contract, and existing tests confirm the enforcement.
+- [ ] 10.5.2. Add proof-only modules under `verus/` for declared-total and
+  buffered-byte accounting invariants. See
+  [formal-verification-methods-in-wireframe.md §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
+   and
+  [§Representative proof tree](formal-verification-methods-in-wireframe.md#representative-proof-tree).
+   Requires 10.1.3 and 10.5.1. Success criteria: `make verus` verifies all
+  proof modules without errors.
+- [ ] 10.5.3. Document proof trigger discipline and contributor expectations
+  for running `make verus`. See
+  [formal-verification-methods-in-wireframe.md §Trigger discipline](formal-verification-methods-in-wireframe.md#trigger-discipline)
+   and
+  [§Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
+   Requires 10.5.2. Success criteria: a contributor guide section explains
+  trigger patterns, and `CONTRIBUTING.md` or the user guide references it.
 
-## 10. Wireframe client library foundation
+## 11. Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
 framing, serialization, and lifecycle layers, so both sides share the same
 behavioural guarantees.
 
-### 10.1. Connection runtime
+### 11.1. Connection runtime
 
-- [x] 10.1.1. Implement `WireframeClient` and its builder so callers can
+- [x] 11.1.1. Implement `WireframeClient` and its builder so callers can
   configure serializers, codec settings (including `max_frame_length` parity),
   and socket options before connecting.
-- [x] 10.1.2. Integrate the existing preamble helpers so clients can emit and
+- [x] 11.1.2. Integrate the existing preamble helpers so clients can emit and
   verify preambles before exchanging frames, with integration tests covering
   success and failure callbacks.
-- [x] 10.1.3. Expose connection lifecycle hooks (setup, teardown, and error)
+- [x] 11.1.3. Expose connection lifecycle hooks (setup, teardown, and error)
   that mirror the server hooks so middleware and instrumentation receive
   matching events.
 
-### 10.2. Request and response pipeline
+### 11.2. Request and response pipeline
 
-- [x] 10.2.1. Provide async `send`, `receive`, and `call` APIs that encode
+- [x] 11.2.1. Provide async `send`, `receive`, and `call` APIs that encode
   `Message` implementers, forward correlation identifiers, and deserialize
   typed responses using the configured serializer.
-- [x] 10.2.2. Map decode and transport failures into `WireframeError` variants
+- [x] 11.2.2. Map decode and transport failures into `WireframeError` variants
   and add integration tests that round-trip multiple message types through a
   sample server.
 
-### 10.3. Streaming and multi-packet parity
+### 11.3. Streaming and multi-packet parity
 
-- [x] 10.3.1. Support `Response::Stream` and `Response::MultiPacket` on the
+- [x] 11.3.1. Support `Response::Stream` and `Response::MultiPacket` on the
   client by propagating back-pressure, validating terminator frames, and
   draining push traffic without starving request-driven responses.
-- [x] 10.3.2. Exercise interleaved high- and low-priority push queues to prove
+- [x] 11.3.2. Exercise interleaved high- and low-priority push queues to prove
   fairness and rate limits remain symmetrical.
 
-### 10.4. Documentation and examples
+### 11.4. Documentation and examples
 
-- [x] 10.4.1. Publish a runnable example where a client connects to the `echo`
+- [x] 11.4.1. Publish a runnable example where a client connects to the `echo`
   server, issues a login request, and decodes the acknowledgement.
-- [x] 10.4.2. Extend `docs/users-guide.md` and `docs/wireframe-client-design.md`
+- [x] 11.4.2. Extend `docs/users-guide.md` and `docs/wireframe-client-design.md`
   with configuration tables, lifecycle diagrams, and troubleshooting guidance
   for the new APIs.
 
-## 11. Client ergonomics and extensions
+## 12. Client ergonomics and extensions
 
 This phase layers on the ergonomic features outlined in the client design
 document so larger deployments can adopt the library confidently.
 
-### 11.1. Middleware and observability
+### 12.1. Middleware and observability
 
-- [x] 11.1.1. Add middleware hooks for outgoing requests and incoming frames so
+- [x] 12.1.1. Add middleware hooks for outgoing requests and incoming frames so
   metrics, retries, and authentication tokens can be injected symmetrically
   with server middleware.
-- [x] 11.1.2. Provide structured logging and tracing spans around connect,
+- [x] 12.1.2. Provide structured logging and tracing spans around connect,
   send, receive, call, stream, and close lifecycle events, plus configuration
   for per-command timing.
 
-### 11.2. Connection pooling and concurrency
+### 12.2. Connection pooling and concurrency
 
-- [x] 11.2.1. Implement a configurable connection pool that preserves preamble
+- [x] 12.2.1. Implement a configurable connection pool that preserves preamble
   state, enforces in-flight request limits per socket, and recycles idle
   connections.
-- [x] 11.2.2. Expose a `PoolHandle` API with fairness policies, so callers can
+- [x] 12.2.2. Expose a `PoolHandle` API with fairness policies, so callers can
   multiplex many logical sessions without violating back-pressure.
 
-### 11.3. Streaming helpers and test utilities
+### 12.3. Streaming helpers and test utilities
 
-- [ ] 11.3.1. Ship helper traits or macros for consuming streaming responses
+- [ ] 12.3.1. Ship helper traits or macros for consuming streaming responses
   (for example typed iterators over `Response::Stream`) so multiplexed
   protocols remain ergonomic.
-- [ ] 11.3.2. Publish reusable test harnesses that spin up an in-process server
+- [ ] 12.3.2. Publish reusable test harnesses that spin up an in-process server
   and client pair, allowing downstream crates to verify compatibility.
 
-### 11.4. Docs and adoption
+### 12.4. Docs and adoption
 
-- [x] 11.4.1. Update the user guide with migration advice for the pooled client
+- [x] 12.4.1. Update the user guide with migration advice for the pooled client
   and document known limitations or out-of-scope behaviours.
-- [ ] 11.4.2. Add a troubleshooting section that enumerates the most common
+- [ ] 12.4.2. Add a troubleshooting section that enumerates the most common
   client misconfigurations (codec length mismatch, preamble errors, TLS issues)
   and how to detect them.
 
-## 12. Advanced features and ecosystem (future)
+## 13. Advanced features and ecosystem (future)
 
 This phase includes features that will broaden the library's applicability and
 ecosystem.
 
-### 12.1. Alternative transports
+### 13.1. Alternative transports
 
-- [ ] 12.1.1. Abstract the transport layer to support protocols other than raw
+- [ ] 13.1.1. Abstract the transport layer to support protocols other than raw
   TCP (e.g., WebSockets, QUIC).
 
-### 12.2. Message versioning
+### 13.2. Message versioning
 
-- [ ] 12.2.1. Implement a formal message versioning system to allow for
+- [ ] 13.2.1. Implement a formal message versioning system to allow for
   protocol evolution.
-- [ ] 12.2.2. Ensure version negotiation can consume codec metadata without
+- [ ] 13.2.2. Ensure version negotiation can consume codec metadata without
   leaking framing details into handlers.[^message-versioning]
 
-### 12.3. Security
+### 13.3. Security
 
-- [ ] 12.3.1. Provide built-in middleware or guides for implementing TLS.
+- [ ] 13.3.1. Provide built-in middleware or guides for implementing TLS.
 
-## 13. Documentation and community (ongoing)
+## 14. Documentation and community (ongoing)
 
 Continuous improvement of documentation and examples is essential for adoption
 and usability.
 
-### 13.1. Initial documentation
+### 14.1. Initial documentation
 
-- [x] 13.1.1. Write comprehensive doc comments for all public APIs.
-- [x] 13.1.2. Create a high-level `README.md` and a `docs/contents.md`.
+- [x] 14.1.1. Write comprehensive doc comments for all public APIs.
+- [x] 14.1.2. Create a high-level `README.md` and a `docs/contents.md`.
 
-### 13.2. Examples
+### 14.2. Examples
 
-- [x] 13.2.1. Create a variety of examples demonstrating core features
+- [x] 14.2.1. Create a variety of examples demonstrating core features
   (`ping_pong`, `echo`, `metadata_routing`, and `async_stream`).
 
-### 13.3. Website and user guide
+### 14.3. Website and user guide
 
-- [ ] 13.3.1. Develop a dedicated website with a detailed user guide.
-- [ ] 13.3.2. Write tutorials for common use cases.
+- [ ] 14.3.1. Develop a dedicated website with a detailed user guide.
+- [ ] 14.3.2. Write tutorials for common use cases.
 
-### 13.4. API documentation
+### 14.4. API documentation
 
-- [ ] 13.4.1. Ensure all public items have clear, useful documentation
+- [ ] 14.4.1. Ensure all public items have clear, useful documentation
   examples.
-- [ ] 13.4.2. Publish documentation to `docs.rs`.
+- [ ] 14.4.2. Publish documentation to `docs.rs`.
 
 [^adr-0001]: Refer to
 [ADR 0001](adr-001-multi-packet-streaming-response-api.md).
@@ -686,3 +717,5 @@ and usability.
 [adr-005-serializer-abstraction.md](adr-005-serializer-abstraction.md).
 [^adr-006]: See
 [adr-006-test-observability.md](adr-006-test-observability.md).
+
+[fv-guide]: formal-verification-methods-in-wireframe.md
