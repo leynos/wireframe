@@ -484,19 +484,19 @@ Wireframe's protocol, framing, and message assembly layers.
 
 - [ ] 10.2.1. Decide whether length-prefix widths are limited to `1`, `2`,
   `4`, and `8` or expanded to the full `1..=8` range, then align constructors,
-  conversions, and tests. Requires 10.1.1. See the [formal verification
-  guide][fv-guide] §"What widths does Wireframe actually support for length
+  conversions, and tests. Requires 10.1.1. See the formal verification
+  guide[^fv-guide] §"What widths does Wireframe actually support for length
   prefixes?". Success criteria: an ADR records the decision, constructors
   enforce the chosen set, and existing tests cover rejected widths.
 - [ ] 10.2.2. Decide whether `total_body_len` is authoritative or advisory,
   then rename or enforce it consistently in the message assembly path. Requires
-  10.1.1. See the [formal verification guide][fv-guide] §"Is `total_body_len`
+  10.1.1. See the formal verification guide[^fv-guide] §"Is `total_body_len`
   authoritative or advisory?". Success criteria: an ADR records the decision,
   runtime code enforces the chosen semantics, and tests verify both conforming
   and violating inputs.
 - [ ] 10.2.3. Document the intended fairness and priority guarantees for
   `ConnectionActor` before encoding them as model properties. Requires 10.1.1.
-  See the [formal verification guide][fv-guide] §"What fairness guarantee does
+  See the formal verification guide[^fv-guide] §"What fairness guarantee does
   `ConnectionActor` actually make?". Success criteria: the design document
   enumerates each guarantee as a named property that can be referenced by
   Stateright model checks.
@@ -718,4 +718,5 @@ and usability.
 [^adr-006]: See
 [adr-006-test-observability.md](adr-006-test-observability.md).
 
-[fv-guide]: formal-verification-methods-in-wireframe.md
+[^fv-guide]: See
+[formal-verification-methods-in-wireframe.md](formal-verification-methods-in-wireframe.md).
