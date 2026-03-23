@@ -74,6 +74,23 @@ fn send_signal<T>(holder: &std::sync::Mutex<Option<oneshot::Sender<T>>>, value: 
     }
 }
 
+/// Construct a preamble-failure callback that signals `holder` and returns `Ok`.
+fn make_failure_signal_callback(
+    holder: SenderHolder<()>,
+) -> impl for<'a> Fn(
+    &'a ClientError,
+    &'a mut tokio::net::TcpStream,
+) -> futures::future::BoxFuture<'a, std::io::Result<()>> {
+    move |_err, _stream| {
+        let holder = holder.clone();
+        async move {
+            send_signal(&holder, ());
+            Ok(())
+        }
+        .boxed()
+    }
+}
+
 /// Test world exercising client preamble exchange.
 #[derive(Debug, Default)]
 pub struct ClientPreambleWorld {
@@ -112,10 +129,26 @@ impl ClientPreambleWorld {
         Ok(())
     }
 
+    /// Bind a listener, accept the first connection, read and discard the client
+    /// preamble, then call `handler` with the bare stream.
+    async fn spawn_server_after_preamble<F, Fut>(&mut self, handler: F) -> TestResult
+    where
+        F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        self.spawn_server(|mut stream| async move {
+            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
+                .await
+                .expect("read preamble");
+            handler(stream).await;
+        })
+        .await
+    }
+
     /// Store the outcome of a connect attempt that carries no failure signal.
     ///
     /// On success the client is retained; on failure the error is recorded.
-    async fn store_connect_result(
+    fn store_connect_result(
         &mut self,
         result: Result<
             WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
@@ -189,10 +222,7 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept, read, or write fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
-        self.spawn_server(|mut stream| async move {
-            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
-                .await
-                .expect("read preamble");
+        self.spawn_server_after_preamble(|mut stream| async move {
             write_preamble(&mut stream, &ServerAck { accepted: true })
                 .await
                 .expect("write ack");
@@ -209,10 +239,7 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept, read, or write fails.
     pub async fn start_invalid_ack_server(&mut self) -> TestResult {
-        self.spawn_server(|mut stream| async move {
-            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
-                .await
-                .expect("read preamble");
+        self.spawn_server_after_preamble(|mut stream| async move {
             stream
                 .write_all(&[0xff, 0x00, 0x01])
                 .await
@@ -355,14 +382,7 @@ impl ClientPreambleWorld {
                 }
                 .boxed()
             })
-            .on_preamble_failure(move |_err, _stream| {
-                let holder = failure_holder.clone();
-                async move {
-                    send_signal(&holder, ());
-                    Ok(())
-                }
-                .boxed()
-            })
+            .on_preamble_failure(make_failure_signal_callback(failure_holder))
             .connect(addr)
             .await;
 
@@ -393,14 +413,7 @@ impl ClientPreambleWorld {
                 }
                 .boxed()
             })
-            .on_preamble_failure(move |_err, _stream| {
-                let holder = failure_holder.clone();
-                async move {
-                    send_signal(&holder, ());
-                    Ok(())
-                }
-                .boxed()
-            })
+            .on_preamble_failure(make_failure_signal_callback(failure_holder))
             .connect(addr)
             .await;
 
@@ -416,7 +429,7 @@ impl ClientPreambleWorld {
     pub async fn connect_without_preamble(&mut self) -> TestResult {
         let addr = self.addr.ok_or("server address missing")?;
         let result = WireframeClient::builder().connect(addr).await;
-        self.store_connect_result(result).await;
+        self.store_connect_result(result);
         Ok(())
     }
 
