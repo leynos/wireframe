@@ -455,7 +455,7 @@ Wireframe's protocol, framing, and message assembly layers.
    Success criteria: `cargo build` and `cargo test --workspace` pass with the
   new layout.
 - [ ] 10.1.2. Add `crates/wireframe-verification` as an internal crate for
-  Stateright models and shared verification harnesses. See
+  Stateright models and shared verification harnesses. Requires 10.1.1. See
   [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
    and
   [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
@@ -470,7 +470,7 @@ Wireframe's protocol, framing, and message assembly layers.
   `./scripts/install-verus.sh` to obtain pinned versions.
 - [ ] 10.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
   `make verus`, `make formal-pr`, and `make formal-nightly` Makefile targets.
-  See
+  Requires 10.1.2 and 10.1.3. See
   [formal-verification-methods-in-wireframe.md §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
    Success criteria: each target is accepted by `mbake validate Makefile` and
   returns exit 0 on a clean tree.
@@ -551,9 +551,9 @@ Wireframe's protocol, framing, and message assembly layers.
 
 - [ ] 10.5.1. Enforce the chosen `total_body_len` contract in runtime code
   before relying on proofs. See
-  [formal-verification-methods-in-wireframe.md §Is `total_body_len` authoritative or advisory?](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
+  [formal-verification-methods-in-wireframe.md §"Is `total_body_len` authoritative or advisory?"](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
    and
-  [§What Verus should prove in Wireframe](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
+  [§"What Verus should prove in Wireframe"](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
    Requires 10.2.2. Success criteria: runtime assertions or checks enforce the
   contract, and existing tests confirm the enforcement.
 - [ ] 10.5.2. Add proof-only modules under `verus/` for declared-total and
