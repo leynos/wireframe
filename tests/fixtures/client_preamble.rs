@@ -184,10 +184,10 @@ impl ClientPreambleWorld {
             }
             Err(e) => {
                 self.last_error = Some(e);
-                if tokio::time::timeout(Duration::from_secs(1), failure_rx)
-                    .await
-                    .is_ok()
-                {
+                if matches!(
+                    tokio::time::timeout(Duration::from_secs(1), failure_rx).await,
+                    Ok(Ok(()))
+                ) {
                     self.failure_callback_invoked = true;
                 }
             }
@@ -300,10 +300,10 @@ impl ClientPreambleWorld {
         match result {
             Ok(client) => {
                 self.client = Some(client);
-                if tokio::time::timeout(Duration::from_secs(1), rx)
-                    .await
-                    .is_ok()
-                {
+                if matches!(
+                    tokio::time::timeout(Duration::from_secs(1), rx).await,
+                    Ok(Ok(()))
+                ) {
                     self.success_callback_invoked = true;
                 }
             }
