@@ -80,12 +80,12 @@ impl TestkitExportWorld {
         Ok(())
     }
 
-    pub fn seed_completed_message_snapshot(&mut self, key: u64) {
+    pub fn seed_completed_message_snapshot(&mut self) {
         let routing = EnvelopeRouting {
             envelope_id: EnvelopeId(1),
             correlation_id: None,
         };
-        let assembled = AssembledMessage::new(MessageKey(key), routing, vec![], b"done".to_vec());
+        let assembled = AssembledMessage::new(MessageKey(7), routing, vec![], b"done".to_vec());
         self.last_result = Some(Ok(Some(assembled.clone())));
         self.completed_messages = vec![assembled];
     }

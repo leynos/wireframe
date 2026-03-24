@@ -54,3 +54,4 @@ pub use slow_io::{
     drive_with_slow_frames,
     drive_with_slow_payloads,
 };
+pub use support::TestSerializer;

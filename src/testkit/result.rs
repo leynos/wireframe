@@ -11,6 +11,7 @@ use crate::{
 };
 
 /// Error type shared by `wireframe::testkit` helper APIs.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum TestError {
     /// IO error surfaced while exercising test utilities.

@@ -26,7 +26,6 @@ use crate::{
 pub(crate) const DEFAULT_CAPACITY: usize = 4096;
 
 /// Serializer bounds expected by the in-memory test harness.
-#[doc(hidden)]
 pub trait TestSerializer:
     Serializer
     + MessageCompatibilitySerializer

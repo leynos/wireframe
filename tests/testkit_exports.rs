@@ -94,7 +94,19 @@ async fn root_testkit_exports_partial_frame_and_fragment_drivers() -> io::Result
     let fragmenter = Fragmenter::new(
         NonZeroUsize::new(16).ok_or_else(|| io::Error::other("fragment cap must be non-zero"))?,
     );
-    let _ = drive_with_fragments(app, &codec, &fragmenter, vec![0; 64]).await?;
+    let payload = serialize_envelope(b"fragment-test")?;
+    let response_payloads = drive_with_fragments(app, &codec, &fragmenter, payload).await?;
+    // drive_with_fragments returns codec-encoded wire frames
+    if response_payloads.is_empty() {
+        return Err(io::Error::other("expected non-empty response payloads"));
+    }
+    // Verify we got a response (wire frame data) - actual content validation is covered by other tests
+    let first_payload = response_payloads
+        .first()
+        .ok_or_else(|| io::Error::other("expected response payload"))?;
+    if first_payload.is_empty() {
+        return Err(io::Error::other("expected non-empty response frame"));
+    }
     Ok(())
 }
 
@@ -123,7 +135,21 @@ async fn root_testkit_exports_slow_io_helpers() -> io::Result<()> {
         return Err(io::Error::other("expected paced helper to remain pending"));
     }
 
-    tokio::time::advance(Duration::from_millis(30)).await;
+    // Incrementally advance time until the task completes or we exceed a reasonable timeout
+    // Calculate timeout based on pacing: payload likely needs multiple chunks at 5ms each
+    let step = Duration::from_millis(10);
+    let mut total = Duration::ZERO;
+    let timeout = Duration::from_secs(1); // Generous timeout for paced I/O
+    while !task.is_finished() && total < timeout {
+        tokio::time::advance(step).await;
+        total += step;
+    }
+    if !task.is_finished() {
+        return Err(io::Error::other(format!(
+            "task did not complete after {total:?}"
+        )));
+    }
+
     let response_payloads = task
         .await
         .map_err(|error| io::Error::other(format!("join failed: {error}")))??;

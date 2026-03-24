@@ -377,10 +377,10 @@ tests.
 Create a small behavioural flow dedicated to the new `wireframe::testkit`
 surface. Follow the repository's standard structure:
 
-- `tests/features/testkit_exports.feature`
-- `tests/fixtures/testkit_exports.rs`
-- `tests/steps/testkit_exports_steps.rs`
-- `tests/scenarios/testkit_exports_scenarios.rs`
+- `tests/features/testkit_export.feature`
+- `tests/fixtures/testkit_export.rs`
+- `tests/steps/testkit_export_steps.rs`
+- `tests/scenarios/testkit_export_scenarios.rs`
 
 This BDD flow should import `wireframe::testkit` directly and prove at least
 these observable behaviours:

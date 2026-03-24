@@ -31,8 +31,10 @@ fn then_non_empty_payload(testkit_export_world: &mut TestkitExportWorld) -> Test
 
 #[given("a completed message-assembly snapshot for key {key:u64} in the testkit export world")]
 fn given_completed_snapshot(testkit_export_world: &mut TestkitExportWorld, key: u64) -> TestResult {
-    let _ = usize::try_from(key)?;
-    testkit_export_world.seed_completed_message_snapshot(key);
+    if key != 7 {
+        return Err(format!("fixture only supports key 7, got {key}").into());
+    }
+    testkit_export_world.seed_completed_message_snapshot();
     Ok(())
 }
 
