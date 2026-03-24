@@ -2,15 +2,12 @@
 
 use std::{io, num::NonZeroUsize};
 
-use tokio::io::DuplexStream;
-
 use super::support::{
     DEFAULT_CAPACITY,
     TestSerializer,
-    decode_frames_with_codec,
     drive_chunked_internal,
+    drive_codec_roundtrip,
     drive_internal,
-    encode_payloads_with_codec,
     extract_payloads,
     run_owned_app,
 };
@@ -55,46 +52,6 @@ fn fragment_and_encode(
 }
 
 const DEFAULT_FRAGMENT_ROUTE_ID: u32 = 1;
-
-struct FragmentRequest<'a> {
-    fragmenter: &'a Fragmenter,
-    payload: Vec<u8>,
-    route_id: u32,
-    capacity: usize,
-}
-
-impl<'a> FragmentRequest<'a> {
-    fn new(fragmenter: &'a Fragmenter, payload: Vec<u8>) -> Self {
-        Self {
-            fragmenter,
-            payload,
-            route_id: DEFAULT_FRAGMENT_ROUTE_ID,
-            capacity: DEFAULT_CAPACITY,
-        }
-    }
-
-    fn with_capacity(mut self, capacity: usize) -> Self {
-        self.capacity = capacity;
-        self
-    }
-}
-
-async fn drive_fragments_internal<F, H, Fut>(
-    handler: H,
-    codec: &F,
-    request: FragmentRequest<'_>,
-) -> io::Result<Vec<F::Frame>>
-where
-    F: FrameCodec,
-    H: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
-{
-    let serialized_envelopes =
-        fragment_and_encode(request.fragmenter, request.payload, request.route_id)?;
-    let encoded = encode_payloads_with_codec(codec, serialized_envelopes)?;
-    let raw = drive_internal(handler, encoded, request.capacity).await?;
-    decode_frames_with_codec(codec, &raw)
-}
 
 /// Fragment `payload`, encode each fragment into a codec frame, and drive
 /// through `app`.
@@ -141,10 +98,12 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    let frames = drive_fragments_internal(
+    let envelopes = fragment_and_encode(fragmenter, payload, DEFAULT_FRAGMENT_ROUTE_ID)?;
+    let frames = drive_codec_roundtrip(
         |server| run_owned_app(app, server),
         codec,
-        FragmentRequest::new(fragmenter, payload).with_capacity(capacity),
+        envelopes,
+        |handler, wire_bytes| drive_internal(handler, vec![wire_bytes], capacity),
     )
     .await?;
     Ok(extract_payloads::<F>(&frames))
@@ -168,10 +127,12 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    let frames = drive_fragments_internal(
+    let envelopes = fragment_and_encode(fragmenter, payload, DEFAULT_FRAGMENT_ROUTE_ID)?;
+    let frames = drive_codec_roundtrip(
         |server| async move { app.handle_connection(server).await },
         codec,
-        FragmentRequest::new(fragmenter, payload),
+        envelopes,
+        |handler, wire_bytes| drive_internal(handler, vec![wire_bytes], DEFAULT_CAPACITY),
     )
     .await?;
     Ok(extract_payloads::<F>(&frames))
@@ -195,10 +156,12 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    drive_fragments_internal(
+    let envelopes = fragment_and_encode(fragmenter, payload, DEFAULT_FRAGMENT_ROUTE_ID)?;
+    drive_codec_roundtrip(
         |server| run_owned_app(app, server),
         codec,
-        FragmentRequest::new(fragmenter, payload),
+        envelopes,
+        |handler, wire_bytes| drive_internal(handler, vec![wire_bytes], DEFAULT_CAPACITY),
     )
     .await
 }
@@ -226,16 +189,15 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    let serialized_envelopes = fragment_and_encode(fragmenter, payload, DEFAULT_FRAGMENT_ROUTE_ID)?;
-    let encoded = encode_payloads_with_codec(codec, serialized_envelopes)?;
-    let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
-    let raw = drive_chunked_internal(
+    let envelopes = fragment_and_encode(fragmenter, payload, DEFAULT_FRAGMENT_ROUTE_ID)?;
+    let frames = drive_codec_roundtrip(
         |server| run_owned_app(app, server),
-        wire_bytes,
-        chunk_size,
-        DEFAULT_CAPACITY,
+        codec,
+        envelopes,
+        |handler, wire_bytes| {
+            drive_chunked_internal(handler, wire_bytes, chunk_size, DEFAULT_CAPACITY)
+        },
     )
     .await?;
-    let frames = decode_frames_with_codec(codec, &raw)?;
     Ok(extract_payloads::<F>(&frames))
 }

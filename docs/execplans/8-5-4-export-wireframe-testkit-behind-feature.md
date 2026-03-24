@@ -190,7 +190,8 @@ Success is observable when all of the following are true:
 
 ## Outcomes & Retrospective
 
-Not started yet. This section must be updated after implementation with:
+This section records the concrete outcomes and validation for the implemented
+plan:
 
 - Final shipped API:
   `wireframe::testkit` now exposes the phase-8.5 chunked partial-frame drivers,
@@ -429,7 +430,7 @@ cargo test --test testkit_exports --features testkit \
 
 ```sh
 set -o pipefail
-cargo test --test bdd --features "advanced-tests testkit" -- testkit_exports \
+cargo test --test bdd --features "advanced-tests testkit" -- testkit_export \
   2>&1 | tee /tmp/8-5-4-bdd.log
 ```
 

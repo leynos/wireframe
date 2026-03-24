@@ -3,7 +3,7 @@
 use std::{io, num::NonZeroUsize, time::Duration};
 
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, split},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, WriteHalf},
     time::sleep,
 };
 
@@ -11,8 +11,10 @@ use super::support::{
     DEFAULT_CAPACITY,
     TestSerializer,
     decode_frames_with_codec,
+    drive_with_strategies,
     encode_payloads_with_codec,
     extract_payloads,
+    read_all,
     run_owned_app,
 };
 use crate::{
@@ -85,7 +87,15 @@ impl SlowIoConfig {
         self
     }
 
-    fn validate(self) -> io::Result<Self> {
+    /// Validate the configuration, returning an error if any invariants are
+    /// violated: capacity must be non-zero, must not exceed
+    /// [`MAX_SLOW_IO_CAPACITY`], and each pacing chunk size must not exceed
+    /// the configured capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::ErrorKind::InvalidInput` when any constraint fails.
+    pub fn validate(self) -> io::Result<Self> {
         if self.capacity == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -192,6 +202,9 @@ where
     }
 }
 
+/// Drive `server_fn` over a duplex stream with optional pacing on each
+/// direction. Delegates duplex setup, panic handling, and `try_join!`
+/// orchestration to the shared `drive_with_strategies` helper.
 async fn drive_slow_internal<F, Fut>(
     server_fn: F,
     wire_bytes: Vec<u8>,
@@ -202,33 +215,22 @@ where
     Fut: std::future::Future<Output = ()>,
 {
     let config = config.validate()?;
-    let (client, server) = tokio::io::duplex(config.capacity);
-    let (mut reader, mut writer) = split(client);
 
-    let server_fut = async {
-        use futures::FutureExt as _;
-        let result = std::panic::AssertUnwindSafe(server_fn(server))
-            .catch_unwind()
-            .await;
-        match result {
-            Ok(()) => Ok(()),
-            Err(panic) => {
-                let panic_msg = crate::panic::format_panic(&panic);
-                Err(io::Error::other(format!("server task failed: {panic_msg}")))
+    drive_with_strategies(
+        server_fn,
+        config.capacity,
+        |mut writer: WriteHalf<DuplexStream>| async {
+            write_with_optional_pacing(&mut writer, &wire_bytes, config.writer_pacing).await?;
+            Ok(writer)
+        },
+        |mut reader| async {
+            match config.reader_pacing {
+                None => read_all(reader).await,
+                Some(_) => read_with_optional_pacing(&mut reader, config.reader_pacing).await,
             }
-        }
-    };
-
-    let writer_fut = async {
-        write_with_optional_pacing(&mut writer, &wire_bytes, config.writer_pacing).await?;
-        writer.shutdown().await?;
-        io::Result::Ok(())
-    };
-
-    let reader_fut = read_with_optional_pacing(&mut reader, config.reader_pacing);
-
-    let ((), (), out) = tokio::try_join!(server_fut, writer_fut, reader_fut)?;
-    Ok(out)
+        },
+    )
+    .await
 }
 
 fn encode_length_delimited_payloads(payloads: Vec<Vec<u8>>) -> io::Result<Vec<u8>> {
