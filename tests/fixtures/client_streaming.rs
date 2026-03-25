@@ -89,43 +89,6 @@ impl ClientStreamingWorld {
         }
     }
 
-    #[allow(
-        clippy::type_complexity,
-        reason = "HRTB trait bound requires explicit Pin<Box<dyn Future>> return type"
-    )]
-    async fn execute_stream_call<St, Item>(
-        &mut self,
-        build_stream: impl for<'a> FnOnce(
-            &'a mut WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<St, ClientError>> + 'a>,
-        >,
-        mut push: impl FnMut(&mut Self, Item),
-    ) -> TestResult
-    where
-        St: futures::Stream<Item = Result<Item, ClientError>> + Unpin,
-    {
-        self.reset_state();
-        let client = self.client.as_mut().ok_or("client not connected")?;
-        let stream = build_stream(client).await?;
-
-        // Drain the stream manually here to avoid borrow checker issues
-        loop {
-            match stream.next().await {
-                Some(Ok(item)) => push(self, item),
-                Some(Err(e)) => {
-                    self.last_error = Some(e);
-                    break;
-                }
-                None => {
-                    self.stream_terminated_cleanly = true;
-                    break;
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Build a new runtime-backed client streaming world.
     fn new() -> Self {
         let (runtime, runtime_error) = match tokio::runtime::Builder::new_current_thread()
@@ -177,29 +140,33 @@ impl ClientStreamingWorld {
 
     /// Send a streaming request and consume the response stream.
     pub async fn send_streaming_request(&mut self) -> TestResult {
-        self.execute_stream_call(
-            move |client| {
-                Box::pin(client.call_streaming::<StreamTestEnvelope>(Self::build_request()))
-            },
-            |world, frame| world.received_frames.push(frame),
-        )
-        .await
+        self.reset_state();
+        let mut client = self.client.take().ok_or("client not connected")?;
+        let stream = client
+            .call_streaming::<StreamTestEnvelope>(Self::build_request())
+            .await?;
+        self.drain_stream(stream, |world, frame| {
+            world.received_frames.push(frame);
+        })
+        .await;
+        self.client = Some(client);
+        Ok(())
     }
 
     /// Send a streaming request and collect only typed data items.
     pub async fn send_typed_streaming_request(&mut self) -> TestResult {
-        self.execute_stream_call(
-            move |client| {
-                Box::pin(async move {
-                    client
-                        .call_streaming::<StreamTestEnvelope>(Self::build_request())
-                        .await
-                        .map(|s| s.typed_with(map_streaming_item))
-                })
-            },
-            |world, item| world.typed_items.push(item),
-        )
-        .await
+        self.reset_state();
+        let mut client = self.client.take().ok_or("client not connected")?;
+        let stream = client
+            .call_streaming::<StreamTestEnvelope>(Self::build_request())
+            .await?
+            .typed_with(map_streaming_item);
+        self.drain_stream(stream, |world, item| {
+            world.typed_items.push(item);
+        })
+        .await;
+        self.client = Some(client);
+        Ok(())
     }
 }
 
