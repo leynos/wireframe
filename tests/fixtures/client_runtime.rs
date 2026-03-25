@@ -30,6 +30,10 @@ use echo_login_contract::{LOGIN_ROUTE_ID, LoginAck, LoginRequest};
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
 
+/// Simulated TLS 1.2 `ServerHello` record, used to exercise protocol-mismatch
+/// error-handling in the wireframe client.
+pub const SIMULATED_TLS_RECORD: [u8; 7] = [0x16, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
+
 /// Test world exercising the wireframe client runtime.
 #[derive(Debug)]
 pub struct ClientRuntimeWorld {
@@ -199,8 +203,7 @@ impl ClientRuntimeWorld {
                     return;
                 }
             }
-            let tls_record = [0x16_u8, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
-            if let Err(err) = stream.write_all(&tls_record).await {
+            if let Err(err) = stream.write_all(&SIMULATED_TLS_RECORD).await {
                 warn!("client runtime TLS-mismatch server failed to write response: {err:?}");
                 return;
             }

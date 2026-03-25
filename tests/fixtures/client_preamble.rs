@@ -25,6 +25,9 @@ use wireframe::{
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
 
+/// Invalid acknowledgement bytes used to exercise preamble-read error-handling.
+pub const INVALID_ACK_BYTES: [u8; 3] = [0xff, 0x00, 0x01];
+
 /// Preamble used for testing.
 #[derive(Debug, Clone, PartialEq, Eq, Default, bincode::Encode, bincode::BorrowDecode)]
 pub struct TestPreamble {
@@ -241,7 +244,7 @@ impl ClientPreambleWorld {
     pub async fn start_invalid_ack_server(&mut self) -> TestResult {
         self.spawn_server_after_preamble(|mut stream| async move {
             stream
-                .write_all(&[0xff, 0x00, 0x01])
+                .write_all(&INVALID_ACK_BYTES)
                 .await
                 .expect("write invalid acknowledgement");
         })

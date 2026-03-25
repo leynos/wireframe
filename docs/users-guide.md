@@ -2266,7 +2266,7 @@ decode failures are surfaced through `ClientError::Wireframe`.[^51]
   pointing a plain `WireframeClient` at a port that expects Transport Layer
   Security (TLS), Hypertext Transfer Protocol (HTTP), or another protocol
   usually surfaces as `ClientError::Wireframe(WireframeError::Io(_))` after the
-  first request, because the bytes returned are not valid Wireframe frames.
+  first request because the bytes returned are not valid Wireframe frames.
   Verify the host and port, confirm whether a TLS terminator is required, and
   remember that built-in client TLS configuration is still future work.
 - Correlation mismatch errors:

@@ -6,11 +6,7 @@ use std::io;
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use rstest::rstest;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-    task::JoinHandle,
-};
+use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     WireframeError,
@@ -231,46 +227,6 @@ async fn client_surfaces_oversized_frame_failures_as_wireframe_io() {
     assert!(
         matches!(result, Err(ClientError::Wireframe(WireframeError::Io(_)))),
         "client should map oversize transport failures to WireframeError::Io"
-    );
-
-    server.await.expect("join server task");
-}
-
-#[tokio::test]
-async fn client_surfaces_tls_protocol_mismatch_as_wireframe_io() {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind test listener");
-    let addr = listener
-        .local_addr()
-        .expect("read local address for test listener");
-
-    let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.expect("server accepts connection");
-        let mut request_buf = [0_u8; 64];
-        let _request_bytes = stream
-            .read(&mut request_buf)
-            .await
-            .expect("read client request bytes");
-        let tls_record = [0x16_u8, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
-        stream
-            .write_all(&tls_record)
-            .await
-            .expect("write TLS-like response bytes");
-        stream.shutdown().await.expect("shutdown test stream");
-    });
-
-    let mut client = WireframeClient::builder()
-        .codec_config(ClientCodecConfig::default().max_frame_length(1024))
-        .connect(addr)
-        .await
-        .expect("connect client");
-
-    let payload = Ping(11);
-    let result: Result<Ping, ClientError> = client.call(&payload).await;
-    assert!(
-        matches!(result, Err(ClientError::Wireframe(WireframeError::Io(_)))),
-        "client should map TLS protocol mismatch to WireframeError::Io"
     );
 
     server.await.expect("join server task");
