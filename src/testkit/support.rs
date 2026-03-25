@@ -158,6 +158,23 @@ pub(crate) async fn read_all(mut reader: impl AsyncRead + Unpin) -> io::Result<V
 // High-level internal drivers (convenience wrappers)
 // ---------------------------------------------------------------------------
 
+async fn write_frames_strategy(
+    mut writer: WriteHalf<DuplexStream>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<WriteHalf<DuplexStream>> {
+    write_frames(&mut writer, &frames).await?;
+    Ok(writer)
+}
+
+async fn write_chunked_strategy(
+    mut writer: WriteHalf<DuplexStream>,
+    bytes: Vec<u8>,
+    chunk_size: NonZeroUsize,
+) -> io::Result<WriteHalf<DuplexStream>> {
+    write_chunked(&mut writer, &bytes, chunk_size).await?;
+    Ok(writer)
+}
+
 pub(crate) async fn drive_internal<F, Fut>(
     server_fn: F,
     frames: Vec<Vec<u8>>,
@@ -170,10 +187,7 @@ where
     drive_with_strategies(
         server_fn,
         capacity,
-        |mut writer| async {
-            write_frames(&mut writer, &frames).await?;
-            Ok(writer)
-        },
+        |writer| write_frames_strategy(writer, frames),
         read_all,
     )
     .await
@@ -192,10 +206,7 @@ where
     drive_with_strategies(
         server_fn,
         capacity,
-        |mut writer| async {
-            write_chunked(&mut writer, &wire_bytes, chunk_size).await?;
-            Ok(writer)
-        },
+        |writer| write_chunked_strategy(writer, wire_bytes, chunk_size),
         read_all,
     )
     .await

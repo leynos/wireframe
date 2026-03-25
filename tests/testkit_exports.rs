@@ -100,7 +100,8 @@ async fn root_testkit_exports_partial_frame_and_fragment_drivers() -> io::Result
     if response_payloads.is_empty() {
         return Err(io::Error::other("expected non-empty response payloads"));
     }
-    // Verify we got a response (wire frame data) - actual content validation is covered by other tests
+    // Verify we got a response (wire frame data) - actual content validation is covered by other
+    // tests
     let first_payload = response_payloads
         .first()
         .ok_or_else(|| io::Error::other("expected response payload"))?;
@@ -204,38 +205,31 @@ fn root_testkit_exports_reassembly_assertions() -> wireframe::testkit::TestResul
 // SlowIoConfig validation failure-path tests
 // ---------------------------------------------------------------------------
 
+fn assert_slow_io_config_rejects(config: SlowIoConfig, context: &str) -> io::Result<()> {
+    match config.validate() {
+        Ok(_) => Err(io::Error::other(context)),
+        Err(err) if err.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        Err(err) => Err(io::Error::other(format!(
+            "{context}: expected InvalidInput, got {:?}",
+            err.kind()
+        ))),
+    }
+}
+
 #[test]
 fn slow_io_config_validate_rejects_zero_capacity() -> io::Result<()> {
-    let config = SlowIoConfig::new().with_capacity(0);
-
-    let err = config
-        .validate()
-        .expect_err("expected validate to fail for zero capacity");
-
-    if err.kind() != io::ErrorKind::InvalidInput {
-        return Err(io::Error::other(format!(
-            "expected InvalidInput, got {:?}",
-            err.kind()
-        )));
-    }
-    Ok(())
+    assert_slow_io_config_rejects(
+        SlowIoConfig::new().with_capacity(0),
+        "expected validate to fail for zero capacity",
+    )
 }
 
 #[test]
 fn slow_io_config_validate_rejects_capacity_over_max() -> io::Result<()> {
-    let config = SlowIoConfig::new().with_capacity(MAX_SLOW_IO_CAPACITY + 1);
-
-    let err = config
-        .validate()
-        .expect_err("expected validate to fail for capacity over max");
-
-    if err.kind() != io::ErrorKind::InvalidInput {
-        return Err(io::Error::other(format!(
-            "expected InvalidInput, got {:?}",
-            err.kind()
-        )));
-    }
-    Ok(())
+    assert_slow_io_config_rejects(
+        SlowIoConfig::new().with_capacity(MAX_SLOW_IO_CAPACITY + 1),
+        "expected validate to fail for capacity over max",
+    )
 }
 
 #[test]
@@ -243,22 +237,13 @@ fn slow_io_config_validate_rejects_writer_chunk_exceeding_capacity() -> io::Resu
     let capacity = 4;
     let chunk_size =
         NonZeroUsize::new(capacity * 2).ok_or_else(|| io::Error::other("non-zero chunk size"))?;
-
     let config = SlowIoConfig::new()
         .with_capacity(capacity)
         .with_writer_pacing(SlowIoPacing::new(chunk_size, Duration::from_millis(1)));
-
-    let err = config
-        .validate()
-        .expect_err("expected validate to fail when writer chunk exceeds capacity");
-
-    if err.kind() != io::ErrorKind::InvalidInput {
-        return Err(io::Error::other(format!(
-            "expected InvalidInput, got {:?}",
-            err.kind()
-        )));
-    }
-    Ok(())
+    assert_slow_io_config_rejects(
+        config,
+        "expected validate to fail when writer chunk exceeds capacity",
+    )
 }
 
 #[test]
@@ -266,20 +251,11 @@ fn slow_io_config_validate_rejects_reader_chunk_exceeding_capacity() -> io::Resu
     let capacity = 4;
     let chunk_size =
         NonZeroUsize::new(capacity * 2).ok_or_else(|| io::Error::other("non-zero chunk size"))?;
-
     let config = SlowIoConfig::new()
         .with_capacity(capacity)
         .with_reader_pacing(SlowIoPacing::new(chunk_size, Duration::from_millis(1)));
-
-    let err = config
-        .validate()
-        .expect_err("expected validate to fail when reader chunk exceeds capacity");
-
-    if err.kind() != io::ErrorKind::InvalidInput {
-        return Err(io::Error::other(format!(
-            "expected InvalidInput, got {:?}",
-            err.kind()
-        )));
-    }
-    Ok(())
+    assert_slow_io_config_rejects(
+        config,
+        "expected validate to fail when reader chunk exceeds capacity",
+    )
 }
