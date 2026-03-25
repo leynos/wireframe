@@ -96,17 +96,47 @@ async fn root_testkit_exports_partial_frame_and_fragment_drivers() -> io::Result
     );
     let payload = serialize_envelope(b"fragment-test")?;
     let response_payloads = drive_with_fragments(app, &codec, &fragmenter, payload).await?;
-    // drive_with_fragments returns codec-encoded wire frames
     if response_payloads.is_empty() {
         return Err(io::Error::other("expected non-empty response payloads"));
     }
-    // Verify we got a response (wire frame data) - actual content validation is covered by other
-    // tests
     let first_payload = response_payloads
         .first()
         .ok_or_else(|| io::Error::other("expected response payload"))?;
+    // Verify response contains data - drive_with_fragments returns wire frames which may include
+    // fragment headers for fragmented payloads
     if first_payload.is_empty() {
         return Err(io::Error::other("expected non-empty response frame"));
+    }
+    Ok(())
+}
+
+async fn advance_until_finished<T: Send + 'static>(
+    task: &tokio::task::JoinHandle<T>,
+    step: Duration,
+    timeout: Duration,
+) -> io::Result<()> {
+    let mut total = Duration::ZERO;
+    while !task.is_finished() && total < timeout {
+        tokio::time::advance(step).await;
+        total += step;
+    }
+    if !task.is_finished() {
+        return Err(io::Error::other(format!(
+            "task did not complete after {total:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn assert_echoed_payload(payloads: &[Vec<u8>], expected: &[u8]) -> io::Result<()> {
+    let first = payloads
+        .first()
+        .ok_or_else(|| io::Error::other("expected response payload"))?;
+    let echoed = deserialize_payload(first)?;
+    if echoed != expected {
+        return Err(io::Error::other(format!(
+            "unexpected paced payload: {echoed:?}"
+        )));
     }
     Ok(())
 }
@@ -118,11 +148,11 @@ async fn root_testkit_exports_slow_io_helpers() -> io::Result<()> {
     let payload = serialize_envelope(b"slow-io")?;
     let config = SlowIoConfig::new()
         .with_writer_pacing(SlowIoPacing::new(
-            NonZeroUsize::new(2).ok_or_else(|| io::Error::other("chunk must be non-zero"))?,
+            NonZeroUsize::new(2).expect("2 is non-zero"),
             Duration::from_millis(5),
         ))
         .with_reader_pacing(SlowIoPacing::new(
-            NonZeroUsize::new(4).ok_or_else(|| io::Error::other("chunk must be non-zero"))?,
+            NonZeroUsize::new(4).expect("4 is non-zero"),
             Duration::from_millis(5),
         ))
         .with_capacity(64);
@@ -136,34 +166,12 @@ async fn root_testkit_exports_slow_io_helpers() -> io::Result<()> {
         return Err(io::Error::other("expected paced helper to remain pending"));
     }
 
-    // Incrementally advance time until the task completes or we exceed a reasonable timeout
-    // Calculate timeout based on pacing: payload likely needs multiple chunks at 5ms each
-    let step = Duration::from_millis(10);
-    let mut total = Duration::ZERO;
-    let timeout = Duration::from_secs(1); // Generous timeout for paced I/O
-    while !task.is_finished() && total < timeout {
-        tokio::time::advance(step).await;
-        total += step;
-    }
-    if !task.is_finished() {
-        return Err(io::Error::other(format!(
-            "task did not complete after {total:?}"
-        )));
-    }
+    advance_until_finished(&task, Duration::from_millis(10), Duration::from_secs(1)).await?;
 
     let response_payloads = task
         .await
         .map_err(|error| io::Error::other(format!("join failed: {error}")))??;
-    let first_payload = response_payloads
-        .first()
-        .ok_or_else(|| io::Error::other("expected response payload"))?;
-    let echoed_payload = deserialize_payload(first_payload)?;
-    if echoed_payload != b"slow-io" {
-        return Err(io::Error::other(format!(
-            "unexpected paced payload: {echoed_payload:?}"
-        )));
-    }
-    Ok(())
+    assert_echoed_payload(&response_payloads, b"slow-io")
 }
 
 #[test]
