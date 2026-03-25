@@ -26,5 +26,5 @@ Feature: Wireframe client runtime
   Scenario: Client reports TLS port mismatch as a transport error
     Given a non-Wireframe server that replies with TLS record bytes
     And a wireframe client configured with max frame length 1024
-    When the client sends an oversized payload of 32 bytes
+    When the client sends a payload expecting a transport error of 32 bytes
     Then the client reports a Wireframe transport error

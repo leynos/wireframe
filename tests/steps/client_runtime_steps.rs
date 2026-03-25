@@ -43,6 +43,14 @@ fn when_send_oversized_payload(
     client_runtime_world.send_payload_expect_error(size)
 }
 
+#[when("the client sends a payload expecting a transport error of {size:usize} bytes")]
+fn when_send_payload_expect_transport_error(
+    client_runtime_world: &mut ClientRuntimeWorld,
+    size: usize,
+) -> TestResult {
+    client_runtime_world.send_payload_expect_error(size)
+}
+
 #[when("the client sends a payload of {size:usize} bytes expecting decode failure")]
 fn when_send_payload_expect_decode_failure(
     client_runtime_world: &mut ClientRuntimeWorld,

@@ -2259,7 +2259,7 @@ decode failures are surfaced through `ClientError::Wireframe`.[^51]
   that `on_preamble_success` returns any leftover bytes it consumed.
 - Preamble encode or write failure:
   `ClientError::PreambleEncode(_)` means the client failed before handshake
-  completion while serialising or writing the preamble. In the current client
+  completion while serializing or writing the preamble. In the current client
   flow, `write_preamble(...)` wraps write-side I/O in `bincode::EncodeError`,
   so there is no separate user-visible `PreambleWrite` branch to match against.
 - TLS or wrong-protocol port mismatch:
@@ -2279,7 +2279,7 @@ decode failures are surfaced through `ClientError::Wireframe`.[^51]
   I/O until the stream is drained or dropped.
 - Transport disconnects:
   treat `ClientError::Wireframe(WireframeError::Io(_))` as a network-level or
-  peer-closure failure and apply reconnect or retry policy at the call site.
+  peer-closure failure and apply a reconnect or retry policy at the call site.
 
 ## Versioning and graceful deprecation
 
