@@ -113,7 +113,8 @@ pub trait StreamingResponseExt<P>: Stream<Item = Result<P, ClientError>> + Sized
     #[must_use]
     fn typed_with<Item, Mapper>(self, mapper: Mapper) -> TypedResponseStream<Self, Mapper, P, Item>
     where
-        Mapper: FnMut(P) -> Result<Option<Item>, ClientError>,
+        Self: Unpin,
+        Mapper: FnMut(P) -> Result<Option<Item>, ClientError> + Unpin,
     {
         TypedResponseStream::new(self, mapper)
     }

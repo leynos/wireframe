@@ -84,8 +84,9 @@ impl ClientStreamingWorld {
     ) -> TestResult {
         self.reset_state();
         let mut client = self.client.take().ok_or("client not connected")?;
-        let items = collect(&mut client).await?;
+        let result = collect(&mut client).await;
         self.client = Some(client);
+        let items = result?;
         for result in items {
             match result {
                 Ok(item) => push(self, item),
@@ -194,18 +195,14 @@ fn map_streaming_item(
 ) -> Result<Option<TypedStreamingItem>, ClientError> {
     match frame.id.get() {
         1 | 2 | 3 | 4 | 10 | 11 => {
-            let value = frame
-                .payload
-                .into_inner()
-                .into_iter()
-                .next()
-                .ok_or_else(|| {
-                    ClientError::from(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "missing payload byte",
-                    ))
-                })?;
-            Ok(Some(TypedStreamingItem(value)))
+            let payload = frame.payload.into_inner();
+            let [value] = payload.as_slice() else {
+                return Err(ClientError::from(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("expected exactly one payload byte, got {}", payload.len()),
+                )));
+            };
+            Ok(Some(TypedStreamingItem(*value)))
         }
         200 | 201 | 250 => Ok(None),
         other => Err(ClientError::from(std::io::Error::new(

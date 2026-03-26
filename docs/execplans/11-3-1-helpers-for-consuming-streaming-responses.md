@@ -356,7 +356,7 @@ the normal workspace gates.
 Add behavioural coverage by extending the existing client streaming BDD suite:
 
 - extend `tests/features/client_streaming.feature` with one scenario proving
-  typed row consumption and one scenario proving control-frame skipping; and
+  typed row consumption and one scenario proving control-frame skipping.
 - update `tests/fixtures/client_streaming.rs`,
   `tests/steps/client_streaming_steps.rs`, and
   `tests/scenarios/client_streaming_scenarios.rs` so the world calls the new
