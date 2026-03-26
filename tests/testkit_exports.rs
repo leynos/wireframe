@@ -244,7 +244,7 @@ where
 {
     let capacity = 4;
     let chunk_size =
-        NonZeroUsize::new(capacity * 2).ok_or_else(|| io::Error::other("8 is non-zero"))?;
+        NonZeroUsize::new(capacity * 2).ok_or_else(|| io::Error::other("capacity * 2 is zero"))?;
     let pacing = SlowIoPacing::new(chunk_size, Duration::from_millis(1));
     let config = attach_pacing(SlowIoConfig::new().with_capacity(capacity), pacing);
     assert_slow_io_config_rejects(
