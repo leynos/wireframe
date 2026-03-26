@@ -240,9 +240,7 @@ fn slow_io_config_validate_rejects_capacity_over_max() -> io::Result<()> {
     )
 }
 
-fn assert_slow_io_rejects_chunk_exceeding_capacity<F>(
-    attach_pacing: F,
-) -> io::Result<()>
+fn assert_slow_io_rejects_chunk_exceeding_capacity<F>(attach_pacing: F) -> io::Result<()>
 where
     F: FnOnce(SlowIoConfig, SlowIoPacing) -> SlowIoConfig,
 {
