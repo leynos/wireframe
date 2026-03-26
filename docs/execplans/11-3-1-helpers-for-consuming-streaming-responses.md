@@ -136,10 +136,11 @@ Observable success:
   keep mapper failures and transport failures distinct in the helper's return
   type and document that split explicitly.
 
-- Risk: BDD scenarios can pass by exercising fixture-local convenience methods
-  instead of the new public helper. Severity: medium. Likelihood: medium.
-  Mitigation: the fixture must call the public helper API directly, and the
-  feature text must describe observable typed-consumption behaviour.
+- Risk: behaviour-driven development (BDD) scenarios can pass by exercising
+  fixture-local convenience methods instead of the new public helper. Severity:
+  medium. Likelihood: medium. Mitigation: the fixture must call the public
+  helper API directly, and the feature text must describe observable
+  typed-consumption behaviour.
 
 - Risk: the existing `src/client/tests/streaming.rs` file is already 367
   lines. Severity: high. Likelihood: high. Mitigation: create a dedicated

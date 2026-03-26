@@ -119,6 +119,39 @@ async fn typed_response_stream_skips_control_frames(
 
 #[rstest]
 #[tokio::test]
+async fn typed_response_stream_all_control_frames_yields_no_items(
+    correlation_id: CorrelationId,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let cid = correlation_id;
+    let frames = vec![
+        super::streaming_infra::TestStreamEnvelope::data(
+            MessageId::new(1),
+            cid,
+            Payload::new(vec![10]),
+        ),
+        super::streaming_infra::TestStreamEnvelope::data(
+            MessageId::new(2),
+            cid,
+            Payload::new(vec![20]),
+        ),
+        super::streaming_infra::TestStreamEnvelope::data(
+            MessageId::new(3),
+            cid,
+            Payload::new(vec![30]),
+        ),
+        super::streaming_infra::TestStreamEnvelope::terminator(cid),
+    ];
+    let items = collect_typed_items(cid, frames, |_frame| Ok(None)).await?;
+
+    assert!(
+        items.is_empty(),
+        "non-empty protocol stream with all-control mapper should yield empty typed stream"
+    );
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
 async fn typed_response_stream_surfaces_mapper_errors(
     correlation_id: CorrelationId,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -153,6 +186,68 @@ async fn typed_response_stream_surfaces_mapper_errors(
         });
 
     assert_eq!(stream.next().await.transpose()?, Some(vec![1]));
+
+    let error = stream
+        .next()
+        .await
+        .expect("mapper error should be yielded")
+        .expect_err("second item should be a mapper error");
+    assert!(
+        matches!(error, ClientError::Wireframe(_)),
+        "expected mapper error to surface as the supplied ClientError"
+    );
+
+    assert!(stream.next().await.is_none());
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn typed_response_stream_surfaces_mapper_errors_after_skipped_frames(
+    correlation_id: CorrelationId,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let cid = correlation_id;
+    let frames = vec![
+        super::streaming_infra::TestStreamEnvelope::data(
+            MessageId::new(1),
+            cid,
+            Payload::new(vec![200]),
+        ),
+        super::streaming_infra::TestStreamEnvelope::data(
+            MessageId::new(2),
+            cid,
+            Payload::new(vec![1]),
+        ),
+        super::streaming_infra::TestStreamEnvelope::data(
+            MessageId::new(3),
+            cid,
+            Payload::new(vec![2]),
+        ),
+        super::streaming_infra::TestStreamEnvelope::terminator(cid),
+    ];
+    let (mut client, _server) = setup_streaming_test(frames).await?;
+
+    let mut stream = client
+        .call_streaming(build_request(cid))
+        .await?
+        .typed_with(|frame| {
+            if frame.payload == vec![200] {
+                Ok(None)
+            } else if frame.payload == vec![2] {
+                Err(ClientError::from(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "mapper rejected frame after skip",
+                )))
+            } else {
+                Ok(Some(frame.payload))
+            }
+        });
+
+    assert_eq!(
+        stream.next().await.transpose()?,
+        Some(vec![1]),
+        "first data frame after skipped control frame should be yielded"
+    );
 
     let error = stream
         .next()

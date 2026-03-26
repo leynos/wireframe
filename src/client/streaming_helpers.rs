@@ -79,6 +79,17 @@ use super::ClientError;
 /// let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid socket address");
 /// let mut client = WireframeClient::builder().connect(addr).await?;
 ///
+/// fn map_frame(frame: MyEnvelope) -> Result<Option<Row>, ClientError> {
+///     match frame.id {
+///         1 => Ok(Some(Row(frame.payload))),
+///         2 => Ok(None),
+///         other => Err(ClientError::from(std::io::Error::new(
+///             std::io::ErrorKind::InvalidData,
+///             format!("unexpected frame id {other}"),
+///         ))),
+///     }
+/// }
+///
 /// let request = MyEnvelope {
 ///     id: 1,
 ///     correlation_id: None,
@@ -88,14 +99,7 @@ use super::ClientError;
 /// let rows: Vec<Row> = client
 ///     .call_streaming::<MyEnvelope>(request)
 ///     .await?
-///     .typed_with(|frame| match frame.id {
-///         1 => Ok(Some(Row(frame.payload))),
-///         2 => Ok(None),
-///         other => Err(ClientError::from(std::io::Error::new(
-///             std::io::ErrorKind::InvalidData,
-///             format!("unexpected frame id {other}"),
-///         ))),
-///     })
+///     .typed_with(map_frame)
 ///     .try_collect()
 ///     .await?;
 ///
@@ -109,8 +113,7 @@ pub trait StreamingResponseExt<P>: Stream<Item = Result<P, ClientError>> + Sized
     #[must_use]
     fn typed_with<Item, Mapper>(self, mapper: Mapper) -> TypedResponseStream<Self, Mapper, P, Item>
     where
-        Self: Unpin,
-        Mapper: FnMut(P) -> Result<Option<Item>, ClientError> + Unpin,
+        Mapper: FnMut(P) -> Result<Option<Item>, ClientError>,
     {
         TypedResponseStream::new(self, mapper)
     }
