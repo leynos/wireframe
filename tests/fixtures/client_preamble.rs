@@ -15,7 +15,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::FutureExt;
 use rstest::fixture;
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio::{io::AsyncWriteExt, net::TcpListener, sync::oneshot, task::JoinHandle};
 use wireframe::{
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
@@ -24,6 +24,9 @@ use wireframe::{
 };
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
+
+/// Invalid acknowledgement bytes used to exercise preamble-read error-handling.
+pub const INVALID_ACK_BYTES: [u8; 3] = [0xff, 0x00, 0x01];
 
 /// Preamble used for testing.
 #[derive(Debug, Clone, PartialEq, Eq, Default, bincode::Encode, bincode::BorrowDecode)]
@@ -74,6 +77,23 @@ fn send_signal<T>(holder: &std::sync::Mutex<Option<oneshot::Sender<T>>>, value: 
     }
 }
 
+/// Construct a preamble-failure callback that signals `holder` and returns `Ok`.
+fn make_failure_signal_callback(
+    holder: SenderHolder<()>,
+) -> impl for<'a> Fn(
+    &'a ClientError,
+    &'a mut tokio::net::TcpStream,
+) -> futures::future::BoxFuture<'a, std::io::Result<()>> {
+    move |_err, _stream| {
+        let holder = holder.clone();
+        async move {
+            send_signal(&holder, ());
+            Ok(())
+        }
+        .boxed()
+    }
+}
+
 /// Test world exercising client preamble exchange.
 #[derive(Debug, Default)]
 pub struct ClientPreambleWorld {
@@ -96,6 +116,87 @@ pub fn client_preamble_world() -> ClientPreambleWorld {
 }
 
 impl ClientPreambleWorld {
+    async fn spawn_server<F, Fut>(&mut self, handler: F) -> TestResult
+    where
+        F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            handler(stream).await;
+        });
+        self.addr = Some(addr);
+        self.server = Some(handle);
+        Ok(())
+    }
+
+    /// Bind a listener, accept the first connection, read and discard the client
+    /// preamble, then call `handler` with the bare stream.
+    async fn spawn_server_after_preamble<F, Fut>(&mut self, handler: F) -> TestResult
+    where
+        F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        self.spawn_server(|mut stream| async move {
+            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
+                .await
+                .expect("read preamble");
+            handler(stream).await;
+        })
+        .await
+    }
+
+    /// Store the outcome of a connect attempt that carries no failure signal.
+    ///
+    /// On success the client is retained; on failure the error is recorded.
+    fn store_connect_result(
+        &mut self,
+        result: Result<
+            WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
+            ClientError,
+        >,
+    ) {
+        match result {
+            Ok(client) => {
+                self.client = Some(client);
+            }
+            Err(e) => {
+                self.last_error = Some(e);
+            }
+        }
+    }
+
+    /// Store the outcome of a connect attempt that exposes a failure-callback signal.
+    ///
+    /// On success the client is retained. On failure the error is recorded and,
+    /// if the failure signal fires within one second, `failure_callback_invoked`
+    /// is set.
+    async fn store_connect_result_with_failure_signal(
+        &mut self,
+        result: Result<
+            WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
+            ClientError,
+        >,
+        failure_rx: oneshot::Receiver<()>,
+    ) {
+        match result {
+            Ok(client) => {
+                self.client = Some(client);
+            }
+            Err(e) => {
+                self.last_error = Some(e);
+                if matches!(
+                    tokio::time::timeout(Duration::from_secs(1), failure_rx).await,
+                    Ok(Ok(()))
+                ) {
+                    self.failure_callback_invoked = true;
+                }
+            }
+        }
+    }
+
     /// Start a preamble-aware echo server.
     ///
     /// # Errors
@@ -104,22 +205,16 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept or read fails.
     pub async fn start_preamble_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
         let (tx, rx) = oneshot::channel::<TestPreamble>();
-        let handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
+        self.server_preamble_rx = Some(rx);
+        self.spawn_server(|mut stream| async move {
             let (preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
                 .await
                 .expect("read preamble");
             let _ = tx.send(preamble);
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        self.server_preamble_rx = Some(rx);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a preamble-aware server that sends acknowledgement.
@@ -130,22 +225,30 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept, read, or write fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
-            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
-                .await
-                .expect("read preamble");
+        self.spawn_server_after_preamble(|mut stream| async move {
             write_preamble(&mut stream, &ServerAck { accepted: true })
                 .await
                 .expect("write ack");
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
+        })
+        .await
+    }
 
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+    /// Start a preamble-aware server that replies with invalid acknowledgement bytes.
+    ///
+    /// # Errors
+    /// Returns an error if binding fails.
+    ///
+    /// # Panics
+    /// The spawned task panics if accept, read, or write fails.
+    pub async fn start_invalid_ack_server(&mut self) -> TestResult {
+        self.spawn_server_after_preamble(|mut stream| async move {
+            stream
+                .write_all(&INVALID_ACK_BYTES)
+                .await
+                .expect("write invalid acknowledgement");
+        })
+        .await
     }
 
     /// Start a server that never responds (for timeout testing).
@@ -156,16 +259,10 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept fails.
     pub async fn start_slow_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (_stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|_stream| async move {
             tokio::time::sleep(Duration::from_secs(10)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Start a standard echo server without preamble support.
@@ -176,16 +273,10 @@ impl ClientPreambleWorld {
     /// # Panics
     /// The spawned task panics if accept fails.
     pub async fn start_standard_server(&mut self) -> TestResult {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let handle = tokio::spawn(async move {
-            let (_stream, _) = listener.accept().await.expect("accept");
+        self.spawn_server(|_stream| async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
-        });
-
-        self.addr = Some(addr);
-        self.server = Some(handle);
-        Ok(())
+        })
+        .await
     }
 
     /// Connect with preamble and success callback.
@@ -212,10 +303,10 @@ impl ClientPreambleWorld {
         match result {
             Ok(client) => {
                 self.client = Some(client);
-                if tokio::time::timeout(Duration::from_secs(1), rx)
-                    .await
-                    .is_ok()
-                {
+                if matches!(
+                    tokio::time::timeout(Duration::from_secs(1), rx).await,
+                    Ok(Ok(()))
+                ) {
                     self.success_callback_invoked = true;
                 }
             }
@@ -294,31 +385,43 @@ impl ClientPreambleWorld {
                 }
                 .boxed()
             })
-            .on_preamble_failure(move |_err, _stream| {
-                let holder = failure_holder.clone();
-                async move {
-                    send_signal(&holder, ());
-                    Ok(())
-                }
-                .boxed()
-            })
+            .on_preamble_failure(make_failure_signal_callback(failure_holder))
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-                if tokio::time::timeout(Duration::from_secs(1), failure_rx)
-                    .await
-                    .is_ok()
-                {
-                    self.failure_callback_invoked = true;
+        self.store_connect_result_with_failure_signal(result, failure_rx)
+            .await;
+        Ok(())
+    }
+
+    /// Connect with a preamble and capture invalid acknowledgement read failures.
+    ///
+    /// # Errors
+    /// Returns an error if server address is missing.
+    pub async fn connect_with_invalid_ack(&mut self) -> TestResult {
+        let addr = self.addr.ok_or("server address missing")?;
+        let (failure_holder, failure_rx) = create_signal_channel::<()>();
+
+        let result = WireframeClient::builder()
+            .with_preamble(TestPreamble::new(1))
+            .on_preamble_success(|_preamble, stream| {
+                async move {
+                    let (_ack, leftover) =
+                        read_preamble::<_, ServerAck>(stream)
+                            .await
+                            .map_err(|error| {
+                                std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+                            })?;
+                    Ok(leftover)
                 }
-            }
-        }
+                .boxed()
+            })
+            .on_preamble_failure(make_failure_signal_callback(failure_holder))
+            .connect(addr)
+            .await;
+
+        self.store_connect_result_with_failure_signal(result, failure_rx)
+            .await;
         Ok(())
     }
 
@@ -329,15 +432,7 @@ impl ClientPreambleWorld {
     pub async fn connect_without_preamble(&mut self) -> TestResult {
         let addr = self.addr.ok_or("server address missing")?;
         let result = WireframeClient::builder().connect(addr).await;
-
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
+        self.store_connect_result(result);
         Ok(())
     }
 
@@ -369,6 +464,12 @@ impl ClientPreambleWorld {
     #[must_use]
     pub fn was_timeout_error(&self) -> bool {
         matches!(self.last_error, Some(ClientError::PreambleTimeout))
+    }
+
+    /// Check if last error was a preamble read failure.
+    #[must_use]
+    pub fn was_preamble_read_error(&self) -> bool {
+        matches!(self.last_error, Some(ClientError::PreambleRead(_)))
     }
 
     /// Check if client is connected.

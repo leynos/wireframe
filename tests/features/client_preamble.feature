@@ -22,3 +22,9 @@ Feature: Client preamble exchange
     Given a standard echo server without preamble support
     When a client connects without a preamble
     Then the client connects successfully
+
+  Scenario: Client reports invalid preamble acknowledgement bytes as a read error
+    Given a preamble-aware server that replies with invalid acknowledgement bytes
+    When a client connects with a preamble and expects an acknowledgement read error
+    Then the client fails with a preamble read error
+    And the failure callback is invoked

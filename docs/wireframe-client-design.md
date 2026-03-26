@@ -336,7 +336,11 @@ The success callback runs after the preamble is written successfully and can
 read the server's response (using `read_preamble` from the preamble module).
 Any bytes read beyond the server's response must be returned as "leftover"
 bytes for the framing layer to replay. The failure callback runs when the
-preamble exchange fails due to timeout, I/O error, or encoding error.
+preamble exchange fails due to timeout, I/O error, or encoding error. Invalid
+acknowledgement bytes from the success callback currently surface as
+`PreambleRead`, timeout expiry surfaces as `PreambleTimeout`, and write-side
+transport failures inside `write_preamble(...)` are wrapped by `PreambleEncode`
+because the helper returns `bincode::EncodeError`.
 
 ## Runnable echo-login example
 
@@ -389,9 +393,14 @@ cargo run --example client_echo_login --features examples
 - Frame length mismatches: if the server rejects frames or the client reports
   transport I/O errors on larger payloads, ensure
   `ClientCodecConfig::max_frame_length` matches server `buffer_capacity`.
-- Preamble failures: `PreambleTimeout`, `PreambleRead`, and `PreambleWrite`
-  indicate negotiation faults before framing starts. Validate timeout settings
-  and callback logic.
+- Preamble failures: `PreambleTimeout` indicates a stalled handshake, and
+  `PreambleRead` indicates invalid or misread acknowledgement bytes in the
+  success callback. Current write-side transport failures are wrapped by
+  `PreambleEncode`, so the docs should not direct users to rely on
+  `PreambleWrite` yet.
+- TLS or wrong-protocol mismatches: connecting a plain client to a Transport
+  Layer Security (TLS) or other non-Wireframe port usually surfaces as
+  `ClientError::Wireframe(WireframeError::Io(_))` after the first request.
 - Correlation mismatch: `ClientError::CorrelationMismatch` indicates the
   response envelope did not preserve the request correlation identifier.
 - Streaming borrow contention: `ResponseStream` holds `&mut WireframeClient`,
@@ -507,6 +516,22 @@ flowchart TD
   - handle fairness is additive above the existing slot-permit budget;
   - the scheduler never bypasses `max_in_flight_per_socket`, serialized socket
     access, or idle recycle behaviour inherited from `11.2.1`.
+
+## Decision record for 11.4.2
+
+- Decision: document only the currently reachable troubleshooting surface for
+  client preamble failures.
+- Rationale: `ClientError::PreambleWrite` exists in the public enum, but the
+  current preamble path calls `write_preamble(...)`, which returns
+  `bincode::EncodeError` and therefore reports write-side failures via
+  `ClientError::PreambleEncode`. The user guide and design notes should reflect
+  current observable behaviour until the implementation exposes a dedicated
+  write variant.
+- Decision: frame TLS guidance as wrong-protocol troubleshooting, not as a
+  built-in client capability.
+- Rationale: roadmap item `12.3.1` still tracks first-party TLS guidance or
+  middleware, so roadmap item `11.4.2` should help users diagnose a TLS port
+  mismatch without implying native TLS transport support already exists.
 
 ## Future work
 

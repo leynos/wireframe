@@ -35,3 +35,11 @@ fn client_preamble_timeout_failure(client_preamble_world: ClientPreambleWorld) {
 fn client_preamble_no_preamble(client_preamble_world: ClientPreambleWorld) {
     let _ = client_preamble_world;
 }
+
+#[scenario(
+    path = "tests/features/client_preamble.feature",
+    name = "Client reports invalid preamble acknowledgement bytes as a read error"
+)]
+fn client_preamble_invalid_acknowledgement(client_preamble_world: ClientPreambleWorld) {
+    let _ = client_preamble_world;
+}

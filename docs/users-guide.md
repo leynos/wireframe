@@ -1662,7 +1662,12 @@ TCP stream, enabling bidirectional preamble negotiation. Any bytes read beyond
 the server's response must be returned as "leftover" bytes so they can be
 replayed before the framing layer begins. The failure callback runs when the
 preamble exchange fails (timeout, I/O error, or encode error) and can log
-diagnostics or send an error response before the connection closes.
+diagnostics or send an error response before the connection closes. In the
+current implementation, callback read failures surface as
+`ClientError::PreambleRead`, timeout expiry surfaces as
+`ClientError::PreambleTimeout`, and write-side failures from
+`write_preamble(...)` are wrapped by `ClientError::PreambleEncode` because the
+helper returns `bincode::EncodeError`.
 
 ### Client lifecycle hooks
 
@@ -2233,17 +2238,48 @@ decode failures are surfaced through `ClientError::Wireframe`.[^51]
 
 ### Client troubleshooting
 
-- Frame length mismatch: if requests fail on larger payloads, align client
-  `ClientCodecConfig::max_frame_length` with server `buffer_capacity`.
-- Preamble timeout or decode failure: verify preamble timeout values and
-  callback implementations (`on_preamble_success` and `on_preamble_failure`).
-- Correlation mismatch errors: verify server echoes or stamps the expected
-  `correlation_id` for `call_correlated` and streaming responses.
-- Streaming API contention: `ResponseStream` holds `&mut WireframeClient`; do
-  not issue additional client I/O until the stream is drained or dropped.
-- Transport disconnects: treat
-  `ClientError::Wireframe(WireframeError::Io(_))` as network-level failures and
-  apply a reconnect/retry policy at the call site.
+- Codec length mismatch:
+  if small requests succeed but larger ones fail once payload size crosses a
+  threshold, suspect a frame-budget mismatch between client and server. The
+  client usually reports `ClientError::Wireframe(WireframeError::Io(_))`
+  because the peer closes the connection after rejecting the oversized frame.
+  Check the client `ClientCodecConfig::max_frame_length`, the server
+  `buffer_capacity`, and any server-side frame-limit logs together. The fix is
+  to align both ends to the same maximum frame length.
+- Preamble timeout:
+  `ClientError::PreambleTimeout` means the handshake stalled before framed
+  traffic began. Reduce ambiguity by setting an explicit
+  `preamble_timeout(Duration)` and verify that the server actually reads or
+  replies during the preamble phase.
+- Preamble read or decode failure:
+  `ClientError::PreambleRead(_)` means the success callback could not read or
+  decode the server's acknowledgement bytes. This usually indicates the wrong
+  preamble type, malformed server bytes, or callback logic that reads the
+  response incorrectly. Confirm both sides use the same preamble schema and
+  that `on_preamble_success` returns any leftover bytes it consumed.
+- Preamble encode or write failure:
+  `ClientError::PreambleEncode(_)` means the client failed before handshake
+  completion while serializing or writing the preamble. In the current client
+  flow, `write_preamble(...)` wraps write-side I/O in `bincode::EncodeError`,
+  so there is no separate user-visible `PreambleWrite` branch to match against.
+- TLS or wrong-protocol port mismatch:
+  pointing a plain `WireframeClient` at a port that expects Transport Layer
+  Security (TLS), Hypertext Transfer Protocol (HTTP), or another protocol
+  usually surfaces as `ClientError::Wireframe(WireframeError::Io(_))` after the
+  first request because the bytes returned are not valid Wireframe frames.
+  Verify the host and port, confirm whether a TLS terminator is required, and
+  remember that built-in client TLS configuration is still future work.
+- Correlation mismatch errors:
+  `ClientError::CorrelationMismatch` and
+  `ClientError::StreamCorrelationMismatch` mean the response did not preserve
+  the request correlation identifier. Verify that the server echoes or stamps
+  the expected `correlation_id` for `call_correlated` and streaming responses.
+- Streaming API contention:
+  `ResponseStream` holds `&mut WireframeClient`; do not issue additional client
+  I/O until the stream is drained or dropped.
+- Transport disconnects:
+  treat `ClientError::Wireframe(WireframeError::Io(_))` as a network-level or
+  peer-closure failure and apply a reconnect or retry policy at the call site.
 
 ## Versioning and graceful deprecation
 

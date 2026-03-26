@@ -17,6 +17,11 @@ fn given_malformed_server(client_runtime_world: &mut ClientRuntimeWorld) -> Test
     client_runtime_world.start_malformed_response_server()
 }
 
+#[given("a non-Wireframe server that replies with TLS record bytes")]
+fn given_tls_mismatch_server(client_runtime_world: &mut ClientRuntimeWorld) -> TestResult {
+    client_runtime_world.start_tls_mismatch_server()
+}
+
 #[given("a wireframe client configured with max frame length {max_frame_length:usize}")]
 fn given_client(
     client_runtime_world: &mut ClientRuntimeWorld,
@@ -32,6 +37,14 @@ fn when_send_payload(client_runtime_world: &mut ClientRuntimeWorld, size: usize)
 
 #[when("the client sends an oversized payload of {size:usize} bytes")]
 fn when_send_oversized_payload(
+    client_runtime_world: &mut ClientRuntimeWorld,
+    size: usize,
+) -> TestResult {
+    client_runtime_world.send_payload_expect_error(size)
+}
+
+#[when("the client sends a payload expecting a transport error of {size:usize} bytes")]
+fn when_send_payload_expect_transport_error(
     client_runtime_world: &mut ClientRuntimeWorld,
     size: usize,
 ) -> TestResult {

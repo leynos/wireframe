@@ -30,6 +30,10 @@ use echo_login_contract::{LOGIN_ROUTE_ID, LoginAck, LoginRequest};
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
 
+/// Simulated TLS 1.2 `ServerHello` record, used to exercise protocol-mismatch
+/// error-handling in the wireframe client.
+pub const SIMULATED_TLS_RECORD: [u8; 7] = [0x16, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
+
 /// Test world exercising the wireframe client runtime.
 #[derive(Debug)]
 pub struct ClientRuntimeWorld {
@@ -169,6 +173,42 @@ impl ClientRuntimeWorld {
                 .await
             {
                 warn!("client runtime malformed server failed to send invalid frame: {err:?}");
+            }
+        });
+
+        self.addr.set(Some(addr));
+        *self.server.borrow_mut() = Some(handle);
+        Ok(())
+    }
+
+    /// Start a server that replies with TLS-like bytes instead of Wireframe frames.
+    ///
+    /// # Errors
+    /// Returns an error if binding or spawning the server fails.
+    pub fn start_tls_mismatch_server(&self) -> TestResult {
+        let listener = self.block_on(async { TcpListener::bind("127.0.0.1:0").await })??;
+        let addr = listener.local_addr()?;
+        let handle = self.runtime()?.spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let Ok((mut stream, _)) = listener.accept().await else {
+                warn!("client runtime TLS-mismatch server failed to accept connection");
+                return;
+            };
+            let mut request_buf = [0_u8; 64];
+            match stream.read(&mut request_buf).await {
+                Ok(_) => {}
+                Err(err) => {
+                    warn!("client runtime TLS-mismatch server failed to read request: {err:?}");
+                    return;
+                }
+            }
+            if let Err(err) = stream.write_all(&SIMULATED_TLS_RECORD).await {
+                warn!("client runtime TLS-mismatch server failed to write response: {err:?}");
+                return;
+            }
+            if let Err(err) = stream.shutdown().await {
+                warn!("client runtime TLS-mismatch server failed to shutdown: {err:?}");
             }
         });
 

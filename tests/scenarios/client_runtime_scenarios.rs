@@ -35,3 +35,11 @@ fn client_runtime_decode_error_mapping(client_runtime_world: ClientRuntimeWorld)
 fn client_runtime_login_acknowledgement(client_runtime_world: ClientRuntimeWorld) {
     let _ = client_runtime_world;
 }
+
+#[scenario(
+    path = "tests/features/client_runtime.feature",
+    name = "Client reports TLS port mismatch as a transport error"
+)]
+fn client_runtime_tls_mismatch(client_runtime_world: ClientRuntimeWorld) {
+    let _ = client_runtime_world;
+}
