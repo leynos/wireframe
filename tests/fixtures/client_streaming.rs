@@ -89,24 +89,24 @@ impl ClientStreamingWorld {
         }
     }
 
-    #[allow(clippy::type_complexity)]
-    async fn execute_stream_call<St, Item>(
+    async fn execute_stream_call<Item>(
         &mut self,
-        build_stream: impl for<'a> FnOnce(
+        collect: impl for<'a> FnOnce(
             &'a mut WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
         ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<St, ClientError>> + 'a>,
+            Box<
+                dyn std::future::Future<
+                        Output = Result<Vec<Result<Item, ClientError>>, ClientError>,
+                    > + 'a,
+            >,
         >,
         push: impl FnMut(&mut Self, Item),
-    ) -> TestResult
-    where
-        St: futures::Stream<Item = Result<Item, ClientError>> + Unpin,
-    {
+    ) -> TestResult {
         self.reset_state();
         let mut client = self.client.take().ok_or("client not connected")?;
-        let stream = build_stream(&mut client).await?;
-        self.drain_stream(stream, push).await;
+        let items = collect(&mut client).await?;
         self.client = Some(client);
+        self.drain_stream(futures::stream::iter(items), push).await;
         Ok(())
     }
 
@@ -162,7 +162,14 @@ impl ClientStreamingWorld {
     /// Send a streaming request and consume the response stream.
     pub async fn send_streaming_request(&mut self) -> TestResult {
         self.execute_stream_call(
-            |client| Box::pin(client.call_streaming::<StreamTestEnvelope>(Self::build_request())),
+            |client| {
+                Box::pin(async move {
+                    let stream = client
+                        .call_streaming::<StreamTestEnvelope>(Self::build_request())
+                        .await?;
+                    Ok(stream.collect().await)
+                })
+            },
             |world, frame| world.received_frames.push(frame),
         )
         .await
@@ -173,10 +180,11 @@ impl ClientStreamingWorld {
         self.execute_stream_call(
             |client| {
                 Box::pin(async move {
-                    client
+                    let stream = client
                         .call_streaming::<StreamTestEnvelope>(Self::build_request())
-                        .await
-                        .map(|s| s.typed_with(map_streaming_item))
+                        .await?
+                        .typed_with(map_streaming_item);
+                    Ok(stream.collect().await)
                 })
             },
             |world, item| world.typed_items.push(item),
