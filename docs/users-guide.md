@@ -308,8 +308,9 @@ Available fixture functions:
 #### Feeding partial frames and fragments
 
 Real networks rarely deliver a complete codec frame in a single TCP read. The
-`wireframe_testing` crate provides drivers that simulate these conditions so
-that codec buffering logic can be exercised in tests.
+main crate now exposes these drivers through `wireframe::testkit` behind the
+opt-in `testkit` feature, while `wireframe_testing` keeps source-compatible
+re-exports for existing callers.
 
 **Chunked-write drivers** encode payloads via a codec, concatenate the wire
 bytes, and write them in configurable chunk sizes (including one byte at a
@@ -319,7 +320,7 @@ time):
 use std::num::NonZeroUsize;
 use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
-use wireframe_testing::drive_with_partial_frames;
+use wireframe::testkit::drive_with_partial_frames;
 
 let codec = HotlineFrameCodec::new(4096);
 let app = WireframeApp::new()?.with_codec(codec.clone());
@@ -347,7 +348,7 @@ use std::num::NonZeroUsize;
 use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
 use wireframe::fragment::Fragmenter;
-use wireframe_testing::drive_with_fragments;
+use wireframe::testkit::drive_with_fragments;
 
 let codec = HotlineFrameCodec::new(4096);
 let app = WireframeApp::new()?.with_codec(codec.clone());
@@ -369,18 +370,22 @@ Available fragment-feeding driver functions:
 
 #### Asserting reassembly outcomes
 
-The `wireframe_testing::reassembly` module provides non-panicking assertion
+The `wireframe::testkit::reassembly` module provides non-panicking assertion
 helpers for both transport fragment reassembly and protocol message assembly.
 The API is built around lightweight snapshot structs, so the same helper can be
-used from `rstest` tests and `rstest-bdd` step definitions.
+used from `rstest` tests and `rstest-bdd` step definitions. Existing
+`wireframe_testing::reassembly` imports remain valid as compatibility
+re-exports.
 
 ```rust,no_run
 use wireframe::message_assembler::MessageKey;
-use wireframe_testing::reassembly::{
-    MessageAssemblySnapshot, assert_message_assembly_completed_for_key,
+use wireframe::testkit::{
+    MessageAssemblySnapshot,
+    TestResult,
+    assert_message_assembly_completed_for_key,
 };
 
-# fn check(snapshot: MessageAssemblySnapshot<'_>) -> wireframe_testing::TestResult {
+# fn check(snapshot: MessageAssemblySnapshot<'_>) -> TestResult {
 assert_message_assembly_completed_for_key(snapshot, MessageKey(7), b"done")?;
 # Ok(())
 # }
@@ -476,6 +481,12 @@ write side, the client read side, or both directions at once.
 Use `SlowIoPacing` to define a chunk size and inter-chunk delay, then apply it
 through `SlowIoConfig`:
 
+Enable the feature in `Cargo.toml` when importing from the main crate:
+
+```toml
+wireframe = { version = "0.2.0", features = ["testkit"] }
+```
+
 ```rust,no_run
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::{
@@ -483,7 +494,7 @@ use wireframe::{
     codec::examples::HotlineFrameCodec,
     serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{
+use wireframe::testkit::{
     SlowIoConfig, SlowIoPacing, drive_with_slow_codec_payloads,
 };
 
@@ -507,6 +518,7 @@ let request = BincodeSerializer.serialize(&Envelope::new(
 ))?;
 let payloads = drive_with_slow_codec_payloads(app, &codec, vec![request], config)
     .await?;
+
 ```
 
 Available slow-I/O helper functions:

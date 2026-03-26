@@ -14,11 +14,8 @@ mod codec_drive;
 mod codec_ext;
 mod codec_fixtures;
 mod drive;
-mod fragment_drive;
-mod partial_frame;
 mod payloads;
 mod runtime;
-mod slow_io;
 
 #[cfg(test)]
 mod tests;
@@ -45,7 +42,7 @@ impl<T> TestSerializer for T where
 }
 
 pub(crate) const DEFAULT_CAPACITY: usize = 4096;
-pub(crate) const MAX_CAPACITY: usize = slow_io::MAX_SLOW_IO_CAPACITY;
+pub(crate) const MAX_CAPACITY: usize = wireframe::testkit::MAX_SLOW_IO_CAPACITY;
 pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
 /// Shared frame cap used by helpers and tests to avoid drift.
 pub const TEST_MAX_FRAME: usize = DEFAULT_CAPACITY;
@@ -83,25 +80,21 @@ pub use drive::{
     drive_with_frames_with_capacity,
     drive_with_frames_with_capacity_mut,
 };
-pub use fragment_drive::{
+pub use payloads::{drive_with_bincode, drive_with_payloads, drive_with_payloads_mut};
+pub use runtime::{run_app, run_with_duplex_server};
+pub use wireframe::testkit::{
+    MAX_SLOW_IO_CAPACITY,
+    SlowIoConfig,
+    SlowIoPacing,
     drive_with_fragment_frames,
     drive_with_fragments,
     drive_with_fragments_mut,
     drive_with_fragments_with_capacity,
-    drive_with_partial_fragments,
-};
-pub use partial_frame::{
     drive_with_partial_codec_frames,
+    drive_with_partial_fragments,
     drive_with_partial_frames,
     drive_with_partial_frames_mut,
     drive_with_partial_frames_with_capacity,
-};
-pub use payloads::{drive_with_bincode, drive_with_payloads, drive_with_payloads_mut};
-pub use runtime::{run_app, run_with_duplex_server};
-pub use slow_io::{
-    MAX_SLOW_IO_CAPACITY,
-    SlowIoConfig,
-    SlowIoPacing,
     drive_with_slow_codec_frames,
     drive_with_slow_codec_payloads,
     drive_with_slow_frames,

@@ -485,6 +485,12 @@ now provides snapshot-based assertion helpers for both `Reassembler` and
 `TestResult<()>` instead of panicking, which keeps them reusable from `rstest`
 integration tests and `rstest-bdd` step definitions.
 
+Implementation note for roadmap item `8.5.4`: the phase-8.5 helper families now
+live in `wireframe::testkit` behind the dedicated `testkit` feature, with
+`wireframe_testing` acting as a compatibility facade for those same APIs. This
+keeps the main crate opt-in, avoids a Cargo dependency cycle, and gives
+downstream protocol crates a first-party import path.
+
 ## Consequences
 
 - Wireframe gains an explicit “streaming request body” surface alongside the

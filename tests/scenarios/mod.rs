@@ -44,4 +44,5 @@ mod slow_io_backpressure_scenarios;
 mod stream_end_scenarios;
 mod streaming_request_scenarios;
 mod test_observability_scenarios;
+mod testkit_export_scenarios;
 mod unified_codec_scenarios;

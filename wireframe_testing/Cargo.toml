@@ -12,7 +12,7 @@ documentation = "https://docs.rs/wireframe_testing"
 
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt", "io-util", "time"] }
-wireframe = { version = "0.2.0", path = ".." }
+wireframe = { version = "0.2.0", path = "..", features = ["testkit"] }
 bincode = "^2.0"
 bytes = "^1.0"
 thiserror = "2.0.16"
