@@ -240,30 +240,33 @@ fn slow_io_config_validate_rejects_capacity_over_max() -> io::Result<()> {
     )
 }
 
-#[test]
-fn slow_io_config_validate_rejects_writer_chunk_exceeding_capacity() -> io::Result<()> {
+fn assert_slow_io_rejects_chunk_exceeding_capacity<F>(
+    attach_pacing: F,
+) -> io::Result<()>
+where
+    F: FnOnce(SlowIoConfig, SlowIoPacing) -> SlowIoConfig,
+{
     let capacity = 4;
     let chunk_size =
-        NonZeroUsize::new(capacity * 2).ok_or_else(|| io::Error::other("non-zero chunk size"))?;
-    let config = SlowIoConfig::new()
-        .with_capacity(capacity)
-        .with_writer_pacing(SlowIoPacing::new(chunk_size, Duration::from_millis(1)));
+        NonZeroUsize::new(capacity * 2).ok_or_else(|| io::Error::other("8 is non-zero"))?;
+    let pacing = SlowIoPacing::new(chunk_size, Duration::from_millis(1));
+    let config = attach_pacing(SlowIoConfig::new().with_capacity(capacity), pacing);
     assert_slow_io_config_rejects(
         config,
-        "expected validate to fail when writer chunk exceeds capacity",
+        "expected validate to fail when chunk exceeds capacity",
     )
 }
 
 #[test]
+fn slow_io_config_validate_rejects_writer_chunk_exceeding_capacity() -> io::Result<()> {
+    assert_slow_io_rejects_chunk_exceeding_capacity(|config, pacing| {
+        config.with_writer_pacing(pacing)
+    })
+}
+
+#[test]
 fn slow_io_config_validate_rejects_reader_chunk_exceeding_capacity() -> io::Result<()> {
-    let capacity = 4;
-    let chunk_size =
-        NonZeroUsize::new(capacity * 2).ok_or_else(|| io::Error::other("non-zero chunk size"))?;
-    let config = SlowIoConfig::new()
-        .with_capacity(capacity)
-        .with_reader_pacing(SlowIoPacing::new(chunk_size, Duration::from_millis(1)));
-    assert_slow_io_config_rejects(
-        config,
-        "expected validate to fail when reader chunk exceeds capacity",
-    )
+    assert_slow_io_rejects_chunk_exceeding_capacity(|config, pacing| {
+        config.with_reader_pacing(pacing)
+    })
 }
