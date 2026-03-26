@@ -480,7 +480,7 @@ flowchart TD
 
 ## Decision record for 11.3.1
 
-- Decision: ship streaming-response consumption as a trait plus adapter stream
+- Decision: ship streaming-response consumption as a trait plus adaptor stream
   instead of a macro-first API.
 - Rationale: `StreamingResponseExt::typed_with` keeps ordinary Rust control
   flow visible, makes the "map frame to optional item" contract explicit, and
