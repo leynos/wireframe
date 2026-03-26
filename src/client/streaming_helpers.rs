@@ -153,6 +153,7 @@ where
 {
     inner: S,
     mapper: Mapper,
+    terminated: bool,
     _phantom: PhantomData<fn() -> (P, Item)>,
 }
 
@@ -164,6 +165,7 @@ where
         Self {
             inner,
             mapper,
+            terminated: false,
             _phantom: PhantomData,
         }
     }
@@ -179,16 +181,29 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
+        if this.terminated {
+            return Poll::Ready(None);
+        }
+
         loop {
             match Pin::new(&mut this.inner).poll_next(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Some(Ok(frame))) => match (this.mapper)(frame) {
                     Ok(Some(item)) => return Poll::Ready(Some(Ok(item))),
                     Ok(None) => {}
-                    Err(error) => return Poll::Ready(Some(Err(error))),
+                    Err(error) => {
+                        this.terminated = true;
+                        return Poll::Ready(Some(Err(error)));
+                    }
                 },
-                Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
-                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Ready(Some(Err(error))) => {
+                    this.terminated = true;
+                    return Poll::Ready(Some(Err(error)));
+                }
+                Poll::Ready(None) => {
+                    this.terminated = true;
+                    return Poll::Ready(None);
+                }
             }
         }
     }

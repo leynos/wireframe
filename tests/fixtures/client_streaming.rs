@@ -69,26 +69,6 @@ impl ClientStreamingWorld {
         self.shared_rate_limit_blocked = None;
     }
 
-    async fn drain_stream<St, Item, F>(&mut self, mut stream: St, mut push: F)
-    where
-        St: futures::Stream<Item = Result<Item, ClientError>> + Unpin,
-        F: FnMut(&mut Self, Item),
-    {
-        loop {
-            match stream.next().await {
-                Some(Ok(item)) => push(self, item),
-                Some(Err(e)) => {
-                    self.last_error = Some(e);
-                    break;
-                }
-                None => {
-                    self.stream_terminated_cleanly = true;
-                    break;
-                }
-            }
-        }
-    }
-
     async fn execute_stream_call<Item>(
         &mut self,
         collect: impl for<'a> FnOnce(
@@ -100,13 +80,22 @@ impl ClientStreamingWorld {
                     > + 'a,
             >,
         >,
-        push: impl FnMut(&mut Self, Item),
+        mut push: impl FnMut(&mut Self, Item),
     ) -> TestResult {
         self.reset_state();
         let mut client = self.client.take().ok_or("client not connected")?;
         let items = collect(&mut client).await?;
         self.client = Some(client);
-        self.drain_stream(futures::stream::iter(items), push).await;
+        for result in items {
+            match result {
+                Ok(item) => push(self, item),
+                Err(e) => {
+                    self.last_error = Some(e);
+                    return Ok(());
+                }
+            }
+        }
+        self.stream_terminated_cleanly = true;
         Ok(())
     }
 

@@ -75,9 +75,9 @@ Observable success:
 - Unit tests must use `rstest`.
 - Behavioural tests must use `rstest-bdd` v0.5.0 with the repository's
   existing `feature + fixture + steps + scenarios` layout.
-- BDD fixture parameter names in step definitions must match fixture function
-  names exactly, and step parameters must not use underscore-prefixed fixture
-  names.
+- Behaviour-driven development (BDD) fixture parameter names in step
+  definitions must match fixture function names exactly, and step parameters
+  must not use underscore-prefixed fixture names.
 - Design decisions must be added to the relevant design documentation:
   `docs/wireframe-client-design.md` for the client-facing API surface and
   `docs/multi-packet-and-streaming-responses-design.md` for the streaming model.
@@ -136,11 +136,10 @@ Observable success:
   keep mapper failures and transport failures distinct in the helper's return
   type and document that split explicitly.
 
-- Risk: behaviour-driven development (BDD) scenarios can pass by exercising
-  fixture-local convenience methods instead of the new public helper. Severity:
-  medium. Likelihood: medium. Mitigation: the fixture must call the public
-  helper API directly, and the feature text must describe observable
-  typed-consumption behaviour.
+- Risk: BDD scenarios can pass by exercising fixture-local convenience methods
+  instead of the new public helper. Severity: medium. Likelihood: medium.
+  Mitigation: the fixture must call the public helper API directly, and the
+  feature text must describe observable typed-consumption behaviour.
 
 - Risk: the existing `src/client/tests/streaming.rs` file is already 367
   lines. Severity: high. Likelihood: high. Mitigation: create a dedicated

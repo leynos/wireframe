@@ -353,6 +353,35 @@ async fn typed_response_stream_propagates_decode_failures(
     Ok(())
 }
 
+#[tokio::test]
+async fn typed_response_stream_fuses_after_mapper_error() {
+    let inner = futures::stream::iter(vec![Ok(1u8), Ok(2u8)]);
+    let mut stream = inner.typed_with(|_frame| -> Result<Option<u8>, ClientError> {
+        Err(ClientError::from(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "mapper always fails",
+        )))
+    });
+
+    let first = stream.next().await;
+    assert!(
+        matches!(first, Some(Err(ClientError::Wireframe(_)))),
+        "first poll should yield the mapper error"
+    );
+
+    let second = stream.next().await;
+    assert!(
+        second.is_none(),
+        "stream must be fused: polling after a mapper error should return None"
+    );
+
+    let third = stream.next().await;
+    assert!(
+        third.is_none(),
+        "stream must remain fused on subsequent polls"
+    );
+}
+
 #[rstest]
 #[tokio::test]
 async fn typed_response_stream_preserves_empty_streams(
