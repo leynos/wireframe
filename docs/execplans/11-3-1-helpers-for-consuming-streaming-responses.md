@@ -40,8 +40,8 @@ Observable success:
   consumption;
 - unit tests written with `rstest` prove ordered typed delivery, frame
   skipping, and error propagation;
-- behavioural tests written with `rstest-bdd` v0.5.0 prove the helper against
-  the real client streaming path;
+- behaviour-driven development (BDD) tests written with `rstest-bdd` v0.5.0
+  prove the helper against the real client streaming path;
 - `docs/users-guide.md` documents the new public interface and when to prefer
   it over manual `StreamExt::next` loops;
 - the relevant streaming/client design documents record the decision; and
@@ -75,9 +75,9 @@ Observable success:
 - Unit tests must use `rstest`.
 - Behavioural tests must use `rstest-bdd` v0.5.0 with the repository's
   existing `feature + fixture + steps + scenarios` layout.
-- Behaviour-driven development (BDD) fixture parameter names in step
-  definitions must match fixture function names exactly, and step parameters
-  must not use underscore-prefixed fixture names.
+- BDD fixture parameter names in step definitions must match fixture function
+  names exactly, and step parameters must not use underscore-prefixed fixture
+  names.
 - Design decisions must be added to the relevant design documentation:
   `docs/wireframe-client-design.md` for the client-facing API surface and
   `docs/multi-packet-and-streaming-responses-design.md` for the streaming model.
@@ -117,7 +117,7 @@ Observable success:
 - Risk: `ResponseStream` is already typed over `P`, so a shallow helper could
   look redundant. Severity: high. Likelihood: high. Mitigation: define the
   helper around the real pain point: adapting a stream of protocol frames into
-  a stream of domain items while optionally skipping control frames.
+  a stream of domain items, while optionally skipping control frames.
 
 - Risk: a macro-first design would hide control flow and make errors harder to
   understand in downstream crates. Severity: medium. Likelihood: medium.
@@ -402,7 +402,7 @@ Update `docs/wireframe-client-design.md` with:
   of `ResponseStream`.
 
 Update `docs/multi-packet-and-streaming-responses-design.md` in the client-side
-streaming section so the design doc reflects the new recommended consumption
+streaming section, so the design doc reflects the new recommended consumption
 pattern instead of only the manual `next()` loop.
 
 Update `docs/users-guide.md` in the "Consuming streaming responses on the
