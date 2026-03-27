@@ -49,3 +49,19 @@ fn interleaved_priority_fairness(client_streaming_world: ClientStreamingWorld) {
 fn shared_rate_limit_symmetry(client_streaming_world: ClientStreamingWorld) {
     let _ = client_streaming_world;
 }
+
+#[scenario(
+    path = "tests/features/client_streaming.feature",
+    name = "Client consumes typed items from a streaming response"
+)]
+fn typed_stream_consumption(client_streaming_world: ClientStreamingWorld) {
+    let _ = client_streaming_world;
+}
+
+#[scenario(
+    path = "tests/features/client_streaming.feature",
+    name = "Client skips control frames through the typed helper"
+)]
+fn typed_stream_skips_control_frames(client_streaming_world: ClientStreamingWorld) {
+    let _ = client_streaming_world;
+}

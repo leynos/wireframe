@@ -2119,6 +2119,13 @@ borrow of `WireframeClient` while it exists, so the client cannot perform other
 I/O operations until the stream is dropped or fully consumed (`None` is
 observed).
 
+For protocols where every frame is meaningful, a manual `StreamExt::next` loop
+remains the clearest option. For multiplexed protocols that interleave data
+frames with notices, progress updates, or other control frames, prefer
+`StreamingResponseExt::typed_with`. It maps each frame into
+`Result<Option<Item>, ClientError>`, yielding `Some(item)` values in order
+while silently skipping `None`.
+
 ### Terminator detection with `is_stream_terminator`
 
 Protocol implementations must override `Packet::is_stream_terminator` to teach
@@ -2195,6 +2202,89 @@ while let Some(result) = stream.next().await {
 # Ok(())
 # }
 ```
+
+### Helper-based typed consumption with `typed_with`
+
+`StreamingResponseExt::typed_with` adapts a `ResponseStream` into a stream of
+domain items. This is useful when only some protocol frames should be exposed
+to the caller:
+
+```rust,no_run
+use futures::TryStreamExt;
+use std::net::SocketAddr;
+use wireframe::{
+    app::{Packet, PacketParts},
+    client::{ClientError, StreamingResponseExt, WireframeClient},
+    correlation::CorrelatableFrame,
+};
+
+#[derive(bincode::BorrowDecode, bincode::Encode)]
+struct MyEnvelope {
+    id: u32,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
+}
+
+impl CorrelatableFrame for MyEnvelope {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    fn set_correlation_id(&mut self, cid: Option<u64>) {
+        self.correlation_id = cid;
+    }
+}
+
+impl Packet for MyEnvelope {
+    fn id(&self) -> u32 { self.id }
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
+    fn from_parts(parts: PacketParts) -> Self {
+        Self {
+            id: parts.id(),
+            correlation_id: parts.correlation_id(),
+            payload: parts.into_payload(),
+        }
+    }
+    fn is_stream_terminator(&self) -> bool { self.id == 0 }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Row(Vec<u8>);
+
+# #[tokio::main]
+# async fn main() -> Result<(), ClientError> {
+let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid address");
+let mut client = WireframeClient::builder().connect(addr).await?;
+
+let request = MyEnvelope {
+    id: 1,
+    correlation_id: None,
+    payload: vec![],
+};
+
+let rows: Vec<Row> = client
+    .call_streaming::<MyEnvelope>(request)
+    .await?
+    .typed_with(|frame| match frame.id {
+        1 => Ok(Some(Row(frame.payload))),
+        2 => Ok(None),
+        other => Err(ClientError::from(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("unexpected frame id {other}"),
+        ))),
+    })
+    .try_collect()
+    .await?;
+
+println!("received {} rows", rows.len());
+# Ok(())
+# }
+```
+
+Because the helper wraps `ResponseStream` rather than replacing it, transport
+failures and correlation mismatches still surface as `ClientError` values from
+the underlying stream. The helper also does not change the exclusive
+`&mut WireframeClient` borrow: while the typed stream is alive, other client
+I/O remains blocked.
 
 ### Low-level API: `receive_streaming`
 

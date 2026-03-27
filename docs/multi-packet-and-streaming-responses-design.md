@@ -770,6 +770,18 @@ Two methods are exposed on `WireframeClient`:
   for a pre-sent request. This is the low-level API for callers who need to
   send the request separately (for example, via `send_envelope`).
 
+For downstream protocols that need to consume only some frames,
+`client::StreamingResponseExt::typed_with` now layers on top of
+`ResponseStream`. The mapper contract is explicit:
+
+- `Ok(Some(item))` yields a domain item.
+- `Ok(None)` skips a control frame.
+- `Err(ClientError)` stops consumption immediately.
+
+This keeps the transport receiver focused on correlation validation, terminator
+detection, and back-pressure while giving multiplexed protocol implementations
+a small ergonomic layer for typed item consumption.
+
 ### 12.4 Error handling
 
 `ResponseStream` surfaces two categories of error:
@@ -782,6 +794,12 @@ Two methods are exposed on `WireframeClient`:
 Once the end-of-stream terminator has been received (or a fatal error has
 occurred), `ResponseStream` returns `None` on all subsequent polls, following
 the standard `futures::Stream` fused-stream convention.
+
+`typed_with` preserves this behaviour. It forwards underlying
+`ClientError::Wireframe` and `ClientError::StreamCorrelationMismatch` values
+unchanged, and it terminates once the wrapped `ResponseStream` terminates.
+Mapper-produced `Ok(None)` values do not affect stream termination; they only
+drop the current control frame from the output item stream.
 
 Terminator detection is performed before correlation validation so that
 end-of-stream frames produced by `stream_end_frame` without a per-request

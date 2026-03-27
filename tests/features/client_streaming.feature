@@ -39,3 +39,14 @@ Feature: Client streaming response consumption
     When the client sends a streaming request
     Then the shared limiter blocks cross-priority bursts before refill
     And the stream terminates cleanly
+
+  Scenario: Client consumes typed items from a streaming response
+    When the client consumes the stream through the typed helper
+    Then typed items are received in order as 1,2,3
+    And the stream terminates cleanly
+
+  Scenario: Client skips control frames through the typed helper
+    Given a streaming server that interleaves control and data frames
+    When the client consumes the stream through the typed helper
+    Then typed items are received in order as 1,2
+    And the stream terminates cleanly

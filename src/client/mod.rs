@@ -26,6 +26,7 @@ mod runtime;
 mod send_streaming;
 mod socket_option_methods;
 mod streaming;
+mod streaming_helpers;
 mod tracing_config;
 mod tracing_helpers;
 
@@ -51,6 +52,7 @@ pub use pool::{
 pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;
 pub use send_streaming::{SendStreamingConfig, SendStreamingOutcome};
+pub use streaming_helpers::{StreamingResponseExt, TypedResponseStream};
 pub use tracing_config::TracingConfig;
 
 /// Handler invoked after the client successfully writes its preamble.
