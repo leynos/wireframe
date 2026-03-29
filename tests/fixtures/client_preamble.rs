@@ -1,11 +1,6 @@
 //! `ClientPreambleWorld` fixture for rstest-bdd tests.
 //!
 //! Provides server/client coordination for preamble exchange scenarios.
-
-#![expect(
-    clippy::expect_used,
-    reason = "test code uses expect for concise assertions"
-)]
 #![expect(
     clippy::excessive_nesting,
     reason = "async closures within builder patterns are inherently nested"
@@ -24,6 +19,8 @@ use wireframe::{
 };
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
+
+mod support;
 
 /// Invalid acknowledgement bytes used to exercise preamble-read error-handling.
 pub const INVALID_ACK_BYTES: [u8; 3] = [0xff, 0x00, 0x01];
@@ -124,8 +121,9 @@ impl ClientPreambleWorld {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("accept");
-            handler(stream).await;
+            if let Ok((stream, _)) = listener.accept().await {
+                handler(stream).await;
+            }
         });
         self.addr = Some(addr);
         self.server = Some(handle);
@@ -140,10 +138,9 @@ impl ClientPreambleWorld {
         Fut: std::future::Future<Output = ()> + Send,
     {
         self.spawn_server(|mut stream| async move {
-            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
-                .await
-                .expect("read preamble");
-            handler(stream).await;
+            if read_preamble::<_, TestPreamble>(&mut stream).await.is_ok() {
+                handler(stream).await;
+            }
         })
         .await
     }
@@ -195,245 +192,6 @@ impl ClientPreambleWorld {
                 }
             }
         }
-    }
-
-    /// Start a preamble-aware echo server.
-    ///
-    /// # Errors
-    /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept or read fails.
-    pub async fn start_preamble_server(&mut self) -> TestResult {
-        let (tx, rx) = oneshot::channel::<TestPreamble>();
-        self.server_preamble_rx = Some(rx);
-        self.spawn_server(|mut stream| async move {
-            let (preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
-                .await
-                .expect("read preamble");
-            let _ = tx.send(preamble);
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        })
-        .await
-    }
-
-    /// Start a preamble-aware server that sends acknowledgement.
-    ///
-    /// # Errors
-    /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept, read, or write fails.
-    pub async fn start_ack_server(&mut self) -> TestResult {
-        self.spawn_server_after_preamble(|mut stream| async move {
-            write_preamble(&mut stream, &ServerAck { accepted: true })
-                .await
-                .expect("write ack");
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        })
-        .await
-    }
-
-    /// Start a preamble-aware server that replies with invalid acknowledgement bytes.
-    ///
-    /// # Errors
-    /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept, read, or write fails.
-    pub async fn start_invalid_ack_server(&mut self) -> TestResult {
-        self.spawn_server_after_preamble(|mut stream| async move {
-            stream
-                .write_all(&INVALID_ACK_BYTES)
-                .await
-                .expect("write invalid acknowledgement");
-        })
-        .await
-    }
-
-    /// Start a server that never responds (for timeout testing).
-    ///
-    /// # Errors
-    /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept fails.
-    pub async fn start_slow_server(&mut self) -> TestResult {
-        self.spawn_server(|_stream| async move {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        })
-        .await
-    }
-
-    /// Start a standard echo server without preamble support.
-    ///
-    /// # Errors
-    /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept fails.
-    pub async fn start_standard_server(&mut self) -> TestResult {
-        self.spawn_server(|_stream| async move {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        })
-        .await
-    }
-
-    /// Connect with preamble and success callback.
-    ///
-    /// # Errors
-    /// Returns an error if server address is missing.
-    pub async fn connect_with_preamble(&mut self, version: u16) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
-        let (holder, rx) = create_signal_channel::<()>();
-
-        let result = WireframeClient::builder()
-            .with_preamble(TestPreamble::new(version))
-            .on_preamble_success(move |_preamble, _stream| {
-                let holder = holder.clone();
-                async move {
-                    send_signal(&holder, ());
-                    Ok(Vec::new())
-                }
-                .boxed()
-            })
-            .connect(addr)
-            .await;
-
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-                if matches!(
-                    tokio::time::timeout(Duration::from_secs(1), rx).await,
-                    Ok(Ok(()))
-                ) {
-                    self.success_callback_invoked = true;
-                }
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
-
-        if let Some(preamble_rx) = self.server_preamble_rx.take()
-            && let Ok(Ok(preamble)) =
-                tokio::time::timeout(Duration::from_secs(1), preamble_rx).await
-        {
-            self.server_received_preamble = Some(preamble);
-        }
-
-        Ok(())
-    }
-
-    /// Connect with preamble and read acknowledgement.
-    ///
-    /// # Errors
-    /// Returns an error if server address is missing.
-    pub async fn connect_with_ack(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
-        let (holder, rx) = create_signal_channel::<ServerAck>();
-
-        let result = WireframeClient::builder()
-            .with_preamble(TestPreamble::new(1))
-            .on_preamble_success(move |_preamble, stream| {
-                let holder = holder.clone();
-                async move {
-                    let (ack, leftover) =
-                        read_preamble::<_, ServerAck>(stream).await.map_err(|e| {
-                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                        })?;
-                    send_signal(&holder, ack);
-                    Ok(leftover)
-                }
-                .boxed()
-            })
-            .connect(addr)
-            .await;
-
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-                if let Ok(Ok(ack)) = tokio::time::timeout(Duration::from_secs(1), rx).await {
-                    self.client_received_ack = Some(ack);
-                    self.success_callback_invoked = true;
-                }
-            }
-            Err(e) => {
-                self.last_error = Some(e);
-            }
-        }
-        Ok(())
-    }
-
-    /// Connect with a preamble timeout.
-    ///
-    /// # Errors
-    /// Returns an error if server address is missing.
-    pub async fn connect_with_timeout(&mut self, timeout_ms: u64) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
-        let (failure_holder, failure_rx) = create_signal_channel::<()>();
-
-        let result = WireframeClient::builder()
-            .with_preamble(TestPreamble::new(1))
-            .preamble_timeout(Duration::from_millis(timeout_ms))
-            .on_preamble_success(|_preamble, stream| {
-                async move {
-                    use tokio::io::AsyncReadExt;
-                    let mut buf = [0u8; 1];
-                    stream.read_exact(&mut buf).await?;
-                    Ok(Vec::new())
-                }
-                .boxed()
-            })
-            .on_preamble_failure(make_failure_signal_callback(failure_holder))
-            .connect(addr)
-            .await;
-
-        self.store_connect_result_with_failure_signal(result, failure_rx)
-            .await;
-        Ok(())
-    }
-
-    /// Connect with a preamble and capture invalid acknowledgement read failures.
-    ///
-    /// # Errors
-    /// Returns an error if server address is missing.
-    pub async fn connect_with_invalid_ack(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
-        let (failure_holder, failure_rx) = create_signal_channel::<()>();
-
-        let result = WireframeClient::builder()
-            .with_preamble(TestPreamble::new(1))
-            .on_preamble_success(|_preamble, stream| {
-                async move {
-                    let (_ack, leftover) =
-                        read_preamble::<_, ServerAck>(stream)
-                            .await
-                            .map_err(|error| {
-                                std::io::Error::new(std::io::ErrorKind::InvalidData, error)
-                            })?;
-                    Ok(leftover)
-                }
-                .boxed()
-            })
-            .on_preamble_failure(make_failure_signal_callback(failure_holder))
-            .connect(addr)
-            .await;
-
-        self.store_connect_result_with_failure_signal(result, failure_rx)
-            .await;
-        Ok(())
-    }
-
-    /// Connect without a preamble.
-    ///
-    /// # Errors
-    /// Returns an error if server address is missing.
-    pub async fn connect_without_preamble(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
-        let result = WireframeClient::builder().connect(addr).await;
-        self.store_connect_result(result);
-        Ok(())
     }
 
     /// Check if the server received the expected preamble version.

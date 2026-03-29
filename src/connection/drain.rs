@@ -41,42 +41,11 @@ where
         res: Option<F>,
         ctx: DrainContext<'_, F>,
     ) {
-        let DrainContext { out, state } = ctx;
-        match res {
-            Some(frame) => {
-                let is_stamping = self
-                    .active_output
-                    .multi_packet_mut()
-                    .is_some_and(|ctx| ctx.is_stamping_enabled());
-                match kind {
-                    QueueKind::Multi if is_stamping => {
-                        self.emit_multi_packet_frame(frame, out);
-                    }
-                    _ => {
-                        self.process_frame_with_hooks_and_metrics(frame, out);
-                    }
-                }
-                match kind {
-                    QueueKind::High => self.after_high(out, state),
-                    QueueKind::Low | QueueKind::Multi => self.after_low(),
-                }
-            }
-            None => match kind {
-                QueueKind::High => {
-                    Self::handle_closed_receiver(&mut self.high_rx, state);
-                    self.fairness.reset();
-                }
-                QueueKind::Low => {
-                    Self::handle_closed_receiver(&mut self.low_rx, state);
-                }
-                QueueKind::Multi => {
-                    self.handle_multi_packet_closed(
-                        MultiPacketTerminationReason::Drained,
-                        state,
-                        out,
-                    );
-                }
-            },
+        if let Some(frame) = res {
+            self.forward_queue_frame(kind, frame, ctx);
+        } else {
+            let DrainContext { out, state } = ctx;
+            self.handle_empty_queue(kind, state, out);
         }
     }
 
@@ -136,51 +105,8 @@ where
                 debug_assert!(false, "try_opportunistic_drain(High) should not be called");
                 false
             }
-            QueueKind::Low => {
-                let res = match self.low_rx.as_mut() {
-                    Some(receiver) => receiver.try_recv(),
-                    None => return false,
-                };
-
-                match res {
-                    Ok(frame) => {
-                        self.process_frame_with_hooks_and_metrics(frame, out);
-                        self.after_low();
-                        true
-                    }
-                    Err(TryRecvError::Empty) => false,
-                    Err(TryRecvError::Disconnected) => {
-                        Self::handle_closed_receiver(&mut self.low_rx, state);
-                        false
-                    }
-                }
-            }
-            QueueKind::Multi => {
-                let result = match self.active_output.multi_packet_mut() {
-                    Some(ctx) => match ctx.channel_mut() {
-                        Some(rx) => rx.try_recv(),
-                        None => return false,
-                    },
-                    None => return false,
-                };
-
-                match result {
-                    Ok(frame) => {
-                        self.emit_multi_packet_frame(frame, out);
-                        self.after_low();
-                        true
-                    }
-                    Err(TryRecvError::Empty) => false,
-                    Err(TryRecvError::Disconnected) => {
-                        self.handle_multi_packet_closed(
-                            MultiPacketTerminationReason::Disconnected,
-                            state,
-                            out,
-                        );
-                        false
-                    }
-                }
-            }
+            QueueKind::Low => self.try_opportunistic_low_drain(state, out),
+            QueueKind::Multi => self.try_opportunistic_multi_drain(state, out),
         }
     }
 
@@ -194,5 +120,87 @@ where
     ) {
         *receiver = None;
         state.mark_closed();
+    }
+
+    fn forward_queue_frame(&mut self, kind: QueueKind, frame: F, ctx: DrainContext<'_, F>) {
+        let DrainContext { out, state } = ctx;
+        if self.should_emit_multi_packet_frame(kind) {
+            self.emit_multi_packet_frame(frame, out);
+        } else {
+            self.process_frame_with_hooks_and_metrics(frame, out);
+        }
+
+        match kind {
+            QueueKind::High => self.after_high(out, state),
+            QueueKind::Low | QueueKind::Multi => self.after_low(),
+        }
+    }
+
+    fn should_emit_multi_packet_frame(&mut self, kind: QueueKind) -> bool {
+        matches!(kind, QueueKind::Multi)
+            && self
+                .active_output
+                .multi_packet_mut()
+                .is_some_and(|ctx| ctx.is_stamping_enabled())
+    }
+
+    fn handle_empty_queue(&mut self, kind: QueueKind, state: &mut ActorState, out: &mut Vec<F>) {
+        match kind {
+            QueueKind::High => {
+                Self::handle_closed_receiver(&mut self.high_rx, state);
+                self.fairness.reset();
+            }
+            QueueKind::Low => {
+                Self::handle_closed_receiver(&mut self.low_rx, state);
+            }
+            QueueKind::Multi => {
+                self.handle_multi_packet_closed(MultiPacketTerminationReason::Drained, state, out);
+            }
+        }
+    }
+
+    fn try_opportunistic_low_drain(&mut self, state: &mut ActorState, out: &mut Vec<F>) -> bool {
+        let Some(receiver) = self.low_rx.as_mut() else {
+            return false;
+        };
+
+        match receiver.try_recv() {
+            Ok(frame) => {
+                self.process_frame_with_hooks_and_metrics(frame, out);
+                self.after_low();
+                true
+            }
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => {
+                Self::handle_closed_receiver(&mut self.low_rx, state);
+                false
+            }
+        }
+    }
+
+    fn try_opportunistic_multi_drain(&mut self, state: &mut ActorState, out: &mut Vec<F>) -> bool {
+        let Some(ctx) = self.active_output.multi_packet_mut() else {
+            return false;
+        };
+        let Some(rx) = ctx.channel_mut() else {
+            return false;
+        };
+
+        match rx.try_recv() {
+            Ok(frame) => {
+                self.emit_multi_packet_frame(frame, out);
+                self.after_low();
+                true
+            }
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => {
+                self.handle_multi_packet_closed(
+                    MultiPacketTerminationReason::Disconnected,
+                    state,
+                    out,
+                );
+                false
+            }
+        }
     }
 }

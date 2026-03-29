@@ -1,5 +1,5 @@
-#![cfg(any(test, feature = "test-support"))]
 //! Test-only helpers for shared test utilities.
+#![cfg(any(test, feature = "test-support"))]
 
 use std::io;
 
@@ -57,48 +57,75 @@ pub fn parse_frame_header(payload: &[u8]) -> Result<ParsedFrameHeader, io::Error
     let message_key = MessageKey::from(take_u64(&mut buf)?);
 
     let header = match kind {
-        0x01 => {
-            let metadata_len = usize::from(take_u16(&mut buf)?);
-            let body_len = usize::try_from(take_u32(&mut buf)?)
-                .map_err(|_| invalid_data("body length too large"))?;
-            let total_body_len = if flags & 0b10 == 0b10 {
-                Some(
-                    usize::try_from(take_u32(&mut buf)?)
-                        .map_err(|_| invalid_data("total length too large"))?,
-                )
-            } else {
-                None
-            };
-
-            FrameHeader::First(FirstFrameHeader {
-                message_key,
-                metadata_len,
-                body_len,
-                total_body_len,
-                is_last: flags & 0b1 == 0b1,
-            })
-        }
-        0x02 => {
-            let body_len = usize::try_from(take_u32(&mut buf)?)
-                .map_err(|_| invalid_data("body length too large"))?;
-            let sequence = if flags & 0b10 == 0b10 {
-                Some(FrameSequence::from(take_u32(&mut buf)?))
-            } else {
-                None
-            };
-
-            FrameHeader::Continuation(ContinuationFrameHeader {
-                message_key,
-                sequence,
-                body_len,
-                is_last: flags & 0b1 == 0b1,
-            })
-        }
+        0x01 => parse_first_frame_header(&mut buf, flags, message_key)?,
+        0x02 => parse_continuation_frame_header(&mut buf, flags, message_key)?,
         _ => return Err(invalid_data("unknown header kind")),
     };
 
     let header_len = initial - buf.remaining();
     Ok(ParsedFrameHeader::new(header, header_len))
+}
+
+fn parse_first_frame_header(
+    buf: &mut &[u8],
+    flags: u8,
+    message_key: MessageKey,
+) -> Result<FrameHeader, io::Error> {
+    let metadata_len = usize::from(take_u16(buf)?);
+    let body_len = take_usize_u32(buf, "body length too large")?;
+    let total_body_len = take_optional_usize_u32(buf, flags, "total length too large")?;
+
+    Ok(FrameHeader::First(FirstFrameHeader {
+        message_key,
+        metadata_len,
+        body_len,
+        total_body_len,
+        is_last: is_last_frame(flags),
+    }))
+}
+
+fn parse_continuation_frame_header(
+    buf: &mut &[u8],
+    flags: u8,
+    message_key: MessageKey,
+) -> Result<FrameHeader, io::Error> {
+    let body_len = take_usize_u32(buf, "body length too large")?;
+    let sequence = take_optional_sequence(buf, flags)?;
+
+    Ok(FrameHeader::Continuation(ContinuationFrameHeader {
+        message_key,
+        sequence,
+        body_len,
+        is_last: is_last_frame(flags),
+    }))
+}
+
+fn is_last_frame(flags: u8) -> bool { flags & 0b1 == 0b1 }
+
+fn has_optional_field(flags: u8) -> bool { flags & 0b10 == 0b10 }
+
+fn take_usize_u32(buf: &mut &[u8], message: &'static str) -> Result<usize, io::Error> {
+    usize::try_from(take_u32(buf)?).map_err(|_| invalid_data(message))
+}
+
+fn take_optional_usize_u32(
+    buf: &mut &[u8],
+    flags: u8,
+    message: &'static str,
+) -> Result<Option<usize>, io::Error> {
+    if !has_optional_field(flags) {
+        return Ok(None);
+    }
+
+    take_usize_u32(buf, message).map(Some)
+}
+
+fn take_optional_sequence(buf: &mut &[u8], flags: u8) -> Result<Option<FrameSequence>, io::Error> {
+    if !has_optional_field(flags) {
+        return Ok(None);
+    }
+
+    Ok(Some(FrameSequence::from(take_u32(buf)?)))
 }
 
 fn take_u8(buf: &mut &[u8]) -> Result<u8, io::Error> {

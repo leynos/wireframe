@@ -1,11 +1,13 @@
 //! Test helpers shared across server modules.
-
-use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
+use std::{
+    io,
+    net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener},
+};
 
 use bincode::{Decode, Encode};
 use rstest::fixture;
 
-use super::{Bound, WireframeServer};
+use super::{Bound, ServerError, WireframeServer};
 use crate::app::WireframeApp;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -24,9 +26,9 @@ pub fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
 ///
 /// Keeping the listener bound prevents race conditions where another
 /// process could claim the port between discovery and use.
-pub fn free_listener() -> StdTcpListener {
+pub fn free_listener() -> io::Result<StdTcpListener> {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-    StdTcpListener::bind(addr).expect("Failed to bind free port listener")
+    StdTcpListener::bind(addr)
 }
 
 /// Reserve a free local port and return its address.
@@ -38,12 +40,14 @@ pub fn free_listener() -> StdTcpListener {
 /// # Examples
 ///
 /// ```plaintext
-/// let addr = free_addr();
+/// let addr = free_addr()?;
 /// assert_eq!(addr.ip(), std::net::Ipv4Addr::LOCALHOST.into());
 /// ```
 #[cfg(test)]
-#[must_use]
-pub fn free_addr() -> SocketAddr { listener_addr(&free_listener()) }
+pub fn free_addr() -> io::Result<SocketAddr> {
+    let listener = free_listener()?;
+    listener_addr(&listener)
+}
 
 /// Extract the bound address from a listener.
 ///
@@ -54,30 +58,24 @@ pub fn free_addr() -> SocketAddr { listener_addr(&free_listener()) }
 ///
 /// use wireframe::server::test_util::{free_listener, listener_addr};
 ///
-/// let listener = free_listener();
-/// let addr = listener_addr(&listener);
+/// let listener = free_listener()?;
+/// let addr = listener_addr(&listener)?;
 /// assert_eq!(
-///     listener
-///         .local_addr()
-///         .expect("failed to get listener address"),
+///     listener.local_addr()?,
 ///     addr
 /// );
 /// ```
 #[cfg(test)]
-#[must_use]
-pub fn listener_addr(listener: &StdTcpListener) -> SocketAddr {
-    listener
-        .local_addr()
-        .expect("failed to get listener address")
-}
+pub fn listener_addr(listener: &StdTcpListener) -> io::Result<SocketAddr> { listener.local_addr() }
 
-pub fn bind_server<F>(factory: F, listener: StdTcpListener) -> WireframeServer<F, (), Bound>
+pub fn bind_server<F>(
+    factory: F,
+    listener: StdTcpListener,
+) -> Result<WireframeServer<F, (), Bound>, ServerError>
 where
     F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 {
-    WireframeServer::new(factory)
-        .bind_existing_listener(listener)
-        .expect("Failed to bind")
+    WireframeServer::new(factory).bind_existing_listener(listener)
 }
 
 #[cfg(test)]
@@ -90,21 +88,34 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for server-only listener and preamble fixtures.
+
     use super::*;
 
     #[test]
     fn free_addr_uses_localhost() {
-        let addr = free_addr();
+        let addr = match free_addr() {
+            Ok(addr) => addr,
+            Err(error) => panic!("free_addr should succeed: {error}"),
+        };
         assert_eq!(addr.ip(), std::net::IpAddr::from(Ipv4Addr::LOCALHOST));
     }
 
     #[test]
     fn listener_addr_matches_local_addr() {
-        let listener = free_listener();
-        assert_eq!(
-            listener_addr(&listener),
-            listener.local_addr().expect("failed to get address")
-        );
+        let listener = match free_listener() {
+            Ok(listener) => listener,
+            Err(error) => panic!("free_listener should succeed: {error}"),
+        };
+        let addr = match listener_addr(&listener) {
+            Ok(addr) => addr,
+            Err(error) => panic!("listener_addr should succeed: {error}"),
+        };
+        let local_addr = match listener.local_addr() {
+            Ok(addr) => addr,
+            Err(error) => panic!("listener.local_addr should succeed: {error}"),
+        };
+        assert_eq!(addr, local_addr);
     }
 
     #[test]

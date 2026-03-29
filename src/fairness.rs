@@ -103,6 +103,8 @@ impl<C: Clock> FairnessTracker<C> {
 
 #[cfg(all(test, not(loom)))]
 mod tests {
+    //! Coverage for threshold and time-slice fairness decisions.
+
     use std::sync::{Arc, Mutex};
 
     use rstest::rstest;

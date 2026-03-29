@@ -329,6 +329,8 @@ impl MemoryBudgetHardCapWorld {
 
 #[cfg(test)]
 mod hard_cap_config_tests {
+    //! Coverage for hard-cap fixture config parsing rules.
+
     use std::str::FromStr;
 
     use rstest::rstest;
@@ -337,7 +339,9 @@ mod hard_cap_config_tests {
 
     #[rstest]
     fn valid_four_segment_input() {
-        let c = HardCapConfig::from_str("200/2048/8/8").expect("valid input");
+        let Ok(c) = HardCapConfig::from_str("200/2048/8/8") else {
+            panic!("valid input");
+        };
         assert_eq!(
             (c.timeout_ms, c.per_message, c.per_connection, c.in_flight),
             (200, 2048, 8, 8)
@@ -363,7 +367,9 @@ mod hard_cap_config_tests {
 
     #[rstest]
     fn zero_timeout_is_accepted() {
-        let c = HardCapConfig::from_str("0/64/100/100").expect("zero timeout is valid");
+        let Ok(c) = HardCapConfig::from_str("0/64/100/100") else {
+            panic!("zero timeout is valid");
+        };
         assert_eq!(c.timeout_ms, 0);
     }
 
@@ -371,7 +377,9 @@ mod hard_cap_config_tests {
     // enforced later by `start_app()` via `NonZeroUsize::new(...)`.
     #[rstest]
     fn zero_budget_parses_successfully() {
-        let c = HardCapConfig::from_str("10/0/100/100").expect("zero budget parses");
+        let Ok(c) = HardCapConfig::from_str("10/0/100/100") else {
+            panic!("zero budget parses");
+        };
         assert_eq!(c.per_message, 0);
     }
 }
