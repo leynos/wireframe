@@ -49,19 +49,15 @@ results table and download the artefact.
 ## Risks
 
 - Risk: The `cargo-mutants` `outcomes.json` schema may differ between
-  versions; the jq filters could break on a future release.
-  Severity: low
-  Likelihood: low
-  Mitigation: Pin the `cargo-mutants` version in the workflow. Add a comment
-  noting the version the jq filters were validated against.
+  versions; the jq filters could break on a future release. Severity: low
+  Likelihood: low Mitigation: Pin the `cargo-mutants` version in the workflow.
+  Add a comment noting the version the jq filters were validated against.
 
 - Risk: The `outcomes.json` field names discovered via source reading may not
   perfectly match runtime output (custom `Serialize` impls can diverge from
-  field names).
-  Severity: medium
-  Likelihood: low
-  Mitigation: Note the field names in a comment in the workflow. On first real
-  run, verify the jq output and correct if needed.
+  field names). Severity: medium Likelihood: low Mitigation: Note the field
+  names in a comment in the workflow. On first real run, verify the jq output
+  and correct if needed.
 
 ## Progress
 
@@ -145,8 +141,7 @@ Identify the corrections needed to the ADR's workflow sketch:
 2. The `scenario` field for mutants is not the string `"Mutant"` — it is an
    object `{"Mutant": {...}}`. The baseline scenario is the string
    `"Baseline"`. The correct filter for mutant outcomes is
-   `select(.scenario != "Baseline")` or
-   `select(.scenario | type == "object")`.
+   `select(.scenario != "Baseline")` or `select(.scenario | type == "object")`.
 3. The mutant's file path is `.scenario.Mutant.file` (not
    `.mutant.source_file`).
 4. The mutant's line is `.scenario.Mutant.span.start.line` (not

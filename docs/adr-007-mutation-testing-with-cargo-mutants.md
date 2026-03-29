@@ -41,11 +41,11 @@ back into test-improvement work.
 ### Option A: cargo-mutants
 
 [`cargo-mutants`](https://github.com/sourcefrog/cargo-mutants) is a
-purpose-built mutation testing tool for Rust. It generates mutants by
-rewriting source files, runs the test suite against each, and produces a
-structured JSON report (`mutants.out/outcomes.json`) listing caught, missed
-(survived), unviable, and timed-out mutants. It supports workspace filtering,
-parallelism, and incremental runs.
+purpose-built mutation testing tool for Rust. It generates mutants by rewriting
+source files, runs the test suite against each, and produces a structured JSON
+report (`mutants.out/outcomes.json`) listing caught, missed (survived),
+unviable, and timed-out mutants. It supports workspace filtering, parallelism,
+and incremental runs.
 
 - Single binary, installable via `cargo install` or `cargo binstall`.
 - JSON output is straightforward to archive and post-process.
@@ -62,13 +62,13 @@ which existing code paths lack meaningful assertions.
 Periodically audit coverage reports by hand. This is labour-intensive,
 error-prone, and does not scale.
 
-| Topic                  | cargo-mutants     | Property testing    | Manual audit  |
-| ---------------------- | ----------------- | ------------------- | ------------- |
-| Systematic detection   | Yes               | Partial             | No            |
-| Automation             | Full              | Partial             | None          |
-| Maintenance cost       | Low (single tool) | Medium (new tests)  | High          |
-| Blocks PR pipeline     | No (scheduled)    | Yes (runs in CI)    | No            |
-| Actionable output      | JSON + Markdown   | Test failures only  | Prose         |
+| Topic                | cargo-mutants     | Property testing   | Manual audit |
+| -------------------- | ----------------- | ------------------ | ------------ |
+| Systematic detection | Yes               | Partial            | No           |
+| Automation           | Full              | Partial            | None         |
+| Maintenance cost     | Low (single tool) | Medium (new tests) | High         |
+| Blocks PR pipeline   | No (scheduled)    | Yes (runs in CI)   | No           |
+| Actionable output    | JSON + Markdown   | Test failures only | Prose        |
 
 _Table 1: Comparison of mutation testing approaches._
 
@@ -176,8 +176,8 @@ jobs:
 - **Runner cost:** Scheduled runs consume GitHub Actions minutes. The weekly
   cadence balances insight against cost; this can be adjusted.
 - **Tool stability:** `cargo-mutants` is actively maintained but not yet 1.0.
-  Breaking changes to its JSON output format would require updating the
-  summary script.
+  Breaking changes to its JSON output format would require updating the summary
+  script.
 
 ## Outstanding Decisions
 
