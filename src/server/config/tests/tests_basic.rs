@@ -45,11 +45,13 @@ fn test_local_addr_before_bind(factory: impl Fn() -> WireframeApp + Send + Sync 
 #[tokio::test]
 async fn test_local_addr_after_bind(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_listener: std::net::TcpListener,
-) {
-    let expected = listener_addr(&free_listener);
-    let local_addr = bind_server(factory, free_listener)
+    free_listener: std::io::Result<std::net::TcpListener>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let free_listener = free_listener?;
+    let expected = listener_addr(&free_listener)?;
+    let local_addr = bind_server(factory, free_listener)?
         .local_addr()
         .expect("local address missing");
     assert_eq!(local_addr, expected);
+    Ok(())
 }

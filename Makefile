@@ -7,6 +7,7 @@ CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= markdownlint-cli2
 NIXIE ?= nixie
+WHITAKER ?= whitaker
 
 build: target/debug/lib$(CRATE).rlib ## Build debug binary
 release: target/release/lib$(CRATE).rlib ## Build release binary
@@ -47,6 +48,7 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 lint: ## Run Clippy with warnings denied
 	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --no-deps
 	$(CARGO) clippy $(CLIPPY_FLAGS)
+	RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
 fmt: ## Format Rust and Markdown sources
 	$(CARGO) fmt --all

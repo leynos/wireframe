@@ -62,6 +62,8 @@ pub(super) fn default_memory_budgets(frame_budget: usize) -> MemoryBudgets {
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for derived default memory budgets.
+
     use rstest::rstest;
 
     use super::*;

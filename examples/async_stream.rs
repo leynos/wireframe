@@ -4,6 +4,8 @@
 //! `async_stream::try_stream`. It returns a `Response` that can be
 //! consumed by a `ConnectionActor`.
 
+use std::io;
+
 use async_stream::try_stream;
 use futures::StreamExt;
 use tracing::info;
@@ -21,8 +23,7 @@ fn stream_response() -> Response<Frame> {
     Response::Stream(Box::pin(frames))
 }
 
-#[tokio::main]
-async fn main() {
+async fn run() {
     tracing_subscriber::fmt::init();
 
     let Response::Stream(mut stream) = stream_response() else {
@@ -31,4 +32,12 @@ async fn main() {
     while let Some(Ok(frame)) = stream.next().await {
         info!(?frame, "received frame");
     }
+}
+
+fn main() -> io::Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run());
+    Ok(())
 }

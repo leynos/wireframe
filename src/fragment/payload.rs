@@ -33,14 +33,16 @@ pub fn fragment_overhead() -> NonZeroUsize {
     // header size is stable for the fixed-width fields used here and must
     // remain well below `u16::MAX` to satisfy the framing format.
     let header = FragmentHeader::new(MessageId::new(0), FragmentIndex::zero(), false);
-    let header_bytes = encode_to_vec(header, config::standard()).unwrap_or_else(|err| {
-        panic!("fragment header encoding must be infallible for constants: {err}")
-    });
+    let header_bytes = match encode_to_vec(header, config::standard()) {
+        Ok(bytes) => bytes,
+        Err(err) => panic!("fragment header encoding must be infallible for constants: {err}"),
+    };
     // Magic + length prefix (u16 big-endian) + encoded header.
     let overhead = FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + header_bytes.len();
-    NonZeroUsize::new(overhead).unwrap_or_else(|| {
-        panic!("fragment overhead must be non-zero (computed {overhead})");
-    })
+    match NonZeroUsize::new(overhead) {
+        Some(non_zero) => non_zero,
+        None => panic!("fragment overhead must be non-zero (computed {overhead})"),
+    }
 }
 
 /// Encode a fragment for transport by prefixing marker and header bytes.
@@ -133,6 +135,8 @@ pub fn decode_fragment_payload(
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for fragment payload encoding and decode edge cases.
+
     use super::*;
 
     #[test]

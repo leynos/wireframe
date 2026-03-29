@@ -80,25 +80,44 @@ fn multi_packet_response() -> Response<Frame> {
     response
 }
 
-#[tokio::main]
-async fn main() -> Result<(), WireframeError<()>> {
-    tracing_subscriber::fmt::init();
+fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
 
-    let response = multi_packet_response();
-    let mut stream = response.into_stream();
-
-    while let Some(frame) = stream.try_next().await? {
-        match frame {
-            Frame {
-                kind: FrameKind::Chunk(index),
-                data,
-            } => info!("Chunk {index}: {data}"),
-            Frame {
-                kind: FrameKind::Summary,
-                data,
-            } => info!("Summary: {data}"),
-        }
+fn log_frame(frame: Frame) {
+    let Frame { kind, data } = frame;
+    match kind {
+        FrameKind::Chunk(index) => log_chunk(index, &data),
+        FrameKind::Summary => log_summary(&data),
     }
+}
 
+fn log_chunk(index: usize, data: &str) {
+    info!("Chunk {index}: {data}");
+}
+
+fn log_summary(data: &str) {
+    info!("Summary: {data}");
+}
+
+async fn drain_stream(response: Response<Frame>) -> Result<(), WireframeError<()>> {
+    let mut stream = response.into_stream();
+    while let Some(frame) = stream.try_next().await? {
+        log_frame(frame);
+    }
+    Ok(())
+}
+
+async fn run() -> Result<(), WireframeError<()>> {
+    init_tracing();
+    let response = multi_packet_response();
+    drain_stream(response).await
+}
+
+fn main() -> std::io::Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime
+        .block_on(run())
+        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
     Ok(())
 }

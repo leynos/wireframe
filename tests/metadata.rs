@@ -174,7 +174,7 @@ async fn metadata_is_forwarded_to_deserialize_context() -> TestResult<()> {
 
     let captured = (*context_state
         .lock()
-        .unwrap_or_else(|_| panic!("mutex poisoned while locking context_state")))
+        .map_err(|_| "mutex poisoned while locking context_state")?)
     .ok_or("expected captured deserialize context")?;
 
     assert_eq!(captured.message_id, Some(expected_parts.id()));

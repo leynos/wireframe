@@ -105,6 +105,8 @@ impl<S: Unpin> Unpin for RewindStream<S> {}
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for rewind-buffer bounds and poll sequencing.
+
     use std::{pin::Pin, task::Context};
 
     use futures::task::noop_waker_ref;

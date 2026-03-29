@@ -59,13 +59,14 @@ impl Fragmenter {
     /// the fragmenter.
     #[must_use]
     pub fn next_message_id(&self) -> MessageId {
-        let previous = self
+        match self
             .next_message_id
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
-            })
-            .unwrap_or_else(|_| panic!("message id counter exhausted"));
-        MessageId::new(previous)
+            }) {
+            Ok(previous) => MessageId::new(previous),
+            Err(current) => panic!("message id counter exhausted at {current}"),
+        }
     }
 
     /// Serialize `message` and split it into fragments.
