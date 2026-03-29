@@ -76,8 +76,7 @@ impl FrameMetadata for HeaderSerializer {
 #[derive(bincode::Decode, bincode::Encode)]
 struct Ping;
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+async fn run() -> io::Result<()> {
     let app = App::with_serializer(HeaderSerializer)
         .map_err(|error| io::Error::other(error.to_string()))?
         .buffer_capacity(MAX_FRAME)
@@ -120,4 +119,11 @@ async fn main() -> io::Result<()> {
 
     server_task.await.map_err(io::Error::other)??;
     Ok(())
+}
+
+fn main() -> io::Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run())
 }

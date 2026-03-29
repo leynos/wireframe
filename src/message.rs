@@ -215,6 +215,8 @@ pub mod serde_bridge {
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for serializer bridge helpers and decoding context defaults.
+
     use rstest::rstest;
 
     use super::{DecodeWith, DeserializeContext, EncodeWith};
@@ -252,6 +254,8 @@ mod tests {
 
     #[cfg(feature = "serializer-serde")]
     mod serde_bridge_tests {
+        //! Coverage for serde-backed message adapters.
+
         use rstest::rstest;
         use serde::{Deserialize, Serialize};
 

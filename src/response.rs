@@ -199,6 +199,8 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
 
 #[cfg(all(test, not(loom)))]
 mod tests {
+    //! Coverage for bounded response channels and stream conversions.
+
     use rstest::{fixture, rstest};
     use tokio::sync::mpsc::{self, error::TrySendError};
 

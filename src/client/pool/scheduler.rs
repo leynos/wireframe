@@ -297,6 +297,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for waiter queue bookkeeping across fairness policies.
+
     use super::*;
     use crate::serializer::BincodeSerializer;
 

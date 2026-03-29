@@ -13,6 +13,7 @@ mod send_streaming;
 mod send_streaming_infra;
 mod streaming;
 mod streaming_helpers;
+mod streaming_helpers_support;
 mod streaming_infra;
 mod streaming_parity;
 mod tracing;

@@ -109,6 +109,8 @@ impl From<io::Error> for ClientError {
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for client-side error mapping and connection reuse rules.
+
     use rstest::rstest;
 
     use super::*;

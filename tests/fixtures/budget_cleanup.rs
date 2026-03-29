@@ -306,6 +306,8 @@ impl BudgetCleanupWorld {
 
 #[cfg(test)]
 mod tests {
+    //! Fixture self-tests for budget cleanup world wiring and parsing.
+
     use std::io;
 
     use super::BudgetCleanupWorld;

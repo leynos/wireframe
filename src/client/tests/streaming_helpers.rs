@@ -2,53 +2,27 @@
 
 use std::io;
 
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use rstest::rstest;
 
-use super::streaming_infra::{
-    CorrelationId,
-    MessageId,
-    Payload,
-    correlation_id,
-    create_test_client,
-    setup_streaming_test,
-    spawn_malformed_server,
-    spawn_mismatch_server,
-    spawn_test_server,
+use super::{
+    streaming_helpers_support::{build_request, collect_typed_items},
+    streaming_infra::{
+        CorrelationId,
+        MessageId,
+        Payload,
+        correlation_id,
+        create_test_client,
+        setup_streaming_test,
+        spawn_malformed_server,
+        spawn_mismatch_server,
+        spawn_test_server,
+    },
 };
 use crate::{
     client::{ClientError, StreamingResponseExt},
     correlation::CorrelatableFrame,
 };
-
-fn build_request(correlation_id: CorrelationId) -> super::streaming_infra::TestStreamEnvelope {
-    super::streaming_infra::TestStreamEnvelope::data(
-        MessageId::new(99),
-        correlation_id,
-        Payload::new(vec![]),
-    )
-}
-
-async fn collect_typed_items<F>(
-    cid: CorrelationId,
-    frames: Vec<super::streaming_infra::TestStreamEnvelope>,
-    mapper: F,
-) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>
-where
-    F: FnMut(super::streaming_infra::TestStreamEnvelope) -> Result<Option<Vec<u8>>, ClientError>
-        + Send
-        + Unpin
-        + 'static,
-{
-    let (mut client, _server) = setup_streaming_test(frames).await?;
-    let items: Vec<Vec<u8>> = client
-        .call_streaming(build_request(cid))
-        .await?
-        .typed_with(mapper)
-        .try_collect()
-        .await?;
-    Ok(items)
-}
 
 #[rstest]
 #[tokio::test]

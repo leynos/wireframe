@@ -2,6 +2,8 @@
 
 #[cfg(loom)]
 mod sync {
+    //! Synchronization aliases for loom-enabled model checking.
+
     pub use std::sync::{Arc, Weak};
 
     pub use loom::sync::{
@@ -12,6 +14,8 @@ mod sync {
 
 #[cfg(not(loom))]
 mod sync {
+    //! Synchronization aliases for the standard runtime build.
+
     pub use std::sync::{
         Arc,
         Mutex,
