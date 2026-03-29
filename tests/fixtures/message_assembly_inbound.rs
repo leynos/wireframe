@@ -9,38 +9,11 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
     fragment::FragmentationConfig,
+    message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
     test_helpers::{self, TestAssembler},
 };
 pub use wireframe_testing::TestResult;
-
-/// Protocol-level message key identifying a logical message stream.
-///
-/// Wraps a `u64` so step definitions can parse it from feature-file parameters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MessageKey(pub u64);
-
-impl From<u64> for MessageKey {
-    fn from(value: u64) -> Self { Self(value) }
-}
-
-impl From<MessageKey> for u64 {
-    fn from(value: MessageKey) -> Self { value.0 }
-}
-
-/// Continuation-frame sequence number for ordering validation.
-///
-/// Wraps a `u32` so step definitions can parse it from feature-file parameters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FrameSequence(pub u32);
-
-impl From<u32> for FrameSequence {
-    fn from(value: u32) -> Self { Self(value) }
-}
-
-impl From<FrameSequence> for u32 {
-    fn from(value: FrameSequence) -> Self { value.0 }
-}
 
 const ROUTE_ID: u32 = 77;
 const CORRELATION_ID: Option<u64> = Some(5);
@@ -73,14 +46,14 @@ impl fmt::Debug for MessageAssemblyInboundWorld {
 
 #[derive(Debug, Clone, Copy)]
 struct ContinuationFrameParams<'a> {
-    key: u64,
-    sequence: u32,
+    key: MessageKey,
+    sequence: FrameSequence,
     body: &'a str,
     is_last: bool,
 }
 
 impl<'a> ContinuationFrameParams<'a> {
-    fn new(key: u64, sequence: u32, body: &'a str, is_last: bool) -> Self {
+    fn new(key: MessageKey, sequence: FrameSequence, body: &'a str, is_last: bool) -> Self {
         Self {
             key,
             sequence,
@@ -212,7 +185,7 @@ impl MessageAssemblyInboundWorld {
     /// Returns an error if the client is not initialised or the send fails.
     pub fn send_first_frame(&mut self, key: impl Into<MessageKey>, body: &str) -> TestResult {
         let key = key.into();
-        let payload = test_helpers::first_frame_payload(key.0, body.as_bytes(), false, None)?;
+        let payload = test_helpers::first_frame_payload(key, body.as_bytes(), false, None)?;
         self.send_payload(payload)
     }
 
@@ -229,7 +202,7 @@ impl MessageAssemblyInboundWorld {
     ) -> TestResult {
         let key = key.into();
         let sequence = sequence.into();
-        let params = ContinuationFrameParams::new(key.0, sequence.0, body, false);
+        let params = ContinuationFrameParams::new(key, sequence, body, false);
         self.send_continuation_frame_impl(params)
     }
 
@@ -246,7 +219,7 @@ impl MessageAssemblyInboundWorld {
     ) -> TestResult {
         let key = key.into();
         let sequence = sequence.into();
-        let params = ContinuationFrameParams::new(key.0, sequence.0, body, true);
+        let params = ContinuationFrameParams::new(key, sequence, body, true);
         self.send_continuation_frame_impl(params)
     }
 

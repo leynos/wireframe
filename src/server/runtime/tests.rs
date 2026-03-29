@@ -40,7 +40,7 @@ async fn test_run_with_immediate_shutdown(
     let server = bind_server(factory, free_listener?)?;
     let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
     let result = timeout(
-        Duration::from_millis(1000),
+        Duration::from_secs(1),
         server.run_with_shutdown(shutdown_future),
     )
     .await;
@@ -87,7 +87,7 @@ async fn test_multiple_worker_creation(
         .expect("Failed to bind");
     let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
     let result = timeout(
-        Duration::from_millis(1000),
+        Duration::from_secs(1),
         server.run_with_shutdown(shutdown_future),
     )
     .await;

@@ -8,18 +8,14 @@ use crate::fixtures::codec_test_harness::*;
     path = "tests/features/codec_test_harness.feature",
     name = "Payload round-trip through a custom codec driver"
 )]
-#[expect(
-    unused_variables,
-    reason = "rstest-bdd wires steps via parameters without using them directly"
-)]
-fn payload_round_trip(codec_test_harness_world: CodecTestHarnessWorld) {}
+fn payload_round_trip(codec_test_harness_world: CodecTestHarnessWorld) {
+    let _ = codec_test_harness_world;
+}
 
 #[scenario(
     path = "tests/features/codec_test_harness.feature",
     name = "Frame-level driver preserves codec metadata"
 )]
-#[expect(
-    unused_variables,
-    reason = "rstest-bdd wires steps via parameters without using them directly"
-)]
-fn frame_level_metadata(codec_test_harness_world: CodecTestHarnessWorld) {}
+fn frame_level_metadata(codec_test_harness_world: CodecTestHarnessWorld) {
+    let _ = codec_test_harness_world;
+}

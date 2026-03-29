@@ -123,11 +123,11 @@ fn recovery_config_builder() {
 
     let config = RecoveryConfig::default()
         .max_consecutive_drops(5)
-        .quarantine_duration(Duration::from_secs(60))
+        .quarantine_duration(Duration::from_mins(1))
         .log_dropped_frames(false);
 
     assert_eq!(config.max_consecutive_drops, 5);
-    assert_eq!(config.quarantine_duration, Duration::from_secs(60));
+    assert_eq!(config.quarantine_duration, Duration::from_mins(1));
     assert!(!config.log_dropped_frames);
 }
 

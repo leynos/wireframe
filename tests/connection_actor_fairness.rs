@@ -127,7 +127,7 @@ async fn queue_frames(
         }
     }
 
-    Ok(highs.into_iter().chain(lows.into_iter()).collect())
+    Ok(highs.into_iter().chain(lows).collect())
 }
 
 // Ensure the helper correctly handles edge cases without queued frames.

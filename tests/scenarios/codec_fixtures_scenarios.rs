@@ -8,38 +8,28 @@ use crate::fixtures::codec_fixtures::*;
     path = "tests/features/codec_fixtures.feature",
     name = "Valid fixture decodes to expected payload"
 )]
-#[expect(
-    unused_variables,
-    reason = "rstest-bdd wires steps via parameters without using them directly"
-)]
-fn valid_fixture_decodes(codec_fixtures_world: CodecFixturesWorld) {}
+fn valid_fixture_decodes(codec_fixtures_world: CodecFixturesWorld) { let _ = codec_fixtures_world; }
 
 #[scenario(
     path = "tests/features/codec_fixtures.feature",
     name = "Oversized fixture is rejected by decoder"
 )]
-#[expect(
-    unused_variables,
-    reason = "rstest-bdd wires steps via parameters without using them directly"
-)]
-fn oversized_fixture_rejected(codec_fixtures_world: CodecFixturesWorld) {}
+fn oversized_fixture_rejected(codec_fixtures_world: CodecFixturesWorld) {
+    let _ = codec_fixtures_world;
+}
 
 #[scenario(
     path = "tests/features/codec_fixtures.feature",
     name = "Truncated fixture produces a decode error"
 )]
-#[expect(
-    unused_variables,
-    reason = "rstest-bdd wires steps via parameters without using them directly"
-)]
-fn truncated_fixture_error(codec_fixtures_world: CodecFixturesWorld) {}
+fn truncated_fixture_error(codec_fixtures_world: CodecFixturesWorld) {
+    let _ = codec_fixtures_world;
+}
 
 #[scenario(
     path = "tests/features/codec_fixtures.feature",
     name = "Correlated fixtures share the same transaction identifier"
 )]
-#[expect(
-    unused_variables,
-    reason = "rstest-bdd wires steps via parameters without using them directly"
-)]
-fn correlated_fixture_ids(codec_fixtures_world: CodecFixturesWorld) {}
+fn correlated_fixture_ids(codec_fixtures_world: CodecFixturesWorld) {
+    let _ = codec_fixtures_world;
+}

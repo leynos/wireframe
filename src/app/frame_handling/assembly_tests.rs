@@ -14,7 +14,7 @@ use rstest::{fixture, rstest};
 use super::{AssemblyRuntime, assemble_if_needed};
 use crate::{
     app::Envelope,
-    message_assembler::MessageAssemblyState,
+    message_assembler::{FrameSequence, MessageAssemblyState, MessageKey},
     test_helpers::{self, TestAssembler},
 };
 
@@ -87,28 +87,38 @@ fn inbound_assembly_handles_interleaved_sequences(
     let key1_first = inbound_envelope(
         9,
         ok(
-            test_helpers::first_frame_payload(1, b"A1", false, Some(4)),
+            test_helpers::first_frame_payload(MessageKey::from(1), b"A1", false, Some(4)),
             "valid test payload",
         ),
     );
     let key2_first = inbound_envelope(
         9,
         ok(
-            test_helpers::first_frame_payload(2, b"B1", false, Some(4)),
+            test_helpers::first_frame_payload(MessageKey::from(2), b"B1", false, Some(4)),
             "valid test payload",
         ),
     );
     let key1_last = inbound_envelope(
         9,
         ok(
-            test_helpers::continuation_frame_payload(1, 1, b"A2", true),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(1),
+                FrameSequence::from(1),
+                b"A2",
+                true,
+            ),
             "valid test payload",
         ),
     );
     let key2_last = inbound_envelope(
         9,
         ok(
-            test_helpers::continuation_frame_payload(2, 1, b"B2", true),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(2),
+                FrameSequence::from(1),
+                b"B2",
+                true,
+            ),
             "valid test payload",
         ),
     );
@@ -180,28 +190,43 @@ fn inbound_assembly_rejects_ordering_violations(
     let first = inbound_envelope(
         3,
         ok(
-            test_helpers::first_frame_payload(99, b"ab", false, Some(6)),
+            test_helpers::first_frame_payload(MessageKey::from(99), b"ab", false, Some(6)),
             "valid test payload",
         ),
     );
     let cont_seq1 = inbound_envelope(
         3,
         ok(
-            test_helpers::continuation_frame_payload(99, 1, b"cd", false),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(99),
+                FrameSequence::from(1),
+                b"cd",
+                false,
+            ),
             "valid test payload",
         ),
     );
     let cont_seq3 = inbound_envelope(
         3,
         ok(
-            test_helpers::continuation_frame_payload(99, 3, b"ef", false),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(99),
+                FrameSequence::from(3),
+                b"ef",
+                false,
+            ),
             "valid test payload",
         ),
     );
     let cont_seq2 = inbound_envelope(
         3,
         ok(
-            test_helpers::continuation_frame_payload(99, 2, b"gh", true),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(99),
+                FrameSequence::from(2),
+                b"gh",
+                true,
+            ),
             "valid test payload",
         ),
     );
@@ -273,7 +298,7 @@ fn inbound_assembly_timeout_purges_partial_state(
     let first = inbound_envelope(
         5,
         ok(
-            test_helpers::first_frame_payload(7, b"ab", false, Some(4)),
+            test_helpers::first_frame_payload(MessageKey::from(7), b"ab", false, Some(4)),
             "valid test payload",
         ),
     );
@@ -302,7 +327,12 @@ fn inbound_assembly_timeout_purges_partial_state(
     let continuation = inbound_envelope(
         5,
         ok(
-            test_helpers::continuation_frame_payload(7, 1, b"cd", true),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(7),
+                FrameSequence::from(1),
+                b"cd",
+                true,
+            ),
             "valid test payload",
         ),
     );
@@ -324,60 +354,5 @@ fn inbound_assembly_timeout_purges_partial_state(
     );
 }
 
-#[rstest]
-fn assemble_if_needed_passes_through_when_assembler_is_none(
-    message_assembly_state: Result<MessageAssemblyState, &'static str>,
-) {
-    let mut deser_failures = 0_u32;
-    let mut state = Some(load_message_assembly_state(message_assembly_state));
-
-    let envelope = inbound_envelope(
-        9,
-        ok(
-            test_helpers::first_frame_payload(1, b"A", true, Some(1)),
-            "valid test payload",
-        ),
-    );
-    let result = ok(
-        assemble_if_needed(
-            AssemblyRuntime::new(None, &mut state),
-            &mut deser_failures,
-            envelope.clone(),
-            10,
-        ),
-        "assemble_if_needed should succeed",
-    );
-
-    assert_eq!(result.as_ref(), Some(&envelope));
-    assert_eq!(deser_failures, 0, "no failures when assembler is absent");
-}
-
-#[rstest]
-fn assemble_if_needed_passes_through_when_state_is_none(
-    message_assembler: Arc<dyn crate::message_assembler::MessageAssembler>,
-) {
-    let mut deser_failures = 0_u32;
-    let mut state: Option<MessageAssemblyState> = None;
-
-    let envelope = inbound_envelope(
-        9,
-        ok(
-            test_helpers::first_frame_payload(1, b"A", true, Some(1)),
-            "valid test payload",
-        ),
-    );
-    let result = ok(
-        assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut state),
-            &mut deser_failures,
-            envelope.clone(),
-            10,
-        ),
-        "assemble_if_needed should succeed",
-    );
-
-    assert_eq!(result.as_ref(), Some(&envelope));
-    assert_eq!(deser_failures, 0, "no failures when state is absent");
-}
-
+mod pass_through;
 mod routing_metadata;

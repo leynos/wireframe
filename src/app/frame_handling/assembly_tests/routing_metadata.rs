@@ -3,6 +3,7 @@
 use rstest::rstest;
 
 use super::*;
+use crate::message_assembler::{FrameSequence, MessageKey};
 
 #[rstest]
 fn interleaved_assemblies_preserve_first_frame_routing_metadata(
@@ -17,7 +18,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         10,
         Some(100),
         ok(
-            test_helpers::first_frame_payload(1, b"A1", false, Some(4)),
+            test_helpers::first_frame_payload(MessageKey::from(1), b"A1", false, Some(4)),
             "valid test payload",
         ),
     );
@@ -26,7 +27,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         20,
         Some(200),
         ok(
-            test_helpers::first_frame_payload(2, b"B1", false, Some(4)),
+            test_helpers::first_frame_payload(MessageKey::from(2), b"B1", false, Some(4)),
             "valid test payload",
         ),
     );
@@ -61,7 +62,12 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         88,
         Some(888),
         ok(
-            test_helpers::continuation_frame_payload(2, 1, b"B2", true),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(2),
+                FrameSequence::from(1),
+                b"B2",
+                true,
+            ),
             "valid test payload",
         ),
     );
@@ -87,7 +93,12 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         77,
         Some(777),
         ok(
-            test_helpers::continuation_frame_payload(1, 1, b"A2", true),
+            test_helpers::continuation_frame_payload(
+                MessageKey::from(1),
+                FrameSequence::from(1),
+                b"A2",
+                true,
+            ),
             "valid test payload",
         ),
     );
