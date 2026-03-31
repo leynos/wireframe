@@ -64,8 +64,9 @@ results table (or skip message) and download the artefacts.
 
 - Risk: The `cargo-mutants` `outcomes.json` schema may differ between
   versions; the jq filters could break on a future release. Severity: low
-  Likelihood: low Mitigation: Pin the `cargo-mutants` version in the workflow.
-  Add a comment noting the version the jq filters were validated against.
+  Likelihood: low Mitigation: Defer version pin until after the first
+  successful run confirms a known-good version, then pin it in the workflow and
+  add a comment noting the version the jq filters were validated against.
 
 - Risk: The `outcomes.json` field names discovered via source reading may not
   perfectly match runtime output (custom `Serialize` impls can diverge from
@@ -352,14 +353,27 @@ implementation):
 
 ```sh
 # Count outcomes (parameterised by $dir)
-caught=$(jq '[.outcomes[] | select(.scenario != "Baseline" and .summary == "CaughtMutant")] | length' "$dir/outcomes.json")
-missed=$(jq '[.outcomes[] | select(.scenario != "Baseline" and .summary == "MissedMutant")] | length' "$dir/outcomes.json")
-timeout=$(jq '[.outcomes[] | select(.scenario != "Baseline" and .summary == "Timeout")] | length' "$dir/outcomes.json")
+caught=$(jq '
+  [.outcomes[]
+   | select(.scenario != "Baseline"
+            and .summary == "CaughtMutant")]
+  | length' "$dir/outcomes.json")
+missed=$(jq '
+  [.outcomes[]
+   | select(.scenario != "Baseline"
+            and .summary == "MissedMutant")]
+  | length' "$dir/outcomes.json")
+timeout=$(jq '
+  [.outcomes[]
+   | select(.scenario != "Baseline"
+            and .summary == "Timeout")]
+  | length' "$dir/outcomes.json")
 
 # Table of survivors
 jq -r '
   .outcomes[]
-  | select(.scenario != "Baseline" and .summary == "MissedMutant")
+  | select(.scenario != "Baseline"
+           and .summary == "MissedMutant")
   | .scenario.Mutant as $m
   | "| \($m.file) | \($m.span.start.line) | \($m.name) |"
 ' "$dir/outcomes.json"
@@ -370,9 +384,9 @@ jq -r '
 No Rust code changes. No new Cargo dependencies.
 
 Runtime dependency (installed in CI only): `cargo-mutants`, installed via
-`cargo binstall`. No version pin in the initial rollout (per the ADR's
-outstanding decisions); a pin can be added after the first successful run
-confirms a known-good version.
+`cargo binstall`. No version pin in the initial rollout; a pin should be added
+after the first successful run confirms a known-good version (see the risk
+mitigation in the Risks section above).
 
 GitHub Actions dependencies (all pre-existing in the repository):
 
