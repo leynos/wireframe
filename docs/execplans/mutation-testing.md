@@ -28,7 +28,7 @@ targeted invocations. Each run produces:
 
 To observe success: trigger the workflow manually via the GitHub Actions UI on
 the `main` branch, wait for it to complete, then check the job summary for the
-results table (or skip message) and download the artefact(s).
+results table (or skip message) and download the artefacts.
 
 ## Constraints
 
@@ -41,7 +41,7 @@ results table (or skip message) and download the artefact(s).
   reflog-based `@{24.hours.ago}`) because fresh CI clones lack reflog state.
 - The detection step must monitor: `src/**/*.rs`,
   `wireframe_testing/src/**/*.rs`, `examples/**/*.rs`, `benches/**/*.rs`.
-  Manifest-only changes (`Cargo.toml`) are excluded.
+  Manifest-only changes (`Cargo.toml`, `Cargo.lock`) are excluded.
 - `wireframe_testing` is not a workspace member, so it requires a separate
   `cargo mutants --dir wireframe_testing` invocation.
 - The ADR at `docs/adr-007-mutation-testing-with-cargo-mutants.md` must be
@@ -101,9 +101,9 @@ results table (or skip message) and download the artefact(s).
   makes quiet days a cheap no-op.
 - 2026-03-31: Defined "code changes" as `src/**/*.rs`,
   `wireframe_testing/src/**/*.rs`, `examples/**/*.rs`, `benches/**/*.rs`.
-  Excluded manifest-only changes (`Cargo.toml`). Rationale: `cargo-mutants`
-  only mutates Rust source; manifest changes that affect mutation outcomes can
-  be caught via manual dispatch.
+  Excluded manifest-only changes (`Cargo.toml`, `Cargo.lock`). Rationale:
+  `cargo-mutants` only mutates Rust source; manifest changes that affect
+  mutation outcomes can be caught via manual dispatch.
 - 2026-03-31: Split mutation runs into root crate and `wireframe_testing`
   invocations. Rationale: `wireframe_testing` is not a workspace member and
   requires `--dir wireframe_testing` for `cargo-mutants` to find it.
@@ -199,16 +199,19 @@ Create `.github/workflows/mutation-testing.yml` with the following structure:
   2. Detect changed Rust files on `origin/main` in the last 24 hours using
      `git log --since="24 hours ago"` (commit timestamps, not reflog). Sort
      changes into root-crate files and `wireframe_testing` files. Set step
-     outputs: `has_changes`, `root_files`, `wt_files`.
-  3. If no relevant changes, write a skip message to `$GITHUB_STEP_SUMMARY`
-     and skip all subsequent heavy steps.
+     outputs: `has_changes`, `root_files`, `wt_files`, `dispatch`. For
+     `workflow_dispatch` runs, bypass the guard by setting `has_changes=true`
+     and `dispatch=true` unconditionally (runs full, unscoped mutations).
+  3. If no relevant changes on a scheduled run, write a skip message to
+     `$GITHUB_STEP_SUMMARY` and skip all subsequent heavy steps.
   4. Setup Rust using the shared action (gated on `has_changes`).
   5. Install `cargo-mutants` via `cargo binstall --no-confirm cargo-mutants`
      (gated on `has_changes`).
   6. Run `cargo mutants` for root crate with `--file` args for changed files
-     (gated on `root_files` being non-empty).
+     (gated on `root_files` being non-empty or `dispatch` being true).
   7. Run `cargo mutants --dir wireframe_testing` with `--file` args for
-     changed `wireframe_testing` files (gated on `wt_files` being non-empty).
+     changed `wireframe_testing` files (gated on `wt_files` being non-empty
+     or `dispatch` being true).
   8. Upload separate artefacts for root and `wireframe_testing` reports.
   9. Post a Markdown summary to `$GITHUB_STEP_SUMMARY` using corrected jq
      filters (with `if: always()`), calling a `post_results` shell function
@@ -300,6 +303,8 @@ git commit
   uses `git log --since="24 hours ago"` (not reflog).
 - Heavy steps (`Setup Rust`, `Install cargo-mutants`, `Run mutation testing`)
   are gated on `steps.detect.outputs.has_changes == 'true'`.
+- `workflow_dispatch` runs bypass the change-detection guard by setting
+  `has_changes=true` unconditionally and running full (unscoped) mutations.
 - Root crate and `wireframe_testing` mutation runs are separate steps with
   appropriate `--file` and `--dir` arguments.
 - The jq filters in both the workflow and the ADR use the corrected field

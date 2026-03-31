@@ -96,9 +96,14 @@ files changed on `main` in the preceding 24 hours.
    This is preferred over `origin/main@{24.hours.ago}` because that syntax
    relies on reflog state, which is not available in fresh CI clones. The
    result is stored as a step output (`has_changes=true|false`) and the heavy
-   mutation step is gated with `if: steps.detect.outputs.has_changes == 'true'`.
-3. **Skip summary:** When no relevant changes are found, the workflow writes a
-   short skip message to `$GITHUB_STEP_SUMMARY` and exits cleanly.
+   mutation step is gated with
+   `if: steps.detect.outputs.has_changes == 'true'`. Manual `workflow_dispatch`
+   runs bypass the guard by setting `has_changes=true` unconditionally and
+   running a full (unscoped) mutation against both the root crate and
+   `wireframe_testing`.
+3. **Skip summary:** When no relevant changes are found on a scheduled run, the
+   workflow writes a short skip message to `$GITHUB_STEP_SUMMARY` and exits
+   cleanly.
 
 ### What counts as "code changes"
 
@@ -177,7 +182,18 @@ jobs:
       - name: Detect changed Rust files
         id: detect
         run: |
+          # Manual dispatch bypasses change detection — always run.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "root_files=" >> "$GITHUB_OUTPUT"
+            echo "wt_files=" >> "$GITHUB_OUTPUT"
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Use commit timestamps (not reflog) — safe in fresh CI clones.
+          # git log already filters to *.rs; case below matches prefixes
+          # including nested directories (e.g. src/foo/bar.rs).
           changed=$(git log --since="24 hours ago" --name-only \
             --format="" origin/main -- '*.rs' | sort -u)
 
@@ -185,9 +201,9 @@ jobs:
           wt_files=""
           for f in $changed; do
             case "$f" in
-              src/*.rs|examples/*.rs|benches/*.rs)
+              src/*|examples/*|benches/*)
                 root_files="${root_files:+$root_files }$f" ;;
-              wireframe_testing/src/*.rs)
+              wireframe_testing/src/*)
                 wt_files="${wt_files:+$wt_files }$f" ;;
             esac
           done
@@ -215,7 +231,8 @@ jobs:
       - name: Run mutation testing (root crate)
         if: >-
           steps.detect.outputs.has_changes == 'true'
-          && steps.detect.outputs.root_files != ''
+          && (steps.detect.outputs.root_files != ''
+              || steps.detect.outputs.dispatch == 'true')
         run: |
           args=""
           for f in ${{ steps.detect.outputs.root_files }}; do
@@ -228,7 +245,8 @@ jobs:
       - name: Run mutation testing (wireframe_testing)
         if: >-
           steps.detect.outputs.has_changes == 'true'
-          && steps.detect.outputs.wt_files != ''
+          && (steps.detect.outputs.wt_files != ''
+              || steps.detect.outputs.dispatch == 'true')
         run: |
           args=""
           for f in ${{ steps.detect.outputs.wt_files }}; do
@@ -241,14 +259,20 @@ jobs:
             --output mutants-wt.out $args
 
       - name: Upload mutation report (root)
-        if: always() && steps.detect.outputs.root_files != ''
+        if: >-
+          always()
+          && (steps.detect.outputs.root_files != ''
+              || steps.detect.outputs.dispatch == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: mutation-report-root
           path: mutants.out/
 
       - name: Upload mutation report (wireframe_testing)
-        if: always() && steps.detect.outputs.wt_files != ''
+        if: >-
+          always()
+          && (steps.detect.outputs.wt_files != ''
+              || steps.detect.outputs.dispatch == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: mutation-report-wireframe-testing
@@ -354,8 +378,8 @@ jobs:
   reflog state unavailable in fresh CI clones).
 - **Code change definition:** The detection monitors `src/**/*.rs`,
   `wireframe_testing/src/**/*.rs`, `examples/**/*.rs`, and `benches/**/*.rs`.
-  Manifest-only changes (`Cargo.toml`) are excluded because `cargo-mutants`
-  only mutates Rust source files.
+  Manifest-only changes (`Cargo.toml`, `Cargo.lock`) are excluded because
+  `cargo-mutants` only mutates Rust source files.
 - **Manual dispatch bypass:** `workflow_dispatch` runs skip the
   change-detection guard entirely, providing a fallback for manifest changes or
   ad hoc validation.
