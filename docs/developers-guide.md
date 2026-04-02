@@ -62,4 +62,5 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   errors.
 
 Install Whitaker through the standalone installer described in the
-[Whitaker user's guide](whitaker-users-guide.md) so local linting matches CI.
+[Whitaker user's guide](whitaker-users-guide.md) so local linting matches
+continuous integration (CI).

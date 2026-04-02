@@ -5,7 +5,10 @@
 //! how cloning the sender enables cooperative production while back-pressure
 //! keeps senders in lock-step with the consumer.
 
-use std::time::Duration;
+use std::{
+    fmt::{self, Display, Formatter},
+    time::Duration,
+};
 
 use futures::TryStreamExt;
 use tokio::time::sleep;
@@ -47,6 +50,15 @@ impl Frame {
     }
 }
 
+impl Display for Frame {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            FrameKind::Chunk(index) => write!(formatter, "Chunk {index}: {}", self.data),
+            FrameKind::Summary => write!(formatter, "Summary: {}", self.data),
+        }
+    }
+}
+
 fn multi_packet_response() -> Response<Frame> {
     // Capacity two keeps memory usage tight and amplifies the back-pressure
     // effect for demonstration purposes.
@@ -80,36 +92,18 @@ fn multi_packet_response() -> Response<Frame> {
     response
 }
 
-fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
-
-fn log_frame(frame: Frame) {
-    let Frame { kind, data } = frame;
-    match kind {
-        FrameKind::Chunk(index) => log_chunk(index, &data),
-        FrameKind::Summary => log_summary(&data),
-    }
-}
-
-fn log_chunk(index: usize, data: &str) {
-    info!("Chunk {index}: {data}");
-}
-
-fn log_summary(data: &str) {
-    info!("Summary: {data}");
-}
-
-async fn drain_stream(response: Response<Frame>) -> Result<(), WireframeError<()>> {
-    let mut stream = response.into_stream();
-    while let Some(frame) = stream.try_next().await? {
-        log_frame(frame);
-    }
-    Ok(())
+fn log_frame(frame: &Frame) {
+    info!("{frame}");
 }
 
 async fn run() -> Result<(), WireframeError<()>> {
-    init_tracing();
+    let _ = tracing_subscriber::fmt::try_init();
     let response = multi_packet_response();
-    drain_stream(response).await
+    let mut stream = response.into_stream();
+    while let Some(frame) = stream.try_next().await? {
+        log_frame(&frame);
+    }
+    Ok(())
 }
 
 fn main() -> std::io::Result<()> {

@@ -163,7 +163,7 @@ additional_test_attributes = ["my_framework::test", "async_std::test"]
 allow_in_main = true
 ```
 
-## Localized diagnostics
+## Localised diagnostics
 
 Whitaker supports multiple languages for diagnostic messages. Set the locale
 via the `DYLINT_LOCALE` environment variable or in `dylint.toml`:

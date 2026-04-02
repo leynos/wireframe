@@ -1,5 +1,7 @@
 //! Connection and server orchestration helpers for `ClientPreambleWorld`.
 
+use tracing::error;
+
 use super::*;
 
 impl ClientPreambleWorld {
@@ -11,9 +13,16 @@ impl ClientPreambleWorld {
         let (tx, rx) = oneshot::channel::<TestPreamble>();
         self.server_preamble_rx = Some(rx);
         self.spawn_server(|mut stream| async move {
-            if let Ok((preamble, _)) = read_preamble::<_, TestPreamble>(&mut stream).await {
-                let _ = tx.send(preamble);
-                tokio::time::sleep(Duration::from_millis(100)).await;
+            match read_preamble::<_, TestPreamble>(&mut stream).await {
+                Ok((preamble, _)) => {
+                    if tx.send(preamble).is_err() {
+                        error!("client preamble fixture dropped captured preamble receiver");
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => {
+                    error!("client preamble fixture failed to read preamble: {error}");
+                }
             }
         })
         .await
@@ -25,11 +34,13 @@ impl ClientPreambleWorld {
     /// Returns an error if binding fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
         self.spawn_server_after_preamble(|mut stream| async move {
-            if write_preamble(&mut stream, &ServerAck { accepted: true })
-                .await
-                .is_ok()
-            {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+            match write_preamble(&mut stream, &ServerAck { accepted: true }).await {
+                Ok(()) => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => {
+                    error!("client preamble fixture failed to write acknowledgement: {error}");
+                }
             }
         })
         .await
@@ -42,7 +53,9 @@ impl ClientPreambleWorld {
     /// Returns an error if binding fails.
     pub async fn start_invalid_ack_server(&mut self) -> TestResult {
         self.spawn_server_after_preamble(|mut stream| async move {
-            let _ = stream.write_all(&INVALID_ACK_BYTES).await;
+            if let Err(error) = stream.write_all(&INVALID_ACK_BYTES).await {
+                error!("client preamble fixture failed to write invalid acknowledgement: {error}");
+            }
         })
         .await
     }

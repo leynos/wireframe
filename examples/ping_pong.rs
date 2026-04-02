@@ -6,10 +6,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::{
-    net::{TcpListener, TcpStream},
-    signal,
-};
+use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 use wireframe::{
     app::{Envelope, Packet, Result as AppResult},
@@ -17,6 +14,9 @@ use wireframe::{
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
 };
+
+#[path = "support/server_loop.rs"]
+mod server_loop;
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -169,47 +169,6 @@ async fn bind_listener() -> std::io::Result<TcpListener> {
     TcpListener::bind(addr).await
 }
 
-enum ServerEvent {
-    Accepted(TcpStream),
-    Shutdown,
-}
-
-fn accepted_event(
-    result: std::io::Result<(TcpStream, SocketAddr)>,
-) -> std::io::Result<ServerEvent> {
-    let (stream, _) = result?;
-    Ok(ServerEvent::Accepted(stream))
-}
-
-fn log_shutdown_success() {
-    info!("ping-pong server received shutdown signal");
-}
-
-fn log_shutdown_error(error: &std::io::Error) {
-    error!("failed waiting for shutdown signal: {error}");
-}
-
-fn shutdown_event(result: &std::io::Result<()>) -> ServerEvent {
-    if let Some(error) = result.as_ref().err() {
-        log_shutdown_error(error);
-    } else {
-        log_shutdown_success();
-    }
-
-    ServerEvent::Shutdown
-}
-
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "tokio::select! macro expansion performs modulo internally"
-)]
-async fn next_server_event(listener: &TcpListener) -> std::io::Result<ServerEvent> {
-    tokio::select! {
-        accept_result = listener.accept() => accepted_event(accept_result),
-        shutdown_result = signal::ctrl_c() => Ok(shutdown_event(&shutdown_result)),
-    }
-}
-
 fn spawn_connection(app: Arc<App>, stream: TcpStream) {
     tokio::spawn(async move {
         if let Err(error) = app.handle_connection_result(stream).await {
@@ -218,15 +177,11 @@ fn spawn_connection(app: Arc<App>, stream: TcpStream) {
     });
 }
 
-async fn accepted_stream(listener: &TcpListener) -> std::io::Result<Option<TcpStream>> {
-    match next_server_event(listener).await? {
-        ServerEvent::Accepted(stream) => Ok(Some(stream)),
-        ServerEvent::Shutdown => Ok(None),
-    }
-}
-
 async fn serve_until_shutdown(listener: TcpListener, app: Arc<App>) -> std::io::Result<()> {
-    while let Some(stream) = accepted_stream(&listener).await? {
+    while let Some(stream) =
+        server_loop::accept_until_shutdown(&listener, "ping-pong server received shutdown signal")
+            .await?
+    {
         spawn_connection(Arc::clone(&app), stream);
     }
 

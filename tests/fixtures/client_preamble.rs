@@ -11,6 +11,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use futures::FutureExt;
 use rstest::fixture;
 use tokio::{io::AsyncWriteExt, net::TcpListener, sync::oneshot, task::JoinHandle};
+use tracing::error;
 use wireframe::{
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
@@ -121,8 +122,11 @@ impl ClientPreambleWorld {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
-            if let Ok((stream, _)) = listener.accept().await {
-                handler(stream).await;
+            match listener.accept().await {
+                Ok((stream, _)) => handler(stream).await,
+                Err(error) => {
+                    error!("client preamble fixture failed to accept connection: {error}");
+                }
             }
         });
         self.addr = Some(addr);
@@ -138,8 +142,11 @@ impl ClientPreambleWorld {
         Fut: std::future::Future<Output = ()> + Send,
     {
         self.spawn_server(|mut stream| async move {
-            if read_preamble::<_, TestPreamble>(&mut stream).await.is_ok() {
-                handler(stream).await;
+            match read_preamble::<_, TestPreamble>(&mut stream).await {
+                Ok(_) => handler(stream).await,
+                Err(error) => {
+                    error!("client preamble fixture failed to read client preamble: {error}");
+                }
             }
         })
         .await
