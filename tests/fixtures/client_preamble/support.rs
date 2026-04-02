@@ -3,6 +3,41 @@
 use super::*;
 
 impl ClientPreambleWorld {
+    async fn connect_with_failure_signal<F>(
+        &mut self,
+        timeout: Option<Duration>,
+        success_callback: F,
+    ) -> TestResult
+    where
+        F: for<'a> Fn(
+                &'a TestPreamble,
+                &'a mut tokio::net::TcpStream,
+            ) -> futures::future::BoxFuture<'a, std::io::Result<Vec<u8>>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        let addr = self.addr.ok_or("server address missing")?;
+        let (failure_holder, failure_rx) = create_signal_channel::<()>();
+
+        let builder = WireframeClient::builder().with_preamble(TestPreamble::new(1));
+        let builder = if let Some(duration) = timeout {
+            builder.preamble_timeout(duration)
+        } else {
+            builder
+        };
+
+        let result = builder
+            .on_preamble_success(success_callback)
+            .on_preamble_failure(make_failure_signal_callback(failure_holder))
+            .connect(addr)
+            .await;
+
+        self.store_connect_result_with_failure_signal(result, failure_rx)
+            .await;
+        Ok(())
+    }
+
     /// Start a preamble-aware echo server.
     ///
     /// # Errors
@@ -162,30 +197,18 @@ impl ClientPreambleWorld {
     ///
     /// # Errors
     /// Returns an error if server address is missing.
-    pub async fn connect_with_timeout(&mut self, timeout_ms: u64) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
-        let (failure_holder, failure_rx) = create_signal_channel::<()>();
+    pub async fn connect_with_timeout(&mut self, timeout: Duration) -> TestResult {
+        self.connect_with_failure_signal(Some(timeout), |_preamble, stream| {
+            async move {
+                use tokio::io::AsyncReadExt;
 
-        let result = WireframeClient::builder()
-            .with_preamble(TestPreamble::new(1))
-            .preamble_timeout(Duration::from_millis(timeout_ms))
-            .on_preamble_success(|_preamble, stream| {
-                async move {
-                    use tokio::io::AsyncReadExt;
-
-                    let mut buf = [0u8; 1];
-                    stream.read_exact(&mut buf).await?;
-                    Ok(Vec::new())
-                }
-                .boxed()
-            })
-            .on_preamble_failure(make_failure_signal_callback(failure_holder))
-            .connect(addr)
-            .await;
-
-        self.store_connect_result_with_failure_signal(result, failure_rx)
-            .await;
-        Ok(())
+                let mut buf = [0u8; 1];
+                stream.read_exact(&mut buf).await?;
+                Ok(Vec::new())
+            }
+            .boxed()
+        })
+        .await
     }
 
     /// Connect with a preamble and capture invalid acknowledgement read
@@ -194,27 +217,16 @@ impl ClientPreambleWorld {
     /// # Errors
     /// Returns an error if server address is missing.
     pub async fn connect_with_invalid_ack(&mut self) -> TestResult {
-        let addr = self.addr.ok_or("server address missing")?;
-        let (failure_holder, failure_rx) = create_signal_channel::<()>();
-
-        let result = WireframeClient::builder()
-            .with_preamble(TestPreamble::new(1))
-            .on_preamble_success(|_preamble, stream| {
-                async move {
-                    let (_ack, leftover) = read_preamble::<_, ServerAck>(stream)
-                        .await
-                        .map_err(preamble_decode_error)?;
-                    Ok(leftover)
-                }
-                .boxed()
-            })
-            .on_preamble_failure(make_failure_signal_callback(failure_holder))
-            .connect(addr)
-            .await;
-
-        self.store_connect_result_with_failure_signal(result, failure_rx)
-            .await;
-        Ok(())
+        self.connect_with_failure_signal(None, |_preamble, stream| {
+            async move {
+                let (_ack, leftover) = read_preamble::<_, ServerAck>(stream)
+                    .await
+                    .map_err(preamble_decode_error)?;
+                Ok(leftover)
+            }
+            .boxed()
+        })
+        .await
     }
 
     /// Connect without a preamble.

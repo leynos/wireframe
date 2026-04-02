@@ -1,5 +1,7 @@
 //! Step definitions for wireframe client preamble behavioural tests.
 
+use std::time::Duration;
+
 use rstest_bdd_macros::{given, then, when};
 
 use crate::fixtures::client_preamble::{ClientPreambleWorld, TestResult};
@@ -61,7 +63,7 @@ fn when_connect_with_timeout(
     timeout_ms: u64,
 ) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.connect_with_timeout(timeout_ms))
+    rt.block_on(client_preamble_world.connect_with_timeout(Duration::from_millis(timeout_ms)))
 }
 
 #[when("a client connects without a preamble")]
@@ -91,7 +93,8 @@ fn then_success_callback_invoked(client_preamble_world: &mut ClientPreambleWorld
     if !client_preamble_world.success_invoked() {
         return Err("expected success callback to be invoked".into());
     }
-    client_preamble_world.abort_server();
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }
 
@@ -100,7 +103,8 @@ fn then_receives_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestRes
     if !client_preamble_world.ack_accepted() {
         return Err("expected client to receive accepted acknowledgement".into());
     }
-    client_preamble_world.abort_server();
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }
 
@@ -118,7 +122,8 @@ fn then_preamble_read_error(client_preamble_world: &mut ClientPreambleWorld) -> 
     if !client_preamble_world.was_preamble_read_error() {
         return Err("expected preamble read error".into());
     }
-    client_preamble_world.abort_server();
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }
 
@@ -136,6 +141,7 @@ fn then_connects_successfully(client_preamble_world: &mut ClientPreambleWorld) -
     if !client_preamble_world.is_connected() {
         return Err("expected client to connect successfully".into());
     }
-    client_preamble_world.abort_server();
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }

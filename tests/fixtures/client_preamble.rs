@@ -238,6 +238,17 @@ impl ClientPreambleWorld {
     #[must_use]
     pub fn is_connected(&self) -> bool { self.client.is_some() }
 
+    /// Await the server task and surface both join and inner I/O errors.
+    ///
+    /// # Errors
+    /// Returns an error if the task panicked, was cancelled, or completed with
+    /// an I/O failure.
+    pub async fn finish_server(&mut self) -> TestResult {
+        let handle = self.server.take().ok_or("server task missing")?;
+        handle.await??;
+        Ok(())
+    }
+
     /// Abort the server task.
     pub fn abort_server(&mut self) {
         if let Some(handle) = self.server.take() {
