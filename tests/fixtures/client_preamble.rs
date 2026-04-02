@@ -1,10 +1,6 @@
 //! `ClientPreambleWorld` fixture for rstest-bdd tests.
 //!
 //! Provides server/client coordination for preamble exchange scenarios.
-#![expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 

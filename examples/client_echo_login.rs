@@ -44,20 +44,20 @@ fn log_acknowledgement(response: &Envelope, ack: &LoginAck) {
 }
 
 fn validate_acknowledgement(login: &LoginRequest, ack: &LoginAck) -> ExampleResult<()> {
-    if ack.username == login.username {
-        return Ok(());
+    if ack.username != login.username {
+        error!(
+            sent = %login.username,
+            received = %ack.username,
+            "login acknowledgement mismatch",
+        );
+        let error = std::io::Error::other(format!(
+            "login acknowledgement mismatch: sent '{}', received '{}'",
+            login.username, ack.username
+        ));
+        return Err(error.into());
     }
 
-    error!(
-        sent = %login.username,
-        received = %ack.username,
-        "login acknowledgement mismatch",
-    );
-    let error = std::io::Error::other(format!(
-        "login acknowledgement mismatch: sent '{}', received '{}'",
-        login.username, ack.username
-    ));
-    Err(error.into())
+    Ok(())
 }
 
 async fn request_acknowledgement(

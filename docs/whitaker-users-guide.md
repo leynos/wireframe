@@ -163,7 +163,7 @@ additional_test_attributes = ["my_framework::test", "async_std::test"]
 allow_in_main = true
 ```
 
-## Localised diagnostics
+## Localized diagnostics
 
 Whitaker supports multiple languages for diagnostic messages. Set the locale
 via the `DYLINT_LOCALE` environment variable or in `dylint.toml`:
@@ -178,7 +178,7 @@ Available locales:
 - `cy` - Welsh (Cymraeg)
 - `gd` - Scottish Gaelic (Gàidhlig)
 
----
+______________________________________________________________________
 
 ## Available lints
 
@@ -215,7 +215,7 @@ if should_proceed() {
 }
 ```
 
----
+______________________________________________________________________
 
 ### `function_attrs_follow_docs`
 
@@ -235,7 +235,7 @@ fn example() {}
 fn example() {}
 ```
 
----
+______________________________________________________________________
 
 ### `module_max_lines`
 
@@ -250,7 +250,7 @@ max_lines = 400
 
 **How to fix:** Split large modules into smaller, focused submodules.
 
----
+______________________________________________________________________
 
 ### `module_must_have_inner_docs`
 
@@ -265,7 +265,7 @@ mod my_module {
 }
 ```
 
----
+______________________________________________________________________
 
 ### `no_expect_outside_tests`
 
@@ -281,7 +281,7 @@ additional_test_attributes = ["my_framework::test", "async_std::test"]
 **How to fix:** Use proper error handling (`?`, `map_err`) or move the code to
 a test context.
 
----
+______________________________________________________________________
 
 ### `no_std_fs_operations`
 
@@ -322,7 +322,7 @@ fn read_config(config_dir: &Dir, path: &Utf8Path) -> std::io::Result<String> {
 }
 ```
 
----
+______________________________________________________________________
 
 ### `no_unwrap_or_else_panic`
 

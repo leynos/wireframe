@@ -76,10 +76,11 @@ async fn reader_surfaces_stream_error() {
     let mut reader = RequestBodyReader::new(stream);
 
     let mut buf = [0u8; 16];
-    match reader.read(&mut buf).await {
-        Ok(bytes_read) => panic!("read should fail, got {bytes_read} bytes"),
-        Err(err) => assert_eq!(err.kind(), io::ErrorKind::BrokenPipe),
-    }
+    let err = reader
+        .read(&mut buf)
+        .await
+        .expect_err("read should fail with BrokenPipe");
+    assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
 }
 
 #[tokio::test]

@@ -132,12 +132,9 @@ impl ClientPreambleWorld {
             .on_preamble_success(move |_preamble, stream| {
                 let holder = holder.clone();
                 async move {
-                    let (ack, leftover) =
-                        read_preamble::<_, ServerAck>(stream)
-                            .await
-                            .map_err(|error| {
-                                std::io::Error::new(std::io::ErrorKind::InvalidData, error)
-                            })?;
+                    let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
+                        .await
+                        .map_err(preamble_decode_error)?;
                     send_signal(&holder, ack);
                     Ok(leftover)
                 }
@@ -204,12 +201,9 @@ impl ClientPreambleWorld {
             .with_preamble(TestPreamble::new(1))
             .on_preamble_success(|_preamble, stream| {
                 async move {
-                    let (_ack, leftover) =
-                        read_preamble::<_, ServerAck>(stream)
-                            .await
-                            .map_err(|error| {
-                                std::io::Error::new(std::io::ErrorKind::InvalidData, error)
-                            })?;
+                    let (_ack, leftover) = read_preamble::<_, ServerAck>(stream)
+                        .await
+                        .map_err(preamble_decode_error)?;
                     Ok(leftover)
                 }
                 .boxed()
