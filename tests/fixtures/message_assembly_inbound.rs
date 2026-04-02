@@ -44,25 +44,6 @@ impl fmt::Debug for MessageAssemblyInboundWorld {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ContinuationFrameParams<'a> {
-    key: MessageKey,
-    sequence: FrameSequence,
-    body: &'a str,
-    is_last: bool,
-}
-
-impl<'a> ContinuationFrameParams<'a> {
-    fn new(key: MessageKey, sequence: FrameSequence, body: &'a str, is_last: bool) -> Self {
-        Self {
-            key,
-            sequence,
-            body,
-            is_last,
-        }
-    }
-}
-
 impl Default for MessageAssemblyInboundWorld {
     fn default() -> Self {
         match tokio::runtime::Builder::new_current_thread()
@@ -200,10 +181,7 @@ impl MessageAssemblyInboundWorld {
         sequence: impl Into<FrameSequence>,
         body: &str,
     ) -> TestResult {
-        let key = key.into();
-        let sequence = sequence.into();
-        let params = ContinuationFrameParams::new(key, sequence, body, false);
-        self.send_continuation_frame_impl(params)
+        self.send_continuation_or_final((key.into(), sequence.into()), body, false)
     }
 
     /// Serialize and send a final continuation frame that completes assembly.
@@ -217,19 +195,16 @@ impl MessageAssemblyInboundWorld {
         sequence: impl Into<FrameSequence>,
         body: &str,
     ) -> TestResult {
-        let key = key.into();
-        let sequence = sequence.into();
-        let params = ContinuationFrameParams::new(key, sequence, body, true);
-        self.send_continuation_frame_impl(params)
+        self.send_continuation_or_final((key.into(), sequence.into()), body, true)
     }
 
-    fn send_continuation_frame_impl(&mut self, params: ContinuationFrameParams<'_>) -> TestResult {
-        let ContinuationFrameParams {
-            key,
-            sequence,
-            body,
-            is_last,
-        } = params;
+    fn send_continuation_or_final(
+        &mut self,
+        frame: (MessageKey, FrameSequence),
+        body: &str,
+        is_last: bool,
+    ) -> TestResult {
+        let (key, sequence) = frame;
         let payload =
             test_helpers::continuation_frame_payload(key, sequence, body.as_bytes(), is_last)?;
         self.send_payload(payload)
