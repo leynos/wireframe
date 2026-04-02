@@ -345,9 +345,8 @@ mod hard_cap_config_tests {
 
     #[rstest]
     fn valid_four_segment_input() {
-        let Ok(c) = HardCapConfig::from_str("200/2048/8/8") else {
-            panic!("valid input");
-        };
+        let c = HardCapConfig::from_str("200/2048/8/8")
+            .expect("valid input should parse: 200/2048/8/8");
         assert_eq!(
             (c.timeout_ms, c.per_message, c.per_connection, c.in_flight),
             (200, 2048, 8, 8)
@@ -373,9 +372,8 @@ mod hard_cap_config_tests {
 
     #[rstest]
     fn zero_timeout_is_accepted() {
-        let Ok(c) = HardCapConfig::from_str("0/64/100/100") else {
-            panic!("zero timeout is valid");
-        };
+        let c = HardCapConfig::from_str("0/64/100/100")
+            .expect("zero timeout should parse: 0/64/100/100");
         assert_eq!(c.timeout_ms, 0);
     }
 
@@ -383,9 +381,8 @@ mod hard_cap_config_tests {
     // enforced later by `start_app()` via `NonZeroUsize::new(...)`.
     #[rstest]
     fn zero_budget_parses_successfully() {
-        let Ok(c) = HardCapConfig::from_str("10/0/100/100") else {
-            panic!("zero budget parses");
-        };
+        let c = HardCapConfig::from_str("10/0/100/100")
+            .expect("zero budget should parse: 10/0/100/100");
         assert_eq!(c.per_message, 0);
     }
 }

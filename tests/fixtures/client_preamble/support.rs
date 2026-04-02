@@ -1,7 +1,5 @@
 //! Connection and server orchestration helpers for `ClientPreambleWorld`.
 
-use tracing::error;
-
 use super::*;
 
 impl ClientPreambleWorld {
@@ -13,17 +11,12 @@ impl ClientPreambleWorld {
         let (tx, rx) = oneshot::channel::<TestPreamble>();
         self.server_preamble_rx = Some(rx);
         self.spawn_server(|mut stream| async move {
-            match read_preamble::<_, TestPreamble>(&mut stream).await {
-                Ok((preamble, _)) => {
-                    if tx.send(preamble).is_err() {
-                        error!("client preamble fixture dropped captured preamble receiver");
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                Err(error) => {
-                    error!("client preamble fixture failed to read preamble: {error}");
-                }
-            }
+            let (preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
+                .await
+                .map_err(preamble_decode_error)?;
+            let _ = tx.send(preamble);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
         })
         .await
     }
@@ -34,14 +27,11 @@ impl ClientPreambleWorld {
     /// Returns an error if binding fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
         self.spawn_server_after_preamble(|mut stream| async move {
-            match write_preamble(&mut stream, &ServerAck { accepted: true }).await {
-                Ok(()) => {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                Err(error) => {
-                    error!("client preamble fixture failed to write acknowledgement: {error}");
-                }
-            }
+            write_preamble(&mut stream, &ServerAck { accepted: true })
+                .await
+                .map_err(preamble_encode_error)?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
         })
         .await
     }
@@ -53,9 +43,8 @@ impl ClientPreambleWorld {
     /// Returns an error if binding fails.
     pub async fn start_invalid_ack_server(&mut self) -> TestResult {
         self.spawn_server_after_preamble(|mut stream| async move {
-            if let Err(error) = stream.write_all(&INVALID_ACK_BYTES).await {
-                error!("client preamble fixture failed to write invalid acknowledgement: {error}");
-            }
+            stream.write_all(&INVALID_ACK_BYTES).await?;
+            Ok(())
         })
         .await
     }
@@ -67,6 +56,7 @@ impl ClientPreambleWorld {
     pub async fn start_slow_server(&mut self) -> TestResult {
         self.spawn_server(|_stream| async move {
             tokio::time::sleep(Duration::from_secs(10)).await;
+            Ok(())
         })
         .await
     }
@@ -78,6 +68,7 @@ impl ClientPreambleWorld {
     pub async fn start_standard_server(&mut self) -> TestResult {
         self.spawn_server(|_stream| async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
         })
         .await
     }
@@ -145,10 +136,7 @@ impl ClientPreambleWorld {
                         read_preamble::<_, ServerAck>(stream)
                             .await
                             .map_err(|error| {
-                                std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    error.to_string(),
-                                )
+                                std::io::Error::new(std::io::ErrorKind::InvalidData, error)
                             })?;
                     send_signal(&holder, ack);
                     Ok(leftover)

@@ -11,7 +11,6 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use futures::FutureExt;
 use rstest::fixture;
 use tokio::{io::AsyncWriteExt, net::TcpListener, sync::oneshot, task::JoinHandle};
-use tracing::error;
 use wireframe::{
     client::{ClientError, WireframeClient},
     preamble::{read_preamble, write_preamble},
@@ -75,6 +74,14 @@ fn send_signal<T>(holder: &std::sync::Mutex<Option<oneshot::Sender<T>>>, value: 
     }
 }
 
+fn preamble_decode_error(error: bincode::error::DecodeError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+}
+
+fn preamble_encode_error(error: bincode::error::EncodeError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+}
+
 /// Construct a preamble-failure callback that signals `holder` and returns `Ok`.
 fn make_failure_signal_callback(
     holder: SenderHolder<()>,
@@ -96,7 +103,7 @@ fn make_failure_signal_callback(
 #[derive(Debug, Default)]
 pub struct ClientPreambleWorld {
     addr: Option<SocketAddr>,
-    server: Option<JoinHandle<()>>,
+    server: Option<JoinHandle<std::io::Result<()>>>,
     client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>,
     server_preamble_rx: Option<oneshot::Receiver<TestPreamble>>,
     server_received_preamble: Option<TestPreamble>,
@@ -117,17 +124,13 @@ impl ClientPreambleWorld {
     async fn spawn_server<F, Fut>(&mut self, handler: F) -> TestResult
     where
         F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ()> + Send,
+        Fut: std::future::Future<Output = std::io::Result<()>> + Send,
     {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
-            match listener.accept().await {
-                Ok((stream, _)) => handler(stream).await,
-                Err(error) => {
-                    error!("client preamble fixture failed to accept connection: {error}");
-                }
-            }
+            let (stream, _) = listener.accept().await?;
+            handler(stream).await
         });
         self.addr = Some(addr);
         self.server = Some(handle);
@@ -139,15 +142,13 @@ impl ClientPreambleWorld {
     async fn spawn_server_after_preamble<F, Fut>(&mut self, handler: F) -> TestResult
     where
         F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ()> + Send,
+        Fut: std::future::Future<Output = std::io::Result<()>> + Send,
     {
         self.spawn_server(|mut stream| async move {
-            match read_preamble::<_, TestPreamble>(&mut stream).await {
-                Ok(_) => handler(stream).await,
-                Err(error) => {
-                    error!("client preamble fixture failed to read client preamble: {error}");
-                }
-            }
+            read_preamble::<_, TestPreamble>(&mut stream)
+                .await
+                .map_err(preamble_decode_error)?;
+            handler(stream).await
         })
         .await
     }

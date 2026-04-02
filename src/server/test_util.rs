@@ -94,27 +94,17 @@ mod tests {
 
     #[test]
     fn free_addr_uses_localhost() {
-        let addr = match free_addr() {
-            Ok(addr) => addr,
-            Err(error) => panic!("free_addr should succeed: {error}"),
-        };
+        let addr = free_addr().expect("free_addr should succeed");
         assert_eq!(addr.ip(), std::net::IpAddr::from(Ipv4Addr::LOCALHOST));
     }
 
     #[test]
     fn listener_addr_matches_local_addr() {
-        let listener = match free_listener() {
-            Ok(listener) => listener,
-            Err(error) => panic!("free_listener should succeed: {error}"),
-        };
-        let addr = match listener_addr(&listener) {
-            Ok(addr) => addr,
-            Err(error) => panic!("listener_addr should succeed: {error}"),
-        };
-        let local_addr = match listener.local_addr() {
-            Ok(addr) => addr,
-            Err(error) => panic!("listener.local_addr should succeed: {error}"),
-        };
+        let listener = free_listener().expect("free_listener should succeed");
+        let addr = listener_addr(&listener).expect("listener_addr should succeed");
+        let local_addr = listener
+            .local_addr()
+            .expect("listener.local_addr should succeed");
         assert_eq!(addr, local_addr);
     }
 

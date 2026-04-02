@@ -30,10 +30,7 @@ async fn async_read_adapter_reads_stream() {
     let mut reader = RequestBodyReader::new(stream);
 
     let mut buf = [0u8; 4];
-    let n = match reader.read(&mut buf).await {
-        Ok(bytes_read) => bytes_read,
-        Err(error) => panic!("read should succeed: {error}"),
-    };
+    let n = reader.read(&mut buf).await.expect("read should succeed");
     assert_eq!(n, 4);
     assert_eq!(&buf, b"test");
 }
@@ -48,9 +45,10 @@ async fn reader_consumes_multiple_chunks() {
     let mut reader = RequestBodyReader::new(stream);
 
     let mut buf = Vec::new();
-    if let Err(error) = reader.read_to_end(&mut buf).await {
-        panic!("read_to_end should succeed: {error}");
-    }
+    reader
+        .read_to_end(&mut buf)
+        .await
+        .expect("read_to_end should succeed");
     assert_eq!(buf, b"hello world");
 }
 
@@ -63,7 +61,9 @@ async fn stream_propagates_io_error() {
     let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
 
     let results: Vec<_> = stream.collect().await;
-    assert!(matches!(results.as_slice(), [Ok(_), Err(_)]));
+    assert!(
+        matches!(results.as_slice(), [Ok(_), Err(error)] if error.kind() == io::ErrorKind::InvalidData)
+    );
 }
 
 #[tokio::test]
@@ -86,12 +86,12 @@ async fn reader_surfaces_stream_error() {
 async fn body_channel_delivers_chunks() {
     let (tx, stream) = body_channel(4);
 
-    if let Err(error) = tx.send(Ok(Bytes::from_static(b"chunk1"))).await {
-        panic!("send should succeed: {error}");
-    }
-    if let Err(error) = tx.send(Ok(Bytes::from_static(b"chunk2"))).await {
-        panic!("send should succeed: {error}");
-    }
+    tx.send(Ok(Bytes::from_static(b"chunk1")))
+        .await
+        .expect("send should succeed");
+    tx.send(Ok(Bytes::from_static(b"chunk2")))
+        .await
+        .expect("send should succeed");
     drop(tx);
 
     let chunks: Vec<_> = stream.collect().await;
@@ -102,9 +102,9 @@ async fn body_channel_delivers_chunks() {
 async fn body_channel_back_pressure() {
     let (tx, _rx) = body_channel(1);
 
-    if let Err(error) = tx.send(Ok(Bytes::from_static(b"first"))).await {
-        panic!("first send should succeed: {error}");
-    }
+    tx.send(Ok(Bytes::from_static(b"first")))
+        .await
+        .expect("first send should succeed");
 
     // Channel is full; try_send should fail
     let result = tx.try_send(Ok(Bytes::from_static(b"second")));

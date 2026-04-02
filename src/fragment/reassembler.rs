@@ -280,13 +280,15 @@ impl Reassembler {
                 vacant.insert(PartialMessage::new(series, fragment.payload, fragment.now));
                 Ok(None)
             }
+            #[expect(
+                clippy::unreachable,
+                reason = "The first accepted fragment for a new series cannot be duplicate"
+            )]
             FragmentStatus::Duplicate => {
-                debug_assert!(
-                    false,
+                unreachable!(
                     "newly created FragmentSeries starts at index 0; a first fragment cannot be \
                      duplicate"
                 );
-                Ok(None)
             }
             FragmentStatus::Complete => Ok(Some(ReassembledMessage::new(
                 message_id,
