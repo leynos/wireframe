@@ -114,6 +114,8 @@ impl Default for LengthFormat {
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for supported frame-length encodings.
+
     use rstest::rstest;
 
     use super::*;

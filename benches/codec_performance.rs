@@ -88,12 +88,12 @@ fn benchmark_fragmentation_overhead(c: &mut Criterion) {
             Ok(result) => result,
             Err(err) => panic!("fragmentation baseline setup failed: {err}"),
         };
-        let ratio = baseline.nanos_ratio().unwrap_or_else(|| {
+        let Some(ratio) = baseline.nanos_ratio() else {
             panic!(
                 "fragmentation baseline has no valid nanos_ratio for payload_class={}",
                 payload_class.label()
-            )
-        });
+            );
+        };
         black_box(baseline.unfragmented.nanos_per_op());
         black_box(baseline.fragmented.nanos_per_op());
 

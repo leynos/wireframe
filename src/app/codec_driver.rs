@@ -182,6 +182,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for frame pipeline emission and buffering behaviour.
+
     use rstest::{fixture, rstest};
 
     use super::*;

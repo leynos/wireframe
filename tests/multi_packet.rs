@@ -169,7 +169,7 @@ async fn shutdown_completes_multi_packet_channel(
     yield_now().await;
     cancel.cancel();
 
-    let join_result = timeout(Duration::from_millis(1000), join)
+    let join_result = timeout(Duration::from_secs(1), join)
         .await
         .map_err(|e| boxed_err("connection actor shutdown timeout", e))??;
     let out = join_result?;
@@ -209,7 +209,7 @@ async fn shutdown_during_active_multi_packet_send(
 
     let _ = tx.send(3).await;
 
-    let join_result = timeout(Duration::from_millis(1000), join)
+    let join_result = timeout(Duration::from_secs(1), join)
         .await
         .map_err(|e| boxed_err("connection actor shutdown timeout", e))??;
     let out = join_result?;

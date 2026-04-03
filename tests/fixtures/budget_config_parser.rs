@@ -66,12 +66,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for standard budget fixture parsing edge cases.
+
     use super::{StandardBudgetConfig, parse_standard_budget_config};
 
     #[test]
     fn parse_standard_budget_config_parses_valid_input() {
-        let parsed =
-            parse_standard_budget_config("200/2048/8/8").expect("valid input should parse");
+        let Ok(parsed) = parse_standard_budget_config("200/2048/8/8") else {
+            panic!("valid input should parse");
+        };
         assert_eq!(
             parsed,
             StandardBudgetConfig {

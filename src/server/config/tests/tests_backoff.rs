@@ -43,11 +43,11 @@ struct BackoffScenario {
 #[case::custom_max_delay(
     BackoffScenario {
         config: BackoffConfig {
-            max_delay: Duration::from_millis(2000),
+            max_delay: Duration::from_secs(2),
             ..BackoffConfig::default()
         },
         expected_initial: Duration::from_millis(10),
-        expected_max: Duration::from_millis(2000),
+        expected_max: Duration::from_secs(2),
         description: "custom max delay",
     }
 )]

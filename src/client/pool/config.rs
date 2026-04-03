@@ -6,7 +6,8 @@ use super::policy::PoolFairnessPolicy;
 
 const DEFAULT_POOL_SIZE: usize = 4;
 const DEFAULT_MAX_IN_FLIGHT_PER_SOCKET: usize = 1;
-const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
+const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS);
 
 /// Configuration for a pooled wireframe client.
 ///

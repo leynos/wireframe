@@ -28,6 +28,8 @@ impl CorrelatableFrame for Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for correlation ID helpers and no-op implementations.
+
     use rstest::rstest;
 
     use super::*;

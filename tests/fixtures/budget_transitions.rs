@@ -10,6 +10,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{BudgetBytes, Envelope, Handler, MemoryBudgets, WireframeApp},
     fragment::FragmentationConfig,
+    message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
     test_helpers::{self, TestAssembler},
 };
@@ -206,7 +207,8 @@ impl BudgetTransitionsWorld {
 
     /// Send a non-final first frame for the provided message key.
     pub fn send_first_frame(&mut self, key: u64, body: &str) -> TestResult {
-        let payload = test_helpers::first_frame_payload(key, body.as_bytes(), false, None)?;
+        let payload =
+            test_helpers::first_frame_payload(MessageKey::from(key), body.as_bytes(), false, None)?;
         self.send_payload(payload)
     }
 
@@ -217,8 +219,12 @@ impl BudgetTransitionsWorld {
         sequence: u32,
         body: &str,
     ) -> TestResult {
-        let payload =
-            test_helpers::continuation_frame_payload(key, sequence, body.as_bytes(), true)?;
+        let payload = test_helpers::continuation_frame_payload(
+            MessageKey::from(key),
+            FrameSequence::from(sequence),
+            body.as_bytes(),
+            true,
+        )?;
         self.send_payload(payload)
     }
 

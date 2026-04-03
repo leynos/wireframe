@@ -5,7 +5,10 @@
 //! how cloning the sender enables cooperative production while back-pressure
 //! keeps senders in lock-step with the consumer.
 
-use std::time::Duration;
+use std::{
+    fmt::{self, Display, Formatter},
+    time::Duration,
+};
 
 use futures::TryStreamExt;
 use tokio::time::sleep;
@@ -47,6 +50,15 @@ impl Frame {
     }
 }
 
+impl Display for Frame {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            FrameKind::Chunk(index) => write!(formatter, "Chunk {index}: {}", self.data),
+            FrameKind::Summary => write!(formatter, "Summary: {}", self.data),
+        }
+    }
+}
+
 fn multi_packet_response() -> Response<Frame> {
     // Capacity two keeps memory usage tight and amplifies the back-pressure
     // effect for demonstration purposes.
@@ -80,25 +92,26 @@ fn multi_packet_response() -> Response<Frame> {
     response
 }
 
-#[tokio::main]
-async fn main() -> Result<(), WireframeError<()>> {
-    tracing_subscriber::fmt::init();
+fn log_frame(frame: &Frame) {
+    info!("{frame}");
+}
 
+async fn run() -> Result<(), WireframeError<()>> {
+    let _ = tracing_subscriber::fmt::try_init();
     let response = multi_packet_response();
     let mut stream = response.into_stream();
-
     while let Some(frame) = stream.try_next().await? {
-        match frame {
-            Frame {
-                kind: FrameKind::Chunk(index),
-                data,
-            } => info!("Chunk {index}: {data}"),
-            Frame {
-                kind: FrameKind::Summary,
-                data,
-            } => info!("Summary: {data}"),
-        }
+        log_frame(&frame);
     }
+    Ok(())
+}
 
+fn main() -> std::io::Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime
+        .block_on(run())
+        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
     Ok(())
 }

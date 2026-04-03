@@ -9,6 +9,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{BudgetBytes, Envelope, Handler, MemoryBudgets, WireframeApp},
     fragment::FragmentationConfig,
+    message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
     test_helpers::{self, TestAssembler},
 };
@@ -199,7 +200,8 @@ impl MemoryBudgetHardCapWorld {
 
     /// Send a non-final first frame for the provided message key.
     pub fn send_first_frame(&mut self, key: u64, body: &str) -> TestResult {
-        let payload = test_helpers::first_frame_payload(key, body.as_bytes(), false, None)?;
+        let payload =
+            test_helpers::first_frame_payload(MessageKey::from(key), body.as_bytes(), false, None)?;
         self.send_payload(payload)
     }
 
@@ -210,8 +212,12 @@ impl MemoryBudgetHardCapWorld {
         sequence: u32,
         body: &str,
     ) -> TestResult {
-        let payload =
-            test_helpers::continuation_frame_payload(key, sequence, body.as_bytes(), true)?;
+        let payload = test_helpers::continuation_frame_payload(
+            MessageKey::from(key),
+            FrameSequence::from(sequence),
+            body.as_bytes(),
+            true,
+        )?;
         self.send_payload(payload)
     }
 
@@ -329,6 +335,8 @@ impl MemoryBudgetHardCapWorld {
 
 #[cfg(test)]
 mod hard_cap_config_tests {
+    //! Coverage for hard-cap fixture config parsing rules.
+
     use std::str::FromStr;
 
     use rstest::rstest;
@@ -337,7 +345,8 @@ mod hard_cap_config_tests {
 
     #[rstest]
     fn valid_four_segment_input() {
-        let c = HardCapConfig::from_str("200/2048/8/8").expect("valid input");
+        let c = HardCapConfig::from_str("200/2048/8/8")
+            .expect("valid input should parse: 200/2048/8/8");
         assert_eq!(
             (c.timeout_ms, c.per_message, c.per_connection, c.in_flight),
             (200, 2048, 8, 8)
@@ -363,7 +372,8 @@ mod hard_cap_config_tests {
 
     #[rstest]
     fn zero_timeout_is_accepted() {
-        let c = HardCapConfig::from_str("0/64/100/100").expect("zero timeout is valid");
+        let c = HardCapConfig::from_str("0/64/100/100")
+            .expect("zero timeout should parse: 0/64/100/100");
         assert_eq!(c.timeout_ms, 0);
     }
 
@@ -371,7 +381,8 @@ mod hard_cap_config_tests {
     // enforced later by `start_app()` via `NonZeroUsize::new(...)`.
     #[rstest]
     fn zero_budget_parses_successfully() {
-        let c = HardCapConfig::from_str("10/0/100/100").expect("zero budget parses");
+        let c = HardCapConfig::from_str("10/0/100/100")
+            .expect("zero budget should parse: 10/0/100/100");
         assert_eq!(c.per_message, 0);
     }
 }

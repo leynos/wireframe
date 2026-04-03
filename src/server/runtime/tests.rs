@@ -35,26 +35,27 @@ use crate::{
 #[tokio::test]
 async fn test_run_with_immediate_shutdown(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_listener: std::net::TcpListener,
-) {
-    let server = bind_server(factory, free_listener);
+    free_listener: std::io::Result<std::net::TcpListener>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let server = bind_server(factory, free_listener?)?;
     let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
     let result = timeout(
-        Duration::from_millis(1000),
+        Duration::from_secs(1),
         server.run_with_shutdown(shutdown_future),
     )
     .await;
     assert!(result.is_ok());
     assert!(result.expect("server did not finish in time").is_ok());
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
 async fn test_server_graceful_shutdown_with_ctrl_c_simulation(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-    free_listener: std::net::TcpListener,
-) {
-    let server = bind_server(factory, free_listener);
+    free_listener: std::io::Result<std::net::TcpListener>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let server = bind_server(factory, free_listener?)?;
     let (tx, rx) = oneshot::channel();
     let handle = tokio::spawn(async move {
         server
@@ -66,11 +67,14 @@ async fn test_server_graceful_shutdown_with_ctrl_c_simulation(
     });
     let _ = tx.send(());
     handle.await.expect("server join error");
+    Ok(())
 }
 
 #[rstest]
 #[tokio::test]
-async fn test_multiple_worker_creation(free_listener: std::net::TcpListener) {
+async fn test_multiple_worker_creation(
+    free_listener: std::io::Result<std::net::TcpListener>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let call_count = Arc::new(AtomicUsize::new(0));
     let clone = call_count.clone();
     let factory = move || -> WireframeApp {
@@ -79,16 +83,17 @@ async fn test_multiple_worker_creation(free_listener: std::net::TcpListener) {
     };
     let server = WireframeServer::new(factory)
         .workers(3)
-        .bind_existing_listener(free_listener)
+        .bind_existing_listener(free_listener?)
         .expect("Failed to bind");
     let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
     let result = timeout(
-        Duration::from_millis(1000),
+        Duration::from_secs(1),
         server.run_with_shutdown(shutdown_future),
     )
     .await;
     assert!(result.is_ok());
     assert!(result.expect("server did not finish in time").is_ok());
+    Ok(())
 }
 
 #[rstest]

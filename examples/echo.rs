@@ -23,8 +23,7 @@ fn echo_handler() -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
 
 fn build_app(handler: EchoHandler) -> wireframe::app::Result<App> { App::new()?.route(1, handler) }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn run() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
 
     let handler: EchoHandler = Arc::new(|_: &Envelope| echo_handler());
@@ -55,4 +54,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .await?;
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run())
 }

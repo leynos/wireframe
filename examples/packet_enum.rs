@@ -6,7 +6,7 @@
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::{net::TcpListener, signal};
+use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info, warn};
 use wireframe::{
     app::Envelope,
@@ -14,6 +14,9 @@ use wireframe::{
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
 };
+
+#[path = "support/server_loop.rs"]
+mod server_loop;
 
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
@@ -86,45 +89,55 @@ fn build_app() -> wireframe::app::Result<App> {
         .route(1, Arc::new(handle_packet))
 }
 
-#[tokio::main]
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "tokio::select! macro expansion performs modulo internally"
-)]
-async fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt::init();
+fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
 
-    let app = Arc::new(build_app().map_err(|error| std::io::Error::other(error.to_string()))?);
+fn build_runtime_app() -> std::io::Result<Arc<App>> {
+    build_app()
+        .map(Arc::new)
+        .map_err(|error| std::io::Error::other(error.to_string()))
+}
 
+fn parse_server_addr() -> std::io::Result<SocketAddr> {
     let addr_str = std::env::var("SERVER_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
-    let addr: SocketAddr = addr_str.parse().map_err(|e| {
+    addr_str.parse().map_err(|error| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("SERVER_ADDR must be a valid socket address: {e}"),
+            format!("SERVER_ADDR must be a valid socket address: {error}"),
         )
-    })?;
+    })
+}
 
-    let listener = TcpListener::bind(addr).await?;
-    loop {
-        tokio::select! {
-            res = listener.accept() => {
-                let (stream, _) = res?;
-                let app = Arc::clone(&app);
-                tokio::spawn(async move {
-                    if let Err(e) = app.handle_connection_result(stream).await {
-                        error!("connection handling failed: {e}");
-                    }
-                });
-            }
-            ctrl_c = signal::ctrl_c() => {
-                match ctrl_c {
-                    Ok(()) => info!("packet_enum server received shutdown signal"),
-                    Err(e) => error!("failed waiting for shutdown signal: {e}"),
-                }
-                break;
-            }
+async fn bind_listener() -> std::io::Result<TcpListener> {
+    let addr = parse_server_addr()?;
+    TcpListener::bind(addr).await
+}
+
+fn spawn_connection(app: Arc<App>, stream: TcpStream) {
+    tokio::spawn(async move {
+        if let Err(error) = app.handle_connection_result(stream).await {
+            error!("connection handling failed: {error}");
         }
+    });
+}
+
+async fn run() -> std::io::Result<()> {
+    init_tracing();
+    let app = build_runtime_app()?;
+    let listener = bind_listener().await?;
+
+    while let Some(stream) =
+        server_loop::accept_until_shutdown(&listener, "packet_enum server received shutdown signal")
+            .await?
+    {
+        spawn_connection(Arc::clone(&app), stream);
     }
 
     Ok(())
+}
+
+fn main() -> std::io::Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run())
 }

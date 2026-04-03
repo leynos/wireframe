@@ -174,6 +174,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for core builder parameter propagation and defaults.
+
     use std::{error::Error, io, num::NonZeroUsize};
 
     use rstest::{fixture, rstest};

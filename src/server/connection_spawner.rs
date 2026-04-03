@@ -165,6 +165,8 @@ async fn run_preamble_failure(
 
 #[cfg(test)]
 mod tests {
+    //! Coverage for connection task spawning and panic recovery behaviour.
+
     use rstest::rstest;
     use tokio::{
         net::{TcpListener, TcpStream},
@@ -298,8 +300,8 @@ mod tests {
     #[tokio::test]
     async fn connection_panic_is_caught(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
-        free_listener: std::net::TcpListener,
-    ) {
+        free_listener: std::io::Result<std::net::TcpListener>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let app_factory = move || {
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
@@ -307,7 +309,7 @@ mod tests {
         };
         let server = WireframeServer::new(app_factory)
             .workers(1)
-            .bind_existing_listener(free_listener)
+            .bind_existing_listener(free_listener?)
             .expect("bind");
         let addr = server
             .local_addr()
@@ -335,7 +337,6 @@ mod tests {
         TcpStream::connect(addr)
             .await
             .expect("second connection should succeed after panic");
-
         let _ = tx.send(());
         handle.await.expect("server join error");
         tokio::task::yield_now().await;
@@ -351,5 +352,6 @@ mod tests {
                 .map(|_| ())
                 .ok_or_else(|| "panic log not found".to_string())
         });
+        Ok(())
     }
 }

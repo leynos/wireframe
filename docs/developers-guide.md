@@ -50,3 +50,17 @@ model and did not rename public symbols. Existing API names (`FrameCodec`,
 `Packet`, `Envelope`, `Message`, `Fragment*`) already map cleanly to separate
 layers, so the implementation focused on clarifying boundaries rather than
 introducing additional breaking changes.
+
+## Quality gates
+
+Use the Makefile targets as the contributor entrypoint for routine validation:
+
+- `make check-fmt` verifies workspace formatting.
+- `make lint` runs rustdoc with warnings denied, `cargo clippy`, and
+  `whitaker --all -- --all-targets --all-features`.
+- `make test` runs the main automated test suite with warnings treated as
+  errors.
+
+Install Whitaker through the standalone installer described in the
+[Whitaker user's guide](whitaker-users-guide.md) so local linting matches
+continuous integration (CI).

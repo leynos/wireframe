@@ -28,6 +28,12 @@ struct PartialMessage {
     started_at: Instant,
 }
 
+struct FirstFragment<'a> {
+    header: FragmentHeader,
+    payload: &'a [u8],
+    now: Instant,
+}
+
 impl PartialMessage {
     fn new(series: FragmentSeries, payload: &[u8], started_at: Instant) -> Self {
         Self {
@@ -143,58 +149,18 @@ impl Reassembler {
         let payload = payload.as_ref();
 
         match self.buffers.entry(header.message_id()) {
-            Entry::Occupied(mut occupied) => {
-                let status = occupied
-                    .get_mut()
-                    .series
-                    .accept(header)
-                    .map_err(ReassemblyError::from);
-
-                match status {
-                    Ok(FragmentStatus::Incomplete) => Self::append_and_maybe_complete(
-                        self.max_message_size,
-                        occupied,
-                        payload,
-                        false,
-                    ),
-                    Ok(FragmentStatus::Duplicate) => Ok(None),
-                    Ok(FragmentStatus::Complete) => Self::append_and_maybe_complete(
-                        self.max_message_size,
-                        occupied,
-                        payload,
-                        true,
-                    ),
-                    Err(err) => {
-                        occupied.remove();
-                        Err(err)
-                    }
-                }
+            Entry::Occupied(occupied) => {
+                Self::push_existing_fragment(self.max_message_size, occupied, header, payload)
             }
-            Entry::Vacant(vacant) => {
-                let mut series = FragmentSeries::new(header.message_id());
-                let status = series.accept(header).map_err(ReassemblyError::from)?;
-                let attempted = payload.len();
-                Self::assert_within_limit(self.max_message_size, header.message_id(), attempted)?;
-
-                match status {
-                    FragmentStatus::Incomplete => {
-                        vacant.insert(PartialMessage::new(series, payload, now));
-                        Ok(None)
-                    }
-                    FragmentStatus::Duplicate => {
-                        debug_assert!(
-                            false,
-                            "newly created FragmentSeries starts at index 0; a first fragment \
-                             cannot be duplicate"
-                        );
-                        Ok(None)
-                    }
-                    FragmentStatus::Complete => Ok(Some(ReassembledMessage::new(
-                        header.message_id(),
-                        payload.to_vec(),
-                    ))),
-                }
-            }
+            Entry::Vacant(vacant) => Self::push_first_fragment(
+                self.max_message_size,
+                vacant,
+                &FirstFragment {
+                    header,
+                    payload,
+                    now,
+                },
+            ),
         }
     }
 
@@ -267,6 +233,67 @@ impl Reassembler {
             Ok(Some(ReassembledMessage::new(message_id, buffer)))
         } else {
             Ok(None)
+        }
+    }
+
+    fn push_existing_fragment(
+        limit: NonZeroUsize,
+        mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
+        header: FragmentHeader,
+        payload: &[u8],
+    ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
+        let status = occupied
+            .get_mut()
+            .series
+            .accept(header)
+            .map_err(ReassemblyError::from);
+
+        match status {
+            Ok(FragmentStatus::Incomplete) => {
+                Self::append_and_maybe_complete(limit, occupied, payload, false)
+            }
+            Ok(FragmentStatus::Duplicate) => Ok(None),
+            Ok(FragmentStatus::Complete) => {
+                Self::append_and_maybe_complete(limit, occupied, payload, true)
+            }
+            Err(err) => {
+                occupied.remove();
+                Err(err)
+            }
+        }
+    }
+
+    fn push_first_fragment(
+        limit: NonZeroUsize,
+        vacant: std::collections::hash_map::VacantEntry<'_, MessageId, PartialMessage>,
+        fragment: &FirstFragment<'_>,
+    ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
+        let message_id = fragment.header.message_id();
+        let mut series = FragmentSeries::new(message_id);
+        let status = series
+            .accept(fragment.header)
+            .map_err(ReassemblyError::from)?;
+        Self::assert_within_limit(limit, message_id, fragment.payload.len())?;
+
+        match status {
+            FragmentStatus::Incomplete => {
+                vacant.insert(PartialMessage::new(series, fragment.payload, fragment.now));
+                Ok(None)
+            }
+            #[expect(
+                clippy::unreachable,
+                reason = "The first accepted fragment for a new series cannot be duplicate"
+            )]
+            FragmentStatus::Duplicate => {
+                unreachable!(
+                    "newly created FragmentSeries starts at index 0; a first fragment cannot be \
+                     duplicate"
+                );
+            }
+            FragmentStatus::Complete => Ok(Some(ReassembledMessage::new(
+                message_id,
+                fragment.payload.to_vec(),
+            ))),
         }
     }
 }
