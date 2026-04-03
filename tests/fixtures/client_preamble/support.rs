@@ -3,6 +3,32 @@
 use super::*;
 
 impl ClientPreambleWorld {
+    async fn apply_connect_result<T, F>(
+        &mut self,
+        result: Result<
+            WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>,
+            ClientError,
+        >,
+        success_rx: oneshot::Receiver<T>,
+        on_success: F,
+    ) where
+        F: FnOnce(&mut Self, T),
+    {
+        match result {
+            Ok(client) => {
+                self.client = Some(client);
+                if let Ok(Ok(value)) =
+                    tokio::time::timeout(Duration::from_secs(1), success_rx).await
+                {
+                    on_success(self, value);
+                }
+            }
+            Err(error) => {
+                self.last_error = Some(error);
+            }
+        }
+    }
+
     async fn connect_with_failure_signal<F>(
         &mut self,
         timeout: Option<Duration>,
@@ -129,20 +155,10 @@ impl ClientPreambleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-                if matches!(
-                    tokio::time::timeout(Duration::from_secs(1), rx).await,
-                    Ok(Ok(()))
-                ) {
-                    self.success_callback_invoked = true;
-                }
-            }
-            Err(error) => {
-                self.last_error = Some(error);
-            }
-        }
+        self.apply_connect_result(result, rx, |world, ()| {
+            world.success_callback_invoked = true;
+        })
+        .await;
 
         if let Some(preamble_rx) = self.server_preamble_rx.take()
             && let Ok(Ok(preamble)) =
@@ -178,18 +194,11 @@ impl ClientPreambleWorld {
             .connect(addr)
             .await;
 
-        match result {
-            Ok(client) => {
-                self.client = Some(client);
-                if let Ok(Ok(ack)) = tokio::time::timeout(Duration::from_secs(1), rx).await {
-                    self.client_received_ack = Some(ack);
-                    self.success_callback_invoked = true;
-                }
-            }
-            Err(error) => {
-                self.last_error = Some(error);
-            }
-        }
+        self.apply_connect_result(result, rx, |world, ack| {
+            world.client_received_ack = Some(ack);
+            world.success_callback_invoked = true;
+        })
+        .await;
         Ok(())
     }
 
