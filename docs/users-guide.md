@@ -535,6 +535,47 @@ These helpers are designed for deterministic tests under paused Tokio time.
 Small duplex capacities should be used together with reader pacing when the
 app's outbound writes must hit back-pressure quickly.
 
+#### In-process server/client pair harness
+
+The `wireframe_testing::client_pair` module provides a harness for starting a
+real `WireframeServer` and a connected `WireframeClient` inside one test
+process. Unlike the `drive_with_*` helpers, which exercise server-side
+behaviour over in-memory `tokio::io::duplex` streams, the pair harness
+communicates over a real loopback TCP socket so compatibility assertions
+exercise the full client/server network path.
+
+Use the pair harness when a downstream crate needs to verify that its protocol
+implementation works end-to-end through a real Wireframe server:
+
+```rust,no_run
+use wireframe::app::WireframeApp;
+use wireframe_testing::client_pair::spawn_wireframe_pair;
+use wireframe_testing::TestResult;
+
+async fn example() -> TestResult<()> {
+    let mut pair = spawn_wireframe_pair(
+        || WireframeApp::default(),
+        |builder| builder.max_frame_length(2048),
+    )
+    .await?;
+
+    // pair.client_mut() returns &mut WireframeClient for
+    // request/response operations. Streaming responses borrow the
+    // client exclusively, keeping that constraint visible.
+    let addr = pair.local_addr();
+
+    pair.shutdown().await?;
+    Ok(())
+}
+```
+
+`spawn_wireframe_pair_default` is a convenience wrapper that connects with
+default client settings when no builder customization is needed.
+
+The harness depends on the `wireframe_testing` dev-dependency crate. It does
+not require the main-crate `testkit` feature unless the test also uses
+`wireframe::testkit` helpers directly.
+
 #### Zero-copy payload extraction
 
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload

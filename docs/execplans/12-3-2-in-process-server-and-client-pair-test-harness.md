@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -173,13 +173,25 @@ Observable success:
 - [x] (2026-03-29 00:00Z) Inspected existing client fixtures and internal test
   infrastructure to identify duplication and likely module boundaries.
 - [x] (2026-03-29 00:00Z) Drafted this ExecPlan.
-- [ ] Stage A: run a small API spike and finalize the public harness shape.
-- [ ] Stage B: implement the `wireframe_testing` harness module and exports.
-- [ ] Stage C: add `rstest` integration coverage.
-- [ ] Stage D: add `rstest-bdd` behavioural coverage.
-- [ ] Stage E: update design docs, users' guide, and roadmap.
-- [ ] Stage F: run formatting, lint, test, doctest, and documentation
-  validation gates.
+- [x] (2026-04-03) Stage A: ran API spike — confirmed single
+  `spawn_wireframe_pair` convenience plus a `spawn_wireframe_pair_default`
+  wrapper provide sufficient ergonomics. No two-layer API needed.
+- [x] (2026-04-03) Stage B: implemented `wireframe_testing::client_pair`
+  module with `WireframePair`, `spawn_wireframe_pair`, and
+  `spawn_wireframe_pair_default`. Added re-exports in `lib.rs`.
+- [x] (2026-04-03) Stage C: added `tests/client_pair_harness.rs` with four
+  `rstest` integration tests: round trip, custom frame length, explicit
+  shutdown, and drop safety net.
+- [x] (2026-04-03) Stage D: added BDD coverage via
+  `tests/features/client_pair_harness.feature` with two scenarios: default
+  round trip and custom client configuration. Fixtures, steps, and scenarios
+  follow the existing repository layout.
+- [x] (2026-04-03) Stage E: updated `docs/wireframe-client-design.md`,
+  `docs/wireframe-testing-crate.md`, `docs/users-guide.md`, and
+  `docs/roadmap.md`.
+- [x] (2026-04-03) Stage F: all validation gates passed — `make fmt`,
+  `make check-fmt`, `make lint`, `make test`, `make markdownlint`, and
+  `make nixie`.
 
 ## Surprises & Discoveries
 
@@ -244,6 +256,19 @@ Observable success:
   replacing every existing client fixture. Rationale: broad migration would add
   churn and could obscure whether the new public harness itself is good enough.
   Date/Author: 2026-03-29 / planning.
+
+- Decision: use a concrete `WireframePair` struct (no generics) bound to
+  `BincodeSerializer` and `()` connection state. Rationale: every existing
+  integration test uses the default serializer and no connection state. Adding
+  generic parameters would increase API surface without a proven consumer need.
+  The `configure_client` closure already covers `max_frame_length` and other
+  non-type-changing builder settings. Date/Author: 2026-04-03 / implementation.
+
+- Decision: provide `spawn_wireframe_pair_default` as a convenience wrapper
+  rather than making `configure_client` optional. Rationale: an `Option`
+  parameter obscures the API; a separate function is clearer and follows the
+  pattern of `drive_with_frames` versus `drive_with_frames_with_capacity`.
+  Date/Author: 2026-04-03 / implementation.
 
 ## Repository orientation
 
@@ -528,4 +553,36 @@ capture that in the plan's living sections and additionally run targeted
 
 ## Outcomes & Retrospective
 
-Not started yet.
+**Completed 2026-04-03.**
+
+Files changed (new):
+
+- `wireframe_testing/src/client_pair.rs` — public harness module (270 lines).
+- `tests/client_pair_harness.rs` — four `rstest` integration tests.
+- `tests/features/client_pair_harness.feature` — two BDD scenarios.
+- `tests/fixtures/client_pair_harness.rs` — BDD world fixture.
+- `tests/steps/client_pair_harness_steps.rs` — BDD step definitions.
+- `tests/scenarios/client_pair_harness_scenarios.rs` — BDD scenario bindings.
+
+Files changed (existing):
+
+- `wireframe_testing/src/lib.rs` — added module and re-exports.
+- `wireframe_testing/Cargo.toml` — added `net` and `sync` tokio features.
+- `tests/fixtures/mod.rs` — registered new fixture.
+- `tests/steps/mod.rs` — registered new steps.
+- `tests/scenarios/mod.rs` — registered new scenarios.
+- `docs/wireframe-client-design.md` — added harness design section.
+- `docs/wireframe-testing-crate.md` — added crate layout entry and API section.
+- `docs/users-guide.md` — added consumer-facing harness section.
+- `docs/roadmap.md` — marked `12.3.2` done.
+
+Observations:
+
+- The single-function `spawn_wireframe_pair` API proved sufficient without a
+  two-layer helper. The `configure_client` closure handles non-type-changing
+  builder settings cleanly.
+- Concrete `WireframePair` (no generic parameters) kept the API readable and
+  matched every existing integration test pattern in the repository.
+- Clippy's `excessive_nesting` lint required extracting the handler closure
+  into a separate function, which improved readability.
+- All validation gates passed on the first attempt after lint fixes.

@@ -9,6 +9,7 @@ pub mod budget_enforcement;
 pub mod budget_transitions;
 pub mod client_lifecycle;
 pub mod client_messaging;
+pub mod client_pair_harness;
 pub mod client_preamble;
 pub mod client_request_hooks;
 pub mod client_runtime;

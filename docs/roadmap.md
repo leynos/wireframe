@@ -643,7 +643,7 @@ document so larger deployments can adopt the library confidently.
 - [x] 12.3.1. Ship helper traits or macros for consuming streaming responses
   (for example typed iterators over `Response::Stream`) so multiplexed
   protocols remain ergonomic.
-- [ ] 12.3.2. Publish reusable test harnesses that spin up an in-process server
+- [x] 12.3.2. Publish reusable test harnesses that spin up an in-process server
   and client pair, allowing downstream crates to verify compatibility.
 
 ### 12.4. Docs and adoption
