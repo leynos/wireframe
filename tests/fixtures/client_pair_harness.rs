@@ -98,8 +98,8 @@ impl ClientPairHarnessWorld {
         let pair = self.pair.as_mut().ok_or("pair not started")?;
         let payload_bytes = Echo(42).to_bytes()?;
         let request = CommonTestEnvelope::new(id, Some(correlation_id), payload_bytes);
-        let response: CommonTestEnvelope =
-            self.runtime.block_on(pair.client_mut().call(&request))?;
+        let client = pair.client_mut()?;
+        let response: CommonTestEnvelope = self.runtime.block_on(client.call(&request))?;
         self.response = Some(response);
         Ok(())
     }

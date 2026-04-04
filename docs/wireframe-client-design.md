@@ -130,7 +130,8 @@ avoids widening the optional production-crate feature surface without proof
 that consumers need it re-exported from `wireframe` itself.
 
 The primary entry point is `spawn_wireframe_pair`, which accepts an app factory
-closure and an optional client-builder configuration closure. The helper
+closure and a client-builder configuration closure. Callers that need no client
+customization can use `spawn_wireframe_pair_default` instead. The helper
 reserves a loopback listener via `unused_listener()`, binds the server through
 `WireframeServer::bind_existing_listener`, waits for a readiness signal, and
 connects a client. If the client connection fails, the server task is torn down

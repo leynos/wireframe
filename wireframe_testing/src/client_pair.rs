@@ -90,21 +90,18 @@ impl WireframePair {
     /// Streaming responses borrow the client exclusively, so this method
     /// returns `&mut` to make that borrow visible in calling code.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called after [`shutdown`](Self::shutdown) has completed.
-    #[expect(
-        clippy::expect_used,
-        reason = "intentional panic for post-shutdown misuse"
-    )]
+    /// Returns a [`TestError`] if called after
+    /// [`shutdown`](Self::shutdown) has completed.
     pub fn client_mut(
         &mut self,
-    ) -> &mut WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()> {
-        &mut self
-            .running
+    ) -> TestResult<&mut WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()>>
+    {
+        self.running
             .as_mut()
-            .expect("client_mut called after shutdown")
-            .client
+            .map(|r| &mut r.client)
+            .ok_or_else(|| TestError::Msg("client_mut called after shutdown".into()))
     }
 
     /// Return the loopback address the server is bound to.

@@ -33,7 +33,7 @@ async fn round_trip_via_pair_harness() -> TestResult<()> {
 
     let payload_bytes = Echo(42).to_bytes()?;
     let request = CommonTestEnvelope::new(1, Some(7), payload_bytes);
-    let response: CommonTestEnvelope = pair.client_mut().call(&request).await?;
+    let response: CommonTestEnvelope = pair.client_mut()?.call(&request).await?;
 
     if response.correlation_id != Some(7) {
         return Err("expected correlation id 7 on response".into());
@@ -61,7 +61,7 @@ async fn custom_max_frame_length_via_pair_harness() -> TestResult<()> {
 
     let payload_bytes = Echo(99).to_bytes()?;
     let request = CommonTestEnvelope::new(1, Some(42), payload_bytes);
-    let response: CommonTestEnvelope = pair.client_mut().call(&request).await?;
+    let response: CommonTestEnvelope = pair.client_mut()?.call(&request).await?;
 
     if response.correlation_id != Some(42) {
         return Err("expected correlation id 42 on response".into());

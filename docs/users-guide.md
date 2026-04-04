@@ -565,7 +565,7 @@ async fn example() -> TestResult<()> {
     )
     .await?;
 
-    // pair.client_mut() returns &mut WireframeClient for
+    // pair.client_mut()? returns &mut WireframeClient for
     // request/response operations. Streaming responses borrow the
     // client exclusively, keeping that constraint visible.
     let addr = pair.local_addr();

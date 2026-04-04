@@ -359,7 +359,7 @@ let mut pair = spawn_wireframe_pair(
 )
 .await?;
 
-let response: MyReply = pair.client_mut().call(&MyRequest::new()).await?;
+let response: MyReply = pair.client_mut()?.call(&MyRequest::new()).await?;
 pair.shutdown().await?;
 # let _ = response;
 # Ok(())

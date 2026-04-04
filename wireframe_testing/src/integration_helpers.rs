@@ -230,11 +230,8 @@ pub fn echo_handler(counter: &Arc<AtomicUsize>) -> CommonHandler {
 /// Each call produces a [`CommonTestApp`] with one route (message id `1`)
 /// that counts invocations via the shared `counter`.
 ///
-/// # Errors
-///
-/// The inner factory panics if the echo app cannot be built. This is
-/// intentional: a broken factory should fail loudly in tests rather than
-/// silently producing a misconfigured app.
+/// The closure returns a [`TestResult`] so build failures surface as
+/// errors rather than panics.
 ///
 /// # Examples
 ///
@@ -246,18 +243,13 @@ pub fn echo_handler(counter: &Arc<AtomicUsize>) -> CommonHandler {
 /// let counter = Arc::new(AtomicUsize::new(0));
 /// let factory = echo_app_factory(&counter);
 /// ```
-#[expect(
-    clippy::expect_used,
-    reason = "test factory should fail loudly if the echo app cannot be built"
-)]
 pub fn echo_app_factory(
     counter: &Arc<AtomicUsize>,
-) -> impl Fn() -> CommonTestApp + Send + Sync + Clone + 'static {
+) -> impl Fn() -> TestResult<CommonTestApp> + Send + Sync + Clone + 'static {
     let handler = echo_handler(counter);
     move || {
-        CommonTestApp::new()
-            .and_then(|app| app.route(1, handler.clone()))
-            .expect("failed to build echo app")
+        let app = CommonTestApp::new()?;
+        Ok(app.route(1, handler.clone())?)
     }
 }
 

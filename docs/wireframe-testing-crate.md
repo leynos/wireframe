@@ -448,8 +448,9 @@ compatibility assertions exercise the full network path.
   client through the supplied builder closure, and returns a `WireframePair`.
 - `spawn_wireframe_pair_default(app_factory)` — convenience wrapper that
   connects a client with default builder settings.
-- `WireframePair::client_mut()` — borrows the connected client for
-  request/response operations. Streaming responses borrow the client
+- `WireframePair::client_mut()` — returns a `TestResult` containing a mutable
+  reference to the connected client for request/response operations. Returns an
+  error if called after shutdown. Streaming responses borrow the client
   exclusively, preserving Rust's ownership rules at the call site.
 - `WireframePair::local_addr()` — returns the loopback address the server is
   bound to.
@@ -459,7 +460,8 @@ compatibility assertions exercise the full network path.
 ### Shared echo app factory
 
 `wireframe_testing::echo_app_factory` provides a ready-made app factory for
-pair-harness tests. It accepts an `Arc<AtomicUsize>` counter and produces a
+pair-harness tests. It accepts an `Arc<AtomicUsize>` counter and returns a
+fallible closure (`Fn() -> TestResult<CommonTestApp>`) that builds a
 `CommonTestApp` with a single route (message id `1`) whose handler only records
 invocations. A lower-level `echo_handler` is also exported for custom app
 construction.
