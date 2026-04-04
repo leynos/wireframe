@@ -5,7 +5,14 @@
 //! correlation support, a default app factory, and a helper to bind to an
 //! unused local port without relying on file-level lint suppressions.
 
-use std::net::TcpListener as StdTcpListener;
+use std::{
+    net::TcpListener as StdTcpListener,
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use rstest::fixture;
 pub use wireframe::testkit::{TestError, TestResult};
@@ -155,6 +162,83 @@ pub type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>
 pub fn factory() -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
     fn build() -> TestApp { TestApp::default() }
     build
+}
+
+/// App type parameterized over [`CommonTestEnvelope`] for pair-harness and
+/// integration tests that need public field access.
+pub type CommonTestApp = wireframe::app::WireframeApp<BincodeSerializer, (), CommonTestEnvelope>;
+
+/// Handler type alias for [`CommonTestEnvelope`] handlers.
+pub type CommonHandler = Arc<
+    dyn Fn(&CommonTestEnvelope) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Build a handler that counts invocations without modifying the response.
+///
+/// The [`WireframeApp`](wireframe::app::WireframeApp) echoes the envelope
+/// back automatically, so this handler only records that the route was
+/// invoked. Pass an [`AtomicUsize`] counter to observe invocation counts
+/// in assertions.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use std::sync::{Arc, atomic::AtomicUsize};
+///
+/// use wireframe_testing::echo_handler;
+///
+/// let counter = Arc::new(AtomicUsize::new(0));
+/// let handler = echo_handler(&counter);
+/// ```
+pub fn echo_handler(counter: &Arc<AtomicUsize>) -> CommonHandler {
+    let counter = counter.clone();
+    Arc::new(move |_: &CommonTestEnvelope| {
+        let c = counter.clone();
+        Box::pin(async move {
+            c.fetch_add(1, Ordering::SeqCst);
+        })
+    })
+}
+
+/// Build a factory closure that produces a single-route echo app.
+///
+/// The returned closure can be passed directly to
+/// [`spawn_wireframe_pair`](crate::spawn_wireframe_pair) or
+/// [`spawn_wireframe_pair_default`](crate::spawn_wireframe_pair_default).
+/// Each call produces a [`CommonTestApp`] with one route (message id `1`)
+/// that counts invocations via the shared `counter`.
+///
+/// # Errors
+///
+/// The inner factory panics if the echo app cannot be built. This is
+/// intentional: a broken factory should fail loudly in tests rather than
+/// silently producing a misconfigured app.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use std::sync::{Arc, atomic::AtomicUsize};
+///
+/// use wireframe_testing::echo_app_factory;
+///
+/// let counter = Arc::new(AtomicUsize::new(0));
+/// let factory = echo_app_factory(&counter);
+/// ```
+#[expect(
+    clippy::expect_used,
+    reason = "test factory should fail loudly if the echo app cannot be built"
+)]
+pub fn echo_app_factory(
+    counter: &Arc<AtomicUsize>,
+) -> impl Fn() -> CommonTestApp + Send + Sync + Clone + 'static {
+    let handler = echo_handler(counter);
+    move || {
+        CommonTestApp::new()
+            .and_then(|app| app.route(1, handler.clone()))
+            .expect("failed to build echo app")
+    }
 }
 
 #[cfg(test)]

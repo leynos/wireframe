@@ -11,48 +11,17 @@ use std::sync::{
 };
 
 use rstest::rstest;
-use wireframe::{message::Message, serializer::BincodeSerializer};
+use wireframe::message::Message;
 use wireframe_testing::{
     CommonTestEnvelope,
     TestResult,
+    echo_app_factory,
     spawn_wireframe_pair,
     spawn_wireframe_pair_default,
 };
 
-type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), CommonTestEnvelope>;
-
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Echo(u8);
-
-/// Build an echo handler that counts invocations.
-fn echo_handler(counter: &Arc<AtomicUsize>) -> wireframe::app::Handler<CommonTestEnvelope> {
-    let counter = counter.clone();
-    Arc::new(move |_: &CommonTestEnvelope| {
-        let c = counter.clone();
-        Box::pin(async move {
-            c.fetch_add(1, Ordering::SeqCst);
-        })
-    })
-}
-
-/// Build a factory that produces a single-route echo app.
-///
-/// The [`WireframeApp`] echoes the envelope back automatically so the handler
-/// only needs to record invocation.
-#[expect(
-    clippy::expect_used,
-    reason = "test factory should fail loudly if the echo app cannot be built"
-)]
-fn build_echo_app(
-    counter: &Arc<AtomicUsize>,
-) -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
-    let handler = echo_handler(counter);
-    move || {
-        TestApp::new()
-            .and_then(|app| app.route(1, handler.clone()))
-            .expect("failed to build echo app")
-    }
-}
 
 // ── Default round trip ────────────────────────────────────────────────
 
@@ -60,7 +29,7 @@ fn build_echo_app(
 #[tokio::test]
 async fn round_trip_via_pair_harness() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
-    let factory = build_echo_app(&counter);
+    let factory = echo_app_factory(&counter);
 
     let mut pair = spawn_wireframe_pair_default(factory).await?;
 
@@ -88,7 +57,7 @@ async fn round_trip_via_pair_harness() -> TestResult<()> {
 #[tokio::test]
 async fn custom_max_frame_length_via_pair_harness() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
-    let factory = build_echo_app(&counter);
+    let factory = echo_app_factory(&counter);
 
     let mut pair = spawn_wireframe_pair(factory, |builder| builder.max_frame_length(2048)).await?;
 
@@ -113,7 +82,7 @@ async fn custom_max_frame_length_via_pair_harness() -> TestResult<()> {
 #[tokio::test]
 async fn explicit_shutdown_completes_cleanly() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
-    let factory = build_echo_app(&counter);
+    let factory = echo_app_factory(&counter);
 
     let mut pair = spawn_wireframe_pair_default(factory).await?;
 
@@ -135,7 +104,7 @@ async fn explicit_shutdown_completes_cleanly() -> TestResult<()> {
 #[tokio::test]
 async fn drop_without_explicit_shutdown_does_not_hang() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
-    let factory = build_echo_app(&counter);
+    let factory = echo_app_factory(&counter);
 
     let pair = spawn_wireframe_pair_default(factory).await?;
 

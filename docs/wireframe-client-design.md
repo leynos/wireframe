@@ -133,10 +133,12 @@ The primary entry point is `spawn_wireframe_pair`, which accepts an app factory
 closure and an optional client-builder configuration closure. The helper
 reserves a loopback listener via `unused_listener()`, binds the server through
 `WireframeServer::bind_existing_listener`, waits for a readiness signal, and
-connects a client. The returned `WireframePair` exposes the connected client
-through `client_mut()` and offers an explicit `shutdown().await` path. A
-defensive `Drop` implementation sends the shutdown signal and aborts the server
-task after a brief delay if explicit shutdown was skipped.
+connects a client. If the client connection fails, the server task is torn down
+before the error is returned so that no orphaned tasks or bound listeners leak
+into subsequent tests. The returned `WireframePair` exposes the connected
+client through `client_mut()` and offers an explicit `shutdown().await` path. A
+defensive `Drop` implementation sends the shutdown signal and immediately
+aborts the server task if explicit shutdown was skipped.
 
 Streaming responses still borrow the client exclusively through `client_mut()`,
 preserving Rust's ownership rules at the call site.

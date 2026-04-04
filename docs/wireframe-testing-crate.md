@@ -456,14 +456,23 @@ compatibility assertions exercise the full network path.
 - `WireframePair::shutdown().await` — signals the server to stop, drops the
   client, and joins the server task.
 
+### Shared echo app factory
+
+`wireframe_testing::echo_app_factory` provides a ready-made app factory for
+pair-harness tests. It accepts an `Arc<AtomicUsize>` counter and produces a
+`CommonTestApp` with a single route (message id `1`) whose handler only records
+invocations. A lower-level `echo_handler` is also exported for custom app
+construction.
+
 ### Lifecycle
 
 The harness reserves the TCP listener through `unused_listener()` before
 spawning the server, eliminating address-race flakiness. The server is bound
 through `WireframeServer::bind_existing_listener` and runs with a one-shot
-shutdown channel. A `Drop` implementation sends the shutdown signal and aborts
-the server task after five seconds as a safety net if explicit shutdown is
-skipped.
+shutdown channel. If the client connection fails after the server has started,
+the server task is torn down before the error is returned. A `Drop`
+implementation sends the shutdown signal and immediately aborts the server task
+as a safety net if explicit shutdown is skipped.
 
 ### Usage
 

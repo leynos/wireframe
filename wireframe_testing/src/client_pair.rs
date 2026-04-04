@@ -50,6 +50,13 @@ use wireframe::{
 
 use crate::{TestError, TestResult, integration_helpers::unused_listener};
 
+/// Active server task and connected client, taken as a unit during shutdown.
+struct Running {
+    client: WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()>,
+    shutdown_tx: oneshot::Sender<()>,
+    handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
+}
+
 /// Connected server and client pair for in-process integration tests.
 ///
 /// Holds a running [`WireframeServer`] task and a connected
@@ -58,25 +65,21 @@ use crate::{TestError, TestResult, integration_helpers::unused_listener};
 ///
 /// Call [`shutdown`](Self::shutdown) to stop the server gracefully. If the
 /// pair is dropped without an explicit shutdown the [`Drop`] implementation
-/// sends the shutdown signal and aborts the server task after a brief delay
-/// as a safety net.
+/// sends the shutdown signal and immediately aborts the server task as a
+/// safety net.
 ///
 /// [`WireframeServer`]: wireframe::server::WireframeServer
 /// [`WireframeClient`]: wireframe::client::WireframeClient
 pub struct WireframePair {
-    client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()>>,
     addr: SocketAddr,
-    shutdown_tx: Option<oneshot::Sender<()>>,
-    handle: Option<JoinHandle<Result<(), wireframe::server::ServerError>>>,
+    running: Option<Running>,
 }
 
 impl std::fmt::Debug for WireframePair {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WireframePair")
             .field("addr", &self.addr)
-            .field("client", &self.client.as_ref().map(|_| ".."))
-            .field("shutdown_tx", &self.shutdown_tx.is_some())
-            .field("handle", &self.handle.as_ref().map(|_| ".."))
+            .field("running", &self.running.as_ref().map(|_| ".."))
             .finish()
     }
 }
@@ -97,9 +100,11 @@ impl WireframePair {
     pub fn client_mut(
         &mut self,
     ) -> &mut WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()> {
-        self.client
+        &mut self
+            .running
             .as_mut()
             .expect("client_mut called after shutdown")
+            .client
     }
 
     /// Return the loopback address the server is bound to.
@@ -108,25 +113,37 @@ impl WireframePair {
 
     /// Shut down the server gracefully and await its task.
     ///
-    /// Sends the shutdown signal, drops the client, and joins the server
-    /// task. Any error from the server task is surfaced as a [`TestError`].
+    /// Drops the client so the server sees the disconnect, sends the
+    /// shutdown signal, and joins the server task. Separates join errors
+    /// from server errors for clear diagnostics.
     ///
     /// # Errors
     ///
     /// Returns a [`TestError`] if the server task panicked, was cancelled,
     /// or returned a [`ServerError`](wireframe::server::ServerError).
     pub async fn shutdown(&mut self) -> TestResult<()> {
-        // Drop the client first so the server sees the disconnect.
-        self.client.take();
+        if let Some(Running {
+            client,
+            shutdown_tx,
+            handle,
+        }) = self.running.take()
+        {
+            // Drop the client first so the server sees the disconnect.
+            drop(client);
 
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
+            let _ = shutdown_tx.send(());
 
-        if let Some(handle) = self.handle.take() {
-            handle
-                .await
-                .map_err(|e| TestError::Msg(format!("server task join error: {e}")))??;
+            match handle.await {
+                Err(join_err) => {
+                    return Err(TestError::Msg(format!(
+                        "server task join error: {join_err}"
+                    )));
+                }
+                Ok(Err(server_err)) => {
+                    return Err(TestError::Msg(format!("server error: {server_err}")));
+                }
+                Ok(Ok(())) => {}
+            }
         }
 
         Ok(())
@@ -135,17 +152,27 @@ impl WireframePair {
 
 impl Drop for WireframePair {
     fn drop(&mut self) {
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-        if let Some(handle) = self.handle.take() {
-            let abort_handle = handle.abort_handle();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                abort_handle.abort();
-            });
+        if let Some(Running {
+            shutdown_tx,
+            handle,
+            ..
+        }) = self.running.take()
+        {
+            let _ = shutdown_tx.send(());
+            handle.abort();
         }
     }
+}
+
+/// Tear down a spawned server task that has not yet been handed to a
+/// [`WireframePair`]. Used to prevent leaked tasks when the client
+/// connection fails after the server has already started.
+fn abort_server(
+    shutdown_tx: oneshot::Sender<()>,
+    handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
+) {
+    let _ = shutdown_tx.send(());
+    handle.abort();
 }
 
 /// Start a server and connect a client, returning a [`WireframePair`].
@@ -159,6 +186,10 @@ impl Drop for WireframePair {
 /// connection. The `configure_client` closure receives a default
 /// [`WireframeClientBuilder`] and returns the configured builder — use this
 /// to set frame length, hooks, or other client-side options.
+///
+/// If the client connection fails, the server task is torn down before the
+/// error is returned so that no orphaned tasks or bound listeners leak into
+/// subsequent tests.
 ///
 /// [`WireframeServer`]: wireframe::server::WireframeServer
 /// [`WireframeClient`]: wireframe::client::WireframeClient
@@ -224,13 +255,21 @@ where
         .map_err(|_| TestError::Msg("server did not signal ready".into()))?;
 
     let builder = configure_client(WireframeClientBuilder::new());
-    let client = builder.connect(addr).await?;
+    let client = match builder.connect(addr).await {
+        Ok(c) => c,
+        Err(e) => {
+            abort_server(shutdown_tx, handle);
+            return Err(e.into());
+        }
+    };
 
     Ok(WireframePair {
-        client: Some(client),
         addr,
-        shutdown_tx: Some(shutdown_tx),
-        handle: Some(handle),
+        running: Some(Running {
+            client,
+            shutdown_tx,
+            handle,
+        }),
     })
 }
 

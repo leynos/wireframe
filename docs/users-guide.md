@@ -545,16 +545,22 @@ communicates over a real loopback TCP socket so compatibility assertions
 exercise the full client/server network path.
 
 Use the pair harness when a downstream crate needs to verify that its protocol
-implementation works end-to-end through a real Wireframe server:
+implementation works end-to-end through a real Wireframe server. A shared
+`echo_app_factory` provides a ready-made app factory with invocation counting:
 
 ```rust,no_run
-use wireframe::app::WireframeApp;
-use wireframe_testing::client_pair::spawn_wireframe_pair;
-use wireframe_testing::TestResult;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use wireframe_testing::{
+    TestResult,
+    echo_app_factory,
+    spawn_wireframe_pair,
+};
 
 async fn example() -> TestResult<()> {
+    let counter = Arc::new(AtomicUsize::new(0));
     let mut pair = spawn_wireframe_pair(
-        || WireframeApp::default(),
+        echo_app_factory(&counter),
         |builder| builder.max_frame_length(2048),
     )
     .await?;
@@ -570,7 +576,9 @@ async fn example() -> TestResult<()> {
 ```
 
 `spawn_wireframe_pair_default` is a convenience wrapper that connects with
-default client settings when no builder customization is needed.
+default client settings when no builder customization is needed. If the client
+connection fails, the server task is torn down automatically so no orphaned
+tasks leak into subsequent tests.
 
 The harness depends on the `wireframe_testing` dev-dependency crate. It does
 not require the main-crate `testkit` feature unless the test also uses

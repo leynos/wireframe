@@ -86,10 +86,14 @@ pub use helpers::{
     valid_hotline_wire,
 };
 pub use integration_helpers::{
+    CommonHandler,
+    CommonTestApp,
     CommonTestEnvelope,
     TestApp,
     TestError,
     TestResult,
+    echo_app_factory,
+    echo_handler,
     factory,
     unused_listener,
 };

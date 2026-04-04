@@ -6,44 +6,18 @@ use std::sync::{
 };
 
 use rstest::fixture;
-use wireframe::{message::Message, serializer::BincodeSerializer};
+use wireframe::message::Message;
 pub use wireframe_testing::TestResult;
 use wireframe_testing::{
     CommonTestEnvelope,
     WireframePair,
+    echo_app_factory,
     spawn_wireframe_pair,
     spawn_wireframe_pair_default,
 };
 
-type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), CommonTestEnvelope>;
-
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Echo(u8);
-
-fn echo_handler(counter: &Arc<AtomicUsize>) -> wireframe::app::Handler<CommonTestEnvelope> {
-    let counter = counter.clone();
-    Arc::new(move |_: &CommonTestEnvelope| {
-        let c = counter.clone();
-        Box::pin(async move {
-            c.fetch_add(1, Ordering::SeqCst);
-        })
-    })
-}
-
-#[expect(
-    clippy::expect_used,
-    reason = "test factory should fail loudly if the echo app cannot be built"
-)]
-fn echo_factory(
-    counter: &Arc<AtomicUsize>,
-) -> impl Fn() -> TestApp + Send + Sync + Clone + 'static {
-    let handler = echo_handler(counter);
-    move || {
-        TestApp::new()
-            .and_then(|app| app.route(1, handler.clone()))
-            .expect("failed to build echo app")
-    }
-}
 
 /// BDD world for client pair harness scenarios.
 pub struct ClientPairHarnessWorld {
@@ -93,7 +67,7 @@ impl ClientPairHarnessWorld {
     ///
     /// Returns an error if spawning the pair fails.
     pub fn start_default_pair(&mut self) -> TestResult {
-        let factory = echo_factory(&self.counter);
+        let factory = echo_app_factory(&self.counter);
         let pair = self
             .runtime
             .block_on(spawn_wireframe_pair_default(factory))?;
@@ -107,7 +81,7 @@ impl ClientPairHarnessWorld {
     ///
     /// Returns an error if spawning the pair fails.
     pub fn start_pair_with_max_frame_length(&mut self, max_frame_length: usize) -> TestResult {
-        let factory = echo_factory(&self.counter);
+        let factory = echo_app_factory(&self.counter);
         let pair = self
             .runtime
             .block_on(spawn_wireframe_pair(factory, |builder| {

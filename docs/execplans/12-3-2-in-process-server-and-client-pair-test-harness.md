@@ -270,6 +270,27 @@ Observable success:
   pattern of `drive_with_frames` versus `drive_with_frames_with_capacity`.
   Date/Author: 2026-04-03 / implementation.
 
+- Decision: collapse per-field `Option`s in `WireframePair` into a single
+  `Running` struct and simplify `Drop` to signal + immediate abort (no extra OS
+  thread). Rationale: a single `Running` state reduces implicit invariants
+  between multiple `Option` fields; immediate abort in `Drop` avoids spawning
+  an OS thread per pair and the 5-second timing wrinkle. Callers wanting
+  graceful shutdown should call `shutdown()`. Date/Author: 2026-04-04 / review
+  refinement.
+
+- Decision: tear down the server task when the client connection fails in
+  `spawn_wireframe_pair`. Rationale: the server was spawned before the client
+  `connect` call; if that call fails the server task and bound listener would
+  otherwise leak into subsequent tests. Date/Author: 2026-04-04 / review
+  refinement.
+
+- Decision: extract the echo app factory into
+  `wireframe_testing::integration_helpers` as `echo_app_factory` and
+  `echo_handler`, eliminating duplication between the rstest integration tests
+  and the BDD fixture. Rationale: keeps the routing logic in sync across test
+  suites and follows the existing pattern of shared helpers in
+  `integration_helpers.rs`. Date/Author: 2026-04-04 / review refinement.
+
 ## Repository orientation
 
 The implementation will touch four main areas.
@@ -567,6 +588,7 @@ Files changed (new):
 Files changed (existing):
 
 - `wireframe_testing/src/lib.rs` — added module and re-exports.
+- `wireframe_testing/src/integration_helpers.rs` — added shared echo factory.
 - `wireframe_testing/Cargo.toml` — added `net` and `sync` tokio features.
 - `tests/fixtures/mod.rs` — registered new fixture.
 - `tests/steps/mod.rs` — registered new steps.
@@ -586,3 +608,16 @@ Observations:
 - Clippy's `excessive_nesting` lint required extracting the handler closure
   into a separate function, which improved readability.
 - All validation gates passed on the first attempt after lint fixes.
+
+Post-review refinements (2026-04-04):
+
+- Collapsed per-field `Option`s into a single `Running` state struct,
+  reducing implicit invariants and simplifying `shutdown`/`Drop`.
+- Replaced the OS-thread-based `Drop` safety net (5-second sleep before
+  abort) with an immediate `handle.abort()` after signalling shutdown. Callers
+  wanting graceful teardown should call `shutdown()`.
+- Added server task cleanup on client connect failure so
+  `spawn_wireframe_pair` never leaks a detached server task.
+- Extracted the echo app setup into `wireframe_testing::echo_app_factory`
+  and `echo_handler`, eliminating duplication between the integration tests and
+  the BDD fixture.
