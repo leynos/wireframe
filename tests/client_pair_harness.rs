@@ -14,14 +14,12 @@ use rstest::rstest;
 use wireframe::message::Message;
 use wireframe_testing::{
     CommonTestEnvelope,
+    Echo,
     TestResult,
     echo_app_factory,
     spawn_wireframe_pair,
     spawn_wireframe_pair_default,
 };
-
-#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
-struct Echo(u8);
 
 // ── Default round trip ────────────────────────────────────────────────
 

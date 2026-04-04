@@ -10,14 +10,12 @@ use wireframe::message::Message;
 pub use wireframe_testing::TestResult;
 use wireframe_testing::{
     CommonTestEnvelope,
+    Echo,
     WireframePair,
     echo_app_factory,
     spawn_wireframe_pair,
     spawn_wireframe_pair_default,
 };
-
-#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
-struct Echo(u8);
 
 /// BDD world for client pair harness scenarios.
 pub struct ClientPairHarnessWorld {

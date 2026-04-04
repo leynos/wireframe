@@ -44,6 +44,26 @@ use wireframe::{
 #[must_use]
 pub fn unused_listener() -> TestResult<StdTcpListener> { Ok(StdTcpListener::bind("localhost:0")?) }
 
+/// Minimal payload type for echo-style round-trip tests.
+///
+/// Carries a single `u8` and derives the bincode traits needed for
+/// serialization through [`wireframe::message::Message`].
+///
+/// [`wireframe::message::Message`]: wireframe::message::Message
+///
+/// # Examples
+///
+/// ```
+/// use wireframe::message::Message;
+/// use wireframe_testing::Echo;
+///
+/// let bytes = Echo(42).to_bytes().unwrap();
+/// let (decoded, _) = Echo::from_bytes(&bytes).unwrap();
+/// assert_eq!(decoded, Echo(42));
+/// ```
+#[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
+pub struct Echo(pub u8);
+
 /// Shared test envelope type for integration tests.
 ///
 /// Provides a simple envelope implementation with correlation ID support,

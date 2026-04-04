@@ -89,6 +89,7 @@ pub use integration_helpers::{
     CommonHandler,
     CommonTestApp,
     CommonTestEnvelope,
+    Echo,
     TestApp,
     TestError,
     TestResult,
