@@ -76,7 +76,7 @@ classDiagram
 
     class WireframeServer {
         +new(factory: AppFactory) WireframeServer
-        +bind(addr: SocketAddr) WireframeServer
+        +bind(addr: SocketAddr) Result~WireframeServer~
         +run_with_shutdown(signal: ShutdownSignal) Result~()~
     }
 
