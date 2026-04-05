@@ -26,6 +26,143 @@ addressed when migrating from wireframe v0.2.0 to v0.3.0.
 - [wireframe\_testing additions](#wireframe_testing-additions)
 - [Client: streaming, pooling, hooks, tracing](#client-new-capabilities)
 
+```mermaid
+classDiagram
+    class WireframeError~E~ {
+        +DuplicateRoute code: u32
+        +Io error: std_io_Error
+        +Protocol error: E
+        +Codec error: CodecError
+    }
+
+    class Result~T~ {
+        <<type alias>>
+    }
+
+    class CodecError {
+    }
+
+    class WireframeApp {
+        +memory_budgets: MemoryBudgets
+        +new() Result~WireframeApp~
+        +memory_budgets(budgets: MemoryBudgets) WireframeApp
+        +enable_fragmentation() WireframeApp
+    }
+
+    class MemoryBudgets {
+        +per_message: BudgetBytes
+        +per_connection: BudgetBytes
+        +in_flight: BudgetBytes
+        +new(per_message: BudgetBytes, per_connection: BudgetBytes, in_flight: BudgetBytes) MemoryBudgets
+    }
+
+    class BudgetBytes {
+        +value: NonZeroUsize
+        +new(value: NonZeroUsize) BudgetBytes
+    }
+
+    class AppFactory~Ser, Ctx, E, Codec~ {
+        <<trait>>
+        +call() R
+    }
+
+    class FactoryResult~App~ {
+        <<trait>>
+    }
+
+    class WireframeServer {
+        +bind(addr: SocketAddr) WireframeServer
+        +run_with_shutdown(factory: AppFactory, signal: ShutdownSignal) Result~()~
+    }
+
+    class AppDataStore {
+    }
+
+    class EnvelopeId {
+        +value: u32
+    }
+
+    class CorrelationId {
+        +value: u64
+    }
+
+    class AssembledMessage {
+        +routing: EnvelopeRouting
+    }
+
+    class EnvelopeRouting {
+        +envelope_id: EnvelopeId
+        +correlation_id: CorrelationId
+    }
+
+    class BackoffConfig {
+        +normalized(initial: Duration, max: Duration) BackoffConfig
+    }
+
+    class PacketParts {
+        +into_payload() Bytes
+    }
+
+    class FragmentParts {
+        +into_payload() Bytes
+    }
+
+    class Serializer~S~ {
+        <<trait>>
+        +serialize(message: EncodeWith~S~) Result~Vec_u8~~
+        +deserialize(bytes: &[u8]) Result~DecodeWith~S~~
+    }
+
+    class EncodeWith~S~ {
+        <<trait>>
+        +encode_with(serializer: S) Result~Vec_u8~~
+    }
+
+    class DecodeWith~S~ {
+        <<trait>>
+        +decode_with(serializer: S, bytes: &[u8]) Result~Self~
+    }
+
+    class SerdeSerializerBridge {
+        <<trait>>
+    }
+
+    class SerdeMessage~T~ {
+    }
+
+    WireframeError --> CodecError
+    Result --> WireframeError
+
+    WireframeApp --> MemoryBudgets
+    MemoryBudgets --> BudgetBytes
+
+    AppFactory ..|> Fn
+    AppFactory ..> FactoryResult
+    WireframeServer --> AppFactory
+    FactoryResult <|.. WireframeApp
+    FactoryResult <|.. Result
+
+    AssembledMessage --> EnvelopeRouting
+    EnvelopeRouting --> EnvelopeId
+    EnvelopeRouting --> CorrelationId
+
+    AppDataStore ..> WireframeApp
+
+    Serializer --> EncodeWith
+    Serializer --> DecodeWith
+    SerdeMessage ..> SerdeSerializerBridge
+```
+
+*Class diagram: overview of server and protocol types changed in v0.3.0.
+`WireframeError<E>` unifies the error surface with four variants; `Result<T>`
+aliases it. `WireframeApp` gains `memory_budgets` and `enable_fragmentation`
+builder methods, with `MemoryBudgets` grouping three `BudgetBytes` dimensions.
+`WireframeServer` binds an `AppFactory` (blanket-implemented for closures
+satisfying `FactoryResult`) and runs with a shutdown signal. `AssembledMessage`
+carries `EnvelopeRouting` with typed `EnvelopeId` and `CorrelationId` wrappers.
+`Serializer<S>` now requires `EncodeWith<S>` and `DecodeWith<S>` bounds;
+`SerdeMessage<T>` bridges Serde types via `SerdeSerializerBridge`.*
+
 ## Cargo feature changes
 
 Three features are new. One is removed.
