@@ -110,9 +110,9 @@ impl WireframePair {
 
     /// Shut down the server gracefully and await its task.
     ///
-    /// Drops the client so the server sees the disconnect, sends the
-    /// shutdown signal, and joins the server task. Separates join errors
-    /// from server errors for clear diagnostics.
+    /// Calls the client's async close path to run any configured teardown
+    /// hooks, sends the shutdown signal to the server, and joins the server
+    /// task. Separates join errors from server errors for clear diagnostics.
     ///
     /// # Errors
     ///
@@ -125,8 +125,8 @@ impl WireframePair {
             handle,
         }) = self.running.take()
         {
-            // Drop the client first so the server sees the disconnect.
-            drop(client);
+            // Call the client's close method to run teardown hooks.
+            client.close().await;
 
             let _ = shutdown_tx.send(());
 
@@ -151,12 +151,36 @@ impl Drop for WireframePair {
     fn drop(&mut self) {
         if let Some(Running {
             shutdown_tx,
-            handle,
+            mut handle,
             ..
         }) = self.running.take()
         {
             let _ = shutdown_tx.send(());
-            handle.abort();
+
+            // Try to join with a bounded timeout before force-aborting.
+            // This gives the server task a chance to run tracker.close() and
+            // tracker.wait().await for spawned connection tasks.
+            //
+            // We spawn this on a separate thread since Drop can't be async and
+            // we may already be inside a tokio runtime.
+            std::thread::spawn(move || {
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    runtime.spawn(async move {
+                        tokio::select! {
+                            _ = &mut handle => {
+                                // Task completed within timeout.
+                            }
+                            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                                // Timeout expired, abort the task.
+                                handle.abort();
+                            }
+                        }
+                    });
+                } else {
+                    // Not in a runtime, force-abort immediately.
+                    handle.abort();
+                }
+            });
         }
     }
 }
@@ -166,10 +190,32 @@ impl Drop for WireframePair {
 /// connection fails after the server has already started.
 fn abort_server(
     shutdown_tx: oneshot::Sender<()>,
-    handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
+    mut handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
 ) {
     let _ = shutdown_tx.send(());
-    handle.abort();
+
+    // Try to join with a bounded timeout before force-aborting.
+    // This gives the server task a chance to run tracker.close() and
+    // tracker.wait().await for spawned connection tasks.
+    //
+    // Since this may be called from within a runtime, spawn the timeout
+    // check asynchronously.
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        runtime.spawn(async move {
+            tokio::select! {
+                _ = &mut handle => {
+                    // Task completed within timeout.
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                    // Timeout expired, abort the task.
+                    handle.abort();
+                }
+            }
+        });
+    } else {
+        // Not in a runtime, force-abort immediately.
+        handle.abort();
+    }
 }
 
 /// Start a server and connect a client, returning a [`WireframePair`].

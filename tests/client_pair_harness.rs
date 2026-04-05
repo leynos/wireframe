@@ -54,21 +54,32 @@ async fn round_trip_via_pair_harness() -> TestResult<()> {
 #[rstest]
 #[tokio::test]
 async fn custom_max_frame_length_via_pair_harness() -> TestResult<()> {
+    use wireframe_testing::{CommonTestApp, echo_handler};
+
     let counter = Arc::new(AtomicUsize::new(0));
-    let factory = echo_app_factory(&counter);
 
-    let mut pair = spawn_wireframe_pair(factory, |builder| builder.max_frame_length(2048)).await?;
+    // Create a factory that builds an app with a larger buffer capacity to
+    // handle frames exceeding the default 4096-byte limit.
+    let handler = echo_handler(&counter);
+    let factory = move || -> TestResult<CommonTestApp> {
+        let app = CommonTestApp::new()?.buffer_capacity(8192);
+        Ok(app.route(1, handler.clone())?)
+    };
 
-    let payload_bytes = Echo(99).to_bytes()?;
-    let request = CommonTestEnvelope::new(1, Some(42), payload_bytes);
+    // Use a payload large enough to exceed the default 4096-byte frame limit.
+    // Create a 5000-byte payload that will push the total frame size over the
+    // default limit, requiring the custom max_frame_length(8192).
+    let mut pair = spawn_wireframe_pair(factory, |builder| builder.max_frame_length(8192)).await?;
+
+    let large_payload = vec![42u8; 5000];
+    let request = CommonTestEnvelope::new(1, Some(42), large_payload.clone());
     let response: CommonTestEnvelope = pair.client_mut()?.call(&request).await?;
 
     if response.correlation_id != Some(42) {
         return Err("expected correlation id 42 on response".into());
     }
-    let (echo, _) = Echo::from_bytes(&response.payload)?;
-    if echo != Echo(99) {
-        return Err("expected echo payload 99".into());
+    if response.payload != large_payload {
+        return Err("expected echoed payload to match request".into());
     }
 
     pair.shutdown().await
@@ -93,7 +104,14 @@ async fn explicit_shutdown_completes_cleanly() -> TestResult<()> {
         return Err("expected a non-zero bound port".into());
     }
 
-    pair.shutdown().await
+    pair.shutdown().await?;
+
+    // Verify that client_mut returns an error after shutdown.
+    if pair.client_mut().is_ok() {
+        return Err("expected client_mut to return Err after shutdown".into());
+    }
+
+    Ok(())
 }
 
 // ── Drop safety net ──────────────────────────────────────────────────
