@@ -151,58 +151,37 @@ impl Drop for WireframePair {
     fn drop(&mut self) {
         if let Some(Running {
             shutdown_tx,
-            mut handle,
+            handle,
             ..
         }) = self.running.take()
         {
             let _ = shutdown_tx.send(());
-
-            // Try to join with a bounded timeout before force-aborting.
-            // This gives the server task a chance to run tracker.close() and
-            // tracker.wait().await for spawned connection tasks.
-            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                runtime.spawn(async move {
-                    tokio::select! {
-                        _ = &mut handle => {
-                            // Task completed within timeout.
-                        }
-                        _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                            // Timeout expired, abort the task.
-                            handle.abort();
-                        }
-                    }
-                });
-            } else {
-                // Not in a runtime, force-abort immediately.
-                handle.abort();
-            }
+            spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
         }
     }
 }
 
-/// Tear down a spawned server task that has not yet been handed to a
-/// [`WireframePair`]. Used to prevent leaked tasks when the client
-/// connection fails after the server has already started.
-fn abort_server(
-    shutdown_tx: oneshot::Sender<()>,
+/// Spawn a task to await server shutdown with a bounded timeout.
+///
+/// Tries to join the server task handle with a timeout. If running inside a
+/// tokio runtime, spawns an async task that races the join against the
+/// timeout, aborting only if the timeout expires. If not in a runtime,
+/// immediately aborts the task.
+///
+/// This gives the server task a chance to run `tracker.close()` and
+/// `tracker.wait().await` for spawned connection tasks before being
+/// force-aborted.
+fn spawn_bounded_shutdown(
     mut handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
+    timeout: std::time::Duration,
 ) {
-    let _ = shutdown_tx.send(());
-
-    // Try to join with a bounded timeout before force-aborting.
-    // This gives the server task a chance to run tracker.close() and
-    // tracker.wait().await for spawned connection tasks.
-    //
-    // Capture the runtime handle before spawning the timeout check.
-    let runtime = tokio::runtime::Handle::try_current().ok();
-
-    if let Some(runtime) = runtime {
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         runtime.spawn(async move {
             tokio::select! {
                 _ = &mut handle => {
                     // Task completed within timeout.
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                _ = tokio::time::sleep(timeout) => {
                     // Timeout expired, abort the task.
                     handle.abort();
                 }
@@ -212,6 +191,17 @@ fn abort_server(
         // Not in a runtime, force-abort immediately.
         handle.abort();
     }
+}
+
+/// Tear down a spawned server task that has not yet been handed to a
+/// [`WireframePair`]. Used to prevent leaked tasks when the client
+/// connection fails after the server has already started.
+fn abort_server(
+    shutdown_tx: oneshot::Sender<()>,
+    handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
+) {
+    let _ = shutdown_tx.send(());
+    spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
 }
 
 /// Start a server and connect a client, returning a [`WireframePair`].
