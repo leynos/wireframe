@@ -26,6 +26,10 @@ addressed when migrating from wireframe v0.2.0 to v0.3.0.
 - [wireframe\_testing additions](#wireframe_testing-additions)
 - [Client: streaming, pooling, hooks, tracing](#client-new-capabilities)
 
+Server and protocol type overview for v0.3.0: unified error surface,
+WireframeApp configuration, server factory traits, message assembler types, and
+serializer trait bounds.
+
 ```mermaid
 classDiagram
     class WireframeError~E~ {
@@ -480,6 +484,10 @@ impl FrameCodec for MyCodec {
 
 ## Testkit module
 
+Testing infrastructure overview: the wireframe::testkit module (drive helpers,
+slow-IO simulation, assembly assertions) and the wireframe_testing companion
+crate (WireframePair, ObservabilityHandle, HotlineFixtures).
+
 ```mermaid
 classDiagram
     class TestkitModule {
@@ -744,6 +752,10 @@ Hotline protocol fixtures are available for codec regression tests:
 The wireframe client now covers three domains that had no prior API surface:
 streaming, connection pooling, and structured observability.
 
+Client API type overview: WireframeClientBuilder construction paths,
+WireframeClient streaming methods, ResponseStream and TypedResponseStream
+iteration, outbound streaming types, and TracingConfig with hook closures.
+
 ```mermaid
 classDiagram
     class WireframeClient {
@@ -904,6 +916,10 @@ while let Some(result) = stream.next().await {
 }
 ```
 
+Sequence diagram showing the call_streaming lifecycle: sending the request,
+iterating frames via try_next until the server sends a terminator, then
+releasing the exclusive client borrow when the stream is dropped.
+
 ```mermaid
 sequenceDiagram
     actor User
@@ -1008,6 +1024,10 @@ let lease = handle.acquire().await?;
 let response: MyResponse = lease.call(request_envelope).await?;
 ```
 
+Connection pool type hierarchy: WireframeClientBuilder creates a
+WireframeClientPool via ClientPoolConfig, vending PoolHandle instances that
+yield PooledClientLease objects delegating to WireframeClient.
+
 ```mermaid
 classDiagram
     class WireframeClientBuilder {
@@ -1072,6 +1092,10 @@ classDiagram
 `PoolHandle` instances; each handle yields a `PooledClientLease` on `acquire()`.
 `PooledClientLease` derefs to `WireframeClient`, exposing `call`, `send`, and
 `receive` for individual requests.*
+
+Sequence diagram showing the connection pool usage flow: building the pool,
+acquiring a PoolHandle, checking out a PooledClientLease, making a request, and
+returning the socket to the pool on drop.
 
 ```mermaid
 sequenceDiagram
