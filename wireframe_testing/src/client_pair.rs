@@ -161,10 +161,13 @@ impl Drop for WireframePair {
             // This gives the server task a chance to run tracker.close() and
             // tracker.wait().await for spawned connection tasks.
             //
-            // We spawn this on a separate thread since Drop can't be async and
-            // we may already be inside a tokio runtime.
+            // Capture the runtime handle on this thread before spawning, since
+            // try_current() won't work inside the spawned OS thread.
+            let runtime = tokio::runtime::Handle::try_current().ok();
+
+            // Spawn cleanup on a separate thread since Drop can't be async.
             std::thread::spawn(move || {
-                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                if let Some(runtime) = runtime {
                     runtime.spawn(async move {
                         tokio::select! {
                             _ = &mut handle => {
@@ -198,9 +201,10 @@ fn abort_server(
     // This gives the server task a chance to run tracker.close() and
     // tracker.wait().await for spawned connection tasks.
     //
-    // Since this may be called from within a runtime, spawn the timeout
-    // check asynchronously.
-    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+    // Capture the runtime handle before spawning the timeout check.
+    let runtime = tokio::runtime::Handle::try_current().ok();
+
+    if let Some(runtime) = runtime {
         runtime.spawn(async move {
             tokio::select! {
                 _ = &mut handle => {
