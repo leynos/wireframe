@@ -266,6 +266,41 @@ Two newtypes are now exported from `wireframe::message_assembler`:
 Code constructing `AssembledMessage` directly must be updated to supply this
 field.
 
+## Codec improvements
+
+`FrameCodec` gains one new method with a default implementation:
+
+```rust
+fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
+    Bytes::copy_from_slice(Self::frame_payload(frame))
+}
+```
+
+The default copies the slice returned by `frame_payload` into a new `Bytes`
+buffer. Codecs whose frame type stores the payload as `Bytes` internally can
+override the method to avoid that allocation.
+
+`LengthDelimitedFrameCodec` overrides `frame_payload_bytes` to return
+`frame.clone()` – a reference-count increment rather than a copy.
+
+No existing codec implementation is required to change. The method is purely
+additive.
+
+```rust
+// Override in a custom codec when Frame wraps Bytes directly.
+impl FrameCodec for MyCodec {
+    type Frame = Bytes;
+
+    fn frame_payload(frame: &Bytes) -> &[u8] { frame }
+
+    fn frame_payload_bytes(frame: &Bytes) -> Bytes { frame.clone() }
+
+    fn wrap_payload(&self, payload: Bytes) -> Bytes { payload }
+
+    fn max_frame_length(&self) -> usize { self.limit }
+}
+```
+
 ## Testkit module
 
 `wireframe::testkit` (behind the `testkit` Cargo feature) provides optional
@@ -291,6 +326,115 @@ Capabilities include:
 [dev-dependencies]
 wireframe = { version = "0.3.0", features = ["testkit"] }
 ```
+
+## wireframe_testing additions
+
+The `wireframe_testing` companion crate gained three new areas of test
+infrastructure. These are relevant to protocol crates that already depend on
+`wireframe_testing` in `dev-dependencies`.
+
+### In-process server–client pair harness
+
+`wireframe_testing::client_pair` provides `WireframePair`, a test harness that
+starts a real `WireframeServer` bound to a loopback TCP listener and connects a
+`WireframeClient` inside the same test process. Both sides communicate over a
+real loopback socket, keeping compatibility assertions honest while remaining
+fast and deterministic.
+
+```rust
+use wireframe::app::WireframeApp;
+use wireframe_testing::{TestResult, client_pair::spawn_wireframe_pair};
+
+async fn example() -> TestResult<()> {
+    let mut pair = spawn_wireframe_pair(
+        || WireframeApp::default(),
+        |builder| builder.max_frame_length(2048),
+    )
+    .await?;
+
+    let addr = pair.local_addr();
+    assert!(addr.port() > 0);
+
+    pair.shutdown().await?;
+    Ok(())
+}
+```
+
+`WireframePair::client_mut()` exposes the connected `WireframeClient` for
+request/response assertions. The pair's `Drop` implementation sends a shutdown
+signal and waits up to 100 milliseconds for the server task before aborting it.
+
+`spawn_wireframe_pair_default` is a convenience variant that uses
+`WireframeClientBuilder::new()` without any builder customization.
+
+### Observability harness
+
+`wireframe_testing::observability` provides `ObservabilityHandle`, a unified
+guard that combines log capture with metrics recording.
+
+```rust
+use wireframe_testing::ObservabilityHandle;
+
+let mut obs = ObservabilityHandle::new();
+obs.clear();
+
+metrics::with_local_recorder(obs.recorder(), || {
+    wireframe::metrics::inc_codec_error("framing", "drop");
+});
+
+obs.snapshot();
+assert_eq!(
+    obs.codec_error_counter("framing", "drop"),
+    1
+);
+```
+
+`obs_handle()` is an `rstest` fixture that constructs a handle directly.
+`Labels` provides a builder for label pairs used with `ObservabilityHandle::
+counter`.
+
+The handle's `snapshot()` method drains counters atomically. Query after
+`snapshot()`; earlier values are not retained.
+
+Metric-emitting code must run on the same thread as the handle. Async tests
+should use `#[tokio::test(flavor = "current_thread")]`.
+
+### Codec-aware test helpers
+
+A family of codec-aware helpers handles the encode → transport → decode
+pipeline so test authors pass raw payloads and receive decoded frames without
+manual framing.
+
+- `drive_with_codec_frames(app, codec, payloads)` – encode payloads with
+  `codec`, drive the server, and return decoded response frames.
+- `drive_with_codec_payloads(app, codec, payloads)` – as above but returns
+  decoded payload byte vectors.
+- `decode_frames_with_codec(codec, bytes)` – decode a raw byte sequence
+  into typed frames using the codec's decoder.
+- `encode_payloads_with_codec(codec, payloads)` – encode payload vectors
+  into wire bytes.
+- `extract_payloads(codec, frames)` – extract payload bytes from a slice
+  of decoded frames.
+
+Hotline protocol fixtures are available for codec regression tests:
+
+- `valid_hotline_wire(payload, transaction_id)` – well-formed wire bytes.
+- `valid_hotline_frame(payload, transaction_id)` – a typed `HotlineFrame`
+  without the wire-encode/decode cycle.
+- `oversized_hotline_wire(max_frame_length)` – triggers the
+  `"payload too large"` decoder error.
+- `mismatched_total_size_wire(payload)` – triggers `"invalid total size"`.
+- `truncated_hotline_header()` – fewer than 20 bytes; produces a
+  `"bytes remaining"` error at EOF.
+- `truncated_hotline_payload(payload_len)` – header claims more payload
+  than present; produces a `"bytes remaining"` error at EOF.
+- `correlated_hotline_wire(transaction_id, payloads)` – multiple frames
+  sharing one transaction identifier.
+- `sequential_hotline_wire(base_transaction_id, payloads)` – frames with
+  incrementing transaction identifiers.
+
+`new_test_codec()` returns a `HotlineFrameCodec` at the standard
+`TEST_MAX_FRAME` limit for use in parametrized tests.
 
 ## Client: new capabilities
 
