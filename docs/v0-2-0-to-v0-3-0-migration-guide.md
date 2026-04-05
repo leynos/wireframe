@@ -76,7 +76,7 @@ classDiagram
 
     class WireframeServer {
         +new(factory: AppFactory) WireframeServer
-        +bind(addr: SocketAddr) Result~WireframeServer~
+        +bind(addr: SocketAddr) Result~BoundServer~
         +run_with_shutdown(signal: ShutdownSignal) Result~()~
     }
 
@@ -374,16 +374,14 @@ use wireframe::server::WireframeServer;
 
 // Infallible factory – closure returning WireframeApp; unchanged from v0.2.0
 WireframeServer::new(|| build_app())
-    .bind(addr)
-    .await?
+    .bind(addr)?
     .run_with_shutdown(shutdown_signal)
     .await?;
 
 // Fallible factory (new capability) – closure may return Result; init errors
 // propagate without panicking inside the factory
 WireframeServer::new(|| build_app_or_fail())
-    .bind(addr)
-    .await?
+    .bind(addr)?
     .run_with_shutdown(shutdown_signal)
     .await?;
 ```
