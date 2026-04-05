@@ -65,8 +65,8 @@ struct Running {
 ///
 /// Call [`shutdown`](Self::shutdown) to stop the server gracefully. If the
 /// pair is dropped without an explicit shutdown the [`Drop`] implementation
-/// sends the shutdown signal and immediately aborts the server task as a
-/// safety net.
+/// sends the shutdown signal and waits up to 100 milliseconds for the server
+/// task to complete before aborting it as a safety net.
 ///
 /// [`WireframeServer`]: wireframe::server::WireframeServer
 /// [`WireframeClient`]: wireframe::client::WireframeClient
@@ -160,30 +160,22 @@ impl Drop for WireframePair {
             // Try to join with a bounded timeout before force-aborting.
             // This gives the server task a chance to run tracker.close() and
             // tracker.wait().await for spawned connection tasks.
-            //
-            // Capture the runtime handle on this thread before spawning, since
-            // try_current() won't work inside the spawned OS thread.
-            let runtime = tokio::runtime::Handle::try_current().ok();
-
-            // Spawn cleanup on a separate thread since Drop can't be async.
-            std::thread::spawn(move || {
-                if let Some(runtime) = runtime {
-                    runtime.spawn(async move {
-                        tokio::select! {
-                            _ = &mut handle => {
-                                // Task completed within timeout.
-                            }
-                            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                                // Timeout expired, abort the task.
-                                handle.abort();
-                            }
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move {
+                    tokio::select! {
+                        _ = &mut handle => {
+                            // Task completed within timeout.
                         }
-                    });
-                } else {
-                    // Not in a runtime, force-abort immediately.
-                    handle.abort();
-                }
-            });
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                            // Timeout expired, abort the task.
+                            handle.abort();
+                        }
+                    }
+                });
+            } else {
+                // Not in a runtime, force-abort immediately.
+                handle.abort();
+            }
         }
     }
 }
