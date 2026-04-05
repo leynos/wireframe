@@ -480,6 +480,132 @@ impl FrameCodec for MyCodec {
 
 ## Testkit module
 
+```mermaid
+classDiagram
+    class TestkitModule {
+        <<module wireframe_testkit>>
+    }
+
+    class WireframeApp {
+    }
+
+    class TestSerializer {
+    }
+
+    class TestResult~T~ {
+        <<type alias>>
+    }
+
+    class TestError {
+    }
+
+    class SlowIoConfig {
+        +payload_chunk_size: usize
+        +frame_delay: Duration
+    }
+
+    class SlowIoPacing {
+        +interval: Duration
+    }
+
+    class MessageAssemblySnapshot {
+    }
+
+    class FragmentReassemblySnapshot {
+    }
+
+    class TestkitHelpers {
+        +drive_with_partial_frames(app: WireframeApp, frames: Vec~Bytes~)
+        +drive_with_fragments(app: WireframeApp, fragments: Vec~Bytes~)
+        +drive_with_fragment_frames(app: WireframeApp, frames: Vec~Bytes~)
+        +drive_with_slow_frames(app: WireframeApp, config: SlowIoConfig)
+        +drive_with_slow_payloads(app: WireframeApp, config: SlowIoConfig)
+        +assert_message_assembly_completed(snapshot: MessageAssemblySnapshot)
+        +assert_fragment_reassembly_error(snapshot: FragmentReassemblySnapshot)
+    }
+
+    class WireframePair {
+        +client_mut() WireframeClient_ref_mut
+        +local_addr() SocketAddr
+        +shutdown() TestResult~()~
+    }
+
+    class WireframeClient {
+    }
+
+    class ObservabilityHandle {
+        +new() ObservabilityHandle
+        +clear() void
+        +recorder() MetricsRecorder
+        +snapshot() void
+        +codec_error_counter(kind: &str, action: &str) u64
+    }
+
+    class Labels {
+        +with_label(key: &str, value: &str) Labels
+    }
+
+    class MetricsRecorder {
+    }
+
+    class HotlineFrameCodec {
+    }
+
+    class HotlineFixtures {
+        +valid_hotline_wire(payload: Bytes, transaction_id: u32) Bytes
+        +valid_hotline_frame(payload: Bytes, transaction_id: u32) HotlineFrame
+        +oversized_hotline_wire(max_frame_length: usize) Bytes
+        +mismatched_total_size_wire(payload: Bytes) Bytes
+        +truncated_hotline_header() Bytes
+        +truncated_hotline_payload(payload_len: usize) Bytes
+        +correlated_hotline_wire(transaction_id: u32, payloads: Vec~Bytes~) Bytes
+        +sequential_hotline_wire(base_transaction_id: u32, payloads: Vec~Bytes~) Bytes
+        +new_test_codec() HotlineFrameCodec
+    }
+
+    class HotlineFrame {
+    }
+
+    class Bytes {
+    }
+
+    class WireframeTestingCrate {
+        <<crate wireframe_testing>>
+    }
+
+    TestkitModule --> WireframeApp
+    TestkitModule --> TestSerializer
+    TestkitModule --> TestResult
+    TestkitModule --> TestError
+    TestkitModule --> SlowIoConfig
+    TestkitModule --> SlowIoPacing
+    TestkitModule --> MessageAssemblySnapshot
+    TestkitModule --> FragmentReassemblySnapshot
+    TestkitModule --> TestkitHelpers
+
+    WireframeTestingCrate --> WireframePair
+    WireframeTestingCrate --> ObservabilityHandle
+    WireframeTestingCrate --> Labels
+    WireframeTestingCrate --> HotlineFixtures
+
+    WireframePair --> WireframeClient
+
+    ObservabilityHandle --> MetricsRecorder
+    ObservabilityHandle --> Labels
+
+    HotlineFixtures --> HotlineFrame
+    HotlineFixtures --> HotlineFrameCodec
+    HotlineFixtures --> Bytes
+```
+
+*Class diagram: two complementary testing layers. The `wireframe::testkit`
+module (behind the `testkit` feature) provides in-process drive helpers for
+partial frames, fragments, and slow I/O, plus `TestSerializer`, `TestResult`,
+`TestError`, and assembly snapshot assertion helpers. The `wireframe_testing`
+companion crate provides `WireframePair` (real loopback server–client pair),
+`ObservabilityHandle` (log + metrics capture with atomic snapshot semantics),
+`Labels`, and `HotlineFixtures` (codec regression fixtures and `new_test_codec`).*
+
 `wireframe::testkit` (behind the `testkit` Cargo feature) provides optional
 test utilities for downstream protocol crates. The module is not available in
 normal builds.
