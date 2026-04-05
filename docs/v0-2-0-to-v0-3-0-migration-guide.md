@@ -861,6 +861,13 @@ yielding a `SendStreamingOutcome`.*
 
 ### Streaming responses
 
+> **Scope note.** This section covers the **client-side consumption** API:
+> how a `WireframeClient` receives and iterates over multi-frame server
+> responses. Server-side multi-packet response production – where handlers
+> return a `(mpsc::Sender, Response)` tuple and use helpers such as
+> `Response::with_channel` – is a distinct concern governed by
+> [ADR 0001](adr-001-multi-packet-streaming-response-api.md).
+
 `WireframeClient` gains two new call methods for multi-frame responses:
 
 - `call_streaming(envelope)` – assigns a correlation identifier, sends the

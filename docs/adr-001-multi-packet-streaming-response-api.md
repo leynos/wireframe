@@ -33,8 +33,13 @@ existing connection actor and protocol hook lifecycle.
 
 ## Consequences
 
-- Documentation describing multi-packet streaming MUST reflect the tuple-based
-  API and explain helper constructors that prepare the channel pair.
+- Documentation describing **server-side multi-packet response handlers** MUST
+  reflect the tuple-based API and explain the helper constructors that prepare
+  the channel pair (`Response::with_channel`, `Response::with_channel_and_initial`).
+  This requirement is scoped to handler-authoring documentation; it does not
+  apply to client-side streaming consumption APIs (`ResponseStream`,
+  `call_streaming`, `receive_streaming`, `StreamingResponseExt`,
+  `TypedResponseStream`), which are governed by their own documentation.
 - The development roadmap gains concrete tasks covering helper construction,
   handler ergonomics, and documentation updates so the work is tracked
   explicitly.
