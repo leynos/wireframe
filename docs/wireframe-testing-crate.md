@@ -37,6 +37,8 @@ deterministically without external exporters.
 - `src/fixtures/` (or `src/codec_fixtures.rs`) stores reusable frame fixtures
   for the default codec and example codecs.
 - `src/multi_packet.rs` keeps the `collect_multi_packet` helper.
+- `src/client_pair.rs` provides the in-process server/client pair harness for
+  loopback integration tests (roadmap `12.3.2`).
 
 ## Dependencies
 
@@ -431,6 +433,76 @@ recommended pattern for taxonomy assertions:
   intentionally normalizes decoder failures to `io::Error`; and
 - use `ObservabilityHandle` to assert that the chosen
   `error_type`/`recovery_policy` label pair is what the regression records.
+
+## In-process server/client pair harness
+
+`wireframe_testing::client_pair` provides a reusable harness for starting a
+bound `WireframeServer` and a connected `WireframeClient` inside one test
+process. Both sides communicate over a real loopback TCP socket so
+compatibility assertions exercise the full network path.
+
+### Public API
+
+- `spawn_wireframe_pair(app_factory, configure_client)` — reserves a loopback
+  listener, spawns a single-worker server, waits for readiness, connects a
+  client through the supplied builder closure, and returns a `WireframePair`.
+- `spawn_wireframe_pair_default(app_factory)` — convenience wrapper that
+  connects a client with default builder settings.
+- `WireframePair::client_mut()` — returns a `TestResult` containing a mutable
+  reference to the connected client for request/response operations. Returns an
+  error if called after shutdown. Streaming responses borrow the client
+  exclusively, preserving Rust's ownership rules at the call site.
+- `WireframePair::local_addr()` — returns the loopback address the server is
+  bound to.
+- `WireframePair::shutdown().await` — signals the server to stop, drops the
+  client, and joins the server task.
+
+### Shared echo app factory
+
+`wireframe_testing::echo_app_factory` provides a ready-made app factory for
+pair-harness tests. It accepts an `Arc<AtomicUsize>` counter and returns a
+fallible closure (`Fn() -> TestResult<CommonTestApp>`) that builds a
+`CommonTestApp` with a single route (message id `1`) whose handler only records
+invocations. A lower-level `echo_handler` is also exported for custom app
+construction.
+
+### Lifecycle
+
+The harness reserves the TCP listener through `unused_listener()` before
+spawning the server, eliminating address-race flakiness. The server is bound
+through `WireframeServer::bind_existing_listener` and runs with a one-shot
+shutdown channel. If the client connection fails after the server has started,
+the server task is torn down before the error is returned. A `Drop`
+implementation sends the shutdown signal and immediately aborts the server task
+as a safety net if explicit shutdown is skipped.
+
+### Usage
+
+```rust,no_run
+use wireframe::app::WireframeApp;
+use wireframe_testing::client_pair::spawn_wireframe_pair;
+use wireframe_testing::TestResult;
+
+async fn example() -> TestResult<()> {
+    let mut pair = spawn_wireframe_pair(
+        || WireframeApp::default(),
+        |builder| builder.max_frame_length(2048),
+    )
+    .await?;
+
+    let addr = pair.local_addr();
+    pair.shutdown().await?;
+    Ok(())
+}
+```
+
+### Rationale
+
+The harness uses real loopback TCP rather than `tokio::io::duplex` because the
+purpose of `12.3.2` is client/server compatibility, not in-memory app driving.
+It lives in `wireframe_testing` rather than `wireframe::testkit` to avoid
+widening the optional production feature surface for a purely test-facing
+capability.
 
 ## Helper macros
 

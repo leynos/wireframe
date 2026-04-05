@@ -12,6 +12,7 @@ mod budget_enforcement_scenarios;
 mod budget_transitions_scenarios;
 mod client_lifecycle_scenarios;
 mod client_messaging_scenarios;
+mod client_pair_harness_scenarios;
 mod client_preamble_scenarios;
 mod client_request_hooks_scenarios;
 mod client_runtime_scenarios;

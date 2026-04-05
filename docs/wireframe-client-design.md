@@ -115,6 +115,35 @@ The parity checks cover two guarantees:
 This validation was added for roadmap item `11.3.2` and does not introduce new
 public client API methods.
 
+### In-process server and client pair harness
+
+Roadmap item `12.3.2` adds a reusable harness in `wireframe_testing` that
+starts a `WireframeServer` and a connected `WireframeClient` inside one test
+process. "In-process" means both sides run in the same process and communicate
+over a real loopback TCP socket, keeping compatibility checks honest while
+remaining fast and deterministic.
+
+The harness lives in `wireframe_testing::client_pair` rather than the
+main-crate `wireframe::testkit` module because the feature is test-only and the
+companion crate already owns reusable testing utilities. Placing it there
+avoids widening the optional production-crate feature surface without proof
+that consumers need it re-exported from `wireframe` itself.
+
+The primary entry point is `spawn_wireframe_pair`, which accepts an app factory
+closure and a client-builder configuration closure. Callers that need no client
+customization can use `spawn_wireframe_pair_default` instead. The helper
+reserves a loopback listener via `unused_listener()`, binds the server through
+`WireframeServer::bind_existing_listener`, waits for a readiness signal, and
+connects a client. If the client connection fails, the server task is torn down
+before the error is returned so that no orphaned tasks or bound listeners leak
+into subsequent tests. The returned `WireframePair` exposes the connected
+client through `client_mut()` and offers an explicit `shutdown().await` path. A
+defensive `Drop` implementation sends the shutdown signal and immediately
+aborts the server task if explicit shutdown was skipped.
+
+Streaming responses still borrow the client exclusively through `client_mut()`,
+preserving Rust's ownership rules at the call site.
+
 ### Implementation decisions
 
 - `connect` accepts a `SocketAddr` so the client can create a `TcpSocket` and

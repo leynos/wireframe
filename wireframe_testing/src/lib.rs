@@ -18,6 +18,7 @@
 //! # }
 //! ```
 
+pub mod client_pair;
 pub mod echo_server;
 pub mod helpers;
 pub mod integration_helpers;
@@ -27,6 +28,7 @@ pub mod multi_packet;
 pub mod observability;
 pub mod reassembly;
 
+pub use client_pair::{WireframePair, spawn_wireframe_pair, spawn_wireframe_pair_default};
 pub use echo_server::{ServerMode, process_frame};
 pub use helpers::{
     MAX_SLOW_IO_CAPACITY,
@@ -84,10 +86,15 @@ pub use helpers::{
     valid_hotline_wire,
 };
 pub use integration_helpers::{
+    CommonHandler,
+    CommonTestApp,
     CommonTestEnvelope,
+    Echo,
     TestApp,
     TestError,
     TestResult,
+    echo_app_factory,
+    echo_handler,
     factory,
     unused_listener,
 };
