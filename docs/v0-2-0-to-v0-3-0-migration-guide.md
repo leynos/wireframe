@@ -130,7 +130,15 @@ suffix. The old spelling is gone.
 - New name: `BackoffConfig::normalized`
 
 ```rust
-let config = BackoffConfig::normalized(initial, max);
+use std::time::Duration;
+
+use wireframe::server::BackoffConfig;
+
+let config = BackoffConfig {
+    initial_delay: Duration::from_millis(50),
+    max_delay: Duration::from_secs(5),
+}
+.normalized();
 ```
 
 ## Serializer trait bounds
