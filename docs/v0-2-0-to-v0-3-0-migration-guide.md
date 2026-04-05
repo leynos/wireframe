@@ -5,7 +5,7 @@ addressed when migrating from wireframe v0.2.0 to v0.3.0.
 
 ## Contents
 
-**Breaking changes**
+### Breaking changes
 
 - [Cargo feature changes](#cargo-feature-changes)
 - [Unified error surface](#unified-error-surface)
@@ -18,7 +18,7 @@ addressed when migrating from wireframe v0.2.0 to v0.3.0.
 - [AppDataStore module](#new-appdatastore-module)
 - [Message assembler type additions](#message-assembler-type-additions)
 
-**New capabilities**
+### New capabilities
 
 - [Memory budget configuration](#memory-budget-configuration)
 - [Codec improvements](#codec-improvements)
@@ -590,6 +590,71 @@ let handle = pool.handle();
 let lease = handle.acquire().await?;
 let response: MyResponse = lease.call(request_envelope).await?;
 ```
+
+```mermaid
+classDiagram
+    class WireframeClientBuilder {
+        +connect_pool(addr: SocketAddr, config: ClientPoolConfig) Result~WireframeClientPool~
+    }
+
+    class WireframeClientPool {
+        +handle() PoolHandle
+    }
+
+    class PoolHandle {
+        +acquire() Result~PooledClientLease~
+    }
+
+    class PooledClientLease {
+        <<Deref_to_WireframeClient>>
+        -client: WireframeClient
+        +call(request: Envelope) Result~Response~
+        +send(frame: Frame) Result~()~
+        +receive() Result~Frame~
+    }
+
+    class ClientPoolConfig {
+        +pool_size(value: usize) ClientPoolConfig
+        +max_in_flight_per_socket(value: usize) ClientPoolConfig
+        +idle_timeout(timeout: Duration) ClientPoolConfig
+        +fairness_policy(policy: PoolFairnessPolicy) ClientPoolConfig
+    }
+
+    class PoolFairnessPolicy {
+        <<enum>>
+        +RoundRobin
+        +Lifo
+    }
+
+    class WireframeClient {
+        +call(request: Envelope) Result~Response~
+    }
+
+    class Envelope {
+    }
+
+    class Response {
+    }
+
+    class Frame {
+    }
+
+    WireframeClientBuilder --> ClientPoolConfig
+    WireframeClientBuilder --> WireframeClientPool
+
+    WireframeClientPool --> PoolHandle
+    PoolHandle --> PooledClientLease
+
+    PooledClientLease --> WireframeClient
+
+    ClientPoolConfig --> PoolFairnessPolicy
+```
+
+*Class diagram: `WireframeClientBuilder` creates a `WireframeClientPool` using a
+`ClientPoolConfig` (which selects a `PoolFairnessPolicy`). The pool vends
+`PoolHandle` instances; each handle yields a `PooledClientLease` on `acquire()`.
+`PooledClientLease` derefs to `WireframeClient`, exposing `call`, `send`, and
+`receive` for individual requests.*
 
 `PoolHandle` is cheaply cloneable. `PooledClientLease` implements `Deref` to
 `WireframeClient` for one-off calls via `call`, `send`, and `receive`.
