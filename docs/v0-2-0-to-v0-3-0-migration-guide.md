@@ -940,6 +940,46 @@ classDiagram
 `PooledClientLease` derefs to `WireframeClient`, exposing `call`, `send`, and
 `receive` for individual requests.*
 
+```mermaid
+sequenceDiagram
+    actor User
+    participant Builder as WireframeClientBuilder
+    participant Pool as WireframeClientPool
+    participant Handle as PoolHandle
+    participant Lease as PooledClientLease
+    participant Client as WireframeClient
+    participant Server as WireframeServer
+
+    User->>Builder: connect_pool(addr, ClientPoolConfig)
+    Builder->>Pool: create pool with sockets
+    Pool-->>User: WireframeClientPool
+
+    User->>Pool: handle()
+    Pool-->>Handle: PoolHandle
+
+    User->>Handle: acquire()
+    Handle->>Pool: acquire_socket()
+    Pool-->>Handle: PooledClientLease
+    Handle-->>User: PooledClientLease
+
+    User->>Lease: call(request_envelope)
+    Lease->>Client: call(request_envelope)
+    Client->>Server: send request
+    Server-->>Client: send response
+    Client-->>Lease: Response
+    Lease-->>User: Response
+
+    User->>Lease: drop lease
+    Lease->>Pool: return client to pool
+```
+
+*Sequence diagram: `connect_pool` builds the pool and returns it to the caller.
+`handle()` produces a cheaply-cloneable `PoolHandle`; `acquire()` checks out a
+`PooledClientLease` from the pool, blocking if all sockets are at their
+in-flight limit. The lease delegates the call through to the underlying
+`WireframeClient`, which exchanges frames with the server. Dropping the lease
+returns the socket to the pool for reuse.*
+
 `PoolHandle` is cheaply cloneable. `PooledClientLease` implements `Deref` to
 `WireframeClient` for one-off calls via `call`, `send`, and `receive`.
 
