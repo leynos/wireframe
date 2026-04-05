@@ -481,6 +481,121 @@ Hotline protocol fixtures are available for codec regression tests:
 The wireframe client now covers three domains that had no prior API surface:
 streaming, connection pooling, and structured observability.
 
+```mermaid
+classDiagram
+    class WireframeClient {
+        +call(request: Envelope) Result~Response~
+        +call_streaming(request: Envelope) Result~ResponseStream~
+        +receive_streaming() Result~ResponseStream~
+        +send_streaming(header: FrameHeader, reader: AsyncRead, config: SendStreamingConfig) Result~SendStreamingOutcome~
+    }
+
+    class ResponseStream {
+        <<AsyncIterator>>
+        -client: &mut WireframeClient
+        +try_next() Result~Option~Frame~~
+    }
+
+    class StreamingResponseExt {
+        <<trait>>
+        +typed_with(mapper: Mapper) TypedResponseStream
+    }
+
+    class TypedResponseStream~S, Mapper, P, Item~ {
+        <<AsyncIterator>>
+        -inner: S
+        -mapper: Mapper
+        +try_next() Result~Option~Item~~
+    }
+
+    class SendStreamingConfig {
+        +chunk_size: Option~usize~
+        +timeout: Option~Duration~
+        +with_chunk_size(size: usize) SendStreamingConfig
+        +with_timeout(timeout: Duration) SendStreamingConfig
+    }
+
+    class SendStreamingOutcome {
+        +frames_sent() usize
+        +bytes_sent() usize
+    }
+
+    class WireframeClientBuilder {
+        +before_send(f: FnMutableVecU8) WireframeClientBuilder
+        +after_receive(f: FnMutableBytesMut) WireframeClientBuilder
+        +tracing_config(config: TracingConfig) WireframeClientBuilder
+        +connect(addr: SocketAddr) Result~WireframeClient~
+        +connect_pool(addr: SocketAddr, config: ClientPoolConfig) Result~WireframeClientPool~
+    }
+
+    class TracingConfig {
+        +with_all_levels(level: Level) TracingConfig
+        +with_all_timing(enabled: bool) TracingConfig
+        +with_call_level(level: Level) TracingConfig
+        +with_send_timing(enabled: bool) TracingConfig
+        +with_streaming_level(level: Level) TracingConfig
+    }
+
+    class FnMutableVecU8 {
+        <<closure>>
+        +call(bytes: Vec_u8_ref_mut)
+    }
+
+    class FnMutableBytesMut {
+        <<closure>>
+        +call(bytes: BytesMut_ref_mut)
+    }
+
+    class Envelope {
+    }
+
+    class FrameHeader {
+    }
+
+    class Frame {
+    }
+
+    class AsyncRead {
+        <<trait>>
+    }
+
+    class Response {
+    }
+
+    class ClientPoolConfig {
+    }
+
+    class WireframeClientPool {
+    }
+
+    WireframeClient --> ResponseStream
+    WireframeClient --> SendStreamingConfig
+    WireframeClient --> SendStreamingOutcome
+
+    ResponseStream --> WireframeClient
+
+    StreamingResponseExt <|.. ResponseStream
+    StreamingResponseExt --> TypedResponseStream
+    TypedResponseStream --> ResponseStream
+
+    WireframeClientBuilder --> WireframeClient
+    WireframeClientBuilder --> WireframeClientPool
+    WireframeClientBuilder --> ClientPoolConfig
+    WireframeClientBuilder --> TracingConfig
+    WireframeClientBuilder --> FnMutableVecU8
+    WireframeClientBuilder --> FnMutableBytesMut
+
+    SendStreamingConfig --> SendStreamingOutcome
+```
+
+*Class diagram: `WireframeClientBuilder` is the entry point for all client
+construction – it connects to a `WireframeClient` or a `WireframeClientPool`,
+and accepts `TracingConfig`, `before_send`, and `after_receive` hooks. A
+`WireframeClient` produces a `ResponseStream` for inbound streaming (which
+implements `StreamingResponseExt`, enabling conversion to a
+`TypedResponseStream`) and drives `send_streaming` via `SendStreamingConfig`,
+yielding a `SendStreamingOutcome`.*
+
 ### Streaming responses
 
 `WireframeClient` gains two new call methods for multi-frame responses:
