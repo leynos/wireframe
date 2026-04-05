@@ -315,7 +315,7 @@ where
 
     // Wait for the server to signal ready.
     if ready_rx.await.is_err() {
-        // Server dropped ready_tx without signaling - join the task to get the real error.
+        // Server dropped ready_tx without signalling - join the task to get the real error.
         let (_, handle) = pending
             .take()
             .ok_or_else(|| TestError::Msg("pending server already taken".into()))?;
@@ -327,7 +327,7 @@ where
                 "server failed to start: {server_err}"
             ))),
             Ok(Ok(())) => Err(TestError::Msg(
-                "server exited before signaling ready".into(),
+                "server exited before signalling ready".into(),
             )),
         };
     }
