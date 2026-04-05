@@ -771,6 +771,38 @@ while let Some(result) = stream.next().await {
 }
 ```
 
+```mermaid
+sequenceDiagram
+    actor User
+    participant Client as WireframeClient
+    participant Server as WireframeServer
+    participant Stream as ResponseStream
+
+    User->>Client: call_streaming(envelope)
+    Client->>Server: send request frame(s)
+    Server-->>Client: stream response frames
+    Client-->>User: ResponseStream
+
+    loop consume stream
+        User->>Stream: try_next()
+        Stream->>Client: poll_next_frame()
+        Client->>Server: receive next frame
+        Server-->>Client: next frame or terminator
+        Client-->>Stream: frame or None
+        Stream-->>User: frame or None
+    end
+
+    User->>Stream: drop ResponseStream
+    Stream->>Client: release exclusive borrow
+```
+
+*Sequence diagram: `call_streaming` sends the request and returns a
+`ResponseStream` that holds an exclusive borrow of the client. Each `try_next()`
+call polls the client for the next server frame; the loop continues until the
+server sends a terminator, at which point the stream returns `None`. Dropping
+the `ResponseStream` releases the borrow, making the client available for
+further calls.*
+
 `StreamingResponseExt` is a trait on any `Stream` of response frames. It
 provides `typed_with(mapper)`, which produces a `TypedResponseStream<S, Mapper,
 P, Item>` that translates raw frames into domain values and skips control
