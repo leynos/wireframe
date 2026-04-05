@@ -749,7 +749,7 @@ classDiagram
     class WireframeClient {
         +call(request: Envelope) Result~Response~
         +call_streaming(request: Envelope) Result~ResponseStream~
-        +receive_streaming() Result~ResponseStream~
+        +receive_streaming(correlation_id: CorrelationId) Result~ResponseStream~
         +send_streaming(header: FrameHeader, reader: AsyncRead, config: SendStreamingConfig) Result~SendStreamingOutcome~
     }
 
