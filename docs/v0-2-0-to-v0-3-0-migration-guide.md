@@ -75,8 +75,9 @@ classDiagram
     }
 
     class WireframeServer {
+        +new(factory: AppFactory) WireframeServer
         +bind(addr: SocketAddr) WireframeServer
-        +run_with_shutdown(factory: AppFactory, signal: ShutdownSignal) Result~()~
+        +run_with_shutdown(signal: ShutdownSignal) Result~()~
     }
 
     class AppDataStore {
@@ -100,7 +101,7 @@ classDiagram
     }
 
     class BackoffConfig {
-        +normalized(initial: Duration, max: Duration) BackoffConfig
+        +normalized() BackoffConfig
     }
 
     class PacketParts {
@@ -766,7 +767,7 @@ classDiagram
     }
 
     class ResponseStream {
-        <<AsyncIterator>>
+        <<futures::Stream>>
         -client: &mut WireframeClient
         +try_next() Result~Option~Frame~~
     }
@@ -777,7 +778,7 @@ classDiagram
     }
 
     class TypedResponseStream~S, Mapper, P, Item~ {
-        <<AsyncIterator>>
+        <<futures::Stream>>
         -inner: S
         -mapper: Mapper
         +try_next() Result~Option~Item~~
