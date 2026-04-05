@@ -314,16 +314,32 @@ where
     let mut pending = PendingServer(Some((shutdown_tx, handle)));
 
     // Wait for the server to signal ready.
-    ready_rx
-        .await
-        .map_err(|_| TestError::Msg("server did not signal ready".into()))?;
+    if ready_rx.await.is_err() {
+        // Server dropped ready_tx without signaling - join the task to get the real error.
+        let (_, handle) = pending
+            .take()
+            .ok_or_else(|| TestError::Msg("pending server already taken".into()))?;
+        return match handle.await {
+            Err(join_err) => Err(TestError::Msg(format!(
+                "server task failed to start: {join_err}"
+            ))),
+            Ok(Err(server_err)) => Err(TestError::Msg(format!(
+                "server failed to start: {server_err}"
+            ))),
+            Ok(Ok(())) => Err(TestError::Msg(
+                "server exited before signaling ready".into(),
+            )),
+        };
+    }
 
     // Connect the client while the guard is still held.
     let builder = configure_client(WireframeClientBuilder::new());
     let client = builder.connect(addr).await?;
 
     // Now that the client is connected, take the pending server out of the guard.
-    let (shutdown_tx, handle) = pending.take().expect("pending server already taken");
+    let (shutdown_tx, handle) = pending
+        .take()
+        .ok_or_else(|| TestError::Msg("pending server already taken".into()))?;
 
     Ok(WireframePair {
         addr,
