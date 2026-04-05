@@ -3,6 +3,29 @@
 This guide summarizes the breaking changes and new capabilities that must be
 addressed when migrating from wireframe v0.2.0 to v0.3.0.
 
+## Contents
+
+**Breaking changes**
+
+- [Cargo feature changes](#cargo-feature-changes)
+- [Unified error surface](#unified-error-surface)
+- [Root re-exports removed](#root-re-exports-removed)
+- [Payload accessor renames](#payload-accessor-renames)
+- [BackoffConfig spelling update](#backoffconfig-spelling-update)
+- [Serializer trait bounds](#serializer-trait-bounds)
+- [WireframeApp construction](#wireframeapp-construction)
+- [Server factory trait](#server-factory-trait)
+- [AppDataStore module](#new-appdatastore-module)
+- [Message assembler type additions](#message-assembler-type-additions)
+
+**New capabilities**
+
+- [Memory budget configuration](#memory-budget-configuration)
+- [Codec improvements](#codec-improvements)
+- [Testkit module](#testkit-module)
+- [wireframe\_testing additions](#wireframe_testing-additions)
+- [Client: streaming, pooling, hooks, tracing](#client-new-capabilities)
+
 ## Cargo feature changes
 
 Three features are new. One is removed.
@@ -14,7 +37,8 @@ Three features are new. One is removed.
 - New feature: `serializer-serde` – Serde bridge for `SerdeMessage` and
   `IntoSerdeMessage`.
 - Removed feature: `test-helpers`. Use `test-support` instead (announced in
-  the v0.1.0 → v0.2.0 guide; the deprecated alias is now gone).
+  the [v0.1.0 → v0.2.0 migration guide](v0-1-0-to-v0-2-0-migration-guide.md);
+  the deprecated alias is now gone).
 
 ```toml
 # Before
@@ -82,8 +106,9 @@ The most common moves:
 | `wireframe::ConnectionId`, `wireframe::SessionRegistry` | `wireframe::session::{ConnectionId, SessionRegistry}` |
 | `wireframe::RequestParts`, `wireframe::RequestBodyStream` | `wireframe::request::{RequestParts, RequestBodyStream}` |
 
-The full list of moved types is in the v0.1.0 → v0.2.0 guide. That list now
-takes effect.
+The full list of moved types is in the
+[v0.1.0 → v0.2.0 migration guide](v0-1-0-to-v0-2-0-migration-guide.md).
+That list now takes effect.
 
 `wireframe::prelude::*` provides an optional convenience import for
 high-frequency types. It is intentionally small; prefer direct module imports
