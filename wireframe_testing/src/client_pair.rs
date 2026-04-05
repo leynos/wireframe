@@ -50,11 +50,14 @@ use wireframe::{
 
 use crate::{TestError, TestResult, integration_helpers::unused_listener};
 
-/// Active server task and connected client, taken as a unit during shutdown.
+/// Active server task and connected client.
+///
+/// Fields are `Option` so they can be individually extracted during shutdown
+/// while keeping the `Running` struct in place until all awaits complete.
 struct Running {
-    client: WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()>,
-    shutdown_tx: oneshot::Sender<()>,
-    handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
+    client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()>>,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+    handle: Option<JoinHandle<Result<(), wireframe::server::ServerError>>>,
 }
 
 /// Connected server and client pair for in-process integration tests.
@@ -100,7 +103,7 @@ impl WireframePair {
     {
         self.running
             .as_mut()
-            .map(|r| &mut r.client)
+            .and_then(|r| r.client.as_mut())
             .ok_or_else(|| TestError::Msg("client_mut called after shutdown".into()))
     }
 
@@ -110,36 +113,47 @@ impl WireframePair {
 
     /// Shut down the server gracefully and await its task.
     ///
-    /// Calls the client's async close path to run any configured teardown
-    /// hooks, sends the shutdown signal to the server, and joins the server
-    /// task. Separates join errors from server errors for clear diagnostics.
+    /// Calls the client's close method to run teardown hooks, sends the
+    /// shutdown signal to the server, and joins the server task. Keeps
+    /// `Running` in `self` until all awaits complete, so if the future is
+    /// cancelled the `Drop` impl can still clean up.
     ///
     /// # Errors
     ///
     /// Returns a [`TestError`] if the server task panicked, was cancelled,
     /// or returned a [`ServerError`](wireframe::server::ServerError).
     pub async fn shutdown(&mut self) -> TestResult<()> {
-        if let Some(Running {
-            client,
-            shutdown_tx,
-            handle,
-        }) = self.running.take()
-        {
-            // Call the client's close method to run teardown hooks.
-            client.close().await;
+        if let Some(running) = self.running.as_mut() {
+            // Take the client and close it.
+            if let Some(client) = running.client.take() {
+                client.close().await;
+            }
 
-            let _ = shutdown_tx.send(());
+            // Send the shutdown signal.
+            if let Some(shutdown_tx) = running.shutdown_tx.take() {
+                let _ = shutdown_tx.send(());
+            }
 
-            match handle.await {
-                Err(join_err) => {
-                    return Err(TestError::Msg(format!(
-                        "server task join error: {join_err}"
-                    )));
+            // Await the server task.
+            if let Some(handle) = running.handle.take() {
+                match handle.await {
+                    Err(join_err) => {
+                        // Clean up Running before returning error.
+                        self.running = None;
+                        return Err(TestError::Msg(format!(
+                            "server task join error: {join_err}"
+                        )));
+                    }
+                    Ok(Err(server_err)) => {
+                        // Clean up Running before returning error.
+                        self.running = None;
+                        return Err(TestError::Msg(format!("server error: {server_err}")));
+                    }
+                    Ok(Ok(())) => {
+                        // Success - clean up Running.
+                        self.running = None;
+                    }
                 }
-                Ok(Err(server_err)) => {
-                    return Err(TestError::Msg(format!("server error: {server_err}")));
-                }
-                Ok(Ok(())) => {}
             }
         }
 
@@ -149,14 +163,13 @@ impl WireframePair {
 
 impl Drop for WireframePair {
     fn drop(&mut self) {
-        if let Some(Running {
-            shutdown_tx,
-            handle,
-            ..
-        }) = self.running.take()
-        {
-            let _ = shutdown_tx.send(());
-            spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
+        if let Some(running) = self.running.take() {
+            if let Some(shutdown_tx) = running.shutdown_tx {
+                let _ = shutdown_tx.send(());
+            }
+            if let Some(handle) = running.handle {
+                spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
+            }
         }
     }
 }
@@ -193,15 +206,37 @@ fn spawn_bounded_shutdown(
     }
 }
 
-/// Tear down a spawned server task that has not yet been handed to a
-/// [`WireframePair`]. Used to prevent leaked tasks when the client
-/// connection fails after the server has already started.
-fn abort_server(
-    shutdown_tx: oneshot::Sender<()>,
-    handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
-) {
-    let _ = shutdown_tx.send(());
-    spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
+/// RAII guard for a pending server task that aborts on drop.
+///
+/// Ensures that if the server task is not successfully handed off to a
+/// [`WireframePair`], it will be cleanly shut down via
+/// [`spawn_bounded_shutdown`] instead of leaking.
+struct PendingServer(
+    Option<(
+        oneshot::Sender<()>,
+        JoinHandle<Result<(), wireframe::server::ServerError>>,
+    )>,
+);
+
+impl PendingServer {
+    /// Take the shutdown channel and handle out of the guard, consuming it.
+    fn take(
+        &mut self,
+    ) -> Option<(
+        oneshot::Sender<()>,
+        JoinHandle<Result<(), wireframe::server::ServerError>>,
+    )> {
+        self.0.take()
+    }
+}
+
+impl Drop for PendingServer {
+    fn drop(&mut self) {
+        if let Some((shutdown_tx, handle)) = self.0.take() {
+            let _ = shutdown_tx.send(());
+            spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
+        }
+    }
 }
 
 /// Start a server and connect a client, returning a [`WireframePair`].
@@ -279,25 +314,26 @@ where
             .await
     });
 
+    // Guard the server task so it's cleaned up if we panic or return early.
+    let mut pending = PendingServer(Some((shutdown_tx, handle)));
+
+    // Wait for the server to signal ready.
     ready_rx
         .await
         .map_err(|_| TestError::Msg("server did not signal ready".into()))?;
 
+    // Take the pending server out of the guard before connecting the client.
+    let (shutdown_tx, handle) = pending.take().expect("pending server already taken");
+
     let builder = configure_client(WireframeClientBuilder::new());
-    let client = match builder.connect(addr).await {
-        Ok(c) => c,
-        Err(e) => {
-            abort_server(shutdown_tx, handle);
-            return Err(e.into());
-        }
-    };
+    let client = builder.connect(addr).await?;
 
     Ok(WireframePair {
         addr,
         running: Some(Running {
-            client,
-            shutdown_tx,
-            handle,
+            client: Some(client),
+            shutdown_tx: Some(shutdown_tx),
+            handle: Some(handle),
         }),
     })
 }
