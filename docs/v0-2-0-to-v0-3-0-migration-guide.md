@@ -492,7 +492,7 @@ crate (WireframePair, ObservabilityHandle, HotlineFixtures).
 ```mermaid
 classDiagram
     class TestkitModule {
-        <<module wireframe_testkit>>
+        <<module wireframe::testkit>>
     }
 
     class WireframeApp {
