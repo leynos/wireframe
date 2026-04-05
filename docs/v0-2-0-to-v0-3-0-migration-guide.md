@@ -203,16 +203,21 @@ The new `Result<WireframeApp, _>` return path enables factories to surface
 initialization errors without panicking.
 
 ```rust
-// Before – bare closure, WireframeApp returned directly
-server.bind(addr).run_with_shutdown(|| build_app(), signal).await?;
+use wireframe::server::WireframeServer;
 
-// After – same closure still works; or return Result for fallible init
-server.bind(addr).run_with_shutdown(|| build_app(), signal).await?;
-
-// Fallible factory (new capability)
-server
+// Infallible factory – closure returning WireframeApp; unchanged from v0.2.0
+WireframeServer::new(|| build_app())
     .bind(addr)
-    .run_with_shutdown(|| build_app_or_fail(), signal)
+    .await?
+    .run_with_shutdown(shutdown_signal)
+    .await?;
+
+// Fallible factory (new capability) – closure may return Result; init errors
+// propagate without panicking inside the factory
+WireframeServer::new(|| build_app_or_fail())
+    .bind(addr)
+    .await?
+    .run_with_shutdown(shutdown_signal)
     .await?;
 ```
 
