@@ -62,9 +62,11 @@ The unified `WireframeError<E>` carries four variants:
 ## Root re-exports removed
 
 The crate root now exposes only `wireframe::Result<T>` and
-`wireframe::WireframeError<E>`. Every other type moved to its owning module in
-v0.2.0 is no longer re-exported at root. Update import paths to reference the
-module directly.
+`wireframe::WireframeError<E>`. Every other type is still available through its
+owning public module – those modules are all `pub mod` at the crate root and
+their contents have not been removed from the public API. What changed is that
+the convenience re-exports at the crate root are gone. Update import paths to
+reference the module directly rather than the root shorthand.
 
 The most common moves:
 
@@ -445,24 +447,36 @@ streaming, connection pooling, and structured observability.
 
 `WireframeClient` gains two new call methods for multi-frame responses:
 
-- `call_streaming(envelope)` – sends a correlated request and returns a
-  `ResponseStream` that yields frames until the server sends a stream
-  terminator.
-- `receive_streaming()` – for protocols where the client initiates and then
-  reads a pushed stream rather than making a correlated call.
+- `call_streaming(envelope)` – assigns a correlation identifier, sends the
+  request, and returns a `ResponseStream` that yields typed frames until the
+  server sends a stream terminator.
+- `receive_streaming(correlation_id)` – the lower-level variant for callers
+  that have already sent the request via `send` or `send_envelope` and hold
+  the correlation identifier. Returns a `ResponseStream` that validates every
+  inbound frame against that identifier.
 
-`ResponseStream` is an `AsyncIterator`-compatible type that holds an exclusive
-borrow of the client for the duration of the stream.
+`ResponseStream` implements `futures::Stream` with `Item = Result<P,
+ClientError>`. It holds an exclusive borrow of the client for the duration of
+the stream, preventing concurrent sends. The terminator frame is consumed
+internally and the stream returns `None` once it arrives.
 
 ```rust
-use futures::TryStreamExt;
-use wireframe::client::WireframeClient;
+use std::net::SocketAddr;
 
-let mut client: WireframeClient = /* ... */;
-let envelope = build_query_envelope();
+use futures::StreamExt;
+use wireframe::{
+    app::Envelope,
+    client::{ClientError, WireframeClient},
+};
 
-let mut stream = client.call_streaming(envelope).await?;
-while let Some(frame) = stream.try_next().await? {
+let addr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+let mut client = WireframeClient::builder().connect(addr).await?;
+
+let request = Envelope::new(1, None, vec![]);
+let mut stream = client.call_streaming::<Envelope>(request).await?;
+
+while let Some(result) = stream.next().await {
+    let frame = result?;
     process_frame(frame);
 }
 ```
