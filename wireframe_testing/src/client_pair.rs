@@ -123,41 +123,37 @@ impl WireframePair {
     /// Returns a [`TestError`] if the server task panicked, was cancelled,
     /// or returned a [`ServerError`](wireframe::server::ServerError).
     pub async fn shutdown(&mut self) -> TestResult<()> {
-        if let Some(running) = self.running.as_mut() {
-            // Take the client and close it.
-            if let Some(client) = running.client.take() {
-                client.close().await;
-            }
+        let Some(running) = self.running.as_mut() else {
+            return Ok(());
+        };
 
-            // Send the shutdown signal.
-            if let Some(shutdown_tx) = running.shutdown_tx.take() {
-                let _ = shutdown_tx.send(());
-            }
-
-            // Await the server task.
-            if let Some(handle) = running.handle.take() {
-                match handle.await {
-                    Err(join_err) => {
-                        // Clean up Running before returning error.
-                        self.running = None;
-                        return Err(TestError::Msg(format!(
-                            "server task join error: {join_err}"
-                        )));
-                    }
-                    Ok(Err(server_err)) => {
-                        // Clean up Running before returning error.
-                        self.running = None;
-                        return Err(TestError::Msg(format!("server error: {server_err}")));
-                    }
-                    Ok(Ok(())) => {
-                        // Success - clean up Running.
-                        self.running = None;
-                    }
-                }
-            }
+        // Take the client and close it.
+        if let Some(client) = running.client.take() {
+            client.close().await;
         }
 
-        Ok(())
+        // Send the shutdown signal.
+        if let Some(shutdown_tx) = running.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+
+        // Await the server task through a mutable borrow.
+        let Some(handle) = running.handle.as_mut() else {
+            return Ok(());
+        };
+
+        let result = match handle.await {
+            Err(join_err) => Err(TestError::Msg(format!(
+                "server task join error: {join_err}"
+            ))),
+            Ok(Err(server_err)) => Err(TestError::Msg(format!("server error: {server_err}"))),
+            Ok(Ok(())) => Ok(()),
+        };
+
+        // Now that the await is complete, clear Running.
+        self.running = None;
+
+        result
     }
 }
 
@@ -322,11 +318,12 @@ where
         .await
         .map_err(|_| TestError::Msg("server did not signal ready".into()))?;
 
-    // Take the pending server out of the guard before connecting the client.
-    let (shutdown_tx, handle) = pending.take().expect("pending server already taken");
-
+    // Connect the client while the guard is still held.
     let builder = configure_client(WireframeClientBuilder::new());
     let client = builder.connect(addr).await?;
+
+    // Now that the client is connected, take the pending server out of the guard.
+    let (shutdown_tx, handle) = pending.take().expect("pending server already taken");
 
     Ok(WireframePair {
         addr,
