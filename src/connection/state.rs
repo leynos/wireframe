@@ -74,8 +74,10 @@ impl ActorState {
     pub(super) fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 
     /// Returns the number of sources that have been closed.
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn closed_sources(&self) -> usize { self.closed_sources }
 
     /// Returns the total number of sources being tracked.
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn total_sources(&self) -> usize { self.total_sources }
 }
