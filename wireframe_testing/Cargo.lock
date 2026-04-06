@@ -1795,7 +1795,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "wireframe"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bincode",
@@ -1822,7 +1822,7 @@ dependencies = [
 
 [[package]]
 name = "wireframe_testing"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "bytes",

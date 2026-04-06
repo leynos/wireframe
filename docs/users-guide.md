@@ -484,7 +484,7 @@ through `SlowIoConfig`:
 Enable the feature in `Cargo.toml` when importing from the main crate:
 
 ```toml
-wireframe = { version = "0.2.0", features = ["testkit"] }
+wireframe = { version = "0.3.0", features = ["testkit"] }
 ```
 
 ```rust,no_run
