@@ -54,7 +54,12 @@ impl LoggerHandle {
         static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
 
         let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
-        let guard = logger.lock().expect("logger poisoned");
+        // Preserve the shared logger even if a prior test panicked while
+        // holding the mutex; the buffered logger state remains usable.
+        let guard = match logger.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
 
         Self { guard }
     }
