@@ -449,7 +449,7 @@ Wireframe's protocol, framing, and message assembly layers.
 
 ### 10.1. Verification workspace and tooling
 
-- [ ] 10.1.1. Convert the root manifest into a hybrid workspace while keeping
+- [x] 10.1.1. Convert the root manifest into a hybrid workspace while keeping
   the root package as the default member. See
   [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
    Success criteria: `cargo build` and `cargo test --workspace` pass with the

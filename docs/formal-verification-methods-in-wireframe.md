@@ -319,7 +319,7 @@ Add a workspace section to the root manifest:
 
 ```toml
 [workspace]
-members = [".", "crates/wireframe-verification"]
+members = ["."]
 default-members = ["."]
 resolver = "3"
 ```
@@ -332,6 +332,27 @@ the root package as a default member means `cargo test`, `cargo check`, and
 crate by accident.[^26]
 
 That is a small but important stability choice.
+
+One nuance matters here: Cargo metadata for this repository still reports the
+in-repository helper crate `wireframe_testing` in `workspace_members` once the
+root manifest becomes an explicit workspace, even though the staged
+`members = ["."]` list only names the root package. The practical 10.1.1
+contract is therefore:
+
+- the root manifest is explicitly workspace-aware,
+- the root `wireframe` package remains the sole `default-members` entry, and
+- the dedicated verification crate is still deferred until 10.1.2.
+
+This should land in two stages:
+
+1. Roadmap item 10.1.1 adds the explicit hybrid workspace with
+   `members = ["."]`.
+2. Roadmap item 10.1.2 extends the member list to
+   `[".", "crates/wireframe-verification"]` when the verification crate exists.
+
+That staging keeps the Cargo layout change separate from the introduction of
+new verification code and avoids a placeholder crate solely to satisfy the
+workspace manifest.
 
 ## Kani integration
 

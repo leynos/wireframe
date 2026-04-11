@@ -64,3 +64,29 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
+
+## Cargo workspace semantics
+
+Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
+contains both `[package]` and `[workspace]`.
+
+During roadmap item 10.1.1 the workspace is intentionally staged with only the
+root package as a member and default member:
+
+- `members = ["."]`
+- `default-members = ["."]`
+
+That means ordinary root-level commands such as `cargo build`, `cargo check`,
+`cargo test`, and `cargo clippy` retain their existing ergonomics and continue
+to target the main `wireframe` package by default.
+
+Use plain root-level Cargo commands for day-to-day work on the main crate.
+Reach for `--workspace` when a task is explicitly meant to cover every current
+workspace member, for example repository-wide validation in CI or when later
+roadmap items add internal verification crates.
+
+One Cargo nuance is worth knowing: `cargo metadata` for this repository still
+reports the in-tree helper crate `wireframe_testing` in `workspace_members`
+because it lives under the repository root as a path dependency. That does not
+change day-to-day command ergonomics because `default-members = ["."]` keeps
+plain root-level Cargo commands focused on the main `wireframe` package.

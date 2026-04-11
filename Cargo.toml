@@ -10,6 +10,11 @@ keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe"
 
+[workspace]
+members = ["."]
+default-members = ["."]
+resolver = "3"
+
 [lib]
 name = "wireframe"
 path = "src/lib.rs"

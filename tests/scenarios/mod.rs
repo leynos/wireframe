@@ -47,3 +47,4 @@ mod streaming_request_scenarios;
 mod test_observability_scenarios;
 mod testkit_export_scenarios;
 mod unified_codec_scenarios;
+mod workspace_manifest_scenarios;
