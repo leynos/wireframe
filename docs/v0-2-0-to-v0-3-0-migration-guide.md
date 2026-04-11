@@ -200,8 +200,9 @@ wireframe = { version = "0.3.0", features = ["testkit"] }
 
 ## Unified error surface
 
-`wireframe` now exposes one canonical error type: `wireframe::WireframeError<E>`,
-defined in `wireframe::error`. The two previous error types are gone.
+`wireframe` now exposes one canonical error type:
+`wireframe::WireframeError<E>`, defined in `wireframe::error`. The two previous
+error types are gone.
 
 - `wireframe::app::error::WireframeError` is removed.
 - `wireframe::response::WireframeError` is removed.
@@ -236,21 +237,21 @@ reference the module directly rather than the root shorthand.
 
 The most common moves:
 
-| Removed root path | New path |
-| --- | --- |
-| `wireframe::BincodeSerializer`, `wireframe::Serializer` | `wireframe::serializer::{BincodeSerializer, Serializer}` |
-| `wireframe::ConnectionActor` | `wireframe::connection::ConnectionActor` |
-| `wireframe::CorrelatableFrame` | `wireframe::correlation::CorrelatableFrame` |
+| Removed root path                                                                          | New path                                                                  |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `wireframe::BincodeSerializer`, `wireframe::Serializer`                                    | `wireframe::serializer::{BincodeSerializer, Serializer}`                  |
+| `wireframe::ConnectionActor`                                                               | `wireframe::connection::ConnectionActor`                                  |
+| `wireframe::CorrelatableFrame`                                                             | `wireframe::correlation::CorrelatableFrame`                               |
 | `wireframe::ConnectionContext`, `wireframe::ProtocolHooks`, `wireframe::WireframeProtocol` | `wireframe::hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol}` |
-| `wireframe::ClientCodecConfig`, `wireframe::ClientError`, `wireframe::WireframeClient` | `wireframe::client::{...}` |
-| `wireframe::CodecError`, `wireframe::DefaultRecoveryPolicy`, `wireframe::RecoveryConfig` | `wireframe::codec::{...}` |
-| `wireframe::FrameStream`, `wireframe::Response` | `wireframe::response::{FrameStream, Response}` |
-| `wireframe::ConnectionId`, `wireframe::SessionRegistry` | `wireframe::session::{ConnectionId, SessionRegistry}` |
-| `wireframe::RequestParts`, `wireframe::RequestBodyStream` | `wireframe::request::{RequestParts, RequestBodyStream}` |
+| `wireframe::ClientCodecConfig`, `wireframe::ClientError`, `wireframe::WireframeClient`     | `wireframe::client::{...}`                                                |
+| `wireframe::CodecError`, `wireframe::DefaultRecoveryPolicy`, `wireframe::RecoveryConfig`   | `wireframe::codec::{...}`                                                 |
+| `wireframe::FrameStream`, `wireframe::Response`                                            | `wireframe::response::{FrameStream, Response}`                            |
+| `wireframe::ConnectionId`, `wireframe::SessionRegistry`                                    | `wireframe::session::{ConnectionId, SessionRegistry}`                     |
+| `wireframe::RequestParts`, `wireframe::RequestBodyStream`                                  | `wireframe::request::{RequestParts, RequestBodyStream}`                   |
 
 The full list of moved types is in the
-[v0.1.0 → v0.2.0 migration guide](v0-1-0-to-v0-2-0-migration-guide.md).
-That list now takes effect.
+[v0.1.0 → v0.2.0 migration guide](v0-1-0-to-v0-2-0-migration-guide.md). That
+list now takes effect.
 
 `wireframe::prelude::*` provides an optional convenience import for
 high-frequency types. It is intentionally small; prefer direct module imports
@@ -336,14 +337,14 @@ impl EncodeWith<MySerializer> for MyMessage {
 }
 ```
 
-A `SerdeSerializerBridge` trait (behind the `serializer-serde` feature) and
-the `SerdeMessage<T>` wrapper provide a path for Serde-derived types without
+A `SerdeSerializerBridge` trait (behind the `serializer-serde` feature) and the
+`SerdeMessage<T>` wrapper provide a path for Serde-derived types without
 implementing `bincode::Encode`.
 
 ## WireframeApp construction
 
-`WireframeApp::new()` now returns `Result<Self>` for forward compatibility.
-The call currently always succeeds, but the return type must be handled.
+`WireframeApp::new()` now returns `Result<Self>` for forward compatibility. The
+call currently always succeeds, but the return type must be handled.
 
 ```rust
 // Before
@@ -611,7 +612,8 @@ partial frames, fragments, and slow I/O, plus `TestSerializer`, `TestResult`,
 `TestError`, and assembly snapshot assertion helpers. The `wireframe_testing`
 companion crate provides `WireframePair` (real loopback server–client pair),
 `ObservabilityHandle` (log + metrics capture with atomic snapshot semantics),
-`Labels`, and `HotlineFixtures` (codec regression fixtures and `new_test_codec`).*
+`Labels`, and `HotlineFixtures` (codec regression fixtures and
+`new_test_codec`).*
 
 `wireframe::testkit` (behind the `testkit` Cargo feature) provides optional
 test utilities for downstream protocol crates. The module is not available in
@@ -627,8 +629,8 @@ Capabilities include:
   real network delay.
 - Assembly assertion helpers (`assert_message_assembly_completed`,
   `assert_fragment_reassembly_error`, and the full `MessageAssemblySnapshot` /
-  `FragmentReassemblySnapshot` families) for verifying assembly and
-  reassembly outcomes without panicking.
+  `FragmentReassemblySnapshot` families) for verifying assembly and reassembly
+  outcomes without panicking.
 - `TestSerializer` – a minimal serializer for use in tests.
 - `TestResult` and `TestError` – ergonomic result types for test functions.
 
@@ -700,8 +702,8 @@ assert_eq!(
 ```
 
 `obs_handle()` is an `rstest` fixture that constructs a handle directly.
-`Labels` provides a builder for label pairs used with `ObservabilityHandle::
-counter`.
+`Labels` provides a builder for label pairs used with
+`ObservabilityHandle:: counter`.
 
 The handle's `snapshot()` method drains counters atomically. Query after
 `snapshot()`; earlier values are not retained.
@@ -885,14 +887,14 @@ yielding a `SendStreamingOutcome`.*
   request, and returns a `ResponseStream` that yields typed frames until the
   server sends a stream terminator.
 - `receive_streaming(correlation_id)` – the lower-level variant for callers
-  that have already sent the request via `send` or `send_envelope` and hold
-  the correlation identifier. Returns a `ResponseStream` that validates every
+  that have already sent the request via `send` or `send_envelope` and hold the
+  correlation identifier. Returns a `ResponseStream` that validates every
   inbound frame against that identifier.
 
-`ResponseStream` implements `futures::Stream` with `Item = Result<P,
-ClientError>`. It holds an exclusive borrow of the client for the duration of
-the stream, preventing concurrent sends. The terminator frame is consumed
-internally and the stream returns `None` once it arrives.
+`ResponseStream` implements `futures::Stream` with
+`Item = Result<P, ClientError>`. It holds an exclusive borrow of the client for
+the duration of the stream, preventing concurrent sends. The terminator frame
+is consumed internally and the stream returns `None` once it arrives.
 
 ```rust
 use std::net::SocketAddr;
@@ -945,16 +947,16 @@ sequenceDiagram
 ```
 
 *Sequence diagram: `call_streaming` sends the request and returns a
-`ResponseStream` that holds an exclusive borrow of the client. Each `try_next()`
-call polls the client for the next server frame; the loop continues until the
-server sends a terminator, at which point the stream returns `None`. Dropping
-the `ResponseStream` releases the borrow, making the client available for
-further calls.*
+`ResponseStream` that holds an exclusive borrow of the client. Each
+`try_next()` call polls the client for the next server frame; the loop
+continues until the server sends a terminator, at which point the stream
+returns `None`. Dropping the `ResponseStream` releases the borrow, making the
+client available for further calls.*
 
 `StreamingResponseExt` is a trait on any `Stream` of response frames. It
-provides `typed_with(mapper)`, which produces a `TypedResponseStream<S, Mapper,
-P, Item>` that translates raw frames into domain values and skips control
-frames where the mapper returns `Ok(None)`.
+provides `typed_with(mapper)`, which produces a
+`TypedResponseStream<S, Mapper, P, Item>` that translates raw frames into
+domain values and skips control frames where the mapper returns `Ok(None)`.
 
 ```rust
 use wireframe::client::StreamingResponseExt;
@@ -973,8 +975,8 @@ let typed_stream = raw_stream.typed_with(|frame| {
 `WireframeClient::send_streaming` sends a large body as a sequence of
 protocol-framed chunks, reading from any `AsyncRead` source.
 
-`SendStreamingConfig` controls chunk sizing and timeout. When chunk size is
-not set, it is derived from `max_frame_length - frame_header.len()`.
+`SendStreamingConfig` controls chunk sizing and timeout. When chunk size is not
+set, it is derived from `max_frame_length - frame_header.len()`.
 
 ```rust
 use std::time::Duration;
@@ -1086,11 +1088,11 @@ classDiagram
     ClientPoolConfig --> PoolFairnessPolicy
 ```
 
-*Class diagram: `WireframeClientBuilder` creates a `WireframeClientPool` using a
-`ClientPoolConfig` (which selects a `PoolFairnessPolicy`). The pool vends
-`PoolHandle` instances; each handle yields a `PooledClientLease` on `acquire()`.
-`PooledClientLease` derefs to `WireframeClient`, exposing `call`, `send`, and
-`receive` for individual requests.*
+*Class diagram: `WireframeClientBuilder` creates a `WireframeClientPool` using
+a `ClientPoolConfig` (which selects a `PoolFairnessPolicy`). The pool vends
+`PoolHandle` instances; each handle yields a `PooledClientLease` on
+`acquire()`. `PooledClientLease` derefs to `WireframeClient`, exposing `call`,
+`send`, and `receive` for individual requests.*
 
 Sequence diagram showing the connection pool usage flow: building the pool,
 acquiring a PoolHandle, checking out a PooledClientLease, making a request, and
@@ -1171,9 +1173,9 @@ let client = WireframeClientBuilder::new()
 `TracingConfig` controls which client operations emit tracing spans, at what
 level, and whether per-operation elapsed-time events are recorded.
 
-The default configuration emits `INFO` spans for lifecycle operations (`connect`,
-`close`) and `DEBUG` spans for data operations (`send`, `receive`, `call`,
-`call_streaming`). Timing is disabled by default.
+The default configuration emits `INFO` spans for lifecycle operations
+(`connect`, `close`) and `DEBUG` spans for data operations (`send`, `receive`,
+`call`, `call_streaming`). Timing is disabled by default.
 
 ```rust
 use tracing::Level;
