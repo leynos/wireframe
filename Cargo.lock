@@ -3391,6 +3391,8 @@ dependencies = [
  "bb8",
  "bincode",
  "bytes",
+ "camino",
+ "cap-std",
  "criterion",
  "dashmap",
  "derive_more 2.0.1",
