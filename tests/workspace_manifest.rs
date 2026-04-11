@@ -4,22 +4,32 @@
 //! workspace while keeping the root package as the only default member during
 //! roadmap item 10.1.1.
 
-use std::{env, path::PathBuf, process::Command};
+use std::{env, process::Command};
 
+use camino::Utf8PathBuf;
+use cap_std::{ambient_authority, fs_utf8::Dir};
 use rstest::rstest;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-fn repo_root() -> PathBuf { PathBuf::from(env!("CARGO_MANIFEST_DIR")) }
-
-fn root_manifest() -> TestResult<String> {
-    Ok(std::fs::read_to_string(repo_root().join("Cargo.toml"))?)
+fn repo_root() -> TestResult<Utf8PathBuf> {
+    Utf8PathBuf::from_path_buf(env::current_dir()?).map_err(|path| {
+        format!(
+            "repository root path is not valid UTF-8: {}",
+            path.display()
+        )
+        .into()
+    })
 }
+
+fn repo_dir() -> TestResult<Dir> { Ok(Dir::open_ambient_dir(repo_root()?, ambient_authority())?) }
+
+fn root_manifest() -> TestResult<String> { Ok(repo_dir()?.read_to_string("Cargo.toml")?) }
 
 fn cargo_metadata() -> TestResult<String> {
     let output = Command::new("cargo")
         .args(["metadata", "--no-deps", "--format-version", "1"])
-        .current_dir(repo_root())
+        .current_dir(repo_root()?)
         .output()?;
     if !output.status.success() {
         return Err(format!(
@@ -69,19 +79,19 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     reason = "assertions provide clearer diagnostics in integration tests"
 )]
 fn cargo_metadata_reports_root_as_only_workspace_member_and_default_member() -> TestResult {
-    let repo_root = repo_root();
-    let repo_root_str = repo_root.to_string_lossy();
+    let repo_root = repo_root()?;
+    let repo_root_str = repo_root.as_str();
     let package_id = format!("path+file://{repo_root_str}#wireframe@0.3.0");
     let manifest_path = repo_root.join("Cargo.toml");
-    let manifest_path_str = manifest_path.to_string_lossy();
+    let manifest_path_str = manifest_path.as_str();
     let metadata = cargo_metadata()?;
 
     assert!(
-        contains_json_string_field(&metadata, "workspace_root", &repo_root_str),
+        contains_json_string_field(&metadata, "workspace_root", repo_root_str),
         "workspace_root should be the repository root"
     );
     assert!(
-        contains_json_string_field(&metadata, "manifest_path", &manifest_path_str),
+        contains_json_string_field(&metadata, "manifest_path", manifest_path_str),
         "metadata should continue to resolve the root package manifest"
     );
     assert!(
