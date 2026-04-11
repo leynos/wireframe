@@ -63,6 +63,10 @@ impl LoggerHandle {
     pub fn clear(&mut self) { while self.pop().is_some() {} }
 }
 
+impl Default for LoggerHandle {
+    fn default() -> Self { Self::new() }
+}
+
 impl std::ops::Deref for LoggerHandle {
     type Target = Logger;
 

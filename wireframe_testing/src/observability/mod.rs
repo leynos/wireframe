@@ -256,12 +256,16 @@ impl ObservabilityHandle {
     pub fn codec_error_counter(&self, error_type: &str, recovery_policy: &str) -> u64 {
         self.counter(
             wireframe::metrics::CODEC_ERRORS,
-            &[
+            [
                 ("error_type", error_type),
                 ("recovery_policy", recovery_policy),
             ],
         )
     }
+}
+
+impl Default for ObservabilityHandle {
+    fn default() -> Self { Self::new() }
 }
 
 /// rstest fixture returning an [`ObservabilityHandle`] for test

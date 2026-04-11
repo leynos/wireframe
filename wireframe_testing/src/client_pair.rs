@@ -207,23 +207,16 @@ fn spawn_bounded_shutdown(
 /// Ensures that if the server task is not successfully handed off to a
 /// [`WireframePair`], it will be cleanly shut down via
 /// [`spawn_bounded_shutdown`] instead of leaking.
-struct PendingServer(
-    Option<(
-        oneshot::Sender<()>,
-        JoinHandle<Result<(), wireframe::server::ServerError>>,
-    )>,
+type ServerShutdownHandle = (
+    oneshot::Sender<()>,
+    JoinHandle<Result<(), wireframe::server::ServerError>>,
 );
+
+struct PendingServer(Option<ServerShutdownHandle>);
 
 impl PendingServer {
     /// Take the shutdown channel and handle out of the guard, consuming it.
-    fn take(
-        &mut self,
-    ) -> Option<(
-        oneshot::Sender<()>,
-        JoinHandle<Result<(), wireframe::server::ServerError>>,
-    )> {
-        self.0.take()
-    }
+    fn take(&mut self) -> Option<ServerShutdownHandle> { self.0.take() }
 }
 
 impl Drop for PendingServer {

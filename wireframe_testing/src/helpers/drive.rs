@@ -48,10 +48,7 @@ where
             Ok(_) => Ok(()),
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("server task failed: {panic_msg}"),
-                ))
+                Err(io::Error::other(format!("server task failed: {panic_msg}")))
             }
         }
     };

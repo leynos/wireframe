@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: IMPLEMENTED
 
 This document must be maintained in accordance with `AGENTS.md` at the
 repository root, including quality gates, test policy, and documentation style
@@ -119,13 +119,23 @@ Observable success is:
       the formal-verification design guidance, and confirmed the current repo
       is still a single-package root with `wireframe_testing` outside any
       workspace.
-- [ ] Stage A: confirm the staged workspace contract and target file list.
-- [ ] Stage B: convert the root manifest into a hybrid workspace.
-- [ ] Stage C: add `rstest` and `rstest-bdd` regression coverage for workspace
+- [x] (2026-04-11) Stage A: confirmed the staged 10.1.1 contract remains
+      "explicit hybrid workspace now, verification crate in 10.1.2" and
+      verified Cargo can keep `members = ["."]` without a placeholder crate.
+- [x] (2026-04-11) Stage B: converted the root `Cargo.toml` into a hybrid
+      manifest with `[workspace]`, `members = ["."]`,
+      `default-members = ["."]`, and `resolver = "3"`.
+- [x] (2026-04-11) Stage C: added `rstest` and `rstest-bdd` regression
+      coverage for workspace
       invariants.
-- [ ] Stage D: update design and contributor documentation, inspect the user
-      guide, and mark the roadmap item done.
-- [ ] Stage E: run the full validation and documentation gates.
+- [x] (2026-04-11) Stage D: updated the formal-verification guide, updated the
+      developers' guide, inspected the user guide and determined no consumer
+      guidance change was required, and marked roadmap item 10.1.1 done.
+- [ ] Stage E: run the full validation and documentation gates. Most gates
+      passed on 2026-04-11, but `make lint` remains blocked by the missing
+      `whitaker` wrapper in the execution environment even though `cargo doc`
+      and `cargo clippy --all-targets --all-features -- -D warnings` both
+      passed.
 
 ## Surprises & Discoveries
 
@@ -138,8 +148,22 @@ Observable success is:
   workspace member, which means a hybrid workspace conversion must avoid
   accidentally implying that all path crates join the workspace automatically.
 
+- Discovery: `cargo metadata` already reported the repository root as a
+  one-member workspace before the explicit `[workspace]` section existed,
+  because a lone package still produces workspace-shaped metadata. The
+  regression tests therefore check both the manifest text and the metadata so
+  the explicit hybrid-workspace contract is observable.
+
+- Discovery: once the root manifest became an explicit workspace, Cargo pulled
+  the in-repository `wireframe_testing` path dependency into
+  `workspace_members` even with `members = ["."]`. Attempts to isolate that
+  crate with `exclude` or a nested local workspace were ineffective or invalid,
+  so the implemented 10.1.1 contract was relaxed to keep the root package as
+  the sole `default-members` entry while documenting the helper crate's
+  presence in workspace metadata.
+
 - Discovery: the `Makefile` already describes `typecheck` as a "workspace
-  typecheck" even though the repository is not yet a workspace. The
+  typecheck" even though the repository was not yet an explicit workspace. The
   documentation update should align contributor language with the actual Cargo
   layout.
 
@@ -162,7 +186,45 @@ Observable success is:
 
 ## Outcomes & Retrospective
 
-(To be completed when implementation lands.)
+- Implemented the explicit hybrid workspace in the root `Cargo.toml` without
+  changing root-level command ergonomics; the root `wireframe` package remains
+  the sole default workspace member even though Cargo metadata also reports the
+  in-repository helper crate.
+- Added focused `rstest` coverage in `tests/workspace_manifest.rs` and a small
+  `rstest-bdd` slice covering the same staged-workspace contract.
+- Updated the formal-verification guide and developers' guide to document the
+  two-stage rollout; inspected `docs/users-guide.md` and left it unchanged
+  because the Cargo layout change does not alter consumer-facing library usage.
+- Marked roadmap item 10.1.1 complete after implementation.
+- Validation log paths and final gate results to be recorded after Stage E.
+- Validation log paths:
+  `/tmp/workspace_manifest_test.log`,
+  `/tmp/workspace_manifest_bdd.log`,
+  `/tmp/workspace_manifest_metadata.log`,
+  `/tmp/make_check_fmt.log`,
+  `/tmp/make_markdownlint.log`,
+  `/tmp/make_nixie.log`,
+  `/tmp/make_test.log`,
+  `/tmp/make_test_doc.log`,
+  `/tmp/make_doctest_benchmark.log`,
+  `/tmp/make_lint.log`.
+- Validation results:
+  `cargo test --test workspace_manifest` passed.
+  `cargo test --test bdd --features advanced-tests workspace_manifest` passed.
+  `cargo metadata --no-deps --format-version 1` passed.
+  `make check-fmt` passed.
+  `make markdownlint` passed.
+  `make nixie` passed.
+  `make test` passed.
+  `make test-doc` passed.
+  `make doctest-benchmark` passed.
+  `make fmt` could not complete because `mdformat-all` requires `fd`, which is
+  absent in the environment; Markdown formatting was applied manually with
+  `mdtablefix` for the changed files.
+  `make lint` is blocked by the missing `whitaker` wrapper binary; the
+  preceding `cargo doc --no-deps` and
+  `cargo clippy --all-targets --all-features -- -D warnings` steps both
+  passed.
 
 ## Context and orientation
 
