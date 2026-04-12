@@ -3,3 +3,4 @@ target/
 .crush
 .grepai/
 *:Zone.Identifier
+.agents/mcp/context_pack/packs/
