@@ -11,6 +11,7 @@ use rstest::rstest;
 use workspace_manifest_support::{
     WorkspaceManifestResult as TestResult,
     cargo_metadata,
+    has_manifest_line,
     repo_root,
     root_manifest,
     root_package_id,
@@ -29,19 +30,19 @@ fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
 fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     let manifest = root_manifest()?;
     assert!(
-        manifest.contains("[workspace]"),
+        has_manifest_line(&manifest, "[workspace]"),
         "root Cargo.toml should declare an explicit [workspace] section"
     );
     assert!(
-        manifest.contains("members = [\".\"]"),
+        has_manifest_line(&manifest, "members = [\".\"]"),
         "10.1.1 should stage the workspace with only the root package as a member"
     );
     assert!(
-        manifest.contains("default-members = [\".\"]"),
+        has_manifest_line(&manifest, "default-members = [\".\"]"),
         "10.1.1 should keep the root package as the only default workspace member"
     );
     assert!(
-        manifest.contains("resolver = \"3\""),
+        has_manifest_line(&manifest, "resolver = \"3\""),
         "the hybrid workspace should opt into the edition-2024 resolver"
     );
     Ok(())
