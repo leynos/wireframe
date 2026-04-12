@@ -37,7 +37,8 @@ fn fill_buf_with_prefix(buf: &mut [u8; 8], prefix: &[u8], endianness: Endianness
     let size = prefix.len();
     #[expect(
         clippy::indexing_slicing,
-        reason = "size is validated upstream to be 1, 2, 4, or 8, so both slice ranges are in-bounds"
+        reason = "size is validated upstream to be 1, 2, 4, or 8, so both slice ranges are \
+                  in-bounds"
     )]
     match endianness {
         Endianness::Big => buf[8 - size..].copy_from_slice(prefix),
