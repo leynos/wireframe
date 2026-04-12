@@ -41,7 +41,6 @@ use wireframe::{
 ///     Ok(())
 /// }
 /// ```
-#[must_use]
 pub fn unused_listener() -> TestResult<StdTcpListener> { Ok(StdTcpListener::bind("localhost:0")?) }
 
 /// Minimal payload type for echo-style round-trip tests.

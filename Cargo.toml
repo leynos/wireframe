@@ -10,6 +10,11 @@ keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe"
 
+[workspace]
+members = ["."]
+default-members = ["."]
+resolver = "3"
+
 [lib]
 name = "wireframe"
 path = "src/lib.rs"
@@ -63,6 +68,8 @@ metrics-util = "0.20.0"
 tracing-test = "0.2.5"
 mockall = "0.13.1"
 criterion = "0.5.1"
+cap-std = { version = "3.4.5", features = ["fs_utf8"] }
+camino = "1.2.2"
 
 tokio = { version = "1.47.1", default-features = false, features = [
     "macros",

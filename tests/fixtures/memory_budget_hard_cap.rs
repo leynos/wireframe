@@ -221,33 +221,37 @@ impl MemoryBudgetHardCapWorld {
         self.send_payload(payload)
     }
 
+    /// Validate that `error` is the expected budget-related `InvalidData` error
+    /// and that no payloads were delivered before the abort.
+    fn check_budget_abort_error(&mut self, error: &std::io::Error) -> TestResult {
+        if error.kind() != std::io::ErrorKind::InvalidData {
+            return Err(format!(
+                "expected budget-related InvalidData error, got {:?}: {error}",
+                error.kind(),
+            )
+            .into());
+        }
+        self.connection_error = Some(error.to_string());
+        // Drain after the server task has finished so payloads emitted
+        // during teardown are caught.
+        self.drain_ready_payloads()?;
+        if !self.observed_payloads.is_empty() {
+            return Err(format!(
+                "expected no payloads before abort, but received: {:?}",
+                self.observed_payloads
+            )
+            .into());
+        }
+        Ok(())
+    }
+
     /// Assert that the connection terminated with an `InvalidData` error
     /// (the kind produced by budget enforcement) and no payloads were delivered.
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
         match self.join_server()? {
             Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
-            Err(error) => {
-                if error.kind() != std::io::ErrorKind::InvalidData {
-                    return Err(format!(
-                        "expected budget-related InvalidData error, got {:?}: {error}",
-                        error.kind(),
-                    )
-                    .into());
-                }
-                self.connection_error = Some(error.to_string());
-                // Drain after the server task has finished so payloads emitted
-                // during teardown are caught.
-                self.drain_ready_payloads()?;
-                if !self.observed_payloads.is_empty() {
-                    return Err(format!(
-                        "expected no payloads before abort, but received: {:?}",
-                        self.observed_payloads
-                    )
-                    .into());
-                }
-                Ok(())
-            }
+            Err(error) => self.check_budget_abort_error(&error),
         }
     }
 

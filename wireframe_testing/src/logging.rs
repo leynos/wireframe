@@ -54,13 +54,27 @@ impl LoggerHandle {
         static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
 
         let logger = LOGGER.get_or_init(|| Mutex::new(Logger::start()));
-        let guard = logger.lock().expect("logger poisoned");
+        // Preserve the shared logger even if a prior test panicked while
+        // holding the mutex, but clear any buffered state so the next test
+        // starts from a clean log view.
+        let guard = match logger.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                while guard.pop().is_some() {}
+                guard
+            }
+        };
 
         Self { guard }
     }
 
     /// Remove all currently buffered log records.
     pub fn clear(&mut self) { while self.pop().is_some() {} }
+}
+
+impl Default for LoggerHandle {
+    fn default() -> Self { Self::new() }
 }
 
 impl std::ops::Deref for LoggerHandle {
