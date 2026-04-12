@@ -26,35 +26,28 @@ fn repo_dir() -> TestResult<Dir> { Ok(Dir::open_ambient_dir(repo_root()?, ambien
 
 fn root_manifest() -> TestResult<String> { Ok(repo_dir()?.read_to_string("Cargo.toml")?) }
 
-fn cargo_metadata() -> TestResult<String> {
+fn run_cargo(args: &[&str]) -> TestResult<String> {
+    let subcommand = args.first().copied().unwrap_or("cargo");
     let output = Command::new("cargo")
-        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .args(args)
         .current_dir(repo_root()?)
         .output()?;
     if !output.status.success() {
         return Err(format!(
-            "`cargo metadata` failed: {}",
+            "`cargo {subcommand}` failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )
         .into());
     }
-
     Ok(String::from_utf8(output.stdout)?)
 }
 
+fn cargo_metadata() -> TestResult<String> {
+    run_cargo(&["metadata", "--no-deps", "--format-version", "1"])
+}
+
 fn root_package_id() -> TestResult<String> {
-    let output = Command::new("cargo")
-        .args(["pkgid", "--", "wireframe@0.3.0"])
-        .current_dir(repo_root()?)
-        .output()?;
-    if !output.status.success() {
-        return Err(format!(
-            "`cargo pkgid` failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
-    }
-    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+    run_cargo(&["pkgid", "--", "wireframe@0.3.0"]).map(|s| s.trim().to_owned())
 }
 
 fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
