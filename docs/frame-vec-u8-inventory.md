@@ -4,7 +4,9 @@ This document records the current code paths, trait bounds, implementations,
 and documentation that still assume `Frame = Vec<u8>` or otherwise expose owned
 `Vec<u8>` values as the de facto frame or payload representation. Issue 287
 uses this inventory to support epic 284 by bounding the migration scope without
-prescribing a single implementation sequence.[^adr-004]
+prescribing a single implementation sequence. Issue 286 extends that work with
+a middleware-specific analysis after PR #283 reduced frame-processing
+allocations.[^adr-004][^issue-286]
 
 ## Scope and taxonomy
 
@@ -39,6 +41,10 @@ payload-owned APIs:
   `Vec<u8>` buffers.
 - `Serializer::serialize` still returns `Vec<u8>`, which keeps outbound
   serialization byte-owned even when codecs use `Bytes`.
+- Epic 284 should cover both transport-frame substitution and public
+  payload-owned APIs, but those should be tracked as separate workstreams under
+  one umbrella so consuming developers do not have to write avoidable adapter
+  boilerplate.
 
 The main adjacent constraint is not a literal `Vec<u8>` bound. The
 `ConnectionActor` requires `F: FrameLike + CorrelatableFrame + Packet`, which
@@ -101,6 +107,93 @@ depend on owned payload bytes.
 
 This is one of the clearest byte-ownership APIs in the crate. Any migration
 that changes the type here becomes a user-visible middleware API change.
+
+#### Middleware boundary analysis (issue 286)
+
+Issue 286 asks for a focused read on the middleware layer, including its data
+flow, impacted integration points, and conceptual adaptation strategies after
+PR #283 moved more of the codec path toward `Bytes`.[^issue-286]
+
+##### Middleware data flow
+
+The middleware layer currently sits entirely inside an owned-`Vec<u8>` segment
+of the request/response pipeline:
+
+1. `src/app/inbound_handler.rs` builds or reuses the middleware chain through
+   `WireframeApp::build_chains()`, wrapping each route handler inside
+   `HandlerService<E>`.
+2. `src/app/frame_handling/decode.rs` and `src/app/inbound_handler.rs` decode
+   an inbound codec frame into an `Envelope`.
+3. `src/app/frame_handling/response.rs` crosses the middleware boundary by
+   calling `ServiceRequest::new(env.payload, env.correlation_id)`.
+4. `src/middleware.rs` exposes that payload to middleware as
+   `ServiceRequest`, with `frame()`, `frame_mut()`, `set_correlation_id()`, and
+   `into_inner()`.
+5. The terminal bridge in `src/middleware.rs` (`RouteService::call`) converts
+   the request back into a packet with
+   `E::from_parts(PacketParts::new(self.id, req.correlation_id(), req.into_inner()))`,
+    invokes the registered handler, then returns
+   `ServiceResponse::new(payload, correlation_id)`.
+6. `src/app/frame_handling/response.rs` crosses back out of middleware by
+   rebuilding `PacketParts` and `Envelope` from `resp.into_inner()`.
+7. `src/app/codec_driver.rs` serializes that envelope to bytes via
+   `Serializer::serialize`, converts the `Vec<u8>` into `Bytes`, and finally
+   hands it to `FrameCodec::wrap_payload`.
+
+The practical consequence is that middleware currently forms a hard
+`Vec<u8>`-owned island between generic codec frames on the wire and the
+`Bytes`-friendly codec boundary on the way back out.
+
+##### Middleware integration points affected by a frame-type change
+
+- `src/middleware.rs` is the primary public API surface:
+  `ServiceRequest`, `ServiceResponse`, `Service`, `Transform`, `Next`,
+  `from_fn`, `HandlerService::from_service`, and the `frame_mut()` /
+  `into_inner()` editing model all currently depend on `Vec<u8>`.
+- `src/app/frame_handling/response.rs` is the request/response bridge into and
+  out of middleware. Any type change has to preserve correlation handling and
+  packet reconstruction here.
+- `src/app/inbound_handler.rs` owns middleware-chain construction and therefore
+  any staging or compatibility story for mixed old/new middleware types.
+- `tests/middleware.rs` and `tests/middleware_order.rs` demonstrate the current
+  mutation semantics directly through `push`, `clear`, and `extend_from_slice`
+  on `frame_mut()`.
+- `docs/users-guide.md` teaches middleware authors to decode requests from
+  `req.frame()` and rewrite replies through `response.frame_mut()`.
+- `wireframe_testing/src/helpers/drive.rs` is an adjacent test surface: it
+  still feeds raw `Vec<u8>` wire frames into apps, which matters for end-to-end
+  middleware tests even though it is not itself the middleware API.
+
+##### Middleware-specific risks
+
+- Blast radius is high because every request passes through the middleware
+  wrappers, and external middleware implementations are written against
+  `Vec<u8>` constructors and mutation helpers today.
+- Switching directly to immutable `Bytes` would break the current editing model
+  around `frame_mut()`.
+- Switching directly to another mutable buffer type could still impose
+  widespread boilerplate if consumers have to manually convert between
+  `Vec<u8>`, `Bytes`, and `BytesMut`.
+
+##### Conceptual adaptation strategies
+
+The following strategies are intentionally non-prescriptive, but they bound the
+design space:
+
+- Track middleware payload APIs as a separate epic-284 workstream from
+  transport-frame substitution. The two interact, but they do not need to land
+  in a single breaking change.
+- Prefer developer ergonomics over exposing raw buffer taxonomy. Middleware
+  authors should not have to hand-write repetitive conversions between byte
+  container types to achieve routine inspection and mutation.
+- If middleware internals move toward a `Bytes`-compatible representation, keep
+  mutation opt-in and edit-oriented. A copy-on-write or edit-on-demand surface
+  is conceptually safer than forcing every middleware author to manage shared
+  byte ownership directly.
+- Preserve the bounded special case for client preamble leftovers. That path is
+  one-shot and replay-only, so it does not need to be pulled into the
+  middleware or transport-frame redesign unless the broader public byte APIs
+  standardize on a new shared abstraction.
 
 #### Client request hooks
 
@@ -223,46 +316,71 @@ codec-path work.[^unified-path]
 The inventory suggests several non-prescriptive workstreams:
 
 - Separate transport-frame work from payload-ownership work. Changing
-  `FrameCodec::Frame` does not automatically solve middleware, packet, or
-  serializer APIs that still promise owned `Vec<u8>` values.
-- Decide whether client hooks should continue to promise mutable owned bytes,
-  or whether a future API should distinguish read-only shared bytes from
-  editable outbound buffers.
-- Treat preamble leftovers as their own compatibility surface. They are not
-  regular framed payloads, but the API still exposes owned byte vectors.
+  `FrameCodec::Frame` does not automatically solve middleware, packet,
+  serializer, or client-hook APIs that still promise owned `Vec<u8>` values.
 - Keep the actor-boundary problem separate from the `Vec<u8>` inventory. The
   `ConnectionActor` currently wants `Packet + CorrelatableFrame`; changing only
   byte container types will not remove that constraint.
+- Plan for a long-term outbound boundary that is `Bytes`-compatible rather than
+  `Vec<u8>`-centric, while retaining `Vec<u8>` compatibility adapters for as
+  long as public mutation hooks still require owned mutable bytes.
+- Remove `CorrelatableFrame for Vec<u8>` from the core surface once raw
+  `Vec<u8>` stops being a documented or production frame shape. If a bridge is
+  still useful, keep it in docs, `test-support`, or a feature-gated
+  compatibility shim.
+- Keep client preamble leftovers as owned `Vec<u8>` values for now. Revisit
+  that path only if the broader public byte APIs converge on a shared buffer
+  abstraction.
 
 The main conceptual risk is overstating the migration scope by treating every
 `Vec<u8>` as a frame problem. In practice, most runtime-sensitive surfaces are
 about payload ownership and mutability, while true frame-level `Vec<u8>`
 coupling is now limited.
 
-## Open questions for epic 284
+## Resolved direction for epic 284
 
-- Should epic 284 cover only transport-frame substitution, or also public
-  payload-owned APIs such as `PacketParts`, middleware, and client hooks?
-- Is `Serializer::serialize -> Vec<u8>` still the desired boundary if codecs
-  move further toward zero-copy `Bytes` usage?
-- Does `CorrelatableFrame for Vec<u8>` still need to exist outside tests once
-  protocol and actor examples stop using raw byte vectors?
-- Should client preamble leftovers remain owned `Vec<u8>` values, or be
-  treated as another buffer abstraction entirely?
+The current direction is now explicit:
+
+- Epic 284 covers both transport-frame substitution and public payload-owned
+  APIs such as `PacketParts`, middleware, and client hooks.
+- Those changes should be tracked as separate workstreams under the same
+  umbrella so the migration can preserve developer ergonomics and minimize
+  boilerplate.
+- The long-term outbound boundary should be `Bytes`-compatible rather than
+  `Vec<u8>`-centric, with `Vec<u8>` retained only as a compatibility adapter
+  while mutable byte-edit hooks still require it.
+- `CorrelatableFrame for Vec<u8>` should leave the core surface once raw
+  `Vec<u8>` stops serving as a documented or production frame shape.
+- Client preamble leftovers remain a separate compatibility surface and should
+  stay as owned `Vec<u8>` for now.
 
 ## Coordination notes
 
 No matching roadmap item for this inventory work was found in the local docs
 set on 2026-04-11, so nothing was marked done. If epic 284 is updated outside
-the repository, the prepared link text is:
+the repository, the prepared link text and next-step summary are:
 
 ```plaintext
 Add inventory reference: docs/frame-vec-u8-inventory.md
 Link label: Frame = Vec<u8> inventory
+
+Epic 284 workstreams:
+1. Transport-frame substitution and actor/codec boundary work.
+2. Public payload-owned API work: PacketParts, Envelope, middleware, and
+   client byte hooks, with minimal consumer boilerplate.
+3. Compatibility cleanup: move Vec<u8>-only bridges such as
+   CorrelatableFrame for Vec<u8> out of the core surface once no longer needed.
+4. Deferred: keep client preamble leftovers on Vec<u8> until broader public
+   byte APIs justify standardization.
 ```
 
 [^adr-004]: See [ADR 004](adr-004-pluggable-protocol-codecs.md) for the
     generic codec decision and the current `Bytes` default frame type.
+[^issue-286]: Middleware follow-up requested by
+    [@leynos](https://github.com/leynos), with context from
+    [issue #286](https://github.com/leynos/wireframe/issues/286),
+    [PR #283](https://github.com/leynos/wireframe/pull/283), and the linked
+    [comment](https://github.com/leynos/wireframe/pull/283#issuecomment-3167997856).
 [^codec]: See
           [Pluggable protocol codecs](execplans/pluggable-protocol-codecs.md)
     and `src/codec.rs`.
