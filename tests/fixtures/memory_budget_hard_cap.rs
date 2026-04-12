@@ -223,7 +223,7 @@ impl MemoryBudgetHardCapWorld {
 
     /// Validate that `error` is the expected budget-related `InvalidData` error
     /// and that no payloads were delivered before the abort.
-    fn check_budget_abort_error(&mut self, error: std::io::Error) -> TestResult {
+    fn check_budget_abort_error(&mut self, error: &std::io::Error) -> TestResult {
         if error.kind() != std::io::ErrorKind::InvalidData {
             return Err(format!(
                 "expected budget-related InvalidData error, got {:?}: {error}",
@@ -251,7 +251,7 @@ impl MemoryBudgetHardCapWorld {
         self.spin_runtime()?;
         match self.join_server()? {
             Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
-            Err(error) => self.check_budget_abort_error(error),
+            Err(error) => self.check_budget_abort_error(&error),
         }
     }
 
