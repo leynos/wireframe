@@ -23,11 +23,11 @@ Success is observable when:
 - Unit tests cover correlation ID generation, stamping, and mismatch detection.
 - Cucumber behavioural tests validate the messaging flow.
 - `docs/users-guide.md` documents the new client APIs.
-- `docs/roadmap.md` marks 10.2.1 as done.
+- `docs/roadmap.md` marks 16.2.1 as done.
 
 ## Progress
 
-- [x] (2026-01-09) Draft ExecPlan for 10.2.1.
+- [x] (2026-01-09) Draft ExecPlan for 16.2.1.
 - [x] (2026-01-09) Add `correlation_counter: AtomicU64` field to
       `WireframeClient`.
 - [x] (2026-01-09) Add `CorrelationMismatch` error variant to `ClientError`.
@@ -39,7 +39,7 @@ Success is observable when:
 - [x] (2026-01-09) Add Cucumber feature and steps for client messaging.
 - [x] (2026-01-09) Update `docs/users-guide.md` with client messaging API
       documentation.
-- [x] (2026-01-09) Mark roadmap 10.2.1 as done.
+- [x] (2026-01-09) Mark roadmap 16.2.1 as done.
 - [ ] Run full validation (fmt, lint, test).
 
 ## Surprises & Discoveries
@@ -176,7 +176,7 @@ Finally, update documentation and mark the roadmap item as done.
     - Document `send_envelope`, `receive_envelope`, `call_correlated` methods
     - Provide usage examples
 
-11. Update `docs/roadmap.md` to mark 10.2.1 as done.
+11. Update `docs/roadmap.md` to mark 16.2.1 as done.
 
 ## Validation and Acceptance
 
@@ -186,7 +186,7 @@ Acceptance requires all of the following:
 - Unit tests cover correlation ID generation, stamping, and validation.
 - Behavioural tests for client messaging pass.
 - Documentation updated in users guide.
-- Roadmap item 10.2.1 marked as done.
+- Roadmap item 16.2.1 marked as done.
 
 Run validation from the repository root (use `tee` to capture full output):
 

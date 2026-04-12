@@ -1,4 +1,4 @@
-# Add middleware hooks for outgoing requests and incoming frames (11.1.1)
+# Add middleware hooks for outgoing requests and incoming frames (17.1.1)
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,7 +9,7 @@ Status: COMPLETE
 
 ## Purpose / big picture
 
-Roadmap item 11.1.1 requires middleware hooks on the wireframe client so that
+Roadmap item 17.1.1 requires middleware hooks on the wireframe client so that
 metrics, retries, and authentication tokens can be injected symmetrically with
 server middleware. Today the server has a rich hook/middleware stack
 (`WireframeProtocol::before_send` in `src/hooks.rs`, `Service`/`Transform`
@@ -50,7 +50,7 @@ Hard invariants. Violation requires escalation, not workarounds.
   `BytesMut` — are already available).
 - Design decisions must be recorded in `docs/wireframe-client-design.md`.
 - `docs/users-guide.md` must be updated with the new public API surface.
-- `docs/roadmap.md` item 11.1.1 must be marked done only after all gates pass.
+- `docs/roadmap.md` item 17.1.1 must be marked done only after all gates pass.
 
 ## Tolerances (exception triggers)
 
@@ -468,7 +468,7 @@ lifecycle hooks" section (line ~1252). Include:
 
 **F3. Mark roadmap item as done:**
 
-In `docs/roadmap.md`, change `- [ ] 11.1.1.` to `- [x] 11.1.1.`.
+In `docs/roadmap.md`, change `- [ ] 17.1.1.` to `- [x] 17.1.1.`.
 
 ## Concrete steps
 
@@ -499,7 +499,7 @@ Quality criteria (what "done" means):
   verified by a dedicated test.
 - `docs/users-guide.md` documents the new builder methods.
 - `docs/wireframe-client-design.md` records the design decisions.
-- `docs/roadmap.md` marks 11.1.1 as done.
+- `docs/roadmap.md` marks 17.1.1 as done.
 
 ## Idempotence and recovery
 
@@ -539,7 +539,7 @@ beginning of the failed stage. No destructive operations are involved.
 | `tests/scenarios/mod.rs`          | Add `mod client_request_hooks_scenarios`                 | 33 → ~34             |
 | `docs/wireframe-client-design.md` | New "Request hooks" section                              | +~40                 |
 | `docs/users-guide.md`             | New subsection + table row                               | +~50                 |
-| `docs/roadmap.md`                 | Mark 11.1.1 done                                         | 1 char change        |
+| `docs/roadmap.md`                 | Mark 17.1.1 done                                         | 1 char change        |
 
 Total: 6 new files + 16 modified files = 22 files. All under 400 lines.
 

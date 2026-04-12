@@ -1,4 +1,4 @@
-# Expose a `PoolHandle` API with fair pooled acquisition for logical sessions (11.2.2)
+# Expose a `PoolHandle` API with fair pooled acquisition for logical sessions (17.2.2)
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,7 +9,7 @@ Status: COMPLETE
 
 ## Purpose / big picture
 
-Roadmap item `11.2.2` exists because the current pooled-client surface is still
+Roadmap item `17.2.2` exists because the current pooled-client surface is still
 too low-level for larger deployments. Today, all contention flows through
 `WireframeClientPool::acquire()`. That API is correct for manual control, but
 it gives the pool no durable notion of "logical session A" versus "logical
@@ -27,10 +27,10 @@ access. Observable success is:
   preserves back-pressure, and does not regress warm reuse or idle recycle;
 - behavioural tests written with `rstest-bdd` v0.5.0 prove the same behaviour
   through user-visible scenarios;
-- `docs/wireframe-client-design.md` records the `11.2.2` design decisions;
+- `docs/wireframe-client-design.md` records the `17.2.2` design decisions;
 - `docs/users-guide.md` explains when to use `PoolHandle` instead of direct
   `pool.acquire()`; and
-- `docs/roadmap.md` marks `11.2.2` as done only after all quality gates pass.
+- `docs/roadmap.md` marks `17.2.2` as done only after all quality gates pass.
 
 This plan deliberately keeps `PooledClientLease` as the low-level escape hatch
 for split-phase workflows (`send` followed later by `receive`). `PoolHandle`
@@ -39,13 +39,13 @@ only where they remain safe on a shared pool.
 
 ## Constraints
 
-- Scope is limited to roadmap item `11.2.2`.
+- Scope is limited to roadmap item `17.2.2`.
 - Existing `WireframeClientPool`, `ClientPoolConfig`, and `PooledClientLease`
   APIs must remain backward compatible.
 - The `pool` Cargo feature remains the opt-in gate for all pooled client code.
 - Fairness must be additive above the existing slot-permit back-pressure. The
   new API must not bypass `max_in_flight_per_socket`, socket serialization, or
-  idle recycle rules introduced in `11.2.1`.
+  idle recycle rules introduced in `17.2.1`.
 - `PoolHandle` must represent a logical-session fairness identity, not a
   promise of transport affinity to one physical socket.
 - Split-phase receive semantics must remain explicit. Do not imply that a
@@ -63,7 +63,7 @@ only where they remain safe on a shared pool.
   names.
 - Design decisions must be recorded in `docs/wireframe-client-design.md`.
 - Public interface changes must be recorded in `docs/users-guide.md`.
-- `docs/roadmap.md` `11.2.2` is updated to done only after full validation.
+- `docs/roadmap.md` `17.2.2` is updated to done only after full validation.
 - Follow guidance from:
   - `docs/generic-message-fragmentation-and-re-assembly-design.md`
   - `docs/multi-packet-and-streaming-responses-design.md`
@@ -78,7 +78,7 @@ only where they remain safe on a shared pool.
 
 - Scope: if implementation requires a full response router for uncorrelated
   `receive()` traffic across shared handles, stop and escalate. That is a
-  materially larger feature than `11.2.2`.
+  materially larger feature than `17.2.2`.
 - Interface: if delivering `PoolHandle` requires removing or breaking
   `WireframeClientPool::acquire()` or `PooledClientLease`, stop and escalate.
 - Surface area: if more than 20 files or roughly 1600 net lines change before
@@ -128,8 +128,8 @@ only where they remain safe on a shared pool.
 
 ## Progress
 
-- [x] (2026-03-10 00:00Z) Reviewed roadmap item `11.2.2`, the completed
-  `11.2.1` pool implementation, relevant design/testing docs, and project notes.
+- [x] (2026-03-10 00:00Z) Reviewed roadmap item `17.2.2`, the completed
+  `17.2.1` pool implementation, relevant design/testing docs, and project notes.
 - [x] (2026-03-10 00:00Z) Drafted this ExecPlan.
 - [x] (2026-03-12 00:00Z) Stage A: confirmed the public API boundary and
   internal scheduler shape around `ClientPoolInner`, `PoolHandle`, and
@@ -148,10 +148,10 @@ only where they remain safe on a shared pool.
   Evidence: `src/client/pool/client_pool.rs`. Impact: current contention is
   "works eventually" rather than a documented fairness contract.
 
-- Observation: the existing `11.2.1` design already treats the pool as a
+- Observation: the existing `17.2.1` design already treats the pool as a
   hybrid of `bb8` lifecycle management plus Wireframe-owned admission control.
-  Evidence: `docs/wireframe-client-design.md` decision record for `11.2.1`.
-  Impact: `11.2.2` should extend the Wireframe-owned layer rather than fight or
+  Evidence: `docs/wireframe-client-design.md` decision record for `17.2.1`.
+  Impact: `17.2.2` should extend the Wireframe-owned layer rather than fight or
   replace `bb8`.
 
 - Observation: pooled BDD coverage already lives in a separate
@@ -408,7 +408,7 @@ intended scope.
 
 ### Stage D: documentation, doctests, and roadmap updates
 
-Update `docs/wireframe-client-design.md` with a new `11.2.2` decision record
+Update `docs/wireframe-client-design.md` with a new `17.2.2` decision record
 covering:
 
 - why `PoolHandle` represents logical-session fairness instead of socket
@@ -430,7 +430,7 @@ Add or update Rustdoc examples on every new public type and method. Keep the
 examples realistic and runnable so `make test-doc` and `make doctest-benchmark`
 stay green.
 
-Finally, mark roadmap item `11.2.2` done in `docs/roadmap.md` only after all
+Finally, mark roadmap item `17.2.2` done in `docs/roadmap.md` only after all
 quality gates pass.
 
 ## Validation and evidence
@@ -439,13 +439,13 @@ Run every gate through `tee` with `set -o pipefail` so failures are visible and
 logs remain inspectable:
 
 ```bash
-set -o pipefail && make check-fmt | tee /tmp/wireframe-11-2-2-check-fmt.log
-set -o pipefail && make lint | tee /tmp/wireframe-11-2-2-lint.log
-set -o pipefail && make test | tee /tmp/wireframe-11-2-2-test.log
-set -o pipefail && make test-doc | tee /tmp/wireframe-11-2-2-test-doc.log
-set -o pipefail && make doctest-benchmark | tee /tmp/wireframe-11-2-2-doctest-benchmark.log
-set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 | tee /tmp/wireframe-11-2-2-markdownlint.log
-set -o pipefail && make nixie | tee /tmp/wireframe-11-2-2-nixie.log
+set -o pipefail && make check-fmt | tee /tmp/wireframe-17-2-2-check-fmt.log
+set -o pipefail && make lint | tee /tmp/wireframe-17-2-2-lint.log
+set -o pipefail && make test | tee /tmp/wireframe-17-2-2-test.log
+set -o pipefail && make test-doc | tee /tmp/wireframe-17-2-2-test-doc.log
+set -o pipefail && make doctest-benchmark | tee /tmp/wireframe-17-2-2-doctest-benchmark.log
+set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 | tee /tmp/wireframe-17-2-2-markdownlint.log
+set -o pipefail && make nixie | tee /tmp/wireframe-17-2-2-nixie.log
 ```
 
 Observable completion criteria:
@@ -454,7 +454,7 @@ Observable completion criteria:
 - the new BDD scenarios fail before the scheduler work and pass afterward;
 - no existing pooled-client tests regress;
 - doctests for the new public API compile and run; and
-- `docs/roadmap.md` shows `11.2.2` as done.
+- `docs/roadmap.md` shows `17.2.2` as done.
 
 ## Outcomes & Retrospective
 
@@ -474,16 +474,16 @@ Observable completion criteria:
   - `cargo test --lib client::tests::pool_handle --features pool -- --nocapture`
   - `cargo test --test bdd_pool --features "advanced-tests pool" -- --nocapture`
 - Final quality gates passed:
-  - `set -o pipefail && make fmt | tee /tmp/wireframe-11-2-2-fmt.log`
-  - `set -o pipefail && make check-fmt | tee /tmp/wireframe-11-2-2-check-fmt.log`
-  - `set -o pipefail && make lint | tee /tmp/wireframe-11-2-2-lint.log`
-  - `set -o pipefail && make test | tee /tmp/wireframe-11-2-2-test.log`
-  - `set -o pipefail && make test-doc | tee /tmp/wireframe-11-2-2-test-doc.log`
-  - `set -o pipefail && make doctest-benchmark | tee /tmp/wireframe-11-2-2-doctest-benchmark.log`
+  - `set -o pipefail && make fmt | tee /tmp/wireframe-17-2-2-fmt.log`
+  - `set -o pipefail && make check-fmt | tee /tmp/wireframe-17-2-2-check-fmt.log`
+  - `set -o pipefail && make lint | tee /tmp/wireframe-17-2-2-lint.log`
+  - `set -o pipefail && make test | tee /tmp/wireframe-17-2-2-test.log`
+  - `set -o pipefail && make test-doc | tee /tmp/wireframe-17-2-2-test-doc.log`
+  - `set -o pipefail && make doctest-benchmark | tee /tmp/wireframe-17-2-2-doctest-benchmark.log`
   - `set -o pipefail && make markdownlint
     MDLINT=/root/.bun/bin/markdownlint-cli2 | tee
-    /tmp/wireframe-11-2-2-markdownlint.log`
-  - `set -o pipefail && make nixie | tee /tmp/wireframe-11-2-2-nixie.log`
+    /tmp/wireframe-17-2-2-markdownlint.log`
+  - `set -o pipefail && make nixie | tee /tmp/wireframe-17-2-2-nixie.log`
 - Lessons learned:
   - fairness is easiest to explain when the scheduler operates on logical
     session handles rather than trying to retrofit identity into repeated

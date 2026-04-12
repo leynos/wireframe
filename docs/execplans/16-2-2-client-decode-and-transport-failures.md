@@ -10,7 +10,7 @@ No `PLANS.md` file exists in the repository root at the time of writing.
 
 ## Purpose / big picture
 
-Phase `10.2.2` closes a contract gap in the client request/response pipeline.
+Phase `16.2.2` closes a contract gap in the client request/response pipeline.
 Today, client decode and transport failures are surfaced as direct
 `ClientError` variants. This work makes those failures flow through
 `WireframeError` variants, so client behaviour matches the server-side error
@@ -25,7 +25,7 @@ Success is observable when:
 - Unit tests (`rstest`) and behavioural tests (`rstest-bdd` v0.5.0) pass.
 - `docs/wireframe-client-design.md` records the error-mapping decision.
 - `docs/users-guide.md` reflects public client error-handling changes.
-- `docs/roadmap.md` marks `10.2.2` as done.
+- `docs/roadmap.md` marks `16.2.2` as done.
 
 ## Constraints
 
@@ -73,7 +73,7 @@ Success is observable when:
 
 ## Progress
 
-- [x] (2026-02-12 08:59Z) Draft ExecPlan for roadmap item `10.2.2`.
+- [x] (2026-02-12 08:59Z) Draft ExecPlan for roadmap item `16.2.2`.
 - [x] (2026-02-12 09:13Z) Confirm final client error surface and mapping
       strategy.
 - [x] (2026-02-12 09:15Z) Implement `WireframeError` mapping in client
@@ -88,7 +88,7 @@ Success is observable when:
       decisions.
 - [x] (2026-02-12 09:25Z) Update `docs/users-guide.md` with public interface
       guidance.
-- [x] (2026-02-12 09:25Z) Mark roadmap entry `10.2.2` done in
+- [x] (2026-02-12 09:25Z) Mark roadmap entry `16.2.2` done in
       `docs/roadmap.md`.
 - [x] (2026-02-12 09:31Z) Run formatting, lint, and full test gates.
 
@@ -102,7 +102,7 @@ Success is observable when:
 
 - Observation: Behavioural tests already use `rstest-bdd`, but repository pins
   `0.4.0`. Evidence: `Cargo.toml` dev-dependencies list `rstest-bdd = "0.4.0"`
-  and `rstest-bdd-macros = "0.4.0"`. Impact: `10.2.2` includes a required
+  and `rstest-bdd-macros = "0.4.0"`. Impact: `16.2.2` includes a required
   dependency/version alignment task.
 
 - Observation: `docs/behavioural-testing-in-rust-with-cucumber.md` is
@@ -120,7 +120,7 @@ Success is observable when:
 
 - Decision: Model decode and transport failures through `WireframeError`
   variants and expose that mapping from client runtime errors. Rationale:
-  aligns client and server failure semantics and matches roadmap item `10.2.2`
+  aligns client and server failure semantics and matches roadmap item `16.2.2`
   intent. Date/Author: 2026-02-12 / Codex.
 
 - Decision: Keep preamble/serialization/correlation mismatch failures as
@@ -136,7 +136,7 @@ Success is observable when:
 
 ## Outcomes & retrospective
 
-Implemented `10.2.2` end-to-end.
+Implemented `16.2.2` end-to-end.
 
 - Request/response decode and transport failures now map through
   `ClientError::Wireframe(...)` backed by `WireframeError` variants.
@@ -146,7 +146,7 @@ Implemented `10.2.2` end-to-end.
 - Behavioural tests were upgraded to `rstest-bdd` `0.5.0` and extended with a
   decode-mapping scenario.
 - Client design and user documentation were updated with migration guidance.
-- `docs/roadmap.md` marks `10.2.2` complete.
+- `docs/roadmap.md` marks `16.2.2` complete.
 
 ## Context and orientation
 
@@ -179,7 +179,7 @@ Documentation touchpoints for this item:
 
 - `docs/wireframe-client-design.md` for design rationale.
 - `docs/users-guide.md` for public API/error-handling guidance.
-- `docs/roadmap.md` to mark completion of `10.2.2`.
+- `docs/roadmap.md` to mark completion of `16.2.2`.
 
 ## Plan of work
 
@@ -213,7 +213,7 @@ Go/no-go check: integration tests and behavioural tests pass locally.
 ### Stage D: Documentation + roadmap closure
 
 Update design and user documentation to reflect the new error surface. Mark
-`10.2.2` done in `docs/roadmap.md` only after all tests and quality gates pass.
+`16.2.2` done in `docs/roadmap.md` only after all tests and quality gates pass.
 
 Go/no-go check: documentation lint/format gates pass; roadmap status changed in
 same change-set.
@@ -250,7 +250,7 @@ same change-set.
    - migration guidance for callers matching previous `ClientError` variants
 
 8. Mark roadmap item done in `docs/roadmap.md`:
-   - change `10.2.2` from `[ ]` to `[x]` after successful validation.
+   - change `16.2.2` from `[ ]` to `[x]` after successful validation.
 
 9. Run quality gates from repository root with logs captured:
 
@@ -285,7 +285,7 @@ Acceptance criteria:
   client outcomes.
 - `docs/wireframe-client-design.md` and `docs/users-guide.md` reflect the new
   behaviour.
-- `docs/roadmap.md` marks `10.2.2` as done.
+- `docs/roadmap.md` marks `16.2.2` as done.
 - `make fmt`, `make markdownlint`, `make check-fmt`, `make lint`, and
   `make test` all succeed.
 

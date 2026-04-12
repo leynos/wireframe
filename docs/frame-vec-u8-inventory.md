@@ -356,10 +356,9 @@ The current direction is now explicit:
 
 ## Coordination notes
 
-Epic 284 is now tracked locally in
-[`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md).
- That roadmap turns the inventory into phased implementation work, benchmark
-planning, and release preparation.
+Epic 284 is now tracked locally in roadmap phases 10 through 14 of
+[`roadmap.md`](roadmap.md). That workstream turns the inventory into phased
+implementation work, benchmark planning, and release preparation.
 
 The remaining unresolved design choices now have draft Architecture Decision
 Records (ADRs):

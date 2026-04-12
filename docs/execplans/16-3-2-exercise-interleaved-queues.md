@@ -37,7 +37,7 @@ both queues and proves three properties:
 Observable outcome: running `make test` passes, including new unit tests in
 `tests/interleaved_push_queues.rs` and new Behaviour-Driven Development (BDD)
 scenarios in `tests/features/interleaved_push_queues.feature`. The existing
-test suite remains green. The roadmap entry 10.3.2 is marked as done.
+test suite remains green. The roadmap entry 16.3.2 is marked as done.
 
 ## Constraints
 
@@ -89,7 +89,7 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
 
 - [x] (2026-02-19) Gathered context from roadmap, client/runtime code, existing
       fairness/rate tests, and referenced design/testing documents.
-- [x] (2026-02-19) Drafted ExecPlan for roadmap item `10.3.2`.
+- [x] (2026-02-19) Drafted ExecPlan for roadmap item `16.3.2`.
 - [x] (2026-02-19) Defined parity assertions and mapped them to
       unit/behavioural tests.
 - [x] (2026-02-19) Added `rstest` unit tests for interleaved fairness and
@@ -99,7 +99,7 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
 - [x] (2026-02-19) Applied minimal fixture/runtime test-harness updates; no
       production API changes were required.
 - [x] (2026-02-19) Updated design and user docs with final parity notes.
-- [x] (2026-02-19) Marked roadmap item `10.3.2` done.
+- [x] (2026-02-19) Marked roadmap item `16.3.2` done.
 - [x] (2026-02-19) Ran full quality and documentation gates with captured logs.
 
 ## Surprises & discoveries
@@ -136,7 +136,7 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
 - Decision: Use `ConnectionActor::run()` as the integration boundary for
   fairness tests rather than testing `FairnessTracker` in isolation. Rationale:
   the tracker is already unit-tested in `src/fairness.rs::tests`; the value of
-  10.3.2 is proving that the tracker integrates correctly with the actor's
+  16.3.2 is proving that the tracker integrates correctly with the actor's
   `select!` loop and drain logic. Date: 2026-02-21.
 
 - Decision: use virtual time in timing-sensitive unit tests and outcome-based
@@ -151,7 +151,7 @@ test suite remains green. The roadmap entry 10.3.2 is marked as done.
 
 ## Outcomes & retrospective
 
-Implemented roadmap item `10.3.2` end-to-end.
+Implemented roadmap item `16.3.2` end-to-end.
 
 ### Deliverables
 
@@ -215,7 +215,7 @@ The wireframe crate lives at the repository root. Key paths for this task:
     wireframe_testing/src/lib.rs   — TestResult, push_expect!,
                                      recv_expect!
 
-    docs/roadmap.md                — Roadmap (10.3.2 to mark done)
+    docs/roadmap.md                — Roadmap (16.3.2 to mark done)
     docs/users-guide.md            — User's guide
     docs/multi-packet-and-streaming-responses-design.md
                                    — Design document
@@ -346,7 +346,7 @@ decisions.
 C2. Update `docs/users-guide.md` — add a note to the "Push queues and
 connection actors" section about interleaved push queue validation.
 
-C3. Update `docs/roadmap.md` — change the 10.3.2 line from `- [ ]` to `- [x]`.
+C3. Update `docs/roadmap.md` — change the 16.3.2 line from `- [ ]` to `- [x]`.
 
 ### Stage D: Validation
 
@@ -392,25 +392,25 @@ Stage D:
 <!-- markdownlint-disable MD046 -->
 ```shell
     set -o pipefail
-    make fmt 2>&1 | tee /tmp/wireframe-10-3-2-fmt.log
+    make fmt 2>&1 | tee /tmp/wireframe-16-3-2-fmt.log
 
     set -o pipefail
-    make check-fmt 2>&1 | tee /tmp/wireframe-10-3-2-check-fmt.log
+    make check-fmt 2>&1 | tee /tmp/wireframe-16-3-2-check-fmt.log
 
     set -o pipefail
-    make lint 2>&1 | tee /tmp/wireframe-10-3-2-lint.log
+    make lint 2>&1 | tee /tmp/wireframe-16-3-2-lint.log
 
     set -o pipefail
-    make test-bdd 2>&1 | tee /tmp/wireframe-10-3-2-test-bdd.log
+    make test-bdd 2>&1 | tee /tmp/wireframe-16-3-2-test-bdd.log
 
     set -o pipefail
-    make test 2>&1 | tee /tmp/wireframe-10-3-2-test.log
+    make test 2>&1 | tee /tmp/wireframe-16-3-2-test.log
 
     set -o pipefail
-    make markdownlint 2>&1 | tee /tmp/wireframe-10-3-2-markdownlint.log
+    make markdownlint 2>&1 | tee /tmp/wireframe-16-3-2-markdownlint.log
 
     set -o pipefail
-    make nixie 2>&1 | tee /tmp/wireframe-10-3-2-nixie.log
+    make nixie 2>&1 | tee /tmp/wireframe-16-3-2-nixie.log
 ```
 <!-- markdownlint-enable MD046 -->
 
@@ -432,7 +432,7 @@ Quality method:
 
 - Run `make check-fmt && make lint && make test && make markdownlint` and
   verify exit 0.
-- Manually verify `docs/roadmap.md` shows 10.3.2 as done.
+- Manually verify `docs/roadmap.md` shows 16.3.2 as done.
 - Verify `docs/users-guide.md` mentions interleaved push queue validation.
 
 ## Idempotence and recovery

@@ -1,4 +1,4 @@
-# Add ergonomic helpers for consuming streaming responses (11.3.1)
+# Add ergonomic helpers for consuming streaming responses (17.3.1)
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,7 +9,7 @@ Status: DONE
 
 ## Purpose / big picture
 
-Roadmap item `11.3.1` exists because the client can already *receive* streaming
+Roadmap item `17.3.1` exists because the client can already *receive* streaming
 responses, but larger protocol implementations still need to hand-roll the same
 consumption loop over and over:
 
@@ -45,12 +45,12 @@ Observable success:
 - `docs/users-guide.md` documents the new public interface and when to prefer
   it over manual `StreamExt::next` loops;
 - the relevant streaming/client design documents record the decision; and
-- `docs/roadmap.md` marks `11.3.1` done only after the full validation suite
+- `docs/roadmap.md` marks `17.3.1` done only after the full validation suite
   passes.
 
 ## Constraints
 
-- Scope is limited to roadmap item `11.3.1`.
+- Scope is limited to roadmap item `17.3.1`.
 - Existing public streaming APIs must remain backward compatible:
   `WireframeClient::call_streaming`, `WireframeClient::receive_streaming`,
   `client::ResponseStream`, `response::Response`, and `response::FrameStream`
@@ -82,7 +82,7 @@ Observable success:
   `docs/wireframe-client-design.md` for the client-facing API surface and
   `docs/multi-packet-and-streaming-responses-design.md` for the streaming model.
 - Public interface changes must be added to `docs/users-guide.md`.
-- `docs/roadmap.md` item `11.3.1` is updated to done only after full
+- `docs/roadmap.md` item `17.3.1` is updated to done only after full
   validation.
 - Follow guidance from:
   - `docs/generic-message-fragmentation-and-re-assembly-design.md`
@@ -98,7 +98,7 @@ Observable success:
 
 - Scope: if implementing the helper requires a response-router or a true
   multi-request demultiplexer on one client connection, stop and escalate. That
-  is a materially larger feature than `11.3.1`.
+  is a materially larger feature than `17.3.1`.
 - Surface area: if more than 18 files or roughly 1200 net lines must change
   before documentation additions, stop and re-evaluate the design.
 - Dependencies: do not add a new crate. Reuse `futures`, Tokio, and existing
@@ -147,10 +147,10 @@ Observable success:
 
 ## Progress
 
-- [x] (2026-03-21 00:00Z) Reviewed roadmap item `11.3.1`, the execplan
+- [x] (2026-03-21 00:00Z) Reviewed roadmap item `17.3.1`, the execplan
   authoring rules, project instructions, and stored project notes.
 - [x] (2026-03-21 00:00Z) Read the referenced design, testing, and user-guide
-  documents plus the existing 11.x execplans and current client streaming
+  documents plus the existing 17.x execplans and current client streaming
   implementation.
 - [x] (2026-03-21 00:00Z) Drafted this ExecPlan.
 - [x] Stage A: finalized the public helper shape and module boundaries with
@@ -166,7 +166,7 @@ Observable success:
 
 - Observation: `client::ResponseStream` already handles transport reads,
   deserialization, terminator detection, correlation validation, and request
-  hook integration. Evidence: `src/client/response_stream.rs`. Impact: `11.3.1`
+  hook integration. Evidence: `src/client/response_stream.rs`. Impact: `17.3.1`
   should not add a second transport abstraction; it should layer *above* the
   existing typed frame stream.
 
@@ -195,7 +195,7 @@ Observable success:
   the helper requires `Unpin` at the call site. Evidence:
   `src/client/streaming_helpers.rs`. Impact: `typed_with` remains broadly
   usable with `ResponseStream` and simple test streams without introducing a
-  new pin-projection dependency for `11.3.1`.
+  new pin-projection dependency for `17.3.1`.
 
 ## Decision Log
 
@@ -389,7 +389,7 @@ public surface only so it participates cleanly in `make test-doc` and
 
 If the generic helper naturally works with `response::FrameStream` too, add a
 small integration test under `tests/` proving that path. If not, do not force
-it in `11.3.1`; note the narrower scope in the design docs and leave the
+it in `17.3.1`; note the narrower scope in the design docs and leave the
 generic `Response::Stream` support as a follow-up.
 
 ### Stage D: update documentation and roadmap
@@ -414,7 +414,7 @@ client" section. Add:
   fidelity.
 
 Only after implementation, docs, and validation are complete, mark roadmap item
-`11.3.1` as done in `docs/roadmap.md`.
+`17.3.1` as done in `docs/roadmap.md`.
 
 ## Validation and evidence
 
@@ -422,14 +422,14 @@ Run the full validation flow with `set -o pipefail` and `tee`, keeping the logs
 for review:
 
 ```sh
-set -o pipefail && make fmt | tee /tmp/11-3-1-fmt.log
-set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 | tee /tmp/11-3-1-markdownlint.log
-set -o pipefail && make check-fmt | tee /tmp/11-3-1-check-fmt.log
-set -o pipefail && make lint | tee /tmp/11-3-1-lint.log
-set -o pipefail && make test | tee /tmp/11-3-1-test.log
-set -o pipefail && make test-doc | tee /tmp/11-3-1-test-doc.log
-set -o pipefail && make doctest-benchmark | tee /tmp/11-3-1-doctest-benchmark.log
-set -o pipefail && make nixie | tee /tmp/11-3-1-nixie.log
+set -o pipefail && make fmt | tee /tmp/17-3-1-fmt.log
+set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 | tee /tmp/17-3-1-markdownlint.log
+set -o pipefail && make check-fmt | tee /tmp/17-3-1-check-fmt.log
+set -o pipefail && make lint | tee /tmp/17-3-1-lint.log
+set -o pipefail && make test | tee /tmp/17-3-1-test.log
+set -o pipefail && make test-doc | tee /tmp/17-3-1-test-doc.log
+set -o pipefail && make doctest-benchmark | tee /tmp/17-3-1-doctest-benchmark.log
+set -o pipefail && make nixie | tee /tmp/17-3-1-nixie.log
 ```
 
 Before declaring success, confirm all of the following:
@@ -448,12 +448,12 @@ To be completed during implementation. At minimum, record:
   generalized to `response::FrameStream`;
 - whether a trait-only design was sufficient or a macro was also added;
 - the validation commands that passed; and
-- any follow-up work intentionally deferred to `11.3.2` or later.
+- any follow-up work intentionally deferred to `17.3.2` or later.
 
 - Final public API: `client::StreamingResponseExt::typed_with` returning
   `client::TypedResponseStream`. The shipped helper remains client-side for
   `Stream<Item = Result<P, ClientError>>`; it was not generalized to
-  `response::FrameStream` in `11.3.1`.
+  `response::FrameStream` in `17.3.1`.
 - Trait-only outcome: sufficient. No macro was added.
 - Validation status so far: targeted `cargo test typed_response_stream
   --all-features` and `cargo test client_streaming

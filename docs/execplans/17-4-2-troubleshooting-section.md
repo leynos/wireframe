@@ -1,4 +1,4 @@
-# Expand the client troubleshooting guide and validate misconfiguration diagnostics (11.4.2)
+# Expand the client troubleshooting guide and validate misconfiguration diagnostics (17.4.2)
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,7 +9,7 @@ Status: COMPLETED
 
 ## Purpose / big picture
 
-Roadmap item `11.4.2` is not greenfield documentation work. The user guide
+Roadmap item `17.4.2` is not greenfield documentation work. The user guide
 already contains a short `Client troubleshooting` section, but it is only a
 bullet list and does not yet give operators enough signal to distinguish the
 three misconfiguration classes named in the roadmap: codec length mismatch,
@@ -26,7 +26,7 @@ be backed by executable evidence:
    user-facing scenarios.
 3. Design-document updates in [`docs/wireframe-client-design.md`] recording any
    behavioural or wording decisions taken during implementation.
-4. A roadmap update in [`docs/roadmap.md`] marking `11.4.2` done only after all
+4. A roadmap update in [`docs/roadmap.md`] marking `17.4.2` done only after all
    quality gates pass.
 
 Observable success means:
@@ -43,7 +43,7 @@ Observable success means:
 
 ## Constraints
 
-- Scope is limited to roadmap item `11.4.2`.
+- Scope is limited to roadmap item `17.4.2`.
 - Existing public client APIs must remain source-compatible. This milestone is
   about diagnostics and documentation, not a broader client redesign.
 - The final documentation must update [`docs/users-guide.md`] even if no public
@@ -51,7 +51,7 @@ Observable success means:
   of the public contract.
 - Record all design decisions taken during implementation in
   [`docs/wireframe-client-design.md`].
-- Mark [`docs/roadmap.md`] entry `11.4.2` done only after all tests, lint, and
+- Mark [`docs/roadmap.md`] entry `17.4.2` done only after all tests, lint, and
   documentation quality gates pass.
 - Unit coverage must use `rstest`.
 - Behavioural coverage must use `rstest-bdd` v0.5.0 and follow the repository's
@@ -65,7 +65,7 @@ Observable success means:
 - Do not document `ClientError::PreambleWrite` as a user-observable signal
   unless implementation first makes that variant reachable from the actual
   preamble path.
-- TLS remains future work in roadmap item `12.3.1`, so the troubleshooting
+- TLS remains future work in roadmap item `18.3.1`, so the troubleshooting
   section may describe TLS-related deployment mistakes and their symptoms, but
   must not imply first-party TLS transport support exists today.
 - No new external dependencies should be introduced for this milestone.
@@ -124,7 +124,7 @@ Observable success means:
 ## Progress
 
 - [x] (2026-03-21 00:00Z) Drafted the initial ExecPlan for roadmap item
-  `11.4.2`.
+  `17.4.2`.
 - [x] (2026-03-21 00:45Z) Stage A: confirmed that
   [`src/client/preamble_exchange.rs`] still reports write-side preamble
   failures through `ClientError::PreambleEncode`, not `PreambleWrite`, and
@@ -139,7 +139,7 @@ Observable success means:
   scenario wiring, to cover the same diagnostics behaviourally.
 - [x] (2026-03-21 01:15Z) Stage D: rewrote the troubleshooting guidance in
   [`docs/users-guide.md`], aligned [`docs/wireframe-client-design.md`], and
-  added an explicit `11.4.2` decision record.
+  added an explicit `17.4.2` decision record.
 - [x] (2026-03-21 01:35Z) Stage E: ran the Rust and doc quality gates, updated
   [`docs/roadmap.md`], and recorded the final validation outcome below. Full
   `make markdownlint` still reports unrelated legacy MD029 failures in older
@@ -170,8 +170,8 @@ Observable success means:
   before the troubleshooting docs are expanded.
 
 - TLS support is not yet a built-in client feature. [`docs/roadmap.md`] still
-  lists `12.3.1` ("Provide built-in middleware or guides for implementing TLS")
-  as future work, so `11.4.2` must stay within documentation and diagnostics
+  lists `18.3.1` ("Provide built-in middleware or guides for implementing TLS")
+  as future work, so `17.4.2` must stay within documentation and diagnostics
   for deployment mismatches.
 
 - The initial full-suite `make test` run failed once in the existing
@@ -219,8 +219,8 @@ Shipped outcomes:
   contention, and transport disconnects.
 - [`docs/wireframe-client-design.md`] now mirrors that wording, records that
   `PreambleWrite` is not currently user-observable, and adds a dedicated
-  `11.4.2` decision record.
-- [`docs/roadmap.md`] marks `11.4.2` complete.
+  `17.4.2` decision record.
+- [`docs/roadmap.md`] marks `17.4.2` complete.
 - New executable evidence now covers the roadmap's missing cases:
   - [`tests/client_runtime.rs`] adds
     `client_surfaces_tls_protocol_mismatch_as_wireframe_io`;
@@ -243,7 +243,7 @@ Validation summary:
   [`docs/users-guide.md`], [`docs/wireframe-client-design.md`],
   [`docs/roadmap.md`], and this ExecPlan
 - Known unrelated baseline: full `make markdownlint` still fails on legacy
-  MD029 ordered-list numbering in older execplans outside the scope of `11.4.2`
+  MD029 ordered-list numbering in older execplans outside the scope of `17.4.2`
 
 ## Context and orientation
 
@@ -254,7 +254,7 @@ The relevant repository areas are already in place:
 - [`docs/wireframe-client-design.md`] contains the client design record,
   including an existing troubleshooting bullet list that must stay aligned with
   the user guide.
-- [`docs/roadmap.md`] tracks roadmap item `11.4.2`, which should remain
+- [`docs/roadmap.md`] tracks roadmap item `17.4.2`, which should remain
   unchecked until the end of implementation.
 - [`src/client/error.rs`] defines the public client error variants that the
   docs must describe accurately.
@@ -338,12 +338,12 @@ Targeted commands during this stage:
 
 ```sh
 set -o pipefail
-cargo test --test client_runtime 2>&1 | tee /tmp/11-4-2-client-runtime.log
+cargo test --test client_runtime 2>&1 | tee /tmp/17-4-2-client-runtime.log
 ```
 
 ```sh
 set -o pipefail
-cargo test --test client_preamble 2>&1 | tee /tmp/11-4-2-client-preamble.log
+cargo test --test client_preamble 2>&1 | tee /tmp/17-4-2-client-preamble.log
 ```
 
 ## Stage C: add behavioural coverage with `rstest-bdd` v0.5.0
@@ -368,12 +368,12 @@ Targeted commands during this stage:
 
 ```sh
 set -o pipefail
-cargo test --test bdd --all-features -- client_runtime 2>&1 | tee /tmp/11-4-2-bdd-runtime.log
+cargo test --test bdd --all-features -- client_runtime 2>&1 | tee /tmp/17-4-2-bdd-runtime.log
 ```
 
 ```sh
 set -o pipefail
-cargo test --test bdd --all-features -- client_preamble 2>&1 | tee /tmp/11-4-2-bdd-preamble.log
+cargo test --test bdd --all-features -- client_preamble 2>&1 | tee /tmp/17-4-2-bdd-preamble.log
 ```
 
 ## Stage D: rewrite the documentation and record the decisions
@@ -410,47 +410,47 @@ repository root. Use `tee` and `set -o pipefail` so failures are not hidden.
 
 ```sh
 set -o pipefail
-make fmt 2>&1 | tee /tmp/11-4-2-fmt.log
+make fmt 2>&1 | tee /tmp/17-4-2-fmt.log
 ```
 
 ```sh
 set -o pipefail
-make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/11-4-2-markdownlint.log
+make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/17-4-2-markdownlint.log
 ```
 
 ```sh
 set -o pipefail
-make check-fmt 2>&1 | tee /tmp/11-4-2-check-fmt.log
+make check-fmt 2>&1 | tee /tmp/17-4-2-check-fmt.log
 ```
 
 ```sh
 set -o pipefail
-make lint 2>&1 | tee /tmp/11-4-2-lint.log
+make lint 2>&1 | tee /tmp/17-4-2-lint.log
 ```
 
 ```sh
 set -o pipefail
-make test 2>&1 | tee /tmp/11-4-2-test.log
+make test 2>&1 | tee /tmp/17-4-2-test.log
 ```
 
 ```sh
 set -o pipefail
-make test-doc 2>&1 | tee /tmp/11-4-2-test-doc.log
+make test-doc 2>&1 | tee /tmp/17-4-2-test-doc.log
 ```
 
 ```sh
 set -o pipefail
-make doctest-benchmark 2>&1 | tee /tmp/11-4-2-doctest-benchmark.log
+make doctest-benchmark 2>&1 | tee /tmp/17-4-2-doctest-benchmark.log
 ```
 
 ```sh
 set -o pipefail
-make nixie 2>&1 | tee /tmp/11-4-2-nixie.log
+make nixie 2>&1 | tee /tmp/17-4-2-nixie.log
 ```
 
 Only after these pass should implementation:
 
-1. mark `11.4.2` as done in [`docs/roadmap.md`];
+1. mark `17.4.2` as done in [`docs/roadmap.md`];
 2. update the `Progress` and `Outcomes & Retrospective` sections in this
    ExecPlan; and
 3. summarize the final evidence in the commit message and handoff note.
@@ -468,5 +468,5 @@ Implementation is complete when all of the following are true:
    decisions taken for the troubleshooting guidance.
 4. `rstest` coverage exists for the documented failure classes.
 5. `rstest-bdd` coverage exists for the same failure classes.
-6. [`docs/roadmap.md`] marks `11.4.2` done.
+6. [`docs/roadmap.md`] marks `17.4.2` done.
 7. All validation commands in Stage E pass.
