@@ -5,8 +5,8 @@ use std::{io, sync::Arc};
 
 use futures::future::BoxFuture;
 use wireframe::{
-    Serializer,
     app::{Envelope, WireframeApp},
+    prelude::Serializer,
     serializer::BincodeSerializer,
 };
 
