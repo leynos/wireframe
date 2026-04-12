@@ -28,6 +28,24 @@ logic, protocol hooks, serializer output, and transport frame emission so the
 project does not keep `Vec<u8>` bridges alive only because the architecture is
 underspecified.
 
+## Traceability
+
+This ADR governs the Epic 284 runtime-boundary work tracked in:
+
+- [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
+  "`internal-only` runtime surfaces", "Adjacent constraints that matter but do
+  not name `Vec<u8>`", and "Resolved direction for epic 284" sections.
+- [`roadmap.md`](roadmap.md), specifically:
+  - roadmap item `10.1.3`, which approves the actor and codec-driver boundary;
+  - roadmap item `11.1.2`, which removes the final default-path `Vec<u8>` copy
+    between serialization and `FrameCodec::wrap_payload`;
+  - roadmap items `11.2.1` and `11.2.2`, which implement the boundary and
+    move `Vec<u8>`-specific runtime traits or bridges out of the core runtime;
+  - roadmap item `11.2.3`, which adds allocation and pointer-reuse regressions
+    for the internal actor and codec path;
+  - roadmap item `14.2.1`, which reviews whether any runtime-only compatibility
+    bridges still need to survive after the breaking release.
+
 ## Decision Drivers
 
 - Preserve zero-copy transport framing for the default codec path.

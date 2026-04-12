@@ -25,6 +25,27 @@ The key rollout question is whether the project should:
 - ship a staged major release with finite compatibility helpers and explicit
   migration guidance.
 
+## Traceability
+
+This ADR governs the Epic 284 compatibility and rollout work tracked in:
+
+- [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
+  "Generalization paths and conceptual risks", "Resolved direction for epic
+  284", and "Coordination notes" sections.
+- [`roadmap.md`](roadmap.md), specifically:
+  - roadmap item `10.1.2`, which approves the compatibility and rollout
+    policy;
+  - roadmap item `10.2.3`, which publishes the migration-guide outline and
+    exact public surfaces affected by the change;
+  - roadmap item `12.1.2`, which preserves explicit edit-on-demand ergonomics
+    as part of the public migration story;
+  - roadmap item `12.2.2`, which documents how client preamble leftovers fit
+    into the compatibility plan;
+  - roadmap items `13.1.1` and `13.1.2`, which remove obsolete `Vec<u8>`
+    compatibility surfaces and publish the migration guide section;
+  - roadmap items `14.1.1`, `14.1.2`, `14.1.3`, and `14.2.1`, which prepare
+    and review the breaking release and any retained helpers.
+
 ## Decision Drivers
 
 - Minimize downstream boilerplate during the migration.

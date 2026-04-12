@@ -29,6 +29,25 @@ The project needs a single public byte-container strategy that preserves
 zero-copy behaviour for read-only paths without forcing every caller to manage
 buffer taxonomy manually.
 
+## Traceability
+
+This ADR governs the Epic 284 work tracked in:
+
+- [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
+  public payload surfaces and resolved direction in sections "Public
+  `payload-bound` surfaces" and "Resolved direction for epic 284".
+- [`roadmap.md`](roadmap.md), specifically:
+  - roadmap item `10.1.1`, which approves the stable public byte-container and
+    edit-on-demand model;
+  - roadmap item `11.1.1`, which converts internal packet payload storage and
+    serializer output to the approved byte representation;
+  - roadmap items `12.1.1` and `12.1.2`, which migrate packet, envelope, and
+    middleware surfaces to the approved byte and editing model;
+  - roadmap items `12.2.1` and `12.2.3`, which migrate client hooks and
+    serializers and publish downstream migration examples;
+  - roadmap item `13.1.2`, which writes the migration guide section covering
+    the zero-copy API flip.
+
 ## Decision Drivers
 
 - Remove the final owned-byte copy from the default outbound path.
