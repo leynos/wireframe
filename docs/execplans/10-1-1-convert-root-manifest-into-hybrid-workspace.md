@@ -48,9 +48,9 @@ Observable success is:
 - Keep the root package as the default workspace member for all non-workspace
   cargo commands.
 - Treat 10.1.1 as infrastructure-only. Do not implement the verification crate,
-  Kani and Verus tooling, Makefile verification targets, or CI jobs owned by
-  roadmap items 10.1.2 through 10.1.5 unless a minimal compatibility shim is
-  strictly required.
+  Kani and Verus tooling, Makefile verification targets, or continuous
+  integration (CI) jobs owned by roadmap items 10.1.2 through 10.1.5 unless a
+  minimal compatibility shim is strictly required.
 - Prefer no new dependencies. In particular, avoid introducing a crate solely
   to inspect Cargo metadata unless a smaller local helper is clearly
   insufficient.
@@ -196,35 +196,24 @@ Observable success is:
   two-stage rollout; inspected `docs/users-guide.md` and left it unchanged
   because the Cargo layout change does not alter consumer-facing library usage.
 - Marked roadmap item 10.1.1 complete after implementation.
-- Validation log paths and final gate results to be recorded after Stage E.
+- Validation log paths and final gate results have been recorded below.
 - Validation log paths:
-  `/tmp/workspace_manifest_test.log`,
-  `/tmp/workspace_manifest_bdd.log`,
-  `/tmp/workspace_manifest_metadata.log`,
-  `/tmp/make_check_fmt.log`,
-  `/tmp/make_markdownlint.log`,
-  `/tmp/make_nixie.log`,
-  `/tmp/make_test.log`,
-  `/tmp/make_test_doc.log`,
-  `/tmp/make_doctest_benchmark.log`,
+  `/tmp/workspace_manifest_test.log`, `/tmp/workspace_manifest_bdd.log`,
+  `/tmp/workspace_manifest_metadata.log`, `/tmp/make_check_fmt.log`,
+  `/tmp/make_markdownlint.log`, `/tmp/make_nixie.log`, `/tmp/make_test.log`,
+  `/tmp/make_test_doc.log`, `/tmp/make_doctest_benchmark.log`,
   `/tmp/make_lint.log`.
 - Validation results:
   `cargo test --test workspace_manifest` passed.
   `cargo test --test bdd --features advanced-tests workspace_manifest` passed.
-  `cargo metadata --no-deps --format-version 1` passed.
-  `make check-fmt` passed.
-  `make markdownlint` passed.
-  `make nixie` passed.
-  `make test` passed.
-  `make test-doc` passed.
-  `make doctest-benchmark` passed.
-  `make fmt` could not complete because `mdformat-all` requires `fd`, which is
-  absent in the environment; Markdown formatting was applied manually with
-  `mdtablefix` for the changed files.
-  `make lint` is blocked by the missing `whitaker` wrapper binary; the
-  preceding `cargo doc --no-deps` and
-  `cargo clippy --all-targets --all-features -- -D warnings` steps both
-  passed.
+  `cargo metadata --no-deps --format-version 1` passed. `make check-fmt`
+  passed. `make markdownlint` passed. `make nixie` passed. `make test` passed.
+  `make test-doc` passed. `make doctest-benchmark` passed. `make fmt` could not
+  complete because `mdformat-all` requires `fd`, which is absent in the
+  environment; Markdown formatting was applied manually with `mdtablefix` for
+  the changed files. `make lint` is blocked by the missing `whitaker` wrapper
+  binary; the preceding `cargo doc --no-deps` and
+  `cargo clippy --all-targets --all-features -- -D warnings` steps both passed.
 
 ## Context and orientation
 
@@ -311,7 +300,7 @@ needs to inspect the `cargo metadata` output. Do not invoke nested
 Go/no-go: continue only when the new `rstest` coverage passes reliably in
 isolation.
 
-### Stage D: add `rstest-bdd` behavioural coverage
+### Stage D: add `rstest-bdd` behaviour-driven development (BDD) coverage
 
 Add a small BDD slice that expresses the contributor-facing behaviour of the
 new layout, for example:

@@ -4,51 +4,17 @@
 //! workspace while keeping the root package as the only default member during
 //! roadmap item 10.1.1.
 
-use std::{env, process::Command};
+#[path = "common/workspace_manifest_support.rs"]
+mod workspace_manifest_support;
 
-use camino::Utf8PathBuf;
-use cap_std::{ambient_authority, fs_utf8::Dir};
 use rstest::rstest;
-
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-fn repo_root() -> TestResult<Utf8PathBuf> {
-    Utf8PathBuf::from_path_buf(env::current_dir()?).map_err(|path| {
-        format!(
-            "repository root path is not valid UTF-8: {}",
-            path.display()
-        )
-        .into()
-    })
-}
-
-fn repo_dir() -> TestResult<Dir> { Ok(Dir::open_ambient_dir(repo_root()?, ambient_authority())?) }
-
-fn root_manifest() -> TestResult<String> { Ok(repo_dir()?.read_to_string("Cargo.toml")?) }
-
-fn run_cargo(args: &[&str]) -> TestResult<String> {
-    let subcommand = args.first().copied().unwrap_or("cargo");
-    let output = Command::new("cargo")
-        .args(args)
-        .current_dir(repo_root()?)
-        .output()?;
-    if !output.status.success() {
-        return Err(format!(
-            "`cargo {subcommand}` failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
-    }
-    Ok(String::from_utf8(output.stdout)?)
-}
-
-fn cargo_metadata() -> TestResult<String> {
-    run_cargo(&["metadata", "--no-deps", "--format-version", "1"])
-}
-
-fn root_package_id() -> TestResult<String> {
-    run_cargo(&["pkgid", "--", "wireframe@0.3.0"]).map(|s| s.trim().to_owned())
-}
+use workspace_manifest_support::{
+    WorkspaceManifestResult as TestResult,
+    cargo_metadata,
+    repo_root,
+    root_manifest,
+    root_package_id,
+};
 
 fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");

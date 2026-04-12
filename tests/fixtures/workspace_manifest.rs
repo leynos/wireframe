@@ -1,13 +1,15 @@
 //! Fixture world for workspace-manifest behavioural scenarios.
 
-use std::{env, process::Command};
-
-use camino::Utf8PathBuf;
-use cap_std::{ambient_authority, fs_utf8::Dir};
 use rstest::fixture;
 
-type FixtureResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-pub type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+use crate::workspace_manifest_support::{
+    WorkspaceManifestResult as FixtureResult,
+    cargo_metadata,
+    root_manifest,
+    root_package_id,
+};
+
+pub type TestResult = FixtureResult<()>;
 
 /// BDD world holding the root manifest and `cargo metadata` output.
 #[derive(Debug, Default)]
@@ -23,38 +25,6 @@ pub fn workspace_manifest_world() -> WorkspaceManifestWorld {
 }
 
 impl WorkspaceManifestWorld {
-    fn repo_root() -> FixtureResult<Utf8PathBuf> {
-        Utf8PathBuf::from_path_buf(env::current_dir()?).map_err(|path| {
-            format!(
-                "repository root path is not valid UTF-8: {}",
-                path.display()
-            )
-            .into()
-        })
-    }
-
-    fn repo_dir() -> FixtureResult<Dir> {
-        Ok(Dir::open_ambient_dir(
-            Self::repo_root()?,
-            ambient_authority(),
-        )?)
-    }
-
-    fn package_id() -> FixtureResult<String> {
-        let output = Command::new("cargo")
-            .args(["pkgid", "--", "wireframe@0.3.0"])
-            .current_dir(Self::repo_root()?)
-            .output()?;
-        if !output.status.success() {
-            return Err(format!(
-                "`cargo pkgid` failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )
-            .into());
-        }
-        Ok(String::from_utf8(output.stdout)?.trim().to_owned())
-    }
-
     /// Load the repository manifest and workspace metadata for later checks.
     ///
     /// # Errors
@@ -62,21 +32,8 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the manifest cannot be read or `cargo metadata`
     /// fails.
     pub fn load(&mut self) -> TestResult {
-        let manifest = Self::repo_dir()?.read_to_string("Cargo.toml")?;
-        let output = Command::new("cargo")
-            .args(["metadata", "--no-deps", "--format-version", "1"])
-            .current_dir(Self::repo_root()?)
-            .output()?;
-        if !output.status.success() {
-            return Err(format!(
-                "`cargo metadata` failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )
-            .into());
-        }
-
-        self.manifest = Some(manifest);
-        self.metadata = Some(String::from_utf8(output.stdout)?);
+        self.manifest = Some(root_manifest()?);
+        self.metadata = Some(cargo_metadata()?);
         Ok(())
     }
 
@@ -120,7 +77,7 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the metadata omits the root package.
     pub fn verify_root_is_workspace_member(&self) -> TestResult {
         let metadata = self.metadata()?;
-        if !metadata.contains(&Self::package_id()?) {
+        if !metadata.contains(&root_package_id()?) {
             return Err("workspace metadata did not include the root package".into());
         }
         Ok(())
@@ -133,10 +90,7 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the metadata widens default-member coverage.
     pub fn verify_root_is_only_default_member(&self) -> TestResult {
         let metadata = self.metadata()?;
-        let expected = format!(
-            "\"workspace_default_members\":[\"{}\"]",
-            Self::package_id()?
-        );
+        let expected = format!("\"workspace_default_members\":[\"{}\"]", root_package_id()?);
         if !metadata.contains(&expected) {
             return Err(
                 "workspace metadata did not keep the root package as the only default member"
@@ -151,7 +105,7 @@ impl WorkspaceManifestWorld {
     /// # Errors
     ///
     /// Returns an error when the 10.1.2 crate appears too early or the helper
-    /// crate unexpectedly disappears from workspace metadata.
+    /// crate unexpectedly disappears from Cargo metadata.
     pub fn verify_verification_crate_is_absent(&self) -> TestResult {
         let metadata = self.metadata()?;
         if metadata.contains("wireframe-verification") {
@@ -159,8 +113,12 @@ impl WorkspaceManifestWorld {
                 "verification crate should not join the workspace until roadmap item 10.1.2".into(),
             );
         }
-        // wireframe_testing is a dev-dependency but not a workspace member in 10.1.1;
-        // it will join the workspace in a later milestone.
+        if !metadata.contains("\"wireframe_testing\"") {
+            return Err(
+                "workspace metadata should continue to report the in-repository helper crate"
+                    .into(),
+            );
+        }
         Ok(())
     }
 }
