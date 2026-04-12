@@ -6,7 +6,7 @@ Proposed.
 
 ## Date
 
-2026-04-12.
+2026-04-12
 
 ## Context and Problem Statement
 
