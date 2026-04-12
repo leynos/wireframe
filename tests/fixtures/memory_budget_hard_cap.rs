@@ -253,6 +253,7 @@ impl MemoryBudgetHardCapWorld {
         match self.join_server()? {
             Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
             Err(error) => self.verify_abort_outcome(&error),
+            Err(error) => self.verify_abort_outcome(&error),
         }
     }
 
