@@ -12,12 +12,12 @@ allocations.[^adr-004][^issue-286]
 
 This inventory distinguishes four kinds of coupling:
 
-| Category          | Meaning                                                                                              | Migration sensitivity                                 |
-| ----------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `frame-bound`     | A trait, impl, or test uses `Vec<u8>` as a concrete frame type.                                      | High when the transport frame type changes.           |
-| `payload-bound`   | A public API exposes owned payload bytes as `Vec<u8>` without literally fixing `F::Frame = Vec<u8>`. | High for API compatibility, lower for codec plumbing. |
-| `internal-only`   | Runtime code carries `Vec<u8>` internally without exposing it as a stable API.                       | Medium; usually easier to change behind shims.        |
-| `docs/tests-only` | Examples, tests, and design text that still teach `Vec<u8>`-shaped framing.                          | Low runtime risk, but high drift risk.                |
+| Category          | Meaning                                                                                                                                  | Migration sensitivity                                 |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `frame-bound`     | A trait, impl, or test uses `Vec<u8>` as a concrete frame type.                                                                          | High when the transport frame type changes.           |
+| `payload-bound`   | A public application programming interface (API) exposes owned payload bytes as `Vec<u8>` without literally fixing `F::Frame = Vec<u8>`. | High for API compatibility, lower for codec plumbing. |
+| `internal-only`   | Runtime code carries `Vec<u8>` internally without exposing it as a stable API.                                                           | Medium; usually easier to change behind shims.        |
+| `docs/tests-only` | Examples, tests, and design text that still teach `Vec<u8>`-shaped framing.                                                              | Low runtime risk, but high drift risk.                |
 
 Two important boundaries are out of scope for this inventory:
 
@@ -235,8 +235,8 @@ where several other APIs also expect `Vec<u8>`.
 
 ### `internal-only` runtime surfaces
 
-- `src/app/builder/core.rs` stores `push_dlq` as
-  `Option<mpsc::Sender<Vec<u8>>>`.
+- `src/app/builder/core.rs` stores `push_dlq` as a dead-letter queue (DLQ)
+  sender: `Option<mpsc::Sender<Vec<u8>>>`.
 - `src/app/builder/config.rs` exposes that internal channel through
   `with_push_dlq(self, dlq: mpsc::Sender<Vec<u8>>) -> Self`.
 - `src/app/frame_handling/response.rs` shows the current payload flow
@@ -374,8 +374,9 @@ Epic 284 workstreams:
    byte APIs justify standardization.
 ```
 
-[^adr-004]: See [ADR 004](adr-004-pluggable-protocol-codecs.md) for the
-    generic codec decision and the current `Bytes` default frame type.
+[^adr-004]: See
+            [Architecture Decision Record (ADR) 004](adr-004-pluggable-protocol-codecs.md)
+    for the generic codec decision and the current `Bytes` default frame type.
 [^issue-286]: Middleware follow-up requested by
     [@leynos](https://github.com/leynos), with context from
     [issue #286](https://github.com/leynos/wireframe/issues/286),
@@ -387,6 +388,6 @@ Epic 284 workstreams:
 [^hooks]: See `src/hooks.rs` and the hook overview in
     [users-guide.md](users-guide.md).
 [^unified-path]: See
-    [docs/execplans/9-3-1-fragment-adapter-trait.md](execplans/9-3-1-fragment-adapter-trait.md)
+    [docs/execplans/9-3-1-fragment-adapter-trait.md](./execplans/9-3-1-fragment-adapter-trait.md)
     for the actor/codec-driver boundary and why `Bytes` does not flow through
     `ConnectionActor` directly today.
