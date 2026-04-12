@@ -356,22 +356,31 @@ The current direction is now explicit:
 
 ## Coordination notes
 
-No matching roadmap item for this inventory work was found in the local docs
-set on 2026-04-11, so nothing was marked done. If epic 284 is updated outside
-the repository, the prepared link text and next-step summary are:
+Epic 284 is now tracked locally in
+[`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md).
+ That roadmap turns the inventory into phased implementation work, benchmark
+planning, and release preparation.
+
+The remaining unresolved design choices now have draft Architecture Decision
+Records (ADRs):
+
+- [ADR 008](adr-008-zero-copy-public-byte-container.md) covers the public byte
+  container and edit-on-demand model.
+- [ADR 009](adr-009-vec-u8-migration-rollout.md) covers the compatibility and
+  release rollout strategy.
+- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) covers the
+  actor, codec-driver, and transport-frame boundary for the zero-copy path.
+
+If epic 284 is updated outside the repository, the local source-of-truth links
+to add are:
 
 ```plaintext
-Add inventory reference: docs/frame-vec-u8-inventory.md
-Link label: Frame = Vec<u8> inventory
-
-Epic 284 workstreams:
-1. Transport-frame substitution and actor/codec boundary work.
-2. Public payload-owned API work: PacketParts, Envelope, middleware, and
-   client byte hooks, with minimal consumer boilerplate.
-3. Compatibility cleanup: move Vec<u8>-only bridges such as
-   CorrelatableFrame for Vec<u8> out of the core surface once no longer needed.
-4. Deferred: keep client preamble leftovers on Vec<u8> until broader public
-   byte APIs justify standardization.
+Inventory: docs/frame-vec-u8-inventory.md
+Roadmap: docs/zero-copy-frame-and-payload-migration-roadmap.md
+ADRs:
+- docs/adr-008-zero-copy-public-byte-container.md
+- docs/adr-009-vec-u8-migration-rollout.md
+- docs/adr-010-transport-frame-boundary-for-zero-copy.md
 ```
 
 [^adr-004]: See
