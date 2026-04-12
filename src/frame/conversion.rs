@@ -29,31 +29,20 @@ fn checked_prefix_cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
     T::try_from(len).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))
 }
 
-/// Copies `prefix` into an 8-byte buffer, right-aligned for big-endian or
-/// left-aligned for little-endian.
+/// Copy `prefix` into the appropriate slice of `buf` for the given endianness.
 ///
-/// The caller guarantees that `prefix` is `1`, `2`, `4`, or `8` bytes, so the
-/// slice operations are infallible.
-fn fill_prefix_buffer(prefix: &[u8], endianness: Endianness) -> [u8; 8] {
-    let mut buf = [0u8; 8];
+/// Callers must guarantee that `prefix.len()` is one of `{1, 2, 4, 8}`.
+#[inline]
+fn fill_buf_with_prefix(buf: &mut [u8; 8], prefix: &[u8], endianness: Endianness) {
     let size = prefix.len();
-    debug_assert!(
-        matches!(size, 1 | 2 | 4 | 8),
-        "prefix must be 1, 2, 4, or 8 bytes"
-    );
-    let offset = match endianness {
-        Endianness::Big => 8 - size,
-        Endianness::Little => 0,
-    };
-    let dst = buf.get_mut(offset..offset + size);
-    debug_assert!(
-        dst.is_some(),
-        "validated prefix length always fits within the buffer"
-    );
-    if let Some(dst) = dst {
-        dst.copy_from_slice(prefix);
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "size is validated upstream to be 1, 2, 4, or 8, so both slice ranges are in-bounds"
+    )]
+    match endianness {
+        Endianness::Big => buf[8 - size..].copy_from_slice(prefix),
+        Endianness::Little => buf[..size].copy_from_slice(prefix),
     }
-    buf
 }
 
 /// Converts a byte slice into a `u64` according to `size` and `endianness`.
@@ -81,7 +70,7 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     let prefix = bytes
         .get(..size)
         .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, ERR_INCOMPLETE_PREFIX))?;
-    let buf = fill_prefix_buffer(prefix, endianness);
+    fill_buf_with_prefix(&mut buf, prefix, endianness);
 
     // Wire prefix declares its endianness; normalising into an 8-byte buffer and
     // using explicit conversion helpers keeps decoding deterministic on any host
