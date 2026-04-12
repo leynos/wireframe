@@ -32,6 +32,10 @@ This ADR governs the Epic 284 compatibility and rollout work tracked in:
 - [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
   "Generalization paths and conceptual risks", "Resolved direction for epic
   284", and "Coordination notes" sections.
+- [`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md),
+  which tracks the dedicated migration publish and breaking-release workstream
+  that this rollout policy governs, including the Phase 1 decision closure and
+  the later publish milestones.
 - [`roadmap.md`](roadmap.md), specifically:
   - roadmap item `10.1.2`, which approves the compatibility and rollout
     policy;

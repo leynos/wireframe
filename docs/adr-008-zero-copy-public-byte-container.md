@@ -36,6 +36,10 @@ This ADR governs the Epic 284 work tracked in:
 - [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
   public payload surfaces and resolved direction in sections "Public
   `payload-bound` surfaces" and "Resolved direction for epic 284".
+- [`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md),
+  which tracks the dedicated zero-copy migration phases that apply this public
+  byte-container decision across the internal migration, public API flip, and
+  release workstream.
 - [`roadmap.md`](roadmap.md), specifically:
   - roadmap item `10.1.1`, which approves the stable public byte-container and
     edit-on-demand model;
