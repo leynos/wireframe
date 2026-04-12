@@ -219,7 +219,7 @@ Observable success is:
 
 Relevant repository areas:
 
-- `Cargo.toml` currently defines only the root `wireframe` package.
+- Before 10.1.1, `Cargo.toml` defined only the root `wireframe` package.
 - `wireframe_testing/Cargo.toml` depends on the root crate by path but is not a
   workspace member today.
 - `docs/roadmap.md` owns the 10.1.1 acceptance criteria.

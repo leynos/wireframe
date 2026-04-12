@@ -5,6 +5,7 @@ use rstest::fixture;
 use crate::workspace_manifest_support::{
     WorkspaceManifestResult as FixtureResult,
     cargo_metadata,
+    has_manifest_line,
     root_manifest,
     root_package_id,
 };
@@ -63,7 +64,7 @@ impl WorkspaceManifestWorld {
             "default-members = [\".\"]",
             "resolver = \"3\"",
         ] {
-            if !manifest.contains(expected) {
+            if !has_manifest_line(manifest, expected) {
                 return Err(format!("expected `{expected}` in root Cargo.toml").into());
             }
         }

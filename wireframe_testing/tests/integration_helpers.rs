@@ -28,8 +28,12 @@ async fn integration_helpers_round_trip() -> TestResult {
     if response.payload.as_slice() != [1, 2, 3] {
         return Err("response payload mismatch".into());
     }
-    if response.correlation_id.is_none() {
-        return Err("expected correlation id to be set".into());
+    if response.correlation_id != Some(7) {
+        return Err(format!(
+            "expected correlation id Some(7), got {:?}",
+            response.correlation_id
+        )
+        .into());
     }
     if counter.load(Ordering::SeqCst) != 1 {
         return Err("expected handler to be invoked exactly once".into());
