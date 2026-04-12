@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Proposed
 
 ## Date
 
@@ -22,8 +22,8 @@ Those APIs are not equivalent in how they use bytes:
   routing hand-off surfaces.
 - `ServiceRequest`, `ServiceResponse`, and `BeforeSendHook` promise editable
   bytes and therefore embed a mutation model into the public API.
-- The default codec path wants shared, cheap-to-clone bytes to remove the
-  final copy identified in epic 284.
+- The default codec path requires shared, cheap-to-clone byte buffers to
+  eliminate the final copy identified in epic 284.
 
 The project needs a single public byte-container strategy that preserves
 zero-copy behaviour for read-only paths without forcing every caller to manage

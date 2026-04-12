@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Proposed
 
 ## Date
 
@@ -127,6 +127,10 @@ The proposed direction is:
 
 Document which component owns serialization, protocol hook invocation, and
 `wrap_payload`, and update the runtime so that ownership is reflected in code.
+Consolidate any non-driver `FrameCodec::wrap_payload` callers into the
+codec-driver boundary, including the current runtime inbound emission path, so
+`ConnectionActor` no longer participates in transport frame emission outside
+the codec driver.
 
 ### Phase 2: remove obsolete core bridges
 
@@ -147,6 +151,10 @@ stage.
   more of the performance and correctness burden than they do today.
 - Some example or test harness code may continue to use `Vec<u8>` as a
   convenience type even after the production boundary is cleaned up.
+- Until every non-driver `FrameCodec::wrap_payload` caller is relocated, the
+  project needs an explicit tracked list of remaining call sites, including the
+  inbound emission path adjacent to `ConnectionActor`, so reviews can verify
+  that the codec driver is becoming the sole owner of transport frame emission.
 
 ## Outstanding Decisions
 
