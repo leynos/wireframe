@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use tokio::sync::oneshot;
-use wireframe::{WireframeClient, app::Envelope, server::WireframeServer};
+use wireframe::{app::Envelope, prelude::WireframeClient, server::WireframeServer};
 use wireframe_testing::{CommonTestEnvelope, TestResult, factory, unused_listener};
 
 const ROUTE_ID: u32 = 7;
