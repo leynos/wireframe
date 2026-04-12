@@ -35,7 +35,7 @@ This ADR governs the Epic 284 compatibility and rollout work tracked in:
 - [`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md),
   which tracks the dedicated migration publish and breaking-release workstream
   that this rollout policy governs, including the Phase 1 decision closure and
-  the later publish milestones.
+  the later publication milestones.
 - [`roadmap.md`](roadmap.md), specifically:
   - roadmap item `10.1.2`, which approves the compatibility and rollout
     policy;

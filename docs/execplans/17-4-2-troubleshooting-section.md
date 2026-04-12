@@ -448,7 +448,7 @@ set -o pipefail
 make nixie 2>&1 | tee /tmp/17-4-2-nixie.log
 ```
 
-Only after these pass should implementation:
+Only after these pass should the implementation:
 
 1. mark `17.4.2` as done in [`docs/roadmap.md`];
 2. update the `Progress` and `Outcomes & Retrospective` sections in this
