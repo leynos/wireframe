@@ -289,3 +289,16 @@ pub fn obs_handle() -> ObservabilityHandle {
     // Acquire the global logger and create a fresh metrics recorder
     ObservabilityHandle::new()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ObservabilityHandle;
+
+    #[test]
+    fn default_returns_usable_handle() {
+        // Verify that Default delegates to new() and the handle is functional.
+        let mut handle = ObservabilityHandle::default();
+        // The handle must allow clearing without panicking.
+        handle.clear();
+    }
+}

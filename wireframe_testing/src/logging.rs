@@ -93,3 +93,16 @@ pub fn logger() -> LoggerHandle {
     // Acquire exclusive access to the global logger for test assertions
     LoggerHandle::new()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::LoggerHandle;
+
+    #[test]
+    fn default_returns_usable_handle() {
+        // Verify that Default delegates to new() and the handle is functional.
+        let mut handle = LoggerHandle::default();
+        // The handle must allow log draining without panicking.
+        handle.clear();
+    }
+}

@@ -107,3 +107,29 @@ reports the in-tree helper crate `wireframe_testing` in `workspace_members`
 because it lives under the repository root as a path dependency. That does not
 change day-to-day command ergonomics because `default-members = ["."]` keeps
 plain root-level Cargo commands focused on the main `wireframe` package.
+
+### Workspace manifest test support
+
+The shared module `tests/common/workspace_manifest_support.rs` keeps the
+workspace-contract helpers beside the integration tests that use them. It is a
+module, not a library crate, because the code is test-only scaffolding and
+should not widen the published crate surface or add another Cargo target.
+
+The support layer uses `cap-std` with the `fs_utf8` feature for
+capability-oriented directory access and `camino` for UTF-8-typed paths.
+
+- `repo_root()` locates the repository root as a `Utf8PathBuf`.
+- `repo_dir()` opens that root as a `cap_std::fs_utf8::Dir`.
+- `root_manifest()` reads the root `Cargo.toml` into a `String`.
+- `run_cargo(args)` runs `cargo` in the repository root and returns UTF-8
+  stdout, or an error that includes stderr.
+- `cargo_metadata()` wraps `cargo metadata --no-deps --format-version 1`.
+- `root_package_id()` wraps `cargo pkgid -- wireframe` and trims trailing
+  whitespace.
+- `has_manifest_line(manifest, line)` checks for a complete trimmed line rather
+  than a substring match.
+
+`WorkspaceManifestWorld` in `tests/fixtures/workspace_manifest.rs` is the
+behaviour-driven development (BDD) fixture for these assertions. Extend it by
+loading more workspace-state inputs in `load()` and adding focused verification
+methods that the step definitions and scenario can reuse.
