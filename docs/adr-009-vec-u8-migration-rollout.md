@@ -52,7 +52,7 @@ This ADR governs the Epic 284 compatibility and rollout work tracked in:
 
 ## Decision Drivers
 
-- Minimize downstream boilerplate during the migration.
+- Minimise downstream boilerplate during the migration.
 - Keep the long-term public API coherent rather than permanently dual-shaped.
 - Make the breaking change easy to communicate in release notes and examples.
 - Avoid indefinite maintenance of compatibility shims that preserve the old
@@ -64,7 +64,7 @@ This ADR governs the Epic 284 compatibility and rollout work tracked in:
 ### Option A: one-shot hard break with no compatibility helpers
 
 Ship the new zero-copy API and require all downstream users to update in one
-step. This keeps the final API clean, but it also maximizes upgrade pain and
+step. This keeps the final API clean, but it also maximises upgrade pain and
 forces every consumer to solve migration details independently.
 
 ### Option B: permanent dual support for `Vec<u8>` and the zero-copy type
@@ -143,7 +143,7 @@ follow-up release plan.
 
 ## Known Risks and Limitations
 
-- Compatibility helpers can easily become de facto permanent if their removal
+- Compatibility helpers can easily become permanent in practice if their removal
   criteria are not written down.
 - A breaking release without concrete before-and-after examples will still feel
   abrupt even if helper APIs exist.
@@ -164,5 +164,5 @@ The zero-copy migration is not only a transport optimization. It changes how
 middleware, hooks, serializers, and packet routing represent bytes. A staged
 breaking release acknowledges that architectural reality: the new API becomes
 the primary one immediately, but the release still carries enough local
-documentation and narrowly-scoped adapters to keep downstream adoption
+documentation and narrowly scoped adapters to keep downstream adoption
 manageable.

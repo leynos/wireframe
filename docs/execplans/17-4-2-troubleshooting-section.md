@@ -47,7 +47,7 @@ Observable success means:
 - Existing public client APIs must remain source-compatible. This milestone is
   about diagnostics and documentation, not a broader client redesign.
 - The final documentation must update [`docs/users-guide.md`] even if no public
-  API signatures change, because the observable client failure surface is part
+  API signatures change because the observable client failure surface is part
   of the public contract.
 - Record all design decisions taken during implementation in
   [`docs/wireframe-client-design.md`].
