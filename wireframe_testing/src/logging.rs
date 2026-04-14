@@ -125,10 +125,10 @@ mod tests {
         assert!(join_result.is_err(), "poisoning thread should panic");
 
         let mut handle = LoggerHandle::default();
-        handle.clear();
         assert!(
             handle.pop().is_none(),
             "poison recovery should drain stale log records"
         );
+        handle.clear();
     }
 }
