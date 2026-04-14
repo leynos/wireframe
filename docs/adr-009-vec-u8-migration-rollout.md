@@ -52,7 +52,7 @@ This ADR governs the Epic 284 compatibility and rollout work tracked in:
 
 ## Decision Drivers
 
-- Minimise downstream boilerplate during the migration.
+- Minimize downstream boilerplate during the migration.
 - Keep the long-term public API coherent rather than permanently dual-shaped.
 - Make the breaking change easy to communicate in release notes and examples.
 - Avoid indefinite maintenance of compatibility shims that preserve the old
@@ -64,7 +64,7 @@ This ADR governs the Epic 284 compatibility and rollout work tracked in:
 ### Option A: one-shot hard break with no compatibility helpers
 
 Ship the new zero-copy API and require all downstream users to update in one
-step. This keeps the final API clean, but it also maximises upgrade pain and
+step. This keeps the final API clean, but it also maximizes upgrade pain and
 forces every consumer to solve migration details independently.
 
 ### Option B: permanent dual support for `Vec<u8>` and the zero-copy type

@@ -403,10 +403,14 @@ The documentation must be explicit that TLS guidance is about diagnosing a
 misconfigured transport boundary today, not about enabling built-in TLS on the
 client.
 
-## Stage E: run the full quality gates and close the roadmap item
+## Stage E: run the agreed quality gates and close the roadmap item
 
-After code and docs are complete, run the full validation suite from the
+After code and docs are complete, run the agreed validation suite from the
 repository root. Use `tee` and `set -o pipefail` so failures are not hidden.
+For Markdown linting, the gate for `17.4.2` is targeted validation of the
+touched documentation files because full `make markdownlint` still reports
+unrelated legacy MD029 failures in older execplans outside this roadmap item's
+scope.
 
 ```sh
 set -o pipefail
@@ -415,7 +419,12 @@ make fmt 2>&1 | tee /tmp/17-4-2-fmt.log
 
 ```sh
 set -o pipefail
-make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/17-4-2-markdownlint.log
+/root/.bun/bin/markdownlint-cli2 \
+  docs/users-guide.md \
+  docs/wireframe-client-design.md \
+  docs/roadmap.md \
+  docs/execplans/17-4-2-troubleshooting-section.md \
+  2>&1 | tee /tmp/17-4-2-markdownlint.log
 ```
 
 ```sh
@@ -448,7 +457,7 @@ set -o pipefail
 make nixie 2>&1 | tee /tmp/17-4-2-nixie.log
 ```
 
-Only after these pass should the implementation:
+Only after these agreed gates pass should the implementation:
 
 1. mark `17.4.2` as done in [`docs/roadmap.md`];
 2. update the `Progress` and `Outcomes & Retrospective` sections in this
@@ -469,4 +478,5 @@ Implementation is complete when all of the following are true:
 4. `rstest` coverage exists for the documented failure classes.
 5. `rstest-bdd` coverage exists for the same failure classes.
 6. [`docs/roadmap.md`] marks `17.4.2` done.
-7. All validation commands in Stage E pass.
+7. All agreed validation commands in Stage E pass, including targeted
+   Markdown lint for the `17.4.2` documentation files.
