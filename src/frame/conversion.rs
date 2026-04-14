@@ -36,28 +36,15 @@ fn checked_prefix_cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
 /// exactly `size` bytes, so the slice operations are infallible.
 fn fill_prefix_buffer(prefix: &[u8], size: usize, endianness: Endianness) -> [u8; 8] {
     let mut buf = [0u8; 8];
-    match endianness {
-        Endianness::Big => {
-            if let Some(dst) = buf.get_mut(8 - size..) {
-                dst.copy_from_slice(prefix);
-            } else {
-                debug_assert!(
-                    false,
-                    "size is in {{1,2,4,8}}; subtraction always fits in 8-byte buffer"
-                );
-            }
-        }
-        Endianness::Little => {
-            if let Some(dst) = buf.get_mut(..size) {
-                dst.copy_from_slice(prefix);
-            } else {
-                debug_assert!(
-                    false,
-                    "size is in {{1,2,4,8}}; always fits in 8-byte buffer"
-                );
-            }
-        }
-    }
+    let offset = match endianness {
+        Endianness::Big => 8 - size,
+        Endianness::Little => 0,
+    };
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "size validated by caller to be in {1,2,4,8}; offset is always in-bounds"
+    )]
+    buf[offset..offset + size].copy_from_slice(prefix);
     buf
 }
 
