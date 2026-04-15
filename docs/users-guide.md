@@ -2376,7 +2376,7 @@ channel until the client drains data. No explicit flow-control messages are
 required.[^50]
 
 Interleaved high- and low-priority push behaviour is validated against this
-streaming path as part of roadmap item `11.3.2`. The parity suite confirms
+streaming path as part of roadmap item `16.3.2`. The parity suite confirms
 fairness-driven low-priority progress and shared cross-priority rate limiting
 without changing the public `WireframeClient` interface.
 

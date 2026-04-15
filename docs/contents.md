@@ -29,6 +29,9 @@ reference when navigating the project's design and architecture material.
 - [Wireframe 1.0 roadmap](wireframe-1-0-detailed-development-roadmap.md)
   Detailed tasks leading to Wireframe 1.0.
 - [Project roadmap](roadmap.md) High-level development roadmap.
+- [Zero-copy frame and payload migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)
+  Phased plan for migrating from `Vec<u8>`-owned frame APIs to a zero-copy
+  alternative.
 <!-- markdownlint-disable-next-line MD013 -->
 - [1.0 philosophy][philosophy] Philosophy and feature set for Wireframe 1.0.
 

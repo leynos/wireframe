@@ -819,7 +819,7 @@ consistent with the server-side back-pressure architecture described in Section
 
 ### 12.6 Interleaved queue parity validation
 
-Roadmap item `10.3.2` is validated by exercising interleaved high- and
+Roadmap item `16.3.2` is validated by exercising interleaved high- and
 low-priority push queues through the client streaming surface. The parity
 coverage deliberately uses the same `ConnectionActor`, `FairnessConfig`, and
 `PushQueues` machinery as production paths, then feeds the resulting frame

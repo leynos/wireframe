@@ -112,12 +112,12 @@ The parity checks cover two guarantees:
 - Rate limiting remains cross-priority and symmetric, so one priority cannot
   bypass limits imposed on another.
 
-This validation was added for roadmap item `11.3.2` and does not introduce new
+This validation was added for roadmap item `16.3.2` and does not introduce new
 public client API methods.
 
 ### In-process server and client pair harness
 
-Roadmap item `12.3.2` adds a reusable harness in `wireframe_testing` that
+Roadmap item `17.3.2` adds a reusable harness in `wireframe_testing` that
 starts a `WireframeServer` and a connected `WireframeClient` inside one test
 process. "In-process" means both sides run in the same process and communicate
 over a real loopback TCP socket, keeping compatibility checks honest while
@@ -443,16 +443,16 @@ cargo run --example client_echo_login --features examples
   usually means peer closure or transport interruption; retry policies should
   treat these as network faults.
 
-## Decision record for 11.4.1
+## Decision record for 16.4.1
 
 - Decision: treat login acknowledgement in the echo example as the echoed login
   payload decoded as `LoginAck`.
-- Rationale: roadmap item 11.4.1 explicitly targets the existing `echo` server.
+- Rationale: roadmap item 16.4.1 explicitly targets the existing `echo` server.
   The echo server does not synthesize new response payloads, so decoding the
   echoed payload as the acknowledgement provides a runnable, typed, end-to-end
   demonstration without introducing server-only behaviour.
 
-## Decision record for 11.2.1
+## Decision record for 17.2.1
 
 - Decision: ship client pooling as a hybrid of `bb8` and Wireframe-owned slot
   admission.
@@ -516,7 +516,7 @@ flowchart TD
   or true per-socket concurrent transport use, revisit this boundary and decide
   whether to extend or replace the slot wrapper.
 
-## Decision record for 11.3.1
+## Decision record for 17.3.1
 
 - Decision: ship streaming-response consumption as a trait plus adaptor stream
   instead of a macro-first API.
@@ -529,7 +529,7 @@ flowchart TD
   back-pressure, and the exclusive `&mut WireframeClient` borrow all continue
   to behave exactly as the base streaming API documents.
 
-## Decision record for 11.2.2
+## Decision record for 17.2.2
 
 - Decision: `PoolHandle` represents the fairness identity of one logical
   session, not affinity to one physical socket.
@@ -561,9 +561,9 @@ flowchart TD
 - Back-pressure posture:
   - handle fairness is additive above the existing slot-permit budget;
   - the scheduler never bypasses `max_in_flight_per_socket`, serialized socket
-    access, or idle recycle behaviour inherited from `11.2.1`.
+    access, or idle recycle behaviour inherited from `17.2.1`.
 
-## Decision record for 11.4.2
+## Decision record for 17.4.2
 
 - Decision: document only the currently reachable troubleshooting surface for
   client preamble failures.
@@ -575,8 +575,8 @@ flowchart TD
   write variant.
 - Decision: frame TLS guidance as wrong-protocol troubleshooting, not as a
   built-in client capability.
-- Rationale: roadmap item `12.3.1` still tracks first-party TLS guidance or
-  middleware, so roadmap item `11.4.2` should help users diagnose a TLS port
+- Rationale: roadmap item `18.3.1` still tracks first-party TLS guidance or
+  middleware, so roadmap item `17.4.2` should help users diagnose a TLS port
   mismatch without implying native TLS transport support already exists.
 
 ## Future work

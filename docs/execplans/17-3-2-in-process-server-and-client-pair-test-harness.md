@@ -1,4 +1,4 @@
-# Publish an in-process server and client pair test harness (12.3.2)
+# Publish an in-process server and client pair test harness (17.3.2)
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,7 +9,7 @@ Status: COMPLETE
 
 ## Purpose / big picture
 
-Roadmap item `12.3.2` exists because client-facing tests currently repeat the
+Roadmap item `17.3.2` exists because client-facing tests currently repeat the
 same setup in many places: bind a loopback listener, spawn a server task,
 record its address, connect a `WireframeClient`, hold onto one or more join
 handles, and remember to abort or shut everything down in `Drop`.
@@ -42,12 +42,12 @@ Observable success:
 - relevant design documentation records the chosen API boundary and rationale;
 - `docs/users-guide.md` explains when to use the harness and what public
   surface it adds for library consumers; and
-- `docs/roadmap.md` marks `12.3.2` done only after the full validation suite
+- `docs/roadmap.md` marks `17.3.2` done only after the full validation suite
   passes.
 
 ## Constraints
 
-- Scope is limited to roadmap item `12.3.2`.
+- Scope is limited to roadmap item `17.3.2`.
 - Existing public client APIs must remain backward compatible:
   `WireframeClient`, `WireframeClientBuilder`, `WireframeServer`,
   `wireframe::testkit`, and the existing `wireframe_testing` helpers must keep
@@ -86,7 +86,7 @@ Observable success:
   - `docs/wireframe-client-design.md`
   - `docs/wireframe-testing-crate.md`
 - `docs/users-guide.md` must describe the public harness surface for consumers.
-- `docs/roadmap.md` item `12.3.2` is updated to done only after validation.
+- `docs/roadmap.md` item `17.3.2` is updated to done only after validation.
 - Follow guidance from:
   - `docs/generic-message-fragmentation-and-re-assembly-design.md`
   - `docs/multi-packet-and-streaming-responses-design.md`
@@ -102,7 +102,7 @@ Observable success:
 - Scope: if the public API cannot be implemented without also introducing
   response demultiplexing, transport abstraction, or a general-purpose async
   process supervisor, stop and escalate. Those are larger features than
-  `12.3.2`.
+  `17.3.2`.
 - Surface area: if implementation requires changes to more than 16 files or
   roughly 1200 net lines before documentation updates, stop and re-evaluate.
 - Dependencies: do not add a new crate. Reuse Tokio, existing Wireframe types,
@@ -200,7 +200,7 @@ Observable success:
   currently share a comparable public loopback TCP harness. Evidence:
   `src/testkit/support.rs`, `wireframe_testing/src/helpers/runtime.rs`, and the
   many ad hoc listener-based client fixtures under
-  `tests/fixtures/client_*.rs`. Impact: `12.3.2` should focus on loopback
+  `tests/fixtures/client_*.rs`. Impact: `17.3.2` should focus on loopback
   server/client orchestration rather than inventing another in-memory driver.
 
 - Observation: `wireframe_testing` already exposes exactly the supporting
@@ -321,7 +321,7 @@ The implementation will touch four main areas.
    - `docs/wireframe-client-design.md` for the client/testing design record;
    - `docs/wireframe-testing-crate.md` for the companion crate's public design;
    - `docs/users-guide.md` for consumer-facing usage;
-   - `docs/roadmap.md` to mark `12.3.2` done after validation.
+   - `docs/roadmap.md` to mark `17.3.2` done after validation.
 
 4. Existing client fixture examples
 
@@ -516,7 +516,7 @@ Update `docs/users-guide.md` with a consumer-facing section that explains:
 - the crate or feature dependency shape required to use it.
 
 Only after all code and tests are complete, mark `docs/roadmap.md` item
-`12.3.2` as done.
+`17.3.2` as done.
 
 ## Stage F: Validation and evidence capture
 
@@ -527,45 +527,45 @@ preserved even when the terminal truncates.
 Suggested targeted commands:
 
 ```sh
-set -o pipefail && cargo test --test client_pair_harness 2>&1 | tee /tmp/12-3-2-client-pair-unit.log
+set -o pipefail && cargo test --test client_pair_harness 2>&1 | tee /tmp/17-3-2-client-pair-unit.log
 ```
 
 ```sh
-set -o pipefail && cargo test --test bdd --all-features -- client_pair_harness 2>&1 | tee /tmp/12-3-2-client-pair-bdd.log
+set -o pipefail && cargo test --test bdd --all-features -- client_pair_harness 2>&1 | tee /tmp/17-3-2-client-pair-bdd.log
 ```
 
 Required repo gates after the targeted tests pass:
 
 ```sh
-set -o pipefail && make fmt 2>&1 | tee /tmp/12-3-2-fmt.log
+set -o pipefail && make fmt 2>&1 | tee /tmp/17-3-2-fmt.log
 ```
 
 ```sh
-set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/12-3-2-markdownlint.log
+set -o pipefail && make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/17-3-2-markdownlint.log
 ```
 
 ```sh
-set -o pipefail && make check-fmt 2>&1 | tee /tmp/12-3-2-check-fmt.log
+set -o pipefail && make check-fmt 2>&1 | tee /tmp/17-3-2-check-fmt.log
 ```
 
 ```sh
-set -o pipefail && make lint 2>&1 | tee /tmp/12-3-2-lint.log
+set -o pipefail && make lint 2>&1 | tee /tmp/17-3-2-lint.log
 ```
 
 ```sh
-set -o pipefail && make test 2>&1 | tee /tmp/12-3-2-test.log
+set -o pipefail && make test 2>&1 | tee /tmp/17-3-2-test.log
 ```
 
 ```sh
-set -o pipefail && make test-doc 2>&1 | tee /tmp/12-3-2-test-doc.log
+set -o pipefail && make test-doc 2>&1 | tee /tmp/17-3-2-test-doc.log
 ```
 
 ```sh
-set -o pipefail && make doctest-benchmark 2>&1 | tee /tmp/12-3-2-doctest-benchmark.log
+set -o pipefail && make doctest-benchmark 2>&1 | tee /tmp/17-3-2-doctest-benchmark.log
 ```
 
 ```sh
-set -o pipefail && make nixie 2>&1 | tee /tmp/12-3-2-nixie.log
+set -o pipefail && make nixie 2>&1 | tee /tmp/17-3-2-nixie.log
 ```
 
 If repo-wide markdown linting still fails on unrelated historical files,
@@ -596,7 +596,7 @@ Files changed (existing):
 - `docs/wireframe-client-design.md` — added harness design section.
 - `docs/wireframe-testing-crate.md` — added crate layout entry and API section.
 - `docs/users-guide.md` — added consumer-facing harness section.
-- `docs/roadmap.md` — marked `12.3.2` done.
+- `docs/roadmap.md` — marked `17.3.2` done.
 
 Observations:
 

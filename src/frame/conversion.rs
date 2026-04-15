@@ -29,6 +29,33 @@ fn checked_prefix_cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
     T::try_from(len).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, ERR_FRAME_TOO_LARGE))
 }
 
+/// Copies `prefix` into an 8-byte buffer, right-aligned for big-endian or
+/// left-aligned for little-endian.
+///
+/// The caller guarantees that `prefix` is `1`, `2`, `4`, or `8` bytes, so the
+/// slice operations are infallible.
+fn fill_prefix_buffer(prefix: &[u8], endianness: Endianness) -> [u8; 8] {
+    let mut buf = [0u8; 8];
+    let size = prefix.len();
+    debug_assert!(
+        matches!(size, 1 | 2 | 4 | 8),
+        "prefix must be 1, 2, 4, or 8 bytes"
+    );
+    let offset = match endianness {
+        Endianness::Big => 8 - size,
+        Endianness::Little => 0,
+    };
+    let dst = buf.get_mut(offset..offset + size);
+    debug_assert!(
+        dst.is_some(),
+        "validated prefix length always fits within the buffer"
+    );
+    if let Some(dst) = dst {
+        dst.copy_from_slice(prefix);
+    }
+    buf
+}
+
 /// Converts a byte slice into a `u64` according to `size` and `endianness`.
 ///
 /// Only prefix sizes of `1`, `2`, `4`, or `8` bytes are supported. `bytes` must
@@ -51,35 +78,10 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
         ));
     }
 
-    let mut buf = [0u8; 8];
-    // NOTE: size is validated above; this is a defensive fallback.
     let prefix = bytes
         .get(..size)
         .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, ERR_INCOMPLETE_PREFIX))?;
-    match endianness {
-        Endianness::Big => {
-            if let Some(dst) = buf.get_mut(8 - size..) {
-                dst.copy_from_slice(prefix);
-            } else {
-                debug_assert!(false, "validated size should fit into prefix buffer");
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    ERR_UNSUPPORTED_PREFIX,
-                ));
-            }
-        }
-        Endianness::Little => {
-            if let Some(dst) = buf.get_mut(..size) {
-                dst.copy_from_slice(prefix);
-            } else {
-                debug_assert!(false, "validated size should fit into prefix buffer");
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    ERR_UNSUPPORTED_PREFIX,
-                ));
-            }
-        }
-    }
+    let buf = fill_prefix_buffer(prefix, endianness);
 
     // Wire prefix declares its endianness; normalising into an 8-byte buffer and
     // using explicit conversion helpers keeps decoding deterministic on any host

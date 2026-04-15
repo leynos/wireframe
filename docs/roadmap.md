@@ -441,265 +441,396 @@ integration boundaries.
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
 
-## 10. Formal verification
+## 10. Decision closure and baseline
+
+This phase turns the `Frame = Vec<u8>` inventory into approved design choices,
+benchmark thresholds, and a concrete migration baseline before public API work
+starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
+
+### 10.1. Design decisions
+
+- [ ] 10.1.1. Approve the stable public byte-container and edit-on-demand model
+  for `PacketParts`, `Envelope`, middleware, client hooks, and serializer
+  output. See `docs/adr-008-zero-copy-public-byte-container.md`.
+- [ ] 10.1.2. Approve the compatibility and rollout policy for downstream
+  users, including which `Vec<u8>` helpers survive the breaking release. See
+  `docs/adr-009-vec-u8-migration-rollout.md`.
+- [ ] 10.1.3. Approve the actor and codec-driver boundary so `Vec<u8>` bridges
+  leave the core runtime deliberately rather than incidentally. See
+  `docs/adr-010-transport-frame-boundary-for-zero-copy.md`.
+
+### 10.2. Baselines and migration planning
+
+- [ ] 10.2.1. Capture allocation, copied-byte, throughput, and latency
+  baselines for inbound decode, middleware pass-through, request hooks, and
+  outbound encode on the default codec path. Requires 10.1.1.
+- [ ] 10.2.2. Record benchmark acceptance thresholds that require removal of
+  the final default-path `Vec<u8>` copy between serialization and
+  `FrameCodec::wrap_payload`. Requires 10.2.1.
+- [ ] 10.2.3. Publish a migration-guide outline listing the exact public
+  signatures and workflows that will change for packets, middleware, client
+  hooks, and serializers. Requires 10.1.2.
+
+## 11. Internal zero-copy foundations
+
+This phase removes the remaining internal `Vec<u8>` bottlenecks without
+changing the public API shape prematurely.
+
+### 11.1. Internal byte surfaces
+
+- [ ] 11.1.1. Convert internal packet payload storage and serializer output to
+  the approved zero-copy-capable byte representation. Requires 10.1.1.
+- [ ] 11.1.2. Remove the final default-path `Vec<u8>` copy between
+  serialization and `FrameCodec::wrap_payload`. Requires 11.1.1.
+- [ ] 11.1.3. Update zero-copy-capable internal channels and replay buffers
+  identified in the inventory so they no longer force `Vec<u8>` hand-offs.
+  Requires 11.1.1.
+
+### 11.2. Actor and codec-driver boundary
+
+- [ ] 11.2.1. Implement the approved actor and codec-driver boundary in the
+  runtime so zero-copy transport framing does not depend on `Vec<u8>` bridges.
+  Requires 10.1.3.
+- [ ] 11.2.2. Move `CorrelatableFrame for Vec<u8>` and similar runtime-only
+  bridges out of production paths once the replacement boundary is covered.
+  Requires 11.2.1.
+- [ ] 11.2.3. Add allocation and pointer-reuse regressions for the internal
+  byte hand-off path on the default codec and at least one protocol-native
+  codec. Requires 11.1.2 and 11.2.1.
+
+## 12. Public API migration
+
+This phase flips the public packet, middleware, and client surfaces to the new
+byte model while preserving explicit editing ergonomics.
+
+### 12.1. Packet and middleware surfaces
+
+- [ ] 12.1.1. Update `PacketParts`, `Envelope`, `ServiceRequest`, and
+  `ServiceResponse` to the approved byte model. Requires 10.1.1 and 11.1.1.
+- [ ] 12.1.2. Preserve explicit edit-on-demand ergonomics for middleware, with
+  compatibility helpers only where the rollout policy requires them. Requires
+  10.1.2 and 12.1.1.
+- [ ] 12.1.3. Update server-side examples and behavioural coverage so
+  `Vec<u8>` is no longer taught as the default middleware frame shape. Requires
+  12.1.2.
+
+### 12.2. Client-facing byte APIs
+
+- [ ] 12.2.1. Update `BeforeSendHook` and `Serializer::serialize` to the
+  approved byte surface. Requires 10.1.1 and 11.1.1.
+- [ ] 12.2.2. Re-evaluate client preamble leftovers and document whether they
+  remain `Vec<u8>` for the first breaking release or migrate with the rest of
+  the client byte surface. Requires 10.1.2 and 12.2.1.
+- [ ] 12.2.3. Add migration examples showing how existing `Vec<u8>` hook and
+  serializer call sites move to the new API. Requires 10.2.3 and 12.2.1.
+
+## 13. Validation, ecosystem updates, and documentation
+
+This phase proves the new byte model operationally and updates the companion
+docs and test utilities to match.
+
+### 13.1. Compatibility cleanup
+
+- [ ] 13.1.1. Extend `wireframe_testing`, behavioural coverage, and examples so
+  `Vec<u8>` is no longer the default taught frame shape for codec and client
+  workflows. Requires 12.1.3 and 12.2.3.
+- [ ] 13.1.2. Publish the migration guide and breaking-change summary for the
+  zero-copy API flip. Requires 10.2.3 and 12.2.3.
+- [ ] 13.1.3. Close or supersede ADRs 008 through 010 once the implementation
+  and published documentation match the approved design. Requires 13.1.2.
+
+### 13.2. Performance and downstream validation
+
+- [ ] 13.2.1. Run the benchmark suite and compare results against the approved
+  thresholds from 10.2.2. Requires 11.1.2 and 12.2.1.
+- [ ] 13.2.2. Add regression coverage proving read-only paths stay zero-copy
+  while mutation paths copy only on demand. Requires 12.1.2 and 12.2.1.
+- [ ] 13.2.3. Run downstream canaries against representative middleware, hook,
+  and custom codec examples before release. Requires 13.1.2 and 13.2.1.
+
+## 14. Release rollout
+
+This phase packages the breaking change, publishes the upgrade story, and
+captures any follow-up compatibility cleanup.
+
+### 14.1. Breaking release preparation
+
+- [ ] 14.1.1. Finalize the versioning plan for the public API break and record
+  whether it ships as the next major or pre-1.0 point release. Requires 10.1.2
+  and 13.2.3.
+- [ ] 14.1.2. Publish release notes, changelog entries, and upgrade guidance
+  covering removed `Vec<u8>` contracts and retained compatibility helpers.
+  Requires 13.1.2 and 14.1.1.
+- [ ] 14.1.3. Move `CorrelatableFrame for Vec<u8>` and any similar temporary
+  bridges fully out of production paths once release validation is complete.
+  Requires 11.2.2 and 14.1.2.
+
+### 14.2. Post-release cleanup
+
+- [ ] 14.2.1. Review retained compatibility helpers and either accept them as
+  narrow shims or schedule their removal in follow-up work. Requires 14.1.2.
+- [ ] 14.2.2. Capture any intentionally deferred `Vec<u8>` surfaces, together
+  with explicit rationale and the next review point. Requires 14.1.2.
+
+## 15. Formal verification
 
 This phase establishes the formal verification infrastructure and applies
 bounded model checking, state-space exploration, and deductive proofs to
 Wireframe's protocol, framing, and message assembly layers.
 
-### 10.1. Verification workspace and tooling
+### 15.1. Verification workspace and tooling
 
-- [ ] 10.1.1. Convert the root manifest into a hybrid workspace while keeping
+- [ ] 15.1.1. Convert the root manifest into a hybrid workspace while keeping
   the root package as the default member. See
   [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
    Success criteria: `cargo build` and `cargo test --workspace` pass with the
   new layout.
-- [ ] 10.1.2. Add `crates/wireframe-verification` as an internal crate for
-  Stateright models and shared verification harnesses. Requires 10.1.1. See
+- [ ] 15.1.2. Add `crates/wireframe-verification` as an internal crate for
+  Stateright models and shared verification harnesses. Requires 15.1.1. See
   [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
    and
   [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
    Success criteria: the crate compiles, is included as a workspace member, and
   contains a placeholder Stateright model that passes `cargo test`.
-- [ ] 10.1.3. Add pinned Kani and Verus tool metadata plus repo-local install
+- [ ] 15.1.3. Add pinned Kani and Verus tool metadata plus repo-local install
   and run scripts. See
   [formal-verification-methods-in-wireframe.md §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
    and
   [§Verus should *not* live inside the main build](formal-verification-methods-in-wireframe.md#why-verus-should-not-live-inside-the-main-build).
    Success criteria: a contributor can run `./scripts/install-kani.sh` and
   `./scripts/install-verus.sh` to obtain pinned versions.
-- [ ] 10.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
+- [ ] 15.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
   `make verus`, `make formal-pr`, and `make formal-nightly` Makefile targets.
-  Requires 10.1.2 and 10.1.3. See
+  Requires 15.1.2 and 15.1.3. See
   [formal-verification-methods-in-wireframe.md §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
    Success criteria: each target is accepted by `mbake validate Makefile` and
   returns exit 0 on a clean tree.
-- [ ] 10.1.5. Add separate CI jobs for Stateright, Kani smoke, and Verus
+- [ ] 15.1.5. Add separate CI jobs for Stateright, Kani smoke, and Verus
   proofs without changing the existing `build-test` coverage flow. See
   [formal-verification-methods-in-wireframe.md §Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
    Success criteria: CI pipelines pass on the default branch with the new jobs
   visible and green.
 
-### 10.2. Protocol contract decisions
+### 15.2. Protocol contract decisions
 
-- [ ] 10.2.1. Support a determined set of length-prefix widths (either `1`,
+- [ ] 15.2.1. Support a determined set of length-prefix widths (either `1`,
   `2`, `4`, and `8`, or the full `1..=8` range) and enforce them in
   constructors, conversions, and tests; record the decision in an ADR. Requires
-  10.1.1. See the formal verification guide[^fv-guide] §"What widths does
+  15.1.1. See the formal verification guide[^fv-guide] §"What widths does
   Wireframe actually support for length prefixes?". Success criteria: an ADR
   records the decision, constructors enforce the chosen set, and existing tests
   cover rejected widths.
-- [ ] 10.2.2. Treat `total_body_len` as either authoritative or advisory and
+- [ ] 15.2.2. Treat `total_body_len` as either authoritative or advisory and
   enforce or rename it consistently across the message assembly path; record
   the decision in an ADR and add tests for both conforming and violating
-  inputs. Requires 10.1.1. See the formal verification guide[^fv-guide] §"Is
+  inputs. Requires 15.1.1. See the formal verification guide[^fv-guide] §"Is
   `total_body_len` authoritative or advisory?". Success criteria: an ADR
   records the decision, runtime code enforces the chosen semantics, and tests
   verify both conforming and violating inputs.
-- [ ] 10.2.3. Publish named fairness and priority guarantees for
+- [ ] 15.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
-  Requires 10.1.1. See the formal verification guide[^fv-guide] §"What fairness
+  Requires 15.1.1. See the formal verification guide[^fv-guide] §"What fairness
   guarantee does `ConnectionActor` actually make?". Success criteria: the
   design document enumerates each guarantee as a named property that can be
   referenced by Stateright model checks.
 
-### 10.3. Kani bounded model checks
+### 15.3. Kani bounded model checks
 
-- [ ] 10.3.1. Add smoke harnesses for supported length-prefix round-trips and
+- [ ] 15.3.1. Add smoke harnesses for supported length-prefix round-trips and
   unsupported-width rejection in `src/frame/*`. See
   [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses).
-   Requires 10.1.3 and 10.2.1. Success criteria: `make kani` completes with all
+   Requires 15.1.3 and 15.2.1. Success criteria: `make kani` completes with all
   harnesses verified.
-- [ ] 10.3.2. Add harnesses for `FragmentSeries`, `Reassembler`, and
+- [ ] 15.3.2. Add harnesses for `FragmentSeries`, `Reassembler`, and
   `MessageSeries` covering duplicates, gaps, completion, and oversize cleanup.
   See
   [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses)
    and
   [§Phase 2 full harnesses](formal-verification-methods-in-wireframe.md#phase-2-full-harnesses).
-   Requires 10.1.3 and 10.2.2. Success criteria: `make kani-full` completes
+   Requires 15.1.3 and 15.2.2. Success criteria: `make kani-full` completes
   with all fragment and assembly harnesses verified.
-- [ ] 10.3.3. Extend existing Proptest coverage for fragment round-trips and
+- [ ] 15.3.3. Extend existing Proptest coverage for fragment round-trips and
   mixed actor action traces where Kani bounds would be too small. See
   [formal-verification-methods-in-wireframe.md §Second priority: `src/fragment/*`](formal-verification-methods-in-wireframe.md#second-priority-srcfragment)
    and
   [§How Proptest and Loom fit after these changes](formal-verification-methods-in-wireframe.md#how-proptest-and-loom-fit-after-these-changes).
-   Requires 10.3.1. Success criteria: `make test` includes the new Proptest
+   Requires 15.3.1. Success criteria: `make test` includes the new Proptest
   property tests and they pass.
 
-### 10.4. Stateright model checks
+### 15.4. Stateright model checks
 
-- [ ] 10.4.1. Model queue arrivals, active response and multi-packet outputs,
+- [ ] 15.4.1. Model queue arrivals, active response and multi-packet outputs,
   shutdown races, fairness state, and terminal markers in
   `crates/wireframe-verification`. See
   [formal-verification-methods-in-wireframe.md §Model scope](formal-verification-methods-in-wireframe.md#model-scope).
-   Requires 10.1.2 and 10.2.3. Success criteria: the model compiles and a
+   Requires 15.1.2 and 15.2.3. Success criteria: the model compiles and a
   bounded BFS run completes without panics or assertion failures.
-- [ ] 10.4.2. Add a shared checker harness that separates safety properties
+- [ ] 15.4.2. Add a shared checker harness that separates safety properties
   from reachability properties and reports both deterministically. See
   [formal-verification-methods-in-wireframe.md §Properties to encode](formal-verification-methods-in-wireframe.md#properties-to-encode)
    and
   [§Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness).
-   Requires 10.4.1. Success criteria: `make test-verification` exercises the
+   Requires 15.4.1. Success criteria: `make test-verification` exercises the
   checker and reports property results.
-- [ ] 10.4.3. Gate a bounded breadth-first search (BFS) model run in pull
+- [ ] 15.4.3. Gate a bounded breadth-first search (BFS) model run in pull
   request CI and a deeper run in scheduled or manual workflows. See
   [formal-verification-methods-in-wireframe.md §Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness)
    and
   [§Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
-   Requires 10.1.5 and 10.4.2. Success criteria: the PR CI job completes within
+   Requires 15.1.5 and 15.4.2. Success criteria: the PR CI job completes within
   5 minutes; the nightly job explores a deeper state space.
 
-### 10.5. Verus proofs for message assembly
+### 15.5. Verus proofs for message assembly
 
-- [ ] 10.5.1. Enforce the chosen `total_body_len` contract in runtime code
+- [ ] 15.5.1. Enforce the chosen `total_body_len` contract in runtime code
   before relying on proofs. See
   [formal-verification-methods-in-wireframe.md §"Is `total_body_len` authoritative or advisory?"](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
    and
   [§"What Verus should prove in Wireframe"](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
-   Requires 10.2.2. Success criteria: runtime assertions or checks enforce the
+   Requires 15.2.2. Success criteria: runtime assertions or checks enforce the
   contract, and existing tests confirm the enforcement.
-- [ ] 10.5.2. Add proof-only modules under `verus/` for declared-total and
+- [ ] 15.5.2. Add proof-only modules under `verus/` for declared-total and
   buffered-byte accounting invariants. See
   [formal-verification-methods-in-wireframe.md §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
    and
   [§Representative proof tree](formal-verification-methods-in-wireframe.md#representative-proof-tree).
-   Requires 10.1.3 and 10.5.1. Success criteria: `make verus` verifies all
+   Requires 15.1.3 and 15.5.1. Success criteria: `make verus` verifies all
   proof modules without errors.
-- [ ] 10.5.3. Document proof trigger discipline and contributor expectations
+- [ ] 15.5.3. Document proof trigger discipline and contributor expectations
   for running `make verus`. See
   [formal-verification-methods-in-wireframe.md §Trigger discipline](formal-verification-methods-in-wireframe.md#trigger-discipline)
    and
   [§Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
-   Requires 10.5.2. Success criteria: a contributor guide section explains
+   Requires 15.5.2. Success criteria: a contributor guide section explains
   trigger patterns, and `CONTRIBUTING.md` or the user guide references it.
 
-## 11. Wireframe client library foundation
+## 16. Wireframe client library foundation
 
 This phase delivers a first-class client runtime that mirrors the server's
 framing, serialization, and lifecycle layers, so both sides share the same
 behavioural guarantees.
 
-### 11.1. Connection runtime
+### 16.1. Connection runtime
 
-- [x] 11.1.1. Implement `WireframeClient` and its builder so callers can
+- [x] 16.1.1. Implement `WireframeClient` and its builder so callers can
   configure serializers, codec settings (including `max_frame_length` parity),
   and socket options before connecting.
-- [x] 11.1.2. Integrate the existing preamble helpers so clients can emit and
+- [x] 16.1.2. Integrate the existing preamble helpers so clients can emit and
   verify preambles before exchanging frames, with integration tests covering
   success and failure callbacks.
-- [x] 11.1.3. Expose connection lifecycle hooks (setup, teardown, and error)
+- [x] 16.1.3. Expose connection lifecycle hooks (setup, teardown, and error)
   that mirror the server hooks so middleware and instrumentation receive
   matching events.
 
-### 11.2. Request and response pipeline
+### 16.2. Request and response pipeline
 
-- [x] 11.2.1. Provide async `send`, `receive`, and `call` APIs that encode
+- [x] 16.2.1. Provide async `send`, `receive`, and `call` APIs that encode
   `Message` implementers, forward correlation identifiers, and deserialize
   typed responses using the configured serializer.
-- [x] 11.2.2. Map decode and transport failures into `WireframeError` variants
+- [x] 16.2.2. Map decode and transport failures into `WireframeError` variants
   and add integration tests that round-trip multiple message types through a
   sample server.
 
-### 11.3. Streaming and multi-packet parity
+### 16.3. Streaming and multi-packet parity
 
-- [x] 11.3.1. Support `Response::Stream` and `Response::MultiPacket` on the
+- [x] 16.3.1. Support `Response::Stream` and `Response::MultiPacket` on the
   client by propagating back-pressure, validating terminator frames, and
   draining push traffic without starving request-driven responses.
-- [x] 11.3.2. Exercise interleaved high- and low-priority push queues to prove
+- [x] 16.3.2. Exercise interleaved high- and low-priority push queues to prove
   fairness and rate limits remain symmetrical.
 
-### 11.4. Documentation and examples
+### 16.4. Documentation and examples
 
-- [x] 11.4.1. Publish a runnable example where a client connects to the `echo`
+- [x] 16.4.1. Publish a runnable example where a client connects to the `echo`
   server, issues a login request, and decodes the acknowledgement.
-- [x] 11.4.2. Extend `docs/users-guide.md` and `docs/wireframe-client-design.md`
+- [x] 16.4.2. Extend `docs/users-guide.md` and `docs/wireframe-client-design.md`
   with configuration tables, lifecycle diagrams, and troubleshooting guidance
   for the new APIs.
 
-## 12. Client ergonomics and extensions
+## 17. Client ergonomics and extensions
 
 This phase layers on the ergonomic features outlined in the client design
 document so larger deployments can adopt the library confidently.
 
-### 12.1. Middleware and observability
+### 17.1. Middleware and observability
 
-- [x] 12.1.1. Add middleware hooks for outgoing requests and incoming frames so
+- [x] 17.1.1. Add middleware hooks for outgoing requests and incoming frames so
   metrics, retries, and authentication tokens can be injected symmetrically
   with server middleware.
-- [x] 12.1.2. Provide structured logging and tracing spans around connect,
+- [x] 17.1.2. Provide structured logging and tracing spans around connect,
   send, receive, call, stream, and close lifecycle events, plus configuration
   for per-command timing.
 
-### 12.2. Connection pooling and concurrency
+### 17.2. Connection pooling and concurrency
 
-- [x] 12.2.1. Implement a configurable connection pool that preserves preamble
+- [x] 17.2.1. Implement a configurable connection pool that preserves preamble
   state, enforces in-flight request limits per socket, and recycles idle
   connections.
-- [x] 12.2.2. Expose a `PoolHandle` API with fairness policies, so callers can
+- [x] 17.2.2. Expose a `PoolHandle` API with fairness policies, so callers can
   multiplex many logical sessions without violating back-pressure.
 
-### 12.3. Streaming helpers and test utilities
+### 17.3. Streaming helpers and test utilities
 
-- [x] 12.3.1. Ship helper traits or macros for consuming streaming responses
+- [x] 17.3.1. Ship helper traits or macros for consuming streaming responses
   (for example typed iterators over `Response::Stream`) so multiplexed
   protocols remain ergonomic.
-- [x] 12.3.2. Publish reusable test harnesses that spin up an in-process server
+- [x] 17.3.2. Publish reusable test harnesses that spin up an in-process server
   and client pair, allowing downstream crates to verify compatibility.
 
-### 12.4. Docs and adoption
+### 17.4. Docs and adoption
 
-- [x] 12.4.1. Update the user guide with migration advice for the pooled client
+- [x] 17.4.1. Update the user guide with migration advice for the pooled client
   and document known limitations or out-of-scope behaviours.
-- [x] 12.4.2. Add a troubleshooting section that enumerates the most common
+- [x] 17.4.2. Add a troubleshooting section that enumerates the most common
   client misconfigurations (codec length mismatch, preamble errors, TLS issues)
   and how to detect them.
 
-## 13. Advanced features and ecosystem (future)
+## 18. Advanced features and ecosystem (future)
 
 This phase includes features that will broaden the library's applicability and
 ecosystem.
 
-### 13.1. Alternative transports
+### 18.1. Alternative transports
 
-- [ ] 13.1.1. Abstract the transport layer to support protocols other than raw
+- [ ] 18.1.1. Abstract the transport layer to support protocols other than raw
   TCP (e.g., WebSockets, QUIC).
 
-### 13.2. Message versioning
+### 18.2. Message versioning
 
-- [ ] 13.2.1. Implement a formal message versioning system to allow for
+- [ ] 18.2.1. Implement a formal message versioning system to allow for
   protocol evolution.
-- [ ] 13.2.2. Ensure version negotiation can consume codec metadata without
+- [ ] 18.2.2. Ensure version negotiation can consume codec metadata without
   leaking framing details into handlers.[^message-versioning]
 
-### 13.3. Security
+### 18.3. Security
 
-- [ ] 13.3.1. Provide built-in middleware or guides for implementing TLS.
+- [ ] 18.3.1. Provide built-in middleware or guides for implementing TLS.
 
-## 14. Documentation and community (ongoing)
+## 19. Documentation and community (ongoing)
 
 Continuous improvement of documentation and examples is essential for adoption
 and usability.
 
-### 14.1. Initial documentation
+### 19.1. Initial documentation
 
-- [x] 14.1.1. Write comprehensive doc comments for all public APIs.
-- [x] 14.1.2. Create a high-level `README.md` and a `docs/contents.md`.
+- [x] 19.1.1. Write comprehensive doc comments for all public APIs.
+- [x] 19.1.2. Create a high-level `README.md` and a `docs/contents.md`.
 
-### 14.2. Examples
+### 19.2. Examples
 
-- [x] 14.2.1. Create a variety of examples demonstrating core features
+- [x] 19.2.1. Create a variety of examples demonstrating core features
   (`ping_pong`, `echo`, `metadata_routing`, and `async_stream`).
 
-### 14.3. Website and user guide
+### 19.3. Website and user guide
 
-- [ ] 14.3.1. Develop a dedicated website with a detailed user guide.
-- [ ] 14.3.2. Write tutorials for common use cases.
+- [ ] 19.3.1. Develop a dedicated website with a detailed user guide.
+- [ ] 19.3.2. Write tutorials for common use cases.
 
-### 14.4. API documentation
+### 19.4. API documentation
 
-- [ ] 14.4.1. Ensure all public items have clear, useful documentation
+- [ ] 19.4.1. Ensure all public items have clear, useful documentation
   examples.
-- [ ] 14.4.2. Publish documentation to `docs.rs`.
+- [ ] 19.4.2. Publish documentation to `docs.rs`.
 
 [^adr-0001]: Refer to
 [ADR 0001](adr-001-multi-packet-streaming-response-api.md).

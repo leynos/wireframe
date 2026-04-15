@@ -12,7 +12,7 @@ requirements.
 
 ## Purpose / big picture
 
-Roadmap item 10.4 requires two concrete outcomes:
+Roadmap item 16.4 requires two concrete outcomes:
 
 - A runnable client example that connects to the `echo` server, sends a login
   request, and decodes the echoed acknowledgement.
@@ -33,7 +33,7 @@ Observable success is:
 - `docs/users-guide.md` and `docs/wireframe-client-design.md` contain
   configuration tables, lifecycle diagrams, troubleshooting guidance, and the
   design decision record for the example contract.
-- `docs/roadmap.md` marks 10.4.1 and 10.4.2 done.
+- `docs/roadmap.md` marks 16.4.1 and 16.4.2 done.
 
 ## Constraints
 
@@ -52,14 +52,14 @@ Observable success is:
   the feature.
 - Record implementation decisions in the relevant design document
   (`docs/wireframe-client-design.md`).
-- On feature completion, mark roadmap entries 10.4.1 and 10.4.2 done in
+- On feature completion, mark roadmap entries 16.4.1 and 16.4.2 done in
   `docs/roadmap.md`.
 
 ## Tolerances (exception triggers)
 
 - Scope: if implementation requires more than 14 files or 500 net lines,
   pause and escalate.
-- Interface: if satisfying 10.4 requires changing existing public API
+- Interface: if satisfying 16.4 requires changing existing public API
   signatures in `src/client/`, pause and escalate.
 - Dependencies: if a new crate is required, pause and escalate.
 - Behavioural ambiguity: if "acknowledgement" cannot be represented clearly
@@ -92,7 +92,7 @@ Observable success is:
 
 ## Progress
 
-- [x] (2026-02-23 00:00Z) Drafted ExecPlan for roadmap items 10.4.1 and 10.4.2.
+- [x] (2026-02-23 00:00Z) Drafted ExecPlan for roadmap items 16.4.1 and 16.4.2.
 - [x] (2026-02-23 00:18Z) Stage A complete: confirmed the acknowledgement
       contract as an echoed login payload decode and scoped file targets.
 - [x] (2026-02-23 00:30Z) Stage B complete: added
@@ -104,7 +104,7 @@ Observable success is:
 - [x] (2026-02-23 01:10Z) Stage E complete: expanded
       `docs/users-guide.md` and `docs/wireframe-client-design.md` with
       configuration tables, lifecycle diagrams, troubleshooting, and the
-      10.4.1 decision record.
+      16.4.1 decision record.
 - [x] (2026-02-23 01:55Z), Stage F complete: updated roadmap checkboxes and ran
       all required quality/documentation gates successfully.
 
@@ -112,7 +112,7 @@ Observable success is:
 
 - Discovery: strict `-D warnings` on `make test-bdd` surfaced existing
   `unused_must_use` test helper paths in interleaved push queue fixtures that
-  were unrelated to 10.4. Fixing them was required for green behavioural
+  were unrelated to 16.4. Fixing them was required for green behavioural
   validation.
 
 - Discovery: `make test-doc` initially failed due to stale doctest imports in
@@ -121,10 +121,10 @@ Observable success is:
 
 ## Decision Log
 
-- Decision: implement 10.4 behavioural coverage by extending the existing
+- Decision: implement 16.4 behavioural coverage by extending the existing
   client-runtime BDD suite instead of creating a separate BDD domain.
   Rationale: this keeps setup reuse high, avoids duplicate worlds, and keeps
-  roadmap 10.x client validation centralized. Date/Author: 2026-02-23 / Codex.
+  roadmap 16.x client validation centralized. Date/Author: 2026-02-23 / Codex.
 
 - Decision: define login acknowledgement in the runnable example as the echoed
   login message decoded by the client. Rationale: this honours the explicit
@@ -154,7 +154,7 @@ Shipped functionality:
 - Expanded client docs and design guidance in `docs/users-guide.md` and
   `docs/wireframe-client-design.md`, including configuration tables, lifecycle
   diagrams, troubleshooting, runnable commands, and decision rationale.
-- Marked roadmap 10.4.1 and 10.4.2 complete in `docs/roadmap.md`.
+- Marked roadmap 16.4.1 and 16.4.2 complete in `docs/roadmap.md`.
 
 Repository-health fixes needed for validation:
 
@@ -167,28 +167,28 @@ Repository-health fixes needed for validation:
 Validation evidence (all passing):
 
 - `cargo test --test client_runtime -- --nocapture`:
-  `/tmp/10-4-1-client-runtime-targeted.log`
-- `make test-bdd`: `/tmp/10-4-1-bdd.log`
-- `make fmt`: `/tmp/10-4-1-make-fmt.log`
-- `make check-fmt`: `/tmp/10-4-1-check-fmt.log`
-- `make lint`: `/tmp/10-4-1-lint.log`
-- `make test`: `/tmp/10-4-1-test.log`
-- `make test-doc`: `/tmp/10-4-1-test-doc.log`
-- `make doctest-benchmark`: `/tmp/10-4-1-doctest-benchmark.log`
-- `make markdownlint`: `/tmp/10-4-1-markdownlint.log`
-- `make nixie`: `/tmp/10-4-1-nixie.log`
+  `/tmp/16-4-1-client-runtime-targeted.log`
+- `make test-bdd`: `/tmp/16-4-1-bdd.log`
+- `make fmt`: `/tmp/16-4-1-make-fmt.log`
+- `make check-fmt`: `/tmp/16-4-1-check-fmt.log`
+- `make lint`: `/tmp/16-4-1-lint.log`
+- `make test`: `/tmp/16-4-1-test.log`
+- `make test-doc`: `/tmp/16-4-1-test-doc.log`
+- `make doctest-benchmark`: `/tmp/16-4-1-doctest-benchmark.log`
+- `make markdownlint`: `/tmp/16-4-1-markdownlint.log`
+- `make nixie`: `/tmp/16-4-1-nixie.log`
 - Manual runtime proof:
   - `cargo run --example echo --features examples` (background server):
-    `/tmp/10-4-1-echo-example.log`
+    `/tmp/16-4-1-echo-example.log`
   - `RUST_LOG=info cargo run --example client_echo_login --features examples`:
-    `/tmp/10-4-1-client-echo-login-example.log`
+    `/tmp/16-4-1-client-echo-login-example.log`
   - Observed success lines include:
     `decoded login acknowledgement username=guest correlation_id=Some(1)` and
     `client echo-login example completed successfully`.
 
 Roadmap status confirmation:
 
-- `docs/roadmap.md` now marks both 10.4.1 and 10.4.2 as done.
+- `docs/roadmap.md` now marks both 16.4.1 and 16.4.2 as done.
 
 Lessons learned:
 
@@ -215,12 +215,12 @@ The relevant repository areas are:
   runtime and streaming APIs.
 - `docs/wireframe-client-design.md`: client design source of truth and the
   correct location for decision rationale.
-- `docs/roadmap.md`: roadmap checklist containing 10.4.1 and 10.4.2.
+- `docs/roadmap.md`: roadmap checklist containing 16.4.1 and 16.4.2.
 
 Terminology used in this plan:
 
 - "Echo server" means the server sends back the same decoded message payload.
-- "Acknowledgement" in 10.4.1 means the client receives and decodes the echoed
+- "Acknowledgement" in 16.4.1 means the client receives and decodes the echoed
   login payload as a successful reply.
 
 ## Plan of work
@@ -302,8 +302,8 @@ validation.
 
 Mark both roadmap checkboxes complete in `docs/roadmap.md`:
 
-- 10.4.1 done
-- 10.4.2 done
+- 16.4.1 done
+- 16.4.2 done
 
 Run all required gates and capture output logs. Do not finish until every gate
 passes.
@@ -317,56 +317,56 @@ All commands run from repository root (`/home/user/project`). Use
 
    ```sh
    set -o pipefail
-   cargo test --test client_runtime -- --nocapture | tee /tmp/10-4-1-client-runtime-targeted.log
+   cargo test --test client_runtime -- --nocapture | tee /tmp/16-4-1-client-runtime-targeted.log
    ```
 
    ```sh
    set -o pipefail
-   make test-bdd | tee /tmp/10-4-1-bdd.log
+   make test-bdd | tee /tmp/16-4-1-bdd.log
    ```
 
 2. Full Rust quality gates before completion:
 
    ```sh
    set -o pipefail
-   make check-fmt | tee /tmp/10-4-1-check-fmt.log
+   make check-fmt | tee /tmp/16-4-1-check-fmt.log
    ```
 
    ```sh
    set -o pipefail
-   make lint | tee /tmp/10-4-1-lint.log
+   make lint | tee /tmp/16-4-1-lint.log
    ```
 
    ```sh
    set -o pipefail
-   make test | tee /tmp/10-4-1-test.log
+   make test | tee /tmp/16-4-1-test.log
    ```
 
    ```sh
    set -o pipefail
-   make test-doc | tee /tmp/10-4-1-test-doc.log
+   make test-doc | tee /tmp/16-4-1-test-doc.log
    ```
 
    ```sh
    set -o pipefail
-   make doctest-benchmark | tee /tmp/10-4-1-doctest-benchmark.log
+   make doctest-benchmark | tee /tmp/16-4-1-doctest-benchmark.log
    ```
 
 3. Documentation quality gates:
 
    ```sh
    set -o pipefail
-   make fmt | tee /tmp/10-4-1-make-fmt.log
+   make fmt | tee /tmp/16-4-1-make-fmt.log
    ```
 
    ```sh
    set -o pipefail
-   make markdownlint | tee /tmp/10-4-1-markdownlint.log
+   make markdownlint | tee /tmp/16-4-1-markdownlint.log
    ```
 
    ```sh
    set -o pipefail
-   make nixie | tee /tmp/10-4-1-nixie.log
+   make nixie | tee /tmp/16-4-1-nixie.log
    ```
 
 4. Manual runtime proof for the example:
@@ -399,7 +399,7 @@ Acceptance criteria:
 - `docs/users-guide.md` and `docs/wireframe-client-design.md` include
   configuration tables, lifecycle diagrams, and troubleshooting guidance.
 - Design decision rationale is recorded in `docs/wireframe-client-design.md`.
-- `docs/roadmap.md` marks 10.4.1 and 10.4.2 as done.
+- `docs/roadmap.md` marks 16.4.1 and 16.4.2 as done.
 - All gates in "Concrete steps" pass.
 
 Quality method:
@@ -422,9 +422,9 @@ Quality method:
 
 Capture concise evidence in commit/PR notes:
 
-- command log file paths under `/tmp/10-4-1-*.log`,
+- command log file paths under `/tmp/16-4-1-*.log`,
 - terminal output line showing decoded acknowledgement,
-- and final roadmap diff lines marking 10.4.1/10.4.2 complete.
+- and final roadmap diff lines marking 16.4.1/16.4.2 complete.
 
 ## Interfaces and dependencies
 
@@ -442,8 +442,8 @@ Dependency policy:
 - Reuse existing crates (`tokio`, `wireframe`, `rstest`, `rstest-bdd`).
 - Do not add external dependencies.
 
-Revision note (2026-02-23): Initial draft created for roadmap items 10.4.1 and
-10.4.2. This revision defines acknowledgement semantics for the echo contract,
+Revision note (2026-02-23): Initial draft created for roadmap items 16.4.1 and
+16.4.2. This revision defines acknowledgement semantics for the echo contract,
 scopes file targets, and sets mandatory validation gates for implementation.
 
 Revision note (2026-02-23): Implementation completed. This revision records

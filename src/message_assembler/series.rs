@@ -197,51 +197,74 @@ impl MessageSeries {
         Ok(MessageSeriesStatus::Incomplete)
     }
 
+    /// Starts explicit sequence tracking when the first numbered continuation
+    /// arrives after an untracked series.
+    ///
+    /// The helper records the next expected sequence number and reports
+    /// overflow only when additional frames are still required.
+    fn handle_untracked_first_sequence(
+        &mut self,
+        incoming: FrameSequence,
+        is_last: bool,
+    ) -> Result<(), MessageSeriesError> {
+        // First continuation with a sequence number; start tracking.
+        self.sequence_tracking = SequenceTracking::Tracked;
+        self.next_sequence = incoming.checked_increment();
+        // Overflow is only an error if more frames are expected.
+        if self.next_sequence.is_none() && !is_last {
+            return Err(MessageSeriesError::SequenceOverflow { last: incoming });
+        }
+        Ok(())
+    }
+
+    /// Validates a numbered continuation against the tracked expectation and
+    /// advances the series state when the sequence is correct.
+    ///
+    /// The helper rejects duplicates, gaps, and unexpected overflow so
+    /// `validate_and_advance_sequence` can delegate the tracked path without
+    /// re-embedding the decision tree.
+    fn advance_tracked_sequence(
+        &mut self,
+        incoming: FrameSequence,
+        is_last: bool,
+    ) -> Result<(), MessageSeriesError> {
+        let expected = self
+            .next_sequence
+            .ok_or(MessageSeriesError::SequenceOverflow { last: incoming })?;
+
+        if incoming.0 < expected.0 {
+            // Duplicate: sequence already seen.
+            return Err(MessageSeriesError::DuplicateFrame {
+                key: self.message_key,
+                sequence: incoming,
+            });
+        }
+
+        if incoming != expected {
+            // Out of order or gap.
+            return Err(MessageSeriesError::SequenceMismatch {
+                expected,
+                found: incoming,
+            });
+        }
+
+        // Advance expected sequence.
+        self.next_sequence = incoming.checked_increment();
+        // Overflow is only an error if more frames are expected.
+        if self.next_sequence.is_none() && !is_last {
+            return Err(MessageSeriesError::SequenceOverflow { last: incoming });
+        }
+        Ok(())
+    }
+
     fn validate_and_advance_sequence(
         &mut self,
         incoming: FrameSequence,
         is_last: bool,
     ) -> Result<(), MessageSeriesError> {
         match self.sequence_tracking {
-            SequenceTracking::Untracked => {
-                // First continuation with a sequence number; start tracking
-                self.sequence_tracking = SequenceTracking::Tracked;
-                self.next_sequence = incoming.checked_increment();
-                // Overflow is only an error if more frames are expected
-                if self.next_sequence.is_none() && !is_last {
-                    return Err(MessageSeriesError::SequenceOverflow { last: incoming });
-                }
-                Ok(())
-            }
-            SequenceTracking::Tracked => {
-                let expected = self
-                    .next_sequence
-                    .ok_or(MessageSeriesError::SequenceOverflow { last: incoming })?;
-
-                if incoming.0 < expected.0 {
-                    // Duplicate: sequence already seen
-                    return Err(MessageSeriesError::DuplicateFrame {
-                        key: self.message_key,
-                        sequence: incoming,
-                    });
-                }
-
-                if incoming != expected {
-                    // Out of order or gap
-                    return Err(MessageSeriesError::SequenceMismatch {
-                        expected,
-                        found: incoming,
-                    });
-                }
-
-                // Advance expected sequence
-                self.next_sequence = incoming.checked_increment();
-                // Overflow is only an error if more frames are expected
-                if self.next_sequence.is_none() && !is_last {
-                    return Err(MessageSeriesError::SequenceOverflow { last: incoming });
-                }
-                Ok(())
-            }
+            SequenceTracking::Untracked => self.handle_untracked_first_sequence(incoming, is_last),
+            SequenceTracking::Tracked => self.advance_tracked_sequence(incoming, is_last),
         }
     }
 }

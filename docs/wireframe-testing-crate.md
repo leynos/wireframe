@@ -38,7 +38,7 @@ deterministically without external exporters.
   for the default codec and example codecs.
 - `src/multi_packet.rs` keeps the `collect_multi_packet` helper.
 - `src/client_pair.rs` provides the in-process server/client pair harness for
-  loopback integration tests (roadmap `12.3.2`).
+  loopback integration tests (roadmap `17.3.2`).
 
 ## Dependencies
 
@@ -499,7 +499,7 @@ async fn example() -> TestResult<()> {
 ### Rationale
 
 The harness uses real loopback TCP rather than `tokio::io::duplex` because the
-purpose of `12.3.2` is client/server compatibility, not in-memory app driving.
+purpose of `17.3.2` is client/server compatibility, not in-memory app driving.
 It lives in `wireframe_testing` rather than `wireframe::testkit` to avoid
 widening the optional production feature surface for a purely test-facing
 capability.

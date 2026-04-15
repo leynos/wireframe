@@ -1,4 +1,4 @@
-# Implement hybrid client connection pooling with `bb8` and custom per-socket admission/fairness controls (11.2.1)
+# Implement hybrid client connection pooling with `bb8` and custom per-socket admission/fairness controls (17.2.1)
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,7 +9,7 @@ Status: COMPLETE (all validation commands currently pass)
 
 ## Purpose / big picture
 
-Roadmap item `11.2.1` requires a configurable client connection pool that keeps
+Roadmap item `17.2.1` requires a configurable client connection pool that keeps
 already-negotiated preamble state on reused sockets, enforces a bounded number
 of admitted operations per socket, and recycles idle sockets to avoid stale
 connections.
@@ -25,7 +25,7 @@ and acquire pooled client leases for request work. Reused leases stay on warm
 connections (no repeated preamble handshake), while idle connections are
 re-established automatically when they exceed the configured idle threshold.
 
-Trade-off accepted for `11.2.1`: more functionality now with battle-tested pool
+Trade-off accepted for `17.2.1`: more functionality now with battle-tested pool
 operations. If deeper per-socket multiplex control is needed later, the pool
 internals will be reviewed and potentially revised in a follow-up phase.
 
@@ -37,11 +37,11 @@ Observable success:
   through user-facing scenarios;
 - `docs/users-guide.md` documents the public pool API and migration guidance;
 - design decisions are recorded in `docs/wireframe-client-design.md`; and
-- `docs/roadmap.md` marks `11.2.1` as done only after all quality gates pass.
+- `docs/roadmap.md` marks `17.2.1` as done only after all quality gates pass.
 
 ## Constraints
 
-- Scope is limited to roadmap item `11.2.1`.
+- Scope is limited to roadmap item `17.2.1`.
 - Existing `WireframeClient` single-connection APIs must remain backward
   compatible.
 - No single source file may exceed 400 lines; extract submodules before
@@ -60,7 +60,7 @@ Observable success:
   names exactly.
 - Design decisions must be added to `docs/wireframe-client-design.md`.
 - Public API changes must be documented in `docs/users-guide.md`.
-- `docs/roadmap.md` `11.2.1` is updated to done only after full validation.
+- `docs/roadmap.md` `17.2.1` is updated to done only after full validation.
 - Follow guidance from:
   - `docs/generic-message-fragmentation-and-re-assembly-design.md`
   - `docs/multi-packet-and-streaming-responses-design.md`
@@ -80,7 +80,7 @@ Observable success:
 - Dependencies: if a new crate other than `bb8` is required, stop and
   escalate.
 - Ambiguity: if in-flight semantics cannot be made coherent without also
-  implementing `11.2.2` fairness/pool-handle work, stop and escalate with
+  implementing `17.2.2` fairness/pool-handle work, stop and escalate with
   alternatives.
 - Iterations: if the same gate fails 3 times after focused fixes, stop and
   escalate.
@@ -116,7 +116,7 @@ Observable success:
 
 ## Progress
 
-- [x] (2026-03-05 17:47Z) Drafted ExecPlan for `11.2.1`.
+- [x] (2026-03-05 17:47Z) Drafted ExecPlan for `17.2.1`.
 - [x] (2026-03-06 09:42Z) Revised strategy to the hybrid `bb8` + custom
   admission/fairness approach.
 - [x] Stage A: finalize pool interface and internal module boundaries.
@@ -133,7 +133,7 @@ Observable success:
   `docs/wireframe-client-design.md`. Evidence: repository search for
   `PoolHandle`, `connection pool`, and client-side pool code only matches
   roadmap/design placeholders. Impact: this plan defines initial pool semantics
-  explicitly to avoid implicit assumptions leaking into `11.2.2`.
+  explicitly to avoid implicit assumptions leaking into `17.2.2`.
 
 - Observation: `src/client/runtime.rs` is at 399 lines.
   Evidence: `wc -l src/client/runtime.rs`. Impact: all pool implementation must
@@ -166,11 +166,11 @@ Observable success:
   fairness controls. Rationale: this delivers battle-tested pooling behaviour
   quickly while preserving Wireframe-specific control points. If deeper
   multiplex control is needed later, that can be reviewed without blocking
-  `11.2.1`. Date/Author: 2026-03-06 / plan revision.
+  `17.2.1`. Date/Author: 2026-03-06 / plan revision.
 
 - Decision: define in-flight limiting as a per-socket admission bound enforced
   by permits (not transport-level multiplexing fairness). Rationale: satisfies
-  `11.2.1` while keeping `11.2.2` (`PoolHandle` fairness) as a follow-on
+  `17.2.1` while keeping `17.2.2` (`PoolHandle` fairness) as a follow-on
   feature. Date/Author: 2026-03-05 / plan phase.
 
 - Decision: perform idle recycling on acquisition path (lazy recycle) instead
@@ -340,13 +340,13 @@ alternatives before implementation continues.
 Update docs after implementation passes tests:
 
 - `docs/wireframe-client-design.md`:
-  add a new section/decision record for `11.2.1` covering pool semantics,
+  add a new section/decision record for `17.2.1` covering pool semantics,
   in-flight definition, preamble lifecycle, and idle recycle strategy.
 - `docs/users-guide.md`:
   add public API guidance, config reference row(s), and usage example for
   pooled connections.
 - `docs/roadmap.md`:
-  mark `11.2.1` as done.
+  mark `17.2.1` as done.
 
 Also add/adjust rustdoc examples for new public pool API and run doctest gates.
 
@@ -356,22 +356,22 @@ Run from repository root (`/home/user/project`). Use logs for every gate.
 
 ```plaintext
 set -o pipefail
-cargo test --all-features src::client::tests::pool 2>&1 | tee /tmp/11-2-1-unit-red.log
-cargo test --test bdd --all-features -- client_pool 2>&1 | tee /tmp/11-2-1-bdd-red.log
+cargo test --all-features src::client::tests::pool 2>&1 | tee /tmp/17-2-1-unit-red.log
+cargo test --test bdd --all-features -- client_pool 2>&1 | tee /tmp/17-2-1-bdd-red.log
 ```
 
 Expected during Stage B: at least one new test fails before implementation.
 
 ```plaintext
 set -o pipefail
-make fmt 2>&1 | tee /tmp/11-2-1-fmt.log
-make check-fmt 2>&1 | tee /tmp/11-2-1-check-fmt.log
-make lint 2>&1 | tee /tmp/11-2-1-lint.log
-make test 2>&1 | tee /tmp/11-2-1-test.log
-make test-doc 2>&1 | tee /tmp/11-2-1-test-doc.log
-make doctest-benchmark 2>&1 | tee /tmp/11-2-1-doctest-benchmark.log
-make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/11-2-1-markdownlint.log
-make nixie 2>&1 | tee /tmp/11-2-1-nixie.log
+make fmt 2>&1 | tee /tmp/17-2-1-fmt.log
+make check-fmt 2>&1 | tee /tmp/17-2-1-check-fmt.log
+make lint 2>&1 | tee /tmp/17-2-1-lint.log
+make test 2>&1 | tee /tmp/17-2-1-test.log
+make test-doc 2>&1 | tee /tmp/17-2-1-test-doc.log
+make doctest-benchmark 2>&1 | tee /tmp/17-2-1-doctest-benchmark.log
+make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 | tee /tmp/17-2-1-markdownlint.log
+make nixie 2>&1 | tee /tmp/17-2-1-nixie.log
 ```
 
 Expected final result: all commands exit `0` and logs contain no new warnings
@@ -396,7 +396,7 @@ Acceptance is behavioural and must be demonstrated by tests and docs.
 - Documentation:
   - `docs/users-guide.md` includes new consumer-facing pool interface details;
   - `docs/wireframe-client-design.md` records design decisions;
-  - `docs/roadmap.md` marks `11.2.1` done.
+  - `docs/roadmap.md` marks `17.2.1` done.
 
 ## Idempotence and recovery
 
@@ -410,7 +410,7 @@ Acceptance is behavioural and must be demonstrated by tests and docs.
 
 ## Artifacts and notes
 
-Capture implementation evidence in temporary logs under `/tmp/11-2-1-*.log`. At
+Capture implementation evidence in temporary logs under `/tmp/17-2-1-*.log`. At
 minimum retain:
 
 - first red test run proving tests fail before implementation;
@@ -488,7 +488,7 @@ Dependencies for this milestone:
 
 ## Revision note
 
-- 2026-03-05: Initial draft created for roadmap item `11.2.1`, with staged
+- 2026-03-05: Initial draft created for roadmap item `17.2.1`, with staged
   implementation, test strategy (`rstest` + `rstest-bdd`), explicit tolerance
   gates, and required documentation/roadmap updates.
 - 2026-03-06: Revised to a hybrid pool strategy: `bb8` for lifecycle/reaping/

@@ -1,4 +1,4 @@
-# 11.1.2 Structured logging and tracing spans
+# 17.1.2 Structured logging and tracing spans
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,7 +9,7 @@ Status: COMPLETE
 
 ## Purpose / big picture
 
-Roadmap item 11.1.2 requires structured logging and tracing spans around client
+Roadmap item 17.1.2 requires structured logging and tracing spans around client
 connect, call, send, receive, close, and stream lifecycle events, plus
 configuration for per-command timing. After this change, every client operation
 emits a `tracing` span with structured fields (frame size, correlation ID,
@@ -45,7 +45,7 @@ Hard invariants. Violation requires escalation, not workarounds.
   `tracing-test` are already in `Cargo.toml`).
 - Design decisions must be recorded in `docs/wireframe-client-design.md`.
 - `docs/users-guide.md` must be updated with the new public API surface.
-- `docs/roadmap.md` item 11.1.2 must be marked done only after all gates pass.
+- `docs/roadmap.md` item 17.1.2 must be marked done only after all gates pass.
 
 ## Tolerances (exception triggers)
 
@@ -563,7 +563,7 @@ usage, span output examples, and per-command timing example.
 
 **E3. Mark roadmap item done.**
 
-In `docs/roadmap.md`, change `- [ ] 11.1.2.` to `- [x] 11.1.2.`.
+In `docs/roadmap.md`, change `- [ ] 17.1.2.` to `- [x] 17.1.2.`.
 
 **E4. Final validation.**
 
@@ -605,7 +605,7 @@ Quality criteria (what "done" means):
 - The `frame_count()` method on `ResponseStream` is public.
 - `docs/users-guide.md` documents the new builder methods and `TracingConfig`.
 - `docs/wireframe-client-design.md` records the design decisions.
-- `docs/roadmap.md` marks 11.1.2 as done.
+- `docs/roadmap.md` marks 17.1.2 as done.
 
 ## Idempotence and recovery
 
@@ -671,7 +671,7 @@ client.call_streaming{correlation_id=1, frame.bytes=42}  [DEBUG]
 | `tests/scenarios/mod.rs`          | ~36           | ~37            | `mod client_tracing_scenarios;`                                 |
 | `docs/wireframe-client-design.md` | 369           | ~400           | "Tracing instrumentation" section                               |
 | `docs/users-guide.md`             | 1926          | ~1975          | "Client tracing" subsection                                     |
-| `docs/roadmap.md`                 | ~500          | ~500           | Mark 11.1.2 done                                                |
+| `docs/roadmap.md`                 | ~500          | ~500           | Mark 17.1.2 done                                                |
 
 Total: 8 new + 15 modified = 23 files. All source files under 400 lines.
 

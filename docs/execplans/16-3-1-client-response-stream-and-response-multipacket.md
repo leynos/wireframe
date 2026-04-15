@@ -403,7 +403,7 @@ Update `tests/fixtures/mod.rs` to add `pub mod client_streaming;`. Update
    - Example code showing the streaming API end-to-end.
 
 3. Update `docs/roadmap.md`:
-   mark item 10.3.1 as done.
+   mark item 16.3.1 as done.
 
 ### Stage H: Validation
 
@@ -492,7 +492,7 @@ Quality criteria:
 Quality method:
 
 - Run `make check-fmt && make lint && make test` and verify exit 0.
-- Manually verify `docs/roadmap.md` shows 10.3.1 as done.
+- Manually verify `docs/roadmap.md` shows 16.3.1 as done.
 - Verify `docs/users-guide.md` contains streaming client documentation.
 
 ## Idempotence and recovery
