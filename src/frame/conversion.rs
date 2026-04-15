@@ -71,6 +71,7 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     let prefix = bytes
         .get(..size)
         .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, ERR_INCOMPLETE_PREFIX))?;
+    let mut buf = [0u8; 8];
     fill_buf_with_prefix(&mut buf, prefix, endianness);
 
     // Wire prefix declares its endianness; normalising into an 8-byte buffer and
