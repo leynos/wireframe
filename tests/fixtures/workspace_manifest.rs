@@ -1,6 +1,7 @@
 //! Fixture world for workspace-manifest behavioural scenarios.
 
 use rstest::fixture;
+use serde_json::Value;
 
 use crate::workspace_manifest_support::{
     WorkspaceManifestResult as FixtureResult,
@@ -98,13 +99,22 @@ impl WorkspaceManifestWorld {
     ///
     /// Returns an error when the metadata widens default-member coverage.
     pub fn verify_root_is_only_default_member(&self) -> TestResult {
-        let metadata = self.metadata()?;
-        let expected = format!("\"workspace_default_members\":[\"{}\"]", self.package_id()?);
-        if !metadata.contains(&expected) {
-            return Err(
-                "workspace metadata did not keep the root package as the only default member"
-                    .into(),
-            );
+        let package_id = self.package_id()?;
+        let metadata = serde_json::from_str::<Value>(self.metadata()?)?;
+        let workspace_default_members = metadata
+            .get("workspace_default_members")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                "cargo metadata should expose workspace_default_members as an array".to_owned()
+            })?;
+        if workspace_default_members.len() != 1
+            || workspace_default_members.first().and_then(Value::as_str) != Some(package_id)
+        {
+            return Err(format!(
+                "workspace metadata did not keep the root package as the only default member: \
+                 {workspace_default_members:?}"
+            )
+            .into());
         }
         Ok(())
     }

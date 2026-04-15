@@ -221,8 +221,9 @@ impl MessageSeries {
         incoming: FrameSequence,
         is_last: bool,
     ) -> Result<(), MessageSeriesError> {
+        self.advance_sequence_or_overflow(incoming, is_last)?;
         self.sequence_tracking = SequenceTracking::Tracked;
-        self.advance_sequence_or_overflow(incoming, is_last)
+        Ok(())
     }
 
     /// Validate and advance the sequence number while tracking is active.
