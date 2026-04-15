@@ -221,13 +221,8 @@ impl MessageSeries {
         incoming: FrameSequence,
         is_last: bool,
     ) -> Result<(), MessageSeriesError> {
-        let new_next = incoming.checked_increment();
-        if new_next.is_none() && !is_last {
-            return Err(MessageSeriesError::SequenceOverflow { last: incoming });
-        }
         self.sequence_tracking = SequenceTracking::Tracked;
-        self.next_sequence = new_next;
-        Ok(())
+        self.advance_sequence_or_overflow(incoming, is_last)
     }
 
     /// Validate and advance the sequence number while tracking is active.
