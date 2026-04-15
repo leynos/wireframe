@@ -133,3 +133,47 @@ capability-oriented directory access and `camino` for UTF-8-typed paths.
 behaviour-driven development (BDD) fixture for these assertions. Extend it by
 loading more workspace-state inputs in `load()` and adding focused verification
 methods that the step definitions and scenario can reuse.
+
+## Test infrastructure and framework
+
+### rstest and rstest-bdd
+
+The test suite uses [`rstest`](https://crates.io/crates/rstest) for
+fixture-based parametric tests and `rstest-bdd` (via `rstest_bdd_macros`) for
+behaviour-driven development (BDD) scenarios expressed in Gherkin.
+
+Fixtures are plain Rust functions annotated with `#[fixture]`. Inject them into
+tests by listing them as parameters; `rstest` constructs each fixture before
+running the test body.
+
+BDD scenarios live in `.feature` files under `tests/features/`. Each file
+describes one or more scenarios using the standard Given/When/Then syntax.
+Scenario functions are annotated with `#[scenario(path = "…", name = "…")]` and
+receive fixture parameters by name.
+
+### Feature files and step definitions
+
+Each `.feature` file under `tests/features/` has a corresponding
+step-definition module under `tests/steps/`. Step functions are annotated with
+`#[given]`, `#[when]`, or `#[then]` and accept a mutable reference to the BDD
+world fixture as their first argument.
+
+Add new scenarios by:
+
+1. Writing a new Gherkin scenario in the relevant `.feature` file.
+2. Implementing the missing step functions in the corresponding
+   `tests/steps/` module.
+3. Adding a scenario function in `tests/scenarios/` that names the new
+   scenario, injects the fixture, and delegates to a helper that invokes the
+   step logic in sequence.
+
+### `LoggerHandle::Default` and `ObservabilityHandle::Default`
+
+Both `LoggerHandle` (in `wireframe_testing::logging`) and `ObservabilityHandle`
+(in `wireframe_testing::observability`) implement `Default`. The `default()`
+method delegates to `new()` in each case, providing a convenient way to acquire
+a fresh handle without explicitly calling the constructor.
+
+`LoggerHandle::new()` tolerates a poisoned mutex: if a prior test panicked
+while holding the logger lock, `new()` recovers the guard via `into_inner()`
+and drains any buffered log records so the next test starts from a clean state.

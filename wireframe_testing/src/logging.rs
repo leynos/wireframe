@@ -38,6 +38,15 @@ pub struct LoggerHandle {
     guard: MutexGuard<'static, Logger>,
 }
 
+/// Returns a static reference to the shared global logger [`Mutex`].
+///
+/// The logger is initialised on first access via a [`OnceLock`]. All
+/// [`LoggerHandle`] instances share this single mutex, which serialises
+/// log capture across concurrent tests.
+///
+/// If a prior test panicked while holding the mutex, callers can recover
+/// the guard via [`std::sync::PoisonError::into_inner`] (see
+/// [`LoggerHandle::new`]) without losing access to the logger.
 fn shared_logger() -> &'static Mutex<Logger> {
     static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
     LOGGER.get_or_init(|| Mutex::new(Logger::start()))
