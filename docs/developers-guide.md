@@ -43,6 +43,23 @@ Use this checklist before merging API naming changes:
 - Label cross-layer terms (for example, `correlation_id`) explicitly as shared
   metadata.
 
+## Message sequence validation architecture
+
+Message continuation ordering lives in `src/message_assembler/series.rs`. The
+public-facing control point is `validate_and_advance_sequence()`, which keeps
+the series state machine readable by delegating to two private helpers:
+
+- `handle_untracked_first_sequence()` handles the first numbered continuation
+  after an untracked start. It switches the series into tracked mode and
+  derives the next expected sequence.
+- `advance_tracked_sequence()` handles all later numbered continuations once
+  tracking is active. It rejects duplicates, gaps, and sequence overflow before
+  advancing the expected sequence.
+
+This split is intentional. The helpers isolate the untracked-to-tracked
+transition from steady-state tracked validation so sequence policy stays flat,
+testable, and documentation-friendly during future refactors.
+
 ## Vocabulary normalization outcome (2026-02-20)
 
 The 2026-02-20 normalization pass aligned docs and rustdoc terminology to this

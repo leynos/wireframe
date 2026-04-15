@@ -197,6 +197,11 @@ impl MessageSeries {
         Ok(MessageSeriesStatus::Incomplete)
     }
 
+    /// Starts explicit sequence tracking when the first numbered continuation
+    /// arrives after an untracked series.
+    ///
+    /// The helper records the next expected sequence number and reports
+    /// overflow only when additional frames are still required.
     fn handle_untracked_first_sequence(
         &mut self,
         incoming: FrameSequence,
@@ -212,6 +217,12 @@ impl MessageSeries {
         Ok(())
     }
 
+    /// Validates a numbered continuation against the tracked expectation and
+    /// advances the series state when the sequence is correct.
+    ///
+    /// The helper rejects duplicates, gaps, and unexpected overflow so
+    /// `validate_and_advance_sequence` can delegate the tracked path without
+    /// re-embedding the decision tree.
     fn advance_tracked_sequence(
         &mut self,
         incoming: FrameSequence,
