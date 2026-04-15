@@ -27,14 +27,18 @@ pub(crate) fn root_manifest() -> WorkspaceManifestResult<String> {
 }
 
 pub(crate) fn run_cargo(args: &[&str]) -> WorkspaceManifestResult<String> {
-    let subcommand = args.first().copied().unwrap_or("cargo");
+    let command_args = if args.is_empty() {
+        "<no-subcommand>".to_owned()
+    } else {
+        args.join(" ")
+    };
     let output = Command::new("cargo")
         .args(args)
         .current_dir(repo_root()?)
         .output()?;
     if !output.status.success() {
         return Err(format!(
-            "`cargo {subcommand}` failed: {}",
+            "`cargo {command_args}` failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )
         .into());

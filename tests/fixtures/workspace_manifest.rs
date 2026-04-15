@@ -17,6 +17,7 @@ pub type TestResult = FixtureResult<()>;
 pub struct WorkspaceManifestWorld {
     manifest: Option<String>,
     metadata: Option<String>,
+    package_id: Option<String>,
 }
 
 #[fixture]
@@ -35,6 +36,7 @@ impl WorkspaceManifestWorld {
     pub fn load(&mut self) -> TestResult {
         self.manifest = Some(root_manifest()?);
         self.metadata = Some(cargo_metadata()?);
+        self.package_id = Some(root_package_id()?);
         Ok(())
     }
 
@@ -48,6 +50,12 @@ impl WorkspaceManifestWorld {
         self.metadata
             .as_deref()
             .ok_or_else(|| "workspace metadata not loaded".to_owned())
+    }
+
+    fn package_id(&self) -> Result<&str, String> {
+        self.package_id
+            .as_deref()
+            .ok_or_else(|| "workspace package id not loaded".to_owned())
     }
 
     /// Verify the root manifest declares the staged hybrid workspace contract.
@@ -78,7 +86,7 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the metadata omits the root package.
     pub fn verify_root_is_workspace_member(&self) -> TestResult {
         let metadata = self.metadata()?;
-        if !metadata.contains(&root_package_id()?) {
+        if !metadata.contains(self.package_id()?) {
             return Err("workspace metadata did not include the root package".into());
         }
         Ok(())
@@ -91,7 +99,7 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the metadata widens default-member coverage.
     pub fn verify_root_is_only_default_member(&self) -> TestResult {
         let metadata = self.metadata()?;
-        let expected = format!("\"workspace_default_members\":[\"{}\"]", root_package_id()?);
+        let expected = format!("\"workspace_default_members\":[\"{}\"]", self.package_id()?);
         if !metadata.contains(&expected) {
             return Err(
                 "workspace metadata did not keep the root package as the only default member"

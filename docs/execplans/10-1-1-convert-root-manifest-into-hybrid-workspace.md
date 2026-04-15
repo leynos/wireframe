@@ -151,7 +151,7 @@ Observable success is:
 - Discovery: `cargo metadata` already reported the repository root as a
   one-member workspace before the explicit `[workspace]` section existed,
   because a lone package still produces workspace-shaped metadata. The
-  regression tests therefore check both the manifest text and the metadata so
+  regression tests therefore check both the manifest text and the metadata, so
   the explicit hybrid-workspace contract is observable.
 
 - Discovery: once the root manifest became an explicit workspace, Cargo pulled

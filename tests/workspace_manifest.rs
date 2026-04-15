@@ -8,6 +8,7 @@
 mod workspace_manifest_support;
 
 use rstest::rstest;
+use serde_json::Value;
 use workspace_manifest_support::{
     WorkspaceManifestResult as TestResult,
     cargo_metadata,
@@ -16,6 +17,8 @@ use workspace_manifest_support::{
     root_manifest,
     root_package_id,
 };
+
+fn parse_metadata_json(metadata: &str) -> TestResult<Value> { Ok(serde_json::from_str(metadata)?) }
 
 fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
@@ -60,6 +63,7 @@ fn cargo_metadata_reports_root_as_only_workspace_member_and_default_member() -> 
     let manifest_path = repo_root.join("Cargo.toml");
     let manifest_path_str = manifest_path.as_str();
     let metadata = cargo_metadata()?;
+    let metadata_json = parse_metadata_json(&metadata)?;
 
     assert!(
         contains_json_string_field(&metadata, "workspace_root", repo_root_str),
@@ -73,8 +77,18 @@ fn cargo_metadata_reports_root_as_only_workspace_member_and_default_member() -> 
         metadata.contains(&package_id),
         "workspace metadata should include the root package"
     );
-    assert!(
-        metadata.contains(&format!("\"workspace_default_members\":[\"{package_id}\"]")),
+    let workspace_default_members = metadata_json
+        .get("workspace_default_members")
+        .and_then(Value::as_array)
+        .expect("cargo metadata should expose workspace_default_members as an array");
+    assert_eq!(
+        workspace_default_members.len(),
+        1,
+        "10.1.1 should keep exactly one default workspace member"
+    );
+    assert_eq!(
+        workspace_default_members.first().and_then(Value::as_str),
+        Some(package_id.as_str()),
         "10.1.1 should keep the root package as the only default workspace member"
     );
     assert!(

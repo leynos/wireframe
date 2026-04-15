@@ -116,7 +116,8 @@ module, not a library crate, because the code is test-only scaffolding and
 should not widen the published crate surface or add another Cargo target.
 
 The support layer uses `cap-std` with the `fs_utf8` feature for
-capability-oriented directory access and `camino` for UTF-8-typed paths.
+capability-oriented directory access, `camino` for UTF-8-typed paths, and
+`serde_json` for structured assertions over `cargo metadata` output.
 
 - `repo_root()` locates the repository root as a `Utf8PathBuf`.
 - `repo_dir()` opens that root as a `cap_std::fs_utf8::Dir`.

@@ -3411,6 +3411,7 @@ dependencies = [
  "rstest-bdd",
  "rstest-bdd-macros",
  "serde",
+ "serde_json",
  "serial_test",
  "socket2 0.6.0",
  "static_assertions",
