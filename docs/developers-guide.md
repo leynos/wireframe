@@ -50,9 +50,9 @@ public-facing control point is `validate_and_advance_sequence()`, which keeps
 the series state machine readable by delegating to two private helpers:
 
 - `start_sequence_tracking()` handles the first numbered continuation after an
-  untracked start. It validates and records the next expected sequence number
-  via `advance_sequence_or_overflow()`, then switches the series into tracked
-  mode once that succeeds.
+  untracked start. It switches the series into tracked mode and then delegates
+  to `advance_sequence_or_overflow()` to derive and record the next expected
+  sequence number.
 - `advance_tracked_sequence()` handles all later numbered continuations once
   tracking is active. It rejects duplicates, gaps, and sequence overflow before
   calling `advance_sequence_or_overflow()` to advance the expected sequence.
@@ -67,29 +67,6 @@ the untracked-to-tracked transition; `advance_tracked_sequence()` owns the
 duplicate/gap/out-of-order validation; and `advance_sequence_or_overflow()`
 owns the overflow decision. Each piece is independently testable and the
 decision tree stays flat and readable during future refactors.
-
-### `fill_buf_with_prefix`
-
-The private helper `fill_buf_with_prefix(buf, prefix, endianness)` in
-`src/frame/conversion.rs` copies a validated length-prefix byte slice into the
-correct position of an 8-byte staging buffer. For big-endian prefixes it places
-the bytes at the high end of the buffer (`buf[8 - size..]`); for little-endian
-prefixes it places them at the low end (`buf[..size]`). Callers must guarantee
-that `prefix.len()` is one of `{1, 2, 4, 8}`. This is enforced upstream in
-`bytes_to_u64`, which is why the helper suppresses
-`clippy::indexing_slicing` with an `#[expect]` attribute that documents the
-invariant.
-
-### `ServerShutdownHandle`
-
-`ServerShutdownHandle` in `wireframe_testing::client_pair` is a type alias for
-the tuple `(oneshot::Sender<()>, JoinHandle<Result<(), ServerError>>)` that
-`PendingServer` stores between server startup and explicit shutdown. Naming the
-alias keeps `PendingServer`'s field types readable and makes
-`PendingServer::take` return a self-documenting `Option<ServerShutdownHandle>`
-instead of an opaque inline tuple. Tests that call `WireframePair::shutdown()`
-do not interact with this type directly; it is an internal implementation
-detail of the pair harness.
 
 ## Vocabulary normalization outcome (2026-02-20)
 
