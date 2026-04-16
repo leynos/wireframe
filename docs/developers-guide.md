@@ -208,4 +208,5 @@ a fresh handle without explicitly calling the constructor.
 
 `LoggerHandle::new()` tolerates a poisoned mutex: if a prior test panicked
 while holding the logger lock, `new()` recovers the guard via `into_inner()`
-and drains any buffered log records so the next test starts from a clean state.
+and drains any buffered log records, so the next test starts from a clean
+state.
