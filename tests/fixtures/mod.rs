@@ -45,3 +45,4 @@ pub mod streaming_request;
 pub mod test_observability;
 pub mod testkit_export;
 pub mod unified_codec;
+pub mod workspace_manifest;

@@ -9,6 +9,9 @@
 #[path = "../common/terminator.rs"]
 mod terminator;
 
+#[path = "../common/workspace_manifest_support.rs"]
+mod workspace_manifest_support;
+
 #[path = "../support.rs"]
 mod support;
 

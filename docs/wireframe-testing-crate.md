@@ -422,6 +422,34 @@ Tests using `ObservabilityHandle` should not run concurrently; the global lock
 serializes access, so favour a shared fixture or a dedicated serial test binary
 for observability assertions.
 
+### `Default` implementations
+
+Both `LoggerHandle` and `ObservabilityHandle` implement `Default`. The
+`default()` method delegates to `new()` in each case, so the two forms are
+equivalent:
+
+```rust,no_run
+use wireframe_testing::{LoggerHandle, observability::ObservabilityHandle};
+
+// These two lines are identical in effect:
+let handle = LoggerHandle::default();
+let handle = LoggerHandle::new();
+
+let obs = ObservabilityHandle::default();
+let obs = ObservabilityHandle::new();
+```
+
+`Default::default()` (or a derived `#[derive(Default)]` on a fixture struct)
+fits cases where the handle is a field of a larger fixture world and the
+standard initialization machinery should construct it automatically. `new()`
+fits cases where an explicit construction point with a visible call site is
+required, for example during recovery from a poisoned mutex in test teardown.
+
+`LoggerHandle::new()` is poison-tolerant: if a prior test panicked while
+holding the shared logger mutex, `new()` recovers the guard and drains any
+stale log records before returning the handle, so the next test begins from a
+clean state.
+
 The codec-error regression coverage added for roadmap item 9.7.4 establishes a
 recommended pattern for taxonomy assertions:
 

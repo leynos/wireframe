@@ -256,12 +256,16 @@ impl ObservabilityHandle {
     pub fn codec_error_counter(&self, error_type: &str, recovery_policy: &str) -> u64 {
         self.counter(
             wireframe::metrics::CODEC_ERRORS,
-            &[
+            [
                 ("error_type", error_type),
                 ("recovery_policy", recovery_policy),
             ],
         )
     }
+}
+
+impl Default for ObservabilityHandle {
+    fn default() -> Self { Self::new() }
 }
 
 /// rstest fixture returning an [`ObservabilityHandle`] for test
@@ -284,4 +288,17 @@ impl ObservabilityHandle {
 pub fn obs_handle() -> ObservabilityHandle {
     // Acquire the global logger and create a fresh metrics recorder
     ObservabilityHandle::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ObservabilityHandle;
+
+    #[test]
+    fn default_returns_usable_handle() {
+        // Verify that Default delegates to new() and the handle is functional.
+        let mut handle = ObservabilityHandle::default();
+        // The handle must allow clearing without panicking.
+        handle.clear();
+    }
 }
