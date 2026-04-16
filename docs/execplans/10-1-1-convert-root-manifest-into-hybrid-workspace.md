@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: IMPLEMENTED
+Status: IMPLEMENTED (environment-limited validation)
 
 This document must be maintained in accordance with `AGENTS.md` at the
 repository root, including quality gates, test policy, and documentation style
@@ -131,11 +131,13 @@ Observable success is:
 - [x] (2026-04-11) Stage D: updated the formal-verification guide, updated the
       developers' guide, inspected the user guide and determined no consumer
       guidance change was required, and marked roadmap item 10.1.1 done.
-- [ ] Stage E: run the full validation and documentation gates. Most gates
-      passed on 2026-04-11, but `make lint` remains blocked by the missing
-      `whitaker` wrapper in the execution environment even though `cargo doc`
-      and `cargo clippy --all-targets --all-features -- -D warnings` both
-      passed.
+- [x] (2026-04-11) Stage E: ran the full validation and documentation gates.
+      Repository checks passed except for environment-limited tooling:
+      `make lint` remained blocked by the missing `whitaker` wrapper even
+      though `cargo doc` and
+      `cargo clippy --all-targets --all-features -- -D warnings` both passed,
+      and `make fmt` remained blocked because `mdformat-all` requires `fd` in
+      the execution environment.
 
 ## Surprises & Discoveries
 

@@ -33,17 +33,36 @@ fn checked_prefix_cast<T: TryFrom<usize>>(len: usize) -> io::Result<T> {
 ///
 /// Callers must guarantee that `prefix.len()` is one of `{1, 2, 4, 8}`.
 #[inline]
-fn fill_buf_with_prefix(buf: &mut [u8; 8], prefix: &[u8], endianness: Endianness) {
+fn fill_buf_with_prefix(
+    buf: &mut [u8; 8],
+    prefix: &[u8],
+    endianness: Endianness,
+) -> io::Result<()> {
     let size = prefix.len();
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "size is validated upstream to be 1, 2, 4, or 8, so both slice ranges are \
-                  in-bounds"
-    )]
-    match endianness {
-        Endianness::Big => buf[8 - size..].copy_from_slice(prefix),
-        Endianness::Little => buf[..size].copy_from_slice(prefix),
+    if !matches!(size, 1 | 2 | 4 | 8) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            ERR_UNSUPPORTED_PREFIX,
+        ));
     }
+    let target = match endianness {
+        Endianness::Big => {
+            let start = 8usize.checked_sub(size).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX)
+            })?;
+            let end = start.checked_add(size).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX)
+            })?;
+            buf.get_mut(start..end).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX)
+            })?
+        }
+        Endianness::Little => buf
+            .get_mut(..size)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?,
+    };
+    target.copy_from_slice(prefix);
+    Ok(())
 }
 
 /// Converts a byte slice into a `u64` according to `size` and `endianness`.
@@ -72,7 +91,7 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
         .get(..size)
         .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, ERR_INCOMPLETE_PREFIX))?;
     let mut buf = [0u8; 8];
-    fill_buf_with_prefix(&mut buf, prefix, endianness);
+    fill_buf_with_prefix(&mut buf, prefix, endianness)?;
 
     // Wire prefix declares its endianness; normalising into an 8-byte buffer and
     // using explicit conversion helpers keeps decoding deterministic on any host
@@ -187,55 +206,43 @@ pub fn u64_to_bytes(
 mod tests {
     //! Unit tests for prefix-buffer placement across supported endianness cases.
 
+    use rstest::rstest;
+
     use super::*;
     use crate::frame::format::Endianness;
 
-    #[test]
-    fn fill_buf_with_prefix_big_endian_one_byte() {
+    #[rstest]
+    #[case(&[0xab], Endianness::Big, [0, 0, 0, 0, 0, 0, 0, 0xab])]
+    #[case(&[0x01, 0x02], Endianness::Big, [0, 0, 0, 0, 0, 0, 0x01, 0x02])]
+    #[case(
+        &[0x01, 0x02, 0x03, 0x04],
+        Endianness::Big,
+        [0, 0, 0, 0, 0x01, 0x02, 0x03, 0x04]
+    )]
+    #[case(
+        &[1, 2, 3, 4, 5, 6, 7, 8],
+        Endianness::Big,
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    )]
+    #[case(&[0xcd], Endianness::Little, [0xcd, 0, 0, 0, 0, 0, 0, 0])]
+    #[case(&[0x01, 0x02], Endianness::Little, [0x01, 0x02, 0, 0, 0, 0, 0, 0])]
+    #[case(
+        &[0x01, 0x02, 0x03, 0x04],
+        Endianness::Little,
+        [0x01, 0x02, 0x03, 0x04, 0, 0, 0, 0]
+    )]
+    #[case(
+        &[1, 2, 3, 4, 5, 6, 7, 8],
+        Endianness::Little,
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    )]
+    fn fill_buf_with_prefix_copies_bytes_into_expected_region(
+        #[case] input: &[u8],
+        #[case] endianness: Endianness,
+        #[case] expected: [u8; 8],
+    ) {
         let mut buf = [0u8; 8];
-        fill_buf_with_prefix(&mut buf, &[0xab], Endianness::Big);
-        assert_eq!(buf, [0, 0, 0, 0, 0, 0, 0, 0xab]);
-    }
-
-    #[test]
-    fn fill_buf_with_prefix_big_endian_two_bytes() {
-        let mut buf = [0u8; 8];
-        fill_buf_with_prefix(&mut buf, &[0x01, 0x02], Endianness::Big);
-        assert_eq!(buf, [0, 0, 0, 0, 0, 0, 0x01, 0x02]);
-    }
-
-    #[test]
-    fn fill_buf_with_prefix_big_endian_four_bytes() {
-        let mut buf = [0u8; 8];
-        fill_buf_with_prefix(&mut buf, &[0x01, 0x02, 0x03, 0x04], Endianness::Big);
-        assert_eq!(buf, [0, 0, 0, 0, 0x01, 0x02, 0x03, 0x04]);
-    }
-
-    #[test]
-    fn fill_buf_with_prefix_big_endian_eight_bytes() {
-        let mut buf = [0u8; 8];
-        fill_buf_with_prefix(&mut buf, &[1, 2, 3, 4, 5, 6, 7, 8], Endianness::Big);
-        assert_eq!(buf, [1, 2, 3, 4, 5, 6, 7, 8]);
-    }
-
-    #[test]
-    fn fill_buf_with_prefix_little_endian_one_byte() {
-        let mut buf = [0u8; 8];
-        fill_buf_with_prefix(&mut buf, &[0xcd], Endianness::Little);
-        assert_eq!(buf, [0xcd, 0, 0, 0, 0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn fill_buf_with_prefix_little_endian_four_bytes() {
-        let mut buf = [0u8; 8];
-        fill_buf_with_prefix(&mut buf, &[0x01, 0x02, 0x03, 0x04], Endianness::Little);
-        assert_eq!(buf, [0x01, 0x02, 0x03, 0x04, 0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn fill_buf_with_prefix_little_endian_eight_bytes() {
-        let mut buf = [0u8; 8];
-        fill_buf_with_prefix(&mut buf, &[1, 2, 3, 4, 5, 6, 7, 8], Endianness::Little);
-        assert_eq!(buf, [1, 2, 3, 4, 5, 6, 7, 8]);
+        fill_buf_with_prefix(&mut buf, input, endianness).expect("prefix copy should succeed");
+        assert_eq!(buf, expected);
     }
 }

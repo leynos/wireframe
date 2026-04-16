@@ -68,6 +68,29 @@ duplicate/gap/out-of-order validation; and `advance_sequence_or_overflow()`
 owns the overflow decision. Each piece is independently testable and the
 decision tree stays flat and readable during future refactors.
 
+### `fill_buf_with_prefix`
+
+The private helper `fill_buf_with_prefix(buf, prefix, endianness)` in
+`src/frame/conversion.rs` copies a validated length-prefix byte slice into the
+correct position of an 8-byte staging buffer. For big-endian prefixes it places
+the bytes at the high end of the buffer (`buf[8 - size..]`); for little-endian
+prefixes it places them at the low end (`buf[..size]`). Callers must guarantee
+that `prefix.len()` is one of `{1, 2, 4, 8}`; this invariant is enforced
+upstream in `bytes_to_u64`, which is why the helper validates the range before
+copying and reports an error when the prefix width falls outside the supported
+set.
+
+### `ServerShutdownHandle`
+
+`ServerShutdownHandle` in `wireframe_testing::client_pair` is a type alias for
+the tuple `(oneshot::Sender<()>, JoinHandle<Result<(), ServerError>>)` that
+`PendingServer` stores between server start-up and explicit shutdown. Naming
+the alias keeps `PendingServer`'s field types readable and makes
+`PendingServer::take` return a self-documenting
+`Option<ServerShutdownHandle>` instead of an opaque inline tuple. Tests that
+call `WireframePair::shutdown()` do not interact with this type directly; it
+is an internal implementation detail of the pair harness.
+
 ## Vocabulary normalization outcome (2026-02-20)
 
 The 2026-02-20 normalization pass aligned docs and rustdoc terminology to this

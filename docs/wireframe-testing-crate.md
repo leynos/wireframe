@@ -439,11 +439,11 @@ let obs = ObservabilityHandle::default();
 let obs = ObservabilityHandle::new();
 ```
 
-Use `Default::default()` (or the derived `#[derive(Default)]` macro on a
-fixture struct) when the handle is a field of a larger fixture world and you
-want the standard initialisation machinery to construct it automatically. Use
-`new()` when you need an explicit construction point with a visible call site,
-for example when recovering from a poisoned mutex during test teardown.
+`Default::default()` (or a derived `#[derive(Default)]` on a fixture struct)
+fits cases where the handle is a field of a larger fixture world and the
+standard initialization machinery should construct it automatically. `new()`
+fits cases where an explicit construction point with a visible call site is
+required, for example during recovery from a poisoned mutex in test teardown.
 
 `LoggerHandle::new()` is poison-tolerant: if a prior test panicked while
 holding the shared logger mutex, `new()` recovers the guard and drains any

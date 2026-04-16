@@ -65,18 +65,16 @@ impl WorkspaceManifestWorld {
 
     fn metadata_json(&self) -> FixtureResult<Value> { Ok(serde_json::from_str(self.metadata()?)?) }
 
-    fn metadata_string_array<'a>(
-        metadata: &'a Value,
-        field: &str,
-    ) -> Result<&'a Vec<Value>, String> {
+    fn metadata_array<'a>(metadata: &'a Value, field: &str) -> Result<&'a [Value], String> {
         metadata
             .get(field)
             .and_then(Value::as_array)
+            .map(Vec::as_slice)
             .ok_or_else(|| format!("cargo metadata should expose {field} as an array"))
     }
 
-    fn packages(metadata: &Value) -> Result<&Vec<Value>, String> {
-        Self::metadata_string_array(metadata, "packages")
+    fn packages(metadata: &Value) -> Result<&[Value], String> {
+        Self::metadata_array(metadata, "packages")
     }
 
     fn packages_include_name(metadata: &Value, name: &str) -> Result<bool, String> {
@@ -114,7 +112,7 @@ impl WorkspaceManifestWorld {
     pub fn verify_root_is_workspace_member(&self) -> TestResult {
         let package_id = self.package_id()?;
         let metadata = self.metadata_json()?;
-        let workspace_members = Self::metadata_string_array(&metadata, "workspace_members")?;
+        let workspace_members = Self::metadata_array(&metadata, "workspace_members")?;
         if !workspace_members
             .iter()
             .any(|member| member.as_str() == Some(package_id))
@@ -144,7 +142,7 @@ impl WorkspaceManifestWorld {
         let package_id = self.package_id()?;
         let metadata = self.metadata_json()?;
         let workspace_default_members =
-            Self::metadata_string_array(&metadata, "workspace_default_members")?;
+            Self::metadata_array(&metadata, "workspace_default_members")?;
         if workspace_default_members.len() != 1
             || workspace_default_members.first().and_then(Value::as_str) != Some(package_id)
         {
@@ -165,13 +163,7 @@ impl WorkspaceManifestWorld {
     /// crate unexpectedly disappears from Cargo metadata.
     pub fn verify_verification_crate_is_absent(&self) -> TestResult {
         let metadata = self.metadata_json()?;
-        let workspace_members = Self::metadata_string_array(&metadata, "workspace_members")?;
-        if workspace_members.iter().any(|member| {
-            member
-                .as_str()
-                .is_some_and(|member| member.contains(VERIFICATION_PACKAGE_NAME))
-        }) || Self::packages_include_name(&metadata, VERIFICATION_PACKAGE_NAME)?
-        {
+        if Self::packages_include_name(&metadata, VERIFICATION_PACKAGE_NAME)? {
             return Err(
                 "verification crate should not join the workspace until roadmap item 10.1.2".into(),
             );
