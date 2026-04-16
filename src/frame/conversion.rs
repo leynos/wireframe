@@ -182,3 +182,58 @@ pub fn u64_to_bytes(
 
     Ok(size)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::frame::format::Endianness;
+
+    #[test]
+    fn fill_buf_with_prefix_big_endian_one_byte() {
+        let mut buf = [0u8; 8];
+        fill_buf_with_prefix(&mut buf, &[0xab], Endianness::Big);
+        assert_eq!(buf, [0, 0, 0, 0, 0, 0, 0, 0xab]);
+    }
+
+    #[test]
+    fn fill_buf_with_prefix_big_endian_two_bytes() {
+        let mut buf = [0u8; 8];
+        fill_buf_with_prefix(&mut buf, &[0x01, 0x02], Endianness::Big);
+        assert_eq!(buf, [0, 0, 0, 0, 0, 0, 0x01, 0x02]);
+    }
+
+    #[test]
+    fn fill_buf_with_prefix_big_endian_four_bytes() {
+        let mut buf = [0u8; 8];
+        fill_buf_with_prefix(&mut buf, &[0x01, 0x02, 0x03, 0x04], Endianness::Big);
+        assert_eq!(buf, [0, 0, 0, 0, 0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    fn fill_buf_with_prefix_big_endian_eight_bytes() {
+        let mut buf = [0u8; 8];
+        fill_buf_with_prefix(&mut buf, &[1, 2, 3, 4, 5, 6, 7, 8], Endianness::Big);
+        assert_eq!(buf, [1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn fill_buf_with_prefix_little_endian_one_byte() {
+        let mut buf = [0u8; 8];
+        fill_buf_with_prefix(&mut buf, &[0xcd], Endianness::Little);
+        assert_eq!(buf, [0xcd, 0, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fill_buf_with_prefix_little_endian_four_bytes() {
+        let mut buf = [0u8; 8];
+        fill_buf_with_prefix(&mut buf, &[0x01, 0x02, 0x03, 0x04], Endianness::Little);
+        assert_eq!(buf, [0x01, 0x02, 0x03, 0x04, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fill_buf_with_prefix_little_endian_eight_bytes() {
+        let mut buf = [0u8; 8];
+        fill_buf_with_prefix(&mut buf, &[1, 2, 3, 4, 5, 6, 7, 8], Endianness::Little);
+        assert_eq!(buf, [1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+}

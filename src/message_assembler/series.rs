@@ -276,3 +276,89 @@ impl MessageSeries {
         self.next_sequence = Some(next);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::message_assembler::{FirstFrameHeader, FrameSequence, MessageKey};
+
+    fn make_series() -> MessageSeries {
+        MessageSeries::from_first_frame(&FirstFrameHeader {
+            message_key: MessageKey(1),
+            metadata_len: 0,
+            body_len: 10,
+            total_body_len: None,
+            is_last: false,
+        })
+    }
+
+    proptest! {
+        /// Non-maximum sequences always advance without overflow error when
+        /// `is_last` is `false`.
+        #[test]
+        fn advance_sequence_or_overflow_no_error_below_max(seq in 0u32..u32::MAX) {
+            let mut series = make_series();
+            let incoming = FrameSequence(seq);
+            let result = series.advance_sequence_or_overflow(incoming, false);
+            prop_assert!(result.is_ok());
+            prop_assert_eq!(series.next_sequence, Some(FrameSequence(seq + 1)));
+        }
+
+        /// `start_sequence_tracking` always switches to Tracked mode for
+        /// non-overflowing sequence values.
+        #[test]
+        fn start_sequence_tracking_always_tracks(seq in 0u32..u32::MAX) {
+            let mut series = make_series();
+            prop_assert_eq!(series.sequence_tracking, SequenceTracking::Untracked);
+            let result = series.start_sequence_tracking(FrameSequence(seq), false);
+            prop_assert!(result.is_ok());
+            prop_assert_eq!(series.sequence_tracking, SequenceTracking::Tracked);
+        }
+
+        /// `advance_tracked_sequence` accepts exactly the expected sequence.
+        #[test]
+        fn advance_tracked_sequence_accepts_exact_match(expected in 1u32..u32::MAX) {
+            let mut series = make_series();
+            series.force_next_sequence_for_tests(FrameSequence(expected));
+            let result = series.advance_tracked_sequence(FrameSequence(expected), false);
+            prop_assert!(result.is_ok());
+        }
+
+        /// Any sequence strictly below `expected` is a duplicate.
+        #[test]
+        fn advance_tracked_sequence_duplicate_below_expected(
+            expected in 1u32..=u32::MAX,
+            delta in 1u32..=255u32,
+        ) {
+            let incoming = expected.saturating_sub(delta);
+            prop_assume!(incoming < expected);
+            let mut series = make_series();
+            series.force_next_sequence_for_tests(FrameSequence(expected));
+            let result = series.advance_tracked_sequence(FrameSequence(incoming), false);
+            match result {
+                Err(MessageSeriesError::DuplicateFrame { .. }) => {}
+                _ => prop_assert!(false, "expected duplicate frame error"),
+            }
+        }
+    }
+
+    #[test]
+    fn advance_sequence_or_overflow_errors_at_max_non_last() {
+        let mut series = make_series();
+        let result = series.advance_sequence_or_overflow(FrameSequence(u32::MAX), false);
+        assert!(matches!(
+            result,
+            Err(MessageSeriesError::SequenceOverflow { .. })
+        ));
+    }
+
+    #[test]
+    fn advance_sequence_or_overflow_ok_at_max_when_last() {
+        let mut series = make_series();
+        let result = series.advance_sequence_or_overflow(FrameSequence(u32::MAX), true);
+        assert!(result.is_ok());
+        assert_eq!(series.next_sequence, None);
+    }
+}
