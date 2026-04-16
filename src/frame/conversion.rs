@@ -185,6 +185,8 @@ pub fn u64_to_bytes(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for prefix-buffer placement across supported endianness cases.
+
     use super::*;
     use crate::frame::format::Endianness;
 

@@ -279,6 +279,8 @@ impl MessageSeries {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for sequence tracking, overflow, and ordering helpers.
+
     use super::*;
     use crate::message_assembler::{FirstFrameHeader, FrameSequence, MessageKey};
 
