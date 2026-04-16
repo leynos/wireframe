@@ -144,9 +144,10 @@ Observable success is:
   `default-members = ["."]`, but its example shows the later end-state member
   list that includes `crates/wireframe-verification`.
 
-- Discovery: `wireframe_testing` is currently a separate path crate and not a
-  workspace member, which means a hybrid workspace conversion must avoid
-  accidentally implying that all path crates join the workspace automatically.
+- Discovery: `wireframe_testing` is currently a separate path crate and not
+  explicitly listed in the `members` array, which means a hybrid workspace
+  conversion must avoid accidentally implying that all path crates join the
+  workspace automatically.
 
 - Discovery: `cargo metadata` already reported the repository root as a
   one-member workspace before the explicit `[workspace]` section existed,

@@ -12,6 +12,9 @@ use crate::workspace_manifest_support::{
 };
 
 pub type TestResult = FixtureResult<()>;
+const ROOT_PACKAGE_NAME: &str = "wireframe";
+const HELPER_PACKAGE_NAME: &str = "wireframe_testing";
+const VERIFICATION_PACKAGE_NAME: &str = "wireframe-verification";
 
 /// BDD world holding the root manifest and `cargo metadata` output.
 #[derive(Debug, Default)]
@@ -21,6 +24,7 @@ pub struct WorkspaceManifestWorld {
     package_id: Option<String>,
 }
 
+#[rustfmt::skip]
 #[fixture]
 pub fn workspace_manifest_world() -> WorkspaceManifestWorld {
     std::hint::black_box(());
@@ -59,6 +63,28 @@ impl WorkspaceManifestWorld {
             .ok_or_else(|| "workspace package id not loaded".to_owned())
     }
 
+    fn metadata_json(&self) -> FixtureResult<Value> { Ok(serde_json::from_str(self.metadata()?)?) }
+
+    fn metadata_string_array<'a>(
+        metadata: &'a Value,
+        field: &str,
+    ) -> Result<&'a Vec<Value>, String> {
+        metadata
+            .get(field)
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("cargo metadata should expose {field} as an array"))
+    }
+
+    fn packages(metadata: &Value) -> Result<&Vec<Value>, String> {
+        Self::metadata_string_array(metadata, "packages")
+    }
+
+    fn packages_include_name(metadata: &Value, name: &str) -> Result<bool, String> {
+        Ok(Self::packages(metadata)?
+            .iter()
+            .any(|package| package.get("name").and_then(Value::as_str) == Some(name)))
+    }
+
     /// Verify the root manifest declares the staged hybrid workspace contract.
     ///
     /// # Errors
@@ -86,9 +112,25 @@ impl WorkspaceManifestWorld {
     ///
     /// Returns an error when the metadata omits the root package.
     pub fn verify_root_is_workspace_member(&self) -> TestResult {
-        let metadata = self.metadata()?;
-        if !metadata.contains(self.package_id()?) {
-            return Err("workspace metadata did not include the root package".into());
+        let package_id = self.package_id()?;
+        let metadata = self.metadata_json()?;
+        let workspace_members = Self::metadata_string_array(&metadata, "workspace_members")?;
+        if !workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(package_id))
+        {
+            return Err(format!(
+                "workspace metadata did not include the root package id in workspace_members: \
+                 {workspace_members:?}"
+            )
+            .into());
+        }
+        if !Self::packages_include_name(&metadata, ROOT_PACKAGE_NAME)? {
+            return Err(format!(
+                "cargo metadata packages did not include the root package name \
+                 `{ROOT_PACKAGE_NAME}`"
+            )
+            .into());
         }
         Ok(())
     }
@@ -100,13 +142,9 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the metadata widens default-member coverage.
     pub fn verify_root_is_only_default_member(&self) -> TestResult {
         let package_id = self.package_id()?;
-        let metadata = serde_json::from_str::<Value>(self.metadata()?)?;
-        let workspace_default_members = metadata
-            .get("workspace_default_members")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                "cargo metadata should expose workspace_default_members as an array".to_owned()
-            })?;
+        let metadata = self.metadata_json()?;
+        let workspace_default_members =
+            Self::metadata_string_array(&metadata, "workspace_default_members")?;
         if workspace_default_members.len() != 1
             || workspace_default_members.first().and_then(Value::as_str) != Some(package_id)
         {
@@ -126,13 +164,19 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the 10.1.2 crate appears too early or the helper
     /// crate unexpectedly disappears from Cargo metadata.
     pub fn verify_verification_crate_is_absent(&self) -> TestResult {
-        let metadata = self.metadata()?;
-        if metadata.contains("wireframe-verification") {
+        let metadata = self.metadata_json()?;
+        let workspace_members = Self::metadata_string_array(&metadata, "workspace_members")?;
+        if workspace_members.iter().any(|member| {
+            member
+                .as_str()
+                .is_some_and(|member| member.contains(VERIFICATION_PACKAGE_NAME))
+        }) || Self::packages_include_name(&metadata, VERIFICATION_PACKAGE_NAME)?
+        {
             return Err(
                 "verification crate should not join the workspace until roadmap item 10.1.2".into(),
             );
         }
-        if !metadata.contains("\"wireframe_testing\"") {
+        if !Self::packages_include_name(&metadata, HELPER_PACKAGE_NAME)? {
             return Err(
                 "workspace metadata should continue to report the in-repository helper crate"
                     .into(),
