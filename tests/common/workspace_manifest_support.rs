@@ -50,8 +50,14 @@ pub(crate) fn cargo_metadata() -> WorkspaceManifestResult<String> {
     run_cargo(&["metadata", "--no-deps", "--format-version", "1"])
 }
 
-pub(crate) fn root_package_id() -> WorkspaceManifestResult<String> {
-    run_cargo(&["pkgid", "--", "wireframe"]).map(|stdout| stdout.trim().to_owned())
+pub(crate) fn cargo_package_id(package_name: &str) -> WorkspaceManifestResult<String> {
+    run_cargo(&["pkgid", "--", package_name]).map(|stdout| stdout.trim().to_owned())
+}
+
+pub(crate) fn root_package_id() -> WorkspaceManifestResult<String> { cargo_package_id("wireframe") }
+
+pub(crate) fn verification_package_id() -> WorkspaceManifestResult<String> {
+    cargo_package_id("wireframe-verification")
 }
 
 pub(crate) fn has_manifest_line(manifest: &str, expected: &str) -> bool {

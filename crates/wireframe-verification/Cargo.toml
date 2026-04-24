@@ -1,0 +1,12 @@
+[package]
+name = "wireframe-verification"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+stateright = "0.31.0"
+wireframe = { path = "../..", features = ["test-support"] }
+
+[dev-dependencies]
+rstest = "0.26.1"

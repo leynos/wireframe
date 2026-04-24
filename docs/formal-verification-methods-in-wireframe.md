@@ -315,39 +315,39 @@ make local execution clumsy.
 
 ### Root `Cargo.toml` changes
 
-Add a workspace section to the root manifest:
+The root manifest should carry the explicit hybrid workspace used today:
 
 ```toml
 [workspace]
-members = ["."]
+members = [".", "crates/wireframe-verification"]
 default-members = ["."]
 resolver = "3"
 ```
 
 Why `default-members = ["."]`?
 
-Because the repo currently behaves like a single-package crate. Keeping only
-the root package as a default member means `cargo test`, `cargo check`, and
-`cargo clippy` at the repo root do not suddenly start running the verification
-crate by accident.[^26]
+Because the repo still behaves like a single-package crate for day-to-day
+development. Keeping only the root package as a default member means
+`cargo test`, `cargo check`, and `cargo clippy` at the repo root do not
+suddenly start running the verification crate by accident.[^26]
 
 That is a small but important stability choice.
 
 One nuance matters here: Cargo metadata for this repository still reports the
-in-repository helper crate `wireframe_testing` in `workspace_members` once the
-root manifest becomes an explicit workspace, even though the staged
-`members = ["."]` list only names the root package. The practical 10.1.1
-contract is therefore:
+in-repository helper crate `wireframe_testing` in `workspace_members`. The
+practical post-15.1.2 contract is therefore:
 
 - the root manifest is explicitly workspace-aware,
+- the dedicated verification crate is an explicit workspace member,
 - the root `wireframe` package remains the sole `default-members` entry, and
-- the dedicated verification crate is still deferred until 10.1.2.
+- `wireframe_testing` may still appear in metadata even though it is not named
+  in the `members` array.
 
-This should land in two stages:
+This still reflects a two-stage rollout:
 
-1. Roadmap item 10.1.1 adds the explicit hybrid workspace with
+1. Roadmap item 15.1.1 adds the explicit hybrid workspace with
    `members = ["."]`.
-2. Roadmap item 10.1.2 extends the member list to
+2. Roadmap item 15.1.2 extends the member list to
    `[".", "crates/wireframe-verification"]` when the verification crate exists.
 
 That staging keeps the Cargo layout change separate from the introduction of
@@ -560,8 +560,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-stateright = "0.30"
-wireframe = { path = "../..", default-features = false, features = ["test-support"] }
+stateright = "0.31.0"
+wireframe = { path = "../..", features = ["test-support"] }
 
 [dev-dependencies]
 rstest = "0.26"
@@ -571,6 +571,10 @@ rstest = "0.26"
 repo already calls for it. mxd uses `nextest`, but Wireframe’s current Makefile
 uses `cargo test`.[^12][^15] The important part is the **separate crate and
 shared harness**, not the exact test runner.
+
+The reduced-feature dependency shown in earlier drafts turned out not to match
+the current main crate, so the repository now uses the normal `wireframe`
+feature set for this infrastructure step.
 
 ### Model scope
 

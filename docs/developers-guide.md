@@ -86,10 +86,10 @@ set.
 the tuple `(oneshot::Sender<()>, JoinHandle<Result<(), ServerError>>)` that
 `PendingServer` stores between server start-up and explicit shutdown. Naming
 the alias keeps `PendingServer`'s field types readable and makes
-`PendingServer::take` return a self-documenting
-`Option<ServerShutdownHandle>` instead of an opaque inline tuple. Tests that
-call `WireframePair::shutdown()` do not interact with this type directly; it
-is an internal implementation detail of the pair harness.
+`PendingServer::take` return a self-documenting `Option<ServerShutdownHandle>`
+instead of an opaque inline tuple. Tests that call `WireframePair::shutdown()`
+do not interact with this type directly; it is an internal implementation
+detail of the pair harness.
 
 ## Vocabulary normalization outcome (2026-02-20)
 
@@ -118,10 +118,11 @@ continuous integration (CI).
 Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
 contains both `[package]` and `[workspace]`.
 
-During roadmap item 10.1.1 the workspace is intentionally staged with only the
-root package as a member and default member:
+After roadmap items 15.1.1 and 15.1.2 the workspace explicitly lists the root
+package and the internal verification crate, while keeping only the root
+package as a default member:
 
-- `members = ["."]`
+- `members = [".", "crates/wireframe-verification"]`
 - `default-members = ["."]`
 
 That means ordinary root-level commands such as `cargo build`, `cargo check`,
@@ -130,14 +131,20 @@ to target the main `wireframe` package by default.
 
 Use plain root-level Cargo commands for day-to-day work on the main crate.
 Reach for `--workspace` when a task is explicitly meant to cover every current
-workspace member, for example repository-wide validation in CI or when later
-roadmap items add internal verification crates.
+workspace member, for example repository-wide validation in CI or when a change
+also touches `crates/wireframe-verification`.
+
+Use `cargo test -p wireframe-verification` to exercise the Stateright crate in
+isolation. The existing `Makefile` targets still focus on the root `wireframe`
+crate because the dedicated formal-verification targets belong to later roadmap
+items.
 
 One Cargo nuance is worth knowing: `cargo metadata` for this repository still
 reports the in-tree helper crate `wireframe_testing` in `workspace_members`
-because it lives under the repository root as a path dependency. That does not
-change day-to-day command ergonomics because `default-members = ["."]` keeps
-plain root-level Cargo commands focused on the main `wireframe` package.
+because it lives under the repository root as a path dependency. That sits
+alongside the explicit `wireframe-verification` member and does not change
+day-to-day command ergonomics because `default-members = ["."]` keeps plain
+root-level Cargo commands focused on the main `wireframe` package.
 
 ### Workspace manifest test support
 
@@ -208,5 +215,4 @@ a fresh handle without explicitly calling the constructor.
 
 `LoggerHandle::new()` tolerates a poisoned mutex: if a prior test panicked
 while holding the logger lock, `new()` recovers the guard via `into_inner()`
-and drains any buffered log records, so the next test starts from a clean
-state.
+and drains any buffered log records, so the next test starts from a clean state.
