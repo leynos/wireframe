@@ -28,3 +28,15 @@ pub struct ConnectionState {
     pub(crate) shutdown_during_output: bool,
     pub(crate) multi_packet_terminal_count: u8,
 }
+
+impl ConnectionState {
+    pub(crate) fn is_output_idle(&self) -> bool { matches!(self.active_output, ActiveOutput::Idle) }
+
+    pub(crate) fn can_install_output(&self) -> bool {
+        !self.shutdown_requested && self.is_output_idle()
+    }
+
+    pub(crate) fn can_emit_low_priority(&self) -> bool {
+        self.low_priority_queued && (!self.high_priority_queued || self.fairness_allows_low)
+    }
+}

@@ -17,6 +17,124 @@ impl Default for PlaceholderConnectionModel {
 impl PlaceholderConnectionModel {
     /// Create a model with an explicit state-space depth bound.
     pub fn new(max_steps: u8) -> Self { Self { max_steps } }
+
+    fn stepped(state: &ConnectionState) -> ConnectionState {
+        let mut next = state.clone();
+        next.steps = next.steps.saturating_add(1);
+        next
+    }
+
+    fn apply_enqueue_high(state: &ConnectionState) -> Option<ConnectionState> {
+        if state.high_priority_queued {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.high_priority_queued = true;
+        Some(next)
+    }
+
+    fn apply_enqueue_low(state: &ConnectionState) -> Option<ConnectionState> {
+        if state.low_priority_queued {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.low_priority_queued = true;
+        Some(next)
+    }
+
+    fn apply_install_response(state: &ConnectionState) -> Option<ConnectionState> {
+        if !state.can_install_output() {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.active_output = ActiveOutput::Response;
+        Some(next)
+    }
+
+    fn apply_install_multi_packet(state: &ConnectionState) -> Option<ConnectionState> {
+        if !state.can_install_output() {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.active_output = ActiveOutput::MultiPacket;
+        next.multi_packet_terminal_count = 0;
+        Some(next)
+    }
+
+    fn apply_emit_high(state: &ConnectionState) -> Option<ConnectionState> {
+        if !state.high_priority_queued {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.high_priority_queued = false;
+        next.emitted_high_priority = true;
+        next.fairness_allows_low = true;
+        Some(next)
+    }
+
+    fn apply_emit_low(state: &ConnectionState) -> Option<ConnectionState> {
+        if !state.can_emit_low_priority() {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.low_priority_queued = false;
+        next.emitted_low_priority = true;
+        next.fairness_allows_low = false;
+        Some(next)
+    }
+
+    fn apply_emit_active_frame(state: &ConnectionState) -> Option<ConnectionState> {
+        if state.is_output_idle() {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        if state.shutdown_requested {
+            next.shutdown_during_output = true;
+        }
+        Some(next)
+    }
+
+    fn apply_complete_response(state: &ConnectionState) -> Option<ConnectionState> {
+        if !matches!(state.active_output, ActiveOutput::Response) {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.active_output = ActiveOutput::Idle;
+        next.response_completed = true;
+        Some(next)
+    }
+
+    fn apply_complete_multi_packet(state: &ConnectionState) -> Option<ConnectionState> {
+        if !matches!(state.active_output, ActiveOutput::MultiPacket) {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.active_output = ActiveOutput::Idle;
+        next.multi_packet_completed = true;
+        next.multi_packet_terminal_count = next.multi_packet_terminal_count.saturating_add(1);
+        Some(next)
+    }
+
+    fn apply_shutdown(state: &ConnectionState) -> Option<ConnectionState> {
+        if state.shutdown_requested {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.shutdown_requested = true;
+        if !state.is_output_idle() {
+            next.shutdown_during_output = true;
+        }
+        Some(next)
+    }
+
+    fn apply_tick_fairness(state: &ConnectionState) -> Option<ConnectionState> {
+        if !state.low_priority_queued {
+            return None;
+        }
+        let mut next = Self::stepped(state);
+        next.fairness_allows_low = true;
+        Some(next)
+    }
 }
 
 impl Model for PlaceholderConnectionModel {
@@ -40,84 +158,19 @@ impl Model for PlaceholderConnectionModel {
     }
 
     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
-        let mut next = state.clone();
-        next.steps = next.steps.saturating_add(1);
-
         match action {
-            ConnectionAction::EnqueueHigh if !state.high_priority_queued => {
-                next.high_priority_queued = true;
-                Some(next)
+            ConnectionAction::EnqueueHigh => Self::apply_enqueue_high(state),
+            ConnectionAction::EnqueueLow => Self::apply_enqueue_low(state),
+            ConnectionAction::InstallResponse => Self::apply_install_response(state),
+            ConnectionAction::InstallMultiPacket => Self::apply_install_multi_packet(state),
+            ConnectionAction::EmitQueued => {
+                Self::apply_emit_high(state).or_else(|| Self::apply_emit_low(state))
             }
-            ConnectionAction::EnqueueLow if !state.low_priority_queued => {
-                next.low_priority_queued = true;
-                Some(next)
-            }
-            ConnectionAction::InstallResponse
-                if !state.shutdown_requested
-                    && matches!(state.active_output, ActiveOutput::Idle) =>
-            {
-                next.active_output = ActiveOutput::Response;
-                Some(next)
-            }
-            ConnectionAction::InstallMultiPacket
-                if !state.shutdown_requested
-                    && matches!(state.active_output, ActiveOutput::Idle) =>
-            {
-                next.active_output = ActiveOutput::MultiPacket;
-                next.multi_packet_terminal_count = 0;
-                Some(next)
-            }
-            ConnectionAction::EmitQueued if state.high_priority_queued => {
-                next.high_priority_queued = false;
-                next.emitted_high_priority = true;
-                next.fairness_allows_low = true;
-                Some(next)
-            }
-            ConnectionAction::EmitQueued
-                if state.low_priority_queued
-                    && (!state.high_priority_queued || state.fairness_allows_low) =>
-            {
-                next.low_priority_queued = false;
-                next.emitted_low_priority = true;
-                next.fairness_allows_low = false;
-                Some(next)
-            }
-            ConnectionAction::EmitActiveFrame
-                if !matches!(state.active_output, ActiveOutput::Idle) =>
-            {
-                if state.shutdown_requested {
-                    next.shutdown_during_output = true;
-                }
-                Some(next)
-            }
-            ConnectionAction::CompleteActiveOutput
-                if matches!(state.active_output, ActiveOutput::Response) =>
-            {
-                next.active_output = ActiveOutput::Idle;
-                next.response_completed = true;
-                Some(next)
-            }
-            ConnectionAction::CompleteActiveOutput
-                if matches!(state.active_output, ActiveOutput::MultiPacket) =>
-            {
-                next.active_output = ActiveOutput::Idle;
-                next.multi_packet_completed = true;
-                next.multi_packet_terminal_count =
-                    next.multi_packet_terminal_count.saturating_add(1);
-                Some(next)
-            }
-            ConnectionAction::Shutdown if !state.shutdown_requested => {
-                next.shutdown_requested = true;
-                if !matches!(state.active_output, ActiveOutput::Idle) {
-                    next.shutdown_during_output = true;
-                }
-                Some(next)
-            }
-            ConnectionAction::TickFairness if state.low_priority_queued => {
-                next.fairness_allows_low = true;
-                Some(next)
-            }
-            _ => None,
+            ConnectionAction::EmitActiveFrame => Self::apply_emit_active_frame(state),
+            ConnectionAction::CompleteActiveOutput => Self::apply_complete_response(state)
+                .or_else(|| Self::apply_complete_multi_packet(state)),
+            ConnectionAction::Shutdown => Self::apply_shutdown(state),
+            ConnectionAction::TickFairness => Self::apply_tick_fairness(state),
         }
     }
 
