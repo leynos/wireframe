@@ -183,9 +183,7 @@ fn build_continuation_header_payload(spec: ContinuationHeaderSpec) -> Vec<u8> {
 }
 
 fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
-    TestAssembler
-        .parse_frame_header(payload)
-        .expect("header parse")
+    TestAssembler.parse_frame_header(payload).unwrap()
 }
 
 // =============================================================================

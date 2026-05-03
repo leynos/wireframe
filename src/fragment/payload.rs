@@ -187,7 +187,7 @@ mod tests {
         F: FnOnce(Vec<u8>) -> (u16, Vec<u8>), // (advertised_len, header_bytes)
         E: FnOnce(DecodeError),
     {
-        let encoded = encode_to_vec(header, config::standard()).expect("encode header");
+        let encoded = encode_to_vec(header, config::standard()).unwrap();
         let (advertised_len, header_bytes) = manipulate(encoded);
 
         let mut payload = Vec::new();

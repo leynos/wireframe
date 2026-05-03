@@ -24,7 +24,7 @@ use crate::message_assembler::{
 // ---------------------------------------------------------------------------
 
 /// Non-zero shorthand.
-fn nz(val: usize) -> NonZeroUsize { NonZeroUsize::new(val).expect("non-zero") }
+fn nz(val: usize) -> NonZeroUsize { NonZeroUsize::new(val).unwrap() }
 
 /// Build a [`FirstFrameHeader`] and [`FirstFrameInput`] in the caller's
 /// scope from a key, body slice, and finality flag.
@@ -36,8 +36,7 @@ fn nz(val: usize) -> NonZeroUsize { NonZeroUsize::new(val).expect("non-zero") }
 macro_rules! create_first_frame_input {
     ($hdr:ident, $inp:ident, $key:expr, $body:expr, $is_last:expr) => {
         let $hdr = first_header($key, $body.len(), $is_last);
-        let $inp =
-            FirstFrameInput::new(&$hdr, EnvelopeRouting::default(), vec![], $body).expect("valid");
+        let $inp = FirstFrameInput::new(&$hdr, EnvelopeRouting::default(), vec![], $body).unwrap();
     };
 }
 

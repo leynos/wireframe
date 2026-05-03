@@ -169,16 +169,16 @@ mod tests {
             }
         }
 
-        #[expect(clippy::expect_used, reason = "poisoned lock should fail tests loudly")]
+        #[expect(clippy::unwrap_used, reason = "poisoned lock should fail tests loudly")]
         fn advance(&self, dur: Duration) {
-            let mut now = self.now.lock().expect("MockClock mutex poisoned");
+            let mut now = self.now.lock().unwrap();
             *now += dur;
         }
     }
 
     impl Clock for MockClock {
-        #[expect(clippy::expect_used, reason = "poisoned lock should fail tests loudly")]
-        fn now(&self) -> Instant { *self.now.lock().expect("MockClock mutex poisoned") }
+        #[expect(clippy::unwrap_used, reason = "poisoned lock should fail tests loudly")]
+        fn now(&self) -> Instant { *self.now.lock().unwrap() }
     }
 
     #[rstest]
