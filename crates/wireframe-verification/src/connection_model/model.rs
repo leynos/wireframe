@@ -24,116 +24,100 @@ impl PlaceholderConnectionModel {
         next
     }
 
-    fn apply_enqueue_high(state: &ConnectionState) -> Option<ConnectionState> {
-        if state.high_priority_queued {
+    fn apply_if<F>(state: &ConnectionState, enabled: bool, mutate: F) -> Option<ConnectionState>
+    where
+        F: FnOnce(&mut ConnectionState),
+    {
+        if !enabled {
             return None;
         }
         let mut next = Self::stepped(state);
-        next.high_priority_queued = true;
+        mutate(&mut next);
         Some(next)
+    }
+
+    fn apply_enqueue_high(state: &ConnectionState) -> Option<ConnectionState> {
+        Self::apply_if(state, !state.high_priority_queued, |next| {
+            next.high_priority_queued = true;
+        })
     }
 
     fn apply_enqueue_low(state: &ConnectionState) -> Option<ConnectionState> {
-        if state.low_priority_queued {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.low_priority_queued = true;
-        Some(next)
+        Self::apply_if(state, !state.low_priority_queued, |next| {
+            next.low_priority_queued = true;
+        })
     }
 
     fn apply_install_response(state: &ConnectionState) -> Option<ConnectionState> {
-        if !state.can_install_output() {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.active_output = ActiveOutput::Response;
-        Some(next)
+        Self::apply_if(state, state.can_install_output(), |next| {
+            next.active_output = ActiveOutput::Response;
+        })
     }
 
     fn apply_install_multi_packet(state: &ConnectionState) -> Option<ConnectionState> {
-        if !state.can_install_output() {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.active_output = ActiveOutput::MultiPacket;
-        next.multi_packet_terminal_count = 0;
-        Some(next)
+        Self::apply_if(state, state.can_install_output(), |next| {
+            next.active_output = ActiveOutput::MultiPacket;
+            next.multi_packet_terminal_count = 0;
+        })
     }
 
     fn apply_emit_high(state: &ConnectionState) -> Option<ConnectionState> {
-        if !state.high_priority_queued {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.high_priority_queued = false;
-        next.emitted_high_priority = true;
-        next.fairness_allows_low = true;
-        Some(next)
+        Self::apply_if(state, state.high_priority_queued, |next| {
+            next.high_priority_queued = false;
+            next.emitted_high_priority = true;
+            next.fairness_allows_low = true;
+        })
     }
 
     fn apply_emit_low(state: &ConnectionState) -> Option<ConnectionState> {
-        if !state.can_emit_low_priority() {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.low_priority_queued = false;
-        next.emitted_low_priority = true;
-        next.fairness_allows_low = false;
-        Some(next)
+        Self::apply_if(state, state.can_emit_low_priority(), |next| {
+            next.low_priority_queued = false;
+            next.emitted_low_priority = true;
+            next.fairness_allows_low = false;
+        })
     }
 
     fn apply_emit_active_frame(state: &ConnectionState) -> Option<ConnectionState> {
-        if state.is_output_idle() {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        if state.shutdown_requested {
-            next.shutdown_during_output = true;
-        }
-        Some(next)
+        Self::apply_if(state, !state.is_output_idle(), |next| {
+            next.shutdown_during_output = state.shutdown_requested;
+        })
     }
 
     fn apply_complete_response(state: &ConnectionState) -> Option<ConnectionState> {
-        if !matches!(state.active_output, ActiveOutput::Response) {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.active_output = ActiveOutput::Idle;
-        next.response_completed = true;
-        Some(next)
+        Self::apply_if(
+            state,
+            matches!(state.active_output, ActiveOutput::Response),
+            |next| {
+                next.active_output = ActiveOutput::Idle;
+                next.response_completed = true;
+            },
+        )
     }
 
     fn apply_complete_multi_packet(state: &ConnectionState) -> Option<ConnectionState> {
-        if !matches!(state.active_output, ActiveOutput::MultiPacket) {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.active_output = ActiveOutput::Idle;
-        next.multi_packet_completed = true;
-        next.multi_packet_terminal_count = next.multi_packet_terminal_count.saturating_add(1);
-        Some(next)
+        Self::apply_if(
+            state,
+            matches!(state.active_output, ActiveOutput::MultiPacket),
+            |next| {
+                next.active_output = ActiveOutput::Idle;
+                next.multi_packet_completed = true;
+                next.multi_packet_terminal_count =
+                    next.multi_packet_terminal_count.saturating_add(1);
+            },
+        )
     }
 
     fn apply_shutdown(state: &ConnectionState) -> Option<ConnectionState> {
-        if state.shutdown_requested {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.shutdown_requested = true;
-        if !state.is_output_idle() {
-            next.shutdown_during_output = true;
-        }
-        Some(next)
+        Self::apply_if(state, !state.shutdown_requested, |next| {
+            next.shutdown_requested = true;
+            next.shutdown_during_output = !state.is_output_idle();
+        })
     }
 
     fn apply_tick_fairness(state: &ConnectionState) -> Option<ConnectionState> {
-        if !state.low_priority_queued {
-            return None;
-        }
-        let mut next = Self::stepped(state);
-        next.fairness_allows_low = true;
-        Some(next)
+        Self::apply_if(state, state.low_priority_queued, |next| {
+            next.fairness_allows_low = true;
+        })
     }
 }
 
