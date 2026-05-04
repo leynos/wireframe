@@ -24,10 +24,8 @@ use crate::message_assembler::{
 /// Creates a `MessageAssemblyState` with sensible defaults for testing.
 #[fixture]
 fn state_with_defaults() -> MessageAssemblyState {
-    MessageAssemblyState::new(
-        NonZeroUsize::new(1024).expect("1024 is non-zero"),
-        Duration::from_secs(30),
-    )
+    let size = NonZeroUsize::new(1024).unwrap_or(NonZeroUsize::MIN);
+    MessageAssemblyState::new(size, Duration::from_secs(30))
 }
 
 // =============================================================================
