@@ -441,12 +441,12 @@ Copy Chutoro’s split:
 
 ```make
 kani: ## Run practical Kani smoke harnesses
-	cargo kani -p wireframe --harness verify_length_prefix_roundtrip_smoke
-	cargo kani -p wireframe --harness verify_fragment_series_small_trace
-	cargo kani -p wireframe --harness verify_message_series_small_trace
+ cargo kani -p wireframe --harness verify_length_prefix_roundtrip_smoke
+ cargo kani -p wireframe --harness verify_fragment_series_small_trace
+ cargo kani -p wireframe --harness verify_message_series_small_trace
 
 kani-full: ## Run all Kani harnesses with larger bounds
-	cargo kani -p wireframe
+ cargo kani -p wireframe
 ```
 
 That pattern is one of the most useful ideas in Chutoro’s Makefile.[^7]
@@ -821,20 +821,20 @@ targets.[^15] The following targets should be added:
 .PHONY: test-verification stateright kani kani-full verus formal formal-pr formal-nightly
 
 test-verification: ## Run the Stateright verification crate
-	cargo test -p wireframe-verification
+ cargo test -p wireframe-verification
 
 stateright: test-verification ## Alias for verification models
 
 kani: ## Run Kani smoke harnesses
-	cargo kani -p wireframe --harness verify_length_prefix_roundtrip_smoke
-	cargo kani -p wireframe --harness verify_fragment_series_small_trace
-	cargo kani -p wireframe --harness verify_message_series_small_trace
+ cargo kani -p wireframe --harness verify_length_prefix_roundtrip_smoke
+ cargo kani -p wireframe --harness verify_fragment_series_small_trace
+ cargo kani -p wireframe --harness verify_message_series_small_trace
 
 kani-full: ## Run all Kani harnesses
-	cargo kani -p wireframe
+ cargo kani -p wireframe
 
 verus: ## Run Verus proofs
-	VERUS_BIN="$(VERUS_BIN)" scripts/run-verus.sh
+ VERUS_BIN="$(VERUS_BIN)" scripts/run-verus.sh
 
 formal-pr: test-verification kani verus ## Fast PR gate
 

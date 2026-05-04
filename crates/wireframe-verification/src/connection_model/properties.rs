@@ -7,10 +7,6 @@ use super::{ConnectionState, PlaceholderConnectionModel};
 pub(super) fn properties() -> Vec<Property<PlaceholderConnectionModel>> {
     vec![
         Property::always(
-            "active output remains exclusive",
-            active_output_is_exclusive,
-        ),
-        Property::always(
             "multi-packet terminator stays single",
             multi_packet_terminator_is_single,
         ),
@@ -29,13 +25,6 @@ pub(super) fn properties() -> Vec<Property<PlaceholderConnectionModel>> {
             shutdown_races_active_output,
         ),
     ]
-}
-
-fn active_output_is_exclusive(
-    _model: &PlaceholderConnectionModel,
-    _state: &ConnectionState,
-) -> bool {
-    true
 }
 
 fn multi_packet_terminator_is_single(

@@ -224,8 +224,8 @@ Relevant repository areas:
 
 - Before 10.1.1, `Cargo.toml` defined only the root `wireframe` package.
 - `wireframe_testing/Cargo.toml` depends on the root crate by path and is not
-  explicitly listed in the workspace `members` array, even though it may
-  appear in the `workspace_members` metadata set at runtime.
+  explicitly listed in the workspace `members` array, even though it may appear
+  in the `workspace_members` metadata set at runtime.
 - `docs/roadmap.md` owns the 10.1.1 acceptance criteria.
 - `docs/formal-verification-methods-in-wireframe.md` is the relevant design
   document and already defines the eventual hybrid-workspace end state.

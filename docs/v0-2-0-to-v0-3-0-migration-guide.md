@@ -892,10 +892,9 @@ yielding a `SendStreamingOutcome`.*
   inbound frame against that identifier.
 
 `ResponseStream` implements `futures::Stream` with
-`Item = Result<Frame, ClientError>`. It holds an exclusive borrow of the
-client for the duration of the stream, preventing concurrent sends. The
-terminator frame is consumed internally and the stream returns `None` once it
-arrives.
+`Item = Result<Frame, ClientError>`. It holds an exclusive borrow of the client
+for the duration of the stream, preventing concurrent sends. The terminator
+frame is consumed internally and the stream returns `None` once it arrives.
 
 ```rust
 use std::net::SocketAddr;

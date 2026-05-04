@@ -1,22 +1,31 @@
 //! Shared Stateright checker helpers for bounded repository validation.
 
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, num::NonZeroUsize};
 
 use stateright::{Checker, CheckerBuilder, Model};
 
 /// Default maximum depth for repository-local Stateright checks.
-pub const DEFAULT_TARGET_MAX_DEPTH: usize = 8;
+pub const DEFAULT_TARGET_MAX_DEPTH: NonZeroUsize = match NonZeroUsize::new(8) {
+    Some(v) => v,
+    _ => unreachable!(),
+};
 
 /// Default state budget for repository-local Stateright checks.
-pub const DEFAULT_TARGET_STATE_COUNT: usize = 5_000;
+pub const DEFAULT_TARGET_STATE_COUNT: NonZeroUsize = match NonZeroUsize::new(5_000) {
+    Some(v) => v,
+    _ => unreachable!(),
+};
 
 /// Bounds applied to a Stateright checker run.
+///
+/// Zero is rejected at construction time because Stateright interprets
+/// `0` as "unbounded" (converting it to `None` via `NonZeroUsize::new`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VerificationBounds {
     /// Maximum search depth for the checker.
-    pub max_depth: usize,
+    pub max_depth: NonZeroUsize,
     /// Maximum state budget for the checker.
-    pub max_state_count: usize,
+    pub max_state_count: NonZeroUsize,
 }
 
 impl Default for VerificationBounds {
@@ -36,8 +45,8 @@ where
 {
     model
         .checker()
-        .target_max_depth(bounds.max_depth)
-        .target_state_count(bounds.max_state_count)
+        .target_max_depth(bounds.max_depth.get())
+        .target_state_count(bounds.max_state_count.get())
 }
 
 /// Run the repository-standard bounded checker and assert every property.

@@ -24,6 +24,7 @@ use crate::message_assembler::{
 // ---------------------------------------------------------------------------
 
 /// Non-zero shorthand.
+#[expect(clippy::unwrap_used, reason = "caller guarantees non-zero")]
 fn nz(val: usize) -> NonZeroUsize { NonZeroUsize::new(val).unwrap() }
 
 /// Build a [`FirstFrameHeader`] and [`FirstFrameInput`] in the caller's

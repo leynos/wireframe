@@ -128,6 +128,7 @@ async fn test_accept_loop_shutdown_signal(
 }
 
 /// Creates a mock listener that fails with exponential backoff tracking.
+#[expect(clippy::unwrap_used, reason = "mock setup; known-valid values")]
 fn setup_backoff_mock_listener(
     calls: &Arc<Mutex<Vec<Instant>>>,
     num_calls: usize,

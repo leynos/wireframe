@@ -127,10 +127,10 @@ Observable success is:
   the crate boundary and shared harness, while later roadmap items own the
   higher-fidelity model. Date/Author: 2026-04-24 / Codex.
 
-- Decision: use `stateright = "0.31.0"` because that is the current published
-  release that resolves in this repository today. Rationale: repository docs
-  should follow the version contributors can actually install. Date/Author:
-  2026-04-24 / Codex.
+- Decision: use `stateright = "0.31.0"` because that is the currently
+  published release that resolves in this repository today. Rationale:
+  repository docs should follow the version contributors can actually install.
+  Date/Author: 2026-04-24 / Codex.
 
 - Decision: keep `default-members = ["."]` unchanged while extending
   `members` to include `crates/wireframe-verification`. Rationale: preserve the
@@ -151,35 +151,28 @@ Observable success is:
 - Updated the root workspace to include
   `crates/wireframe-verification` while keeping `default-members = ["."]`, and
   flipped the workspace-manifest `rstest` and `rstest-bdd` coverage from the
-  old "verification crate absent" expectation to the new
-  "verification crate present without widened defaults" contract.
+  old "verification crate absent" expectation to the new "verification crate
+  present without widened defaults" contract.
 
 - Updated `docs/developers-guide.md`,
-  `docs/formal-verification-methods-in-wireframe.md`, and `docs/roadmap.md`
-  so the repository documentation matches the implemented workspace state and
-  the current Stateright version.
+  `docs/formal-verification-methods-in-wireframe.md`, and `docs/roadmap.md` so
+  the repository documentation matches the implemented workspace state and the
+  current Stateright version.
 
 - Validation results:
-  `make fmt` passed.
-  `make check-fmt` passed.
-  `make markdownlint` passed.
-  `make nixie` passed.
-  `cargo test -p wireframe-verification` passed.
-  `cargo clippy -p wireframe-verification --all-targets -- -D warnings`
-  passed.
+  `make fmt` passed. `make check-fmt` passed. `make markdownlint` passed.
+  `make nixie` passed. `cargo test -p wireframe-verification` passed.
+  `cargo clippy -p wireframe-verification --all-targets -- -D warnings` passed.
   `cargo test --test workspace_manifest` passed.
   `cargo test --test bdd --features advanced-tests workspace_manifest` passed.
-  `make test` passed.
-  `make test-doc` passed.
-  `make doctest-benchmark` passed.
+  `make test` passed. `make test-doc` passed. `make doctest-benchmark` passed.
 
 - Environment-limited or baseline blockers:
   `make lint` failed in the Whitaker phase on pre-existing `expect` usage
   findings in the main crate, including `src/fairness.rs`,
   `src/fragment/payload.rs`, `src/message_assembler/tests.rs`,
   `src/message_assembler/state_tests.rs`,
-  `src/message_assembler/budget_tests.rs`, and
-  `src/server/runtime/tests.rs`.
+  `src/message_assembler/budget_tests.rs`, and `src/server/runtime/tests.rs`.
   `cargo test --workspace` reached the newly added verification crate and the
   root crate successfully, but then failed on pre-existing `wireframe_testing`
   doctest inference and visibility errors in
