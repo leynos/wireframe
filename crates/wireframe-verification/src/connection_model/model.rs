@@ -11,6 +11,7 @@ pub struct PlaceholderConnectionModel {
 }
 
 impl Default for PlaceholderConnectionModel {
+    /// Returns a model bounded to six steps, suitable for CI-time verification.
     fn default() -> Self { Self { max_steps: 6 } }
 }
 
@@ -18,12 +19,14 @@ impl PlaceholderConnectionModel {
     /// Create a model with an explicit state-space depth bound.
     pub fn new(max_steps: u8) -> Self { Self { max_steps } }
 
+    /// Clone `state` and advance the step counter by one.
     fn stepped(state: &ConnectionState) -> ConnectionState {
         let mut next = state.clone();
         next.steps = next.steps.saturating_add(1);
         next
     }
 
+    /// Apply `mutate` to a stepped clone of `state` if `enabled`; return `None` otherwise.
     fn apply_if<F>(state: &ConnectionState, enabled: bool, mutate: F) -> Option<ConnectionState>
     where
         F: FnOnce(&mut ConnectionState),
@@ -36,24 +39,28 @@ impl PlaceholderConnectionModel {
         Some(next)
     }
 
+    /// Transition: enqueue a high-priority output request.
     fn apply_enqueue_high(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, !state.high_priority_queued, |next| {
             next.high_priority_queued = true;
         })
     }
 
+    /// Transition: enqueue a low-priority output request.
     fn apply_enqueue_low(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, !state.low_priority_queued, |next| {
             next.low_priority_queued = true;
         })
     }
 
+    /// Transition: install a response stream as the active output.
     fn apply_install_response(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, state.can_install_output(), |next| {
             next.active_output = ActiveOutput::Response;
         })
     }
 
+    /// Transition: install a multi-packet stream as the active output.
     fn apply_install_multi_packet(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, state.can_install_output(), |next| {
             next.active_output = ActiveOutput::MultiPacket;
@@ -61,6 +68,7 @@ impl PlaceholderConnectionModel {
         })
     }
 
+    /// Transition: emit the queued high-priority output.
     fn apply_emit_high(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, state.high_priority_queued, |next| {
             next.high_priority_queued = false;
@@ -69,6 +77,7 @@ impl PlaceholderConnectionModel {
         })
     }
 
+    /// Transition: emit the queued low-priority output under the fairness policy.
     fn apply_emit_low(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, state.can_emit_low_priority(), |next| {
             next.low_priority_queued = false;
@@ -77,12 +86,14 @@ impl PlaceholderConnectionModel {
         })
     }
 
+    /// Transition: emit one frame from the active output stream.
     fn apply_emit_active_frame(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, !state.is_output_idle(), |next| {
             next.shutdown_during_output = state.shutdown_requested;
         })
     }
 
+    /// Transition: complete a response output stream.
     fn apply_complete_response(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(
             state,
@@ -94,6 +105,7 @@ impl PlaceholderConnectionModel {
         )
     }
 
+    /// Transition: complete a multi-packet output stream.
     fn apply_complete_multi_packet(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(
             state,
@@ -107,6 +119,7 @@ impl PlaceholderConnectionModel {
         )
     }
 
+    /// Transition: request connection shutdown.
     fn apply_shutdown(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, !state.shutdown_requested, |next| {
             next.shutdown_requested = true;
@@ -114,6 +127,7 @@ impl PlaceholderConnectionModel {
         })
     }
 
+    /// Transition: advance the fairness timer to allow low-priority emission.
     fn apply_tick_fairness(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, state.low_priority_queued, |next| {
             next.fairness_allows_low = true;

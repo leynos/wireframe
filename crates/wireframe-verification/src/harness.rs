@@ -29,6 +29,7 @@ pub struct VerificationBounds {
 }
 
 impl Default for VerificationBounds {
+    /// Returns bounds using [`DEFAULT_TARGET_MAX_DEPTH`] and [`DEFAULT_TARGET_STATE_COUNT`].
     fn default() -> Self {
         Self {
             max_depth: DEFAULT_TARGET_MAX_DEPTH,
