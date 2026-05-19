@@ -139,8 +139,10 @@ impl Model for PlaceholderConnectionModel {
     type State = ConnectionState;
     type Action = ConnectionAction;
 
+    /// Returns the single default initial state for the connection model.
     fn init_states(&self) -> Vec<Self::State> { vec![ConnectionState::default()] }
 
+    /// Populates `actions` with the full set of nondeterministic connection events.
     fn actions(&self, _state: &Self::State, actions: &mut Vec<Self::Action>) {
         actions.extend([
             ConnectionAction::EnqueueHigh,
@@ -155,6 +157,8 @@ impl Model for PlaceholderConnectionModel {
         ]);
     }
 
+    /// Applies `action` to `state`, returning the successor state or `None` if the
+    /// action is not enabled.
     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
         match action {
             ConnectionAction::EnqueueHigh => Self::apply_enqueue_high(state),
@@ -172,8 +176,10 @@ impl Model for PlaceholderConnectionModel {
         }
     }
 
+    /// Returns the full set of Stateright properties verified against this model.
     fn properties(&self) -> Vec<Property<Self>> { properties() }
 
+    /// Returns `true` while the step count has not exceeded `max_steps`.
     fn within_boundary(&self, state: &Self::State) -> bool { state.steps <= self.max_steps }
 }
 
