@@ -56,3 +56,64 @@ impl ConnectionState {
         self.low_priority_queued && (!self.high_priority_queued || self.fairness_allows_low)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{ActiveOutput, ConnectionState};
+
+    #[rstest]
+    #[case(ActiveOutput::Idle, true)]
+    #[case(ActiveOutput::Response, false)]
+    #[case(ActiveOutput::MultiPacket, false)]
+    fn is_output_idle_reflects_active_output(#[case] active: ActiveOutput, #[case] expected: bool) {
+        let state = ConnectionState {
+            active_output: active,
+            ..Default::default()
+        };
+
+        assert_eq!(state.is_output_idle(), expected);
+    }
+
+    #[rstest]
+    #[case(false, ActiveOutput::Idle, true)]
+    #[case(true, ActiveOutput::Idle, false)]
+    #[case(false, ActiveOutput::Response, false)]
+    #[case(true, ActiveOutput::Response, false)]
+    fn can_install_output_requires_idle_and_no_shutdown(
+        #[case] shutdown: bool,
+        #[case] active: ActiveOutput,
+        #[case] expected: bool,
+    ) {
+        let state = ConnectionState {
+            shutdown_requested: shutdown,
+            active_output: active,
+            ..Default::default()
+        };
+
+        assert_eq!(state.can_install_output(), expected);
+    }
+
+    #[rstest]
+    #[case(true, false, false, true)]
+    #[case(true, true, false, false)]
+    #[case(true, true, true, true)]
+    #[case(false, false, false, false)]
+    #[case(false, true, true, false)]
+    fn can_emit_low_priority_respects_fairness(
+        #[case] low: bool,
+        #[case] high: bool,
+        #[case] fairness: bool,
+        #[case] expected: bool,
+    ) {
+        let state = ConnectionState {
+            low_priority_queued: low,
+            high_priority_queued: high,
+            fairness_allows_low: fairness,
+            ..Default::default()
+        };
+
+        assert_eq!(state.can_emit_low_priority(), expected);
+    }
+}

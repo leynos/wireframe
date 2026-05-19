@@ -3,9 +3,16 @@
 use std::num::NonZeroUsize;
 
 use rstest::rstest;
+use stateright::Checker;
 use wireframe_verification::{
     connection_model::PlaceholderConnectionModel,
-    harness::{VerificationBounds, assert_model_properties_with_bounds},
+    harness::{
+        DEFAULT_TARGET_MAX_DEPTH,
+        DEFAULT_TARGET_STATE_COUNT,
+        VerificationBounds,
+        assert_model_properties_with_bounds,
+        checker,
+    },
 };
 
 #[rstest]
@@ -17,4 +24,24 @@ fn shared_harness_runs_placeholder_model_with_explicit_bounds() {
             max_state_count: NonZeroUsize::new(5_000).expect("5_000 is non-zero"),
         },
     );
+}
+
+#[rstest]
+fn harness_runs_with_minimal_bounds() {
+    let bounds = VerificationBounds {
+        max_depth: NonZeroUsize::new(1).expect("1 is non-zero"),
+        max_state_count: NonZeroUsize::new(1).expect("1 is non-zero"),
+    };
+
+    let _checker = checker(PlaceholderConnectionModel::new(1), bounds)
+        .spawn_bfs()
+        .join();
+}
+
+#[rstest]
+fn default_verification_bounds_match_exported_constants() {
+    let bounds = VerificationBounds::default();
+
+    assert_eq!(bounds.max_depth, DEFAULT_TARGET_MAX_DEPTH);
+    assert_eq!(bounds.max_state_count, DEFAULT_TARGET_STATE_COUNT);
 }

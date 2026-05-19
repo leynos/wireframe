@@ -39,6 +39,20 @@ impl Default for VerificationBounds {
 }
 
 /// Build a repository-standard bounded checker for a model.
+///
+/// # Example
+///
+/// ```rust
+/// use wireframe_verification::{
+///     connection_model::PlaceholderConnectionModel,
+///     harness::{VerificationBounds, checker},
+/// };
+///
+/// let _builder = checker(
+///     PlaceholderConnectionModel::default(),
+///     VerificationBounds::default(),
+/// );
+/// ```
 pub fn checker<M>(model: M, bounds: VerificationBounds) -> CheckerBuilder<M>
 where
     M: Model + Send + Sync + 'static,
