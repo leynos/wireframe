@@ -1,8 +1,8 @@
-//! Regression tests for the staged hybrid-workspace manifest contract.
+//! Regression tests for the formal-verification workspace manifest contract.
 //!
 //! These checks verify that the repository advertises an explicit hybrid
-//! workspace while keeping the root package as the only default member during
-//! roadmap item 10.1.1.
+//! workspace, includes the internal verification crate as a workspace member,
+//! and still keeps the root package as the only default member.
 
 #[path = "common/workspace_manifest_support.rs"]
 mod workspace_manifest_support;
@@ -16,6 +16,7 @@ use workspace_manifest_support::{
     repo_root,
     root_manifest,
     root_package_id,
+    verification_package_id,
 };
 
 fn parse_metadata_json(metadata: &str) -> TestResult<Value> { Ok(serde_json::from_str(metadata)?) }
@@ -37,12 +38,15 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
         "root Cargo.toml should declare an explicit [workspace] section"
     );
     assert!(
-        has_manifest_line(&manifest, "members = [\".\"]"),
-        "10.1.1 should stage the workspace with only the root package as a member"
+        has_manifest_line(
+            &manifest,
+            "members = [\".\", \"crates/wireframe-verification\"]"
+        ),
+        "15.1.2 should add the verification crate to the explicit workspace members"
     );
     assert!(
         has_manifest_line(&manifest, "default-members = [\".\"]"),
-        "10.1.1 should keep the root package as the only default workspace member"
+        "15.1.2 should keep the root package as the only default workspace member"
     );
     assert!(
         has_manifest_line(&manifest, "resolver = \"3\""),
@@ -56,10 +60,11 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     clippy::panic_in_result_fn,
     reason = "assertions provide clearer diagnostics in integration tests"
 )]
-fn cargo_metadata_reports_root_as_only_workspace_member_and_default_member() -> TestResult {
+fn cargo_metadata_reports_verification_crate_without_widening_default_members() -> TestResult {
     let repo_root = repo_root()?;
     let repo_root_str = repo_root.as_str();
-    let package_id = root_package_id()?;
+    let root_package_id = root_package_id()?;
+    let verification_package_id = verification_package_id()?;
     let manifest_path = repo_root.join("Cargo.toml");
     let manifest_path_str = manifest_path.as_str();
     let metadata = cargo_metadata()?;
@@ -74,8 +79,28 @@ fn cargo_metadata_reports_root_as_only_workspace_member_and_default_member() -> 
         "metadata should continue to resolve the root package manifest"
     );
     assert!(
-        metadata.contains(&package_id),
+        metadata.contains(&root_package_id),
         "workspace metadata should include the root package"
+    );
+    let workspace_members = metadata_json
+        .get("workspace_members")
+        .and_then(Value::as_array)
+        .expect("cargo metadata should expose workspace_members as an array");
+    assert!(
+        workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(root_package_id.as_str())),
+        "workspace_members should include the root package id"
+    );
+    assert!(
+        workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(verification_package_id.as_str())),
+        "workspace_members should include the verification crate id"
+    );
+    assert!(
+        metadata.contains("wireframe-verification"),
+        "15.1.2 should add the verification crate to cargo metadata"
     );
     let workspace_default_members = metadata_json
         .get("workspace_default_members")
@@ -84,16 +109,12 @@ fn cargo_metadata_reports_root_as_only_workspace_member_and_default_member() -> 
     assert_eq!(
         workspace_default_members.len(),
         1,
-        "10.1.1 should keep exactly one default workspace member"
+        "15.1.2 should keep exactly one default workspace member"
     );
     assert_eq!(
         workspace_default_members.first().and_then(Value::as_str),
-        Some(package_id.as_str()),
-        "10.1.1 should keep the root package as the only default workspace member"
-    );
-    assert!(
-        !metadata.contains("wireframe-verification"),
-        "10.1.1 should not add the verification crate before roadmap item 10.1.2"
+        Some(root_package_id.as_str()),
+        "15.1.2 should keep the root package as the only default workspace member"
     );
     Ok(())
 }

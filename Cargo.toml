@@ -11,7 +11,7 @@ categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe"
 
 [workspace]
-members = ["."]
+members = [".", "crates/wireframe-verification"]
 default-members = ["."]
 resolver = "3"
 

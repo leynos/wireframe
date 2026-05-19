@@ -128,6 +128,7 @@ async fn test_accept_loop_shutdown_signal(
 }
 
 /// Creates a mock listener that fails with exponential backoff tracking.
+#[expect(clippy::unwrap_used, reason = "mock setup; known-valid values")]
 fn setup_backoff_mock_listener(
     calls: &Arc<Mutex<Vec<Instant>>>,
     num_calls: usize,
@@ -139,14 +140,14 @@ fn setup_backoff_mock_listener(
         .returning(move || {
             let call_log = Arc::clone(&call_log);
             Box::pin(async move {
-                call_log.lock().expect("lock").push(Instant::now());
+                call_log.lock().unwrap().push(Instant::now());
                 Err(io::Error::other("mock error"))
             })
         })
         .times(num_calls);
     listener
         .expect_local_addr()
-        .returning(|| Ok("127.0.0.1:0".parse().expect("addr parse")))
+        .returning(|| Ok("127.0.0.1:0".parse().unwrap()))
         .times(num_calls);
     listener
 }

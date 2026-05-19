@@ -585,7 +585,7 @@ Wireframe's protocol, framing, and message assembly layers.
   [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
    Success criteria: `cargo build` and `cargo test --workspace` pass with the
   new layout.
-- [ ] 15.1.2. Add `crates/wireframe-verification` as an internal crate for
+- [x] 15.1.2. Add `crates/wireframe-verification` as an internal crate for
   Stateright models and shared verification harnesses. Requires 15.1.1. See
   [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
    and

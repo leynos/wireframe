@@ -32,9 +32,9 @@ fn then_workspace_metadata_reports_only_default_member(
     workspace_manifest_world.verify_root_is_only_default_member()
 }
 
-#[then("the workspace metadata does not include the verification crate yet")]
-fn then_workspace_metadata_excludes_verification_crate(
+#[then("the workspace metadata includes the verification crate as a workspace member")]
+fn then_workspace_metadata_includes_verification_crate(
     workspace_manifest_world: &mut WorkspaceManifestWorld,
 ) -> TestResult {
-    workspace_manifest_world.verify_verification_crate_is_absent()
+    workspace_manifest_world.verify_verification_crate_is_workspace_member()
 }

@@ -182,12 +182,16 @@ mod tests {
     }
 
     /// Helper to test fragment decode errors with custom manipulation and assertions.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "encode_to_vec is infallible for valid headers"
+    )]
     fn assert_fragment_decode_error<F, E>(header: FragmentHeader, manipulate: F, assert_error: E)
     where
         F: FnOnce(Vec<u8>) -> (u16, Vec<u8>), // (advertised_len, header_bytes)
         E: FnOnce(DecodeError),
     {
-        let encoded = encode_to_vec(header, config::standard()).expect("encode header");
+        let encoded = encode_to_vec(header, config::standard()).unwrap();
         let (advertised_len, header_bytes) = manipulate(encoded);
 
         let mut payload = Vec::new();

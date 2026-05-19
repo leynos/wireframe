@@ -182,10 +182,12 @@ fn build_continuation_header_payload(spec: ContinuationHeaderSpec) -> Vec<u8> {
     bytes.to_vec()
 }
 
+#[expect(
+    clippy::unwrap_used,
+    reason = "test helper; header parse failure is a bug"
+)]
 fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
-    TestAssembler
-        .parse_frame_header(payload)
-        .expect("header parse")
+    TestAssembler.parse_frame_header(payload).unwrap()
 }
 
 // =============================================================================

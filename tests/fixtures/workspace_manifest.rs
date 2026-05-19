@@ -9,6 +9,7 @@ use crate::workspace_manifest_support::{
     has_manifest_line,
     root_manifest,
     root_package_id,
+    verification_package_id,
 };
 
 pub type TestResult = FixtureResult<()>;
@@ -22,6 +23,7 @@ pub struct WorkspaceManifestWorld {
     manifest: Option<String>,
     metadata: Option<String>,
     package_id: Option<String>,
+    verification_package_id: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -42,6 +44,7 @@ impl WorkspaceManifestWorld {
         self.manifest = Some(root_manifest()?);
         self.metadata = Some(cargo_metadata()?);
         self.package_id = Some(root_package_id()?);
+        self.verification_package_id = Some(verification_package_id()?);
         Ok(())
     }
 
@@ -61,6 +64,12 @@ impl WorkspaceManifestWorld {
         self.package_id
             .as_deref()
             .ok_or_else(|| "workspace package id not loaded".to_owned())
+    }
+
+    fn verification_package_id(&self) -> Result<&str, String> {
+        self.verification_package_id
+            .as_deref()
+            .ok_or_else(|| "verification package id not loaded".to_owned())
     }
 
     fn metadata_json(&self) -> FixtureResult<Value> { Ok(serde_json::from_str(self.metadata()?)?) }
@@ -93,7 +102,7 @@ impl WorkspaceManifestWorld {
         let manifest = self.manifest()?;
         for expected in [
             "[workspace]",
-            "members = [\".\"]",
+            "members = [\".\", \"crates/wireframe-verification\"]",
             "default-members = [\".\"]",
             "resolver = \"3\"",
         ] {
@@ -155,18 +164,28 @@ impl WorkspaceManifestWorld {
         Ok(())
     }
 
-    /// Verify the staged rollout has not yet added the verification crate.
+    /// Verify the verification crate is now part of the workspace membership.
     ///
     /// # Errors
     ///
-    /// Returns an error when the 10.1.2 crate appears too early or the helper
-    /// crate unexpectedly disappears from Cargo metadata.
-    pub fn verify_verification_crate_is_absent(&self) -> TestResult {
+    /// Returns an error when the verification crate is missing from
+    /// `workspace_members` or the helper crate unexpectedly disappears from
+    /// Cargo metadata.
+    pub fn verify_verification_crate_is_workspace_member(&self) -> TestResult {
         let metadata = self.metadata_json()?;
-        if Self::packages_include_name(&metadata, VERIFICATION_PACKAGE_NAME)? {
+        let verification_package_id = self.verification_package_id()?;
+        let workspace_members = Self::metadata_array(&metadata, "workspace_members")?;
+        if !workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(verification_package_id))
+        {
             return Err(
-                "verification crate should not join the workspace until roadmap item 10.1.2".into(),
+                "workspace metadata should include the verification crate in workspace_members"
+                    .into(),
             );
+        }
+        if !Self::packages_include_name(&metadata, VERIFICATION_PACKAGE_NAME)? {
+            return Err("cargo metadata packages should include the verification crate".into());
         }
         if !Self::packages_include_name(&metadata, HELPER_PACKAGE_NAME)? {
             return Err(
