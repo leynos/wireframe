@@ -176,3 +176,148 @@ impl Model for PlaceholderConnectionModel {
 
     fn within_boundary(&self, state: &Self::State) -> bool { state.steps <= self.max_steps }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use stateright::Model;
+
+    use super::*;
+
+    #[rstest]
+    #[case(ConnectionAction::EnqueueHigh, true, false)]
+    #[case(ConnectionAction::EnqueueLow, false, true)]
+    fn next_state_enqueues_requested_priority(
+        #[case] action: ConnectionAction,
+        #[case] expected_high: bool,
+        #[case] expected_low: bool,
+    ) {
+        let model = PlaceholderConnectionModel::default();
+        let next = model
+            .next_state(&ConnectionState::default(), action)
+            .expect("enqueue transition should be enabled");
+
+        assert_eq!(next.steps, 1);
+        assert_eq!(next.high_priority_queued, expected_high);
+        assert_eq!(next.low_priority_queued, expected_low);
+    }
+
+    #[rstest]
+    #[case(ConnectionAction::InstallResponse, ActiveOutput::Response)]
+    #[case(ConnectionAction::InstallMultiPacket, ActiveOutput::MultiPacket)]
+    fn next_state_installs_requested_output(
+        #[case] action: ConnectionAction,
+        #[case] expected_output: ActiveOutput,
+    ) {
+        let model = PlaceholderConnectionModel::default();
+        let next = model
+            .next_state(&ConnectionState::default(), action)
+            .expect("install transition should be enabled");
+
+        assert_eq!(next.steps, 1);
+        assert_eq!(next.active_output, expected_output);
+    }
+
+    #[rstest]
+    #[case(ConnectionAction::EnqueueHigh, ConnectionState { high_priority_queued: true, ..Default::default() })]
+    #[case(ConnectionAction::EnqueueLow, ConnectionState { low_priority_queued: true, ..Default::default() })]
+    fn next_state_rejects_duplicate_enqueue(
+        #[case] action: ConnectionAction,
+        #[case] state: ConnectionState,
+    ) {
+        let model = PlaceholderConnectionModel::default();
+
+        assert_eq!(model.next_state(&state, action), None);
+    }
+
+    #[rstest]
+    #[case(ConnectionState { active_output: ActiveOutput::Response, ..Default::default() })]
+    #[case(ConnectionState { shutdown_requested: true, ..Default::default() })]
+    fn install_transitions_require_idle_output_and_no_shutdown(#[case] state: ConnectionState) {
+        let model = PlaceholderConnectionModel::default();
+
+        assert_eq!(
+            model.next_state(&state, ConnectionAction::InstallResponse),
+            None
+        );
+        assert_eq!(
+            model.next_state(&state, ConnectionAction::InstallMultiPacket),
+            None
+        );
+    }
+
+    #[rstest]
+    #[case(ConnectionState::default())]
+    #[case(ConnectionState {
+        low_priority_queued: true,
+        high_priority_queued: true,
+        fairness_allows_low: false,
+        ..Default::default()
+    })]
+    fn emit_low_priority_requires_queue_and_fairness(#[case] state: ConnectionState) {
+        assert_eq!(PlaceholderConnectionModel::apply_emit_low(&state), None);
+    }
+
+    #[rstest]
+    fn emit_queued_rejects_empty_queues() {
+        let model = PlaceholderConnectionModel::default();
+
+        assert_eq!(
+            model.next_state(&ConnectionState::default(), ConnectionAction::EmitQueued),
+            None
+        );
+    }
+
+    #[rstest]
+    #[case(ConnectionAction::EmitActiveFrame)]
+    #[case(ConnectionAction::CompleteActiveOutput)]
+    fn active_output_transitions_reject_idle_output(#[case] action: ConnectionAction) {
+        let model = PlaceholderConnectionModel::default();
+
+        assert_eq!(model.next_state(&ConnectionState::default(), action), None);
+    }
+
+    #[rstest]
+    #[case(ActiveOutput::MultiPacket)]
+    #[case(ActiveOutput::Idle)]
+    fn complete_response_requires_response_output(#[case] active_output: ActiveOutput) {
+        let state = ConnectionState {
+            active_output,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            PlaceholderConnectionModel::apply_complete_response(&state),
+            None
+        );
+    }
+
+    #[rstest]
+    #[case(ActiveOutput::Response)]
+    #[case(ActiveOutput::Idle)]
+    fn complete_multi_packet_requires_multi_packet_output(#[case] active_output: ActiveOutput) {
+        let state = ConnectionState {
+            active_output,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            PlaceholderConnectionModel::apply_complete_multi_packet(&state),
+            None
+        );
+    }
+
+    #[rstest]
+    #[case(2, true)]
+    #[case(3, true)]
+    #[case(4, false)]
+    fn within_boundary_respects_max_steps(#[case] steps: u8, #[case] expected: bool) {
+        let model = PlaceholderConnectionModel::new(3);
+        let state = ConnectionState {
+            steps,
+            ..Default::default()
+        };
+
+        assert_eq!(model.within_boundary(&state), expected);
+    }
+}
