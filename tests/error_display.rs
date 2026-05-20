@@ -34,16 +34,50 @@ impl std::error::Error for ProtoErr {}
 fn wireframe_error_messages() {
     let proto = WireframeError::Protocol(ProtoErr);
     assert_eq!(proto.to_string(), "protocol error: ProtoErr");
-    let proto_source = proto
-        .source()
-        .expect("protocol variant must expose its underlying source");
-    assert_eq!(proto_source.to_string(), "boom");
+    assert!(
+        proto.source().is_none(),
+        "Protocol variants should not expose a source without specialization"
+    );
 
     let duplicate_route = WireframeError::<ProtoErr>::DuplicateRoute(7);
     assert_eq!(
         duplicate_route.to_string(),
         "route id 7 was already registered"
     );
+    assert!(
+        duplicate_route.source().is_none(),
+        "DuplicateRoute should not expose an error source"
+    );
+}
+
+#[test]
+fn wireframe_error_unit_implements_error() {
+    let io = WireframeError::<()>::from_io(io::Error::other("socket closed"));
+    let io_source = io
+        .source()
+        .expect("io variant must expose its underlying source")
+        .downcast_ref::<io::Error>()
+        .expect("io source should be std::io::Error");
+    assert_eq!(io_source.to_string(), "socket closed");
+
+    let codec = WireframeError::<()>::from_codec(CodecError::from(FramingError::EmptyFrame));
+    let codec_source = codec
+        .source()
+        .expect("codec variant must expose its underlying source")
+        .downcast_ref::<CodecError>()
+        .expect("codec source should be wireframe::codec::CodecError");
+    assert!(
+        matches!(codec_source, CodecError::Framing(FramingError::EmptyFrame)),
+        "codec source should preserve the original framing error"
+    );
+
+    let protocol = WireframeError::<()>::Protocol(());
+    assert!(
+        protocol.source().is_none(),
+        "unit protocol errors should not expose an error source"
+    );
+
+    let duplicate_route = WireframeError::<()>::DuplicateRoute(7);
     assert!(
         duplicate_route.source().is_none(),
         "DuplicateRoute should not expose an error source"

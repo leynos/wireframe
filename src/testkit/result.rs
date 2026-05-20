@@ -21,8 +21,8 @@ pub enum TestError {
     #[error("{0}")]
     Msg(String),
     /// Root crate error surfaced while exercising a helper.
-    #[error("wireframe error: {0}")]
-    Wireframe(WireframeError),
+    #[error(transparent)]
+    Wireframe(#[from] WireframeError),
     /// Client-side error surfaced while exercising a helper.
     #[cfg(not(loom))]
     #[error(transparent)]
@@ -93,10 +93,6 @@ impl From<String> for TestError {
 
 impl From<&str> for TestError {
     fn from(value: &str) -> Self { Self::Msg(value.to_string()) }
-}
-
-impl From<WireframeError> for TestError {
-    fn from(value: WireframeError) -> Self { Self::Wireframe(value) }
 }
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {
