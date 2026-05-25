@@ -1,4 +1,4 @@
-# Add pinned Kani and Verus tooling scripts
+# Adopt rust-prover-tools for Kani and Verus tooling
 
 This ExecPlan (execution plan) is a living document. The sections `Constraints`,
  `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
@@ -13,30 +13,47 @@ item 15.1.3 remains unchecked in `docs/roadmap.md`.
 
 Roadmap item 15.1.3 establishes reproducible local installation for the formal
 verification tools that later Kani, Verus, Stateright, Makefile, and continuous
-integration (CI) tasks depend on.
+integration (CI) tasks depend on. The implementation must now use
+`rust-prover-tools` from <https://github.com/leynos/rust-prover-tools> instead
+of reimplementing Kani and Verus workflows in bespoke repository shell
+scripts.
 
 After the approved implementation, a contributor can run
-`./scripts/install-kani.sh` and `./scripts/install-verus.sh` from the
-repository root and obtain the repository-pinned versions of Kani and Verus.
-The Kani installer reads `tools/kani/VERSION`, installs `kani-verifier` with
-`cargo install --locked`, runs `cargo kani setup`, and confirms that
-`cargo kani --version` is callable. The Verus installer reads
-`tools/verus/VERSION` and `tools/verus/SHA256SUMS`, downloads the matching
-Verus release archive, verifies its SHA-256 checksum, and stages a local Verus
-binary. `scripts/run-verus.sh` resolves `VERUS_BIN`, installs the Rust
-toolchain reported by `verus --version` when necessary, and runs the proof
-entry point once proof files exist.
+`./scripts/install-kani.sh` and `./scripts/install-verus.sh` from the repository
+root and obtain the repository-pinned versions of Kani and Verus. Those scripts
+exist only to preserve the roadmap's local command names; they delegate to a
+pinned `prover-tools` command and contain no Kani or Verus install logic of
+their own. Direct use of the CLI is also supported:
+
+```sh
+prover-tools kani install --repo-root .
+prover-tools kani check-version --repo-root .
+prover-tools verus install --repo-root .
+prover-tools verus run --repo-root . --proof-file verus/wireframe_proofs.rs
+```
+
+`prover-tools kani install` reads `tools/kani/VERSION`, validates
+`MAJOR.MINOR.PATCH`, installs `kani-verifier` with `cargo install --locked`,
+runs `cargo kani setup`, and confirms that `cargo kani --version` is callable.
+`prover-tools verus install` reads `tools/verus/VERSION` and
+`tools/verus/SHA256SUMS`, downloads the matching Verus release archive,
+verifies its SHA-256 checksum, and stages a local Verus binary.
+`prover-tools verus run` resolves the Verus binary, handles the Rust toolchain
+reported by `verus --version`, and runs the chosen proof entry point once proof
+files exist.
 
 Observable success is:
 
 - `./scripts/install-kani.sh` installs the version named in
-  `tools/kani/VERSION` and prints a matching `cargo kani --version`.
+  `tools/kani/VERSION` through `prover-tools kani install`.
 - `./scripts/install-verus.sh` installs the version named in
-  `tools/verus/VERSION` only after the downloaded archive matches
+  `tools/verus/VERSION` through `prover-tools verus install` only after the
+  downloaded archive matches
   `tools/verus/SHA256SUMS`.
-- `scripts/run-verus.sh` fails clearly when no proof file exists, and succeeds
-  once the first `verus/wireframe_proofs.rs` entry point is added by a later
-  roadmap item.
+- `scripts/run-verus.sh`, if kept for local compatibility, delegates to
+  `prover-tools verus run --proof-file verus/wireframe_proofs.rs`, fails
+  clearly when no proof file exists, and succeeds once that proof entry point
+  is added by a later roadmap item.
 - Unit tests using `rstest` verify the metadata and script contracts without
   installing external tools.
 - Behavioural tests using `rstest-bdd` describe the contributor workflow for
@@ -50,17 +67,27 @@ Observable success is:
 ## Constraints
 
 - Do not begin implementation until this ExecPlan is explicitly approved.
-- Keep 15.1.3 scoped to tool metadata and repo-local scripts. Do not add the
-  formal Makefile targets owned by 15.1.4, and do not add CI jobs owned by
-  15.1.5.
+- Keep 15.1.3 scoped to tool metadata, the pinned `rust-prover-tools`
+  invocation, and any compatibility wrappers needed to preserve documented
+  local commands. Do not add the formal Makefile targets owned by 15.1.4, and
+  do not add CI jobs owned by 15.1.5.
+- Do not copy Netsuke or Chutoro Kani/Verus shell-script internals into this
+  repository. The source of installer and runner behaviour is
+  `rust-prover-tools`.
+- If `scripts/install-kani.sh`, `scripts/install-verus.sh`, or
+  `scripts/run-verus.sh` are created, keep them as thin wrappers that resolve
+  the repository root and invoke a pinned `prover-tools` command.
 - Keep Verus out of the main Cargo build and test flow. It is a standalone
   proof runner, not a Cargo dependency or normal test target.
 - Keep Kani harnesses, Verus proofs, and Stateright model expansion out of
   this item. Later roadmap items own those proof obligations.
 - Pin tool versions in repository metadata files, not inside script bodies.
+- Pin the `rust-prover-tools` source revision so contributor and CI behaviour
+  does not float with the upstream `main` branch.
 - Verify external Verus downloads by SHA-256 before extracting them.
 - Make the scripts idempotent and safe to rerun. If a pinned Verus binary is
-  already installed, the installer should report that and exit successfully.
+  already installed, `prover-tools verus install` should report that and exit
+  successfully.
 - Preserve existing root package and workspace behaviour established by 15.1.1
   and 15.1.2.
 - Use `rstest` for unit tests and `rstest-bdd` for workflow-level behavioural
@@ -81,8 +108,15 @@ Observable success is:
 
 - If the implementation requires changing more than 12 files before Makefile or
   CI work, stop and reassess scope.
-- If scripts require a new Rust crate dependency, stop and ask for approval.
+- If the implementation requires a new Rust crate dependency, stop and ask for
+  approval.
+- If adopting `rust-prover-tools` requires vendoring its package code into this
+  repository, stop and ask for approval. The expected path is a pinned external
+  tool invocation, not vendored tool code.
 - If a public Wireframe API must change, stop and ask for approval.
+- If no immutable `rust-prover-tools` release or tag is available, pin a commit
+  SHA and record the commit in this plan. If a release or tag becomes available
+  before implementation, prefer that stable ref.
 - If the chosen Verus release does not publish an `x86-linux` archive, stop and
   choose a supported target strategy with human review.
 - If checksum generation requires downloading more than the selected release
@@ -112,13 +146,24 @@ Observable success is:
 
 - Risk: installing formal-verification tools is too expensive for ordinary
   `make test`. Severity: medium. Likelihood: high. Mitigation: test script
-  metadata and contract helpers in the normal suite, but keep actual Kani and
+  metadata and wrapper contracts in the normal suite, but keep actual Kani and
   Verus installation as explicit validation steps and future formal targets.
 
-- Risk: shell scripts become hard to test if all behaviour is inline. Severity:
-  medium. Likelihood: medium. Mitigation: keep script branches simple, validate
-  syntax with `bash -n`, and test observable file contracts through Rust tests
-  rather than reimplementing the shell logic.
+- Risk: `rust-prover-tools` currently has no GitHub release or tag. Severity:
+  medium. Likelihood: high. Mitigation: pin the upstream commit SHA, record it
+  in `tools/rust-prover-tools/REF`, and revisit the pin once upstream publishes
+  an immutable release tag.
+
+- Risk: `rust-prover-tools` requires Python 3.14 or newer. Severity: medium.
+  Likelihood: medium. Mitigation: use `uv tool run --python 3.14 --from
+  git+https://github.com/leynos/rust-prover-tools.git@<ref> prover-tools ...`
+  so `uv` manages the interpreter and tool environment consistently.
+
+- Risk: thin compatibility wrappers can drift into bespoke workflow logic.
+  Severity: medium. Likelihood: medium. Mitigation: keep wrappers limited to
+  repository-root discovery and one `uv tool run ... prover-tools` command;
+  test that they reference `prover-tools` rather than duplicating Kani or Verus
+  command sequences.
 
 - Risk: the first Verus runner has no proof file to run until later roadmap
   work. Severity: low. Likelihood: high. Mitigation: make the runner fail with
@@ -146,6 +191,14 @@ Observable success is:
       `make test`.
 - [x] (2026-05-20 23:52 UTC) Ran `coderabbit review --agent`, applied its two
       minor prose findings, and confirmed targeted Markdown lint still passes.
+- [x] (2026-05-25 00:00 UTC) Updated the draft direction to use
+      `rust-prover-tools` instead of bespoke Kani and Verus shell-script
+      implementations.
+- [x] (2026-05-25 01:38 UTC) Validated the revised plan with targeted Markdown
+      lint, `make check-fmt`, `make markdownlint`, `make nixie`, `make lint`,
+      and `make test`.
+- [x] (2026-05-25 01:44 UTC) Ran `coderabbit review --agent` on the revised
+      plan; it reported zero findings.
 - [ ] Obtain explicit approval for this ExecPlan.
 - [ ] Implement the approved plan in small gated commits.
 - [ ] Mark roadmap item 15.1.3 done after implementation validation passes.
@@ -177,6 +230,20 @@ Observable success is:
   latest non-prerelease release unless a reason to pin the rolling prerelease
   is documented.
 
+- Observation: `rust-prover-tools` provides a Python package console script
+  named `prover-tools`, not shell scripts. Evidence: its `pyproject.toml`
+  declares `prover-tools = "rust_prover_tools.cli:main"`, and its users' guide
+  documents `prover-tools kani install`, `prover-tools kani check-version`,
+  `prover-tools verus install`, and `prover-tools verus run`. Impact: Wireframe
+  should call that CLI directly or through minimal compatibility wrappers.
+
+- Observation: `rust-prover-tools` has no GitHub release or tag at the time of
+  this plan update, and its `main` branch was at commit
+  `b07ef696f8373d54ae68e517d39d47a5d27a5bd5` on 2026-05-24. Evidence:
+  `gh release list`, `gh api repos/leynos/rust-prover-tools/tags`, and
+  `gh api repos/leynos/rust-prover-tools/commits/main`. Impact: pin that
+  commit until upstream publishes a release tag.
+
 ## Decision log
 
 - Decision: keep this pull request plan-only and leave 15.1.3 unchecked.
@@ -207,6 +274,19 @@ Observable success is:
   milestone, and script tooling benefits from an independent review pass.
   Date/Author: 2026-05-20 / Codex.
 
+- Decision: replace bespoke shell-script implementation with a pinned
+  `rust-prover-tools` CLI invocation. Rationale: the user requested
+  `rust-prover-tools` in place of bespoke scripts, and that package preserves
+  the required Kani and Verus behaviours behind a tested noun/verb CLI.
+  Date/Author: 2026-05-25 / Codex.
+
+- Decision: retain roadmap-named shell entry points only as compatibility
+  wrappers if needed. Rationale: roadmap item 15.1.3 explicitly says
+  contributors should be able to run `./scripts/install-kani.sh` and
+  `./scripts/install-verus.sh`; wrappers can satisfy that user-visible
+  contract without duplicating prover workflow logic. Date/Author: 2026-05-25
+  / Codex.
+
 ## Outcomes & retrospective
 
 This section is intentionally empty while the plan is in draft. During
@@ -231,7 +311,7 @@ and 15.1.2 has already added `crates/wireframe-verification` as an internal
 Stateright crate.
 
 Roadmap item 15.1.3 is the next infrastructure item. It adds the pinned Kani
-and Verus metadata plus local installation and runner scripts that later
+and Verus metadata plus local installation and runner entry points that later
 roadmap items will use. The relevant design source is
 `docs/formal-verification-methods-in-wireframe.md`, especially "Recommended
 repository layout" and "Why Verus should not live inside the main build".
@@ -249,6 +329,10 @@ Terms used in this plan:
 - `SHA256SUMS` is a plain checksum manifest. For Verus, each line should name
   one expected archive digest and archive file, for example
   `HEX  verus-VERSION-x86-linux.zip`.
+- `rust-prover-tools` is a Python package that exposes the `prover-tools`
+  console command. It owns the Kani and Verus install, version-check,
+  checksum, binary-resolution, toolchain, and proof-run behaviour that this
+  repository should reuse.
 
 Relevant local files and directories:
 
@@ -261,9 +345,11 @@ Relevant local files and directories:
 - `docs/users-guide.md` should not need a behaviour update unless the
   implementation changes public library behaviour. This task is expected to be
   internal tooling only.
-- `scripts/` currently contains the doctest benchmark helper and will gain
-  formal-verification scripts.
+- `scripts/` currently contains the doctest benchmark helper and may gain
+  thin formal-verification compatibility wrappers.
 - `tools/` does not exist yet and will be created for tool pins.
+- `tools/rust-prover-tools/REF` should pin the upstream tool revision used by
+  `uv tool run`.
 - `tests/workspace_manifest.rs`, `tests/features/workspace_manifest.feature`,
   and `tests/scenarios/workspace_manifest_scenarios.rs` show the existing
   pattern for testing repository-level infrastructure with `rstest` and
@@ -278,8 +364,8 @@ Relevant skills:
   15.1.3.
 - Use `rust-router` before Rust changes; route to smaller Rust skills only if
   implementation touches Rust APIs beyond repository-contract tests.
-- Use `firecrawl-mcp` or current GitHub release metadata when re-checking
-  external tool versions before pinning.
+- Use current GitHub metadata when re-checking Kani, Verus, and
+  `rust-prover-tools` versions before pinning.
 - Use `commit-message` for file-based commits and `pr-creation` for the draft
   pull request.
 
@@ -293,28 +379,39 @@ Stage B creates the metadata pins. Re-check the latest stable Kani and Verus
 releases from official GitHub release metadata. Prefer the latest stable Kani
 release that supports `cargo install --locked kani-verifier --version`. Prefer
 the latest non-prerelease Verus release unless a documented reason exists to
-pin a rolling prerelease. Create `tools/kani/VERSION` with the Kani
-`MAJOR.MINOR.PATCH` value. Create `tools/verus/VERSION` with the Verus release
-token without the `release/` prefix. Create `tools/verus/SHA256SUMS` with at
-least the checksum for the Linux archive used by the installer,
-`verus-${VERSION}-x86-linux.zip`. If multi-platform archive checksums are added
-now, document that decision in this plan.
+pin a rolling prerelease. Re-check `leynos/rust-prover-tools` for releases or
+tags; if none exist, pin the current commit SHA. Create `tools/kani/VERSION`
+with the Kani `MAJOR.MINOR.PATCH` value. Create `tools/verus/VERSION` with the
+Verus release token without the `release/` prefix. Create
+`tools/verus/SHA256SUMS` with at least the checksum for the Linux archive used
+by the installer, `verus-${VERSION}-x86-linux.zip`. Create
+`tools/rust-prover-tools/REF` with the selected upstream release tag or commit
+SHA. If multi-platform archive checksums are added now, document that decision
+in this plan.
 
-Stage C creates the scripts. Add `scripts/install-kani.sh`,
-`scripts/install-verus.sh`, and `scripts/run-verus.sh`, all executable. The
-Kani installer should follow Netsuke's pattern: locate the repository root,
-require `cargo`, read and validate `tools/kani/VERSION`, run
-`cargo install --locked kani-verifier --version "$kani_version"`, run
-`cargo kani setup`, and print `cargo kani --version`. The Verus installer
-should follow Chutoro's pattern: require `tools/verus/VERSION` and
-`tools/verus/SHA256SUMS`, accept `VERUS_TARGET` with default `x86-linux`, accept
- `VERUS_INSTALL_DIR` with a repository-local default, derive the GitHub release
-archive URL, verify SHA-256 with `sha256sum` or `shasum`, extract with `unzip`,
-and stage the binary under a stable `verus` directory. The Verus runner should
-resolve `VERUS_BIN` from a binary path, install directory, or command on
-`PATH`; call the installer if the default binary is missing; parse the required
-Rust toolchain from `verus --version`; install that toolchain with `rustup`
-when missing; and run `${VERUS_PROOF_FILE:-verus/wireframe_proofs.rs}`.
+Stage C creates the `rust-prover-tools` invocation layer. Prefer direct
+documentation of the command:
+
+```sh
+uv tool run --python 3.14 \
+  --from "git+https://github.com/leynos/rust-prover-tools.git@$(cat tools/rust-prover-tools/REF)" \
+  prover-tools kani install --repo-root .
+```
+
+If the roadmap command names must exist locally, add
+`scripts/install-kani.sh`, `scripts/install-verus.sh`, and `scripts/run-verus.sh`
+as executable compatibility wrappers. Each wrapper should resolve the
+repository root, read `tools/rust-prover-tools/REF`, and invoke `uv tool run
+--python 3.14 --from "git+https://github.com/leynos/rust-prover-tools.git@${ref}"
+prover-tools ...`. `install-kani.sh` invokes `prover-tools kani install
+--repo-root "${repo_root}"`. `install-verus.sh` invokes
+`prover-tools verus install --repo-root "${repo_root}"`, preserving
+`VERUS_TARGET` and `VERUS_INSTALL_DIR` through the environment. `run-verus.sh`
+invokes `prover-tools verus run --repo-root "${repo_root}" --proof-file
+"${VERUS_PROOF_FILE:-${repo_root}/verus/wireframe_proofs.rs}"`, preserving
+`VERUS_BIN`, `VERUS_TARGET`, and `VERUS_INSTALL_DIR` through the environment.
+The wrappers must not run `cargo install`, `cargo kani setup`, `curl`, `unzip`,
+`sha256sum`, `shasum`, or `rustup` directly; `prover-tools` owns those steps.
 
 Run `coderabbit review --agent` after Stage C. If it reports concerns, resolve
 them before adding tests.
@@ -322,29 +419,35 @@ them before adding tests.
 Stage D adds tests. Add `rstest` coverage for repository tooling contracts:
 required metadata files exist, Kani's pin is non-empty and matches
 `MAJOR.MINOR.PATCH`, Verus' pin is non-empty, `tools/verus/SHA256SUMS` contains
-an entry for the configured Linux archive, all three scripts exist, and each
-script starts with a Bash shebang and `set -euo pipefail`. Add syntax checks
-with `bash -n` either as Rust integration tests that spawn Bash or as explicit
-validation commands recorded in this plan. Add a `rstest-bdd` feature and
-scenario describing the contributor workflow: the repository declares pinned
-Kani and Verus tooling, the install scripts are present, and the pin metadata
-is consistent. Keep these tests network-free.
+an entry for the configured Linux archive, and `tools/rust-prover-tools/REF` is
+non-empty. If compatibility wrappers are added, test that all three scripts
+exist, start with a Bash shebang and `set -euo pipefail`, reference
+`prover-tools`, and do not contain the old implementation commands such as
+`cargo install`, `cargo kani setup`, `curl`, `unzip`, `sha256sum`, `shasum`, or
+`rustup toolchain install`. Add syntax checks with `bash -n` either as Rust
+integration tests that spawn Bash or as explicit validation commands recorded
+in this plan. Add a `rstest-bdd` feature and scenario describing the
+contributor workflow: the repository declares pinned Kani, Verus, and
+`rust-prover-tools` metadata, the local entry points are present, and the
+metadata is consistent. Keep these tests network-free.
 
 Stage E updates internal documentation. Update
 `docs/formal-verification-methods-in-wireframe.md` only where the implemented
 script contracts differ from the current design text. Update
-`docs/developers-guide.md` with the contributor-facing convention for running
-`./scripts/install-kani.sh`, `./scripts/install-verus.sh`, and
-`scripts/run-verus.sh`. Do not update `docs/users-guide.md` unless public
-library behaviour changes, which is not expected.
+`docs/developers-guide.md` with the contributor-facing convention for invoking
+the pinned `prover-tools` CLI directly and through any local compatibility
+wrappers. Do not update `docs/users-guide.md` unless public library behaviour
+changes, which is not expected.
 
 Stage F validates the implementation. Run all commands sequentially with `tee`
 logs under `/tmp`, using the current branch name in each log file. The required
 implementation gates are `make check-fmt`, `make lint`, and `make test`. Also
 run `make markdownlint` and `make nixie` if documentation changed. Run
-`./scripts/install-kani.sh` and `./scripts/install-verus.sh` to prove the
-roadmap success criteria. Run `bash -n` for all new shell scripts. If
-`scripts/run-verus.sh` is expected to fail because no proof file exists yet,
+`./scripts/install-kani.sh` and `./scripts/install-verus.sh`, or the documented
+direct `uv tool run ... prover-tools ...` equivalents if the approved
+implementation drops wrappers, to prove the roadmap success criteria. Run
+`bash -n` for any new shell wrappers. If `scripts/run-verus.sh` or
+`prover-tools verus run` is expected to fail because no proof file exists yet,
 capture and document the clear "proof file not found" diagnostic rather than
 treating that as a failed 15.1.3 acceptance criterion.
 
@@ -381,15 +484,19 @@ gh release list --repo model-checking/kani --limit 5
 gh release list --repo verus-lang/verus --limit 5
 gh release view release/0.2026.05.17.e479cce --repo verus-lang/verus \
   --json tagName,name,isPrerelease,publishedAt,assets
+gh release list --repo leynos/rust-prover-tools --limit 10
+gh api repos/leynos/rust-prover-tools/tags
+gh api repos/leynos/rust-prover-tools/commits/main --jq .sha
 ```
 
-Create metadata and scripts after approval:
+Create metadata and, if retained, compatibility wrappers after approval:
 
 ```sh
-mkdir -p tools/kani tools/verus
+mkdir -p tools/kani tools/verus tools/rust-prover-tools
 $EDITOR tools/kani/VERSION
 $EDITOR tools/verus/VERSION
 $EDITOR tools/verus/SHA256SUMS
+$EDITOR tools/rust-prover-tools/REF
 $EDITOR scripts/install-kani.sh
 $EDITOR scripts/install-verus.sh
 $EDITOR scripts/run-verus.sh
@@ -399,7 +506,7 @@ chmod +x scripts/install-kani.sh scripts/install-verus.sh scripts/run-verus.sh
 Use `apply_patch` rather than editor commands when this plan is implemented by
 an agent.
 
-Run shell syntax checks:
+Run wrapper syntax checks if wrappers are added:
 
 ```sh
 bash -n scripts/install-kani.sh
@@ -415,6 +522,21 @@ branch="$(git branch --show-current)"
   tee "/tmp/install-kani-wireframe-${branch}.out"
 VERUS_INSTALL_DIR="${PWD}/.verus/$(tr -d '[:space:]' < tools/verus/VERSION)" \
   ./scripts/install-verus.sh 2>&1 |
+  tee "/tmp/install-verus-wireframe-${branch}.out"
+```
+
+If wrappers are not added, run the direct pinned CLI instead:
+
+```sh
+branch="$(git branch --show-current)"
+ref="$(tr -d '[:space:]' < tools/rust-prover-tools/REF)"
+from="git+https://github.com/leynos/rust-prover-tools.git@${ref}"
+uv tool run --python 3.14 --from "${from}" \
+  prover-tools kani install --repo-root . 2>&1 |
+  tee "/tmp/install-kani-wireframe-${branch}.out"
+VERUS_INSTALL_DIR="${PWD}/.verus/$(tr -d '[:space:]' < tools/verus/VERSION)" \
+  uv tool run --python 3.14 --from "${from}" \
+  prover-tools verus install --repo-root . 2>&1 |
   tee "/tmp/install-verus-wireframe-${branch}.out"
 ```
 
@@ -442,11 +564,11 @@ git status --short
 git diff --cached
 COMMIT_MSG_DIR="$(mktemp -d)"
 cat > "${COMMIT_MSG_DIR}/COMMIT_MSG.md" << 'ENDOFMSG'
-Add formal verification tooling scripts
+Adopt rust-prover-tools for formal tooling
 
-Add pinned Kani and Verus metadata plus repository-local helper scripts so
-contributors can install the supported formal-verification toolchain
-reproducibly.
+Add pinned Kani, Verus, and rust-prover-tools metadata plus local entry
+points so contributors can install the supported formal-verification
+toolchain reproducibly without bespoke prover shell logic.
 ENDOFMSG
 git commit -F "${COMMIT_MSG_DIR}/COMMIT_MSG.md"
 rm -rf "${COMMIT_MSG_DIR}"
@@ -457,11 +579,13 @@ rm -rf "${COMMIT_MSG_DIR}"
 The approved implementation is accepted only when these checks pass or their
 documented baseline failures are explicitly approved:
 
-- `bash -n scripts/install-kani.sh`
-- `bash -n scripts/install-verus.sh`
-- `bash -n scripts/run-verus.sh`
-- `./scripts/install-kani.sh`
-- `./scripts/install-verus.sh`
+- `bash -n scripts/install-kani.sh`, if wrappers are added
+- `bash -n scripts/install-verus.sh`, if wrappers are added
+- `bash -n scripts/run-verus.sh`, if wrappers are added
+- `./scripts/install-kani.sh`, or the direct pinned
+  `uv tool run ... prover-tools kani install --repo-root .` equivalent
+- `./scripts/install-verus.sh`, or the direct pinned
+  `uv tool run ... prover-tools verus install --repo-root .` equivalent
 - `make check-fmt`
 - `make lint`
 - `make test`
@@ -471,8 +595,8 @@ documented baseline failures are explicitly approved:
 
 Expected test coverage:
 
-- New `rstest` unit/integration tests fail before the metadata and scripts
-  exist and pass after implementation.
+- New `rstest` unit/integration tests fail before the metadata and
+  `rust-prover-tools` entry points exist and pass after implementation.
 - New `rstest-bdd` scenario coverage fails before the repository declares the
   formal-verification tooling workflow and passes after implementation.
 - No Kani harness or Verus proof is required for 15.1.3 because this item
@@ -485,17 +609,23 @@ Expected contributor behaviour after implementation:
 ./scripts/install-verus.sh
 ```
 
-Both commands should exit 0 on a host with the required external prerequisites.
-`scripts/run-verus.sh` should either run the selected proof file or fail with a
-clear diagnostic naming the missing proof file until later Verus proof work
-adds it.
+Both commands should exit 0 on a host with the required external prerequisites
+by delegating to the pinned `rust-prover-tools` CLI. If the approved
+implementation uses direct CLI invocation instead of wrappers, the equivalent
+`uv tool run --python 3.14 --from
+git+https://github.com/leynos/rust-prover-tools.git@$(cat
+tools/rust-prover-tools/REF) prover-tools ...` commands should exit 0.
+`scripts/run-verus.sh` or `prover-tools verus run` should either run the
+selected proof file or fail with a clear diagnostic naming the missing proof
+file until later Verus proof work adds it.
 
 ## Idempotence and recovery
 
-The scripts must be safe to rerun. `install-kani.sh` may reinstall the pinned
-Cargo binary because `cargo install --locked --version` is the supported
-installer path. `install-verus.sh` should skip downloading when the pinned
-binary already exists at the requested install directory.
+The entry points must be safe to rerun. `prover-tools kani install` may
+reinstall the pinned Cargo binary because `cargo install --locked --version` is
+the supported installer path. `prover-tools verus install` should skip
+downloading when the pinned binary already exists at the requested install
+directory.
 
 If a Verus download fails before extraction, rerun the same command. Temporary
 download directories must be cleaned with a shell `trap`.
@@ -507,7 +637,7 @@ If the implementation needs rollback before commit, remove only files created
 by this roadmap item:
 
 ```sh
-rm -rf tools/kani tools/verus
+rm -rf tools/kani tools/verus tools/rust-prover-tools
 rm -f scripts/install-kani.sh scripts/install-verus.sh scripts/run-verus.sh
 ```
 
@@ -521,15 +651,15 @@ Planning sources checked:
   `./scripts/install-kani.sh` and `./scripts/install-verus.sh`.
 - `docs/formal-verification-methods-in-wireframe.md` defines the preferred
   `scripts/` and `tools/` layout and keeps Verus outside the main build.
-- Netsuke's `scripts/install-kani.sh` and `scripts/check-kani-version.sh`
-  provide the hardened Kani installer and version-check patterns.
-- Chutoro's `scripts/install-verus.sh`, `scripts/run-verus.sh`,
-  `tools/verus/VERSION`, and `tools/verus/SHA256SUMS` provide the Verus
-  installer, runner, and checksum patterns.
+- `rust-prover-tools` provides the `prover-tools` CLI that replaces the
+  bespoke shell-script implementation for Kani installation, Kani version
+  checks, Verus installation, and Verus proof execution.
 - Kani GitHub release metadata listed `kani-0.67.0` as the latest release at
   planning time.
 - Verus GitHub release metadata listed `release/0.2026.05.17.e479cce` as the
   latest non-prerelease release at planning time.
+- `rust-prover-tools` had no release or tag on 2026-05-25; the observed
+  `main` commit was `b07ef696f8373d54ae68e517d39d47a5d27a5bd5`.
 
 The plan-only pull request should mention this file and should not claim that
 formal-verification tooling has been implemented yet.
@@ -542,29 +672,42 @@ The implementation should create these repository-local interfaces:
 tools/kani/VERSION
 tools/verus/VERSION
 tools/verus/SHA256SUMS
+tools/rust-prover-tools/REF
 scripts/install-kani.sh
 scripts/install-verus.sh
 scripts/run-verus.sh
 ```
 
-`scripts/install-kani.sh` accepts no required arguments. It depends on `cargo`
-and the pinned `tools/kani/VERSION` file.
+`tools/rust-prover-tools/REF` contains an immutable upstream release tag or
+commit SHA. Until upstream publishes a release tag, use
+`b07ef696f8373d54ae68e517d39d47a5d27a5bd5`.
 
-`scripts/install-verus.sh` accepts these environment variables:
+The implementation depends on `uv` and Python 3.14 because
+`rust-prover-tools` declares `requires-python = ">=3.14"`.
+
+`scripts/install-kani.sh`, if present, accepts no required arguments. It
+depends on `uv`, the pinned `tools/rust-prover-tools/REF`, and the
+`tools/kani/VERSION` file read by `prover-tools kani install`.
+
+`scripts/install-verus.sh`, if present, accepts these environment variables and
+passes them through to `prover-tools verus install`:
 
 - `VERUS_TARGET`, defaulting to `x86-linux`.
 - `VERUS_INSTALL_DIR`, defaulting to a repository-local directory for the
   pinned version.
 
-It depends on `curl`, `unzip`, and either `sha256sum` or `shasum`.
+The external `curl`, `unzip`, and checksum tool requirements belong to
+`prover-tools verus install`, not to the wrapper implementation.
 
-`scripts/run-verus.sh` accepts these environment variables:
+`scripts/run-verus.sh`, if present, accepts these environment variables and
+passes them through to `prover-tools verus run`:
 
 - `VERUS_BIN`, which may be a binary path, install directory, or command name.
 - `VERUS_INSTALL_DIR`, used to derive the default binary path.
 - `VERUS_PROOF_FILE`, defaulting to `verus/wireframe_proofs.rs`.
 
-It depends on `rustup` when the required Verus Rust toolchain is missing.
+The `rustup` requirement belongs to `prover-tools verus run` when the required
+Verus Rust toolchain is missing.
 
 This task should not add new Cargo dependencies. If tests need helper code,
 prefer local test helper functions following the existing workspace-manifest
@@ -574,6 +717,9 @@ test style.
 
 - Kani releases: <https://github.com/model-checking/kani/releases>
 - Verus releases: <https://github.com/verus-lang/verus/releases>
+- rust-prover-tools repository: <https://github.com/leynos/rust-prover-tools>
+- rust-prover-tools users' guide:
+  <https://github.com/leynos/rust-prover-tools/blob/main/docs/users-guide.md>
 - Netsuke Kani installer:
   <https://raw.githubusercontent.com/leynos/netsuke/main/scripts/install-kani.sh>
 - Netsuke Kani version checker:
@@ -588,3 +734,8 @@ formal-verification design document, Wyvern planning reconnaissance, Firecrawl
 research, and current GitHub release metadata. This establishes a
 pre-implementation approval gate and does not authorize implementation until
 the plan is approved.
+
+Revision note: updated on 2026-05-25 to replace bespoke Kani and Verus
+shell-script implementation with a pinned `rust-prover-tools` CLI invocation.
+The roadmap-named scripts remain only as optional compatibility wrappers that
+delegate to `prover-tools`.
