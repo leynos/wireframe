@@ -12,6 +12,9 @@ mod terminator;
 #[path = "../common/workspace_manifest_support.rs"]
 mod workspace_manifest_support;
 
+#[path = "../common/formal_tooling_support.rs"]
+mod formal_tooling_support;
+
 #[path = "../support.rs"]
 mod support;
 

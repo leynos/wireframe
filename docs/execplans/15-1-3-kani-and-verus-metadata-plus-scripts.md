@@ -223,6 +223,18 @@ Observable success is:
 - [x] (2026-05-26 22:29 UTC) Cleared CodeRabbit's Stage C findings by adding
       checksum provenance and structured `rust-prover-tools` pin metadata;
       re-review reported zero findings.
+- [x] (2026-05-26 22:38 UTC) Added network-free `rstest` and `rstest-bdd`
+      coverage for formal-tooling metadata and Makefile target contracts.
+- [x] (2026-05-26 22:39 UTC) Validated the new targeted tests with
+      `cargo test --test formal_tooling --all-features` and
+      `cargo test --test bdd --all-features formal_tooling`.
+- [x] (2026-05-26 22:51 UTC) Fixed Clippy feedback in the new tests by
+      returning explicit errors instead of panicking inside `Result` tests.
+- [x] (2026-05-26 22:55 UTC) Validated the test milestone with
+      `make check-fmt`, `make lint`, `make test`, `make markdownlint`, and
+      `make nixie`.
+- [x] (2026-05-26 23:05 UTC) Ran `coderabbit review --agent` for the test
+      milestone; it reported zero findings.
 - [ ] Implement the approved plan in small gated commits.
 - [ ] Mark roadmap item 15.1.3 done after implementation validation passes.
 
