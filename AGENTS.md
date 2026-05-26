@@ -43,8 +43,8 @@
   relevant file(s) in the `docs/` directory to reflect the latest state.
   **Ensure the documentation remains accurate and current.**
 - Documentation must use en-GB-oxendict ("-ize" / "-yse" / "-our") spelling
- and grammar. (EXCEPTION: the filename `LICENSE` is left unchanged for
- community consistency.)
+  and grammar. (EXCEPTION: the LICENSE filename is left unchanged for community
+  consistency.)
 - A documentation style guide is provided at
   `docs/documentation-style-guide.md`.
 
@@ -81,7 +81,7 @@
 ## Refactoring Heuristics & Workflow
 
 - **Recognizing Refactoring Needs:** Regularly assess the codebase for potential
-  refactoring opportunities. Perform refactoring when you observe:
+  refactoring opportunities. Perform refactoring when observing:
   - **Long Methods/Functions:** Functions or methods that are excessively long
     or try to do too many things.
   - **Duplicated Code:** Identical or very similar code blocks appearing in
@@ -151,8 +151,21 @@ project:
   meaningfully named structs.
 - Where a function is returning a large error, consider using `Arc` to reduce
   the amount of data returned.
-- Write unit and behavioural tests for new functionality. Run both before and
-  after making any change.
+- Ensure that new features are validated with unit tests using `rstest` and
+  behavioural tests using `rstest-bdd` where applicable. Cover happy paths,
+  unhappy paths, and relevant edge cases.
+- Add end-to-end tests where a change affects externally observable workflows,
+  integration contracts, persistence, command-line behaviour, network
+  boundaries, UI flows, or other system-level behaviour.
+- Use property tests with `proptest` or a bounded model checker with `kani`
+  when a change introduces an invariant over a range of inputs, states,
+  orderings, or transitions. Use judgement to choose the appropriate level of
+  rigour.
+- Use an exhaustive proof with `verus` for introduced lemmas or contractual
+  business logic. Proofs must be substantive, rigorous, and well-founded, not
+  merely a restatement of the assumed property.
+- Run relevant unit, behavioural, property, model-checking, proof, and
+  end-to-end suites before and after making any change.
 - Every module **must** begin with a module level (`//!`) comment explaining the
   module's purpose and utility.
 - Document public APIs using Rustdoc comments (`///`) so documentation can be
@@ -197,7 +210,7 @@ project:
   `newt-hype` for the common case, tuple structs for outliers, and
   `the-newtype` to unify behaviour when owning the trait definitions.
 - Use `cap_std` and `cap_std::fs_utf8` / `camino` in place of `std::fs` and
-  `std::path` for enhanced cross-platform support and capability-oriented
+  `std::path` for enhanced cross platform support and capabilities oriented
   filesystem access.
 
 ### Testing
@@ -214,15 +227,15 @@ project:
 ### Dependency Management
 
 - **Mandate caret requirements for all dependencies.** All crate versions
-  specified in `Cargo.toml` must use SemVer-compatible caret requirements
-  (e.g., `some-crate = "1.2.3"`). This is Cargo's default and allows for safe,
+  specified in `Cargo.toml` must use SemVer-compatible caret requirements (e.g.,
+   `some-crate = "1.2.3"`). This is Cargo's default and allows for safe,
   non-breaking updates to minor and patch versions while preventing breaking
   changes from new major versions. This approach is critical for ensuring build
   stability and reproducibility.
 - **Prohibit unstable version specifiers.** The use of wildcard (`*`) or
   open-ended inequality (`>=`) version requirements is strictly forbidden as
-  they introduce unacceptable risk and unpredictability. Tilde requirements
-  (`~`) should only be used where a dependency must be locked to patch-level
+  they introduce unacceptable risk and unpredictability. Tilde requirements (
+  `~`) should only be used where a dependency must be locked to patch-level
   updates for a specific, documented reason.
 
 ### Error Handling
@@ -240,13 +253,37 @@ project:
 - In production code and shared fixtures, avoid `.expect()` entirely: return
   `Result` and use `?` to propagate errors instead of panicking.
 - Keep `expect_used` **strict**; do not suppress the lint.
-- Recognize that `allow-expect-in-tests = true` **doesn’t cover** helpers
+- Recognise that `allow-expect-in-tests = true` **doesn’t cover** helpers
   outside `#[cfg(test)]` or `#[test]`; avoid `expect` in such fixtures.
 - Use `anyhow`/`eyre` with `.context(...)` to **preserve backtraces** and
   provide clear, typed failure paths.
 - Update helpers (e.g., `set_dir`) to **return errors** rather than panicking.
 - Consume fallible fixtures in `rstest` by **making the test return `Result`**
   and applying `?` to the fixture.
+
+### Observability
+
+- Use `tracing` for logging and diagnostics. Prefer structured
+  `tracing::{trace, debug, info, warn, error}` events and spans over `println!`,
+   `eprintln!`, or direct `log` macros. Add fields for identifiers, state, and
+  error context so downstream subscribers can filter and correlate events
+  without parsing message text.
+- Use `#[tracing::instrument]` or explicit spans around request handling,
+  command execution, retries, background jobs, and other meaningful units of
+  work. Do not hold `Span::enter()` guards across `.await`; use
+  `Instrument::instrument` or scoped synchronous spans instead.
+- Use the `metrics` crate for metric emission where usage, uptake, failure,
+  or mitigation metrics are required. Prefer `counter!` for cumulative events,
+  `gauge!` for values that rise and fall, and `histogram!` for distributions
+  such as latency or payload size.
+- Describe emitted metrics with `describe_counter!`, `describe_gauge!`, or
+  `describe_histogram!` where the unit or purpose is not obvious from the
+  metric name. Keep metric names stable and labels low-cardinality; do not put
+  user input, request IDs, paths with unbounded parameters, or raw error
+  strings into labels.
+- Libraries may emit `metrics` and `tracing` instrumentation, but must not
+  install global recorders or subscribers. Applications should initialise
+  exporters/subscribers once, as early as practical in startup.
 
 ## Markdown Guidance
 
@@ -260,6 +297,17 @@ project:
 - Use dashes (`-`) for list bullets.
 - Use GitHub-flavoured Markdown footnotes (`[^1]`) for references and
   footnotes.
+
+## Project Documentation
+
+Record design decisions in the design document. Where a decision is
+substantive, record it in an ADR document following the documentation style
+guide, then reference that ADR from the design document.
+
+Update `docs/users-guide.md` for any change to application behaviour or user
+interface that a user should know about. Document internally facing interfaces
+or practices in the relevant component architecture document. Document
+internally facing conventions or practices in `docs/developers-guide.md`.
 
 ## Additional tooling
 
