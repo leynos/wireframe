@@ -1,0 +1,4 @@
+repository: https://github.com/leynos/rust-prover-tools.git
+branch: main
+ref: b07ef696f8373d54ae68e517d39d47a5d27a5bd5
+verify: git ls-remote https://github.com/leynos/rust-prover-tools.git b07ef696f8373d54ae68e517d39d47a5d27a5bd5

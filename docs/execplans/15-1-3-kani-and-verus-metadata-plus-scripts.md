@@ -4,10 +4,11 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
  `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT (awaiting approval)
+Status: IN PROGRESS
 
-This plan must be approved before implementation starts. Until then, roadmap
-item 15.1.3 remains unchecked in `docs/roadmap.md`.
+The user approved implementation on 2026-05-26 by asking Codex to proceed with
+the planned functionality. Roadmap item 15.1.3 remains unchecked until the
+implementation, validation, and CodeRabbit review gates complete.
 
 ## Purpose / big picture
 
@@ -211,7 +212,17 @@ Observable success is:
 - [x] (2026-05-26 18:20 UTC) Validated the Makefile-target plan revision with
       `make markdownlint`, `make nixie`, `make check-fmt`, and
       `coderabbit review --agent`; CodeRabbit reported zero findings.
-- [ ] Obtain explicit approval for this ExecPlan.
+- [x] (2026-05-26 21:23 UTC) Treated the user's implementation request as
+      explicit approval, changed this ExecPlan to `IN PROGRESS`, and began
+      implementation.
+- [x] (2026-05-26 21:26 UTC) Re-checked upstream metadata and selected Kani
+      `0.67.0`, Verus `0.2026.05.24.ecee80a`, and `rust-prover-tools` commit
+      `b07ef696f8373d54ae68e517d39d47a5d27a5bd5`.
+- [x] (2026-05-26 22:02 UTC) Added tool metadata pins and Makefile targets for
+      `install-kani`, `check-kani-version`, `install-verus`, and `run-verus`.
+- [x] (2026-05-26 22:29 UTC) Cleared CodeRabbit's Stage C findings by adding
+      checksum provenance and structured `rust-prover-tools` pin metadata;
+      re-review reported zero findings.
 - [ ] Implement the approved plan in small gated commits.
 - [ ] Mark roadmap item 15.1.3 done after implementation validation passes.
 
@@ -257,6 +268,39 @@ Observable success is:
   `gh api repos/leynos/rust-prover-tools/commits/main`. Impact: pin that commit
   until upstream publishes a release tag.
 
+- Observation: GitHub's GraphQL release listing was rate-limited during
+  implementation, but REST API calls still returned the needed release data.
+  Evidence: `gh release list` returned `GraphQL: API rate limit already
+  exceeded`, while `gh api repos/.../releases?per_page=8` returned Kani and
+  Verus release metadata. Impact: implementation used REST results to refresh
+  pins.
+
+- Observation: the latest non-prerelease Verus release available during
+  implementation was `release/0.2026.05.24.ecee80a`, published on
+  2026-05-25, with an `x86-linux` archive. Evidence:
+  `gh api repos/verus-lang/verus/releases?per_page=8`. Impact: pin Verus to
+  `0.2026.05.24.ecee80a` rather than the older planning candidate.
+
+- Observation: the `verus-0.2026.05.24.ecee80a-x86-linux.zip` archive has
+  SHA-256 checksum
+  `323a44c0d787ce9a788665e1c6922360c44a72d1b9696359ec4f7bf5fbbc63e6`.
+  Evidence: `sha256sum /tmp/verus-0.2026.05.24.ecee80a-x86-linux.zip`.
+  Impact: record that checksum in `tools/verus/SHA256SUMS`.
+
+- Observation: CodeRabbit flagged that the Verus checksum needs a visible
+  repository audit trail tying it to the official artifact. Evidence:
+  `coderabbit review --agent` reported one critical finding against
+  `tools/verus/SHA256SUMS`. Impact: add `tools/verus/README.md` with the
+  official release URL and checksum reproduction command before committing the
+  metadata milestone.
+
+- Observation: CodeRabbit's re-review found that a bare
+  `tools/rust-prover-tools/REF` commit SHA lacks enough repository context for
+  reviewers. Evidence: `coderabbit review --agent` reported a major finding
+  against `tools/rust-prover-tools/REF`. Impact: make the file structured with
+  `repository:`, `branch:`, `ref:`, and `verify:` lines, and teach the
+  Makefile to extract the `ref:` value.
+
 ## Decision log
 
 - Decision: keep this pull request plan-only and leave 15.1.3 unchecked.
@@ -298,6 +342,17 @@ Observable success is:
   Rationale: the user prefers Makefile targets that call the `prover-tools`
   entry point over shell wrappers or direct long-form `uv tool run` commands.
   Date/Author: 2026-05-26 / Codex.
+
+- Decision: pin Verus to the latest non-prerelease release available during
+  implementation, `0.2026.05.24.ecee80a`, rather than the rolling prerelease.
+  Rationale: the plan prefers stable Verus releases unless a specific reason
+  exists to adopt rolling prerelease builds, and no such reason exists for
+  15.1.3. Date/Author: 2026-05-26 / Codex.
+
+- Decision: store the `rust-prover-tools` pin as structured metadata rather
+  than a bare SHA. Rationale: the Makefile still consumes the immutable commit
+  ref, while reviewers can see the repository, branch, and verification command
+  without consulting planning history. Date/Author: 2026-05-26 / Codex.
 
 ## Outcomes & retrospective
 

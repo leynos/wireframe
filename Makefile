@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc doctest-benchmark bench-codec build release lint fmt check-fmt markdownlint nixie typecheck
+.PHONY: help all clean test test-doc doctest-benchmark bench-codec build release lint fmt check-fmt markdownlint nixie typecheck install-kani check-kani-version install-verus run-verus
 
 CRATE ?= wireframe
 CARGO ?= cargo
@@ -8,6 +8,11 @@ RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= markdownlint-cli2
 NIXIE ?= nixie
 WHITAKER ?= whitaker
+PROVER_TOOLS_REF_FILE ?= tools/rust-prover-tools/REF
+PROVER_TOOLS_REF ?= $(shell awk '/^ref:/ { print $$2 }' $(PROVER_TOOLS_REF_FILE))
+PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools.git@$(PROVER_TOOLS_REF)
+PROVER_TOOLS ?= uv tool run --python 3.14 --from "$(PROVER_TOOLS_SOURCE)" prover-tools
+VERUS_PROOF_FILE ?= verus/wireframe_proofs.rs
 
 build: target/debug/lib$(CRATE).rlib ## Build debug binary
 release: target/release/lib$(CRATE).rlib ## Build release binary
@@ -62,6 +67,18 @@ markdownlint: ## Lint Markdown files
 
 nixie: ## Validate Mermaid diagrams
 	$(NIXIE) --no-sandbox
+
+install-kani: ## Install the pinned Kani verifier
+	$(PROVER_TOOLS) kani install --repo-root .
+
+check-kani-version: ## Check the installed Kani verifier version
+	$(PROVER_TOOLS) kani check-version --repo-root .
+
+install-verus: ## Install the pinned Verus verifier
+	$(PROVER_TOOLS) verus install --repo-root .
+
+run-verus: ## Run the configured Verus proof entry point
+	$(PROVER_TOOLS) verus run --repo-root . --proof-file "$(VERUS_PROOF_FILE)"
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
