@@ -4,11 +4,10 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
-Implementation approval: REQUIRED. This plan may be reviewed and revised, but
-the public API decision must not be implemented until the plan is explicitly
-approved.
+Implementation approval: RECEIVED. The user approved implementation on
+2026-05-26.
 
 ## Purpose / big picture
 
@@ -125,15 +124,28 @@ actor and codec-driver boundary. Those are separate roadmap items.
 - [x] (2026-05-20 23:22Z) Received Wyvern memo on prior art and validation
   script patterns.
 - [x] (2026-05-20 23:26Z) Drafted this ExecPlan.
-- [ ] Run `coderabbit review --agent` and resolve concerns. First attempt was
-  rate-limited before review findings were produced; later attempts also hit
-  the service usage limit.
+- [x] (2026-05-26 18:55Z) Ran `coderabbit review --agent` after deterministic
+  gates; CodeRabbit completed with zero findings.
 - [x] (2026-05-20 23:31Z) Ran Markdown and repository quality gates.
   `make fmt` currently fails on pre-existing repository-wide Markdown
   line-length findings; the new ExecPlan passes direct `markdownlint`, and the
   configured `make markdownlint` gate passes.
-- [ ] Commit the approved-for-review ExecPlan draft.
-- [ ] Push the branch and open a draft pull request for plan review.
+- [x] (2026-05-20 23:33Z) Committed the approved-for-review ExecPlan draft.
+- [x] (2026-05-20 23:35Z) Pushed the branch and opened draft pull request
+  #529 for plan review.
+- [x] (2026-05-26 18:24Z) Began approved implementation of `10.1.1`.
+- [x] (2026-05-26 18:25Z) Reconfirmed the current public byte surfaces with
+  `leta` and source inspection: `PacketParts`, `ServiceRequest`,
+  `BeforeSendHook`, and `Serializer::serialize` still expose `Vec<u8>`.
+- [x] (2026-05-26 18:30Z) Accepted ADR 008 with the stable `bytes::Bytes` or
+  transparent wrapper decision and explicit edit-on-demand workflow.
+- [x] (2026-05-26 18:30Z) Marked only the corresponding `10.1.1` roadmap item
+  and zero-copy migration roadmap `1.1.1` item done.
+- [x] (2026-05-26 18:39Z) Ran deterministic validation gates:
+  `make check-fmt`, `make markdownlint`, `make nixie`, `make lint`, and
+  `make test`.
+- [x] (2026-05-26 18:55Z) Updated this ExecPlan with final implementation and
+  review outcomes.
 
 ## Surprises & discoveries
 
@@ -180,11 +192,32 @@ actor and codec-driver boundary. Those are separate roadmap items.
 
 - Observation: `make fmt` runs `mdformat-all`, which invokes repository-wide
   Markdown lint fixing and currently fails on many pre-existing MD013
-  line-length findings outside this task.
-  Evidence: `/tmp/fmt-wireframe-10-1-1-approve-stable-public-byte-container.out`.
-  Impact: unrelated formatter changes were discarded, the new ExecPlan and the
+  line-length findings outside this task. Evidence:
+  `/tmp/fmt-wireframe-10-1-1-approve-stable-public-byte-container.out`. Impact:
+  unrelated formatter changes were discarded, the new ExecPlan and the
   configured `make markdownlint` gate pass, and the full formatter failure
   remains a repository baseline issue to report.
+
+- Observation: `leta show Serializer` failed with an LSP connection error
+  during the approved implementation pass. Evidence: the command returned
+  `Error: Connection closed unexpectedly`. Impact: `src/serializer.rs` was read
+  directly for the narrow serializer surface check, confirming
+  `Serializer::serialize` still returns `Vec<u8>`.
+
+- Observation: the approved implementation milestone passed the deterministic
+  gates before CodeRabbit review. Evidence:
+  `/tmp/check-fmt-wireframe-10-1-1-implementation.out`,
+  `/tmp/markdownlint-wireframe-10-1-1-implementation.out`,
+  `/tmp/nixie-wireframe-10-1-1-implementation.out`,
+  `/tmp/lint-wireframe-10-1-1-implementation.out`, and
+  `/tmp/test-wireframe-10-1-1-implementation.out`. Impact: the docs-only
+  decision closure does not regress formatting, Markdown linting, diagram
+  validation, Rust linting, or the workspace test suite.
+
+- Observation: CodeRabbit completed review of the approved implementation diff
+  with zero findings. Evidence:
+  `/tmp/coderabbit-wireframe-10-1-1-implementation.out`. Impact: there are no
+  CodeRabbit concerns to clear before committing this milestone.
 
 ## Decision log
 
@@ -192,6 +225,11 @@ actor and codec-driver boundary. Those are separate roadmap items.
   explicit approval. Rationale: the user explicitly stated that the plan must
   be approved before it is implemented, and the public API decision has semver
   impact. Date/Author: 2026-05-20 / Codex.
+
+- Decision: advance this ExecPlan to IN PROGRESS after explicit user approval.
+  Rationale: the user approved implementation of the planned functionality on
+  2026-05-26, so documentation-only decision closure may proceed while runtime
+  API migration remains out of scope. Date/Author: 2026-05-26 / Codex.
 
 - Decision: bound `10.1.1` to ADR 008 acceptance and documentation alignment,
   not runtime migration. Rationale: roadmap items `11.1.1`, `12.1.1`, and
@@ -204,10 +242,34 @@ actor and codec-driver boundary. Those are separate roadmap items.
   documents cheap cloning, shared storage, and unique mutable views in the
   upstream crate. Date/Author: 2026-05-20 / Codex.
 
+- Decision: accept ADR 008 with `bytes::Bytes`, or a transparent project
+  wrapper over `bytes::Bytes`, as the stable public byte representation.
+  Rationale: the existing default codec already uses `Bytes`, the inventory
+  shows the remaining issue is public payload ownership rather than a
+  frame-level `Vec<u8>` requirement, and this keeps read-only packet and
+  routing paths zero-copy by default. Date/Author: 2026-05-26 / Codex.
+
+- Decision: define mutation as an explicit edit-on-demand workflow rather than
+  exposing raw `BytesMut` conversion as the user-facing model. Rationale:
+  middleware and client hook authors need the current inspect, optionally edit,
+  then forward workflow without manually managing `Vec<u8>`, `Bytes`, and
+  `BytesMut` conversions. Date/Author: 2026-05-26 / Codex.
+
+- Decision: defer exact compatibility-helper names, helper lifetime, and
+  feature-gating to ADR 009 and roadmap item `10.1.2`. Rationale: `10.1.1`
+  approves the stable byte and mutation model only; rollout policy is
+  intentionally a separate decision. Date/Author: 2026-05-26 / Codex.
+
 ## Outcomes & retrospective
 
-This section is intentionally empty while the plan is in DRAFT. Fill it in
-after the plan is approved and after the implementation of `10.1.1` completes.
+ADR 008 is accepted. The corresponding roadmap entries in `docs/roadmap.md` and
+`docs/zero-copy-frame-and-payload-migration-roadmap.md` are marked done. No
+runtime public API migration was made in this work; that remains assigned to
+the later roadmap items referenced by ADR 008.
+
+The implementation passed `make check-fmt`, `make markdownlint`, `make nixie`,
+`make lint`, and `make test`. CodeRabbit completed after those gates with zero
+findings.
 
 ## Context and orientation
 
@@ -234,7 +296,7 @@ Important current code surfaces to inspect with `leta` before implementation:
 
 - `src/app/envelope.rs`: `PacketParts`, `Envelope`, `Packet`,
   `PacketParts::new`, `PacketParts::payload_bytes`, `PacketParts::into_payload`,
-  `Envelope::new`, and conversions between `PacketParts` and `Envelope`.
+   `Envelope::new`, and conversions between `PacketParts` and `Envelope`.
 - `src/middleware.rs`: `ServiceRequest`, `ServiceResponse`,
   `FrameContainer`, `frame`, `frame_mut`, `into_inner`, and
   `HandlerService::call`.

@@ -449,7 +449,7 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
 
 ### 10.1. Design decisions
 
-- [ ] 10.1.1. Approve the stable public byte-container and edit-on-demand model
+- [x] 10.1.1. Approve the stable public byte-container and edit-on-demand model
   for `PacketParts`, `Envelope`, middleware, client hooks, and serializer
   output. See `docs/adr-008-zero-copy-public-byte-container.md`.
 - [ ] 10.1.2. Approve the compatibility and rollout policy for downstream
