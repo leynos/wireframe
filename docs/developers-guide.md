@@ -173,6 +173,47 @@ behaviour-driven development (BDD) fixture for these assertions. Extend it by
 loading more workspace-state inputs in `load()` and adding focused verification
 methods that the step definitions and scenario can reuse.
 
+## Formal verification tooling
+
+Formal-verification tools are pinned in repository metadata and installed
+through concise Makefile entry points. Contributors should use these targets
+from the repository root instead of running long `uv tool run` commands by
+hand:
+
+- `make install-kani` installs the Kani version named in
+  `tools/kani/VERSION`.
+- `make check-kani-version` verifies that the installed Kani binary matches
+  `tools/kani/VERSION`.
+- `make install-verus` installs the Verus release named in
+  `tools/verus/VERSION` after checking `tools/verus/SHA256SUMS`.
+- `make run-verus` runs the proof file selected by `VERUS_PROOF_FILE`, or
+  `verus/wireframe_proofs.rs` by default.
+
+The targets delegate to `prover-tools`, supplied by the pinned
+`rust-prover-tools` source in `tools/rust-prover-tools/REF`. The Makefile
+should stay thin: it constructs the pinned `uv tool run --python 3.14`
+invocation and lets `prover-tools` own Kani installation, Kani version checks,
+Verus download and checksum verification, Verus binary resolution, and Verus
+toolchain handling.
+
+Keep Verus proof files outside the normal Cargo build under `verus/`. The
+`run-verus` target is expected to fail with a clear missing-proof-file
+diagnostic until later formal-verification roadmap work adds
+`verus/wireframe_proofs.rs`.
+
+### Formal tooling test support
+
+The shared module `tests/common/formal_tooling_support.rs` keeps
+repository-contract helpers beside the integration tests that use them. It
+reads the tool metadata files, extracts Makefile target recipes, and verifies
+that those recipes delegate to `prover-tools` rather than embedding installer
+commands such as `cargo install`, `curl`, or `rustup toolchain install`.
+
+`FormalToolingWorld` in `tests/fixtures/formal_tooling.rs` is the BDD fixture
+for the contributor workflow. Extend it by loading additional repository
+metadata in `load()` and adding focused verification methods that scenario
+functions and step definitions can reuse.
+
 ## Test infrastructure and framework
 
 ### rstest and rstest-bdd

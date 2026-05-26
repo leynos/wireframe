@@ -235,6 +235,11 @@ Observable success is:
       `make nixie`.
 - [x] (2026-05-26 23:05 UTC) Ran `coderabbit review --agent` for the test
       milestone; it reported zero findings.
+- [x] (2026-05-26 23:11 UTC) Updated the formal-verification design document
+      and developers' guide to describe the implemented Makefile targets and
+      pinned `rust-prover-tools` delegation model.
+- [x] (2026-05-26 23:23 UTC) Ran `coderabbit review --agent` for the
+      documentation milestone; it reported zero findings.
 - [ ] Implement the approved plan in small gated commits.
 - [ ] Mark roadmap item 15.1.3 done after implementation validation passes.
 

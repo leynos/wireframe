@@ -229,14 +229,13 @@ Use that layout:
 .
 ├── Cargo.toml                        # existing root package + new [workspace]
 ├── Makefile
-├── scripts/
-│   ├── install-kani.sh
-│   ├── install-verus.sh
-│   └── run-verus.sh
 ├── tools/
+│   ├── rust-prover-tools/
+│   │   └── REF
 │   ├── kani/
 │   │   └── VERSION
 │   └── verus/
+│       ├── README.md
 │       ├── VERSION
 │       └── SHA256SUMS
 ├── crates/
@@ -720,13 +719,14 @@ Use:
 
 - `tools/verus/VERSION`
 - `tools/verus/SHA256SUMS`
-- `scripts/install-verus.sh`
-- `scripts/run-verus.sh`
-- `make verus`
+- `tools/rust-prover-tools/REF`
+- `make install-verus`
+- `make run-verus`
 
 That yields:
 
-- a pinned binary
+- a pinned Verus binary
+- a pinned `rust-prover-tools` installer and runner entry point
 - reproducible local and CI installs
 - no pollution of the normal Rust toolchain
 - room for proof-only files under `verus/`
@@ -814,11 +814,38 @@ entry point for `make verus`, following the same broad pattern as Chutoro’s
 
 ## Recommended Makefile changes
 
-Wireframe’s current top-level `Makefile` has no formal-verification
-targets.[^15] The following targets should be added:
+Wireframe’s top-level `Makefile` now separates tool installation from future
+proof execution. Roadmap item 15.1.3 adds the local tool entry points:
 
 ```make
-.PHONY: test-verification stateright kani kani-full verus formal formal-pr formal-nightly
+.PHONY: install-kani check-kani-version install-verus run-verus
+
+install-kani: ## Install the pinned Kani verifier
+ $(PROVER_TOOLS) kani install --repo-root .
+
+check-kani-version: ## Check the installed Kani verifier version
+ $(PROVER_TOOLS) kani check-version --repo-root .
+
+install-verus: ## Install the pinned Verus verifier
+ $(PROVER_TOOLS) verus install --repo-root .
+
+run-verus: ## Run the configured Verus proof entry point
+ $(PROVER_TOOLS) verus run --repo-root . --proof-file "$(VERUS_PROOF_FILE)"
+```
+
+`PROVER_TOOLS` is a pinned
+`uv tool run --python 3.14 --from "git+https://github.com/leynos/rust-prover-tools.git@<ref>"`
+ invocation. The `<ref>` comes from `tools/rust-prover-tools/REF`, and
+`prover-tools` owns the Kani install, Kani version check, Verus download,
+checksum verification, local binary resolution, Rust toolchain handling, and
+proof-run behaviour.
+
+Later roadmap items should add the formal verification targets that consume
+those installed tools:
+
+```make
+.PHONY: test-verification stateright kani kani-full verus formal formal-pr \
+	formal-nightly
 
 test-verification: ## Run the Stateright verification crate
  cargo test -p wireframe-verification
@@ -834,7 +861,7 @@ kani-full: ## Run all Kani harnesses
  cargo kani -p wireframe
 
 verus: ## Run Verus proofs
- VERUS_BIN="$(VERUS_BIN)" scripts/run-verus.sh
+ $(MAKE) run-verus
 
 formal-pr: test-verification kani verus ## Fast PR gate
 
@@ -904,24 +931,15 @@ kani-smoke:
     - uses: actions/checkout@v5
     - name: Setup Rust
       uses: leynos/shared-actions/.github/actions/setup-rust@<PINNED_SHA>
-    - name: Install Kani
-      run: scripts/install-kani.sh
+- name: Install Kani
+      run: make install-kani
     - name: Run Kani smoke harnesses
       run: make kani
 ```
 
-Where `scripts/install-kani.sh` does roughly this:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-KANI_VERSION="$(cat tools/kani/VERSION)"
-cargo install --locked kani-verifier --version "${KANI_VERSION}"
-cargo kani setup
-```
-
-That script is intentionally simpler than the Verus installer because Kani
-already has a Cargo-based install path.[^29]
+`make install-kani` delegates to the pinned `prover-tools kani install`
+command. The repository Makefile must not duplicate `cargo install` or
+`cargo kani setup`; those details live in `rust-prover-tools`.
 
 #### 3. `verus-proofs`
 
@@ -933,11 +951,11 @@ verus-proofs:
   steps:
     - uses: actions/checkout@v5
     - name: Install Verus
-      run: scripts/install-verus.sh
+      run: make install-verus
       env:
         VERUS_INSTALL_DIR: ${{ runner.temp }}/verus
     - name: Run Verus proofs
-      run: make verus
+      run: make run-verus
       env:
         VERUS_BIN: ${{ runner.temp }}/verus/verus/verus
 ```
@@ -995,8 +1013,10 @@ The implementation order in Wireframe should be:
 
 1. convert the repo to a hybrid workspace
 2. add `crates/wireframe-verification`
-3. add `tools/verus/*` and `scripts/run-verus.sh` / `install-verus.sh`
-4. add `tools/kani/VERSION` and `scripts/install-kani.sh`
+3. add `tools/verus/*`, `tools/kani/VERSION`, and
+   `tools/rust-prover-tools/REF`
+4. add `make install-kani`, `make check-kani-version`,
+   `make install-verus`, and `make run-verus`
 5. add `make test-verification`, `make kani`, `make kani-full`, `make verus`
 6. add CI jobs for Stateright, Kani smoke, and Verus
 
