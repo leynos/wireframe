@@ -4,7 +4,7 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
  `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 The user approved implementation on 2026-05-26 by asking Codex to proceed with
 the planned functionality. Roadmap item 15.1.3 remains unchecked until the
@@ -240,8 +240,24 @@ Observable success is:
       pinned `rust-prover-tools` delegation model.
 - [x] (2026-05-26 23:23 UTC) Ran `coderabbit review --agent` for the
       documentation milestone; it reported zero findings.
-- [ ] Implement the approved plan in small gated commits.
-- [ ] Mark roadmap item 15.1.3 done after implementation validation passes.
+- [x] (2026-05-26 23:27 UTC) Ran `make install-kani`,
+      `make check-kani-version`, and `make install-verus`; all succeeded
+      through the pinned `prover-tools` entry point.
+- [x] (2026-05-26 23:28 UTC) Ran `make run-verus`; it failed as expected with
+      `Verus proof file not found: verus/wireframe_proofs.rs`, confirming the
+      missing-proof diagnostic for later roadmap work.
+- [x] (2026-05-26 23:31 UTC) Marked roadmap item 15.1.3 done and updated its
+      success criteria to name the implemented Make targets.
+- [x] (2026-05-26 23:35 UTC) Excluded `.verus/**` from Markdown lint ignores
+      after the local Verus install introduced upstream Markdown files under
+      `.verus/`.
+- [x] (2026-05-26 23:39 UTC) Re-ran final validation after roadmap completion:
+      `make check-fmt`, `make lint`, `make test`, `make markdownlint`, and
+      `make nixie` all passed.
+- [x] (2026-05-26 23:50 UTC) Ran final `coderabbit review --agent`; it
+      reported zero findings.
+- [x] Implement the approved plan in small gated commits.
+- [x] Mark roadmap item 15.1.3 done after implementation validation passes.
 
 ## Surprises & discoveries
 
@@ -318,6 +334,13 @@ Observable success is:
   `repository:`, `branch:`, `ref:`, and `verify:` lines, and teach the
   Makefile to extract the `ref:` value.
 
+- Observation: repo-local Verus installs contain upstream Markdown under
+  `.verus/`, and `make markdownlint` scans that directory unless it is
+  explicitly ignored. Evidence: after `make install-verus`,
+  `make markdownlint` reported violations in
+  `.verus/0.2026.05.24.ecee80a/verus/vstd/*.md`. Impact: add `.verus/**` to
+  `.markdownlint-cli2.jsonc` and keep `.verus/` in `.gitignore`.
+
 ## Decision log
 
 - Decision: keep this pull request plan-only and leave 15.1.3 unchecked.
@@ -373,10 +396,39 @@ Observable success is:
 
 ## Outcomes & retrospective
 
-This section is intentionally empty while the plan is in draft. During
-implementation, it must record what landed, which validation commands passed,
-which CodeRabbit concerns were resolved, any deviations from the plan, and what
-remains for 15.1.4 and later formal-verification work.
+Roadmap item 15.1.3 landed as repository-local formal-verification tool
+metadata plus thin Makefile entry points backed by the pinned
+`rust-prover-tools` CLI. The implementation added:
+
+- `tools/kani/VERSION` pinned to Kani `0.67.0`.
+- `tools/verus/VERSION`, `tools/verus/SHA256SUMS`, and
+  `tools/verus/README.md` pinned to Verus `0.2026.05.24.ecee80a` for
+  `x86-linux`.
+- `tools/rust-prover-tools/REF` with repository, branch, commit ref, and
+  verification command metadata for
+  `b07ef696f8373d54ae68e517d39d47a5d27a5bd5`.
+- `make install-kani`, `make check-kani-version`, `make install-verus`, and
+  `make run-verus`.
+- Network-free `rstest` and `rstest-bdd` coverage for metadata and Makefile
+  target contracts.
+- Developer-facing documentation for the formal-tooling convention.
+
+Validation passed with `make check-fmt`, `make lint`, `make test`,
+`make markdownlint`, and `make nixie`. Contributor workflow smoke checks passed
+for `make install-kani`, `make check-kani-version`, and `make install-verus`.
+`make run-verus` failed with the expected missing proof file diagnostic:
+`Verus proof file not found: verus/wireframe_proofs.rs`. The repo-local
+`.verus/` install path is ignored by Git and Markdown lint to prevent local
+tool installs from polluting validation.
+
+CodeRabbit review ran after the Makefile/metadata, test, documentation, and
+final validation milestones. The first Makefile/metadata review raised
+checksum provenance and pin-context concerns; both were resolved. Later
+milestone reviews, including the final review, reported zero findings.
+
+15.1.4 and later formal-verification work still own the actual `make kani`,
+`make kani-full`, `make verus`, CI formal jobs, Kani harnesses, and Verus proof
+files.
 
 Draft validation passed on 2026-05-20 before the plan-only commit:
 `markdownlint-cli2 docs/execplans/15-1-3-kani-and-verus-metadata-plus-scripts.md`,

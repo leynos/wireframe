@@ -592,13 +592,14 @@ Wireframe's protocol, framing, and message assembly layers.
   [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
    Success criteria: the crate compiles, is included as a workspace member, and
   contains a placeholder Stateright model that passes `cargo test`.
-- [ ] 15.1.3. Add pinned Kani and Verus tool metadata plus repo-local install
-  and run scripts. See
+- [x] 15.1.3. Add pinned Kani and Verus tool metadata plus repo-local Makefile
+  install and run entry points. See
   [formal-verification-methods-in-wireframe.md §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
    and
   [§Verus should *not* live inside the main build](formal-verification-methods-in-wireframe.md#why-verus-should-not-live-inside-the-main-build).
-   Success criteria: a contributor can run `./scripts/install-kani.sh` and
-  `./scripts/install-verus.sh` to obtain pinned versions.
+   Success criteria: a contributor can run `make install-kani` and
+  `make install-verus` to obtain pinned versions through the pinned
+  `rust-prover-tools` entry point.
 - [ ] 15.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
   `make verus`, `make formal-pr`, and `make formal-nightly` Makefile targets.
   Requires 15.1.2 and 15.1.3. See

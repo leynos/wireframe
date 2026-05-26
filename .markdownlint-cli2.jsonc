@@ -16,6 +16,7 @@
     "**/node_modules/**",
     "**/target/**",
     ".terraform/**",
+    ".verus/**",
     ".uv-cache/**",
     "CRUSH.md"
   ]
