@@ -170,7 +170,7 @@ actor and codec-driver boundary. Those are separate roadmap items.
   provides unique mutable access and can freeze into shareable `Bytes`.
   Evidence: Firecrawl scrapes of docs.rs pages for `Bytes` and `BytesMut`.
   Impact: those semantics support ADR 008's Option B, but Wireframe still needs
-  a project-level editing API so callers do not manage buffer taxonomy manually.
+  a project-level editing API, so callers do not manage buffer taxonomy manually.
 
 - Observation: the public Netsuke repository exposes small validation scripts
   such as `assert-file-absent.sh`, `assert-file-exists.sh`,

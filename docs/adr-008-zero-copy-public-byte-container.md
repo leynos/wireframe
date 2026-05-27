@@ -158,7 +158,7 @@ The affected public surfaces are:
 - `BeforeSendHook`, which will move from `Fn(&mut Vec<u8>)` to the same
   explicit editing workflow used by middleware.
 - `Serializer::serialize`, which will return the stable shared byte
-  representation so the default outbound path can reach
+  representation, so the default outbound path can reach
   `FrameCodec::wrap_payload` without materializing a fresh `Vec<u8>`.
 
 The editing workflow must be project-defined rather than raw caller-managed
