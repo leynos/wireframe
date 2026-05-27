@@ -3,15 +3,14 @@
 use rstest::fixture;
 
 use crate::formal_tooling_support::{
+    ChecksumsContent,
     FormalToolingResult as FixtureResult,
-    checksums_contain_archive,
-    has_phony_target,
+    MakefileContent,
+    ProverToolsRef,
     is_three_part_numeric_version,
     kani_version,
     makefile,
     prover_tools_ref_metadata,
-    prover_tools_ref_value,
-    target_recipe,
     verus_checksums,
     verus_linux_archive_name,
     verus_version,
@@ -93,12 +92,14 @@ impl FormalToolingWorld {
         if self.loaded_verus_version()?.is_empty() {
             return Err("Verus version should not be empty".into());
         }
-        let prover_tools_ref = self.loaded_prover_tools_ref_metadata()?;
-        if !prover_tools_ref.contains("repository: https://github.com/leynos/rust-prover-tools.git")
+        let metadata = ProverToolsRef(self.loaded_prover_tools_ref_metadata()?);
+        if !metadata
+            .as_str()
+            .contains("repository: https://github.com/leynos/rust-prover-tools.git")
         {
             return Err("rust-prover-tools metadata should name the repository".into());
         }
-        if prover_tools_ref_value(prover_tools_ref).is_none() {
+        if metadata.ref_value().is_none() {
             return Err("rust-prover-tools metadata should expose a ref".into());
         }
         Ok(())
@@ -111,7 +112,8 @@ impl FormalToolingWorld {
     /// Returns an error when the expected Linux archive is absent.
     pub fn verify_verus_checksum_manifest(&self) -> TestResult {
         let archive_name = verus_linux_archive_name(self.loaded_verus_version()?);
-        if !checksums_contain_archive(self.loaded_verus_checksums()?, &archive_name) {
+        let checksums = ChecksumsContent(self.loaded_verus_checksums()?);
+        if !checksums.contains_archive(&archive_name) {
             return Err(format!("missing checksum entry for {archive_name}").into());
         }
         Ok(())
@@ -123,14 +125,14 @@ impl FormalToolingWorld {
     ///
     /// Returns an error when any expected target is missing.
     pub fn verify_makefile_targets(&self) -> TestResult {
-        let makefile = self.loaded_makefile()?;
+        let makefile = MakefileContent(self.loaded_makefile()?);
         for target in [
             "install-kani",
             "check-kani-version",
             "install-verus",
             "run-verus",
         ] {
-            if !has_phony_target(makefile, target) || target_recipe(makefile, target).is_none() {
+            if !makefile.has_phony_target(target) || makefile.target_recipe(target).is_none() {
                 return Err(format!("Makefile should expose `{target}`").into());
             }
         }
@@ -143,14 +145,15 @@ impl FormalToolingWorld {
     ///
     /// Returns an error when a target omits the pinned entry point.
     pub fn verify_makefile_targets_delegate_to_prover_tools(&self) -> TestResult {
-        let makefile = self.loaded_makefile()?;
+        let makefile = MakefileContent(self.loaded_makefile()?);
         for target in [
             "install-kani",
             "check-kani-version",
             "install-verus",
             "run-verus",
         ] {
-            let recipe = target_recipe(makefile, target)
+            let recipe = makefile
+                .target_recipe(target)
                 .ok_or_else(|| format!("Makefile should expose `{target}`"))?;
             if !recipe.contains("$(PROVER_TOOLS)") {
                 return Err(format!("`{target}` should delegate through prover-tools").into());

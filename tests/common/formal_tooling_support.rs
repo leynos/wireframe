@@ -2,7 +2,7 @@
 
 use std::env;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use cap_std::{ambient_authority, fs_utf8::Dir};
 
 pub(crate) type FormalToolingResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -12,6 +12,60 @@ pub(crate) const VERUS_VERSION_PATH: &str = "tools/verus/VERSION";
 pub(crate) const VERUS_CHECKSUMS_PATH: &str = "tools/verus/SHA256SUMS";
 pub(crate) const PROVER_TOOLS_REF_PATH: &str = "tools/rust-prover-tools/REF";
 pub(crate) const MAKEFILE_PATH: &str = "Makefile";
+
+pub(crate) struct MakefileContent<'a>(pub(crate) &'a str);
+
+impl MakefileContent<'_> {
+    pub(crate) fn has_phony_target(&self, target: &str) -> bool {
+        self.0.lines().any(|line| {
+            line.strip_prefix(".PHONY:").is_some_and(|targets| {
+                targets
+                    .split_whitespace()
+                    .any(|candidate| candidate == target)
+            })
+        })
+    }
+
+    pub(crate) fn target_recipe(&self, target: &str) -> Option<String> {
+        let target_prefix = format!("{target}:");
+        let mut lines = self
+            .0
+            .lines()
+            .skip_while(|line| !line.starts_with(&target_prefix));
+        lines.next()?;
+        let recipe_lines = lines
+            .take_while(|line| line.is_empty() || line.starts_with('\t'))
+            .collect::<Vec<_>>();
+        Some(recipe_lines.join("\n"))
+    }
+}
+
+pub(crate) struct ChecksumsContent<'a>(pub(crate) &'a str);
+
+impl ChecksumsContent<'_> {
+    pub(crate) fn contains_archive(&self, archive_name: &str) -> bool {
+        self.0.lines().any(|line| {
+            let mut fields = line.split_whitespace();
+            let digest = fields.next();
+            let archive = fields.next();
+            digest.is_some_and(is_sha256_hex)
+                && archive == Some(archive_name)
+                && fields.next().is_none()
+        })
+    }
+}
+
+pub(crate) struct ProverToolsRef<'a>(pub(crate) &'a str);
+
+impl ProverToolsRef<'_> {
+    pub(crate) fn ref_value(&self) -> Option<&str> {
+        self.0
+            .lines()
+            .find_map(|line| line.strip_prefix("ref: ").map(str::trim))
+    }
+
+    pub(crate) fn as_str(&self) -> &str { self.0 }
+}
 
 pub(crate) fn repo_root() -> FormalToolingResult<Utf8PathBuf> {
     Utf8PathBuf::from_path_buf(env::current_dir()?).map_err(|path| {
@@ -27,11 +81,11 @@ pub(crate) fn repo_dir() -> FormalToolingResult<Dir> {
     Ok(Dir::open_ambient_dir(repo_root()?, ambient_authority())?)
 }
 
-pub(crate) fn read_repo_file(path: &str) -> FormalToolingResult<String> {
+pub(crate) fn read_repo_file(path: impl AsRef<Utf8Path>) -> FormalToolingResult<String> {
     Ok(repo_dir()?.read_to_string(path)?)
 }
 
-pub(crate) fn read_trimmed_repo_file(path: &str) -> FormalToolingResult<String> {
+pub(crate) fn read_trimmed_repo_file(path: impl AsRef<Utf8Path>) -> FormalToolingResult<String> {
     Ok(read_repo_file(path)?.trim().to_owned())
 }
 
@@ -66,45 +120,6 @@ pub(crate) fn verus_linux_archive_name(version: &str) -> String {
     format!("verus-{version}-x86-linux.zip")
 }
 
-pub(crate) fn checksums_contain_archive(checksums: &str, archive_name: &str) -> bool {
-    checksums.lines().any(|line| {
-        let mut fields = line.split_whitespace();
-        let digest = fields.next();
-        let archive = fields.next();
-        digest.is_some_and(is_sha256_hex)
-            && archive == Some(archive_name)
-            && fields.next().is_none()
-    })
-}
-
 fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit())
-}
-
-pub(crate) fn prover_tools_ref_value(metadata: &str) -> Option<&str> {
-    metadata
-        .lines()
-        .find_map(|line| line.strip_prefix("ref: ").map(str::trim))
-}
-
-pub(crate) fn has_phony_target(makefile: &str, target: &str) -> bool {
-    makefile.lines().any(|line| {
-        line.strip_prefix(".PHONY:").is_some_and(|targets| {
-            targets
-                .split_whitespace()
-                .any(|candidate| candidate == target)
-        })
-    })
-}
-
-pub(crate) fn target_recipe(makefile: &str, target: &str) -> Option<String> {
-    let target_prefix = format!("{target}:");
-    let mut lines = makefile
-        .lines()
-        .skip_while(|line| !line.starts_with(&target_prefix));
-    lines.next()?;
-    let recipe_lines = lines
-        .take_while(|line| line.is_empty() || line.starts_with('\t'))
-        .collect::<Vec<_>>();
-    Some(recipe_lines.join("\n"))
 }
