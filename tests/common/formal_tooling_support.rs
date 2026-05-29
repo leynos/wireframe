@@ -16,7 +16,8 @@ pub(crate) const MAKEFILE_PATH: &str = "Makefile";
 pub(crate) struct MakefileContent<'a>(pub(crate) &'a str);
 
 impl MakefileContent<'_> {
-    pub(crate) fn has_phony_target(&self, target: &str) -> bool {
+    pub(crate) fn has_phony_target(&self, target: impl AsRef<str>) -> bool {
+        let target = target.as_ref();
         self.0.lines().any(|line| {
             line.strip_prefix(".PHONY:").is_some_and(|targets| {
                 targets
@@ -26,7 +27,8 @@ impl MakefileContent<'_> {
         })
     }
 
-    pub(crate) fn target_recipe(&self, target: &str) -> Option<String> {
+    pub(crate) fn target_recipe(&self, target: impl AsRef<str>) -> Option<String> {
+        let target = target.as_ref();
         let target_prefix = format!("{target}:");
         let mut lines = self
             .0
@@ -43,7 +45,8 @@ impl MakefileContent<'_> {
 pub(crate) struct ChecksumsContent<'a>(pub(crate) &'a str);
 
 impl ChecksumsContent<'_> {
-    pub(crate) fn contains_archive(&self, archive_name: &str) -> bool {
+    pub(crate) fn contains_archive(&self, archive_name: impl AsRef<str>) -> bool {
+        let archive_name = archive_name.as_ref();
         self.0.lines().any(|line| {
             let mut fields = line.split_whitespace();
             let digest = fields.next();
@@ -107,7 +110,8 @@ pub(crate) fn prover_tools_ref_metadata() -> FormalToolingResult<String> {
 
 pub(crate) fn makefile() -> FormalToolingResult<String> { read_repo_file(MAKEFILE_PATH) }
 
-pub(crate) fn is_three_part_numeric_version(version: &str) -> bool {
+pub(crate) fn is_three_part_numeric_version(version: impl AsRef<str>) -> bool {
+    let version = version.as_ref();
     let mut parts = version.split('.');
     let has_three_numeric_parts = parts
         .by_ref()
@@ -116,7 +120,8 @@ pub(crate) fn is_three_part_numeric_version(version: &str) -> bool {
     has_three_numeric_parts && parts.next().is_none()
 }
 
-pub(crate) fn verus_linux_archive_name(version: &str) -> String {
+pub(crate) fn verus_linux_archive_name(version: impl AsRef<str>) -> String {
+    let version = version.as_ref();
     format!("verus-{version}-x86-linux.zip")
 }
 
