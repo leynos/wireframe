@@ -48,13 +48,13 @@ Success is measured by the following outcomes:
 
 ### 1.1. Resolve the remaining design choices
 
-- [ ] 1.1.1. Approve the public byte-container and editing model. See
+- [x] 1.1.1. Approve the public byte-container and editing model. See
   [ADR 008](adr-008-zero-copy-public-byte-container.md).
-  - [ ] Confirm the stable read-only representation for packet, middleware,
+  - [x] Confirm the stable read-only representation for packet, middleware,
     serializer, and hook surfaces.
-  - [ ] Confirm how mutation becomes explicit without forcing every caller to
+  - [x] Confirm how mutation becomes explicit without forcing every caller to
     clone into `Vec<u8>`.
-  - [ ] Success criteria: a single approved API direction exists for
+  - [x] Success criteria: a single approved API direction exists for
     `PacketParts`, `Envelope`, `ServiceRequest`, `ServiceResponse`,
     `BeforeSendHook`, and `Serializer::serialize`.
 - [ ] 1.1.2. Approve the compatibility and rollout policy. See

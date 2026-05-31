@@ -24,6 +24,19 @@ APIs and refactors.
 - Correlation identifiers are cross-layer metadata and may appear on frame,
   packet, and message-adjacent APIs when protocol metadata requires it.
 
+## Public byte-container model
+
+[ADR 008](adr-008-zero-copy-public-byte-container.md) accepts `bytes::Bytes`,
+or a transparent project wrapper over `bytes::Bytes`, as Wireframe's stable
+public byte representation for packet, envelope, serializer, middleware, and
+hook payload hand-offs.
+
+Read-only packet and routing paths should preserve shared byte storage and
+cheap cloning. Middleware and client hook mutation must go through an explicit
+edit-on-demand workflow, copying only when an edit needs unique mutable
+storage. Do not introduce new public `Vec<u8>` payload contracts unless the
+compatibility policy in the zero-copy rollout explicitly calls for them.
+
 ## Allowed aliases and prohibited mixing
 
 | Canonical term | Allowed aliases                     | Avoid in the same context                 |

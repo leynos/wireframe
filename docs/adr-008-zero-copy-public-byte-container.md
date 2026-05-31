@@ -2,11 +2,18 @@
 
 ## Status
 
-Proposed
+Accepted
+
+Accepted on 2026-05-26. Wireframe will use `bytes::Bytes`, or a transparent
+project wrapper over `bytes::Bytes`, as the stable public byte representation
+for packet, envelope, serializer, middleware, and hook payload hand-offs.
+Mutation will be exposed through an explicit edit-on-demand workflow that keeps
+read-only paths zero-copy and copies only when an edit requires unique mutable
+storage.
 
 ## Date
 
-2026-04-12
+2026-05-26
 
 ## Context and Problem Statement
 
@@ -92,7 +99,7 @@ awkward mutation story. Middleware authors would need to choose when to clone,
 freeze, or reallocate, and the API would no longer describe the intended
 editing workflow clearly.
 
-### Option B: use `Bytes` for stable storage and expose explicit edit-on-demand wrappers (preferred)
+### Option B: use `Bytes` plus explicit editing (accepted)
 
 Under this option, public packet and routing surfaces store `Bytes` (or a
 single project-defined wrapper over `Bytes`) as the stable representation.
@@ -108,7 +115,7 @@ This preserves the existing mutation model, but it also preserves the final
 copy that epic 284 is trying to remove. Any internal `Bytes` use would still
 collapse back to owned vectors at the public boundary.
 
-### Option D: make the public API permanently generic or dual-surfaced over `Vec<u8>` and `Bytes`
+### Option D: make the public API permanently generic or dual-surfaced
 
 This avoids choosing one primary abstraction, but it increases API surface
 area, complicates documentation, and pushes conversion logic onto downstream
@@ -125,13 +132,13 @@ write repetitive adapters between byte containers.
 
 _Table 1: Trade-offs for the public byte-container choice._
 
-## Decision Outcome / Proposed Direction
+## Decision Outcome
 
 Adopt Option B: use `Bytes`-compatible storage as the stable public payload
 representation, and expose mutation through an explicit edit-on-demand helper
 for middleware and client hooks.
 
-The proposed direction is:
+The accepted direction is:
 
 - Packet and routing surfaces (`PacketParts`, `Envelope`, serializer output,
   and equivalent internal hand-offs) standardize on shared bytes.
@@ -141,6 +148,24 @@ The proposed direction is:
   adapters, or migration constructors defined by the rollout ADR.
 
 This keeps the zero-copy path obvious and makes the mutating path explicit.
+
+The affected public surfaces are:
+
+- `PacketParts` and `Envelope`, which will store and hand off the stable shared
+  byte representation.
+- `ServiceRequest` and `ServiceResponse`, which will expose read-only access to
+  stable shared bytes and explicit edit-on-demand mutation.
+- `BeforeSendHook`, which will move from `Fn(&mut Vec<u8>)` to the same
+  explicit editing workflow used by middleware.
+- `Serializer::serialize`, which will return the stable shared byte
+  representation, so the default outbound path can reach
+  `FrameCodec::wrap_payload` without materializing a fresh `Vec<u8>`.
+
+The editing workflow must be project-defined rather than raw caller-managed
+buffer conversion. It may use `bytes::BytesMut` internally, but callers should
+not need to manually shuttle between `Vec<u8>`, `Bytes`, and `BytesMut` for
+ordinary middleware or client-hook edits. The workflow must document when an
+edit can reuse unique storage and when it may copy shared storage.
 
 ## Goals and Non-Goals
 
@@ -164,12 +189,15 @@ This keeps the zero-copy path obvious and makes the mutating path explicit.
 ### Phase 1: establish the stable byte representation
 
 Convert packet payload storage and serializer output to the shared byte
-representation, and add explicit conversions for compatibility callers.
+representation. Exact constructor and conversion names are implementation
+details for roadmap items `11.1.1`, `12.1.1`, and `12.2.1`; compatibility
+helper lifetime and feature-gating belong to ADR 009 and roadmap item `10.1.2`.
 
 ### Phase 2: introduce edit-on-demand wrappers
 
 Replace `Vec<u8>`-backed middleware and hook edit points with explicit editing
-helpers that preserve the current workflow while copying only when modified.
+helpers that preserve the current inspect, optionally edit, then forward
+workflow while copying only when modified.
 
 ### Phase 3: update docs and examples
 
@@ -178,23 +206,27 @@ new read-only and mutating workflows distinctly.
 
 ## Known Risks and Limitations
 
-- Copy-on-write editing helpers still need a concrete public shape, and poor
-  naming could hide when a clone occurs.
+- Copy-on-write editing helper names still need to be finalized during API
+  implementation, and poor naming could hide when a clone occurs.
 - Some downstream users may rely on direct `Vec<u8>` methods such as `push` or
   `extend_from_slice`; the migration guide must map those patterns to the new
   editor API explicitly.
 - If the project exposes both raw `Bytes` and a custom editor type too widely,
   the API could still feel like a dual-surface design in practice.
 
-## Outstanding Decisions
+## Follow-up Decisions
 
-- Should the public editing surface expose `BytesMut`, a project-defined editor
-  wrapper, or closure-based mutation helpers?
-- Should serializer output move to the new byte representation in the same
-  release as packet and middleware changes, or in a preparatory release
-  beforehand?
-- Which compatibility constructors or `into_vec` helpers are required for the
-  migration window?
+- Roadmap item `10.1.2` and ADR 009 decide which `Vec<u8>` compatibility
+  helpers survive the breaking release, whether any helpers are feature-gated,
+  and when retained helpers are reviewed again.
+- Roadmap item `11.1.1` introduces the shared byte representation for internal
+  packet payload storage and serializer output.
+- Roadmap items `12.1.1` and `12.1.2` define the exact packet, envelope,
+  middleware, and edit-on-demand API names.
+- Roadmap item `12.2.1` defines the exact client hook and serializer
+  signatures that apply this decision.
+- Roadmap item `13.1.2` publishes migration-guide examples that map common
+  `Vec<u8>` mutation patterns onto the new editing workflow.
 
 ## Architectural Rationale
 

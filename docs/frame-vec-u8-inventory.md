@@ -366,8 +366,10 @@ implementation work, benchmark planning, and release preparation.
 The remaining unresolved design choices now have draft Architecture Decision
 Records (ADRs):
 
-- [ADR 008](adr-008-zero-copy-public-byte-container.md) covers the public byte
-  container and edit-on-demand model.
+- [ADR 008](adr-008-zero-copy-public-byte-container.md) accepts
+  `bytes::Bytes`, or a transparent project wrapper over `bytes::Bytes`, as the
+  stable public byte representation. It also accepts an explicit edit-on-demand
+  workflow for middleware and client hooks.
 - [ADR 009](adr-009-vec-u8-migration-rollout.md) covers the compatibility and
   release rollout strategy.
 - [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) covers the

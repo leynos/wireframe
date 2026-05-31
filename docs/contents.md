@@ -22,6 +22,36 @@ reference when navigating the project's design and architecture material.
 - [Preamble validator](preamble-validator.md) Validating client connection
   preambles.
 
+## Architectural decision records
+
+- [ADR 001: multi-packet streaming response API](adr-001-multi-packet-streaming-response-api.md)
+  Accepted response API for multi-packet and streaming replies.
+- [ADR 002: streaming requests and shared message assembly](adr-002-streaming-requests-and-shared-message-assembly.md)
+  Decision for request streaming and shared assembly behaviour.
+- [ADR 003: replace Cucumber with rstest-bdd](adr-003-replace-cucumber-with-rstest-bdd.md)
+  Decision to use Rust-native behaviour-driven development (BDD) tests.
+- [ADR 004: pluggable protocol codecs](adr-004-pluggable-protocol-codecs.md)
+  Decision for protocol codec extension points.
+- [ADR 005: serializer abstraction](adr-005-serializer-abstraction.md)
+  Decision for serializer boundaries and responsibilities.
+- [ADR 006: test observability](adr-006-test-observability.md)
+  Decision for test metrics, logs, and assertion support.
+- [ADR 007: mutation testing with cargo-mutants](adr-007-mutation-testing-with-cargo-mutants.md)
+  Decision for mutation testing expectations.
+- [ADR 008: zero-copy public byte container](adr-008-zero-copy-public-byte-container.md)
+  Accepted public byte-container model for the zero-copy payload migration.
+- [ADR 009: owned-byte migration rollout](adr-009-vec-u8-migration-rollout.md)
+  Rollout policy for owned-byte compatibility during migration.
+- [ADR 010: transport frame boundary for zero-copy](adr-010-transport-frame-boundary-for-zero-copy.md)
+  Decision for the frame boundary during zero-copy migration.
+
+## Execution plans
+
+- [Approve stable public byte container](execplans/10-1-1-approve-stable-public-byte-container.md)
+  Completed execution plan for roadmap item `10.1.1` and ADR 008.
+- [Execution plan directory](execplans/) Working plans for roadmap items,
+  migrations, verification work, and documentation follow-up tasks.
+
 ## Roadmaps
 
 - [Outbound messaging roadmap](asynchronous-outbound-messaging-roadmap.md) Task
