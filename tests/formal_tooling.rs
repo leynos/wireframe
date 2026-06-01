@@ -124,7 +124,14 @@ fn makefile_declares_prover_tools_targets(
     ensure(
         recipe.contains(prover_subcommand),
         format!("`{target}` should call `{prover_subcommand}`"),
-    )
+    )?;
+    if target == "run-verus" {
+        ensure(
+            recipe.contains("--proof-file \"$(VERUS_PROOF_FILE)\""),
+            "`run-verus` should pass the configured proof file",
+        )?;
+    }
+    Ok(())
 }
 
 #[rstest]

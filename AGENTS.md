@@ -219,7 +219,7 @@ project:
   `newt-hype` for the common case, tuple structs for outliers, and
   `the-newtype` to unify behaviour when owning the trait definitions.
 - Use `cap_std` and `cap_std::fs_utf8` / `camino` in place of `std::fs` and
-  `std::path` for enhanced cross platform support and capabilities oriented
+  `std::path` for enhanced cross-platform support and capabilities-oriented
   filesystem access.
 
 ### Testing
@@ -235,9 +235,9 @@ project:
 
 ### Dependency management
 
-- **Mandate caret requirements for all dependencies.** All crate versions
-  specified in `Cargo.toml` must use SemVer-compatible caret requirements (e.g.,
-   `some-crate = "1.2.3"`). This is Cargo's default and allows for safe,
+- **Use explicit version ranges.** All crate versions specified in `Cargo.toml`
+  must use SemVer-compatible version numbers without an explicit caret prefix
+  (e.g., `some-crate = "1.2.3"`). This is Cargo's default and allows for safe,
   non-breaking updates to minor and patch versions while preventing breaking
   changes from new major versions. This approach is critical for ensuring build
   stability and reproducibility.
@@ -291,7 +291,7 @@ project:
   user input, request IDs, paths with unbounded parameters, or raw error
   strings into labels.
 - Libraries may emit `metrics` and `tracing` instrumentation, but must not
-  install global recorders or subscribers. Applications should initialise
+  install global recorders or subscribers. Applications should initialize
   exporters/subscribers once, as early as practical in startup.
 
 ## Markdown guidance

@@ -814,8 +814,8 @@ entry point for `make verus`, following the same broad pattern as Chutoro’s
 
 ## Recommended Makefile changes
 
-Wireframe’s top-level `Makefile` now separates tool installation from future
-proof execution. Roadmap item 15.1.3 adds the local tool entry points:
+Wireframe’s top-level `Makefile` now separates tool installation from
+future-proof execution. Roadmap item 15.1.3 adds the local tool entry points:
 
 ```make
 .PHONY: install-kani check-kani-version install-verus run-verus
@@ -931,7 +931,7 @@ kani-smoke:
     - uses: actions/checkout@v5
     - name: Setup Rust
       uses: leynos/shared-actions/.github/actions/setup-rust@<PINNED_SHA>
-- name: Install Kani
+    - name: Install Kani
       run: make install-kani
     - name: Run Kani smoke harnesses
       run: make kani

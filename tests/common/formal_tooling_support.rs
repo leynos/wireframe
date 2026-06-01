@@ -112,12 +112,11 @@ pub(crate) fn makefile() -> FormalToolingResult<String> { read_repo_file(MAKEFIL
 
 pub(crate) fn is_three_part_numeric_version(version: impl AsRef<str>) -> bool {
     let version = version.as_ref();
-    let mut parts = version.split('.');
-    let has_three_numeric_parts = parts
-        .by_ref()
-        .take(3)
-        .all(|part| !part.is_empty() && part.chars().all(|character| character.is_ascii_digit()));
-    has_three_numeric_parts && parts.next().is_none()
+    let parts: Vec<&str> = version.split('.').collect();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty() && part.chars().all(|character| character.is_ascii_digit())
+        })
 }
 
 pub(crate) fn verus_linux_archive_name(version: impl AsRef<str>) -> String {

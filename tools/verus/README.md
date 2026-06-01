@@ -1,10 +1,10 @@
 # Verus tool metadata
 
 `VERSION` pins the Verus release token used by `prover-tools verus install`.
-`SHA256SUMS` records the expected archive digest for the Linux release artifact
+`SHA256SUMS` records the expected archive digest for the Linux release artefact
 that Wireframe currently supports for local installation.
 
-The current checksum was derived from the official GitHub release artifact:
+The current checksum was derived from the official GitHub release artefact:
 
 ```sh
 curl -L --fail --show-error \
