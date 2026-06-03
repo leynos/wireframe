@@ -52,7 +52,7 @@ impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
 
 impl<E> std::error::Error for WireframeError<E>
 where
-    E: std::fmt::Debug + 'static,
+    E: std::fmt::Debug,
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {

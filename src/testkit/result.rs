@@ -21,7 +21,7 @@ pub enum TestError {
     #[error("{0}")]
     Msg(String),
     /// Root crate error surfaced while exercising a helper.
-    #[error(transparent)]
+    #[error("wireframe error: {0}")]
     Wireframe(#[from] WireframeError),
     /// Client-side error surfaced while exercising a helper.
     #[cfg(not(loom))]

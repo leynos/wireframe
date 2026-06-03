@@ -12,6 +12,7 @@ use wireframe::{
     WireframeError,
     codec::{CodecError, FramingError},
     push::PushError,
+    testkit::TestError,
 };
 
 #[rstest::rstest]
@@ -51,7 +52,28 @@ fn wireframe_error_messages() {
 }
 
 #[test]
-fn wireframe_error_unit_implements_error() {
+fn wireframe_error_unit_messages() {
+    let io = WireframeError::<()>::from_io(io::Error::other("socket closed"));
+    assert_eq!(io.to_string(), "transport error: socket closed");
+
+    let codec = WireframeError::<()>::from_codec(CodecError::from(FramingError::EmptyFrame));
+    assert_eq!(
+        codec.to_string(),
+        "codec error: framing error: empty frame not permitted"
+    );
+
+    let protocol = WireframeError::<()>::Protocol(());
+    assert_eq!(protocol.to_string(), "protocol error: ()");
+
+    let duplicate_route = WireframeError::<()>::DuplicateRoute(7);
+    assert_eq!(
+        duplicate_route.to_string(),
+        "route id 7 was already registered"
+    );
+}
+
+#[test]
+fn wireframe_error_unit_sources() {
     let io = WireframeError::<()>::from_io(io::Error::other("socket closed"));
     let io_source = io
         .source()
@@ -81,6 +103,40 @@ fn wireframe_error_unit_implements_error() {
     assert!(
         duplicate_route.source().is_none(),
         "DuplicateRoute should not expose an error source"
+    );
+}
+
+#[test]
+fn wireframe_error_bound_allows_non_static_protocol_type() {
+    struct BorrowedProtocolError<'a>(&'a str);
+
+    impl std::fmt::Debug for BorrowedProtocolError<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "BorrowedProtocolError({:?})", self.0)
+        }
+    }
+
+    let message = String::from("borrowed");
+    let error = WireframeError::Protocol(BorrowedProtocolError(&message));
+    let as_error = &error as &dyn Error;
+
+    assert_eq!(
+        as_error.to_string(),
+        "protocol error: BorrowedProtocolError(\"borrowed\")"
+    );
+    assert!(
+        as_error.source().is_none(),
+        "borrowed protocol errors should not be exposed as static sources"
+    );
+}
+
+#[test]
+fn test_error_wireframe_from_preserves_display_prefix() {
+    let error = TestError::from(WireframeError::DuplicateRoute(7));
+
+    assert_eq!(
+        error.to_string(),
+        "wireframe error: route id 7 was already registered"
     );
 }
 
