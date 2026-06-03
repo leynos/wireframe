@@ -33,6 +33,7 @@ impl std::fmt::Display for ProtoErr {
 
 impl std::error::Error for ProtoErr {}
 
+#[derive(Debug)]
 enum ExpectedSource {
     Io {
         message: &'static str,
@@ -41,25 +42,76 @@ enum ExpectedSource {
     Codec(FramingError),
 }
 
-fn assert_source_matches(source: &(dyn Error + 'static), expected: ExpectedSource) {
-    match expected {
-        ExpectedSource::Io { message, kind } => {
-            let Some(io_source) = source.downcast_ref::<io::Error>() else {
-                panic!("io source should be std::io::Error");
-            };
-            assert_eq!(io_source.kind(), kind);
-            assert_eq!(io_source.to_string(), message);
-        }
-        ExpectedSource::Codec(expected_error) => {
-            let Some(codec_source) = source.downcast_ref::<CodecError>() else {
-                panic!("codec source should be wireframe::codec::CodecError");
-            };
-            assert!(
-                matches!(codec_source, CodecError::Framing(error) if error == &expected_error),
-                "codec source should preserve the original framing error"
-            );
-        }
+#[derive(Debug, PartialEq, Eq)]
+enum ActualSource<'a> {
+    Io {
+        message: String,
+        kind: io::ErrorKind,
+    },
+    Codec {
+        error: &'a FramingError,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SourceExtractionError {
+    UnexpectedType,
+    UnexpectedCodecVariant,
+}
+
+fn extract_source<'a>(
+    source: &'a (dyn Error + 'static),
+) -> Result<ActualSource<'a>, SourceExtractionError> {
+    if let Some(io_source) = source.downcast_ref::<io::Error>() {
+        return Ok(ActualSource::Io {
+            message: io_source.to_string(),
+            kind: io_source.kind(),
+        });
     }
+
+    if let Some(codec_source) = source.downcast_ref::<CodecError>() {
+        return match codec_source {
+            CodecError::Framing(error) => Ok(ActualSource::Codec { error }),
+            _ => Err(SourceExtractionError::UnexpectedCodecVariant),
+        };
+    }
+
+    Err(SourceExtractionError::UnexpectedType)
+}
+
+fn source_matches(actual: &ActualSource<'_>, expected: &ExpectedSource) -> bool {
+    match (actual, expected) {
+        (
+            ActualSource::Io {
+                message: actual_message,
+                kind: actual_kind,
+            },
+            ExpectedSource::Io {
+                message: expected_message,
+                kind: expected_kind,
+            },
+        ) => actual_kind == expected_kind && actual_message == expected_message,
+        (
+            ActualSource::Codec {
+                error: actual_error,
+            },
+            ExpectedSource::Codec(expected_error),
+        ) => *actual_error == expected_error,
+        _ => false,
+    }
+}
+
+fn assert_source_matches(source: &(dyn Error + 'static), expected: ExpectedSource) {
+    let expected = std::convert::identity(expected);
+    let actual = match extract_source(source) {
+        Ok(actual) => actual,
+        Err(error) => panic!("source should be a supported error source: {error:?}"),
+    };
+
+    assert!(
+        source_matches(&actual, &expected),
+        "source should match expected source\nactual: {actual:?}\nexpected: {expected:?}",
+    );
 }
 
 #[test]
