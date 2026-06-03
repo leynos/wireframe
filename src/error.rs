@@ -7,6 +7,11 @@
 ///
 /// `WireframeError` distinguishes setup-time route conflicts from runtime
 /// transport, protocol, and codec failures.
+///
+/// The default `E = NoProtocolError` is used by [`crate::Result`] for APIs
+/// that do not carry protocol-specific failures. Specify `WireframeError<E>`
+/// explicitly when the `Protocol` variant should contain a real protocol
+/// error type.
 #[derive(Debug)]
 pub enum WireframeError<E = NoProtocolError> {
     /// A route with the provided identifier was already registered.

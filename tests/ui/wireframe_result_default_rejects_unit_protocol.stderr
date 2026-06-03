@@ -1,0 +1,62 @@
+error[E0308]: mismatched types
+ --> tests/ui/wireframe_result_default_rejects_unit_protocol.rs:6:54
+  |
+6 |     let _: WireframeError = WireframeError::Protocol(());
+  |                             ------------------------ ^^ expected `NoProtocolError`, found `()`
+  |                             |
+  |                             arguments to this enum variant are incorrect
+  |
+help: the type constructed contains `()` due to the type of the argument passed
+ --> tests/ui/wireframe_result_default_rejects_unit_protocol.rs:6:29
+  |
+6 |     let _: WireframeError = WireframeError::Protocol(());
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^--^
+  |                                                      |
+  |                                                      this argument influences the type of `Protocol`
+note: tuple variant defined here
+ --> src/error.rs
+  |
+  |     Protocol(E),
+  |     ^^^^^^^^
+
+error[E0308]: mismatched types
+ --> tests/ui/wireframe_result_default_rejects_unit_protocol.rs:7:71
+  |
+7 |     let _: WireframeError<NoProtocolError> = WireframeError::Protocol(());
+  |                                              ------------------------ ^^ expected `NoProtocolError`, found `()`
+  |                                              |
+  |                                              arguments to this enum variant are incorrect
+  |
+help: the type constructed contains `()` due to the type of the argument passed
+ --> tests/ui/wireframe_result_default_rejects_unit_protocol.rs:7:46
+  |
+7 |     let _: WireframeError<NoProtocolError> = WireframeError::Protocol(());
+  |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^--^
+  |                                                                       |
+  |                                                                       this argument influences the type of `Protocol`
+note: tuple variant defined here
+ --> src/error.rs
+  |
+  |     Protocol(E),
+  |     ^^^^^^^^
+
+error[E0308]: mismatched types
+ --> tests/ui/wireframe_result_default_rejects_unit_protocol.rs:8:54
+  |
+8 |     let _: Result<()> = Err(WireframeError::Protocol(()));
+  |                             ------------------------ ^^ expected `NoProtocolError`, found `()`
+  |                             |
+  |                             arguments to this enum variant are incorrect
+  |
+help: the type constructed contains `()` due to the type of the argument passed
+ --> tests/ui/wireframe_result_default_rejects_unit_protocol.rs:8:29
+  |
+8 |     let _: Result<()> = Err(WireframeError::Protocol(()));
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^--^
+  |                                                      |
+  |                                                      this argument influences the type of `Protocol`
+note: tuple variant defined here
+ --> src/error.rs
+  |
+  |     Protocol(E),
+  |     ^^^^^^^^

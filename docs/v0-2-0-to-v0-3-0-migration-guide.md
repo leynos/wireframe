@@ -226,6 +226,15 @@ The unified `WireframeError<E>` carries four variants:
 - `Protocol(E)` – protocol-defined logical error.
 - `Codec(CodecError)` – codec-layer error with structured context.
 
+`WireframeError` defaults to `WireframeError<NoProtocolError>`, and
+`wireframe::Result<T>` aliases that default. This is the intended v0.3.0
+contract: APIs without protocol-specific error payloads use `NoProtocolError`,
+so `Result<T>` participates in standard error chaining. Code that needs a
+protocol payload must name it explicitly, for example
+`WireframeError<MyProtocolError>`. Code that previously relied on the default
+accepting `WireframeError::Protocol(())` should migrate to an explicit
+`WireframeError<()>` annotation.
+
 ## Root re-exports removed
 
 The crate root now exposes only `wireframe::Result<T>` and
