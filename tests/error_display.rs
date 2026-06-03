@@ -9,7 +9,9 @@
 use std::{error::Error, io};
 
 use wireframe::{
+    NoProtocolError,
     WireframeError,
+    client::ClientProtocolError,
     codec::{CodecError, FramingError},
     push::PushError,
     testkit::TestError,
@@ -35,10 +37,10 @@ impl std::error::Error for ProtoErr {}
 fn wireframe_error_messages() {
     let proto = WireframeError::Protocol(ProtoErr);
     assert_eq!(proto.to_string(), "protocol error: ProtoErr");
-    assert!(
-        proto.source().is_none(),
-        "Protocol variants should not expose a source without specialization"
-    );
+    let proto_source = proto
+        .source()
+        .expect("protocol variant must expose its underlying source");
+    assert_eq!(proto_source.to_string(), "boom");
 
     let duplicate_route = WireframeError::<ProtoErr>::DuplicateRoute(7);
     assert_eq!(
@@ -49,6 +51,26 @@ fn wireframe_error_messages() {
         duplicate_route.source().is_none(),
         "DuplicateRoute should not expose an error source"
     );
+}
+
+#[test]
+fn wireframe_error_preserves_client_protocol_source_chain() {
+    let protocol = ClientProtocolError::Deserialize(Box::new(io::Error::other("decode failed")));
+    let wireframe = WireframeError::Protocol(protocol);
+    let protocol_source = wireframe
+        .source()
+        .expect("protocol errors implementing Error should be exposed");
+
+    assert!(
+        protocol_source
+            .downcast_ref::<ClientProtocolError>()
+            .is_some(),
+        "protocol source should retain its concrete client error type"
+    );
+    let decode_source = protocol_source
+        .source()
+        .expect("client protocol error should expose the decode source");
+    assert_eq!(decode_source.to_string(), "decode failed");
 }
 
 #[test]
@@ -73,8 +95,8 @@ fn wireframe_error_unit_messages() {
 }
 
 #[test]
-fn wireframe_error_unit_sources() {
-    let io = WireframeError::<()>::from_io(io::Error::other("socket closed"));
+fn wireframe_error_default_sources() {
+    let io = WireframeError::<NoProtocolError>::from_io(io::Error::other("socket closed"));
     let io_source = io
         .source()
         .expect("io variant must expose its underlying source")
@@ -82,7 +104,8 @@ fn wireframe_error_unit_sources() {
         .expect("io source should be std::io::Error");
     assert_eq!(io_source.to_string(), "socket closed");
 
-    let codec = WireframeError::<()>::from_codec(CodecError::from(FramingError::EmptyFrame));
+    let codec =
+        WireframeError::<NoProtocolError>::from_codec(CodecError::from(FramingError::EmptyFrame));
     let codec_source = codec
         .source()
         .expect("codec variant must expose its underlying source")
@@ -93,13 +116,7 @@ fn wireframe_error_unit_sources() {
         "codec source should preserve the original framing error"
     );
 
-    let protocol = WireframeError::<()>::Protocol(());
-    assert!(
-        protocol.source().is_none(),
-        "unit protocol errors should not expose an error source"
-    );
-
-    let duplicate_route = WireframeError::<()>::DuplicateRoute(7);
+    let duplicate_route = WireframeError::<NoProtocolError>::DuplicateRoute(7);
     assert!(
         duplicate_route.source().is_none(),
         "DuplicateRoute should not expose an error source"
@@ -107,7 +124,7 @@ fn wireframe_error_unit_sources() {
 }
 
 #[test]
-fn wireframe_error_bound_allows_non_static_protocol_type() {
+fn wireframe_error_display_allows_non_static_protocol_type() {
     struct BorrowedProtocolError<'a>(&'a str);
 
     impl std::fmt::Debug for BorrowedProtocolError<'_> {
@@ -118,15 +135,10 @@ fn wireframe_error_bound_allows_non_static_protocol_type() {
 
     let message = String::from("borrowed");
     let error = WireframeError::Protocol(BorrowedProtocolError(&message));
-    let as_error = &error as &dyn Error;
 
     assert_eq!(
-        as_error.to_string(),
+        error.to_string(),
         "protocol error: BorrowedProtocolError(\"borrowed\")"
-    );
-    assert!(
-        as_error.source().is_none(),
-        "borrowed protocol errors should not be exposed as static sources"
     );
 }
 

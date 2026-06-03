@@ -41,7 +41,7 @@ impl MultiPacketWorld {
     async fn collect_frames_from(rx: mpsc::Receiver<u8>) -> TestResult<Vec<u8>> {
         let (queues, handle) = build_small_queues::<u8>()?;
         let shutdown = CancellationToken::new();
-        let mut actor: ConnectionActor<_, ()> =
+        let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
             ConnectionActor::new(queues, handle, None, shutdown);
         actor
             .set_multi_packet(Some(rx))

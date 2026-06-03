@@ -18,7 +18,7 @@ pub mod byte_order;
 pub mod client;
 pub mod codec;
 pub mod error;
-pub use error::{Result, WireframeError};
+pub use error::{NoProtocolError, Result, WireframeError};
 pub mod connection;
 pub mod correlation;
 #[cfg(not(loom))]

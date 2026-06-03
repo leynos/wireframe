@@ -8,7 +8,7 @@
 /// `WireframeError` distinguishes setup-time route conflicts from runtime
 /// transport, protocol, and codec failures.
 #[derive(Debug)]
-pub enum WireframeError<E = ()> {
+pub enum WireframeError<E = NoProtocolError> {
     /// A route with the provided identifier was already registered.
     DuplicateRoute(u32),
     /// An error in the underlying transport (for example, a socket close).
@@ -18,6 +18,14 @@ pub enum WireframeError<E = ()> {
     /// A codec-layer error with structured context.
     Codec(crate::codec::CodecError),
 }
+
+/// Default protocol-error marker for APIs that do not carry protocol errors.
+///
+/// This marker is deliberately not an [`std::error::Error`]. That keeps the
+/// default `WireframeError` implementation separate from the blanket
+/// implementation for protocol-error types that do expose a source.
+#[derive(Debug)]
+pub enum NoProtocolError {}
 
 impl<E> From<E> for WireframeError<E> {
     fn from(error: E) -> Self { Self::Protocol(error) }
@@ -52,8 +60,19 @@ impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
 
 impl<E> std::error::Error for WireframeError<E>
 where
-    E: std::fmt::Debug,
+    E: std::fmt::Debug + std::error::Error + 'static,
 {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Codec(error) => Some(error),
+            Self::Protocol(error) => Some(error),
+            Self::DuplicateRoute(_) => None,
+        }
+    }
+}
+
+impl std::error::Error for WireframeError<NoProtocolError> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
@@ -64,4 +83,4 @@ where
 }
 
 /// Canonical result alias used by `wireframe` public APIs.
-pub type Result<T> = std::result::Result<T, WireframeError<()>>;
+pub type Result<T> = std::result::Result<T, WireframeError>;

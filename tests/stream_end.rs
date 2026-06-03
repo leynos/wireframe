@@ -33,7 +33,7 @@ async fn emits_end_frame(
 ) -> TestResult<()> {
     let (queues, handle) = queues?;
     // fixture injected above
-    let stream: FrameStream<u8> = Box::pin(try_stream! {
+    let stream: FrameStream<u8, ()> = Box::pin(try_stream! {
         yield 1;
         yield 2;
     });
@@ -223,7 +223,7 @@ async fn emits_no_end_frame_when_none(
 
     let (queues, handle) = queues?;
     // fixture injected above
-    let stream: FrameStream<u8> = Box::pin(try_stream! {
+    let stream: FrameStream<u8, ()> = Box::pin(try_stream! {
         yield 7;
         yield 8;
     });
