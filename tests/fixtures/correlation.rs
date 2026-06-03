@@ -78,7 +78,7 @@ impl CorrelationWorld {
 
         let (queues, handle) = build_small_queues::<Envelope>()?;
         let shutdown = CancellationToken::new();
-        let mut actor: ConnectionActor<Envelope, ()> =
+        let mut actor: ConnectionActor<Envelope, wireframe::NoProtocolError> =
             ConnectionActor::new(queues, handle, None, shutdown);
         actor
             .set_multi_packet_with_correlation(Some(rx), expected)

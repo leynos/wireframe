@@ -35,7 +35,7 @@ fn stream_terminator() -> TestStreamEnvelope {
     }
 }
 
-fn hooks_with_stream_end() -> ProtocolHooks<TestStreamEnvelope, ()> {
+fn hooks_with_stream_end() -> ProtocolHooks<TestStreamEnvelope, crate::NoProtocolError> {
     ProtocolHooks {
         stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
             Some(stream_terminator())
@@ -60,7 +60,7 @@ impl Drop for PausedTimeGuard {
 fn setup_fairness_actor(
     queues: PushQueues<TestStreamEnvelope>,
     handle: crate::push::PushHandle<TestStreamEnvelope>,
-) -> ConnectionActor<TestStreamEnvelope, ()> {
+) -> ConnectionActor<TestStreamEnvelope, crate::NoProtocolError> {
     let mut actor = ConnectionActor::with_hooks(
         ConnectionChannels::new(queues, handle),
         None,

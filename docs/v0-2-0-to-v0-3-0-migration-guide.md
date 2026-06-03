@@ -243,12 +243,13 @@ underlying cause.
 
 ## Root re-exports removed
 
-The crate root now exposes only `wireframe::Result<T>` and
-`wireframe::WireframeError<E>`. Every other type is still available through its
-owning public module – those modules are all `pub mod` at the crate root and
-their contents have not been removed from the public API. What changed is that
-the convenience re-exports at the crate root are gone. Update import paths to
-reference the module directly rather than the root shorthand.
+The crate root now exposes only `wireframe::Result<T>`,
+`wireframe::WireframeError<E>`, and `wireframe::NoProtocolError` from the error
+surface. Every other type is still available through its owning public module –
+those modules are all `pub mod` at the crate root and their contents have not
+been removed from the public API. What changed is that the convenience
+re-exports at the crate root are gone. Update import paths to reference the
+module directly rather than the root shorthand.
 
 The most common moves:
 

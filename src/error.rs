@@ -63,26 +63,39 @@ impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
     }
 }
 
+fn transport_or_codec_source<E>(
+    error: &WireframeError<E>,
+) -> Option<&(dyn std::error::Error + 'static)> {
+    match error {
+        WireframeError::Io(error) => Some(error),
+        WireframeError::Codec(error) => Some(error),
+        WireframeError::DuplicateRoute(_) | WireframeError::Protocol(_) => None,
+    }
+}
+
 impl<E> std::error::Error for WireframeError<E>
 where
     E: std::fmt::Debug + std::error::Error + 'static,
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(error) => Some(error),
-            Self::Codec(error) => Some(error),
-            Self::Protocol(error) => Some(error),
-            Self::DuplicateRoute(_) => None,
-        }
+        transport_or_codec_source(self).or_else(|| protocol_error_source(self))
     }
 }
 
 impl std::error::Error for WireframeError<NoProtocolError> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(error) => Some(error),
-            Self::Codec(error) => Some(error),
-            Self::DuplicateRoute(_) | Self::Protocol(_) => None,
+        transport_or_codec_source(self)
+    }
+}
+
+fn protocol_error_source<E>(error: &WireframeError<E>) -> Option<&(dyn std::error::Error + 'static)>
+where
+    E: std::error::Error + 'static,
+{
+    match error {
+        WireframeError::Protocol(error) => Some(error),
+        WireframeError::DuplicateRoute(_) | WireframeError::Io(_) | WireframeError::Codec(_) => {
+            None
         }
     }
 }

@@ -21,6 +21,7 @@ use rstest::{fixture, rstest};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
+    NoProtocolError,
     connection::{ConnectionActor, ConnectionChannels},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     push::{PushHandle, PushQueues},
@@ -44,7 +45,7 @@ async fn emits_end_frame(
 ) -> TestResult<()> {
     let (queues, handle) = queues?;
     // fixture injected above
-    let stream: FrameStream<u8, ()> = Box::pin(try_stream! {
+    let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 1;
         yield 2;
     });
@@ -113,7 +114,7 @@ async fn multi_packet_respects_no_terminator(
 
     impl WireframeProtocol for NoTerminator {
         type Frame = u8;
-        type ProtocolError = ();
+        type ProtocolError = NoProtocolError;
 
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
@@ -187,7 +188,7 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
 
     impl WireframeProtocol for NoTerminator {
         type Frame = u8;
-        type ProtocolError = ();
+        type ProtocolError = NoProtocolError;
 
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
@@ -227,14 +228,14 @@ async fn emits_no_end_frame_when_none(
 
     impl WireframeProtocol for NoTerminator {
         type Frame = u8;
-        type ProtocolError = ();
+        type ProtocolError = NoProtocolError;
 
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
     let (queues, handle) = queues?;
     // fixture injected above
-    let stream: FrameStream<u8, ()> = Box::pin(try_stream! {
+    let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 7;
         yield 8;
     });

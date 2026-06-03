@@ -60,7 +60,7 @@ impl StreamEndWorld {
 
         match mode {
             ActorMode::Stream => {
-                let stream: FrameStream<u8, ()> = Box::pin(try_stream! {
+                let stream: FrameStream<u8> = Box::pin(try_stream! {
                     yield 1u8;
                     yield 2u8;
                 });

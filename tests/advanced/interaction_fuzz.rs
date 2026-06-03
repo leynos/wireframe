@@ -37,7 +37,7 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
         .expect("failed to build PushQueues");
     let shutdown = CancellationToken::new();
 
-    let mut resp_stream: Option<FrameStream<u8, ()>> = None;
+    let mut resp_stream: Option<FrameStream<u8>> = None;
     for act in actions {
         match act {
             Action::High(f) => handle
@@ -55,7 +55,7 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
         }
     }
 
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, resp_stream, shutdown);
     let mut out = Vec::new();
     actor

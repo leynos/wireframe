@@ -227,7 +227,7 @@ async fn interleaved_time_slice_fairness(shutdown_token: CancellationToken) -> T
         time_slice: Some(Duration::from_millis(10)),
     };
 
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle.clone(), None, shutdown_token);
     actor.set_fairness(fairness);
 

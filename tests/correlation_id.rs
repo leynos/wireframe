@@ -49,7 +49,7 @@ async fn stream_frames_carry_request_correlation_id() -> TestResult {
 async fn run_multi_packet_channel(
     request_correlation: Option<u64>,
     frame_correlations: &[Option<u64>],
-    hooks: ProtocolHooks<Envelope, ()>,
+    hooks: ProtocolHooks<Envelope, wireframe::NoProtocolError>,
 ) -> TestResult<Vec<Envelope>> {
     let capacity = frame_correlations.len().max(1);
     let (tx, rx) = mpsc::channel(capacity);
@@ -71,12 +71,13 @@ async fn run_multi_packet_channel(
         .unlimited()
         .build()?;
     let shutdown = CancellationToken::new();
-    let mut actor: ConnectionActor<Envelope, ()> = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
-        None,
-        shutdown,
-        hooks,
-    );
+    let mut actor: ConnectionActor<Envelope, wireframe::NoProtocolError> =
+        ConnectionActor::with_hooks(
+            ConnectionChannels::new(queues, handle),
+            None,
+            shutdown,
+            hooks,
+        );
     actor
         .set_multi_packet_with_correlation(Some(rx), request_correlation)
         .map_err(|e| io::Error::other(format!("set_multi_packet_with_correlation: {e}")))?;

@@ -54,7 +54,7 @@ impl HookCounters {
         &self,
         increment: u8,
         stream_end_value: impl Fn(&mut ConnectionContext) -> Option<u8> + Send + Sync + 'static,
-    ) -> ProtocolHooks<u8, ()> {
+    ) -> ProtocolHooks<u8, wireframe::NoProtocolError> {
         let before_clone = Arc::clone(&self.before_calls);
         let end_clone = Arc::clone(&self.end_calls);
 
@@ -70,7 +70,7 @@ impl HookCounters {
             })
                 as Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>),
             stream_end: Some(Box::new(stream_end_value)),
-            ..ProtocolHooks::<u8, ()>::default()
+            ..ProtocolHooks::<u8, wireframe::NoProtocolError>::default()
         }
     }
 
