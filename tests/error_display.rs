@@ -33,6 +33,35 @@ impl std::fmt::Display for ProtoErr {
 
 impl std::error::Error for ProtoErr {}
 
+enum ExpectedSource {
+    Io {
+        message: &'static str,
+        kind: io::ErrorKind,
+    },
+    Codec(FramingError),
+}
+
+fn assert_source_matches(source: &(dyn Error + 'static), expected: ExpectedSource) {
+    match expected {
+        ExpectedSource::Io { message, kind } => {
+            let Some(io_source) = source.downcast_ref::<io::Error>() else {
+                panic!("io source should be std::io::Error");
+            };
+            assert_eq!(io_source.kind(), kind);
+            assert_eq!(io_source.to_string(), message);
+        }
+        ExpectedSource::Codec(expected_error) => {
+            let Some(codec_source) = source.downcast_ref::<CodecError>() else {
+                panic!("codec source should be wireframe::codec::CodecError");
+            };
+            assert!(
+                matches!(codec_source, CodecError::Framing(error) if error == &expected_error),
+                "codec source should preserve the original framing error"
+            );
+        }
+    }
+}
+
 #[test]
 fn wireframe_error_messages() {
     let proto = WireframeError::Protocol(ProtoErr);
@@ -94,28 +123,30 @@ fn wireframe_error_unit_messages() {
     );
 }
 
+#[rstest::rstest]
+#[case(
+    WireframeError::<NoProtocolError>::from_io(io::Error::other("socket closed")),
+    ExpectedSource::Io {
+        message: "socket closed",
+        kind: io::ErrorKind::Other,
+    }
+)]
+#[case(
+    WireframeError::<NoProtocolError>::from_codec(CodecError::from(FramingError::EmptyFrame)),
+    ExpectedSource::Codec(FramingError::EmptyFrame)
+)]
+fn wireframe_error_default_exposes_sources(
+    #[case] error: WireframeError<NoProtocolError>,
+    #[case] expected: ExpectedSource,
+) {
+    let source = error
+        .source()
+        .expect("variant must expose its underlying source");
+    assert_source_matches(source, expected);
+}
+
 #[test]
-fn wireframe_error_default_sources() {
-    let io = WireframeError::<NoProtocolError>::from_io(io::Error::other("socket closed"));
-    let io_source = io
-        .source()
-        .expect("io variant must expose its underlying source")
-        .downcast_ref::<io::Error>()
-        .expect("io source should be std::io::Error");
-    assert_eq!(io_source.to_string(), "socket closed");
-
-    let codec =
-        WireframeError::<NoProtocolError>::from_codec(CodecError::from(FramingError::EmptyFrame));
-    let codec_source = codec
-        .source()
-        .expect("codec variant must expose its underlying source")
-        .downcast_ref::<CodecError>()
-        .expect("codec source should be wireframe::codec::CodecError");
-    assert!(
-        matches!(codec_source, CodecError::Framing(FramingError::EmptyFrame)),
-        "codec source should preserve the original framing error"
-    );
-
+fn wireframe_error_default_duplicate_route_has_no_source() {
     let duplicate_route = WireframeError::<NoProtocolError>::DuplicateRoute(7);
     assert!(
         duplicate_route.source().is_none(),
@@ -152,30 +183,26 @@ fn test_error_wireframe_from_preserves_display_prefix() {
     );
 }
 
-#[test]
-fn wireframe_error_exposes_sources_for_io_and_codec() {
-    let io = WireframeError::<ProtoErr>::from_io(io::Error::other("socket closed"));
-    assert_eq!(io.to_string(), "transport error: socket closed");
-    let source = io.source().expect("io variant must have source");
-    let io_source = source
-        .downcast_ref::<io::Error>()
-        .expect("io source should be std::io::Error");
-    assert_eq!(io_source.kind(), io::ErrorKind::Other);
-    assert_eq!(io_source.to_string(), "socket closed");
-
-    let wireframe_codec =
-        WireframeError::<ProtoErr>::from_codec(CodecError::from(FramingError::EmptyFrame));
-    let codec_source = wireframe_codec
-        .source()
-        .expect("Codec variant should expose an error source");
-    let typed_codec_source = codec_source
-        .downcast_ref::<CodecError>()
-        .expect("codec source should be wireframe::codec::CodecError");
-    assert!(
-        matches!(
-            typed_codec_source,
-            CodecError::Framing(FramingError::EmptyFrame)
-        ),
-        "codec source should preserve the original framing error"
-    );
+#[rstest::rstest]
+#[case(
+    WireframeError::<ProtoErr>::from_io(io::Error::other("socket closed")),
+    "transport error: socket closed",
+    ExpectedSource::Io {
+        message: "socket closed",
+        kind: io::ErrorKind::Other,
+    }
+)]
+#[case(
+    WireframeError::<ProtoErr>::from_codec(CodecError::from(FramingError::EmptyFrame)),
+    "codec error: framing error: empty frame not permitted",
+    ExpectedSource::Codec(FramingError::EmptyFrame)
+)]
+fn wireframe_error_exposes_sources_for_io_and_codec(
+    #[case] error: WireframeError<ProtoErr>,
+    #[case] display: &str,
+    #[case] expected: ExpectedSource,
+) {
+    assert_eq!(error.to_string(), display);
+    let source = error.source().expect("variant must expose an error source");
+    assert_source_matches(source, expected);
 }
