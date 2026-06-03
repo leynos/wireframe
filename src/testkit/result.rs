@@ -1,4 +1,14 @@
 //! Shared result and error types for `wireframe::testkit`.
+//!
+//! The testkit pulls together helpers from the root crate, client runtime,
+//! server runtime, push queues, codecs, fragmentation, and observability
+//! support. Those helpers need one error surface so downstream protocol tests
+//! can use `?` freely without losing the original failure category.
+//!
+//! `TestError` is that boundary type: it preserves typed conversions for
+//! inspectable Wireframe errors and converts ad-hoc harness failures into a
+//! message variant. `TestResult` is the companion alias used throughout
+//! `wireframe::testkit` and the `wireframe_testing` crate.
 
 use thiserror::Error;
 

@@ -30,7 +30,7 @@ pub enum WireframeError<E = NoProtocolError> {
 /// default `WireframeError` implementation separate from the blanket
 /// implementation for protocol-error types that do expose a source.
 #[derive(Debug)]
-pub enum NoProtocolError {}
+pub struct NoProtocolError;
 
 impl<E> From<E> for WireframeError<E> {
     fn from(error: E) -> Self { Self::Protocol(error) }

@@ -235,6 +235,12 @@ protocol payload must name it explicitly, for example
 accepting `WireframeError::Protocol(())` should migrate to an explicit
 `WireframeError<()>` annotation.
 
+`WireframeError<E>` now implements `std::error::Error` when `E` is itself an
+error, preserving `Protocol(E)` as the source for protocol failures. The
+`NoProtocolError` specialization also implements `std::error::Error`, but its
+`Protocol(NoProtocolError)` variant has no source because the marker carries no
+underlying cause.
+
 ## Root re-exports removed
 
 The crate root now exposes only `wireframe::Result<T>` and

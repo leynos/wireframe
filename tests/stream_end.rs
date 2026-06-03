@@ -1,4 +1,15 @@
 //! Tests for explicit end-of-stream signalling.
+//!
+//! These integration tests exercise the relationship between streaming
+//! responses, multi-packet channels, and protocol terminator hooks. The
+//! `ConnectionActor` is driven with both ordinary response streams and
+//! `Response::MultiPacket` channels so the test suite can verify where end
+//! frames are emitted, suppressed, or preserved during shutdown.
+//!
+//! The module uses shared queue fixtures and the `Terminator` test protocol to
+//! keep the assertions focused on response-stream behaviour rather than server
+//! setup. It complements the testkit helpers by checking the concrete actor
+//! wiring used by streaming response tests.
 #![cfg(not(loom))]
 
 mod support;

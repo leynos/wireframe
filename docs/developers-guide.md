@@ -56,6 +56,21 @@ Use this checklist before merging API naming changes:
 - Label cross-layer terms (for example, `correlation_id`) explicitly as shared
   metadata.
 
+## Error surface conventions
+
+Library-facing errors should remain typed and inspectable. The root
+`WireframeError<E>` carries setup, transport, protocol, and codec failures, and
+the crate-level `Result<T>` aliases the default
+`WireframeError<NoProtocolError>` form. `NoProtocolError` is the marker for APIs
+that have no protocol-specific error payload.
+
+Implement `std::error::Error` for protocol error types that should appear in
+source chains. The blanket `WireframeError<E>` implementation exposes
+`Protocol(E)` as a source when `E: Error + 'static`; the
+`WireframeError<NoProtocolError>` specialization keeps the default error type
+usable with standard wrappers while returning `None` for
+`Protocol(NoProtocolError)`.
+
 ## Message sequence validation architecture
 
 Message continuation ordering lives in `src/message_assembler/series.rs`. The

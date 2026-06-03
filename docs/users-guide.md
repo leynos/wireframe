@@ -150,6 +150,15 @@ buffering caps for inbound assembly paths. Custom protocols implement
 settings, so call `enable_fragmentation()` (or `fragmentation(Some(cfg))`)
 again when transport fragmentation is required.
 
+`WireframeError` defaults to `WireframeError<NoProtocolError>`. The marker
+means an API does not carry protocol-defined error payloads, while still
+allowing the default `wireframe::Result<T>` to implement `std::error::Error`
+and work with `Box<dyn Error>` or other standard error wrappers. When a
+protocol does have its own typed failures, name the parameter explicitly, for
+example `WireframeError<MyProtocolError>`. Code that previously relied on the
+default accepting `WireframeError::Protocol(())` should annotate that case as
+`WireframeError<()>` instead.
+
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
 chain, wraps the transport in the configured frame codec (length-delimited by

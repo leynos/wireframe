@@ -207,6 +207,36 @@ fn wireframe_error_default_duplicate_route_has_no_source() {
 }
 
 #[test]
+fn wireframe_error_default_protocol_has_no_source() {
+    let protocol = WireframeError::<NoProtocolError>::Protocol(NoProtocolError);
+    assert!(
+        protocol.source().is_none(),
+        "Protocol(NoProtocolError) should not expose an error source"
+    );
+}
+
+#[test]
+fn wireframe_error_default_can_be_boxed_as_error() {
+    let error: Box<dyn Error> = Box::new(WireframeError::<NoProtocolError>::DuplicateRoute(7));
+
+    assert_eq!(error.to_string(), "route id 7 was already registered");
+}
+
+#[tokio::test]
+async fn wireframe_error_default_propagates_through_async_result() {
+    async fn duplicate_route() -> wireframe::Result<()> {
+        tokio::task::yield_now().await;
+        Err(WireframeError::DuplicateRoute(7))
+    }
+
+    let error = duplicate_route()
+        .await
+        .expect_err("async result should propagate WireframeError");
+
+    assert_eq!(error.to_string(), "route id 7 was already registered");
+}
+
+#[test]
 fn wireframe_error_display_allows_non_static_protocol_type() {
     struct BorrowedProtocolError<'a>(&'a str);
 
