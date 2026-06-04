@@ -10,6 +10,8 @@ use proptest::prelude::*;
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
+    NoProtocolError,
+    WireframeError,
     connection::ConnectionActor,
     response::FrameStream,
 };
@@ -49,13 +51,18 @@ async fn run_actions(actions: &[Action]) -> Vec<u8> {
                 .await
                 .expect("failed to push low priority frame"),
             Action::Stream(frames) => {
-                let s = stream::iter(frames.clone().into_iter().map(Ok::<u8, ()>));
+                let s = stream::iter(
+                    frames
+                        .clone()
+                        .into_iter()
+                        .map(Ok::<u8, WireframeError<NoProtocolError>>),
+                );
                 resp_stream = Some(Box::pin(s));
             }
         }
     }
 
-    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
+    let mut actor: ConnectionActor<_, NoProtocolError> =
         ConnectionActor::new(queues, handle, resp_stream, shutdown);
     let mut out = Vec::new();
     actor
