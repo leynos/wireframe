@@ -61,8 +61,8 @@ Use this checklist before merging API naming changes:
 
 Application response paths must keep message serialization and codec frame
 wrapping in one place. Use `app::outbound_encoding::encode_message_frame` when
-an app path needs to turn an `EncodeWith<S>` message into a `FrameCodec::Frame`.
-Callers should keep transport-specific work at the edge:
+an app path needs to turn an `EncodeWith<S>` message into a
+`FrameCodec::Frame`. Callers should keep transport-specific work at the edge:
 
 - Raw stream response methods encode the returned codec frame into a byte
   buffer and write that buffer to `AsyncWrite`.
@@ -93,9 +93,8 @@ counter. Client connection construction should flow through
 `WireframeClientBuilder::into_parts()` and `ClientBuildParts`, which keeps
 single-client and pooled-client socket setup, preamble exchange, lifecycle
 hooks, request hooks, and tracing configuration on the same path. Pooled lease
-methods should go through
-`PooledClientLease::dispatch_on_connection` so checkout and recycle-on-error
-policy stay in one place.
+methods should go through `PooledClientLease::dispatch_on_connection` so
+checkout and recycle-on-error policy stay in one place.
 
 ## Error surface conventions
 
@@ -249,6 +248,14 @@ Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench
 targets, direct unit tests, and BDD fixtures should import the workload matrix,
 measurement helpers, fragmentation helpers, and allocation-label helpers from
 that module instead of coupling to files under `tests/common` with `#[path]`.
+
+Fragment transport integration tests import `tests/common/fragment_helpers.rs`
+as a facade. Keep the public re-export surface stable there, and place helper
+implementation details in responsibility-focused modules under
+`tests/common/fragment_helpers/`: app construction and spawning, assertions,
+fragmentation configuration, envelope building, error types, and framed
+transport. New fragment helpers should be added to the smallest matching module
+and re-exported only when more than one test binary needs the helper.
 
 ## Formal verification tooling
 

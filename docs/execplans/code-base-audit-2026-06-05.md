@@ -107,8 +107,8 @@ API.
 - [x] Receive explicit approval to implement this plan.
 - [x] Milestone 1: centralize client send pipeline logic.
 - [x] 2026-06-05: Milestone 1 passed `make check-fmt`, `make lint`,
-  `make test`, targeted ExecPlan Markdown lint, and CodeRabbit review with
-  zero findings.
+  `make test`, targeted ExecPlan Markdown lint, and CodeRabbit review with zero
+  findings.
 - [x] Milestone 2: centralize app outbound encoding and inbound pipeline
   failure policy.
 - [x] 2026-06-05: Milestone 2 passed `make check-fmt`, `make lint`, and
@@ -122,13 +122,13 @@ API.
   response-helper tests.
 - [x] Milestone 3: route app builder transitions through one rebuild path.
 - [x] 2026-06-05: Milestone 3 passed `make check-fmt`, `make lint`,
-  `make test`, targeted Markdown lint, and CodeRabbit review with zero
-  findings.
+  `make test`, targeted Markdown lint, and CodeRabbit review with zero findings.
 - [x] Milestone 4: refactor pool lock recovery, builder parts construction, and
   pooled lease dispatch.
-- [x] 2026-06-05: Milestone 4 passed focused pool BDD coverage, `make
-  check-fmt`, `make lint`, `make test`, and Markdown lint before CodeRabbit
-  review.
+- [x] 2026-06-05: Milestone 4 passed focused pool BDD coverage,
+      `make check-fmt`, `make lint`, `make test`, and Markdown lint before
+      CodeRabbit
+      review.
 - [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 request for direct
   `lock_or_recover` tests, then reran `make check-fmt`, `make lint`,
   `make test`, and Markdown lint successfully.
@@ -137,9 +137,9 @@ API.
   stronger poison assertions, then reran `make check-fmt`, `make lint`,
   `make test`, and Markdown lint successfully.
 - [x] 2026-06-05: Resolved CodeRabbit's remaining Milestone 4 spelling finding
-  by changing the helper module comment to avoid the contested
-  `Synchronization`/`Synchronisation` word entirely, then reran
-  `make check-fmt`, `make lint`, `make test`, and Markdown lint successfully.
+  by changing the helper module comment to avoid the contested `Synchronization`
+  /`Synchronisation` word entirely, then reran `make check-fmt`, `make lint`,
+  `make test`, and Markdown lint successfully.
 - [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 encapsulation and metric
   findings by narrowing `lock_or_recover` to `pub(super)` and adding
   `wireframe_pool_bookkeeping_poison_recoveries_total`, then reran
@@ -156,15 +156,28 @@ API.
 - [x] 2026-06-05: Milestone 4 CodeRabbit rerun passed with zero findings.
 - [x] Milestone 5: update workspace membership and documentation.
 - [x] 2026-06-05: Milestone 5 passed focused workspace-manifest integration
-  and BDD tests, `make check-fmt`, `make lint`, `make test`, and Markdown
-  lint before CodeRabbit review.
+  and BDD tests, `make check-fmt`, `make lint`, `make test`, and Markdown lint
+  before CodeRabbit review.
 - [x] 2026-06-05: Milestone 5 CodeRabbit review passed with zero findings.
 - [x] Milestone 6: extract example bootstrap and benchmark helper wiring.
 - [x] 2026-06-05: Milestone 6 passed focused codec benchmark helper tests,
   example compile checks, benchmark BDD tests, `make check-fmt`, `make lint`,
   `make test`, and Markdown lint before CodeRabbit review.
 - [x] 2026-06-05: Milestone 6 CodeRabbit review passed with zero findings.
-- [ ] Milestone 7: split fragment test helpers behind a compatibility facade.
+- [x] Milestone 7: split fragment test helpers behind a compatibility facade.
+- [x] 2026-06-05: Milestone 7 passed focused fragment transport, unified
+  codec, partial-frame BDD, memory-budget BDD, and budget-cleanup BDD tests,
+  then passed `make check-fmt`, `make lint`, `make test`, and Markdown lint.
+- [x] 2026-06-05: Fixed CodeRabbit's Milestone 7 request to avoid the
+  256-byte in-memory duplex buffer in `spawn_app`, then reran focused
+  fragment/unified tests, `make check-fmt`, `make lint`, and `make test`.
+- [x] 2026-06-05: Fixed CodeRabbit's Milestone 7 request to name the
+  fragmentation-config message-limit multiplier, then reran focused
+  fragment/unified tests, `make check-fmt`, `make lint`, and `make test`.
+- [x] 2026-06-05: Fixed CodeRabbit's Milestone 7 documentation spelling
+  request by avoiding contested terms in transport helper comments, then reran
+  `make check-fmt`, `make lint`, and `make test`.
+- [x] 2026-06-05: Milestone 7 CodeRabbit rerun passed with zero findings.
 - [ ] Run final gates, CodeRabbit review, push, and update the pull request.
 
 ## Surprises & Discoveries
@@ -188,8 +201,9 @@ API.
   public response-sending methods to `src/app/outbound_response.rs` brought the
   inbound handler back to 326 lines and improved its separation of concerns.
 - The local `gh issue comment 538` command cannot add the zero-copy migration
-  note because the GitHub integration reports `Resource not accessible by
-  integration`. ADR 005 and this ExecPlan now carry the migration detail.
+  note because the GitHub integration reports
+  `Resource not accessible by integration`. ADR 005 and this ExecPlan now carry
+  the migration detail.
 
 ## Decision Log
 
@@ -209,17 +223,17 @@ API.
   explicitly required the plan path
   `docs/execplans/code-base-audit-2026-06-05.md`.
 - 2026-06-05: Implement the client send-pipeline extraction as a private
-  `WireframeClient::serialize_and_send` method in `src/client/send_pipeline.rs`.
-  The helper accepts a span-construction callback taking `TracingConfig` and
-  the final frame byte length, so callers keep correlation-specific span data
-  without borrowing the client twice.
+  `WireframeClient::serialize_and_send` method in
+  `src/client/send_pipeline.rs`. The helper accepts a span-construction
+  callback taking `TracingConfig` and the final frame byte length, so callers
+  keep correlation-specific span data without borrowing the client twice.
 - 2026-06-05: Introduce `src/app/outbound_encoding.rs` as the shared
   serialization-to-codec-frame helper for app outbound paths. Keep raw-stream
   and framed transport writes in `src/app/outbound_response.rs` and
   `src/app/codec_driver.rs`, respectively.
 - 2026-06-05: Split inbound dispatch preparation into
-  `WireframeApp::build_dispatchable_envelope`, with decode failures delegated
-  to `DeserFailureTracker`. Preserve the counter reset point after decode,
+  `WireframeApp::build_dispatchable_envelope`, with decode failures delegated to
+  `DeserFailureTracker`. Preserve the counter reset point after decode,
   reassembly, and message assembly have all succeeded.
 - 2026-06-05: Accept CodeRabbit's buffer-capacity concern in
   `send_response`. Since `FrameCodec` has no generic encoded-overhead API and
@@ -255,9 +269,9 @@ API.
   `Vec<u8>` output to preserve source compatibility and avoid turning a
   refactor into an API migration.
 - 2026-06-05: Decline repeated CodeRabbit requests to change
-  `serialization` comments to `serialisation` in
-  `src/app/outbound_encoding.rs` and `src/app/outbound_response.rs` for the
-  same repository-style reason already recorded above.
+  `serialization` comments to `serialisation` in `src/app/outbound_encoding.rs`
+  and `src/app/outbound_response.rs` for the same repository-style reason
+  already recorded above.
 - 2026-06-05: Accept CodeRabbit's request for direct tests around
   `encode_message_frame` and the public framed response send helpers. Add
   lightweight test-only serializers, codecs, and writers to cover success,
@@ -291,10 +305,9 @@ API.
   teardown must be registered after setup when both hooks are required.
 - 2026-06-05: Start milestone 4 by extracting
   `client::pool::sync::lock_or_recover`, adding
-  `WireframeClientBuilder::into_parts()`, and replacing
-  `PooledClientLease`'s dispatch macro with a closure-based async helper.
-  Document the pool synchronization and client-build-parts patterns in
-  `docs/developers-guide.md`.
+  `WireframeClientBuilder::into_parts()`, and replacing `PooledClientLease`'s
+  dispatch macro with a closure-based async helper. Document the pool
+  synchronization and client-build-parts patterns in `docs/developers-guide.md`.
 - 2026-06-05: Implement milestone 4 with a private pool synchronization helper
   instead of duplicated poison recovery, route single-client and pooled-client
   connection construction through `WireframeClientBuilder::into_parts()`, and
@@ -306,8 +319,8 @@ API.
 - 2026-06-05: Accept CodeRabbit's Milestone 4 test request and add direct
   `lock_or_recover` coverage for normal acquisition and poison recovery. Use
   the googletest harness directly for these tests because `expect_that!`
-  requires a googletest context, while `verify_that!(...)?` inside an
-  `rstest` returning `Result` conflicts with the repository's strict
+  requires a googletest context, while `verify_that!(...)?` inside an `rstest`
+  returning `Result` conflicts with the repository's strict
   `panic_in_result_fn` lint when the test intentionally poisons a lock.
 - 2026-06-05: Accept CodeRabbit's follow-up request to make
   `lock_or_recover`'s recovery policy explicit and observable. The helper now
@@ -355,6 +368,27 @@ API.
   `PayloadClass::is_empty()` because moving the helper into public
   `wireframe_testing` API made `PayloadClass::len()` subject to
   `len_without_is_empty`.
+- 2026-06-05: Implement milestone 7 by keeping
+  `tests/common/fragment_helpers.rs` as the import facade and moving helper
+  bodies into `tests/common/fragment_helpers/` modules for app construction,
+  assertions, config, envelopes, errors, and transport. Because the facade is
+  loaded with `#[path]` from integration tests, its child modules need explicit
+  `#[path = "fragment_helpers/..."]` attributes. The `unified_codec` test has
+  a small helper that references the facade entries used by other test binaries
+  so the shared facade remains warning-clean under `-D warnings`.
+- 2026-06-05: Accept CodeRabbit's Milestone 7 finding that the shared
+  `spawn_app` helper's 256-byte duplex buffer was too small for larger
+  fragmented traffic. Keep the call surface stable and replace the literal
+  with an 8 KiB named constant so existing tests get a safer default without
+  call-site churn.
+- 2026-06-05: Accept CodeRabbit's follow-up Milestone 7 finding that
+  `fragmentation_config` should name the 16x message-limit multiplier. Extract
+  `MESSAGE_LIMIT_MULTIPLIER` in `tests/common/fragment_helpers/config.rs` and
+  leave the overflow and frame-budget error paths unchanged.
+- 2026-06-05: Resolve CodeRabbit's Milestone 7 documentation spelling finding
+  by replacing `serialization` and `deserialization` in transport-helper
+  comments with `encoding` and `decoding`. This avoids another
+  Oxford-spelling conflict while keeping the comments precise.
 
 ## Implementation Plan
 
@@ -547,17 +581,15 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun4.out`, and
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun4.out`.
 - 2026-06-05: CodeRabbit's second Milestone 4 review requested recovery
-  contract documentation, warning-level observability, singular module
-  wording, and stronger poison assertions. After applying those changes,
-  validation passed:
-  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`,
+  contract documentation, warning-level observability, singular module wording,
+  and stronger poison assertions. After applying those changes, validation
+  passed: `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`,
   `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`,
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`, and
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`.
 - 2026-06-05: CodeRabbit's third Milestone 4 review requested `-ise` spelling
   for `Synchronization`. The module comment now avoids that word. Validation
-  passed:
-  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
+  passed: `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
   `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`, and
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun8.out`.
@@ -614,3 +646,45 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m6.out`.
 - 2026-06-05: Milestone 6 CodeRabbit review passed with zero findings:
   `/tmp/coderabbit-wireframe-code-base-audit-2026-06-05-m6.out`.
+- 2026-06-05: Milestone 7 validation before CodeRabbit:
+  `cargo test --test fragment_transport --all-features`,
+  `cargo test --test unified_codec --all-features`,
+  `cargo test --test bdd --all-features partial_frame_feeding`,
+  `cargo test --test bdd --all-features memory_budget`,
+  `cargo test --test bdd --all-features budget_cleanup`, `make check-fmt`,
+  `make lint`, `make test`, and `make markdownlint` passed. Logs:
+  `/tmp/test-fragment-transport-wireframe-code-base-audit-2026-06-05-m7-rerun2.out`,
+  `/tmp/test-unified-codec-wireframe-code-base-audit-2026-06-05-m7-rerun2.out`,
+  `/tmp/test-bdd-partial-frame-wireframe-code-base-audit-2026-06-05-m7.out`,
+  `/tmp/test-bdd-memory-budget-wireframe-code-base-audit-2026-06-05-m7.out`,
+  `/tmp/test-bdd-budget-cleanup-wireframe-code-base-audit-2026-06-05-m7.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m7-rerun1.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m7-rerun5.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m7.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m7.out`.
+- 2026-06-05: After fixing CodeRabbit's duplex-buffer finding, validation
+  passed again: `cargo test --test fragment_transport --all-features`,
+  `cargo test --test unified_codec --all-features`, `make check-fmt`,
+  `make lint`, and `make test`. Logs:
+  `/tmp/test-fragment-transport-wireframe-code-base-audit-2026-06-05-m7-rerun3.out`,
+  `/tmp/test-unified-codec-wireframe-code-base-audit-2026-06-05-m7-rerun3.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m7-rerun2.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m7-rerun6.out`, and
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m7-rerun1.out`.
+- 2026-06-05: After fixing CodeRabbit's message-limit multiplier finding,
+  validation passed again: `cargo test --test fragment_transport
+  --all-features`, `cargo test --test unified_codec --all-features`,
+  `make check-fmt`, `make lint`, and `make test`. Logs:
+  `/tmp/test-fragment-transport-wireframe-code-base-audit-2026-06-05-m7-rerun4.out`,
+  `/tmp/test-unified-codec-wireframe-code-base-audit-2026-06-05-m7-rerun4.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m7-rerun3.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m7-rerun7.out`, and
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m7-rerun2.out`.
+- 2026-06-05: After fixing CodeRabbit's transport-helper spelling finding,
+  validation passed again: `make check-fmt`, `make lint`, and `make test`.
+  Logs:
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m7-rerun4.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m7-rerun8.out`, and
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m7-rerun3.out`.
+- 2026-06-05: Milestone 7 CodeRabbit rerun passed with zero findings:
+  `/tmp/coderabbit-wireframe-code-base-audit-2026-06-05-m7-rerun3.out`.
