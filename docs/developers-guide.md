@@ -58,18 +58,11 @@ Use this checklist before merging API naming changes:
 
 ## Error surface conventions
 
-Library-facing errors should remain typed and inspectable. The root
-`WireframeError<E>` carries setup, transport, protocol, and codec failures, and
-the crate-level `Result<T>` aliases the default
-`WireframeError<NoProtocolError>` form. `NoProtocolError` is the marker for APIs
-that have no protocol-specific error payload.
-
-Implement `std::error::Error` for protocol error types that should appear in
-source chains. The blanket `WireframeError<E>` implementation exposes
-`Protocol(E)` as a source when `E: Error + 'static`; the
-`WireframeError<NoProtocolError>` specialization keeps the default error type
-usable with standard wrappers while returning `None` for
-`Protocol(NoProtocolError)`.
+Library-facing errors should stay typed and inspectable by default. Use
+`NoProtocolError` when an API has no protocol-specific failure payload so the
+crate-level `Result<T>` still participates in standard error chaining; reserve
+`WireframeError<E>` for protocols with their own source-bearing error type. See
+the rustdoc for `wireframe::NoProtocolError` for the public API contract.
 
 ## Message sequence validation architecture
 

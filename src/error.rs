@@ -29,6 +29,11 @@ pub enum WireframeError<E = NoProtocolError> {
 /// This marker is deliberately not an [`std::error::Error`]. That keeps the
 /// default `WireframeError` implementation separate from the blanket
 /// implementation for protocol-error types that do expose a source.
+/// `Protocol(())` is constructible but semantically empty; a named marker makes
+/// "no protocol error" an explicit API state. Because `()` does not implement
+/// [`std::error::Error`], defaulting to `()` would silently strip the
+/// [`std::error::Error`] implementation from `WireframeError`; that is the
+/// #513 regression this marker prevents.
 #[derive(Debug)]
 pub struct NoProtocolError;
 
@@ -82,6 +87,7 @@ where
     }
 }
 
+// See #513: `NoProtocolError` is intentionally not `Error`, so the blanket impl cannot cover it.
 impl std::error::Error for WireframeError<NoProtocolError> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         transport_or_codec_source(self)
