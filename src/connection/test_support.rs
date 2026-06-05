@@ -14,6 +14,7 @@ use super::{
     state::ActorState,
 };
 use crate::{
+    NoProtocolError,
     app::{Packet, PacketParts},
     hooks::ProtocolHooks,
     push::{PushConfigError, PushQueues},
@@ -45,8 +46,8 @@ impl Packet for Vec<u8> {
 ///
 /// Returns an error if the push queues cannot be constructed.
 pub fn create_test_actor_with_hooks(
-    hooks: ProtocolHooks<u8, ()>,
-) -> Result<ConnectionActor<u8, ()>, PushConfigError> {
+    hooks: ProtocolHooks<u8, NoProtocolError>,
+) -> Result<ConnectionActor<u8>, PushConfigError> {
     let (queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(4)
         .low_capacity(4)
@@ -61,7 +62,7 @@ pub fn create_test_actor_with_hooks(
 
 /// Convenience harness wrapping an actor, its state, and buffered output.
 pub struct ActorHarness {
-    actor: ConnectionActor<u8, ()>,
+    actor: ConnectionActor<u8>,
     state: ActorState,
     /// Frames emitted by the actor during tests, preserved for assertions.
     pub out: Vec<u8>,
@@ -74,7 +75,7 @@ impl ActorHarness {
     ///
     /// Returns an error if the push queues cannot be constructed.
     pub fn new_with_state(
-        hooks: ProtocolHooks<u8, ()>,
+        hooks: ProtocolHooks<u8, NoProtocolError>,
         has_response: bool,
         has_multi_packet: bool,
     ) -> Result<Self, PushConfigError> {
@@ -92,7 +93,11 @@ impl ActorHarness {
     ///
     /// Returns an error if the push queues cannot be constructed.
     pub fn new() -> Result<Self, PushConfigError> {
-        Self::new_with_state(ProtocolHooks::<u8, ()>::default(), false, false)
+        Self::new_with_state(
+            ProtocolHooks::<u8, NoProtocolError>::default(),
+            false,
+            false,
+        )
     }
 
     /// Snapshot the internal actor state.
@@ -173,7 +178,7 @@ impl ActorHarness {
     }
 
     /// Access the underlying actor mutably.
-    pub fn actor_mut(&mut self) -> &mut ConnectionActor<u8, ()> { &mut self.actor }
+    pub fn actor_mut(&mut self) -> &mut ConnectionActor<u8> { &mut self.actor }
 }
 
 /// Snapshot of the actor lifecycle flags and counters.

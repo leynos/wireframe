@@ -33,7 +33,8 @@ where
     setup(handle.clone()).await?;
 
     let shutdown = CancellationToken::new();
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
+        ConnectionActor::new(queues, handle, None, shutdown);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
     actor

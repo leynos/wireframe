@@ -36,7 +36,7 @@ fn envelope_with_payload(id: u32, correlation: Option<u64>, payload: &[u8]) -> E
 }
 
 struct ActorHarness {
-    actor: ConnectionActor<Envelope, ()>,
+    actor: ConnectionActor<Envelope, wireframe::NoProtocolError>,
     handle: Option<PushHandle<Envelope>>,
 }
 

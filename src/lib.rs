@@ -8,6 +8,12 @@
 //! - Root exports stay intentionally small and stable.
 //! - Domain modules hold detailed APIs (`app`, `server`, `client`, and so on).
 //! - [`prelude`] offers optional convenience imports for common workflows.
+//!
+//! The root [`Result`] alias uses [`WireframeError`] with the default
+//! [`NoProtocolError`] protocol marker. This keeps `Result<T>` usable as a
+//! standard error type when an API has no protocol-specific error payload.
+//! Use `WireframeError<E>` explicitly when a protocol supplies its own error
+//! type.
 
 extern crate self as wireframe;
 
@@ -18,7 +24,7 @@ pub mod byte_order;
 pub mod client;
 pub mod codec;
 pub mod error;
-pub use error::{Result, WireframeError};
+pub use error::{NoProtocolError, Result, WireframeError};
 pub mod connection;
 pub mod correlation;
 #[cfg(not(loom))]

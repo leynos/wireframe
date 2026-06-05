@@ -42,7 +42,7 @@ async fn strict_priority_order(
     push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(3u8)]);
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     actor
@@ -71,7 +71,7 @@ async fn fairness_yields_low_after_burst(
     }
     push_expect!(handle.push_low_priority(99), "push low-priority")?;
 
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
@@ -179,7 +179,7 @@ async fn processes_all_priorities_in_order(
     let high_count = order.iter().filter(|p| matches!(p, Priority::High)).count();
     let expected = queue_frames(&order, &handle, high_count).await?;
 
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
@@ -209,7 +209,7 @@ async fn fairness_yields_low_with_time_slice(
         time_slice: Some(Duration::from_millis(10)),
     };
 
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle.clone(), None, shutdown_token);
     actor.set_fairness(fairness);
 

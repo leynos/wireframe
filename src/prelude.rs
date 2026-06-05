@@ -15,7 +15,7 @@
 pub use crate::message::serde_bridge::{IntoSerdeMessage, SerdeMessage};
 pub use crate::{
     app::{Envelope, Handler, Middleware, WireframeApp},
-    error::{Result, WireframeError},
+    error::{NoProtocolError, Result, WireframeError},
     message::{DecodeWith, DeserializeContext, EncodeWith, Message},
     response::Response,
     serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},

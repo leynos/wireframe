@@ -1,4 +1,15 @@
 //! Tests for explicit end-of-stream signalling.
+//!
+//! These integration tests exercise the relationship between streaming
+//! responses, multi-packet channels, and protocol terminator hooks. The
+//! `ConnectionActor` is driven with both ordinary response streams and
+//! `Response::MultiPacket` channels so the test suite can verify where end
+//! frames are emitted, suppressed, or preserved during shutdown.
+//!
+//! The module uses shared queue fixtures and the `Terminator` test protocol to
+//! keep the assertions focused on response-stream behaviour rather than server
+//! setup. It complements the testkit helpers by checking the concrete actor
+//! wiring used by streaming response tests.
 #![cfg(not(loom))]
 
 mod support;
@@ -10,6 +21,7 @@ use rstest::{fixture, rstest};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
+    NoProtocolError,
     connection::{ConnectionActor, ConnectionChannels},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     push::{PushHandle, PushQueues},
@@ -102,7 +114,7 @@ async fn multi_packet_respects_no_terminator(
 
     impl WireframeProtocol for NoTerminator {
         type Frame = u8;
-        type ProtocolError = ();
+        type ProtocolError = NoProtocolError;
 
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
@@ -176,7 +188,7 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
 
     impl WireframeProtocol for NoTerminator {
         type Frame = u8;
-        type ProtocolError = ();
+        type ProtocolError = NoProtocolError;
 
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
@@ -216,7 +228,7 @@ async fn emits_no_end_frame_when_none(
 
     impl WireframeProtocol for NoTerminator {
         type Frame = u8;
-        type ProtocolError = ();
+        type ProtocolError = NoProtocolError;
 
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }

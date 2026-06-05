@@ -150,6 +150,31 @@ buffering caps for inbound assembly paths. Custom protocols implement
 settings, so call `enable_fragmentation()` (or `fragmentation(Some(cfg))`)
 again when transport fragmentation is required.
 
+`WireframeError` defaults to `WireframeError<NoProtocolError>`. The marker
+means an API does not carry protocol-defined error payloads, while still
+allowing the default `wireframe::Result<T>` to implement `std::error::Error`
+and work with `Box<dyn Error>` or other standard error wrappers. When a
+protocol does have its own typed failures, name the parameter explicitly, for
+example `WireframeError<MyProtocolError>`. Code that previously relied on the
+default accepting `WireframeError::Protocol(())` should annotate that case as
+`WireframeError<()>` instead.
+
+The default error type works with standard error wrappers and source-chain
+inspection:
+
+```rust
+use std::error::Error;
+use wireframe::WireframeError;
+
+fn boxed_route_error() -> Box<dyn Error> {
+    Box::new(WireframeError::DuplicateRoute(7))
+}
+
+fn inspect_transport_source(error: &WireframeError) -> Option<&dyn Error> {
+    error.source()
+}
+```
+
 Once a stream is accepted—either from a manual accept loop or via
 `WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
 chain, wraps the transport in the configured frame codec (length-delimited by
@@ -2089,24 +2114,30 @@ can be interleaved with push traffic. `WireframeError` distinguishes transport
 failures from protocol-level errors emitted by streaming
 responses.[^34][^35][^31]
 
+`Response<F>`, `FrameStream<F>`, and `ConnectionActor<F>` all use
+`NoProtocolError` by default. In ordinary no-protocol applications that means
+streaming code can name the frame type only, while still returning
+`WireframeError<NoProtocolError>` internally. Name the error parameter only when
+the stream or actor carries a protocol-specific failure payload.
+
 When constructing imperative streams, the `async-stream` crate integrates
 smoothly. The example below yields five frames and converts them into a
 `Response::Stream` value:[^36]
 
 ```rust
 use async_stream::try_stream;
-use wireframe::response::Response;
+use wireframe::response::{FrameStream, Response};
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
 struct Frame(u32);
 
 fn stream_response() -> Response<Frame> {
-    let frames = try_stream! {
+    let frames: FrameStream<Frame> = Box::pin(try_stream! {
         for value in 0..5 {
             yield Frame(value);
         }
-    };
-    Response::Stream(Box::pin(frames))
+    });
+    Response::Stream(frames)
 }
 ```
 

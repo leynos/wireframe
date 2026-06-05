@@ -1,4 +1,14 @@
 //! Shared result and error types for `wireframe::testkit`.
+//!
+//! The testkit pulls together helpers from the root crate, client runtime,
+//! server runtime, push queues, codecs, fragmentation, and observability
+//! support. Those helpers need one error surface so downstream protocol tests
+//! can use `?` freely without losing the original failure category.
+//!
+//! `TestError` is that boundary type: it preserves typed conversions for
+//! inspectable Wireframe errors and converts ad-hoc harness failures into a
+//! message variant. `TestResult` is the companion alias used throughout
+//! `wireframe::testkit` and the `wireframe_testing` crate.
 
 use thiserror::Error;
 
@@ -22,7 +32,7 @@ pub enum TestError {
     Msg(String),
     /// Root crate error surfaced while exercising a helper.
     #[error("wireframe error: {0}")]
-    Wireframe(WireframeError),
+    Wireframe(#[from] WireframeError),
     /// Client-side error surfaced while exercising a helper.
     #[cfg(not(loom))]
     #[error(transparent)]
@@ -93,10 +103,6 @@ impl From<String> for TestError {
 
 impl From<&str> for TestError {
     fn from(value: &str) -> Self { Self::Msg(value.to_string()) }
-}
-
-impl From<WireframeError> for TestError {
-    fn from(value: WireframeError) -> Self { Self::Wireframe(value) }
 }
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {

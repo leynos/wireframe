@@ -35,17 +35,17 @@ use futures::{Stream, StreamExt, stream};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-pub use crate::WireframeError;
+pub use crate::{NoProtocolError, WireframeError};
 
 /// A type alias for a type-erased, dynamically dispatched stream of frames.
 ///
 /// Each yielded item is a `Result` containing either a frame `F` or a
 /// [`WireframeError`] describing why the stream failed.
-pub type FrameStream<F, E = ()> =
+pub type FrameStream<F, E = NoProtocolError> =
     Pin<Box<dyn Stream<Item = Result<F, WireframeError<E>>> + Send + 'static>>;
 
 /// Represents the full response to a request.
-pub enum Response<F, E = ()> {
+pub enum Response<F, E = NoProtocolError> {
     /// A single frame reply.
     Single(F),
     /// An optimized list of frames.

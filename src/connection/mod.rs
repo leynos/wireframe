@@ -34,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 
 pub use crate::fairness::FairnessConfig;
 use crate::{
+    NoProtocolError,
     app::Packet,
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
@@ -72,10 +73,10 @@ pub enum ConnectionStateError {
 ///     .build()
 ///     .expect("failed to build PushQueues");
 /// let shutdown = CancellationToken::new();
-/// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+/// let mut actor: ConnectionActor<_> = ConnectionActor::new(queues, handle, None, shutdown);
 /// # drop(actor);
 /// ```
-pub struct ConnectionActor<F, E> {
+pub struct ConnectionActor<F, E = NoProtocolError> {
     high_rx: Option<mpsc::Receiver<F>>,
     low_rx: Option<mpsc::Receiver<F>>,
     /// Active output source: either a streaming response or a multi-packet channel.
@@ -113,7 +114,7 @@ where
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let token = CancellationToken::new();
-    /// let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, token);
+    /// let mut actor: ConnectionActor<_> = ConnectionActor::new(queues, handle, None, token);
     /// # drop(actor);
     /// ```
     #[must_use]
@@ -237,7 +238,7 @@ where
     /// #     .build()
     /// #     .expect("failed to build PushQueues");
     /// # let shutdown = CancellationToken::new();
-    /// # let mut actor: ConnectionActor<u8, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    /// # let mut actor: ConnectionActor<u8> = ConnectionActor::new(queues, handle, None, shutdown);
     /// # let (_tx, rx) = mpsc::channel(4);
     /// actor.set_multi_packet_with_correlation(Some(rx), Some(7))?;
     /// # Ok::<(), wireframe::connection::ConnectionStateError>(())

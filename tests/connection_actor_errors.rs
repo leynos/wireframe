@@ -53,10 +53,10 @@ async fn before_send_hook_modifies_frames(
     let stream = stream::iter(vec![Ok(2u8)]);
     let hooks = ProtocolHooks {
         before_send: Some(Box::new(|f: &mut u8, _ctx: &mut ConnectionContext| *f += 1)),
-        ..ProtocolHooks::<u8, ()>::default()
+        ..ProtocolHooks::<u8, wireframe::NoProtocolError>::default()
     };
 
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> = ConnectionActor::with_hooks(
         ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
@@ -90,10 +90,10 @@ async fn on_command_end_hook_runs(
         on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
             c.fetch_add(1, Ordering::SeqCst);
         })),
-        ..ProtocolHooks::<u8, ()>::default()
+        ..ProtocolHooks::<u8, wireframe::NoProtocolError>::default()
     };
 
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> = ConnectionActor::with_hooks(
         ConnectionChannels::new(queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
@@ -202,7 +202,7 @@ async fn io_error_terminates_connection(
         Ok(1u8),
         Err(WireframeError::Io(std::io::Error::other("fail"))),
     ]);
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     let result = actor.run(&mut out).await;

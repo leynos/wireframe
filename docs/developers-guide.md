@@ -56,6 +56,14 @@ Use this checklist before merging API naming changes:
 - Label cross-layer terms (for example, `correlation_id`) explicitly as shared
   metadata.
 
+## Error surface conventions
+
+Library-facing errors should stay typed and inspectable by default. Use
+`NoProtocolError` when an API has no protocol-specific failure payload so the
+crate-level `Result<T>` still participates in standard error chaining; reserve
+`WireframeError<E>` for protocols with their own source-bearing error type. See
+the rustdoc for `wireframe::NoProtocolError` for the public API contract.
+
 ## Message sequence validation architecture
 
 Message continuation ordering lives in `src/message_assembler/series.rs`. The
@@ -202,6 +210,19 @@ BDD scenarios live in `.feature` files under `tests/features/`. Each file
 describes one or more scenarios using the standard Given/When/Then syntax.
 Scenario functions are annotated with `#[scenario(path = "…", name = "…")]` and
 receive fixture parameters by name.
+
+### trybuild compile-time tests
+
+Compile-time API contracts live in
+[`tests/compile_error.rs`](../tests/compile_error.rs). That runner uses
+[`trybuild`](https://crates.io/crates/trybuild) to execute small pass and
+compile-fail programs under [`tests/ui/`](../tests/ui/).
+
+Use these tests for public trait bounds, default generic parameters, and other
+contracts that must fail or succeed at type-check time rather than runtime.
+Place new snippets in `tests/ui/`, register them in `tests/compile_error.rs`,
+and commit the generated `.stderr` file for compile-fail cases after verifying
+that the diagnostics describe the intended contract.
 
 ### Feature files and step definitions
 

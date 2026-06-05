@@ -19,7 +19,7 @@ const ROUTE_ID: u32 = 7;
 use wireframe_testing::TestResult;
 
 fn setup_fragmented_actor() -> TestResult<(
-    ConnectionActor<Envelope, ()>,
+    ConnectionActor<Envelope, wireframe::NoProtocolError>,
     PushHandle<Envelope>,
     FragmentationConfig,
 )> {
@@ -28,7 +28,7 @@ fn setup_fragmented_actor() -> TestResult<(
         .low_capacity(4)
         .build()?;
     let shutdown = CancellationToken::new();
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle.clone(), None, shutdown);
 
     let message_cap = NonZeroUsize::new(256).ok_or("message cap must be non-zero")?;

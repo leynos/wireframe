@@ -96,7 +96,7 @@ fn log_frame(frame: &Frame) {
     info!("{frame}");
 }
 
-async fn run() -> Result<(), WireframeError<()>> {
+async fn run() -> Result<(), WireframeError> {
     let _ = tracing_subscriber::fmt::try_init();
     let response = multi_packet_response();
     let mut stream = response.into_stream();

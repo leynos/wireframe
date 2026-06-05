@@ -91,7 +91,8 @@ async fn connection_actor_drains_multi_packet_channel(
     drop(tx);
 
     let (queues, handle, shutdown) = actor_components?;
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
+        ConnectionActor::new(queues, handle, None, shutdown);
     actor
         .set_multi_packet(Some(rx))
         .map_err(|e| boxed_err("set_multi_packet error", e))?;
@@ -124,7 +125,8 @@ async fn connection_actor_interleaves_multi_packet_and_priority_frames(
     handle.push_low_priority(100).await?;
     handle.push_low_priority(101).await?;
 
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
+        ConnectionActor::new(queues, handle, None, shutdown);
     actor.set_fairness(FairnessConfig {
         max_high_before_low: 1,
         time_slice: None,
@@ -150,7 +152,8 @@ async fn shutdown_completes_multi_packet_channel(
 ) -> TestResult {
     let (queues, handle, shutdown) = actor_components?;
     let (tx, rx) = mpsc::channel(1);
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
+        ConnectionActor::new(queues, handle, None, shutdown);
     actor
         .set_multi_packet(Some(rx))
         .map_err(|e| boxed_err("set_multi_packet error", e))?;
@@ -186,7 +189,8 @@ async fn shutdown_during_active_multi_packet_send(
 ) -> TestResult {
     let (queues, handle, shutdown) = actor_components?;
     let (tx, rx) = mpsc::channel(4);
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, shutdown);
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
+        ConnectionActor::new(queues, handle, None, shutdown);
     actor
         .set_multi_packet(Some(rx))
         .map_err(|e| boxed_err("set_multi_packet error", e))?;

@@ -37,7 +37,7 @@ async fn shutdown_signal_precedence(
 ) {
     let (queues, handle) = queues.expect("fixture should build queues");
     shutdown_token.cancel();
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, None, shutdown_token);
     // drop the handle after actor creation to mimic early disconnection
     let mut out = Vec::new();
@@ -59,7 +59,7 @@ async fn complete_draining_of_sources(
     push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(2u8), Ok(3u8)]);
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     // drop handle after actor setup
     let mut out = Vec::new();
@@ -93,7 +93,7 @@ async fn interleaved_shutdown_during_stream(
             None
         }
     });
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
@@ -132,7 +132,7 @@ async fn graceful_shutdown_waits_for_tasks() -> TestResult {
             .high_capacity(1)
             .low_capacity(1)
             .build()?;
-        let mut actor: ConnectionActor<_, ()> =
+        let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
             ConnectionActor::new(queues, handle.clone(), None, token.clone());
         handles.push(handle);
         tracker.spawn(async move {
@@ -166,7 +166,8 @@ async fn connection_count_decrements_on_abort(
     token.cancel();
 
     let before = wireframe::connection::active_connection_count();
-    let mut actor: ConnectionActor<_, ()> = ConnectionActor::new(queues, handle, None, token);
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
+        ConnectionActor::new(queues, handle, None, token);
     let during = wireframe::connection::active_connection_count();
     assert_eq!(during, before + 1);
 
@@ -189,7 +190,7 @@ async fn connection_count_decrements_on_close(
     let (queues, handle) = queues.expect("fixture should build queues");
     let before = wireframe::connection::active_connection_count();
     let stream = stream::iter(vec![Ok(1u8)]);
-    let mut actor: ConnectionActor<_, ()> =
+    let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
         ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
     let during = wireframe::connection::active_connection_count();
     assert_eq!(during, before + 1);

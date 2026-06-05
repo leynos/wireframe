@@ -41,7 +41,7 @@ impl MultiPacketWorld {
     async fn collect_frames_from(rx: mpsc::Receiver<u8>) -> TestResult<Vec<u8>> {
         let (queues, handle) = build_small_queues::<u8>()?;
         let shutdown = CancellationToken::new();
-        let mut actor: ConnectionActor<_, ()> =
+        let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
             ConnectionActor::new(queues, handle, None, shutdown);
         actor
             .set_multi_packet(Some(rx))
@@ -70,7 +70,7 @@ impl MultiPacketWorld {
     /// Returns an error if the response cannot be converted to a multi-packet
     /// stream or if producer tasks fail.
     async fn process_messages(&mut self, messages: &[u8]) -> TestResult {
-        let (sender, response): (mpsc::Sender<u8>, Response<u8, ()>) = Response::with_channel(4);
+        let (sender, response): (mpsc::Sender<u8>, Response<u8>) = Response::with_channel(4);
         let Response::MultiPacket(rx) = response else {
             return Err("helper did not return a MultiPacket response".into());
         };
@@ -116,7 +116,7 @@ impl MultiPacketWorld {
     /// Returns an error if sending to the channel fails unexpectedly or the
     /// producer task returns an error.
     pub async fn process_overflow(&mut self) -> TestResult {
-        let (sender, response): (mpsc::Sender<u8>, Response<u8, ()>) = Response::with_channel(1);
+        let (sender, response): (mpsc::Sender<u8>, Response<u8>) = Response::with_channel(1);
         let Response::MultiPacket(rx) = response else {
             return Err("helper did not return a MultiPacket response".into());
         };

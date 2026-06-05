@@ -226,14 +226,30 @@ The unified `WireframeError<E>` carries four variants:
 - `Protocol(E)` – protocol-defined logical error.
 - `Codec(CodecError)` – codec-layer error with structured context.
 
+`WireframeError` defaults to `WireframeError<NoProtocolError>`, and
+`wireframe::Result<T>` aliases that default. This is the intended v0.3.0
+contract: APIs without protocol-specific error payloads use `NoProtocolError`,
+so `Result<T>` participates in standard error chaining. Code that needs a
+protocol payload must name it explicitly, for example
+`WireframeError<MyProtocolError>`. Code that previously relied on the default
+accepting `WireframeError::Protocol(())` should migrate to an explicit
+`WireframeError<()>` annotation.
+
+`WireframeError<E>` now implements `std::error::Error` when `E` is itself an
+error, preserving `Protocol(E)` as the source for protocol failures. The
+`NoProtocolError` specialization also implements `std::error::Error`, but its
+`Protocol(NoProtocolError)` variant has no source because the marker carries no
+underlying cause.
+
 ## Root re-exports removed
 
-The crate root now exposes only `wireframe::Result<T>` and
-`wireframe::WireframeError<E>`. Every other type is still available through its
-owning public module – those modules are all `pub mod` at the crate root and
-their contents have not been removed from the public API. What changed is that
-the convenience re-exports at the crate root are gone. Update import paths to
-reference the module directly rather than the root shorthand.
+The crate root now exposes only `wireframe::Result<T>`,
+`wireframe::WireframeError<E>`, and `wireframe::NoProtocolError` from the error
+surface. Every other type is still available through its owning public module –
+those modules are all `pub mod` at the crate root, and their contents have not
+been removed from the public API. What changed is that the convenience
+re-exports at the crate root are gone. Update import paths to reference the
+module directly rather than the root shorthand.
 
 The most common moves:
 
