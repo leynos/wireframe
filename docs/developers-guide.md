@@ -85,6 +85,18 @@ transitions use `rebuild_with_params`; connection-state transitions use
 state, so `on_connection_setup` clears any teardown hook registered before it.
 Register teardown after setup when both hooks are required.
 
+Client pool internals should use `client::pool::sync::lock_or_recover` for
+poison-tolerant `Mutex` access. Keep the policy local to pool synchronization
+code so scheduler and slot state recovery cannot drift. Recovery logs a warning
+and increments the `wireframe_pool_bookkeeping_poison_recoveries_total`
+counter. Client connection construction should flow through
+`WireframeClientBuilder::into_parts()` and `ClientBuildParts`, which keeps
+single-client and pooled-client socket setup, preamble exchange, lifecycle
+hooks, request hooks, and tracing configuration on the same path. Pooled lease
+methods should go through
+`PooledClientLease::dispatch_on_connection` so checkout and recycle-on-error
+policy stay in one place.
+
 ## Error surface conventions
 
 Library-facing errors should stay typed and inspectable by default. Use

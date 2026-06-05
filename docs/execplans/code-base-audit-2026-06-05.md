@@ -124,8 +124,36 @@ API.
 - [x] 2026-06-05: Milestone 3 passed `make check-fmt`, `make lint`,
   `make test`, targeted Markdown lint, and CodeRabbit review with zero
   findings.
-- [ ] Milestone 4: refactor pool lock recovery, builder parts construction, and
+- [x] Milestone 4: refactor pool lock recovery, builder parts construction, and
   pooled lease dispatch.
+- [x] 2026-06-05: Milestone 4 passed focused pool BDD coverage, `make
+  check-fmt`, `make lint`, `make test`, and Markdown lint before CodeRabbit
+  review.
+- [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 request for direct
+  `lock_or_recover` tests, then reran `make check-fmt`, `make lint`,
+  `make test`, and Markdown lint successfully.
+- [x] 2026-06-05: Fixed CodeRabbit's follow-up Milestone 4 requests for
+  `lock_or_recover` contract documentation, poison-recovery observability, and
+  stronger poison assertions, then reran `make check-fmt`, `make lint`,
+  `make test`, and Markdown lint successfully.
+- [x] 2026-06-05: Resolved CodeRabbit's remaining Milestone 4 spelling finding
+  by changing the helper module comment to avoid the contested
+  `Synchronization`/`Synchronisation` word entirely, then reran
+  `make check-fmt`, `make lint`, `make test`, and Markdown lint successfully.
+- [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 encapsulation and metric
+  findings by narrowing `lock_or_recover` to `pub(super)` and adding
+  `wireframe_pool_bookkeeping_poison_recoveries_total`, then reran
+  `make check-fmt`, `make lint`, `make test`, and Markdown lint successfully.
+- [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 module-policy documentation
+  request and created issue #539 for broader scheduler/slot poison recovery
+  integration coverage, then reran `make check-fmt`, `make lint`, `make test`,
+  and Markdown lint successfully.
+- [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 observability assertion
+  request by extending the poison-recovery unit test to assert the warning text
+  and `wireframe_pool_bookkeeping_poison_recoveries_total`, then reran focused
+  pool-sync tests, `make check-fmt`, `make lint`, `make test`, and Markdown
+  lint successfully.
+- [x] 2026-06-05: Milestone 4 CodeRabbit rerun passed with zero findings.
 - [ ] Milestone 5: update workspace membership and documentation.
 - [ ] Milestone 6: extract example bootstrap and benchmark helper wiring.
 - [ ] Milestone 7: split fragment test helpers behind a compatibility facade.
@@ -253,6 +281,50 @@ API.
   movement centralised and clears teardown because a teardown hook registered
   for old state `C` cannot be type-correct for new state `C2`. Document that
   teardown must be registered after setup when both hooks are required.
+- 2026-06-05: Start milestone 4 by extracting
+  `client::pool::sync::lock_or_recover`, adding
+  `WireframeClientBuilder::into_parts()`, and replacing
+  `PooledClientLease`'s dispatch macro with a closure-based async helper.
+  Document the pool synchronization and client-build-parts patterns in
+  `docs/developers-guide.md`.
+- 2026-06-05: Implement milestone 4 with a private pool synchronization helper
+  instead of duplicated poison recovery, route single-client and pooled-client
+  connection construction through `WireframeClientBuilder::into_parts()`, and
+  make pooled lease methods call `PooledClientLease::dispatch_on_connection`.
+  The closure helper uses `AsyncFnOnce` so the borrowed managed connection can
+  be awaited without boxing or weakening the recycle-on-error flow. Document
+  the lock, builder-parts, and lease-dispatch patterns in
+  `docs/developers-guide.md`.
+- 2026-06-05: Accept CodeRabbit's Milestone 4 test request and add direct
+  `lock_or_recover` coverage for normal acquisition and poison recovery. Use
+  the googletest harness directly for these tests because `expect_that!`
+  requires a googletest context, while `verify_that!(...)?` inside an
+  `rstest` returning `Result` conflicts with the repository's strict
+  `panic_in_result_fn` lint when the test intentionally poisons a lock.
+- 2026-06-05: Accept CodeRabbit's follow-up request to make
+  `lock_or_recover`'s recovery policy explicit and observable. The helper now
+  documents that it is only for pool bookkeeping state, warns through
+  `tracing::warn` before recovering, and the poison test proves the spawned
+  thread panicked and the mutex entered the poisoned state before recovery.
+- 2026-06-05: Resolve CodeRabbit's Oxford-spelling conflict on the module-level
+  `Synchronization` wording by replacing the sentence with "Pool lock helper
+  shared across client pool internals." This preserves the repository's
+  documented Oxford `-ize` style without leaving a repeated review finding.
+- 2026-06-05: Accept CodeRabbit's follow-up request to keep the pool poison
+  policy local to the pool module and observable through metrics. Change
+  `lock_or_recover` from `pub(crate)` to `pub(super)` and add
+  `metrics::inc_pool_bookkeeping_poison_recoveries()` backed by
+  `wireframe_pool_bookkeeping_poison_recoveries_total`.
+- 2026-06-05: Accept CodeRabbit's request for module-level policy text around
+  `lock_or_recover`. Defer the deeper scheduler/slot poison recovery
+  integration test to issue #539 because it needs a deliberate way to simulate
+  panic-interrupted private scheduler or slot bookkeeping without weakening
+  production encapsulation.
+- 2026-06-05: Accept CodeRabbit's request to assert `lock_or_recover`
+  observability side effects. The poison-recovery unit test now runs the
+  recovery call under `metrics::with_local_recorder`, captures warning output
+  with a scoped `tracing_subscriber` writer, and asserts both the warning text
+  and the `wireframe_pool_bookkeeping_poison_recoveries_total` increment.
 
 ## Implementation Plan
 
@@ -426,6 +498,62 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
 
 ## Outcomes & Retrospective
 
-This section is empty while the plan is in draft. During implementation, record
-what changed, which validation commands passed, CodeRabbit outcomes, issue
-links, and any deviations from the original plan.
+- 2026-06-05: Milestone 4 validation before CodeRabbit:
+  `cargo test --test bdd_pool --features "advanced-tests pool"` passed after
+  the lease dispatch helper was rewritten to use `AsyncFnOnce`;
+  `cargo fmt --all`, `make check-fmt`, `make lint`, `make test`, and
+  `make markdownlint` passed. Logs:
+  `/tmp/test-bdd-pool-wireframe-code-base-audit-2026-06-05-m4-rerun4.out`,
+  `/tmp/fmt-wireframe-code-base-audit-2026-06-05-m4.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m4.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4.out`.
+- 2026-06-05: CodeRabbit's first Milestone 4 review requested direct
+  `lock_or_recover` tests. After adding and adjusting them, validation passed:
+  `/tmp/test-pool-sync-wireframe-code-base-audit-2026-06-05-m4-rerun1.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun4.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun4.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun4.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun4.out`.
+- 2026-06-05: CodeRabbit's second Milestone 4 review requested recovery
+  contract documentation, warning-level observability, singular module
+  wording, and stronger poison assertions. After applying those changes,
+  validation passed:
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`.
+- 2026-06-05: CodeRabbit's third Milestone 4 review requested `-ise` spelling
+  for `Synchronization`. The module comment now avoids that word. Validation
+  passed:
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun8.out`.
+- 2026-06-05: CodeRabbit's fourth Milestone 4 review requested tighter helper
+  visibility and a poison-recovery metric. After applying both changes and
+  documenting the metric in `docs/developers-guide.md`, validation passed:
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun7.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun7.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun7.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun10.out`.
+- 2026-06-05: CodeRabbit's fifth Milestone 4 review requested module-level
+  recovery policy text and either deeper integration coverage or a tracked
+  issue. Added module policy text, referenced issue #539 from the unit test
+  rationale, and created <https://github.com/leynos/wireframe/issues/539>.
+  Validation passed:
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun8.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun8.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun8.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun12.out`.
+- 2026-06-05: CodeRabbit's sixth Milestone 4 review requested direct
+  observability assertions for poison recovery. Added log and metric checks to
+  the unit test. Validation passed:
+  `/tmp/test-pool-sync-wireframe-code-base-audit-2026-06-05-m4-rerun3.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun9.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun9.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun9.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun14.out`.
+- 2026-06-05: Milestone 4 CodeRabbit review passed with zero findings:
+  `/tmp/coderabbit-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`.

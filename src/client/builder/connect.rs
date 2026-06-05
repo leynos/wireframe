@@ -10,7 +10,6 @@ use crate::{
     client::{
         ClientError,
         WireframeClient,
-        connect_parts::ClientBuildParts,
         tracing_helpers::{connect_span, emit_timing_event},
     },
     rewind_stream::RewindStream,
@@ -71,16 +70,6 @@ where
         self,
         addr: SocketAddr,
     ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
-        ClientBuildParts {
-            serializer: self.serializer,
-            codec_config: self.codec_config,
-            socket_options: self.socket_options,
-            preamble_config: self.preamble_config,
-            lifecycle_hooks: self.lifecycle_hooks,
-            request_hooks: self.request_hooks,
-            tracing_config: self.tracing_config,
-        }
-        .connect(addr)
-        .await
+        self.into_parts().connect(addr).await
     }
 }
