@@ -218,6 +218,19 @@ describes one or more scenarios using the standard Given/When/Then syntax.
 Scenario functions are annotated with `#[scenario(path = "…", name = "…")]` and
 receive fixture parameters by name.
 
+### trybuild compile-time tests
+
+Compile-time API contracts live in
+[`tests/compile_error.rs`](../tests/compile_error.rs). That runner uses
+[`trybuild`](https://crates.io/crates/trybuild) to execute small pass and
+compile-fail programs under [`tests/ui/`](../tests/ui/).
+
+Use these tests for public trait bounds, default generic parameters, and other
+contracts that must fail or succeed at type-check time rather than runtime.
+Place new snippets in `tests/ui/`, register them in `tests/compile_error.rs`,
+and commit the generated `.stderr` file for compile-fail cases after verifying
+that the diagnostics describe the intended contract.
+
 ### Feature files and step definitions
 
 Each `.feature` file under `tests/features/` has a corresponding
