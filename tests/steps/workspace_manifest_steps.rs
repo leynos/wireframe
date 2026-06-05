@@ -38,3 +38,10 @@ fn then_workspace_metadata_includes_verification_crate(
 ) -> TestResult {
     workspace_manifest_world.verify_verification_crate_is_workspace_member()
 }
+
+#[then("the workspace metadata includes the testing helper crate as a workspace member")]
+fn then_workspace_metadata_includes_testing_helper_crate(
+    workspace_manifest_world: &mut WorkspaceManifestWorld,
+) -> TestResult {
+    workspace_manifest_world.verify_helper_crate_is_workspace_member()
+}

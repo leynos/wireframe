@@ -180,11 +180,11 @@ continuous integration (CI).
 Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
 contains both `[package]` and `[workspace]`.
 
-After roadmap items 15.1.1 and 15.1.2 the workspace explicitly lists the root
-package and the internal verification crate, while keeping only the root
-package as a default member:
+The workspace explicitly lists the root package, the internal verification
+crate, and the testing helper crate, while keeping only the root package as a
+default member:
 
-- `members = [".", "crates/wireframe-verification"]`
+- `members = [".", "crates/wireframe-verification", "wireframe_testing"]`
 - `default-members = ["."]`
 
 That means ordinary root-level commands such as `cargo build`, `cargo check`,
@@ -194,19 +194,19 @@ to target the main `wireframe` package by default.
 Use plain root-level Cargo commands for day-to-day work on the main crate.
 Reach for `--workspace` when a task is explicitly meant to cover every current
 workspace member, for example repository-wide validation in CI or when a change
-also touches `crates/wireframe-verification`.
+also touches `crates/wireframe-verification` or `wireframe_testing`.
 
 Use `cargo test -p wireframe-verification` to exercise the Stateright crate in
 isolation. The existing `Makefile` targets still focus on the root `wireframe`
 crate because the dedicated formal-verification targets belong to later roadmap
 items.
 
-One Cargo nuance is worth knowing: `cargo metadata` for this repository still
-reports the in-tree helper crate `wireframe_testing` in `workspace_members`
-because it lives under the repository root as a path dependency. That sits
-alongside the explicit `wireframe-verification` member and does not change
-day-to-day command ergonomics because `default-members = ["."]` keeps plain
-root-level Cargo commands focused on the main `wireframe` package.
+Use `cargo test -p wireframe_testing` when changing shared test fixtures,
+observability helpers, codec drivers, or other support APIs exported by the
+testing helper crate. Use `cargo test -p wireframe` for the root crate when a
+change should stay limited to the published library. Plain root-level commands
+keep their day-to-day ergonomics because `default-members = ["."]` leaves the
+main `wireframe` package as the only default member.
 
 ### Workspace manifest test support
 

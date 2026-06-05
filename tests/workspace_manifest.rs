@@ -1,8 +1,9 @@
 //! Regression tests for the formal-verification workspace manifest contract.
 //!
 //! These checks verify that the repository advertises an explicit hybrid
-//! workspace, includes the internal verification crate as a workspace member,
-//! and still keeps the root package as the only default member.
+//! workspace, includes the internal verification and testing crates as
+//! workspace members, and still keeps the root package as the only default
+//! member.
 
 #[path = "common/workspace_manifest_support.rs"]
 mod workspace_manifest_support;
@@ -43,9 +44,9 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     assert!(
         has_manifest_line(
             &manifest,
-            "members = [\".\", \"crates/wireframe-verification\"]"
+            "members = [\".\", \"crates/wireframe-verification\", \"wireframe_testing\"]"
         ),
-        "15.1.2 should add the verification crate to the explicit workspace members"
+        "the workspace should explicitly list the root, verification, and testing crates"
     );
     assert!(
         has_manifest_line(&manifest, "default-members = [\".\"]"),
@@ -58,15 +59,11 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     Ok(())
 }
 
-#[rstest]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions provide clearer diagnostics in integration tests"
-)]
-fn cargo_metadata_reports_verification_crate_without_widening_default_members() -> TestResult {
+fn cargo_metadata_reports_explicit_members_without_widening_default_members() -> TestResult {
     let repo_root = repo_root()?;
     let repo_root_str = repo_root.as_str();
     let root_package_id = root_package_id()?;
+    let helper_package_id = helper_package_id()?;
     let verification_package_id = verification_package_id()?;
     let manifest_path = repo_root.join("Cargo.toml");
     let manifest_path_str = manifest_path.as_str();
@@ -102,8 +99,18 @@ fn cargo_metadata_reports_verification_crate_without_widening_default_members() 
         "workspace_members should include the verification crate id"
     );
     assert!(
+        workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(helper_package_id.as_str())),
+        "workspace_members should include the wireframe_testing crate id"
+    );
+    assert!(
         metadata.contains("wireframe-verification"),
         "15.1.2 should add the verification crate to cargo metadata"
+    );
+    assert!(
+        metadata.contains("wireframe_testing"),
+        "workspace metadata should include the test helper crate"
     );
     let workspace_default_members = metadata_json
         .get("workspace_default_members")

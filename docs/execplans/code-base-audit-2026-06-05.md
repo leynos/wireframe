@@ -154,7 +154,11 @@ API.
   pool-sync tests, `make check-fmt`, `make lint`, `make test`, and Markdown
   lint successfully.
 - [x] 2026-06-05: Milestone 4 CodeRabbit rerun passed with zero findings.
-- [ ] Milestone 5: update workspace membership and documentation.
+- [x] Milestone 5: update workspace membership and documentation.
+- [x] 2026-06-05: Milestone 5 passed focused workspace-manifest integration
+  and BDD tests, `make check-fmt`, `make lint`, `make test`, and Markdown
+  lint before CodeRabbit review.
+- [x] 2026-06-05: Milestone 5 CodeRabbit review passed with zero findings.
 - [ ] Milestone 6: extract example bootstrap and benchmark helper wiring.
 - [ ] Milestone 7: split fragment test helpers behind a compatibility facade.
 - [ ] Run final gates, CodeRabbit review, push, and update the pull request.
@@ -325,6 +329,15 @@ API.
   recovery call under `metrics::with_local_recorder`, captures warning output
   with a scoped `tracing_subscriber` writer, and asserts both the warning text
   and the `wireframe_pool_bookkeeping_poison_recoveries_total` increment.
+- 2026-06-05: Start milestone 5 by adding `wireframe_testing` to explicit
+  workspace members. Update direct workspace-manifest tests, BDD fixture/steps,
+  feature text, scenario wrappers, and `docs/developers-guide.md` so the helper
+  crate is no longer described as a Cargo metadata nuance.
+- 2026-06-05: Implement milestone 5 by adding `wireframe_testing` to
+  `[workspace].members`, asserting its package id in direct and BDD workspace
+  manifest tests, and updating command guidance in `docs/developers-guide.md`.
+  The root package remains the only default workspace member, so plain Cargo
+  commands retain their root-crate ergonomics.
 
 ## Implementation Plan
 
@@ -557,3 +570,15 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun14.out`.
 - 2026-06-05: Milestone 4 CodeRabbit review passed with zero findings:
   `/tmp/coderabbit-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`.
+- 2026-06-05: Milestone 5 validation before CodeRabbit:
+  `cargo test --test workspace_manifest --all-features`,
+  `cargo test --test bdd --all-features workspace_manifest`, `make check-fmt`,
+  `make lint`, `make test`, and `make markdownlint` passed. Logs:
+  `/tmp/test-workspace-manifest-wireframe-code-base-audit-2026-06-05-m5.out`,
+  `/tmp/test-bdd-workspace-manifest-wireframe-code-base-audit-2026-06-05-m5.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m5.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m5.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m5.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m5.out`.
+- 2026-06-05: Milestone 5 CodeRabbit review passed with zero findings:
+  `/tmp/coderabbit-wireframe-code-base-audit-2026-06-05-m5.out`.
