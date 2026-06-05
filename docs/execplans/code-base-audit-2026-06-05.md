@@ -4,7 +4,7 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
 and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
 ## Purpose / big picture
 
@@ -101,11 +101,14 @@ API.
   trivial CodeRabbit punctuation fixes.
 - [x] 2026-06-05: Resolved CodeRabbit's wording feedback by using Oxford
   `-ize` spelling and documenting the explicit filename exception.
-- [ ] Push branch and create draft pull request for plan review.
-- [ ] Create GitHub follow-up issues for audit findings not implemented in this
+- [x] Push branch and create draft pull request for plan review.
+- [x] Create GitHub follow-up issues for audit findings not implemented in this
   plan.
-- [ ] Receive explicit approval to implement this plan.
-- [ ] Milestone 1: centralize client send pipeline logic.
+- [x] Receive explicit approval to implement this plan.
+- [x] Milestone 1: centralize client send pipeline logic.
+- [x] 2026-06-05: Milestone 1 passed `make check-fmt`, `make lint`,
+  `make test`, targeted ExecPlan Markdown lint, and CodeRabbit review with
+  zero findings.
 - [ ] Milestone 2: centralize app outbound encoding and inbound pipeline
   failure policy.
 - [ ] Milestone 3: route app builder transitions through one rebuild path.
@@ -129,6 +132,9 @@ API.
 - Global `make fmt` currently fails on unrelated pre-existing Markdown lint
   violations outside this plan file. Targeted Markdown lint for this plan file
   passes.
+- `cargo fmt --workspace` is not supported by the installed Cargo formatter
+  wrapper. Use `cargo fmt --all` or the repository's `make check-fmt` target
+  for Rust formatting in this worktree.
 
 ## Decision Log
 
@@ -147,6 +153,11 @@ API.
 - 2026-06-05: Decline CodeRabbit's filename-pattern finding because the user
   explicitly required the plan path
   `docs/execplans/code-base-audit-2026-06-05.md`.
+- 2026-06-05: Implement the client send-pipeline extraction as a private
+  `WireframeClient::serialize_and_send` method in `src/client/send_pipeline.rs`.
+  The helper accepts a span-construction callback taking `TracingConfig` and
+  the final frame byte length, so callers keep correlation-specific span data
+  without borrowing the client twice.
 
 ## Implementation Plan
 

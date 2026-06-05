@@ -23,6 +23,7 @@ mod preamble_builder;
 mod preamble_exchange;
 mod response_stream;
 mod runtime;
+mod send_pipeline;
 mod send_streaming;
 mod socket_option_methods;
 mod streaming;
