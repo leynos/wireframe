@@ -7,13 +7,16 @@
 #[path = "common/workspace_manifest_support.rs"]
 mod workspace_manifest_support;
 
+#[path = "common/repo_access.rs"]
+mod repo_access;
+
+use repo_access::repo_root;
 use rstest::rstest;
 use serde_json::Value;
 use workspace_manifest_support::{
     WorkspaceManifestResult as TestResult,
     cargo_metadata,
     has_manifest_line,
-    repo_root,
     root_manifest,
     root_package_id,
     verification_package_id,

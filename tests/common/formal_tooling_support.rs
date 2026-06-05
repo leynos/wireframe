@@ -1,9 +1,6 @@
 //! Shared helpers for formal-tooling metadata tests.
 
-use std::env;
-
-use camino::{Utf8Path, Utf8PathBuf};
-use cap_std::{ambient_authority, fs_utf8::Dir};
+use crate::repo_access::read_repo_file;
 
 pub(crate) type FormalToolingResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -70,25 +67,9 @@ impl ProverToolsRef<'_> {
     pub(crate) fn as_str(&self) -> &str { self.0 }
 }
 
-pub(crate) fn repo_root() -> FormalToolingResult<Utf8PathBuf> {
-    Utf8PathBuf::from_path_buf(env::current_dir()?).map_err(|path| {
-        format!(
-            "repository root path is not valid UTF-8: {}",
-            path.display()
-        )
-        .into()
-    })
-}
-
-pub(crate) fn repo_dir() -> FormalToolingResult<Dir> {
-    Ok(Dir::open_ambient_dir(repo_root()?, ambient_authority())?)
-}
-
-pub(crate) fn read_repo_file(path: impl AsRef<Utf8Path>) -> FormalToolingResult<String> {
-    Ok(repo_dir()?.read_to_string(path)?)
-}
-
-pub(crate) fn read_trimmed_repo_file(path: impl AsRef<Utf8Path>) -> FormalToolingResult<String> {
+pub(crate) fn read_trimmed_repo_file(
+    path: impl AsRef<camino::Utf8Path>,
+) -> FormalToolingResult<String> {
     Ok(read_repo_file(path)?.trim().to_owned())
 }
 
@@ -124,6 +105,6 @@ pub(crate) fn verus_linux_archive_name(version: impl AsRef<str>) -> String {
     format!("verus-{version}-x86-linux.zip")
 }
 
-fn is_sha256_hex(value: &str) -> bool {
+pub(crate) fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit())
 }

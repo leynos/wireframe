@@ -863,3 +863,10 @@ now has a dedicated regression test asserting that `make run-verus` passes
 longer carries an artificial lint workaround, and `AGENTS.md` now describes
 Cargo dependency policy as implicit SemVer-compatible requirements rather than
 conflicting explicit version ranges.
+
+Revision note: updated again on 2026-06-05 after follow-up review feedback.
+Repository-root and repository-directory helpers are now shared through
+`tests/common/repo_access.rs` rather than duplicated across formal-tooling and
+workspace-manifest test support. The formal-tooling tests now include Make
+dry-run integration checks for all four prover-tools targets and property
+tests for the version and SHA-256 validation invariants.

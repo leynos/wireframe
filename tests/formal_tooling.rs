@@ -7,11 +7,17 @@
 #[path = "common/formal_tooling_support.rs"]
 mod formal_tooling_support;
 
+#[path = "common/repo_access.rs"]
+mod repo_access;
+
+use std::process::Command;
+
 use formal_tooling_support::{
     ChecksumsContent,
     FormalToolingResult as TestResult,
     MakefileContent,
     ProverToolsRef,
+    is_sha256_hex,
     is_three_part_numeric_version,
     kani_version,
     makefile,
@@ -21,6 +27,8 @@ use formal_tooling_support::{
     verus_linux_archive_name,
     verus_version,
 };
+use proptest::prelude::*;
+use repo_access::repo_root;
 use rstest::rstest;
 
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
@@ -29,6 +37,22 @@ fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
     } else {
         Err(message.into().into())
     }
+}
+
+fn run_make_dry_run(target: impl AsRef<str>) -> TestResult<String> {
+    let target = target.as_ref();
+    let output = Command::new("make")
+        .args(["--dry-run", target])
+        .current_dir(repo_root()?)
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "`make --dry-run {target}` failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
 }
 
 #[rstest]
@@ -149,6 +173,23 @@ fn run_verus_target_passes_configured_proof_file() -> TestResult {
 }
 
 #[rstest]
+#[case::install_kani("install-kani", "prover-tools kani install")]
+#[case::check_kani_version("check-kani-version", "prover-tools kani check-version")]
+#[case::install_verus("install-verus", "prover-tools verus install")]
+#[case::run_verus("run-verus", "prover-tools verus run")]
+fn make_targets_dry_run_to_expected_prover_tools_command(
+    #[case] target: &str,
+    #[case] expected_command: &str,
+) -> TestResult {
+    let output = run_make_dry_run(target)?;
+
+    ensure(
+        output.contains(expected_command),
+        format!("`make --dry-run {target}` should emit `{expected_command}`"),
+    )
+}
+
+#[rstest]
 #[case::install_kani("install-kani")]
 #[case::check_kani_version("check-kani-version")]
 #[case::install_verus("install-verus")]
@@ -175,4 +216,50 @@ fn makefile_targets_do_not_embed_bespoke_installer_logic(#[case] target: &str) -
         )?;
     }
     Ok(())
+}
+
+proptest! {
+    #[test]
+    fn three_part_numeric_versions_accept_exactly_three_numeric_parts(
+        major in "[0-9]+",
+        minor in "[0-9]+",
+        patch in "[0-9]+",
+    ) {
+        let version = format!("{major}.{minor}.{patch}");
+
+        prop_assert!(is_three_part_numeric_version(version));
+    }
+
+    #[test]
+    fn three_part_numeric_versions_reject_non_matching_strings(
+        candidate in "\\PC*",
+    ) {
+        let expected = candidate
+            .split('.')
+            .collect::<Vec<_>>()
+            .as_slice()
+            .iter()
+            .copied()
+            .all(|part| !part.is_empty() && part.chars().all(|character| character.is_ascii_digit()))
+            && candidate.split('.').count() == 3;
+
+        prop_assert_eq!(is_three_part_numeric_version(&candidate), expected);
+    }
+
+    #[test]
+    fn sha256_hex_accepts_sixty_four_ascii_hex_digits(
+        digest in "[0-9A-Fa-f]{64}",
+    ) {
+        prop_assert!(is_sha256_hex(&digest));
+    }
+
+    #[test]
+    fn sha256_hex_rejects_non_matching_strings(
+        candidate in "\\PC*",
+    ) {
+        let expected = candidate.len() == 64
+            && candidate.chars().all(|character| character.is_ascii_hexdigit());
+
+        prop_assert_eq!(is_sha256_hex(&candidate), expected);
+    }
 }
