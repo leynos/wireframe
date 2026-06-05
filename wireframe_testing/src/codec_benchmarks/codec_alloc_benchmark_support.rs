@@ -4,14 +4,11 @@
 //! by criterion allocation benchmarks, rstest unit tests, and rstest-bdd
 //! behavioural tests.
 //!
-//! # Layout coupling
+//! # Module layout
 //!
 //! This module references `codec_benchmark_support` via `super::` and therefore
-//! must be declared as a sibling `mod` in the same parent scope. Every current
-//! consumer already satisfies this constraint because the `#[path]` inclusion
-//! pattern compiles both modules into the same crate root. If the helpers are
-//! ever reused outside the current test/bench tree, consider introducing a
-//! `tests/common/mod.rs` hierarchy with normal `mod`/`pub` wiring instead.
+//! remains a sibling of the core benchmark helpers under
+//! `wireframe_testing::codec_benchmarks`.
 
 use super::codec_benchmark_support::BenchmarkWorkload;
 

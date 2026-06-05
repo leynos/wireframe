@@ -159,7 +159,11 @@ API.
   and BDD tests, `make check-fmt`, `make lint`, `make test`, and Markdown
   lint before CodeRabbit review.
 - [x] 2026-06-05: Milestone 5 CodeRabbit review passed with zero findings.
-- [ ] Milestone 6: extract example bootstrap and benchmark helper wiring.
+- [x] Milestone 6: extract example bootstrap and benchmark helper wiring.
+- [x] 2026-06-05: Milestone 6 passed focused codec benchmark helper tests,
+  example compile checks, benchmark BDD tests, `make check-fmt`, `make lint`,
+  `make test`, and Markdown lint before CodeRabbit review.
+- [x] 2026-06-05: Milestone 6 CodeRabbit review passed with zero findings.
 - [ ] Milestone 7: split fragment test helpers behind a compatibility facade.
 - [ ] Run final gates, CodeRabbit review, push, and update the pull request.
 
@@ -338,6 +342,19 @@ API.
   manifest tests, and updating command guidance in `docs/developers-guide.md`.
   The root package remains the only default workspace member, so plain Cargo
   commands retain their root-crate ergonomics.
+- 2026-06-05: Start milestone 6 by extracting example TCP server runtime
+  bootstrap into `examples/support/runtime_bootstrap.rs` and moving codec
+  benchmark helpers into `wireframe_testing::codec_benchmarks`. This keeps
+  example-specific app construction local while replacing bench/test `#[path]`
+  coupling to `tests/common` benchmark helper files with a stable helper crate
+  module.
+- 2026-06-05: Implement milestone 6 by routing `ping_pong` and `packet_enum`
+  through `examples/support/runtime_bootstrap.rs`, moving codec benchmark
+  helpers into `wireframe_testing::codec_benchmarks`, and updating benches,
+  direct tests, and BDD fixtures to import helpers from the helper crate. Add
+  `PayloadClass::is_empty()` because moving the helper into public
+  `wireframe_testing` API made `PayloadClass::len()` subject to
+  `len_without_is_empty`.
 
 ## Implementation Plan
 
@@ -582,3 +599,18 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m5.out`.
 - 2026-06-05: Milestone 5 CodeRabbit review passed with zero findings:
   `/tmp/coderabbit-wireframe-code-base-audit-2026-06-05-m5.out`.
+- 2026-06-05: Milestone 6 validation before CodeRabbit:
+  `cargo test --test codec_performance_benchmark_helpers --all-features`,
+  `cargo check --examples --all-features`,
+  `cargo test --test bdd --all-features codec_performance_benchmarks`,
+  `make check-fmt`, `make lint`, `make test`, and `make markdownlint` passed.
+  Logs:
+  `/tmp/test-codec-benchmark-helpers-wireframe-code-base-audit-2026-06-05-m6.out`,
+  `/tmp/check-examples-wireframe-code-base-audit-2026-06-05-m6.out`,
+  `/tmp/test-bdd-codec-benchmarks-wireframe-code-base-audit-2026-06-05-m6.out`,
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m6-rerun1.out`,
+  `/tmp/lint-wireframe-code-base-audit-2026-06-05-m6-rerun1.out`,
+  `/tmp/test-wireframe-code-base-audit-2026-06-05-m6-rerun1.out`, and
+  `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m6.out`.
+- 2026-06-05: Milestone 6 CodeRabbit review passed with zero findings:
+  `/tmp/coderabbit-wireframe-code-base-audit-2026-06-05-m6.out`.

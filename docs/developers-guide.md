@@ -235,6 +235,21 @@ behaviour-driven development (BDD) fixture for these assertions. Extend it by
 loading more workspace-state inputs in `load()` and adding focused verification
 methods that the step definitions and scenario can reuse.
 
+
+## Example and benchmark support
+
+TCP server examples that share the standard
+`WireframeApp<BincodeSerializer, (), Envelope>` runtime shape should use
+`examples/support/runtime_bootstrap.rs` for tracing setup, runtime app
+construction, listener binding, connection spawning, shutdown-aware accept
+loops, and current-thread Tokio runtime startup. Keep example-specific address
+parsing, app construction, handlers, and middleware in the example file.
+
+Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench
+targets, direct unit tests, and BDD fixtures should import the workload matrix,
+measurement helpers, fragmentation helpers, and allocation-label helpers from
+that module instead of coupling to files under `tests/common` with `#[path]`.
+
 ## Formal verification tooling
 
 Formal-verification tools are pinned in repository metadata and installed
