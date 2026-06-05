@@ -75,21 +75,23 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
     let mut deser_failures = 0_u32;
 
     for _ in 1..MAX_DESER_FAILURES {
+        let mut failure_tracker =
+            frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
         let result = frame_handling::decode_envelope::<BadCodec>(
             app.parse_envelope(BadCodec::frame_payload(&frame)),
             &frame,
-            &mut deser_failures,
-            MAX_DESER_FAILURES,
+            &mut failure_tracker,
         );
         assert!(result.is_ok(), "expected recoverable decode failure");
         assert!(result.expect("decode result").is_none());
     }
 
+    let mut failure_tracker =
+        frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
     let err = frame_handling::decode_envelope::<BadCodec>(
         app.parse_envelope(BadCodec::frame_payload(&frame)),
         &frame,
-        &mut deser_failures,
-        MAX_DESER_FAILURES,
+        &mut failure_tracker,
     )
     .expect_err("expected decode failure to close connection");
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);

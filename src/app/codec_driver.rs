@@ -11,7 +11,6 @@
 //! messages, streaming responses, and multi-packet channels — pass through
 //! the same fragmentation and metrics pipeline before reaching the wire.
 
-use bytes::Bytes;
 use futures::SinkExt;
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -21,6 +20,7 @@ use super::{
     combined_codec::ConnectionCodec,
     envelope::Envelope,
     fragmentation_state::FragmentationState,
+    outbound_encoding::encode_message_frame,
 };
 use crate::{
     codec::FrameCodec,
@@ -129,7 +129,7 @@ where
     F: FrameCodec,
     Envelope: EncodeWith<S>,
 {
-    let bytes = serializer.serialize(envelope).map_err(|e| {
+    let encoded = encode_message_frame(serializer, codec, envelope).map_err(|e| {
         let id = envelope.id;
         let correlation_id = envelope.correlation_id;
         warn!(
@@ -139,8 +139,7 @@ where
         crate::metrics::inc_handler_errors();
         io::Error::other(e)
     })?;
-    let frame = codec.wrap_payload(Bytes::from(bytes));
-    framed.send(frame).await.map_err(|e| {
+    framed.send(encoded.frame).await.map_err(|e| {
         let id = envelope.id;
         let correlation_id = envelope.correlation_id;
         warn!(

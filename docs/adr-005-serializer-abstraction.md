@@ -137,6 +137,32 @@ Accepted implementation details:
 - Supporting multiple serializers can increase maintenance overhead.
 - Metadata-aware decoding requires a clear definition of what metadata is
   exposed and when it is safe to consume it.
+- The current `Serializer::serialize` contract returns `Vec<u8>`. App outbound
+  encoding therefore still converts serialized messages into `Bytes` before
+  codec wrapping. This keeps the 2026-06-05 audit refactor behaviour-preserving
+  and source-compatible, but it retains one allocation-backed buffer handoff on
+  outbound response paths. That cost is acceptable for the audit milestone
+  because changing the serializer return type would be a public contract change
+  with broad downstream impact. The zero-copy migration is tracked in
+  <https://github.com/leynos/wireframe/issues/538> and should be reviewed
+  before the next public API-breaking release or during the zero-copy frame and
+  payload roadmap work.
+
+### Deferred zero-copy serializer output migration
+
+Issue #538 owns the deliberate migration away from `Vec<u8>` serializer output.
+The expected implementation steps are:
+
+- Choose the public byte container for serializer output, aligning with the
+  zero-copy frame and payload roadmap.
+- Change `Serializer::serialize` and serializer adaptor implementations to
+  return that container.
+- Update app outbound helpers such as `encode_message_frame` and
+  `send_response_framed` to remove `Bytes::from(Vec<u8>)` conversion points.
+- Validate compatibility and performance with existing bincode, Serde bridge,
+  app response, and codec-driver tests.
+- Add targeted regression tests for the selected zero-copy behaviour where the
+  chosen container exposes observable ownership or sharing semantics.
 
 ## Outstanding Decisions
 

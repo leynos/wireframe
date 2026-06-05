@@ -109,8 +109,17 @@ API.
 - [x] 2026-06-05: Milestone 1 passed `make check-fmt`, `make lint`,
   `make test`, targeted ExecPlan Markdown lint, and CodeRabbit review with
   zero findings.
-- [ ] Milestone 2: centralize app outbound encoding and inbound pipeline
+- [x] Milestone 2: centralize app outbound encoding and inbound pipeline
   failure policy.
+- [x] 2026-06-05: Milestone 2 passed `make check-fmt`, `make lint`, and
+  `make test`; CodeRabbit review findings have been fixed except repeated
+  `-ise` spelling requests that conflict with repository Oxford `-ize` style.
+- [x] 2026-06-05: Milestone 2 rerun passed `make check-fmt`, `make lint`,
+  `make test`, targeted Markdown lint, and CodeRabbit review with only the
+  documented Oxford-spelling conflict findings remaining.
+- [x] 2026-06-05: Milestone 2 final rerun passed `make check-fmt`,
+  `make lint`, `make test`, and targeted Markdown lint after the added
+  response-helper tests.
 - [ ] Milestone 3: route app builder transitions through one rebuild path.
 - [ ] Milestone 4: refactor pool lock recovery, builder parts construction, and
   pooled lease dispatch.
@@ -127,14 +136,21 @@ API.
   developers' guide documents this as a nuance. This plan will replace that
   nuance with explicit membership.
 - `googletest`, `pretty_assertions`, and `insta` are not currently declared in
-  the root manifest. Tests will add only the dependencies that are used by
-  implemented changes.
+  the root manifest. Milestone 2 added `googletest` and `pretty_assertions` as
+  dev-dependencies for the new focused response and outbound encoding tests.
 - Global `make fmt` currently fails on unrelated pre-existing Markdown lint
   violations outside this plan file. Targeted Markdown lint for this plan file
   passes.
 - `cargo fmt --workspace` is not supported by the installed Cargo formatter
   wrapper. Use `cargo fmt --all` or the repository's `make check-fmt` target
   for Rust formatting in this worktree.
+- Moving inbound frame construction into `build_dispatchable_envelope` pushed
+  `src/app/inbound_handler.rs` over the 400-line module limit. Extracting the
+  public response-sending methods to `src/app/outbound_response.rs` brought the
+  inbound handler back to 326 lines and improved its separation of concerns.
+- The local `gh issue comment 538` command cannot add the zero-copy migration
+  note because the GitHub integration reports `Resource not accessible by
+  integration`. ADR 005 and this ExecPlan now carry the migration detail.
 
 ## Decision Log
 
@@ -158,6 +174,77 @@ API.
   The helper accepts a span-construction callback taking `TracingConfig` and
   the final frame byte length, so callers keep correlation-specific span data
   without borrowing the client twice.
+- 2026-06-05: Introduce `src/app/outbound_encoding.rs` as the shared
+  serialization-to-codec-frame helper for app outbound paths. Keep raw-stream
+  and framed transport writes in `src/app/outbound_response.rs` and
+  `src/app/codec_driver.rs`, respectively.
+- 2026-06-05: Split inbound dispatch preparation into
+  `WireframeApp::build_dispatchable_envelope`, with decode failures delegated
+  to `DeserFailureTracker`. Preserve the counter reset point after decode,
+  reassembly, and message assembly have all succeeded.
+- 2026-06-05: Accept CodeRabbit's buffer-capacity concern in
+  `send_response`. Since `FrameCodec` has no generic encoded-overhead API and
+  `F::Frame` need not be cloneable for an encoding probe, remove the
+  payload-length preallocation rather than guessing overhead.
+- 2026-06-05: Decline CodeRabbit's request to change `serialize` and
+  `serialization` comments to `serialise` and `serialisation` in
+  `src/app/outbound_response.rs`. The repository requires en-GB-oxendict, which
+  favours `-ize` forms, and the surrounding app comments consistently use
+  `serialize`/`serialization`.
+- 2026-06-05: Accept CodeRabbit's bound-tightening finding for
+  `send_response_framed_with_codec`; the method only sends through a framed
+  sink, so `W: AsyncWrite + Unpin` is sufficient.
+- 2026-06-05: Accept CodeRabbit's matching bound-tightening finding for
+  `send_response_framed`; the length-delimited framed response path also only
+  sends.
+- 2026-06-05: Accept CodeRabbit's request to document the future zero-copy
+  serializer migration. Create tracking issue
+  <https://github.com/leynos/wireframe/issues/538> and keep the current
+  `Bytes::from(Vec<u8>)` conversion until the public serializer contract can
+  change deliberately.
+- 2026-06-05: Mirror the zero-copy migration TODO on the length-delimited
+  `send_response_framed` conversion so both app outbound conversion sites
+  reference issue #538.
+- 2026-06-05: Accept CodeRabbit's request to document why
+  `send_response_framed` bypasses `encode_message_frame`; the
+  `LengthDelimitedCodec` path intentionally sends raw serialized messages and
+  lets `framed.send` perform length-prefix encoding.
+- 2026-06-05: Accept CodeRabbit's request for a concrete zero-copy serializer
+  deferral note. Update ADR 005, add an in-code comment at
+  `encode_message_frame`, and keep issue #538 as the owner for changing the
+  public serializer output contract. The audit milestone deliberately retains
+  `Vec<u8>` output to preserve source compatibility and avoid turning a
+  refactor into an API migration.
+- 2026-06-05: Decline repeated CodeRabbit requests to change
+  `serialization` comments to `serialisation` in
+  `src/app/outbound_encoding.rs` and `src/app/outbound_response.rs` for the
+  same repository-style reason already recorded above.
+- 2026-06-05: Accept CodeRabbit's request for direct tests around
+  `encode_message_frame` and the public framed response send helpers. Add
+  lightweight test-only serializers, codecs, and writers to cover success,
+  serialization failure, codec encode failure, I/O failure, large payloads, and
+  codec wrapper variation.
+- 2026-06-05: Document the app inbound and outbound helper boundaries in
+  `docs/developers-guide.md`, because milestone 2 introduces reusable internal
+  patterns that future app refactors should follow.
+- 2026-06-05: Accept CodeRabbit's assertion-style cleanup in
+  `outbound_encoding` tests and replace the boolean matcher with a concise
+  googletest `err(pat!(...))` matcher.
+- 2026-06-05: Partially accept CodeRabbit's broader public response-helper
+  coverage request. Existing tests already covered success, serialization,
+  write, framed-send, and large-payload paths; add the missing focused cases
+  for codec-encoder failure, flush failure, and raw serialized payload output
+  on the length-delimited framed path.
+- 2026-06-05: Decline CodeRabbit's follow-up request to duplicate the public
+  response-helper integration coverage inside a new
+  `src/app/outbound_response.rs` `#[cfg(test)]` module. `tests/response.rs`
+  already exercises `send_response`, `send_response_framed_with_codec`,
+  `length_codec`, and `send_response_framed` through the public API, including
+  serialization, codec-encode, write, flush, framed-send, raw-payload, and
+  large-payload paths. The requested direct
+  `LengthDelimitedCodec::max_frame_length()` assertion is not available through
+  Tokio's public API, so the existing large-payload behavioural checks are the
+  observable contract.
 
 ## Implementation Plan
 

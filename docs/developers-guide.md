@@ -56,6 +56,28 @@ Use this checklist before merging API naming changes:
 - Label cross-layer terms (for example, `correlation_id`) explicitly as shared
   metadata.
 
+
+## App inbound and outbound helper boundaries
+
+Application response paths must keep message serialization and codec frame
+wrapping in one place. Use `app::outbound_encoding::encode_message_frame` when
+an app path needs to turn an `EncodeWith<S>` message into a `FrameCodec::Frame`.
+Callers should keep transport-specific work at the edge:
+
+- Raw stream response methods encode the returned codec frame into a byte
+  buffer and write that buffer to `AsyncWrite`.
+- Framed response methods send the returned codec frame through the supplied
+  framed sink.
+- The length-delimited compatibility path intentionally sends the raw
+  serialized message to `LengthDelimitedCodec`; do not wrap that payload with
+  the app codec first, because `framed.send` supplies the length prefix.
+
+Inbound connection handling should also preserve the phase boundary:
+`build_dispatchable_envelope` owns decode, fragment reassembly, message
+assembly, and the successful deserialization-counter reset. Individual failure
+policy remains in `DeserFailureTracker`, so logging, metrics, and threshold
+decisions do not drift across inbound call sites.
+
 ## Error surface conventions
 
 Library-facing errors should stay typed and inspectable by default. Use
