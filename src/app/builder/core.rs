@@ -170,6 +170,36 @@ where
             memory_budgets: params.memory_budgets,
         }
     }
+
+    /// Rebuild the app after changing the connection state type parameter.
+    ///
+    /// A teardown hook receives the old `C` state and cannot be carried across
+    /// a transition to `C2`. Register `on_connection_teardown` after
+    /// `on_connection_setup` when both hooks are needed for the same state.
+    pub(super) fn rebuild_with_connection_state<C2>(
+        self,
+        on_connect: Option<Arc<ConnectionSetup<C2>>>,
+    ) -> WireframeApp<S, C2, E, F>
+    where
+        C2: Send + 'static,
+    {
+        WireframeApp {
+            handlers: self.handlers,
+            routes: OnceCell::new(),
+            middleware: self.middleware,
+            serializer: self.serializer,
+            app_data: self.app_data,
+            on_connect,
+            on_disconnect: None,
+            protocol: self.protocol,
+            push_dlq: self.push_dlq,
+            codec: self.codec,
+            read_timeout_ms: self.read_timeout_ms,
+            fragmentation: self.fragmentation,
+            message_assembler: self.message_assembler,
+            memory_budgets: self.memory_budgets,
+        }
+    }
 }
 
 #[cfg(test)]

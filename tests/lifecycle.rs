@@ -144,6 +144,37 @@ async fn teardown_without_setup_does_not_run() -> TestResult<()> {
     clippy::panic_in_result_fn,
     reason = "asserts provide clearer diagnostics in tests"
 )]
+async fn setup_after_teardown_clears_previous_teardown() -> TestResult<()> {
+    let setup_count = Arc::new(AtomicUsize::new(0));
+    let teardown_count = Arc::new(AtomicUsize::new(0));
+    let setup_cb = call_counting_callback(&setup_count, 42_u32);
+    let teardown_cb = call_counting_callback(&teardown_count, ());
+
+    let app = BasicApp::new()?
+        .on_connection_teardown(teardown_cb)?
+        .on_connection_setup(move || setup_cb(()))?;
+
+    run_with_duplex_server(app).await;
+
+    assert_eq!(
+        setup_count.load(Ordering::SeqCst),
+        1,
+        "setup callback did not run"
+    );
+    assert_eq!(
+        teardown_count.load(Ordering::SeqCst),
+        0,
+        "teardown callback for prior state type should be cleared"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "asserts provide clearer diagnostics in tests"
+)]
 async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let setup = Arc::new(AtomicUsize::new(0));
     let teardown = Arc::new(AtomicUsize::new(0));

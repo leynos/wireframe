@@ -78,6 +78,13 @@ assembly, and the successful deserialization-counter reset. Individual failure
 policy remains in `DeserFailureTracker`, so logging, metrics, and threshold
 decisions do not drift across inbound call sites.
 
+Builder methods that change `WireframeApp` type parameters should route through
+the shared rebuild helpers in `app::builder::core`. Serializer and codec
+transitions use `rebuild_with_params`; connection-state transitions use
+`rebuild_with_connection_state`. A teardown hook is typed to the old connection
+state, so `on_connection_setup` clears any teardown hook registered before it.
+Register teardown after setup when both hooks are required.
+
 ## Error surface conventions
 
 Library-facing errors should stay typed and inspectable by default. Use

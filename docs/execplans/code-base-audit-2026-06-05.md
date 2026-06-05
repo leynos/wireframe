@@ -120,7 +120,10 @@ API.
 - [x] 2026-06-05: Milestone 2 final rerun passed `make check-fmt`,
   `make lint`, `make test`, and targeted Markdown lint after the added
   response-helper tests.
-- [ ] Milestone 3: route app builder transitions through one rebuild path.
+- [x] Milestone 3: route app builder transitions through one rebuild path.
+- [x] 2026-06-05: Milestone 3 passed `make check-fmt`, `make lint`,
+  `make test`, targeted Markdown lint, and CodeRabbit review with zero
+  findings.
 - [ ] Milestone 4: refactor pool lock recovery, builder parts construction, and
   pooled lease dispatch.
 - [ ] Milestone 5: update workspace membership and documentation.
@@ -245,6 +248,11 @@ API.
   `LengthDelimitedCodec::max_frame_length()` assertion is not available through
   Tokio's public API, so the existing large-payload behavioural checks are the
   observable contract.
+- 2026-06-05: Implement the app connection-state type transition with
+  `WireframeApp::rebuild_with_connection_state`. The helper keeps field
+  movement centralised and clears teardown because a teardown hook registered
+  for old state `C` cannot be type-correct for new state `C2`. Document that
+  teardown must be registered after setup when both hooks are required.
 
 ## Implementation Plan
 
