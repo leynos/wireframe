@@ -1,0 +1,30 @@
+project_name: wireframe
+builds:
+  - id: wireframe
+    binary: wireframe
+    goos:
+      - linux
+      - darwin
+      - freebsd
+    goarch:
+      - amd64
+    skip: true
+archives:
+  - id: wireframe-archive
+    builds: [wireframe]
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+nfpms:
+  - id: wireframe-nfpm
+    builds: [wireframe]
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [deb, rpm]
+    maintainer: "Payton McIntosh <pmcintosh@df12.net>"
+    description: "An experimental Rust library that simplifies building servers and clients for custom binary protocols."
+    license: ISC
+    homepage: https://github.com/leynos/wireframe
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
