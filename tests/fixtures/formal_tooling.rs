@@ -28,14 +28,22 @@ pub struct FormalToolingWorld {
     makefile: Option<String>,
 }
 
-#[rustfmt::skip]
 #[fixture]
 pub fn formal_tooling_world() -> FormalToolingWorld {
-    std::hint::black_box(());
-    FormalToolingWorld::default()
+    let mut world = FormalToolingWorld::default();
+    world.clear_loaded_metadata();
+    world
 }
 
 impl FormalToolingWorld {
+    fn clear_loaded_metadata(&mut self) {
+        self.kani_version = None;
+        self.verus_version = None;
+        self.verus_checksums = None;
+        self.prover_tools_ref_metadata = None;
+        self.makefile = None;
+    }
+
     /// Load formal-tooling metadata and the root Makefile for later checks.
     ///
     /// # Errors

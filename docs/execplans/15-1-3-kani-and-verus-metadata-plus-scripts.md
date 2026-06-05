@@ -856,3 +856,10 @@ Revision note: updated on 2026-05-25 to replace bespoke Kani and Verus
 shell-script implementation with a pinned `rust-prover-tools` CLI invocation.
 Updated again on 2026-05-26 to make concise Makefile targets the preferred
 local contributor interface for invoking `prover-tools`.
+
+Revision note: updated on 2026-06-05 after review feedback. The implementation
+now has a dedicated regression test asserting that `make run-verus` passes
+`--proof-file "$(VERUS_PROOF_FILE)"`, the formal-tooling behavioural fixture no
+longer carries an artificial lint workaround, and `AGENTS.md` now describes
+Cargo dependency policy as implicit SemVer-compatible requirements rather than
+conflicting explicit version ranges.

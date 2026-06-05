@@ -180,7 +180,8 @@ project:
 - Document public APIs using Rustdoc comments (`///`) so documentation can be
   generated with cargo doc.
 - Prefer immutable data and avoid unnecessary `mut` bindings.
-- Use explicit version ranges in `Cargo.toml` and keep dependencies up-to-date.
+- Use implicit SemVer-compatible version requirements in `Cargo.toml` and keep
+  dependencies up-to-date.
 - Avoid `unsafe` code unless absolutely necessary, and document any usage
   clearly with a "SAFETY" comment.
 - Place function attributes **after** doc comments.
@@ -235,12 +236,12 @@ project:
 
 ### Dependency management
 
-- **Use explicit version ranges.** All crate versions specified in `Cargo.toml`
-  must use SemVer-compatible version numbers without an explicit caret prefix
-  (e.g., `some-crate = "1.2.3"`). This is Cargo's default and allows for safe,
-  non-breaking updates to minor and patch versions while preventing breaking
-  changes from new major versions. This approach is critical for ensuring build
-  stability and reproducibility.
+- **Use implicit SemVer-compatible version requirements.** All crate versions
+  specified in `Cargo.toml` must use plain version numbers without an explicit
+  caret prefix (e.g., `some-crate = "1.2.3"`). Cargo interprets this as a
+  caret-compatible requirement, allowing safe, non-breaking updates to minor and
+  patch versions while preventing breaking changes from new major versions. This
+  approach is critical for ensuring build stability and reproducibility.
 - **Prohibit unstable version specifiers.** The use of wildcard (`*`) or
   open-ended inequality (`>=`) version requirements is strictly forbidden as
   they introduce unacceptable risk and unpredictability. Tilde requirements (

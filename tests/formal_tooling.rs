@@ -135,6 +135,20 @@ fn makefile_declares_prover_tools_targets(
 }
 
 #[rstest]
+fn run_verus_target_passes_configured_proof_file() -> TestResult {
+    let makefile_str = makefile()?;
+    let makefile = MakefileContent(&makefile_str);
+    let recipe = makefile
+        .target_recipe("run-verus")
+        .ok_or_else(|| "expected `run-verus` target in Makefile".to_owned())?;
+
+    ensure(
+        recipe.contains("--proof-file \"$(VERUS_PROOF_FILE)\""),
+        "`run-verus` should pass `--proof-file \"$(VERUS_PROOF_FILE)\"`",
+    )
+}
+
+#[rstest]
 #[case::install_kani("install-kani")]
 #[case::check_kani_version("check-kani-version")]
 #[case::install_verus("install-verus")]
