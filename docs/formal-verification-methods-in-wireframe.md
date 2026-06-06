@@ -821,16 +821,16 @@ future-proof execution. Roadmap item 15.1.3 adds the local tool entry points:
 .PHONY: install-kani check-kani-version install-verus run-verus
 
 install-kani: ## Install the pinned Kani verifier
- $(PROVER_TOOLS) kani install --repo-root .
+	$(PROVER_TOOLS) kani install --repo-root .
 
 check-kani-version: ## Check the installed Kani verifier version
- $(PROVER_TOOLS) kani check-version --repo-root .
+	$(PROVER_TOOLS) kani check-version --repo-root .
 
 install-verus: ## Install the pinned Verus verifier
- $(PROVER_TOOLS) verus install --repo-root .
+	$(PROVER_TOOLS) verus install --repo-root .
 
 run-verus: ## Run the configured Verus proof entry point
- $(PROVER_TOOLS) verus run --repo-root . --proof-file "$(VERUS_PROOF_FILE)"
+	$(PROVER_TOOLS) verus run --repo-root . --proof-file "$(VERUS_PROOF_FILE)"
 ```
 
 `PROVER_TOOLS` is a pinned
