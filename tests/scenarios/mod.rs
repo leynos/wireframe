@@ -28,6 +28,7 @@ mod codec_stateful_scenarios;
 mod codec_test_harness_scenarios;
 mod correlation_scenarios;
 mod derived_memory_budgets_scenarios;
+mod formal_tooling_scenarios;
 mod fragment_scenarios;
 mod interleaved_push_queues_scenarios;
 mod memory_budget_backpressure_scenarios;

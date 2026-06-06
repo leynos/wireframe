@@ -2,5 +2,6 @@ target/
 **/*.rs.bk
 .crush
 .grepai/
+.verus/
 *:Zone.Identifier
 .agents/mcp/context_pack/packs/

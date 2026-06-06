@@ -25,6 +25,7 @@ pub mod codec_stateful;
 pub mod codec_test_harness;
 pub mod correlation;
 pub mod derived_memory_budgets;
+pub mod formal_tooling;
 pub mod fragment;
 pub mod interleaved_push_queues;
 pub mod memory_budget_backpressure;

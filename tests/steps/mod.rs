@@ -24,6 +24,7 @@ mod codec_stateful_steps;
 mod codec_test_harness_steps;
 mod correlation_steps;
 mod derived_memory_budgets_steps;
+mod formal_tooling_steps;
 mod fragment_steps;
 mod interleaved_push_queues_steps;
 mod memory_budget_backpressure_steps;

@@ -1,30 +1,13 @@
 //! Shared helpers for workspace-manifest integration and behavioural tests.
 
-use std::{env, process::Command};
+use std::process::Command;
 
-use camino::Utf8PathBuf;
-use cap_std::{ambient_authority, fs_utf8::Dir};
+use crate::repo_access::{read_repo_file, repo_root};
 
 pub(crate) type WorkspaceManifestResult<T = ()> =
     Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-pub(crate) fn repo_root() -> WorkspaceManifestResult<Utf8PathBuf> {
-    Utf8PathBuf::from_path_buf(env::current_dir()?).map_err(|path| {
-        format!(
-            "repository root path is not valid UTF-8: {}",
-            path.display()
-        )
-        .into()
-    })
-}
-
-pub(crate) fn repo_dir() -> WorkspaceManifestResult<Dir> {
-    Ok(Dir::open_ambient_dir(repo_root()?, ambient_authority())?)
-}
-
-pub(crate) fn root_manifest() -> WorkspaceManifestResult<String> {
-    Ok(repo_dir()?.read_to_string("Cargo.toml")?)
-}
+pub(crate) fn root_manifest() -> WorkspaceManifestResult<String> { read_repo_file("Cargo.toml") }
 
 pub(crate) fn run_cargo(args: &[&str]) -> WorkspaceManifestResult<String> {
     let command_args = if args.is_empty() {
