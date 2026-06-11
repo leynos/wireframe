@@ -18,6 +18,7 @@ use workspace_manifest_support::{
     WorkspaceManifestResult as TestResult,
     cargo_metadata,
     has_manifest_line,
+    helper_package_id,
     root_manifest,
     root_package_id,
     verification_package_id,
@@ -59,6 +60,11 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     Ok(())
 }
 
+#[rstest]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "assertions provide clearer diagnostics in integration tests"
+)]
 fn cargo_metadata_reports_explicit_members_without_widening_default_members() -> TestResult {
     let repo_root = repo_root()?;
     let repo_root_str = repo_root.as_str();
