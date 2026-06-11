@@ -56,7 +56,6 @@ Use this checklist before merging API naming changes:
 - Label cross-layer terms (for example, `correlation_id`) explicitly as shared
   metadata.
 
-
 ## App inbound and outbound helper boundaries
 
 Application response paths must keep message serialization and codec frame
@@ -233,7 +232,6 @@ capability-oriented directory access, `camino` for UTF-8-typed paths, and
 behaviour-driven development (BDD) fixture for these assertions. Extend it by
 loading more workspace-state inputs in `load()` and adding focused verification
 methods that the step definitions and scenario can reuse.
-
 
 ## Example and benchmark support
 
