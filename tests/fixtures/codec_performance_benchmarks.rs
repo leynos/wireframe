@@ -1,31 +1,21 @@
 //! `CodecPerformanceBenchmarksWorld` fixture for codec benchmark behaviour tests.
 
 use rstest::fixture;
-
-#[path = "../common/codec_benchmark_support.rs"]
-mod codec_benchmark_support;
-
-#[path = "../common/codec_fragmentation_benchmark_support.rs"]
-mod codec_fragmentation_benchmark_support;
-
-#[path = "../common/codec_alloc_benchmark_support.rs"]
-mod codec_alloc_benchmark_support;
-
-use codec_alloc_benchmark_support::{AllocationBaseline, allocation_label};
-use codec_benchmark_support::{
-    VALIDATION_ITERATIONS,
-    benchmark_workloads,
-    measure_decode,
-    measure_encode,
-};
-use codec_fragmentation_benchmark_support::{
+/// Re-export `TestResult` from `wireframe_testing` for use in steps.
+pub use wireframe_testing::TestResult;
+use wireframe_testing::codec_benchmarks::{
+    AllocationBaseline,
     FRAGMENT_PAYLOAD_CAP_BYTES,
     FragmentationOverhead,
     MeasurementExt as _,
+    PayloadClass,
+    VALIDATION_ITERATIONS,
+    allocation_label,
+    benchmark_workloads,
+    measure_decode,
+    measure_encode,
     measure_fragmentation_overhead,
 };
-/// Re-export `TestResult` from `wireframe_testing` for use in steps.
-pub use wireframe_testing::TestResult;
 
 /// Holds benchmark configuration and captured state for codec performance tests.
 ///
@@ -123,7 +113,7 @@ impl CodecPerformanceBenchmarksWorld {
         }
 
         self.fragmentation_overhead = Some(measure_fragmentation_overhead(
-            codec_benchmark_support::PayloadClass::Large,
+            PayloadClass::Large,
             self.iterations,
             FRAGMENT_PAYLOAD_CAP_BYTES,
         )?);

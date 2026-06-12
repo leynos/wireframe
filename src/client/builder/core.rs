@@ -4,6 +4,7 @@ use crate::{
     client::{
         ClientCodecConfig,
         SocketOptions,
+        connect_parts::ClientBuildParts,
         hooks::{LifecycleHooks, RequestHooks},
         preamble_exchange::PreambleConfig,
         tracing_config::TracingConfig,
@@ -63,4 +64,19 @@ impl WireframeClientBuilder<BincodeSerializer, (), ()> {
 
 impl Default for WireframeClientBuilder<BincodeSerializer, (), ()> {
     fn default() -> Self { Self::new() }
+}
+
+impl<S, P, C> WireframeClientBuilder<S, P, C> {
+    /// Consume the builder into the shared physical-connection recipe.
+    pub(crate) fn into_parts(self) -> ClientBuildParts<S, P, C> {
+        ClientBuildParts {
+            serializer: self.serializer,
+            codec_config: self.codec_config,
+            socket_options: self.socket_options,
+            preamble_config: self.preamble_config,
+            lifecycle_hooks: self.lifecycle_hooks,
+            request_hooks: self.request_hooks,
+            tracing_config: self.tracing_config,
+        }
+    }
 }

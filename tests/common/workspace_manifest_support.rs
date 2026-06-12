@@ -39,6 +39,9 @@ pub(crate) fn cargo_package_id(package_name: &str) -> WorkspaceManifestResult<St
 
 pub(crate) fn root_package_id() -> WorkspaceManifestResult<String> { cargo_package_id("wireframe") }
 
+pub(crate) fn helper_package_id() -> WorkspaceManifestResult<String> {
+    cargo_package_id("wireframe_testing")
+}
 pub(crate) fn verification_package_id() -> WorkspaceManifestResult<String> {
     cargo_package_id("wireframe-verification")
 }

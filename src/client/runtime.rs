@@ -2,7 +2,6 @@
 
 use std::{fmt, sync::atomic::AtomicU64, time::Instant};
 
-use bytes::Bytes;
 use futures::SinkExt;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -145,30 +144,8 @@ where
     /// ```
     pub async fn send<M: EncodeWith<S>>(&mut self, message: &M) -> Result<(), ClientError> {
         let timing_start = self.tracing_config.send_timing.then(Instant::now);
-        let mut bytes = match self.serializer.serialize(message) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = ClientError::Serialize(e);
-                emit_timing_event(timing_start);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        self.invoke_before_send_hooks(&mut bytes);
-        let span = send_span(&self.tracing_config, bytes.len());
-        let send_result = async {
-            let result = self.framed.send(Bytes::from(bytes)).await;
-            emit_timing_event(timing_start);
-            result
-        }
-        .instrument(span)
-        .await;
-        if let Err(e) = send_result {
-            let err = ClientError::from(e);
-            self.invoke_error_hook(&err).await;
-            return Err(err);
-        }
-        Ok(())
+        self.serialize_and_send(message, timing_start, send_span)
+            .await
     }
 
     /// Receive the next message from the peer.

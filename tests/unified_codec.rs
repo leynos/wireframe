@@ -18,10 +18,6 @@ use wireframe::{
 };
 
 #[path = "common/fragment_helpers.rs"]
-#[expect(
-    dead_code,
-    reason = "shared helper module; not all items used by every test binary"
-)]
 mod fragment_helpers;
 #[path = "common/unified_codec_transport.rs"]
 mod unified_codec_transport;
@@ -67,10 +63,20 @@ fn echo_app(
 
 /// Build the unified codec test harness and return client/server test handles.
 fn setup_harness(config: Option<FragmentationConfig>) -> TestResult<UnifiedCodecHarness> {
+    keep_fragment_helper_facade_reexports_linked();
     let (tx, rx) = mpsc::unbounded_channel();
     let app = echo_app(config, &tx)?;
     let (client, server) = spawn_app(app);
     Ok(UnifiedCodecHarness { client, server, rx })
+}
+
+fn keep_fragment_helper_facade_reexports_linked() {
+    let _ = fragment_helpers::make_app;
+    let _ = fragment_helpers::assert_handler_observed;
+    let _ = fragment_helpers::fragmentation_config_with_timeout;
+    let _ = fragment_helpers::fragment_envelope;
+    let _ = fragment_helpers::read_reassembled_response;
+    let _ = fragment_helpers::TestError::Assertion(String::new());
 }
 
 // ---------------------------------------------------------------------------

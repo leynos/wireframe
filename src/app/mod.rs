@@ -21,6 +21,8 @@ mod inbound_handler;
 mod lifecycle;
 mod memory_budgets;
 mod middleware_types;
+mod outbound_encoding;
+mod outbound_response;
 
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};

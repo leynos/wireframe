@@ -65,6 +65,10 @@ impl PayloadClass {
             Self::Large => LARGE_PAYLOAD_BYTES,
         }
     }
+
+    /// Whether this payload class represents an empty payload.
+    #[must_use]
+    pub const fn is_empty(self) -> bool { self.len() == 0 }
 }
 
 /// A single benchmark workload definition.

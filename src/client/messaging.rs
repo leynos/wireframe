@@ -5,8 +5,7 @@
 
 use std::{sync::atomic::Ordering, time::Instant};
 
-use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use tracing::Instrument;
 
 use super::{
@@ -128,29 +127,10 @@ where
         }
 
         let timing_start = self.tracing_config.send_timing.then(Instant::now);
-        let mut bytes = match self.serializer.serialize(&envelope) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let err = ClientError::Serialize(e);
-                emit_timing_event(timing_start);
-                self.invoke_error_hook(&err).await;
-                return Err(err);
-            }
-        };
-        self.invoke_before_send_hooks(&mut bytes);
-        let span = send_envelope_span(&self.tracing_config, correlation_id, bytes.len());
-        let send_result = async {
-            let result = self.framed.send(Bytes::from(bytes)).await;
-            emit_timing_event(timing_start);
-            result
-        }
-        .instrument(span)
-        .await;
-        if let Err(e) = send_result {
-            let err = ClientError::from(e);
-            self.invoke_error_hook(&err).await;
-            return Err(err);
-        }
+        self.serialize_and_send(&envelope, timing_start, |config, frame_bytes| {
+            send_envelope_span(config, correlation_id, frame_bytes)
+        })
+        .await?;
         Ok(correlation_id)
     }
 

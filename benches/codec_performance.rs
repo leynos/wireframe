@@ -6,24 +6,15 @@
 //! - fragmented versus unfragmented payload-wrapping overhead.
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box};
-
-#[path = "../tests/common/codec_benchmark_support.rs"]
-mod codec_benchmark_support;
-
-#[path = "../tests/common/codec_fragmentation_benchmark_support.rs"]
-mod codec_fragmentation_benchmark_support;
-
-use codec_benchmark_support::{
+use wireframe_testing::codec_benchmarks::{
+    FRAGMENT_PAYLOAD_CAP_BYTES,
     Measurement,
+    MeasurementExt as _,
     PayloadClass,
     VALIDATION_ITERATIONS,
     benchmark_workloads,
     measure_decode,
     measure_encode,
-};
-use codec_fragmentation_benchmark_support::{
-    FRAGMENT_PAYLOAD_CAP_BYTES,
-    MeasurementExt as _,
     measure_fragmentation_overhead,
     measure_fragmented_wrap,
     measure_unfragmented_wrap,

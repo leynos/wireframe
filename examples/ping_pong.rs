@@ -6,7 +6,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 use wireframe::{
     app::{Envelope, Packet, Result as AppResult},
@@ -15,6 +14,8 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
+#[path = "support/runtime_bootstrap.rs"]
+mod runtime_bootstrap;
 #[path = "support/server_loop.rs"]
 mod server_loop;
 
@@ -149,8 +150,6 @@ fn build_app() -> AppResult<App> {
 
 const DEFAULT_ADDR: &str = "127.0.0.1:7878";
 
-fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
-
 fn parse_server_addr() -> std::io::Result<SocketAddr> {
     let addr = std::env::args()
         .nth(1)
@@ -158,46 +157,16 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
     addr.parse().map_err(std::io::Error::other)
 }
 
-fn build_runtime_app() -> std::io::Result<Arc<App>> {
-    build_app()
-        .map(Arc::new)
-        .map_err(|error| std::io::Error::other(error.to_string()))
-}
-
-async fn bind_listener() -> std::io::Result<TcpListener> {
-    let addr = parse_server_addr()?;
-    TcpListener::bind(addr).await
-}
-
-fn spawn_connection(app: Arc<App>, stream: TcpStream) {
-    tokio::spawn(async move {
-        if let Err(error) = app.handle_connection_result(stream).await {
-            error!("connection handling failed: {error}");
-        }
-    });
-}
-
-async fn serve_until_shutdown(listener: TcpListener, app: Arc<App>) -> std::io::Result<()> {
-    while let Some(stream) =
-        server_loop::accept_until_shutdown(&listener, "ping-pong server received shutdown signal")
-            .await?
-    {
-        spawn_connection(Arc::clone(&app), stream);
-    }
-
-    Ok(())
-}
-
 async fn run() -> std::io::Result<()> {
-    init_tracing();
-    let app = build_runtime_app()?;
-    let listener = bind_listener().await?;
-    serve_until_shutdown(listener, app).await
+    runtime_bootstrap::init_tracing();
+    let app = runtime_bootstrap::build_runtime_app(build_app)?;
+    let listener = runtime_bootstrap::bind_listener(parse_server_addr()?).await?;
+    runtime_bootstrap::serve_until_shutdown(
+        listener,
+        app,
+        "ping-pong server received shutdown signal",
+    )
+    .await
 }
 
-fn main() -> std::io::Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    runtime.block_on(run())
-}
+fn main() -> std::io::Result<()> { runtime_bootstrap::run_current_thread(run()) }
