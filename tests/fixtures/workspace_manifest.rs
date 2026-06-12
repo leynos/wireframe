@@ -101,6 +101,24 @@ impl WorkspaceManifestWorld {
             .any(|package| package.get("name").and_then(Value::as_str) == Some(name)))
     }
 
+    fn verify_crate_is_workspace_member(&self, package_id: &str, package_name: &str) -> TestResult {
+        let metadata = self.metadata_json()?;
+        let workspace_members = Self::metadata_array(&metadata, "workspace_members")?;
+        if !workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(package_id))
+        {
+            return Err(format!(
+                "workspace metadata should include `{package_name}` in workspace_members"
+            )
+            .into());
+        }
+        if !Self::packages_include_name(&metadata, package_name)? {
+            return Err(format!("cargo metadata packages should include `{package_name}`").into());
+        }
+        Ok(())
+    }
+
     /// Verify the root manifest declares the staged hybrid workspace contract.
     ///
     /// # Errors
@@ -180,22 +198,10 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the verification crate is missing from
     /// `workspace_members` or Cargo metadata.
     pub fn verify_verification_crate_is_workspace_member(&self) -> TestResult {
-        let metadata = self.metadata_json()?;
-        let verification_package_id = self.verification_package_id()?;
-        let workspace_members = Self::metadata_array(&metadata, "workspace_members")?;
-        if !workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(verification_package_id))
-        {
-            return Err(
-                "workspace metadata should include the verification crate in workspace_members"
-                    .into(),
-            );
-        }
-        if !Self::packages_include_name(&metadata, VERIFICATION_PACKAGE_NAME)? {
-            return Err("cargo metadata packages should include the verification crate".into());
-        }
-        Ok(())
+        self.verify_crate_is_workspace_member(
+            self.verification_package_id()?,
+            VERIFICATION_PACKAGE_NAME,
+        )
     }
 
     /// Verify the testing helper crate is part of the workspace membership.
@@ -205,20 +211,6 @@ impl WorkspaceManifestWorld {
     /// Returns an error when the helper crate is missing from
     /// `workspace_members` or Cargo metadata.
     pub fn verify_helper_crate_is_workspace_member(&self) -> TestResult {
-        let metadata = self.metadata_json()?;
-        let helper_package_id = self.helper_package_id()?;
-        let workspace_members = Self::metadata_array(&metadata, "workspace_members")?;
-        if !workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(helper_package_id))
-        {
-            return Err(
-                "workspace metadata should include wireframe_testing in workspace_members".into(),
-            );
-        }
-        if !Self::packages_include_name(&metadata, HELPER_PACKAGE_NAME)? {
-            return Err("cargo metadata packages should include wireframe_testing".into());
-        }
-        Ok(())
+        self.verify_crate_is_workspace_member(self.helper_package_id()?, HELPER_PACKAGE_NAME)
     }
 }

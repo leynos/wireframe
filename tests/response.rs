@@ -214,6 +214,24 @@ impl FrameCodec for FailingEncodeFrameCodec {
     fn max_frame_length(&self) -> usize { 1024 }
 }
 
+fn basic_app() -> wireframe::app::Result<WireframeApp<BincodeSerializer, (), Envelope>> {
+    WireframeApp::<BincodeSerializer, (), Envelope>::new()
+}
+
+fn assert_io_error(err: &wireframe::app::SendError) {
+    assert!(
+        matches!(err, wireframe::app::SendError::Io(_)),
+        "expected SendError::Io, got {err:?}"
+    );
+}
+
+fn assert_serialize_error(err: &wireframe::app::SendError) {
+    assert!(
+        matches!(err, wireframe::app::SendError::Serialize(_)),
+        "expected SendError::Serialize, got {err:?}"
+    );
+}
+
 #[rstest]
 #[case(LengthFormat::u16_be(), vec![1, 2, 3, 4], vec![0x00, 0x04])]
 #[case(LengthFormat::u32_le(), vec![9, 8, 7], vec![3, 0, 0, 0])]
@@ -258,7 +276,7 @@ async fn send_response_propagates_write_error() {
 
 #[tokio::test]
 async fn send_response_propagates_frame_encoding_error() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+    let app = basic_app()
         .expect("failed to create app")
         .with_codec(FailingEncodeFrameCodec);
     let mut writer = Vec::new();
@@ -268,7 +286,7 @@ async fn send_response_propagates_frame_encoding_error() {
         .await
         .expect_err("send_response should propagate codec encode failure");
 
-    assert_that!(matches!(err, wireframe::app::SendError::Io(_)), eq(true));
+    assert_io_error(&err);
 }
 
 #[tokio::test]
@@ -353,7 +371,7 @@ async fn send_response_framed_with_codec_writes_encoded_frame() {
 
 #[tokio::test]
 async fn send_response_framed_with_codec_propagates_serialization_error() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
+    let app = basic_app().expect("failed to create app");
     let (client, _server) = tokio::io::duplex(1024);
     let mut framed = Framed::new(client, app.length_codec());
 
@@ -362,15 +380,12 @@ async fn send_response_framed_with_codec_propagates_serialization_error() {
         .await
         .expect_err("framed send should fail before transport");
 
-    assert_that!(
-        matches!(err, wireframe::app::SendError::Serialize(_)),
-        eq(true)
-    );
+    assert_serialize_error(&err);
 }
 
 #[tokio::test]
 async fn send_response_framed_with_codec_propagates_frame_encoding_error() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+    let app = basic_app()
         .expect("failed to create app")
         .with_codec(FailingEncodeFrameCodec);
     let (client, _server) = tokio::io::duplex(1024);
@@ -381,12 +396,12 @@ async fn send_response_framed_with_codec_propagates_frame_encoding_error() {
         .await
         .expect_err("framed send should propagate codec encode failure");
 
-    assert_that!(matches!(err, wireframe::app::SendError::Io(_)), eq(true));
+    assert_io_error(&err);
 }
 
 #[tokio::test]
 async fn send_response_framed_propagates_serialization_error() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
+    let app = basic_app().expect("failed to create app");
     let (client, _server) = tokio::io::duplex(1024);
     let mut framed = Framed::new(client, app.length_codec());
 
@@ -395,15 +410,12 @@ async fn send_response_framed_propagates_serialization_error() {
         .await
         .expect_err("length-delimited send should fail before transport");
 
-    assert_that!(
-        matches!(err, wireframe::app::SendError::Serialize(_)),
-        eq(true)
-    );
+    assert_serialize_error(&err);
 }
 
 #[tokio::test]
 async fn send_response_framed_propagates_io_error() {
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
+    let app = basic_app().expect("failed to create app");
     let mut framed = Framed::new(FailingWriter, app.length_codec());
 
     let err = app
@@ -411,7 +423,7 @@ async fn send_response_framed_propagates_io_error() {
         .await
         .expect_err("length-delimited send should propagate write failure");
 
-    assert_that!(matches!(err, wireframe::app::SendError::Io(_)), eq(true));
+    assert_io_error(&err);
 }
 
 #[tokio::test]

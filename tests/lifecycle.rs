@@ -101,15 +101,15 @@ async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
     reason = "asserts provide clearer diagnostics in tests"
 )]
 async fn setup_without_teardown_runs() -> TestResult<()> {
-    let setup_count = Arc::new(AtomicUsize::new(0));
-    let cb = call_counting_callback(&setup_count, ());
+    let counter = Arc::new(AtomicUsize::new(0));
+    let cb = call_counting_callback(&counter, ());
 
     let app = BasicApp::new()?.on_connection_setup(move || cb(()))?;
 
     run_with_duplex_server(app).await;
 
     assert_eq!(
-        setup_count.load(Ordering::SeqCst),
+        counter.load(Ordering::SeqCst),
         1,
         "setup callback did not run"
     );
@@ -123,15 +123,15 @@ async fn setup_without_teardown_runs() -> TestResult<()> {
     reason = "asserts provide clearer diagnostics in tests"
 )]
 async fn teardown_without_setup_does_not_run() -> TestResult<()> {
-    let teardown_count = Arc::new(AtomicUsize::new(0));
-    let cb = call_counting_callback(&teardown_count, ());
+    let counter = Arc::new(AtomicUsize::new(0));
+    let cb = call_counting_callback(&counter, ());
 
     let app = BasicApp::new()?.on_connection_teardown(cb)?;
 
     run_with_duplex_server(app).await;
 
     assert_eq!(
-        teardown_count.load(Ordering::SeqCst),
+        counter.load(Ordering::SeqCst),
         0,
         "teardown callback should not run"
     );
