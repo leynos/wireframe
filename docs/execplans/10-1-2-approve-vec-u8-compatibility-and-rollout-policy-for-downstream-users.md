@@ -246,16 +246,24 @@ Use timestamps when ticking items to make rate-of-progress visible.
   tolerance was raised to 750 net lines to accommodate the ADR 009
   rewrite.
 
-- Observation (2026-06-15): `make nixie` fails on
+- Observation (2026-06-15): `make nixie` initially failed on
   `docs/v0-2-0-to-v0-3-0-migration-guide.md` with a merman-cli classDiagram
-  `LexError` ("Unexpected character"). Evidence:
-  `/tmp/nixie-wireframe-10-1-2.out`; the same failure reproduces on the
-  clean committed `HEAD` with the working changes stashed, so it is not
-  caused by this milestone. Impact: this is a pre-existing repository
-  baseline issue in a file this plan does not touch. None of the Markdown
-  files edited by this milestone contain Mermaid diagrams, and all were
-  processed by nixie without error. Reported as a baseline; not blocking
-  `10.1.2`.
+  `LexError` ("Unexpected character"), reproducing on clean committed
+  `HEAD`, so it was a pre-existing repository baseline rather than a
+  regression from this milestone. The post-turn gate runs nixie repo-wide,
+  so the baseline had to be fixed for the gate to pass. Root cause: merman-cli
+  (the parser nixie uses) cannot lex comma-separated type parameters inside
+  Mermaid generic brackets — `class AppFactory~Ser, Ctx, E, Codec~` (diagram
+  1, offset 843) and `class TypedResponseStream~S, Mapper, P, Item~` (diagram
+  3, offset 654). Evidence: bisected with minimal `merman-cli` repros;
+  single-param `~Codec~` parses, comma forms fail. Fix: render the
+  multi-parameter generic in a display label via the
+  `class Name["Name~A, B~"]` form, which keeps the node id (used in
+  relationships) and the existing `<<trait>>` / `<<futures::Stream>>`
+  stereotypes intact while displaying the full generic signature as text.
+  `make nixie` now passes repo-wide ("All diagrams validated successfully!").
+  Impact: a one-file baseline fix outside the `10.1.2` decision surface,
+  recorded here for traceability.
 
 - Observation (2026-06-15): the deterministic Rust gates pass on the
   docs-only diff. Evidence: `make check-fmt` clean
