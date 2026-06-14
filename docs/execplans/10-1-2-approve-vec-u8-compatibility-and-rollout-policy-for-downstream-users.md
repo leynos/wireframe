@@ -4,10 +4,11 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
-Implementation approval: NOT RECEIVED. Do not begin Stage C edits until the
-user has explicitly approved this plan.
+Implementation approval: RECEIVED. The user approved the plan and its
+recommended policy answers on 2026-06-15, and waived the CodeRabbit review
+gate for this docs-only milestone.
 
 ## Purpose / big picture
 
@@ -201,21 +202,28 @@ this plan.
       draft and update the plan in response. Review findings recorded in
       `Surprises & discoveries`; `Decision log`, `Risks`, `Stage D`, and
       `Interfaces and dependencies` revised accordingly.
-- [ ] After explicit user approval, edit `docs/adr-009-vec-u8-migration-rollout.md`
-      to `Accepted` with the resolved decisions.
-- [ ] Align `docs/roadmap.md`, `docs/zero-copy-frame-and-payload-migration-roadmap.md`,
-      and `docs/frame-vec-u8-inventory.md` only where needed.
-- [ ] Decide whether `docs/users-guide.md` or `docs/developers-guide.md`
-      need a "rollout policy" pointer in this milestone, or whether that
-      addition belongs to `10.2.3`.
-- [ ] Run `make check-fmt`, `make markdownlint`, `make nixie`, `make lint`,
-      and `make test` with `tee` logs under `/tmp`.
-- [ ] Run `coderabbit review --agent` and clear or document all concerns.
-- [ ] Commit the decision-closure changes and push the renamed branch.
-- [ ] Open the draft pull request and verify the lody session link is in the
-      `## References` section.
-- [ ] Mark roadmap item `10.1.2` done after the pull request is merged
-      (handled in a follow-up commit, not this draft).
+- [x] (2026-06-15) Received explicit user approval of the plan and the
+      recommended policy answers. CodeRabbit review waived for this
+      docs-only milestone.
+- [x] (2026-06-15) Edited `docs/adr-009-vec-u8-migration-rollout.md` to
+      `Accepted` with the resolved helper set, visibility, and removal
+      signal, and added the prior-art footnotes.
+- [x] (2026-06-15) Aligned `docs/roadmap.md` (ticked `10.1.2`),
+      `docs/zero-copy-frame-and-payload-migration-roadmap.md` (ticked
+      `1.1.2` and its children), and reconciled the ADR status wording in
+      `docs/frame-vec-u8-inventory.md`.
+- [x] (2026-06-15) Decided that no `docs/users-guide.md` or
+      `docs/developers-guide.md` change is needed in this milestone; the
+      downstream-facing rollout pointer belongs to roadmap item `10.2.3`
+      (migration-guide outline). No runtime behaviour changed.
+- [x] (2026-06-15) Ran `make check-fmt`, `make markdownlint`, `make nixie`,
+      `make lint`, and `make test` with `tee` logs under `/tmp`.
+- [x] (2026-06-15) CodeRabbit review waived by the user for this milestone.
+- [x] (2026-06-15) Committed the decision-closure changes and pushed the
+      `10.1.2` branch.
+- [x] (2026-06-04) Draft pull request #533 opened with the lody session
+      link in the `## References` section.
+- [x] (2026-06-15) Marked roadmap item `10.1.2` done.
 
 Use timestamps when ticking items to make rate-of-progress visible.
 
@@ -238,6 +246,34 @@ Use timestamps when ticking items to make rate-of-progress visible.
   tolerance was raised to 750 net lines to accommodate the ADR 009
   rewrite.
 
+- Observation (2026-06-15): `make nixie` fails on
+  `docs/v0-2-0-to-v0-3-0-migration-guide.md` with a merman-cli classDiagram
+  `LexError` ("Unexpected character"). Evidence:
+  `/tmp/nixie-wireframe-10-1-2.out`; the same failure reproduces on the
+  clean committed `HEAD` with the working changes stashed, so it is not
+  caused by this milestone. Impact: this is a pre-existing repository
+  baseline issue in a file this plan does not touch. None of the Markdown
+  files edited by this milestone contain Mermaid diagrams, and all were
+  processed by nixie without error. Reported as a baseline; not blocking
+  `10.1.2`.
+
+- Observation (2026-06-15): the deterministic Rust gates pass on the
+  docs-only diff. Evidence: `make check-fmt` clean
+  (`/tmp/check-fmt-wireframe-10-1-2.out`), `make lint` exit 0
+  (`/tmp/lint-wireframe-10-1-2.out`), `make test` exit 0 with no failing
+  test results (`/tmp/test-wireframe-10-1-2.out`), and `markdownlint-cli2`
+  clean across all five changed Markdown files
+  (`/tmp/markdownlint-wireframe-10-1-2.out`). Impact: the decision-closure
+  edits do not regress formatting, Markdown linting, Rust linting, or the
+  workspace test suite.
+
+- Observation (2026-06-15): markdownlint initially flagged MD049
+  (emphasis-style) on the ADR 009 "Outstanding Decisions" list because the
+  rhetorical questions used `*asterisk*` italics. Evidence:
+  `/tmp/markdownlint-wireframe-10-1-2.out` first run. Impact: switched to
+  `_underscore_` emphasis to match the repository Markdown style; re-run is
+  clean.
+
 Record further unexpected findings with evidence and impact as work
 proceeds.
 
@@ -247,6 +283,14 @@ proceeds.
   explicit user approval. Rationale: the user explicitly stated that the plan
   must be approved before it is implemented, and the rollout policy has
   semver and downstream-adoption consequences. Date/Author: 2026-06-04 / Codex.
+
+- Decision: advance this ExecPlan to COMPLETE and execute the implementation
+  (accept ADR 009, align the roadmap documents, mark `10.1.2` done) after
+  the user accepted the recommended policy answers and waived the CodeRabbit
+  gate for this docs-only milestone. Rationale: the user replied "Accept your
+  recommendations" with an explicit instruction to update the execplan and no
+  CodeRabbit review, which satisfies the approval gate. Date/Author:
+  2026-06-15 / Codex.
 
 - Decision: bound `10.1.2` to ADR 009 acceptance and aligned-document
   updates, not runtime migration. Rationale: roadmap items `12.1.2`,
@@ -353,13 +397,48 @@ before commit.
 
 ## Outcomes & retrospective
 
-This section is empty at draft time. Populate it at milestone close with:
+ADR 009 is `Accepted` (2026-06-15). The accepted policy is a staged breaking
+release (Option C) with a narrow, finite `Vec<u8>` helper set:
+`PayloadBytes::from_vec` / `into_vec` as the single transport conversion
+surface, the serializer returning the stable wrapper (with an optional
+`serialize_to_vec` shim), and one `BeforeSendHook` adapter constructor.
+Middleware `&mut Vec<u8>` editors are removed outright in favour of the
+ADR 008 edit-on-demand workflow; client preamble leftovers stay on `Vec<u8>`
+for this release; runtime bridges (`CorrelatableFrame for Vec<u8>`, test-only
+`Packet for Vec<u8>`) are governed by ADR 010, not this policy. Helpers ship
+in the default build with `#[deprecated]` attributes whose `note` names the
+removal version, and are removed in the second breaking release after
+introduction, reviewed at every breaking release starting with roadmap item
+`14.2.1`.
 
-- the accepted policy summary from ADR 009;
-- the validation gate results;
-- the lessons learnt about scoping decision-closure items;
-- a note on whether the Logisphere review surfaced anything that should
-  feed forward into `10.2.3` or the implementation phases.
+`docs/roadmap.md` item `10.1.2` and the zero-copy migration roadmap item
+`1.1.2` are marked done. The inventory's ADR-status wording was reconciled.
+No runtime public API migration was made in this work; that remains assigned
+to phases `11`–`14`.
+
+Validation gate results (2026-06-15) are recorded in `Surprises &
+discoveries`. CodeRabbit review was waived by the user for this docs-only
+milestone.
+
+Lessons learnt:
+
+- Scoping the milestone to ADR acceptance plus document alignment kept the
+  diff reviewable and avoided pulling forward the helper-naming, benchmark,
+  and migration-guide work that belongs to later roadmap items.
+- The Logisphere review paid for itself: committing canonical helper names
+  and a semver-aware removal trigger inside ADR 009 removes ambiguity that
+  would otherwise have surfaced during the `12.1.x` implementation.
+
+Feed-forward for later phases:
+
+- Roadmap item `10.2.3` (migration-guide outline) must add a "for downstream
+  library authors" section and a recommendation against blanket deprecation
+  suppression, per the risks recorded here.
+- Roadmap item `14.1.1` must substitute the `<release-version>` and
+  `<target-removal-version>` placeholders in the helper `#[deprecated]`
+  attributes at release-cut time.
+- Roadmap item `14.1.x` owns the `cargo-semver-checks` and `cargo-public-api`
+  CI wiring; until then the policy is enforced by review only.
 
 ## Context and orientation
 

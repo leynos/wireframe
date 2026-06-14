@@ -57,13 +57,19 @@ Success is measured by the following outcomes:
   - [x] Success criteria: a single approved API direction exists for
     `PacketParts`, `Envelope`, `ServiceRequest`, `ServiceResponse`,
     `BeforeSendHook`, and `Serializer::serialize`.
-- [ ] 1.1.2. Approve the compatibility and rollout policy. See
+- [x] 1.1.2. Approve the compatibility and rollout policy. See
   [ADR 009](adr-009-vec-u8-migration-rollout.md).
-  - [ ] Decide whether the major release carries finite compatibility shims,
-    and document their lifetime.
-  - [ ] Decide what compile-time adapters or helper constructors remain for
-    `Vec<u8>` callers during the migration window.
-  - [ ] Success criteria: the release branch has an agreed downstream migration
+  - [x] Decide whether the major release carries finite compatibility shims,
+    and document their lifetime. Decision: a narrow, finite helper set ships
+    in the default build with `#[deprecated]` attributes and is removed in
+    the second breaking release after introduction.
+  - [x] Decide what compile-time adapters or helper constructors remain for
+    `Vec<u8>` callers during the migration window. Decision:
+    `PayloadBytes::from_vec` / `into_vec`, the serializer returning the
+    stable wrapper (optional `serialize_to_vec` shim), and one
+    `BeforeSendHook` adapter constructor; middleware `&mut Vec<u8>` editors
+    are removed, and runtime bridges are governed by ADR 010.
+  - [x] Success criteria: the release branch has an agreed downstream migration
     story before code changes start landing.
 - [ ] 1.1.3. Approve the transport-frame boundary for the zero-copy path. See
   [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md).

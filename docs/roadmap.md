@@ -452,7 +452,7 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
 - [x] 10.1.1. Approve the stable public byte-container and edit-on-demand model
   for `PacketParts`, `Envelope`, middleware, client hooks, and serializer
   output. See `docs/adr-008-zero-copy-public-byte-container.md`.
-- [ ] 10.1.2. Approve the compatibility and rollout policy for downstream
+- [x] 10.1.2. Approve the compatibility and rollout policy for downstream
   users, including which `Vec<u8>` helpers survive the breaking release. See
   `docs/adr-009-vec-u8-migration-rollout.md`.
 - [ ] 10.1.3. Approve the actor and codec-driver boundary so `Vec<u8>` bridges
