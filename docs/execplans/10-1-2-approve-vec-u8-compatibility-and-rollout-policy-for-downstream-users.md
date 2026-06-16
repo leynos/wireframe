@@ -223,7 +223,20 @@ this plan.
       `10.1.2` branch.
 - [x] (2026-06-04) Draft pull request #533 opened with the lody session
       link in the `## References` section.
-- [x] (2026-06-15) Marked roadmap item `10.1.2` done.
+- [x] (2026-06-15) Marked roadmap item `10.1.2` done. Commit `8a43e70`
+      (`Accept Vec<u8> compatibility and rollout policy (10.1.2)`) landed
+      ADR 009 acceptance plus the roadmap, migration-roadmap, and inventory
+      alignment.
+- [x] (2026-06-15) Cleared the repo-wide post-turn gate. The hook runs
+      `make markdownlint nixie` across all 104 Markdown files and tripped on
+      a pre-existing merman-cli classDiagram baseline failure in
+      `docs/v0-2-0-to-v0-3-0-migration-guide.md`. Fixed the two comma-in-
+      generic class headers and recorded the root cause in
+      `Surprises & discoveries`. Commit `5d19ce1`
+      ("Fix merman-cli classDiagram parse errors in v0.2→v0.3 guide").
+- [x] (2026-06-15) Re-ran the post-turn gate command
+      `make --no-print-directory markdownlint nixie`: exit 0, "All diagrams
+      validated successfully!". Pushed both commits to PR #533.
 
 Use timestamps when ticking items to make rate-of-progress visible.
 
@@ -400,6 +413,19 @@ proceeds.
   roadmap items; folding them into `10.1.2` would breach this plan's scope
   tolerance. Date/Author: 2026-06-04 / Codex.
 
+- Decision: fix the pre-existing merman-cli classDiagram baseline failure in
+  `docs/v0-2-0-to-v0-3-0-migration-guide.md` within this milestone rather
+  than deferring it, and fix it by rendering the multi-parameter generics
+  through a display label (`class Name["Name~A, B~"]`) rather than dropping
+  or renaming the type parameters. Rationale: the post-turn quality gate runs
+  `nixie` repo-wide and blocked the turn, so the baseline had to be cleared
+  for this docs-only change to land; the display-label form keeps the node id
+  used by the relationship arrows and the existing `<<trait>>` /
+  `<<futures::Stream>>` stereotypes intact while preserving the exact
+  generic signature as rendered text, so no diagram meaning is lost. This is
+  a one-file edit outside the `10.1.2` decision surface and does not affect
+  the rollout policy. Date/Author: 2026-06-15 / Codex.
+
 Any further design decision taken during implementation must be appended here
 before commit.
 
@@ -425,8 +451,14 @@ No runtime public API migration was made in this work; that remains assigned
 to phases `11`–`14`.
 
 Validation gate results (2026-06-15) are recorded in `Surprises &
-discoveries`. CodeRabbit review was waived by the user for this docs-only
-milestone.
+discoveries`. `make check-fmt`, `make lint`, and `make test` pass on the
+docs-only diff, and the repo-wide post-turn gate
+(`make markdownlint nixie`) passes after a one-file fix to a pre-existing
+merman-cli classDiagram baseline failure in the v0.2→v0.3 migration guide.
+CodeRabbit review was waived by the user for this docs-only milestone. The
+branch carries three commits: the plan draft (`b77527f`), the ADR 009
+acceptance and document alignment (`8a43e70`), and the nixie baseline fix
+(`5d19ce1`), all pushed to PR #533.
 
 Lessons learnt:
 
@@ -436,6 +468,11 @@ Lessons learnt:
 - The Logisphere review paid for itself: committing canonical helper names
   and a semver-aware removal trigger inside ADR 009 removes ambiguity that
   would otherwise have surfaced during the `12.1.x` implementation.
+- The post-turn quality gate runs `nixie` repo-wide, not just on the files
+  changed in the diff, so a latent baseline diagram failure anywhere in the
+  tree can block an otherwise clean docs-only change. Worth knowing for
+  future docs milestones: budget for clearing pre-existing diagram debt, or
+  expect the gate to surface it.
 
 Feed-forward for later phases:
 
