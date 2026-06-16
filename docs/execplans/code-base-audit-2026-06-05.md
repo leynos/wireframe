@@ -692,3 +692,8 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
 - 2026-06-05: The final branch includes all seven implementation milestones,
   all requested follow-up GitHub issues, successful final deterministic gates,
   a zero-finding CodeRabbit review, and a pushed update to pull request #534.
+- 2026-06-16: Follow-up review observed that `tests/response.rs` exceeded the
+  400-line file-size constraint after Milestone 2. The response error-path
+  fixtures and tests were split into `tests/response/response_errors.rs`,
+  leaving `tests/response.rs` focused on successful framing, codec, and buffer
+  capacity behaviour. Both files are now below 400 lines.
