@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tokio::sync::OwnedSemaphorePermit;
 
-use super::{client_pool::ClientPoolInner, slot::PoolSlot};
+use super::{client_pool::ClientPoolInner, managed::ManagedClientConnection, slot::PoolSlot};
 use crate::{
     app::Packet,
     client::ClientError,
@@ -26,19 +26,6 @@ where
     slot: Arc<PoolSlot<S, P, C>>,
     _permit: OwnedSemaphorePermit,
     release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
-}
-
-macro_rules! dispatch_on_connection {
-    ($self:ident, | $conn:ident | $op:expr) => {{
-        let mut $conn = $self.slot.checkout().await?;
-        let result = $op.await;
-        if let Err(err) = &result
-            && Self::should_recycle(err)
-        {
-            $conn.mark_broken();
-        }
-        result
-    }};
 }
 
 impl<S, P, C> PooledClientLease<S, P, C>
@@ -61,6 +48,20 @@ where
 
     fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
 
+    async fn dispatch_on_connection<R>(
+        &self,
+        operation: impl AsyncFnOnce(&mut ManagedClientConnection<S, C>) -> Result<R, ClientError>,
+    ) -> Result<R, ClientError> {
+        let mut connection = self.slot.checkout().await?;
+        let result = operation(&mut connection).await;
+        if let Err(err) = &result
+            && Self::should_recycle(err)
+        {
+            connection.mark_broken();
+        }
+        result
+    }
+
     /// Send one message over the leased socket.
     ///
     /// # Errors
@@ -68,7 +69,8 @@ where
     /// Returns [`ClientError`] when checkout, serialization, or transport I/O
     /// fails.
     pub async fn send<M: EncodeWith<S>>(&self, message: &M) -> Result<(), ClientError> {
-        dispatch_on_connection!(self, |conn| conn.send(message))
+        self.dispatch_on_connection(async |conn| conn.send(message).await)
+            .await
     }
 
     /// Receive one message from the leased socket.
@@ -77,7 +79,8 @@ where
     ///
     /// Returns [`ClientError`] when checkout, decode, or transport I/O fails.
     pub async fn receive<M: DecodeWith<S>>(&self) -> Result<M, ClientError> {
-        dispatch_on_connection!(self, |conn| conn.receive())
+        self.dispatch_on_connection(async |conn| conn.receive().await)
+            .await
     }
 
     /// Send one request and await one response over the leased socket.
@@ -91,7 +94,8 @@ where
         Req: EncodeWith<S>,
         Resp: DecodeWith<S>,
     {
-        dispatch_on_connection!(self, |conn| conn.call(request))
+        self.dispatch_on_connection(async |conn| conn.call(request).await)
+            .await
     }
 
     /// Send one envelope and return the correlation ID used.
@@ -104,7 +108,8 @@ where
     where
         M: Packet + EncodeWith<S>,
     {
-        dispatch_on_connection!(self, |conn| conn.send_envelope(envelope))
+        self.dispatch_on_connection(async |conn| conn.send_envelope(envelope).await)
+            .await
     }
 
     /// Receive one envelope from the leased socket.
@@ -116,7 +121,8 @@ where
     where
         M: Packet + DecodeWith<S>,
     {
-        dispatch_on_connection!(self, |conn| conn.receive_envelope())
+        self.dispatch_on_connection(async |conn| conn.receive_envelope().await)
+            .await
     }
 
     /// Send one envelope and await its correlated response.
@@ -129,7 +135,8 @@ where
     where
         M: Packet + EncodeWith<S> + DecodeWith<S>,
     {
-        dispatch_on_connection!(self, |conn| conn.call_correlated(request))
+        self.dispatch_on_connection(async |conn| conn.call_correlated(request).await)
+            .await
     }
 }
 

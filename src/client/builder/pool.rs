@@ -8,7 +8,6 @@ use super::WireframeClientBuilder;
 use crate::{
     client::{
         ClientError,
-        connect_parts::ClientBuildParts,
         pool::{ClientPoolConfig, WireframeClientPool},
     },
     serializer::Serializer,
@@ -33,19 +32,6 @@ where
         addr: SocketAddr,
         pool_config: ClientPoolConfig,
     ) -> Result<WireframeClientPool<S, P, C>, ClientError> {
-        WireframeClientPool::connect(
-            addr,
-            pool_config,
-            ClientBuildParts {
-                serializer: self.serializer,
-                codec_config: self.codec_config,
-                socket_options: self.socket_options,
-                preamble_config: self.preamble_config,
-                lifecycle_hooks: self.lifecycle_hooks,
-                request_hooks: self.request_hooks,
-                tracing_config: self.tracing_config,
-            },
-        )
-        .await
+        WireframeClientPool::connect(addr, pool_config, self.into_parts()).await
     }
 }

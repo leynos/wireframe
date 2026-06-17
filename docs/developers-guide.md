@@ -56,6 +56,45 @@ Use this checklist before merging API naming changes:
 - Label cross-layer terms (for example, `correlation_id`) explicitly as shared
   metadata.
 
+## App inbound and outbound helper boundaries
+
+Application response paths must keep message serialization and codec frame
+wrapping in one place. Use `app::outbound_encoding::encode_message_frame` when
+an app path needs to turn an `EncodeWith<S>` message into a
+`FrameCodec::Frame`. Callers should keep transport-specific work at the edge:
+
+- Raw stream response methods encode the returned codec frame into a byte
+  buffer and write that buffer to `AsyncWrite`.
+- Framed response methods send the returned codec frame through the supplied
+  framed sink.
+- The length-delimited compatibility path intentionally sends the raw
+  serialized message to `LengthDelimitedCodec`; do not wrap that payload with
+  the app codec first, because `framed.send` supplies the length prefix.
+
+Inbound connection handling should also preserve the phase boundary:
+`build_dispatchable_envelope` owns decode, fragment reassembly, message
+assembly, and the successful deserialization-counter reset. Individual failure
+policy remains in `DeserFailureTracker`, so logging, metrics, and threshold
+decisions do not drift across inbound call sites.
+
+Builder methods that change `WireframeApp` type parameters should route through
+the shared rebuild helpers in `app::builder::core`. Serializer and codec
+transitions use `rebuild_with_params`; connection-state transitions use
+`rebuild_with_connection_state`. A teardown hook is typed to the old connection
+state, so `on_connection_setup` clears any teardown hook registered before it.
+Register teardown after setup when both hooks are required.
+
+Client pool internals should use `client::pool::sync::lock_or_recover` for
+poison-tolerant `Mutex` access. Keep the policy local to pool synchronization
+code so scheduler and slot state recovery cannot drift. Recovery logs a warning
+and increments the `wireframe_pool_bookkeeping_poison_recoveries_total`
+counter. Client connection construction should flow through
+`WireframeClientBuilder::into_parts()` and `ClientBuildParts`, which keeps
+single-client and pooled-client socket setup, preamble exchange, lifecycle
+hooks, request hooks, and tracing configuration on the same path. Pooled lease
+methods should go through `PooledClientLease::dispatch_on_connection` so
+checkout and recycle-on-error policy stay in one place.
+
 ## Error surface conventions
 
 Library-facing errors should stay typed and inspectable by default. Use
@@ -139,11 +178,11 @@ continuous integration (CI).
 Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
 contains both `[package]` and `[workspace]`.
 
-After roadmap items 15.1.1 and 15.1.2 the workspace explicitly lists the root
-package and the internal verification crate, while keeping only the root
-package as a default member:
+The workspace explicitly lists the root package, the internal verification
+crate, and the testing helper crate, while keeping only the root package as a
+default member:
 
-- `members = [".", "crates/wireframe-verification"]`
+- `members = [".", "crates/wireframe-verification", "wireframe_testing"]`
 - `default-members = ["."]`
 
 That means ordinary root-level commands such as `cargo build`, `cargo check`,
@@ -153,19 +192,19 @@ to target the main `wireframe` package by default.
 Use plain root-level Cargo commands for day-to-day work on the main crate.
 Reach for `--workspace` when a task is explicitly meant to cover every current
 workspace member, for example repository-wide validation in CI or when a change
-also touches `crates/wireframe-verification`.
+also touches `crates/wireframe-verification` or `wireframe_testing`.
 
 Use `cargo test -p wireframe-verification` to exercise the Stateright crate in
 isolation. The existing `Makefile` targets still focus on the root `wireframe`
 crate because the dedicated formal-verification targets belong to later roadmap
 items.
 
-One Cargo nuance is worth knowing: `cargo metadata` for this repository still
-reports the in-tree helper crate `wireframe_testing` in `workspace_members`
-because it lives under the repository root as a path dependency. That sits
-alongside the explicit `wireframe-verification` member and does not change
-day-to-day command ergonomics because `default-members = ["."]` keeps plain
-root-level Cargo commands focused on the main `wireframe` package.
+Use `cargo test -p wireframe_testing` when changing shared test fixtures,
+observability helpers, codec drivers, or other support APIs exported by the
+testing helper crate. Use `cargo test -p wireframe` for the root crate when a
+change should stay limited to the published library. Plain root-level commands
+keep their day-to-day ergonomics because `default-members = ["."]` leaves the
+main `wireframe` package as the only default member.
 
 ### Workspace manifest test support
 
@@ -193,6 +232,28 @@ capability-oriented directory access, `camino` for UTF-8-typed paths, and
 behaviour-driven development (BDD) fixture for these assertions. Extend it by
 loading more workspace-state inputs in `load()` and adding focused verification
 methods that the step definitions and scenario can reuse.
+
+## Example and benchmark support
+
+TCP server examples that share the standard
+`WireframeApp<BincodeSerializer, (), Envelope>` runtime shape should use
+`examples/support/runtime_bootstrap.rs` for tracing setup, runtime app
+construction, listener binding, connection spawning, shutdown-aware accept
+loops, and current-thread Tokio runtime startup. Keep example-specific address
+parsing, app construction, handlers, and middleware in the example file.
+
+Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench
+targets, direct unit tests, and BDD fixtures should import the workload matrix,
+measurement helpers, fragmentation helpers, and allocation-label helpers from
+that module instead of coupling to files under `tests/common` with `#[path]`.
+
+Fragment transport integration tests import `tests/common/fragment_helpers.rs`
+as a facade. Keep the public re-export surface stable there, and place helper
+implementation details in responsibility-focused modules under
+`tests/common/fragment_helpers/`: app construction and spawning, assertions,
+fragmentation configuration, envelope building, error types, and framed
+transport. New fragment helpers should be added to the smallest matching module
+and re-exported only when more than one test binary needs the helper.
 
 ## Formal verification tooling
 

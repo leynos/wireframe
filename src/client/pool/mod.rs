@@ -13,6 +13,7 @@ mod manager;
 mod policy;
 mod scheduler;
 mod slot;
+mod sync;
 
 pub use client_pool::WireframeClientPool;
 pub use config::ClientPoolConfig;

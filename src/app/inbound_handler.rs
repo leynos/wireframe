@@ -2,25 +2,23 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use bytes::{Bytes, BytesMut};
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use log::{debug, warn};
 use tokio::{
-    io::{self, AsyncRead, AsyncWrite, AsyncWriteExt},
+    io::{self, AsyncRead, AsyncWrite},
     time::{Duration, timeout},
 };
-use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
+use tokio_util::codec::Framed;
 
 use super::{
     builder::WireframeApp,
     codec_driver::FramePipeline,
     combined_codec::{CombinedCodec, ConnectionCodec},
     envelope::{Envelope, Packet},
-    error::SendError,
     frame_handling,
 };
 use crate::{
-    codec::{FrameCodec, LengthDelimitedFrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
+    codec::{FrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
     frame::FrameMetadata,
     message::{DecodeWith, DeserializeContext, EncodeWith},
     message_assembler::MessageAssemblyState,
@@ -52,104 +50,15 @@ where
     message_assembly: &'a mut Option<MessageAssemblyState>,
 }
 
-impl<S, C, E, F> WireframeApp<S, C, E, F>
+/// State needed to turn a raw frame into a dispatchable envelope.
+struct DispatchBuildContext<'a, F>
 where
-    S: Serializer + Send + Sync,
-    C: Send + 'static,
-    E: Packet,
     F: FrameCodec,
 {
-    /// Serialize `msg` and write it to `stream` using the configured codec.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`SendError`] if serialization or writing fails.
-    pub async fn send_response<W, M>(
-        &self,
-        stream: &mut W,
-        msg: &M,
-    ) -> std::result::Result<(), SendError>
-    where
-        W: AsyncWrite + Unpin,
-        M: EncodeWith<S>,
-    {
-        let bytes = self
-            .serializer
-            .serialize(msg)
-            .map_err(SendError::Serialize)?;
-        let payload_len = bytes.len();
-        let frame = self.codec.wrap_payload(Bytes::from(bytes));
-        let mut encoder = self.codec.encoder();
-        let mut encoded_buf = BytesMut::with_capacity(payload_len);
-        encoder
-            .encode(frame, &mut encoded_buf)
-            .map_err(SendError::Io)?;
-        stream
-            .write_all(&encoded_buf)
-            .await
-            .map_err(SendError::Io)?;
-        stream.flush().await.map_err(SendError::Io)
-    }
-
-    /// Serialize `msg` and send it through an existing framed stream.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`SendError`] if serialization or sending fails.
-    pub async fn send_response_framed_with_codec<W, M, Cc>(
-        &self,
-        framed: &mut Framed<W, Cc>,
-        msg: &M,
-    ) -> std::result::Result<(), SendError>
-    where
-        W: AsyncRead + AsyncWrite + Unpin,
-        M: EncodeWith<S>,
-        Cc: Encoder<F::Frame, Error = io::Error>,
-    {
-        let bytes = self
-            .serializer
-            .serialize(msg)
-            .map_err(SendError::Serialize)?;
-        let frame = self.codec.wrap_payload(Bytes::from(bytes));
-        framed.send(frame).await.map_err(SendError::Io)
-    }
-}
-
-impl<S, C, E> WireframeApp<S, C, E, LengthDelimitedFrameCodec>
-where
-    S: Serializer + Send + Sync,
-    C: Send + 'static,
-    E: Packet,
-{
-    /// Construct a length-delimited codec capped by the application's buffer
-    /// capacity.
-    #[must_use]
-    pub fn length_codec(&self) -> LengthDelimitedCodec {
-        LengthDelimitedCodec::builder()
-            .max_frame_length(self.codec.max_frame_length())
-            .new_codec()
-    }
-
-    /// Serialize `msg` and send it through an existing framed stream.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`SendError`] if serialization or sending fails.
-    pub async fn send_response_framed<W, M>(
-        &self,
-        framed: &mut Framed<W, LengthDelimitedCodec>,
-        msg: &M,
-    ) -> std::result::Result<(), SendError>
-    where
-        W: AsyncRead + AsyncWrite + Unpin,
-        M: EncodeWith<S>,
-    {
-        let bytes = self
-            .serializer
-            .serialize(msg)
-            .map_err(SendError::Serialize)?;
-        framed.send(bytes.into()).await.map_err(SendError::Io)
-    }
+    frame: &'a F::Frame,
+    pipeline: &'a mut FramePipeline,
+    message_assembly: &'a mut Option<MessageAssemblyState>,
+    deser_failures: &'a mut u32,
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -334,38 +243,15 @@ where
         } = ctx;
 
         crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
-        let Some(env) = frame_handling::decode_envelope::<F>(
-            self.parse_envelope(F::frame_payload(frame)),
+        let Some(env) = self.build_dispatchable_envelope(DispatchBuildContext {
             frame,
-            deser_failures,
-            MAX_DESER_FAILURES,
-        )?
-        else {
-            return Ok(());
-        };
-        let Some(env) = frame_handling::reassemble_if_needed(
             pipeline,
+            message_assembly,
             deser_failures,
-            env,
-            MAX_DESER_FAILURES,
-        )?
+        })?
         else {
             return Ok(());
         };
-        let Some(env) = frame_handling::assemble_if_needed(
-            frame_handling::AssemblyRuntime::new(self.message_assembler.as_ref(), message_assembly),
-            deser_failures,
-            env,
-            MAX_DESER_FAILURES,
-        )?
-        else {
-            return Ok(());
-        };
-
-        // Reset failure counter only after the entire inbound pipeline
-        // (decode, reassemble, assemble) succeeds, so that assembly-stage
-        // failures accumulate towards the threshold.
-        *deser_failures = 0;
 
         if let Some(service) = routes.get(&env.id) {
             frame_handling::forward_response(
@@ -387,6 +273,52 @@ where
         }
 
         Ok(())
+    }
+
+    fn build_dispatchable_envelope(
+        &self,
+        ctx: DispatchBuildContext<'_, F>,
+    ) -> io::Result<Option<Envelope>> {
+        let DispatchBuildContext {
+            frame,
+            pipeline,
+            message_assembly,
+            deser_failures,
+        } = ctx;
+        let mut failure_tracker =
+            frame_handling::DeserFailureTracker::new(deser_failures, MAX_DESER_FAILURES);
+        let Some(env) = frame_handling::decode_envelope::<F>(
+            self.parse_envelope(F::frame_payload(frame)),
+            frame,
+            &mut failure_tracker,
+        )?
+        else {
+            return Ok(None);
+        };
+        let Some(env) = frame_handling::reassemble_if_needed(
+            pipeline,
+            deser_failures,
+            env,
+            MAX_DESER_FAILURES,
+        )?
+        else {
+            return Ok(None);
+        };
+        let Some(env) = frame_handling::assemble_if_needed(
+            frame_handling::AssemblyRuntime::new(self.message_assembler.as_ref(), message_assembly),
+            deser_failures,
+            env,
+            MAX_DESER_FAILURES,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        // Reset failure counter only after the entire inbound pipeline
+        // (decode, reassemble, assemble) succeeds, so that assembly-stage
+        // failures accumulate towards the threshold.
+        *deser_failures = 0;
+        Ok(Some(env))
     }
 }
 

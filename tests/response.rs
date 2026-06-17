@@ -7,8 +7,10 @@
 use std::sync::Arc;
 
 use bytes::BytesMut;
+use pretty_assertions::assert_eq;
 use rstest::rstest;
-use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
+use tokio::io::AsyncReadExt;
+use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
     frame::{Endianness, LengthFormat},
@@ -24,31 +26,14 @@ use wireframe_testing::{
     run_app,
 };
 
+#[path = "response/response_errors.rs"]
+mod response_errors;
+
 // Larger cap used for oversized frame tests.
 const LARGE_FRAME: usize = 16 * 1024 * 1024;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct TestResp(u32);
-
-#[derive(Debug)]
-struct FailingResp;
-
-impl bincode::Encode for FailingResp {
-    fn encode<E: bincode::enc::Encoder>(
-        &self,
-        _: &mut E,
-    ) -> Result<(), bincode::error::EncodeError> {
-        Err(bincode::error::EncodeError::Other("fail"))
-    }
-}
-
-impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
-    fn borrow_decode<D: bincode::de::BorrowDecoder<'de, Context = ()>>(
-        _: &mut D,
-    ) -> Result<Self, bincode::error::DecodeError> {
-        Ok(FailingResp)
-    }
-}
 
 #[derive(bincode::Encode, bincode::BorrowDecode, PartialEq, Debug)]
 struct Large(Vec<u8>);
@@ -56,10 +41,6 @@ struct Large(Vec<u8>);
 /// Tests that sending a response serializes and frames the data correctly,
 /// and that the response can be decoded and deserialized back to its original value asynchronously.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn send_response_encodes_and_frames() -> TestResult {
     let app = TestApp::new().expect("failed to create app");
 
@@ -105,32 +86,6 @@ async fn length_prefixed_decode_requires_full_frame() {
     assert_eq!(buf.len(), 2);
 }
 
-struct FailingWriter;
-
-impl tokio::io::AsyncWrite for FailingWriter {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-        _: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        std::task::Poll::Ready(Err(std::io::Error::other("fail")))
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-}
-
 #[rstest]
 #[case(LengthFormat::u16_be(), vec![1, 2, 3, 4], vec![0x00, 0x04])]
 #[case(LengthFormat::u32_le(), vec![9, 8, 7], vec![3, 0, 0, 0])]
@@ -161,18 +116,6 @@ fn custom_length_roundtrip(
     assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
-#[tokio::test]
-async fn send_response_propagates_write_error() {
-    let app = TestApp::new().expect("app creation failed");
-
-    let mut writer = FailingWriter;
-    let err = app
-        .send_response(&mut writer, &TestResp(3))
-        .await
-        .expect_err("send_response should propagate write error");
-    assert!(matches!(err, wireframe::app::SendError::Io(_)));
-}
-
 #[rstest]
 #[case(0, Endianness::Big)]
 #[case(9, Endianness::Little)]
@@ -201,28 +144,84 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
 }
 
-/// Tests that `send_response` returns a serialization error when encoding fails.
-///
-/// This test sends a `FailingResp` using `send_response` and asserts that the resulting
-/// error is of the `Serialize` variant, indicating a failure during response encoding.
 #[tokio::test]
-async fn send_response_returns_encode_error() {
-    // Use a type that fails during serialization; encode should fail before any framing.
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
-    let err = app
-        .send_response(&mut Vec::new(), &FailingResp)
+async fn send_response_framed_with_codec_writes_encoded_frame() {
+    let app = TestApp::new().expect("failed to create app");
+    let (client, mut server) = tokio::io::duplex(1024);
+    let mut framed = Framed::new(client, app.length_codec());
+
+    app.send_response_framed_with_codec(&mut framed, &TestResp(11))
         .await
-        .expect_err("send_response should fail when encode errors");
-    assert!(matches!(err, wireframe::app::SendError::Serialize(_)));
+        .expect("framed send should succeed");
+    drop(framed);
+
+    let mut out = Vec::new();
+    server
+        .read_to_end(&mut out)
+        .await
+        .expect("read framed bytes");
+    let decoded_frames = decode_frames(out).expect("decode response frames");
+    assert_eq!(decoded_frames.len(), 1);
+    let frame = decoded_frames.first().expect("response frame missing");
+    let (decoded, _) = TestResp::from_bytes(frame).expect("deserialize response");
+    assert_eq!(decoded, TestResp(11));
+}
+
+#[tokio::test]
+async fn send_response_framed_sends_raw_serialized_payload() -> TestResult {
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new().expect("failed to create app");
+    let (client, mut server) = tokio::io::duplex(1024);
+    let mut framed = Framed::new(client, app.length_codec());
+    let message = TestResp(23);
+    let expected = BincodeSerializer
+        .serialize(&message)
+        .map_err(|e| format!("serialize failed: {e}"))?;
+
+    app.send_response_framed(&mut framed, &message)
+        .await
+        .map_err(|e| format!("framed send failed: {e}"))?;
+    drop(framed);
+
+    let mut out = Vec::new();
+    server
+        .read_to_end(&mut out)
+        .await
+        .map_err(|e| format!("read framed output failed: {e}"))?;
+    let decoded_frames = decode_frames(out)?;
+    assert_eq!(decoded_frames.len(), 1);
+    let frame = decoded_frames.first().ok_or("response frame missing")?;
+    assert_eq!(frame, &expected);
+    Ok(())
+}
+
+#[tokio::test]
+async fn send_response_framed_honours_buffer_capacity() -> TestResult {
+    let app = TestApp::new()?.buffer_capacity(LARGE_FRAME);
+    let (client, mut server) = tokio::io::duplex(10 * 1024 * 1024);
+    let mut framed = Framed::new(client, app.length_codec());
+    let payload = vec![0_u8; 9 * 1024 * 1024];
+
+    app.send_response_framed(&mut framed, &Large(payload.clone()))
+        .await
+        .map_err(|e| format!("framed send failed: {e}"))?;
+    drop(framed);
+
+    let mut out = Vec::new();
+    server
+        .read_to_end(&mut out)
+        .await
+        .map_err(|e| format!("read framed output failed: {e}"))?;
+    let decoded_frames = decode_frames_with_max(out, LARGE_FRAME)?;
+    assert_eq!(decoded_frames.len(), 1);
+    let frame = decoded_frames.first().ok_or("response frame missing")?;
+    let (decoded, _) = Large::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
+    assert_eq!(decoded.0.len(), payload.len());
+    Ok(())
 }
 
 /// Ensures `send_response` permits frames up to the configured buffer capacity,
 /// exceeding the codec's default 8 MiB limit.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn send_response_honours_buffer_capacity() -> TestResult {
     let app = TestApp::new()?.buffer_capacity(LARGE_FRAME);
 
@@ -245,10 +244,6 @@ async fn send_response_honours_buffer_capacity() -> TestResult {
 /// Verifies inbound and outbound codecs respect the application's buffer
 /// capacity by round-tripping a 9 MiB payload.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn process_stream_honours_buffer_capacity() -> TestResult {
     let app = TestApp::new()?
         .buffer_capacity(LARGE_FRAME)

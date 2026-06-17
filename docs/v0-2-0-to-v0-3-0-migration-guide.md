@@ -65,7 +65,7 @@ classDiagram
         +new(value: NonZeroUsize) BudgetBytes
     }
 
-    class AppFactory~Ser, Ctx, E, Codec~ {
+    class AppFactory {
         <<trait>>
         +call() R
     }
@@ -115,7 +115,7 @@ classDiagram
     class Serializer~S~ {
         <<trait>>
         +serialize(message: EncodeWith~S~) Result~Vec_u8~~
-        +deserialize(bytes: &[u8]) Result~DecodeWith~S~~
+        +deserialize(bytes: ByteSlice) Result~DecodeWith~S~~
     }
 
     class EncodeWith~S~ {
@@ -125,7 +125,7 @@ classDiagram
 
     class DecodeWith~S~ {
         <<trait>>
-        +decode_with(serializer: S, bytes: &[u8]) Result~Self~
+        +decode_with(serializer: S, bytes: ByteSlice) Result~Self~
     }
 
     class SerdeSerializerBridge {
@@ -539,9 +539,9 @@ classDiagram
     }
 
     class TestkitHelpers {
-        +drive_with_partial_frames(app: WireframeApp, frames: Vec~Bytes~)
-        +drive_with_fragments(app: WireframeApp, fragments: Vec~Bytes~)
-        +drive_with_fragment_frames(app: WireframeApp, frames: Vec~Bytes~)
+        +drive_with_partial_frames(app: WireframeApp, frames: BytesVec)
+        +drive_with_fragments(app: WireframeApp, fragments: BytesVec)
+        +drive_with_fragment_frames(app: WireframeApp, frames: BytesVec)
         +drive_with_slow_frames(app: WireframeApp, config: SlowIoConfig)
         +drive_with_slow_payloads(app: WireframeApp, config: SlowIoConfig)
         +assert_message_assembly_completed(snapshot: MessageAssemblySnapshot)
@@ -562,11 +562,11 @@ classDiagram
         +clear() void
         +recorder() MetricsRecorder
         +snapshot() void
-        +codec_error_counter(kind: &str, action: &str) u64
+        +codec_error_counter(kind: str, action: str) u64
     }
 
     class Labels {
-        +with_label(key: &str, value: &str) Labels
+        +with_label(key: str, value: str) Labels
     }
 
     class MetricsRecorder {
@@ -582,8 +582,8 @@ classDiagram
         +mismatched_total_size_wire(payload: Bytes) Bytes
         +truncated_hotline_header() Bytes
         +truncated_hotline_payload(payload_len: usize) Bytes
-        +correlated_hotline_wire(transaction_id: u32, payloads: Vec~Bytes~) Bytes
-        +sequential_hotline_wire(base_transaction_id: u32, payloads: Vec~Bytes~) Bytes
+        +correlated_hotline_wire(transaction_id: u32, payloads: BytesVec) Bytes
+        +sequential_hotline_wire(base_transaction_id: u32, payloads: BytesVec) Bytes
         +new_test_codec() HotlineFrameCodec
     }
 
@@ -784,7 +784,7 @@ classDiagram
 
     class ResponseStream {
         <<futures::Stream>>
-        -client: &mut WireframeClient
+        -client: WireframeClient_ref_mut
         +try_next() Result~Option~Frame~~
     }
 
@@ -793,7 +793,7 @@ classDiagram
         +typed_with(mapper: Mapper) TypedResponseStream
     }
 
-    class TypedResponseStream~S, Mapper, P, Item~ {
+    class TypedResponseStream {
         <<futures::Stream>>
         -inner: S
         -mapper: Mapper

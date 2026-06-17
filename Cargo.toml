@@ -11,7 +11,7 @@ categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe"
 
 [workspace]
-members = [".", "crates/wireframe-verification"]
+members = [".", "crates/wireframe-verification", "wireframe_testing"]
 default-members = ["."]
 resolver = "3"
 
@@ -61,6 +61,8 @@ wireframe = { path = ".", features = ["test-support", "pool", "testkit"] }
 wireframe_testing = { path = "./wireframe_testing" }
 logtest = "2.0.0"
 proptest = "1.7.0"
+googletest = "0.14.3"
+pretty_assertions = "1.4.1"
 loom = "0.7.2"
 async-stream = "0.3.6"
 serial_test = "3.2.0"

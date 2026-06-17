@@ -13,13 +13,13 @@ use crate::{
 };
 
 /// Tracks deserialization failures and enforces a maximum error threshold.
-pub(super) struct DeserFailureTracker<'a> {
+pub(crate) struct DeserFailureTracker<'a> {
     count: &'a mut u32,
     limit: u32,
 }
 
 impl<'a> DeserFailureTracker<'a> {
-    pub(super) fn new(count: &'a mut u32, limit: u32) -> Self { Self { count, limit } }
+    pub(crate) fn new(count: &'a mut u32, limit: u32) -> Self { Self { count, limit } }
 
     pub(super) fn record(
         &mut self,
@@ -31,6 +31,10 @@ impl<'a> DeserFailureTracker<'a> {
         warn!("{context}: correlation_id={correlation_id:?}, error={err:?}");
         crate::metrics::inc_deser_errors();
         if *self.count >= self.limit {
+            warn!(
+                "closing connection after {} deserialization failures: {context}",
+                self.count
+            );
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "too many deserialization failures",

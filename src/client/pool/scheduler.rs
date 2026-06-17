@@ -5,22 +5,19 @@ use std::{
     sync::{
         Arc,
         Mutex,
-        MutexGuard,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
 use tokio::sync::oneshot;
 
-use super::{client_pool::ClientPoolInner, lease::PooledClientLease, policy::PoolFairnessPolicy};
+use super::{
+    client_pool::ClientPoolInner,
+    lease::PooledClientLease,
+    policy::PoolFairnessPolicy,
+    sync::lock_or_recover,
+};
 use crate::{client::ClientError, serializer::Serializer};
-
-fn recover_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    match mutex.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
 
 type WaiterSender<S, P, C> = oneshot::Sender<Result<PooledClientLease<S, P, C>, ClientError>>;
 
@@ -165,12 +162,12 @@ where
 
     pub(crate) fn register_handle(&self) -> u64 {
         let handle_id = self.next_handle_id.fetch_add(1, Ordering::Relaxed);
-        recover_mutex(&self.state).register_handle(handle_id);
+        lock_or_recover(&self.state).register_handle(handle_id);
         handle_id
     }
 
     pub(crate) fn deregister_handle(&self, handle_id: u64) {
-        recover_mutex(&self.state).deregister_handle(handle_id);
+        lock_or_recover(&self.state).deregister_handle(handle_id);
     }
 
     pub(crate) async fn acquire_for_handle(
@@ -183,7 +180,7 @@ where
         }
 
         let (sender, receiver) = oneshot::channel();
-        if !recover_mutex(&self.state).enqueue_waiter(handle_id, sender, self.fairness_policy) {
+        if !lock_or_recover(&self.state).enqueue_waiter(handle_id, sender, self.fairness_policy) {
             tracing::warn!(
                 handle_id,
                 fairness_policy = ?self.fairness_policy,
@@ -210,7 +207,7 @@ where
     }
 
     pub(crate) fn notify_shutdown(&self) {
-        let mut state = recover_mutex(&self.state);
+        let mut state = lock_or_recover(&self.state);
         while let Some(waiter) = state.take_next_waiter(self.fairness_policy) {
             let _ = waiter.send(Err(ClientError::disconnected()));
         }
@@ -237,7 +234,7 @@ where
     }
 
     fn restart_if_waiters(&self) -> bool {
-        if !recover_mutex(&self.state).has_waiters() {
+        if !lock_or_recover(&self.state).has_waiters() {
             return false;
         }
 
@@ -248,7 +245,8 @@ where
 
     fn take_next_waiter_or_stop(&self) -> Option<WaiterSender<S, P, C>> {
         loop {
-            if let Some(sender) = recover_mutex(&self.state).take_next_waiter(self.fairness_policy)
+            if let Some(sender) =
+                lock_or_recover(&self.state).take_next_waiter(self.fairness_policy)
             {
                 return Some(sender);
             }

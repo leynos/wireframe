@@ -6,8 +6,7 @@
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::net::{TcpListener, TcpStream};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use wireframe::{
     app::Envelope,
     message::Message,
@@ -15,6 +14,8 @@ use wireframe::{
     serializer::BincodeSerializer,
 };
 
+#[path = "support/runtime_bootstrap.rs"]
+mod runtime_bootstrap;
 #[path = "support/server_loop.rs"]
 mod server_loop;
 
@@ -89,14 +90,6 @@ fn build_app() -> wireframe::app::Result<App> {
         .route(1, Arc::new(handle_packet))
 }
 
-fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
-
-fn build_runtime_app() -> std::io::Result<Arc<App>> {
-    build_app()
-        .map(Arc::new)
-        .map_err(|error| std::io::Error::other(error.to_string()))
-}
-
 fn parse_server_addr() -> std::io::Result<SocketAddr> {
     let addr_str = std::env::var("SERVER_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
     addr_str.parse().map_err(|error| {
@@ -107,37 +100,16 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
     })
 }
 
-async fn bind_listener() -> std::io::Result<TcpListener> {
-    let addr = parse_server_addr()?;
-    TcpListener::bind(addr).await
-}
-
-fn spawn_connection(app: Arc<App>, stream: TcpStream) {
-    tokio::spawn(async move {
-        if let Err(error) = app.handle_connection_result(stream).await {
-            error!("connection handling failed: {error}");
-        }
-    });
-}
-
 async fn run() -> std::io::Result<()> {
-    init_tracing();
-    let app = build_runtime_app()?;
-    let listener = bind_listener().await?;
-
-    while let Some(stream) =
-        server_loop::accept_until_shutdown(&listener, "packet_enum server received shutdown signal")
-            .await?
-    {
-        spawn_connection(Arc::clone(&app), stream);
-    }
-
-    Ok(())
+    runtime_bootstrap::init_tracing();
+    let app = runtime_bootstrap::build_runtime_app(build_app)?;
+    let listener = runtime_bootstrap::bind_listener(parse_server_addr()?).await?;
+    runtime_bootstrap::serve_until_shutdown(
+        listener,
+        app,
+        "packet_enum server received shutdown signal",
+    )
+    .await
 }
 
-fn main() -> std::io::Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    runtime.block_on(run())
-}
+fn main() -> std::io::Result<()> { runtime_bootstrap::run_current_thread(run()) }

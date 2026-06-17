@@ -28,6 +28,10 @@ where
     /// This means that any subsequent builder methods will operate on the new connection state type
     /// `C2`. Be aware of this type transition when chaining builder methods.
     ///
+    /// Because teardown callbacks receive the connection state, this transition
+    /// clears any teardown callback registered for the previous `C` type.
+    /// Register teardown after setup when both hooks are needed.
+    ///
     /// # Errors
     ///
     /// This function always succeeds currently but uses [`Result`] for
@@ -41,22 +45,7 @@ where
         Fut: Future<Output = C2> + Send + 'static,
         C2: Send + 'static,
     {
-        Ok(WireframeApp {
-            handlers: self.handlers,
-            routes: tokio::sync::OnceCell::new(),
-            middleware: self.middleware,
-            serializer: self.serializer,
-            app_data: self.app_data,
-            on_connect: Some(Arc::new(move || Box::pin(f()))),
-            on_disconnect: None,
-            protocol: self.protocol,
-            push_dlq: self.push_dlq,
-            codec: self.codec,
-            read_timeout_ms: self.read_timeout_ms,
-            fragmentation: self.fragmentation,
-            message_assembler: self.message_assembler,
-            memory_budgets: self.memory_budgets,
-        })
+        Ok(self.rebuild_with_connection_state(Some(Arc::new(move || Box::pin(f())))))
     }
 
     /// Register a callback invoked when a connection is closed.

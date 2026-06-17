@@ -9,7 +9,7 @@ mod decode;
 mod reassembly;
 mod response;
 
-pub(crate) use core::ResponseContext;
+pub(crate) use core::{DeserFailureTracker, ResponseContext};
 
 pub(crate) use assembly::{
     AssemblyRuntime,

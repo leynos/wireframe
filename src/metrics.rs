@@ -32,6 +32,15 @@ pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
 /// wireframe_connection_panics_total 1
 /// ```
 pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
+/// Name of the counter tracking recovered client pool bookkeeping lock poison.
+///
+/// ```plaintext
+/// # HELP wireframe_pool_bookkeeping_poison_recoveries_total Count of recovered client pool bookkeeping locks.
+/// # TYPE wireframe_pool_bookkeeping_poison_recoveries_total counter
+/// wireframe_pool_bookkeeping_poison_recoveries_total 1
+/// ```
+pub const POOL_BOOKKEEPING_POISON_RECOVERIES: &str =
+    "wireframe_pool_bookkeeping_poison_recoveries_total";
 
 /// Name of the counter tracking codec errors by type and recovery policy.
 ///
@@ -119,6 +128,15 @@ pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
 
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connection_panics() {}
+
+/// Record a recovered client pool bookkeeping lock poison event.
+#[cfg(feature = "metrics")]
+pub fn inc_pool_bookkeeping_poison_recoveries() {
+    counter!(POOL_BOOKKEEPING_POISON_RECOVERIES).increment(1);
+}
+
+#[cfg(not(feature = "metrics"))]
+pub fn inc_pool_bookkeeping_poison_recoveries() {}
 
 /// Record a codec error with its type and recovery policy.
 ///

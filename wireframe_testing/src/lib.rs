@@ -19,6 +19,7 @@
 //! ```
 
 pub mod client_pair;
+pub mod codec_benchmarks;
 pub mod echo_server;
 pub mod helpers;
 pub mod integration_helpers;

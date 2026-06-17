@@ -18,19 +18,13 @@ use wireframe::codec::{
     LengthDelimitedFrameCodec,
     examples::{HotlineAdapter, HotlineFrameCodec},
 };
-
-#[path = "../tests/common/codec_benchmark_support.rs"]
-mod codec_benchmark_support;
-
-#[path = "../tests/common/codec_alloc_benchmark_support.rs"]
-mod codec_alloc_benchmark_support;
-
-use codec_alloc_benchmark_support::{AllocationBaseline, allocation_label};
-use codec_benchmark_support::{
+use wireframe_testing::codec_benchmarks::{
+    AllocationBaseline,
     BenchmarkWorkload,
     CodecUnderTest,
     LARGE_PAYLOAD_BYTES,
     VALIDATION_ITERATIONS,
+    allocation_label,
     benchmark_workloads,
     measure_decode,
     measure_encode,
