@@ -232,11 +232,18 @@ this plan.
       a pre-existing merman-cli classDiagram baseline failure in
       `docs/v0-2-0-to-v0-3-0-migration-guide.md`. Fixed the two comma-in-
       generic class headers and recorded the root cause in
-      `Surprises & discoveries`. Commit `5d19ce1`
-      ("Fix merman-cli classDiagram parse errors in v0.2→v0.3 guide").
+      `Surprises & discoveries`. (Superseded on 2026-06-18; see below.)
 - [x] (2026-06-15) Re-ran the post-turn gate command
       `make --no-print-directory markdownlint nixie`: exit 0, "All diagrams
-      validated successfully!". Pushed both commits to PR #533.
+      validated successfully!". Pushed all commits to PR #533.
+- [x] (2026-06-18) Rebased the branch onto `origin/main`. The roadmap tick
+      auto-merged cleanly alongside main's `15.1.3` edit. The migration-guide
+      diagram fix conflicted with main's commit `9f666a6`
+      ("Address code-base audit findings"), which had independently fixed the
+      same merman-cli diagrams more comprehensively. Resolved by taking main's
+      version, so `docs/v0-2-0-to-v0-3-0-migration-guide.md` is now identical
+      to `origin/main` and no longer part of this branch's diff. Re-validated
+      and force-pushed with lease.
 
 Use timestamps when ticking items to make rate-of-progress visible.
 
@@ -277,6 +284,23 @@ Use timestamps when ticking items to make rate-of-progress visible.
   `make nixie` now passes repo-wide ("All diagrams validated successfully!").
   Impact: a one-file baseline fix outside the `10.1.2` decision surface,
   recorded here for traceability.
+
+- Observation (2026-06-18): during the rebase onto `origin/main`, the
+  migration-guide diagram fix above collided head-on with main's commit
+  `9f666a6` ("Address code-base audit findings"), which had independently
+  fixed the *same* merman-cli diagrams — and more of them — using a different
+  house style: dropping the class-level generics outright
+  (`class AppFactory`) and rewriting other merman-hostile tokens
+  (`&[u8]` → `ByteSlice`, `Vec~Bytes~` → `BytesVec`, `&str` → `str`,
+  `&mut WireframeClient` → `WireframeClient_ref_mut`). Evidence: the rebase
+  raised two conflicts, both confined to the two class headers this branch
+  had edited. Impact: main's fix is the more complete and internally
+  consistent one, so the conflict was resolved by taking main's version
+  wholesale; this branch's display-label edit was dropped as superseded. The
+  branch's real objective for that file — making the repo-wide nixie gate
+  pass — is preserved by main's fix. Lesson: when an incidental baseline fix
+  is forced by a repo-wide gate, expect the canonical fix to land on `main`
+  in parallel; prefer adopting it over defending a local variant.
 
 - Observation (2026-06-15): the deterministic Rust gates pass on the
   docs-only diff. Evidence: `make check-fmt` clean
@@ -425,6 +449,20 @@ proceeds.
   generic signature as rendered text, so no diagram meaning is lost. This is
   a one-file edit outside the `10.1.2` decision surface and does not affect
   the rollout policy. Date/Author: 2026-06-15 / Codex.
+  Superseded 2026-06-18: see the rebase decision below.
+
+- Decision: on rebasing onto `origin/main`, resolve the migration-guide
+  diagram conflict by adopting main's version wholesale and dropping this
+  branch's display-label edit. Rationale: main's commit `9f666a6` had already
+  fixed the same merman-cli diagrams more comprehensively and in a consistent
+  house style (stripping the generic and reference decorations across every
+  affected class), so keeping our labelled form for two classes while main's
+  stripped form covered the rest would leave the diagram stylistically
+  inconsistent. The branch's only stake in that file was a passing repo-wide
+  nixie gate, which main's version satisfies, so nothing of this milestone's
+  purpose is lost. The lock-file guidance did not apply: `Cargo.lock` changed
+  only on `main` and not on this branch, so it merged without conflict.
+  Date/Author: 2026-06-18 / Codex.
 
 Any further design decision taken during implementation must be appended here
 before commit.
@@ -450,15 +488,23 @@ introduction, reviewed at every breaking release starting with roadmap item
 No runtime public API migration was made in this work; that remains assigned
 to phases `11`–`14`.
 
-Validation gate results (2026-06-15) are recorded in `Surprises &
-discoveries`. `make check-fmt`, `make lint`, and `make test` pass on the
-docs-only diff, and the repo-wide post-turn gate
-(`make markdownlint nixie`) passes after a one-file fix to a pre-existing
-merman-cli classDiagram baseline failure in the v0.2→v0.3 migration guide.
-CodeRabbit review was waived by the user for this docs-only milestone. The
-branch carries three commits: the plan draft (`b77527f`), the ADR 009
-acceptance and document alignment (`8a43e70`), and the nixie baseline fix
-(`5d19ce1`), all pushed to PR #533.
+Validation gate results are recorded in `Surprises & discoveries`.
+`make check-fmt`, `make lint`, and `make test` pass on the docs-only diff,
+and the repo-wide post-turn gate (`make markdownlint nixie`) passes.
+CodeRabbit review was waived by the user for this docs-only milestone.
+
+On 2026-06-18 the branch was rebased onto `origin/main` and force-pushed
+with lease. The rebase carried four commits: the plan draft, the ADR 009
+acceptance and document alignment, the (now superseded) nixie baseline
+commit, and the progress-recording commit. The migration-guide diagram fix
+conflicted with main's independent, more comprehensive fix in commit
+`9f666a6` and was resolved in main's favour, so the migration guide is no
+longer part of this branch's diff. After the rebase the branch's diff
+against `origin/main` is exactly the five `10.1.2` documents:
+`docs/adr-009-vec-u8-migration-rollout.md`, this ExecPlan,
+`docs/frame-vec-u8-inventory.md`, `docs/roadmap.md`, and
+`docs/zero-copy-frame-and-payload-migration-roadmap.md`. The roadmap tick
+auto-merged cleanly alongside main's `15.1.3` edit.
 
 Lessons learnt:
 
