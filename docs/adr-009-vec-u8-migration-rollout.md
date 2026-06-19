@@ -7,10 +7,10 @@ Accepted
 Accepted on 2026-06-15. Wireframe will ship the zero-copy public API as a
 staged breaking release (Option C) with a narrow, finite set of `Vec<u8>`
 compatibility helpers. The helpers ship in the default build, carry
-`#[deprecated]` attributes that name both the migration path and the
-scheduled removal version, and are removed in the second breaking release
-after they are introduced. This decision closes roadmap item `10.1.2` and
-the corresponding item `1.1.2` in
+`#[deprecated]` attributes that name both the migration path and the scheduled
+removal version, and are removed in the second breaking release after they are
+introduced. This decision closes roadmap item `10.1.2` and the corresponding
+item `1.1.2` in
 [`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md).
 
 ## Date
@@ -117,34 +117,32 @@ The accepted rollout policy is:
 
 ### Accepted helper set and dispositions
 
-The compatibility surface is deliberately narrow. There is a single
-conversion surface, not one adapter per call site:
+The compatibility surface is deliberately narrow. There is a single conversion
+surface, not one adapter per call site:
 
 - **Stable byte wrapper.** `PayloadBytes::from_vec` and
   `PayloadBytes::into_vec` are the only `Vec<u8>` conversion helpers for
-  transport hand-offs. Packet, envelope, and serializer code routes
-  through the wrapper; no per-call-site `PacketParts::from_vec` or
-  `Envelope::from_vec` constructors are added. The exact internal
-  representation is settled by roadmap items `11.1.1`, `12.1.1`, and
-  `12.2.1`; this ADR commits to the names.
+  transport hand-offs. Packet, envelope, and serializer code routes through the
+  wrapper; no per-call-site `PacketParts::from_vec` or `Envelope::from_vec`
+  constructors are added. The exact internal representation is settled by
+  roadmap items `11.1.1`, `12.1.1`, and `12.2.1`; this ADR commits to the names.
 - **Serializer.** `Serializer::serialize` returns the stable byte wrapper.
-  If a `serialize_to_vec` shim proves necessary for downstream code that
-  cannot yet accept the wrapper, it ships as a thin `#[deprecated]` wrapper
-  over `PayloadBytes::into_vec`.
+  If a `serialize_to_vec` shim proves necessary for downstream code that cannot
+  yet accept the wrapper, it ships as a thin `#[deprecated]` wrapper over
+  `PayloadBytes::into_vec`.
 - **Middleware editing is removed, not retained.**
   `ServiceRequest::frame_mut`, `ServiceResponse::frame_mut`, and
   `ServiceResponse::into_inner` (the `&mut Vec<u8>` / owned-`Vec<u8>`
-  accessors) are removed outright in the breaking release and replaced by
-  the edit-on-demand workflow accepted in
+  accessors) are removed outright in the breaking release and replaced by the
+  edit-on-demand workflow accepted in
   [ADR 008](adr-008-zero-copy-public-byte-container.md). Retaining a
-  `&mut Vec<u8>` accessor would resurrect the final-copy bottleneck that
-  ADR 008 set out to eliminate, so it is excluded from the helper set on
-  purpose.
+  `&mut Vec<u8>` accessor would resurrect the final-copy bottleneck that ADR
+  008 set out to eliminate, so it is excluded from the helper set on purpose.
 - **Client request hooks.** `BeforeSendHook` gains one adapter constructor
   (`BeforeSendHook::from_vec_fn`, or the free-function
-  `before_send_from_vec_fn` on `RequestHooks`) so existing
-  `Fn(&mut Vec<u8>)` hooks keep compiling for one release cycle. The exact
-  bound is finalised by roadmap item `12.2.1`.
+  `before_send_from_vec_fn` on `RequestHooks`) so existing `Fn(&mut Vec<u8>)`
+  hooks keep compiling for one release cycle. The exact bound is finalised by
+  roadmap item `12.2.1`.
 - **Client preamble leftovers** stay on owned `Vec<u8>` for this breaking
   release, per the resolved direction in
   [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md). Roadmap item
@@ -153,46 +151,52 @@ conversion surface, not one adapter per call site:
   `CorrelatableFrame for Vec<u8>` runtime bridge and the test-only
   `Packet for Vec<u8>` bridge are not compatibility helpers under ADR 009.
   Their lifecycle is governed by
-  [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) and roadmap
-  items `11.2.1`, `11.2.2`, and `14.1.3`.
+  [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) and roadmap items
+  `11.2.1`, `11.2.2`, and `14.1.3`.
 
 ### Visibility and deprecation discipline
 
 - Helpers ship in the **default build**, not behind a feature flag, so the
-  deprecation warning reaches every consumer rather than only those who
-  read the changelog.
-- Every helper carries
-  `#[deprecated(since = "<release-version>", note = "<recommended path>; \
-  scheduled for removal in <target-removal-version>")]`. The `note` names
-  both the recommended migration path and the removal version, so users who
-  suppress the warning still learn the removal version from `cargo doc`.
+  deprecation warning reaches every consumer rather than only those who read
+  the changelog.
+- Every helper carries a `#[deprecated]` attribute whose `note` names both the
+  recommended migration path and the removal version, so users who suppress the
+  warning still learn the removal version from `cargo doc`. The release-time
+  form is:
+
+  ```rust
+  #[deprecated(
+      since = "<release-version>",
+      note = "<recommended path>; scheduled for removal in <target-removal-version>"
+  )]
+  ```
+
 - The `<release-version>` and `<target-removal-version>` placeholders are
-  substituted at release-cut time by roadmap item `14.1.1`. This ADR
-  commits to the substitution rule, not to literal version strings.
+  substituted at release-cut time by roadmap item `14.1.1`. This ADR commits to
+  the substitution rule, not to literal version strings.
 - The `PayloadBytes::into_vec` `note` must steer users to a zero-copy path
   (`PayloadBytes::as_slice`, `bytes::Bytes::freeze`, or the edit-on-demand
-  editor) rather than only to the editor, because `into_vec` itself
-  allocates and copies and the recommended replacement should preserve the
-  zero-copy intent.
+  editor) rather than only to the editor, because `into_vec` itself allocates
+  and copies and the recommended replacement should preserve the zero-copy
+  intent.
 
 ### Removal signal
 
 - Helpers are removed in the **second breaking release** after they are
-  introduced. Under 0.x semver, where every minor bump is a breaking
-  release, that is `0.N → 0.N+2`; once Wireframe has cut 1.0, it is
-  `1.x → 2.x`. Stating the trigger in terms of breaking releases keeps the
-  policy invariant under whatever cadence the project adopts.
+  introduced. Under 0.x semver, where every minor bump is a breaking release,
+  that is `0.N → 0.N+2`; once Wireframe has cut 1.0, it is `1.x → 2.x`. Stating
+  the trigger in terms of breaking releases keeps the policy invariant under
+  whatever cadence the project adopts.
 - The review trigger is **event-based, not calendar-based**: retained
   helpers are reviewed at every breaking release after their introduction,
   starting with roadmap item `14.2.1`, until removal lands.
 
 ### Release guardrails (deferred wiring)
 
-`cargo-semver-checks` and `cargo-public-api` are the suggested guardrails
-for confirming that the breaking release changes the intended public
-surface and nothing more. Their CI wiring is deferred to roadmap item
-`14.1.x`. Until that wiring lands, this policy is **enforced by review
-only**.
+`cargo-semver-checks` and `cargo-public-api` are the suggested guardrails for
+confirming that the breaking release changes the intended public surface and
+nothing more. Their CI wiring is deferred to roadmap item `14.1.x`. Until that
+wiring lands, this policy is **enforced by review only**.
 
 ### Deferred to other roadmap items
 
@@ -295,13 +299,13 @@ documentation and narrowly scoped adapters to keep downstream adoption
 manageable.
 
 The mechanics lean on stable Rust and the existing dependency surface. The
-`#[deprecated]` attribute is the canonical mechanism for a finite
-compatibility window: `rustdoc` renders both the `since` version and the
-`note`, so the migration path and removal version travel with the API
-itself.[^deprecated] The stable byte wrapper builds on the `bytes` crate
-already used by the default codec, where `Bytes` is cheaply cloneable shared
-storage and `BytesMut` provides unique mutable access with a zero-copy
-`freeze()`.[^bytes][^bytesmut] No new dependency is required.
+`#[deprecated]` attribute is the canonical mechanism for a finite compatibility
+window: `rustdoc` renders both the `since` version and the `note`, so the
+migration path and removal version travel with the API itself.[^deprecated] The
+stable byte wrapper builds on the `bytes` crate already used by the default
+codec, where `Bytes` is cheaply cloneable shared storage and `BytesMut`
+provides unique mutable access with a zero-copy `freeze()`.[^bytes][^bytesmut]
+No new dependency is required.
 
 For the release boundary, `cargo-semver-checks` (rustdoc-JSON-based semver
 linting, run just before `cargo publish`)[^semver-checks] and
@@ -310,12 +314,12 @@ guardrails that confirm the breaking release changes the intended surface and
 nothing more. Wiring them into CI is deferred to roadmap item `14.1.x`; until
 then the policy is enforced by review.
 
-A staged break with finite helpers is also the pattern used by comparable
-Rust libraries: hyper's 1.0 upgrade shipped `backports` and `deprecated`
-features on 0.14 to give users a warning window, and moved helpers that did
-not fit the 1.0 stability bar into a separate crate rather than retaining them
-in core.[^hyper] Wireframe's policy reaches the same goal with `#[deprecated]`
-helpers in the default build, scoped to a single conversion surface.
+A staged break with finite helpers is also the pattern used by comparable Rust
+libraries: hyper's 1.0 upgrade shipped `backports` and `deprecated` features on
+0.14 to give users a warning window, and moved helpers that did not fit the 1.0
+stability bar into a separate crate rather than retaining them in core.[^hyper]
+Wireframe's policy reaches the same goal with `#[deprecated]` helpers in the
+default build, scoped to a single conversion surface.
 
 [^deprecated]: The `deprecated` attribute, Rust Reference.
     <https://doc.rust-lang.org/reference/attributes/diagnostics.html>

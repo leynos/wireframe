@@ -30,8 +30,8 @@ connection actor drains the receiver. A planned
 initial `Response` (e.g. a header frame) to be emitted before the channel is
 drained.
 
-Observable outcome: a user calls `client.call_streaming(request)` and receives
-a `ResponseStream<P>` that yields each data frame as `Result<P, ClientError>`,
+Observable outcome: a user calls `client.call_streaming(request)` and receives a
+`ResponseStream<P>` that yields each data frame as `Result<P, ClientError>`,
 terminating cleanly when the server's end-of-stream marker arrives. Running
 `make test` passes, including new unit and behaviour-driven development (BDD)
 behavioural tests that exercise single-frame, multi-frame, empty-stream,

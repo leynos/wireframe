@@ -170,7 +170,8 @@ actor and codec-driver boundary. Those are separate roadmap items.
   provides unique mutable access and can freeze into shareable `Bytes`.
   Evidence: Firecrawl scrapes of docs.rs pages for `Bytes` and `BytesMut`.
   Impact: those semantics support ADR 008's Option B, but Wireframe still needs
-  a project-level editing API, so callers do not manage buffer taxonomy manually.
+  a project-level editing API, so callers do not manage buffer taxonomy
+  manually.
 
 - Observation: the public Netsuke repository exposes small validation scripts
   such as `assert-file-absent.sh`, `assert-file-exists.sh`,
@@ -296,7 +297,7 @@ Important current code surfaces to inspect with `leta` before implementation:
 
 - `src/app/envelope.rs`: `PacketParts`, `Envelope`, `Packet`,
   `PacketParts::new`, `PacketParts::payload_bytes`, `PacketParts::into_payload`,
-   `Envelope::new`, and conversions between `PacketParts` and `Envelope`.
+  `Envelope::new`, and conversions between `PacketParts` and `Envelope`.
 - `src/middleware.rs`: `ServiceRequest`, `ServiceResponse`,
   `FrameContainer`, `frame`, `frame_mut`, `into_inner`, and
   `HandlerService::call`.

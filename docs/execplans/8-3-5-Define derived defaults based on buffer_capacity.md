@@ -1,9 +1,8 @@
 # Define derived memory budget defaults from `buffer_capacity` (8.3.5)
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -202,8 +201,8 @@ Success is observable when:
 
 - Decision: `buffer_capacity()` and `with_codec()` do NOT need to clear
   derived defaults because derivation is lazy (computed at runtime from
-  `codec.max_frame_length()`), not stored on the builder. Rationale: mirrors
-  how `default_fragmentation()` works -- it is called at runtime in
+  `codec.max_frame_length()`), not stored on the builder. Rationale: mirrors how
+  `default_fragmentation()` works -- it is called at runtime in
   `new_message_assembly_state()` when the stored `fragmentation` is `None`.
   Changing the codec automatically changes the input to the derivation
   function. Date/Author: 2026-02-26 / plan phase.
@@ -288,15 +287,15 @@ which takes `frame_budget: usize`, clamps it, multiplies by
 `src/app/inbound_handler.rs` (392 lines) contains
 `WireframeApp::process_stream()`. Two call sites use `self.memory_budgets`:
 
-1. Line 270-276: `frame_handling::new_message_assembly_state(self.fragmentation,
-   requested_frame_length,
-   self.memory_budgets)` -- creates `MessageAssemblyState`. When budgets is `
-   None`, no aggregate enforcement occurs.
+1. Line 270-276:
+   `frame_handling::new_message_assembly_state(...)` -- creates
+   `MessageAssemblyState`. When budgets is `None`, no aggregate enforcement
+   occurs.
 
-2. Line 281-284: `frame_handling::evaluate_memory_pressure(
-   message_assembly.as_ref(),
-   self.memory_budgets)` -- evaluates pressure. When budgets is `None
-   `, returns `Continue` unconditionally.
+2. Line 281-284:
+   `frame_handling::evaluate_memory_pressure( message_assembly.as_ref(), self.memory_budgets)`
+   -- evaluates pressure. When budgets is `None`, returns `Continue`
+   unconditionally.
 
 Both call sites pass the raw `Option<MemoryBudgets>`. Task 8.3.5 resolves this
 to an always-`Some` value by deriving defaults when the field is `None`.
@@ -487,8 +486,8 @@ Follow the `memory_budget_hard_cap.rs` pattern. The world struct
 - `start_app_derived(buffer_capacity)` -- creates `WireframeApp` with
   `.buffer_capacity(capacity)` and `.enable_fragmentation()` but NO
   `.memory_budgets(...)` call. Derived budgets activate at runtime.
-- `start_app_explicit(buffer_capacity, per_message, per_connection,
-  in_flight)` -- same but adds `.memory_budgets(…)`.
+- `start_app_explicit(buffer_capacity, per_message, per_connection, in_flight)`
+  -- same but adds `.memory_budgets(…)`.
 
 Reuse the frame-sending helpers and assertion methods from the hard-cap fixture
 pattern.
@@ -661,8 +660,8 @@ Expected artefacts after completion:
 - Modified: `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
 - Modified: `docs/users-guide.md`.
 - Modified: `docs/roadmap.md`.
-- New: `docs/execplans/8-3-5-Define derived defaults based on
-  buffer_capacity.md`.
+- New:
+  `docs/execplans/8-3-5-Define derived defaults based on buffer_capacity.md`.
 - Gate logs: `/tmp/wireframe-8-3-5-*.log`.
 
 Total: 5 new files (4 test + 1 execplan), 11 modified files = 16 artefacts (at
@@ -716,9 +715,10 @@ pub(crate) fn resolve_effective_budgets(
 
 In `src/app/inbound_handler.rs::process_stream`:
 
-- Calls `frame_handling::resolve_effective_budgets(self.memory_budgets,
-  requested_frame_length)` once and passes `Some(effective_budgets)` to both `
-  new_message_assembly_state()` and `evaluate_memory_pressure()`.
+- Calls
+  `frame_handling::resolve_effective_budgets(self.memory_budgets, requested_frame_length)`
+  once and passes `Some(effective_budgets)` to both
+  `new_message_assembly_state()` and `evaluate_memory_pressure()`.
 
 In behavioural tests:
 

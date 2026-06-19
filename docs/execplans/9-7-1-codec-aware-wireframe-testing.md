@@ -1,9 +1,8 @@
 # 9.7.1 Extend wireframe\_testing with codec-aware test drivers
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -560,29 +559,29 @@ where
 
 ### Files to modify
 
-| File                                                             | Change                                               |
-| ---------------------------------------------------------------- | ---------------------------------------------------- |
-| `src/app/builder/codec.rs`                                       | Add `pub fn codec(&self) -> &F` accessor             |
-| `wireframe_testing/src/helpers.rs`                               | Add `mod codec_ext; mod codec_drive;` and re-exports |
-| `wireframe_testing/src/lib.rs`                                   | Add re-exports for new public functions              |
-| (none — tests placed in `tests/codec_test_harness.rs` instead)   | See Surprises                                        |
-| `tests/fixtures/mod.rs`                                          | Add `pub mod codec_test_harness;`                    |
-| `tests/steps/mod.rs`                                             | Add `mod codec_test_harness_steps;`                  |
-| `tests/scenarios/mod.rs`                                         | Add `mod codec_test_harness_scenarios;`              |
-| `docs/adr-004-pluggable-protocol-codecs.md`                      | Add test harness design decision                     |
-| `docs/users-guide.md`                                            | Document new public API                              |
-| `docs/roadmap.md`                                                | Mark 9.7.1 done                                      |
+| File                                                           | Change                                               |
+| -------------------------------------------------------------- | ---------------------------------------------------- |
+| `src/app/builder/codec.rs`                                     | Add `pub fn codec(&self) -> &F` accessor             |
+| `wireframe_testing/src/helpers.rs`                             | Add `mod codec_ext; mod codec_drive;` and re-exports |
+| `wireframe_testing/src/lib.rs`                                 | Add re-exports for new public functions              |
+| (none — tests placed in `tests/codec_test_harness.rs` instead) | See Surprises                                        |
+| `tests/fixtures/mod.rs`                                        | Add `pub mod codec_test_harness;`                    |
+| `tests/steps/mod.rs`                                           | Add `mod codec_test_harness_steps;`                  |
+| `tests/scenarios/mod.rs`                                       | Add `mod codec_test_harness_scenarios;`              |
+| `docs/adr-004-pluggable-protocol-codecs.md`                    | Add test harness design decision                     |
+| `docs/users-guide.md`                                          | Document new public API                              |
+| `docs/roadmap.md`                                              | Mark 9.7.1 done                                      |
 
 ## Artifacts and notes
 
 Reference pattern for BDD world: `tests/fixtures/codec_stateful.rs` — defines
 `CodecStatefulWorld` with a `SeqFrameCodec`, server management, and frame
 exchange helpers. The new `CodecTestHarnessWorld` follows the same pattern but
-uses `wireframe_testing` codec-aware drivers instead of manual
-`Framed`/`SinkExt` operations.
+uses `wireframe_testing` codec-aware drivers instead of manual `Framed`/
+`SinkExt` operations.
 
 Reference pattern for step definitions: `tests/steps/codec_stateful_steps.rs` —
 wraps async calls with `tokio::runtime::Runtime::new()?.block_on(...)`.
 
-Reference pattern for scenarios: `tests/scenarios/codec_stateful_scenarios.rs`
-— `#[scenario]` macro with `#[expect(unused_variables)]` attribute.
+Reference pattern for scenarios: `tests/scenarios/codec_stateful_scenarios.rs` —
+`#[scenario]` macro with `#[expect(unused_variables)]` attribute.

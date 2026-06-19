@@ -1,9 +1,8 @@
 # Add ergonomic helpers for consuming streaming responses (17.3.1)
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: DONE
 
@@ -389,8 +388,8 @@ public surface only so it participates cleanly in `make test-doc` and
 
 If the generic helper naturally works with `response::FrameStream` too, add a
 small integration test under `tests/` proving that path. If not, do not force
-it in `17.3.1`; note the narrower scope in the design docs and leave the
-generic `Response::Stream` support as a follow-up.
+it in `17.3.1`; note the narrower scope in the design docs and leave the generic
+`Response::Stream` support as a follow-up.
 
 ### Stage D: update documentation and roadmap
 
@@ -455,9 +454,10 @@ To be completed during implementation. At minimum, record:
   `Stream<Item = Result<P, ClientError>>`; it was not generalized to
   `response::FrameStream` in `17.3.1`.
 - Trait-only outcome: sufficient. No macro was added.
-- Validation status so far: targeted `cargo test typed_response_stream
-  --all-features` and `cargo test client_streaming
-  --all-features` passed during implementation before the full Makefile gates.
+- Validation status so far: targeted
+  `cargo test typed_response_stream --all-features` and
+  `cargo test client_streaming --all-features` passed during implementation
+  before the full Makefile gates.
 - Full validation passed:
   - `make fmt`
   - `make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2`

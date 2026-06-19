@@ -164,8 +164,8 @@ as `runnable`, `no_run`, `ignore`, or `compile_fail`, with item visibility
 (public/private/test-only) and module path.
 
 Stage B enables doctests and introduces a repeatable verification command path.
-Set `doctest = true` and add a dedicated Make target (`make test-doc`) that
-runs `cargo test --doc --all-features` with warnings denied.
+Set `doctest = true` and add a dedicated Make target (`make test-doc`) that runs
+`cargo test --doc --all-features` with warnings denied.
 
 Stage C resolves compile failures and applies runtime policy. Pure examples
 should be runnable unless there is a concrete side effect risk. Examples that

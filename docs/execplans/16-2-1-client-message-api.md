@@ -138,8 +138,8 @@ Finally, update documentation and mark the roadmap item as done.
 4. Implement `next_correlation_id(&self) -> u64` method that atomically
    increments and returns the counter.
 
-5. Implement `send_envelope<P: Packet>(&mut self, envelope: P) -> Result<u64,
-   ClientError>`:
+5. Implement
+   `send_envelope<P: Packet>(&mut self, envelope: P) -> Result<u64, ClientError>`:
    - Auto-generate correlation ID if not present
    - Serialize and send the envelope
    - Return the correlation ID used
@@ -148,8 +148,8 @@ Finally, update documentation and mark the roadmap item as done.
    - Receive and deserialize the frame as the packet type
    - Invoke error hook on failures
 
-7. Implement `call_correlated<P: Packet>(&mut self, request: P) -> Result<P,
-   ClientError>`:
+7. Implement
+   `call_correlated<P: Packet>(&mut self, request: P) -> Result<P, ClientError>`:
    - Send request with auto-correlation
    - Receive response
    - Validate correlation ID matches
@@ -238,13 +238,13 @@ Expected artifacts after completion:
 At the end of this work, the following public interfaces exist:
 
 - `WireframeClient::next_correlation_id(&self) -> u64` - Generate unique ID
-- `WireframeClient::send_envelope<P: Packet>(&mut self, envelope: P) ->
-  Result<u64, ClientError>` - Send with auto-correlation
-- `WireframeClient::receive_envelope<P: Packet>(&mut self) -> Result<P,
-  ClientError>` - Receive typed envelope
-- `WireframeClient::call_correlated<P: Packet>(&mut self, request: P) ->
-  Result<P, ClientError>` - Request-response with validation
-- `ClientError::CorrelationMismatch { expected: Option<u64>, received:
-  Option<u64> }` - Error variant for mismatched IDs
+- `WireframeClient::send_envelope<P: Packet>(...) -> Result<u64, ClientError>`
+  - Send with auto-correlation
+- `WireframeClient::receive_envelope<P: Packet>(&mut self) -> Result<P, ClientError>`
+  - Receive typed envelope
+- `WireframeClient::call_correlated<P: Packet>(...) -> Result<P, ClientError>`
+  - Request-response with validation
+- `ClientError::CorrelationMismatch { expected, received }`
+  - Error variant for mismatched IDs
 
 The methods depend on the `Packet` trait which is implemented by `Envelope`.

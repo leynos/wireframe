@@ -62,8 +62,8 @@ rstest = "0.18.2"
 The helpers remain centred on a single in-memory driver that runs
 `WireframeApp::handle_connection` against a `tokio::io::duplex` stream. The
 driver is responsible for framing inbound and outbound data using the selected
-`FrameCodec` and for surfacing server panics as `io::Error` values prefixed
-with `server task failed`.
+`FrameCodec` and for surfacing server panics as `io::Error` values prefixed with
+`server task failed`.
 
 `wireframe_testing` retains the `TestSerializer` trait alias to keep bounds
 readable:

@@ -1,9 +1,8 @@
 # Write tests for budget enforcement, back-pressure, and cleanup (8.3.6)
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -23,9 +22,9 @@ After this change an operator reviewing the test suite can verify that:
   per-frame budget rejections accumulate;
 - pressure recovers after assembly completion (bytes drop below 80%),
   allowing subsequent frames without delay; and
-- the tightest aggregate dimension (`min(bytes_per_connection,
-  bytes_in_flight)
-  `) controls soft and hard thresholds when the two dimensions differ.
+- the tightest aggregate dimension
+  (`min(bytes_per_connection, bytes_in_flight)`) controls soft and hard
+  thresholds when the two dimensions differ.
 
 Success is observable when:
 
@@ -228,10 +227,10 @@ the result: returning `Err(InvalidData)` for `Abort`, sleeping and purging for
 
 When a connection closes (normal EOF or error), `process_stream` in
 `src/app/inbound_handler.rs` returns. Its local variable
-`message_assembly: Option<MessageAssemblyState>` drops, which drops the
-internal `HashMap<MessageKey, PartialAssembly>`, freeing all partial body and
-metadata buffers. There is no custom `Drop` implementation; cleanup relies
-entirely on Rust's RAII semantics.
+`message_assembly: Option<MessageAssemblyState>` drops, which drops the internal
+`HashMap<MessageKey, PartialAssembly>`, freeing all partial body and metadata
+buffers. There is no custom `Drop` implementation; cleanup relies entirely on
+Rust's RAII semantics.
 
 Budget headroom is reclaimed at two points during normal operation:
 
@@ -368,7 +367,7 @@ Seven step functions using the `cleanup` prefix in step text:
 - Given: `"a cleanup app configured as {config}"`
 - When: `"a cleanup first frame for key {key} with body {body} arrives"`,
   `"a cleanup final continuation for key {key} sequence {seq} with body {body} arrives"`,
-   `"cleanup virtual time advances by {millis} milliseconds"`,
+  `"cleanup virtual time advances by {millis} milliseconds"`,
   `"the cleanup client disconnects"`
 - Then: `"cleanup payload {expected} is eventually received"`,
   `"no cleanup connection error is recorded"`

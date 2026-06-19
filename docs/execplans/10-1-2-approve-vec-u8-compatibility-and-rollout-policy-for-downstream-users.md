@@ -7,8 +7,8 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 Status: COMPLETE
 
 Implementation approval: RECEIVED. The user approved the plan and its
-recommended policy answers on 2026-06-15, and waived the CodeRabbit review
-gate for this docs-only milestone.
+recommended policy answers on 2026-06-15, and waived the CodeRabbit review gate
+for this docs-only milestone.
 
 ## Purpose / big picture
 
@@ -17,9 +17,9 @@ the zero-copy payload migration in epic 284. Roadmap item `10.1.1` already
 approved [ADR 008](../adr-008-zero-copy-public-byte-container.md), which fixes
 `bytes::Bytes` (or a transparent project wrapper) as the stable public byte
 representation and adopts an explicit edit-on-demand workflow for mutation.
-That leaves the question of *how downstream users move across the
-release boundary*: which `Vec<u8>` helpers stay, for how long, behind what
-visibility, and how the project will know when to remove them.
+That leaves the question of *how downstream users move across the release
+boundary*: which `Vec<u8>` helpers stay, for how long, behind what visibility,
+and how the project will know when to remove them.
 
 After this work is approved and implemented, maintainers can see success by
 opening [ADR 009](../adr-009-vec-u8-migration-rollout.md) and finding the
@@ -29,18 +29,17 @@ status field set to `Accepted` with three previously open questions resolved:
 2. Whether those helpers are feature-gated or ship in the default build.
 3. What adoption or benchmark signal justifies removing them later.
 
-The accepted policy must give later roadmap items (`12.1.2`, `12.2.2`,
-`13.1.1`, `13.1.2`, `14.1.1`, `14.1.2`, `14.1.3`, and `14.2.1`) an unambiguous
-contract to implement against. No runtime Rust code changes are authorised by
-this plan.
+The accepted policy must give later roadmap items (`12.1.2`, `12.2.2`, `13.1.1`,
+`13.1.2`, `14.1.1`, `14.1.2`, `14.1.3`, and `14.2.1`) an unambiguous contract
+to implement against. No runtime Rust code changes are authorised by this plan.
 
 ## Constraints
 
 - Use the `execplans` skill for this plan and keep this document
   self-contained.
 - Use the `leta` skill for code navigation when confirming the current
-  `Vec<u8>` surfaces that the policy will govern. Add the worktree as a
-  `leta` workspace before running any `leta` command.
+  `Vec<u8>` surfaces that the policy will govern. Add the worktree as a `leta`
+  workspace before running any `leta` command.
 - Use the `rust-router` skill to direct the design discussion into more
   specific skills. The natural targets here are `rust-types-and-apis`,
   `arch-supply-chain`, `arch-decision-records`, `arch-crate-design`, and
@@ -48,9 +47,9 @@ this plan.
 - Use the `firecrawl` MCP tools only for bounded prior-art checks; the
   repository documents remain the source of truth for Wireframe requirements.
 - Use the `en-gb-oxendict` skill voice and the
-  [documentation style guide](../documentation-style-guide.md) for every
-  edited Markdown file. Oxford spelling, Oxford comma where it improves
-  clarity, and en-GB usage.
+  [documentation style guide](../documentation-style-guide.md) for every edited
+  Markdown file. Oxford spelling, Oxford comma where it improves clarity, and
+  en-GB usage.
 - Use the `commit-message` skill for the final commit and the `pr-creation`
   skill for the draft pull request.
 - Keep the scope to roadmap item `10.1.2`. Do not approve the actor and
@@ -73,13 +72,13 @@ this plan.
 ## Tolerances
 
 - Scope: if implementation of this decision-closure task requires Rust source
-  changes, stop and ask whether `10.1.2` should be expanded beyond an
-  approval and documentation item.
+  changes, stop and ask whether `10.1.2` should be expanded beyond an approval
+  and documentation item.
 - Scope: if documentation changes exceed six files or 750 net lines, stop and
   split the work into a decision pull request and a follow-up documentation
-  pull request. The line-count budget is wider than the `10.1.1` plan
-  because ADR 009 needs a substantive rewrite of its `Status`, `Outstanding
-  Decisions`, and `Known Risks` sections.
+  pull request. The line-count budget is wider than the `10.1.1` plan because
+  ADR 009 needs a substantive rewrite of its `Status`, `Outstanding Decisions`,
+  and `Known Risks` sections.
 - Interface: if the accepted policy cannot name a stable disposition (retain
   as deprecated helper, or remove outright) for each of `PacketParts`,
   `Envelope`, `ServiceRequest`, `ServiceResponse`, `Serializer::serialize`,
@@ -87,19 +86,19 @@ this plan.
   test-only `Packet for Vec<u8>` bridge, and the client preamble leftover
   surface, stop and present the remaining options with trade-offs.
 - Naming: if the Logisphere review or the user requires committing to
-  canonical helper *names* (not only the *set*) inside ADR 009, treat that
-  as in scope for this milestone rather than deferring to `12.1.1`. Naming
+  canonical helper *names* (not only the *set*) inside ADR 009, treat that as
+  in scope for this milestone rather than deferring to `12.1.1`. Naming
   ambiguity is cheap to lock now and expensive to relitigate later.
 - Dependencies: if the accepted policy requires a new external crate beyond
-  the existing `bytes` and standard `#[deprecated]` mechanics, stop and
-  request approval before accepting that dependency.
+  the existing `bytes` and standard `#[deprecated]` mechanics, stop and request
+  approval before accepting that dependency.
 - Coverage: if the policy depends on `cargo-semver-checks` or
   `cargo-public-api` being wired into CI before the breaking release lands,
   capture that as a follow-up roadmap item under phase `14`; do not silently
   add new CI work to `10.1.2`.
 - Ambiguity: if the user disagrees with any of the recommended helper-set
-  choices below, stop, record both options in the Decision log, and present
-  the trade-offs without picking one.
+  choices below, stop, record both options in the Decision log, and present the
+  trade-offs without picking one.
 - Performance: if the policy relies on an unmeasured performance claim, keep
   it as a hypothesis and defer thresholds to `10.2.1` and `10.2.2`.
 - Iteration: if the same quality gate fails after three fix attempts, stop,
@@ -110,17 +109,17 @@ this plan.
 ## Risks
 
 - Risk: the accepted helper set quietly becomes permanent because no removal
-  signal is written down. Severity: high. Likelihood: medium. Mitigation:
-  ADR 009 must record both a target removal release and an explicit review
-  point with named criteria; roadmap item `14.2.1` is the next review hook
-  and must be linked from the ADR.
+  signal is written down. Severity: high. Likelihood: medium. Mitigation: ADR
+  009 must record both a target removal release and an explicit review point
+  with named criteria; roadmap item `14.2.1` is the next review hook and must
+  be linked from the ADR.
 
 - Risk: the policy preserves the `Vec<u8>` mental model so well that
   downstream users never migrate. Severity: high. Likelihood: medium.
   Mitigation: every retained helper must carry `#[deprecated(since, note)]`
-  pointing at the recommended zero-copy equivalent in the breaking release,
-  and the migration guide outline in `10.2.3` must show before-and-after code
-  for each helper.
+  pointing at the recommended zero-copy equivalent in the breaking release, and
+  the migration guide outline in `10.2.3` must show before-and-after code for
+  each helper.
 
 - Risk: feature-gating the helpers makes them invisible to users who have not
   read the changelog. Severity: medium. Likelihood: medium. Mitigation: keep
@@ -128,11 +127,10 @@ this plan.
   warnings reach all consumers; document the visibility decision in ADR 009.
 
 - Risk: the policy ships helpers that re-introduce the final-copy bottleneck
-  that ADR 008 set out to remove. Severity: high. Likelihood: low.
-  Mitigation: classify each candidate helper as "edit surface", "ingest
-  surface", or "preamble leftover" and forbid any helper that performs
-  copies on the default outbound path between `Serializer::serialize` and
-  `FrameCodec::wrap_payload`.
+  that ADR 008 set out to remove. Severity: high. Likelihood: low. Mitigation:
+  classify each candidate helper as "edit surface", "ingest surface", or
+  "preamble leftover" and forbid any helper that performs copies on the default
+  outbound path between `Serializer::serialize` and `FrameCodec::wrap_payload`.
 
 - Risk: the policy fragments the migration story across many tiny shims
   rather than a few obvious ones. Severity: medium. Likelihood: medium.
@@ -145,8 +143,8 @@ this plan.
   explicitly in ADR 009 that the preamble leftover path stays on owned
   `Vec<u8>` for at least one release after the breaking change, per the
   resolved direction in
-  [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md) and roadmap
-  item `12.2.2`.
+  [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md) and roadmap item
+  `12.2.2`.
 
 - Risk: `10.1.2` absorbs migration-guide outline work that belongs to
   `10.2.3`. Severity: medium. Likelihood: medium. Mitigation: write explicit
@@ -154,9 +152,9 @@ this plan.
 
 - Risk: external prior art is over-applied (for example, treating hyper 1.0's
   `hyper-util` split as a template for Wireframe). Severity: medium.
-  Likelihood: low. Mitigation: cite prior art only where it confirms a
-  pattern already independently motivated by the Wireframe inventory; keep
-  the repository ADRs as the authority.
+  Likelihood: low. Mitigation: cite prior art only where it confirms a pattern
+  already independently motivated by the Wireframe inventory; keep the
+  repository ADRs as the authority.
 
 - Risk: downstream users suppress deprecation warnings (a common
   workspace-lint configuration uses `#[allow(deprecated)]` or
@@ -165,24 +163,24 @@ this plan.
   Likelihood: medium. Mitigation: every deprecation `note` must include the
   scheduled removal version, so users who suppress the warning still see the
   removal date in `cargo doc`; the migration guide outline in `10.2.3` must
-  recommend against blanket deprecation suppression in workspaces that
-  consume Wireframe.
+  recommend against blanket deprecation suppression in workspaces that consume
+  Wireframe.
 
 - Risk: downstream crates re-export the deprecated helpers in their own
-  public API and propagate the deprecation warning to *their* users, who
-  cannot fix it without forking. Severity: medium. Likelihood: low.
-  Mitigation: ADR 009 should state that the deprecation note for each
-  helper directs downstream re-exporters to add their own wrapper rather
-  than re-export the Wireframe item directly, and the `10.2.3` migration
-  guide outline must include a "for downstream library authors" section.
+  public API and propagate the deprecation warning to *their* users, who cannot
+  fix it without forking. Severity: medium. Likelihood: low. Mitigation: ADR
+  009 should state that the deprecation note for each helper directs downstream
+  re-exporters to add their own wrapper rather than re-export the Wireframe
+  item directly, and the `10.2.3` migration guide outline must include a "for
+  downstream library authors" section.
 
 - Risk: the `into_vec` helper itself becomes a performance footgun because
-  it allocates and copies (per the cited `bytes::Bytes` semantics) even
-  though the rest of the API is zero-copy. Severity: medium. Likelihood:
-  medium. Mitigation: ADR 009 must specify that the deprecation `note` on
-  `PayloadBytes::into_vec` steers users to slice or `freeze()` paths, not
-  only to `PayloadEditor`, so the recommended replacement is a zero-copy
-  one wherever possible.
+  it allocates and copies (per the cited `bytes::Bytes` semantics) even though
+  the rest of the API is zero-copy. Severity: medium. Likelihood: medium.
+  Mitigation: ADR 009 must specify that the deprecation `note` on
+  `PayloadBytes::into_vec` steers users to slice or `freeze()` paths, not only
+  to `PayloadEditor`, so the recommended replacement is a zero-copy one
+  wherever possible.
 
 ## Progress
 
@@ -250,64 +248,61 @@ Use timestamps when ticking items to make rate-of-progress visible.
 ## Surprises & discoveries
 
 - Observation (2026-06-04): the Logisphere design review (Pandalump,
-  Wafflecat, Buzzy Bee, Telefono, Doggylump, Dinolump) flagged six
-  substantive corrections before this plan reached `Status: DRAFT` review.
-  Evidence: review transcript captured in the implementation postmortem
-  notes (in-conversation, agent run). Impact: the `Decision log`,
-  `Risks`, and Stage D were rewritten to (i) include
-  `ServiceRequest`/`ServiceResponse` explicitly with a "removed outright"
-  disposition, (ii) clarify that `CorrelatableFrame for Vec<u8>` and
+  Wafflecat, Buzzy Bee, Telefono, Doggylump, Dinolump) flagged six substantive
+  corrections before this plan reached `Status: DRAFT` review. Evidence: review
+  transcript captured in the implementation postmortem notes (in-conversation,
+  agent run). Impact: the `Decision log`, `Risks`, and Stage D were rewritten
+  to (i) include `ServiceRequest`/`ServiceResponse` explicitly with a "removed
+  outright" disposition, (ii) clarify that `CorrelatableFrame for Vec<u8>` and
   test-only `Packet for Vec<u8>` are governed by ADR 010, not this policy,
   (iii) replace "next major + six months" with a semver-aware event-based
-  removal trigger, (iv) require the deprecation `note` to include the
-  scheduled removal version, (v) require the `into_vec` deprecation note to
-  steer users to zero-copy paths, and (vi) commit canonical helper names in
-  ADR 009 rather than deferring naming to `12.1.1`. The line-count
-  tolerance was raised to 750 net lines to accommodate the ADR 009
-  rewrite.
+  removal trigger, (iv) require the deprecation `note` to include the scheduled
+  removal version, (v) require the `into_vec` deprecation note to steer users
+  to zero-copy paths, and (vi) commit canonical helper names in ADR 009 rather
+  than deferring naming to `12.1.1`. The line-count tolerance was raised to 750
+  net lines to accommodate the ADR 009 rewrite.
 
 - Observation (2026-06-15): `make nixie` initially failed on
   `docs/v0-2-0-to-v0-3-0-migration-guide.md` with a merman-cli classDiagram
-  `LexError` ("Unexpected character"), reproducing on clean committed
-  `HEAD`, so it was a pre-existing repository baseline rather than a
-  regression from this milestone. The post-turn gate runs nixie repo-wide,
-  so the baseline had to be fixed for the gate to pass. Root cause: merman-cli
-  (the parser nixie uses) cannot lex comma-separated type parameters inside
-  Mermaid generic brackets — `class AppFactory~Ser, Ctx, E, Codec~` (diagram
-  1, offset 843) and `class TypedResponseStream~S, Mapper, P, Item~` (diagram
-  3, offset 654). Evidence: bisected with minimal `merman-cli` repros;
-  single-param `~Codec~` parses, comma forms fail. Fix: render the
-  multi-parameter generic in a display label via the
-  `class Name["Name~A, B~"]` form, which keeps the node id (used in
-  relationships) and the existing `<<trait>>` / `<<futures::Stream>>`
-  stereotypes intact while displaying the full generic signature as text.
-  `make nixie` now passes repo-wide ("All diagrams validated successfully!").
-  Impact: a one-file baseline fix outside the `10.1.2` decision surface,
-  recorded here for traceability.
+  `LexError` ("Unexpected character"), reproducing on clean committed `HEAD`,
+  so it was a pre-existing repository baseline rather than a regression from
+  this milestone. The post-turn gate runs nixie repo-wide, so the baseline had
+  to be fixed for the gate to pass. Root cause: merman-cli (the parser nixie
+  uses) cannot lex comma-separated type parameters inside Mermaid generic
+  brackets — `class AppFactory~Ser, Ctx, E, Codec~` (diagram 1, offset 843) and
+  `class TypedResponseStream~S, Mapper, P, Item~` (diagram 3, offset 654).
+  Evidence: bisected with minimal `merman-cli` repros; single-param `~Codec~`
+  parses, comma forms fail. Fix: render the multi-parameter generic in a
+  display label via the `class Name["Name~A, B~"]` form, which keeps the node
+  id (used in relationships) and the existing `<<trait>>` /
+  `<<futures::Stream>>` stereotypes intact while displaying the full generic
+  signature as text. `make nixie` now passes repo-wide ("All diagrams validated
+  successfully!"). Impact: a one-file baseline fix outside the `10.1.2`
+  decision surface, recorded here for traceability.
 
 - Observation (2026-06-18): during the rebase onto `origin/main`, the
   migration-guide diagram fix above collided head-on with main's commit
-  `9f666a6` ("Address code-base audit findings"), which had independently
-  fixed the *same* merman-cli diagrams — and more of them — using a different
-  house style: dropping the class-level generics outright
-  (`class AppFactory`) and rewriting other merman-hostile tokens
-  (`&[u8]` → `ByteSlice`, `Vec~Bytes~` → `BytesVec`, `&str` → `str`,
-  `&mut WireframeClient` → `WireframeClient_ref_mut`). Evidence: the rebase
-  raised two conflicts, both confined to the two class headers this branch
-  had edited. Impact: main's fix is the more complete and internally
-  consistent one, so the conflict was resolved by taking main's version
-  wholesale; this branch's display-label edit was dropped as superseded. The
-  branch's real objective for that file — making the repo-wide nixie gate
-  pass — is preserved by main's fix. Lesson: when an incidental baseline fix
-  is forced by a repo-wide gate, expect the canonical fix to land on `main`
-  in parallel; prefer adopting it over defending a local variant.
+  `9f666a6` ("Address code-base audit findings"), which had independently fixed
+  the *same* merman-cli diagrams — and more of them — using a different house
+  style: dropping the class-level generics outright (`class AppFactory`) and
+  rewriting other merman-hostile tokens (`&[u8]` → `ByteSlice`, `Vec~Bytes~` →
+  `BytesVec`, `&str` → `str`, `&mut WireframeClient` →
+  `WireframeClient_ref_mut`). Evidence: the rebase raised two conflicts, both
+  confined to the two class headers this branch had edited. Impact: main's fix
+  is the more complete and internally consistent one, so the conflict was
+  resolved by taking main's version wholesale; this branch's display-label edit
+  was dropped as superseded. The branch's real objective for that file — making
+  the repo-wide nixie gate pass — is preserved by main's fix. Lesson: when an
+  incidental baseline fix is forced by a repo-wide gate, expect the canonical
+  fix to land on `main` in parallel; prefer adopting it over defending a local
+  variant.
 
 - Observation (2026-06-15): the deterministic Rust gates pass on the
   docs-only diff. Evidence: `make check-fmt` clean
   (`/tmp/check-fmt-wireframe-10-1-2.out`), `make lint` exit 0
-  (`/tmp/lint-wireframe-10-1-2.out`), `make test` exit 0 with no failing
-  test results (`/tmp/test-wireframe-10-1-2.out`), and `markdownlint-cli2`
-  clean across all five changed Markdown files
+  (`/tmp/lint-wireframe-10-1-2.out`), `make test` exit 0 with no failing test
+  results (`/tmp/test-wireframe-10-1-2.out`), and `markdownlint-cli2` clean
+  across all five changed Markdown files
   (`/tmp/markdownlint-wireframe-10-1-2.out`). Impact: the decision-closure
   edits do not regress formatting, Markdown linting, Rust linting, or the
   workspace test suite.
@@ -319,113 +314,108 @@ Use timestamps when ticking items to make rate-of-progress visible.
   `_underscore_` emphasis to match the repository Markdown style; re-run is
   clean.
 
-Record further unexpected findings with evidence and impact as work
-proceeds.
+Record further unexpected findings with evidence and impact as work proceeds.
 
 ## Decision log
 
 - Decision: keep this ExecPlan in DRAFT status and block ADR 009 edits until
   explicit user approval. Rationale: the user explicitly stated that the plan
-  must be approved before it is implemented, and the rollout policy has
-  semver and downstream-adoption consequences. Date/Author: 2026-06-04 / Codex.
+  must be approved before it is implemented, and the rollout policy has semver
+  and downstream-adoption consequences. Date/Author: 2026-06-04 / Codex.
 
 - Decision: advance this ExecPlan to COMPLETE and execute the implementation
-  (accept ADR 009, align the roadmap documents, mark `10.1.2` done) after
-  the user accepted the recommended policy answers and waived the CodeRabbit
-  gate for this docs-only milestone. Rationale: the user replied "Accept your
+  (accept ADR 009, align the roadmap documents, mark `10.1.2` done) after the
+  user accepted the recommended policy answers and waived the CodeRabbit gate
+  for this docs-only milestone. Rationale: the user replied "Accept your
   recommendations" with an explicit instruction to update the execplan and no
-  CodeRabbit review, which satisfies the approval gate. Date/Author:
-  2026-06-15 / Codex.
+  CodeRabbit review, which satisfies the approval gate. Date/Author: 2026-06-15
+  / Codex.
 
 - Decision: bound `10.1.2` to ADR 009 acceptance and aligned-document
-  updates, not runtime migration. Rationale: roadmap items `12.1.2`,
-  `12.2.2`, `13.1.1`, `13.1.2`, and `14.1.x` carry the actual public API
-  migration and release work and depend on this policy decision.
-  Date/Author: 2026-06-04 / Codex.
+  updates, not runtime migration. Rationale: roadmap items `12.1.2`, `12.2.2`,
+  `13.1.1`, `13.1.2`, and `14.1.x` carry the actual public API migration and
+  release work and depend on this policy decision. Date/Author: 2026-06-04 /
+  Codex.
 
 - Decision: recommend Option C from ADR 009 ("staged breaking release with
-  finite compatibility helpers") as the accepted direction. Rationale:
-  Option A (hard break) maximises upgrade pain on a project that has not yet
-  cut 1.0, Option B (permanent dual support) keeps the bottleneck ADR 008 set
-  out to remove, and Option C is already the proposed direction in ADR 009.
+  finite compatibility helpers") as the accepted direction. Rationale: Option A
+  (hard break) maximises upgrade pain on a project that has not yet cut 1.0,
+  Option B (permanent dual support) keeps the bottleneck ADR 008 set out to
+  remove, and Option C is already the proposed direction in ADR 009.
   Date/Author: 2026-06-04 / Codex.
 
 - Decision: recommend a narrow, single-surface helper set. The canonical
-  conversion surface is `PayloadBytes::from_vec` / `PayloadBytes::into_vec`
-  on the stable byte wrapper, used by every transport hand-off
-  (`PacketParts`, `Envelope`, `Serializer::serialize`). Per-call-site
-  `PacketParts::from_vec` / `Envelope::from_vec` constructors are *not*
-  added; callers go through the wrapper. Middleware editing
-  (`ServiceRequest::frame_mut`, `ServiceResponse::frame_mut`,
-  `ServiceResponse::into_inner`) is *removed outright* in the breaking
-  release and replaced by the edit-on-demand workflow from ADR 008, because
-  retaining `&mut Vec<u8>` accessors would re-introduce the bottleneck
-  ADR 008 set out to eliminate. The one `Vec<u8>` adapter that survives the
-  middleware redesign is `before_send_from_vec_fn`, an adapter constructor
-  on the new `BeforeSendHook` surface so existing `Fn(&mut Vec<u8>)` hooks
-  keep working through one release cycle. Rationale: a single conversion
-  surface avoids the fragmented-shim risk the plan's own `Risks` section
-  flags, keeps the helper count countable in a release note, and leaves the
-  edit path on the new edit-on-demand workflow rather than the legacy
-  mutable-vec model. Date/Author: 2026-06-04 / Codex.
+  conversion surface is `PayloadBytes::from_vec` / `PayloadBytes::into_vec` on
+  the stable byte wrapper, used by every transport hand-off (`PacketParts`,
+  `Envelope`, `Serializer::serialize`). Per-call-site `PacketParts::from_vec` /
+  `Envelope::from_vec` constructors are *not* added; callers go through the
+  wrapper. Middleware editing (`ServiceRequest::frame_mut`,
+  `ServiceResponse::frame_mut`, `ServiceResponse::into_inner`) is *removed
+  outright* in the breaking release and replaced by the edit-on-demand workflow
+  from ADR 008, because retaining `&mut Vec<u8>` accessors would re-introduce
+  the bottleneck ADR 008 set out to eliminate. The one `Vec<u8>` adapter that
+  survives the middleware redesign is `before_send_from_vec_fn`, an adapter
+  constructor on the new `BeforeSendHook` surface so existing
+  `Fn(&mut Vec<u8>)` hooks keep working through one release cycle. Rationale: a
+  single conversion surface avoids the fragmented-shim risk the plan's own
+  `Risks` section flags, keeps the helper count countable in a release note,
+  and leaves the edit path on the new edit-on-demand workflow rather than the
+  legacy mutable-vec model. Date/Author: 2026-06-04 / Codex.
 
 - Decision: state explicitly in ADR 009 that the runtime
-  `CorrelatableFrame for Vec<u8>` bridge and the test-only
-  `Packet for Vec<u8>` bridge are *not* compatibility helpers under this
-  policy. Their lifecycle is governed by ADR 010 and roadmap items `11.2.1`,
-  `11.2.2`, and `14.1.3`. Rationale: those bridges are runtime-internal,
-  not part of the user-facing migration surface, and conflating them with
-  the documented helper set would silently extend the policy beyond the
-  rollout question. Date/Author: 2026-06-04 / Codex.
+  `CorrelatableFrame for Vec<u8>` bridge and the test-only `Packet for Vec<u8>`
+  bridge are *not* compatibility helpers under this policy. Their lifecycle is
+  governed by ADR 010 and roadmap items `11.2.1`, `11.2.2`, and `14.1.3`.
+  Rationale: those bridges are runtime-internal, not part of the user-facing
+  migration surface, and conflating them with the documented helper set would
+  silently extend the policy beyond the rollout question. Date/Author:
+  2026-06-04 / Codex.
 
 - Decision: commit canonical helper names in ADR 009 itself, not only in
   the later runtime ExecPlans. The recommended names are
   `PayloadBytes::from_vec`, `PayloadBytes::into_vec`,
-  `Serializer::serialize_to_vec` (deprecated alias if a separate method
-  proves necessary; otherwise the wrapper conversion suffices), and
+  `Serializer::serialize_to_vec` (deprecated alias if a separate method proves
+  necessary; otherwise the wrapper conversion suffices), and
   `BeforeSendHook::from_vec_fn` (or `before_send_from_vec_fn` as a
-  free-function constructor on `RequestHooks`). Rationale: naming
-  ambiguity is cheap to lock now and Telefono's review showed that
-  deferring naming to `12.1.1` invites churn during implementation.
-  Date/Author: 2026-06-04 / Codex.
+  free-function constructor on `RequestHooks`). Rationale: naming ambiguity is
+  cheap to lock now and Telefono's review showed that deferring naming to
+  `12.1.1` invites churn during implementation. Date/Author: 2026-06-04 / Codex.
 
 - Decision: recommend that helpers ship in the default build for the
-  breaking release, not behind a feature flag, and carry
-  `#[deprecated(since = "<release-version>", note = "<recommended path>; \
-  scheduled for removal in <target-removal-version>")]` attributes. The
-  `<release-version>` placeholder is substituted at release-cut time by
-  roadmap item `14.1.1`; ADR 009 commits to that substitution rule rather
-  than the literal version string. The `<target-removal-version>` field is
-  required so users who suppress deprecation warnings still learn the
+  breaking release, not behind a feature flag, and carry `#[deprecated]`
+  attributes. The `<release-version>` placeholder is substituted at release-cut
+  time by roadmap item `14.1.1`; ADR 009 commits to that substitution rule
+  rather than the literal version string. The `<target-removal-version>` field
+  is required so users who suppress deprecation warnings still learn the
   removal version from `cargo doc` and rustdoc rendering. Rationale:
-  feature-gating hides the deprecation warning from users who do not read
-  the changelog, while `#[deprecated]` is the canonical Rust mechanism for
-  a finite compatibility window. The rejected alternative is "default-on
-  with `#[deprecated]` plus a `vec-u8-compat` feature gating the legacy
+  feature-gating hides the deprecation warning from users who do not read the
+  changelog, while `#[deprecated]` is the canonical Rust mechanism for a finite
+  compatibility window. The rejected alternative is "default-on with
+  `#[deprecated]` plus a `vec-u8-compat` feature gating the legacy
   `Fn(&mut Vec<u8>)` hook for a pre-break minor"; we reject it because
-  Wireframe has not yet cut 1.0, so the minor-cycle warning window the
-  feature flag is meant to buy is collapsed into the release boundary
-  anyway. Date/Author: 2026-06-04 / Codex.
+  Wireframe has not yet cut 1.0, so the minor-cycle warning window the feature
+  flag is meant to buy is collapsed into the release boundary anyway.
+  Date/Author: 2026-06-04 / Codex.
 
 - Decision: state the removal signal in semver-aware language for a pre-1.0
-  project. Helpers are removed in the *second breaking release* after they
-  are introduced (under 0.x semver, that is `0.N → 0.N+2`; once Wireframe
-  has cut 1.0, it is `1.x → 2.x`). The review trigger is event-based, not
-  calendar-based: review retained helpers at the first breaking release
-  after the introduction (roadmap item `14.2.1`) and at every subsequent
-  breaking release until removal lands. Rationale: "next major + six
-  months" assumes a release cadence Wireframe has not committed to and
-  Telefono flagged it as unsafe wording under 0.x semver where every minor
-  bump is a breaking release. Tying removal and review to *breaking
-  releases* keeps the policy invariant under whatever cadence the project
-  eventually adopts. Date/Author: 2026-06-04 / Codex.
+  project. Helpers are removed in the *second breaking release* after they are
+  introduced (under 0.x semver, that is `0.N → 0.N+2`; once Wireframe has cut
+  1.0, it is `1.x → 2.x`). The review trigger is event-based, not
+  calendar-based: review retained helpers at the first breaking release after
+  the introduction (roadmap item `14.2.1`) and at every subsequent breaking
+  release until removal lands. Rationale: "next major + six months" assumes a
+  release cadence Wireframe has not committed to and Telefono flagged it as
+  unsafe wording under 0.x semver where every minor bump is a breaking release.
+  Tying removal and review to *breaking releases* keeps the policy invariant
+  under whatever cadence the project eventually adopts. Date/Author: 2026-06-04
+  / Codex.
 
 - Decision: ADR 009 must explicitly defer `cargo-semver-checks` and
-  `cargo-public-api` CI wiring to roadmap item `14.1.x` and state that,
-  until that wiring exists, the policy is enforced by review only.
-  Rationale: Telefono's review flagged that the prior-art citations imply
-  guardrails that no one is yet committed to building; calling out the
-  deferral makes the dependency explicit. Date/Author: 2026-06-04 / Codex.
+  `cargo-public-api` CI wiring to roadmap item `14.1.x` and state that, until
+  that wiring exists, the policy is enforced by review only. Rationale:
+  Telefono's review flagged that the prior-art citations imply guardrails that
+  no one is yet committed to building; calling out the deferral makes the
+  dependency explicit. Date/Author: 2026-06-04 / Codex.
 
 - Decision: recommend that client preamble leftovers stay on owned `Vec<u8>`
   for the breaking release. Rationale: the inventory already resolved this
@@ -438,18 +428,18 @@ proceeds.
   tolerance. Date/Author: 2026-06-04 / Codex.
 
 - Decision: fix the pre-existing merman-cli classDiagram baseline failure in
-  `docs/v0-2-0-to-v0-3-0-migration-guide.md` within this milestone rather
-  than deferring it, and fix it by rendering the multi-parameter generics
-  through a display label (`class Name["Name~A, B~"]`) rather than dropping
-  or renaming the type parameters. Rationale: the post-turn quality gate runs
-  `nixie` repo-wide and blocked the turn, so the baseline had to be cleared
-  for this docs-only change to land; the display-label form keeps the node id
-  used by the relationship arrows and the existing `<<trait>>` /
-  `<<futures::Stream>>` stereotypes intact while preserving the exact
-  generic signature as rendered text, so no diagram meaning is lost. This is
-  a one-file edit outside the `10.1.2` decision surface and does not affect
-  the rollout policy. Date/Author: 2026-06-15 / Codex.
-  Superseded 2026-06-18: see the rebase decision below.
+  `docs/v0-2-0-to-v0-3-0-migration-guide.md` within this milestone rather than
+  deferring it, and fix it by rendering the multi-parameter generics through a
+  display label (`class Name["Name~A, B~"]`) rather than dropping or renaming
+  the type parameters. Rationale: the post-turn quality gate runs `nixie`
+  repo-wide and blocked the turn, so the baseline had to be cleared for this
+  docs-only change to land; the display-label form keeps the node id used by
+  the relationship arrows and the existing `<<trait>>` / `<<futures::Stream>>`
+  stereotypes intact while preserving the exact generic signature as rendered
+  text, so no diagram meaning is lost. This is a one-file edit outside the
+  `10.1.2` decision surface and does not affect the rollout policy.
+  Date/Author: 2026-06-15 / Codex. Superseded 2026-06-18: see the rebase
+  decision below.
 
 - Decision: on rebasing onto `origin/main`, resolve the migration-guide
   diagram conflict by adopting main's version wholesale and dropping this
@@ -474,51 +464,50 @@ release (Option C) with a narrow, finite `Vec<u8>` helper set:
 `PayloadBytes::from_vec` / `into_vec` as the single transport conversion
 surface, the serializer returning the stable wrapper (with an optional
 `serialize_to_vec` shim), and one `BeforeSendHook` adapter constructor.
-Middleware `&mut Vec<u8>` editors are removed outright in favour of the
-ADR 008 edit-on-demand workflow; client preamble leftovers stay on `Vec<u8>`
-for this release; runtime bridges (`CorrelatableFrame for Vec<u8>`, test-only
-`Packet for Vec<u8>`) are governed by ADR 010, not this policy. Helpers ship
-in the default build with `#[deprecated]` attributes whose `note` names the
+Middleware `&mut Vec<u8>` editors are removed outright in favour of the ADR 008
+edit-on-demand workflow; client preamble leftovers stay on `Vec<u8>` for this
+release; runtime bridges (`CorrelatableFrame for Vec<u8>`, test-only
+`Packet for Vec<u8>`) are governed by ADR 010, not this policy. Helpers ship in
+the default build with `#[deprecated]` attributes whose `note` names the
 removal version, and are removed in the second breaking release after
 introduction, reviewed at every breaking release starting with roadmap item
 `14.2.1`.
 
 `docs/roadmap.md` item `10.1.2` and the zero-copy migration roadmap item
-`1.1.2` are marked done. The inventory's ADR-status wording was reconciled.
-No runtime public API migration was made in this work; that remains assigned
-to phases `11`–`14`.
+`1.1.2` are marked done. The inventory's ADR-status wording was reconciled. No
+runtime public API migration was made in this work; that remains assigned to
+phases `11`–`14`.
 
 Validation gate results are recorded in `Surprises & discoveries`.
-`make check-fmt`, `make lint`, and `make test` pass on the docs-only diff,
-and the repo-wide post-turn gate (`make markdownlint nixie`) passes.
-CodeRabbit review was waived by the user for this docs-only milestone.
+`make check-fmt`, `make lint`, and `make test` pass on the docs-only diff, and
+the repo-wide post-turn gate (`make markdownlint nixie`) passes. CodeRabbit
+review was waived by the user for this docs-only milestone.
 
-On 2026-06-18 the branch was rebased onto `origin/main` and force-pushed
-with lease. The rebase carried four commits: the plan draft, the ADR 009
-acceptance and document alignment, the (now superseded) nixie baseline
-commit, and the progress-recording commit. The migration-guide diagram fix
-conflicted with main's independent, more comprehensive fix in commit
-`9f666a6` and was resolved in main's favour, so the migration guide is no
-longer part of this branch's diff. After the rebase the branch's diff
-against `origin/main` is exactly the five `10.1.2` documents:
-`docs/adr-009-vec-u8-migration-rollout.md`, this ExecPlan,
-`docs/frame-vec-u8-inventory.md`, `docs/roadmap.md`, and
+On 2026-06-18 the branch was rebased onto `origin/main` and force-pushed with
+lease. The rebase carried four commits: the plan draft, the ADR 009 acceptance
+and document alignment, the (now superseded) nixie baseline commit, and the
+progress-recording commit. The migration-guide diagram fix conflicted with
+main's independent, more comprehensive fix in commit `9f666a6` and was resolved
+in main's favour, so the migration guide is no longer part of this branch's
+diff. After the rebase the branch's diff against `origin/main` is exactly the
+five `10.1.2` documents: `docs/adr-009-vec-u8-migration-rollout.md`, this
+ExecPlan, `docs/frame-vec-u8-inventory.md`, `docs/roadmap.md`, and
 `docs/zero-copy-frame-and-payload-migration-roadmap.md`. The roadmap tick
 auto-merged cleanly alongside main's `15.1.3` edit.
 
 Lessons learnt:
 
 - Scoping the milestone to ADR acceptance plus document alignment kept the
-  diff reviewable and avoided pulling forward the helper-naming, benchmark,
-  and migration-guide work that belongs to later roadmap items.
+  diff reviewable and avoided pulling forward the helper-naming, benchmark, and
+  migration-guide work that belongs to later roadmap items.
 - The Logisphere review paid for itself: committing canonical helper names
   and a semver-aware removal trigger inside ADR 009 removes ambiguity that
   would otherwise have surfaced during the `12.1.x` implementation.
 - The post-turn quality gate runs `nixie` repo-wide, not just on the files
   changed in the diff, so a latent baseline diagram failure anywhere in the
-  tree can block an otherwise clean docs-only change. Worth knowing for
-  future docs milestones: budget for clearing pre-existing diagram debt, or
-  expect the gate to surface it.
+  tree can block an otherwise clean docs-only change. Worth knowing for future
+  docs milestones: budget for clearing pre-existing diagram debt, or expect the
+  gate to surface it.
 
 Feed-forward for later phases:
 
@@ -533,10 +522,10 @@ Feed-forward for later phases:
 
 ## Context and orientation
 
-`docs/roadmap.md` defines phase 10 as "Decision closure and baseline".
-Roadmap item `10.1.2` asks the project to approve the compatibility and
-rollout policy for downstream users, including which `Vec<u8>` helpers
-survive the breaking release. The same decision appears as item `1.1.2` in
+`docs/roadmap.md` defines phase 10 as "Decision closure and baseline". Roadmap
+item `10.1.2` asks the project to approve the compatibility and rollout policy
+for downstream users, including which `Vec<u8>` helpers survive the breaking
+release. The same decision appears as item `1.1.2` in
 [`zero-copy-frame-and-payload-migration-roadmap.md`](../zero-copy-frame-and-payload-migration-roadmap.md).
 
 The current state of the related design documents is:
@@ -544,14 +533,14 @@ The current state of the related design documents is:
 - [`adr-008-zero-copy-public-byte-container.md`](../adr-008-zero-copy-public-byte-container.md):
   `Accepted` on 2026-05-26. Names `bytes::Bytes` (or a transparent project
   wrapper) as the stable public byte representation and adopts an explicit
-  edit-on-demand workflow for mutation. Section "Follow-up Decisions" calls
-  out roadmap item `10.1.2` and ADR 009 as the venue for deciding which
-  `Vec<u8>` compatibility helpers survive the breaking release, whether any
-  helpers are feature-gated, and when retained helpers are reviewed again.
+  edit-on-demand workflow for mutation. Section "Follow-up Decisions" calls out
+  roadmap item `10.1.2` and ADR 009 as the venue for deciding which `Vec<u8>`
+  compatibility helpers survive the breaking release, whether any helpers are
+  feature-gated, and when retained helpers are reviewed again.
 - [`adr-009-vec-u8-migration-rollout.md`](../adr-009-vec-u8-migration-rollout.md):
   status `Proposed`. Proposes Option C ("staged breaking release with finite
-  compatibility helpers"). Section "Outstanding Decisions" lists the three
-  open questions this plan must resolve.
+  compatibility helpers"). Section "Outstanding Decisions" lists the three open
+  questions this plan must resolve.
 - [`adr-010-transport-frame-boundary-for-zero-copy.md`](../adr-010-transport-frame-boundary-for-zero-copy.md):
   status `Proposed`. Out of scope for `10.1.2`. Closure belongs to `10.1.3`.
 - [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md): records the
@@ -569,24 +558,26 @@ govern are listed in `frame-vec-u8-inventory.md` and are confirmed by
   `Packet::into_parts` / `Packet::from_parts` contract.
 - `src/middleware.rs`: `ServiceRequest::new(frame: Vec<u8>, correlation_id)`,
   `ServiceRequest::frame_mut(&mut self) -> &mut Vec<u8>`,
-  `ServiceResponse::new(frame: Vec<u8>, ...)`,
-  `ServiceResponse::frame_mut`, and `ServiceResponse::into_inner(self) -> Vec<u8>`.
-- `src/client/hooks.rs`: `BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>`,
-  and `src/client/builder/request_hooks.rs::before_send`.
-- `src/client/messaging.rs`: `invoke_before_send_hooks(&self, bytes: &mut Vec<u8>)`.
+  `ServiceResponse::new(frame: Vec<u8>, ...)`, `ServiceResponse::frame_mut`, and
+  `ServiceResponse::into_inner(self) -> Vec<u8>`.
+- `src/client/hooks.rs`:
+  `BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>`, and
+  `src/client/builder/request_hooks.rs::before_send`.
+- `src/client/messaging.rs`:
+  `invoke_before_send_hooks(&self, bytes: &mut Vec<u8>)`.
 - `src/serializer.rs`:
-  `Serializer::serialize<M>(&self, value: &M) -> Result<Vec<u8>, ...>` and
-  the `BincodeSerializer` impl.
+  `Serializer::serialize<M>(&self, value: &M) -> Result<Vec<u8>, ...>` and the
+  `BincodeSerializer` impl.
 - `src/client/mod.rs::ClientPreambleSuccessHandler<T>`,
   `src/client/preamble_exchange.rs::perform_preamble_exchange` and
   `run_preamble_exchange`, and `src/rewind_stream.rs::RewindStream::new`.
 - `src/correlation.rs::CorrelatableFrame for Vec<u8>` and the test-only
-  `Packet for Vec<u8>` in `src/connection/test_support.rs`. ADR 010 will
-  govern these specifically; the rollout policy only needs to state which of
-  these bridges remain as compatibility surfaces during the breaking release.
+  `Packet for Vec<u8>` in `src/connection/test_support.rs`. ADR 010 will govern
+  these specifically; the rollout policy only needs to state which of these
+  bridges remain as compatibility surfaces during the breaking release.
 
-This plan does not change any of these symbols. It only decides which of
-their `Vec<u8>` shapes are retained as deprecated helpers when the public API
+This plan does not change any of these symbols. It only decides which of their
+`Vec<u8>` shapes are retained as deprecated helpers when the public API
 migration in phases `12`–`14` lands.
 
 Skills to load while implementing this plan:
@@ -596,8 +587,8 @@ Skills to load while implementing this plan:
   `leta workspace add <path>` if it is not yet present.
 - `rust-router` to choose the relevant Rust skills. The expected targets are
   `rust-types-and-apis`, `arch-decision-records`, `arch-supply-chain` (for
-  semver tooling references), `arch-crate-design`, and `rust-unused-code`
-  (for `#[cfg(...)]` and deprecation discipline).
+  semver tooling references), `arch-crate-design`, and `rust-unused-code` (for
+  `#[cfg(...)]` and deprecation discipline).
 - `en-gb-oxendict` for prose review.
 - `logisphere-design-review` for the pre-implementation review.
 - `coderabbit review --agent` (CLI, not a skill) before commit.
@@ -624,8 +615,8 @@ Adjacent documentation to keep aligned with this milestone:
 - [`docs/rstest-bdd-users-guide.md`](../rstest-bdd-users-guide.md)
 - [`docs/rust-doctest-dry-guide.md`](../rust-doctest-dry-guide.md)
 
-Later runtime work for phases `12`–`14` must validate any retained helper
-with `rstest` and `rstest-bdd` (covering happy and unhappy paths plus a
+Later runtime work for phases `12`–`14` must validate any retained helper with
+`rstest` and `rstest-bdd` (covering happy and unhappy paths plus a
 deprecation-warning regression), and add `proptest` coverage where invariants
 span ranges of payload values or hook orderings. Kani and Verus are not
 required for this docs-only decision-closure item, but later implementation
@@ -637,16 +628,16 @@ over state transitions or a proof-worthy business contract.
 ### Stage A: confirm the decision boundary
 
 Read `docs/roadmap.md` (phase 10), `docs/frame-vec-u8-inventory.md` (sections
-"Generalization paths and conceptual risks", "Resolved direction for epic
-284", and "Coordination notes"),
-`docs/zero-copy-frame-and-payload-migration-roadmap.md` (section
-"1.1.2 Approve the compatibility and rollout policy"), and ADR 009 in full.
-Confirm that `10.1.2` only approves the compatibility and rollout policy.
+"Generalization paths and conceptual risks", "Resolved direction for epic 284",
+and "Coordination notes"),
+`docs/zero-copy-frame-and-payload-migration-roadmap.md` (section "1.1.2 Approve
+the compatibility and rollout policy"), and ADR 009 in full. Confirm that
+`10.1.2` only approves the compatibility and rollout policy.
 
 Go/no-go point: if the policy decision cannot be separated from the
 actor/codec-driver boundary (`10.1.3`), the benchmark thresholds (`10.2.1`,
-`10.2.2`), or the migration-guide outline (`10.2.3`), stop and ask whether
-the user wants `10.1.2` folded into a wider milestone.
+`10.2.2`), or the migration-guide outline (`10.2.3`), stop and ask whether the
+user wants `10.1.2` folded into a wider milestone.
 
 ### Stage B: inspect current `Vec<u8>` surfaces
 
@@ -673,25 +664,25 @@ leta refs BeforeSendHook
 leta refs invoke_before_send_hooks
 ```
 
-If `leta show` returns ambiguous symbol errors, qualify with the file path
-(for example, `leta show src/serializer.rs:Serializer`). If the LSP
-connection is lost, fall back to direct `Read` of the file but record the
-failure in `Surprises & discoveries`.
+If `leta show` returns ambiguous symbol errors, qualify with the file path (for
+example, `leta show src/serializer.rs:Serializer`). If the LSP connection is
+lost, fall back to direct `Read` of the file but record the failure in
+`Surprises & discoveries`.
 
-Expected result: the implementer can list every `Vec<u8>`-typed signature
-that the accepted policy must either retain as a deprecated helper or
-explicitly remove.
+Expected result: the implementer can list every `Vec<u8>`-typed signature that
+the accepted policy must either retain as a deprecated helper or explicitly
+remove.
 
 ### Stage C: re-run the community-of-experts review if the plan is revised after approval
 
 The `logisphere-design-review` skill was already run against this draft on
-2026-06-04, and its findings are recorded in `Surprises & discoveries`. If
-the user requests material revisions before approval, re-run the crew
-against the updated draft and update `Decision log` for any new trade-offs.
+2026-06-04, and its findings are recorded in `Surprises & discoveries`. If the
+user requests material revisions before approval, re-run the crew against the
+updated draft and update `Decision log` for any new trade-offs.
 
 Stop and escalate if a re-run surfaces a structural objection (for example,
-that Option C is no longer the right rollout pattern). Do not edit ADR 009
-to a position the review has cast serious doubt on without user direction.
+that Option C is no longer the right rollout pattern). Do not edit ADR 009 to a
+position the review has cast serious doubt on without user direction.
 
 ### Stage D: accept ADR 009
 
@@ -739,21 +730,20 @@ Edit `docs/adr-009-vec-u8-migration-rollout.md` so that:
    against the resolved answers and updated only where they would otherwise
    contradict the acceptance.
 4. The `Known Risks and Limitations` section is updated to reflect the
-   chosen visibility and removal signals, and the named risks from this
-   plan's `Risks` section are folded in where they belong in the ADR. In
-   particular, the "downstream re-export propagation" and "deprecation
-   warning suppression" risks are added; the existing risk about
-   compatibility helpers becoming permanent in practice is rephrased
-   against the new event-based removal trigger.
+   chosen visibility and removal signals, and the named risks from this plan's
+   `Risks` section are folded in where they belong in the ADR. In particular,
+   the "downstream re-export propagation" and "deprecation warning suppression"
+   risks are added; the existing risk about compatibility helpers becoming
+   permanent in practice is rephrased against the new event-based removal
+   trigger.
 5. The `Architectural Rationale` section is updated to call out
    `cargo-semver-checks` and `cargo-public-api` as the suggested release
-   guardrails. It must explicitly defer CI wiring to roadmap item `14.1.x`
-   and state that, until that wiring lands, the policy is enforced by
-   review only. It must also cite the `#[deprecated]` attribute as the
-   canonical compatibility-window mechanism in Rust.
+   guardrails. It must explicitly defer CI wiring to roadmap item `14.1.x` and
+   state that, until that wiring lands, the policy is enforced by review only.
+   It must also cite the `#[deprecated]` attribute as the canonical
+   compatibility-window mechanism in Rust.
 6. The ADR explicitly defers the migration guide before-and-after examples
-   to roadmap item `10.2.3` and the changelog phrasing to roadmap item
-   `14.1.2`.
+   to roadmap item `10.2.3` and the changelog phrasing to roadmap item `14.1.2`.
 7. Any inline `Vec<u8>` recommendation that conflicts with ADR 008's
    accepted edit-on-demand workflow is reconciled. In particular,
    `PayloadBytes::into_vec`'s deprecation `note` must steer users to a
@@ -768,9 +758,9 @@ Update `docs/roadmap.md` to tick item `10.1.2` only after ADR 009 acceptance
 and gate runs are complete. Do not tick `10.1.3`, `10.2.x`, or any item in
 phases `11`–`14`.
 
-Update `docs/zero-copy-frame-and-payload-migration-roadmap.md` item `1.1.2`
-and its child bullets to reflect the resolved policy. Do not edit other
-items in that file.
+Update `docs/zero-copy-frame-and-payload-migration-roadmap.md` item `1.1.2` and
+its child bullets to reflect the resolved policy. Do not edit other items in
+that file.
 
 Update `docs/frame-vec-u8-inventory.md` only if its "Generalization paths and
 conceptual risks", "Resolved direction for epic 284", or "Coordination notes"
@@ -778,20 +768,19 @@ sections would otherwise contradict the accepted ADR. Keep the inventory
 factual; do not turn it into a second ADR.
 
 If the user-facing or developer-facing guides need a pointer that downstream
-users should expect a finite compatibility window in the breaking release,
-add a one-paragraph note. Otherwise, defer those edits to roadmap item
-`10.2.3` (migration-guide outline) and record the deferral in
-`Decision log`.
+users should expect a finite compatibility window in the breaking release, add
+a one-paragraph note. Otherwise, defer those edits to roadmap item `10.2.3`
+(migration-guide outline) and record the deferral in `Decision log`.
 
 ### Stage F: validate
 
 Run the gates sequentially with `tee` logs under `/tmp`, using the user's
 preferred filename template
 `/tmp/$ACTION-wireframe-$(git branch --show-current).out`. The expected
-formatter behaviour is documented in the `10.1.1` plan: `make fmt` may fail
-on pre-existing repository-wide Markdown line-length findings outside this
-task; if so, run `make check-fmt` and `make markdownlint` instead and record
-the formatter baseline in `Surprises & discoveries`.
+formatter behaviour is documented in the `10.1.1` plan: `make fmt` may fail on
+pre-existing repository-wide Markdown line-length findings outside this task;
+if so, run `make check-fmt` and `make markdownlint` instead and record the
+formatter baseline in `Surprises & discoveries`.
 
 ```sh
 set -o pipefail
@@ -803,17 +792,16 @@ make test        2>&1 | tee /tmp/test-wireframe-$(git branch --show-current).out
 ```
 
 For a docs-only decision-closure milestone, `make lint` and `make test` must
-still pass. Recording their successful runs guards against accidental
-runtime regressions sneaking in alongside the documentation edits.
+still pass. Recording their successful runs guards against accidental runtime
+regressions sneaking in alongside the documentation edits.
 
 ### Stage G: external review and commit
 
-Run `coderabbit review --agent` after the deterministic gates pass and
-before the commit. Address every concern or record why it is out of scope.
+Run `coderabbit review --agent` after the deterministic gates pass and before
+the commit. Address every concern or record why it is out of scope.
 
-Use the `commit-message` skill for the final commit message. Stage the
-intended files individually rather than `git add -A`. The expected staged
-set is:
+Use the `commit-message` skill for the final commit message. Stage the intended
+files individually rather than `git add -A`. The expected staged set is:
 
 - `docs/adr-009-vec-u8-migration-rollout.md`
 - `docs/roadmap.md`
@@ -824,9 +812,9 @@ set is:
 
 Push the renamed branch and open the draft pull request through the
 `pr-creation` skill. The pull request title must include `(10.1.2)` and the
-description must mention this execplan, link adjacent ADRs and roadmap
-items, and end with a `## References` section that contains the lody
-session link emitted by:
+description must mention this execplan, link adjacent ADRs and roadmap items,
+and end with a `## References` section that contains the lody session link
+emitted by:
 
 ```sh
 echo "https://lody.ai/leynos/sessions/${LODY_SESSION_ID}"
@@ -864,9 +852,9 @@ From the repository root:
    sed -n '340,407p' docs/frame-vec-u8-inventory.md
    ```
 
-   The line ranges are illustrative anchors at draft time; if a file has
-   been edited since this plan was written, re-locate the relevant sections
-   by heading.
+   The line ranges are illustrative anchors at draft time; if a file has been
+   edited since this plan was written, re-locate the relevant sections by
+   heading.
 
 4. Confirm the current public byte surfaces with `leta`:
 
@@ -883,8 +871,7 @@ From the repository root:
 
 5. Run the `logisphere-design-review` skill against this plan and the
    "Outstanding Decisions" section of ADR 009. Record the crew's feedback in
-   `Surprises & discoveries` and update `Decision log` for any new
-   trade-offs.
+   `Surprises & discoveries` and update `Decision log` for any new trade-offs.
 
 6. Edit `docs/adr-009-vec-u8-migration-rollout.md` as described in Stage D.
 
@@ -961,8 +948,8 @@ commit):
   open "Outstanding Decisions".
 - ADR 009 names each affected surface that the policy governs:
   `PacketParts`, `Envelope`, `ServiceRequest`, `ServiceResponse`,
-  `BeforeSendHook`, `Serializer::serialize`, and the client preamble
-  leftover path.
+  `BeforeSendHook`, `Serializer::serialize`, and the client preamble leftover
+  path.
 - ADR 009 records the visibility decision (default build, not feature
   gated), the deprecation discipline (`#[deprecated(since, note)]`), and the
   removal signal (next major release; six-month review hook in `14.2.1`).
@@ -990,25 +977,25 @@ Quality criteria summary:
 
 ## Idempotence and recovery
 
-The planning and documentation steps are safe to repeat. If Markdown
-formatting changes wrap prose differently between runs, review the diff and
-keep only changes related to this plan or ADR 009 alignment.
+The planning and documentation steps are safe to repeat. If Markdown formatting
+changes wrap prose differently between runs, review the diff and keep only
+changes related to this plan or ADR 009 alignment.
 
 If a quality gate fails, fix the smallest relevant issue and rerun only the
 failed gate before continuing to the next. Three consecutive failures of the
 same gate triggers the iteration tolerance: stop, document, and escalate.
 
-If the branch push fails because the remote branch already exists, fetch
-the remote branch and compare histories before any force operation. Do not
+If the branch push fails because the remote branch already exists, fetch the
+remote branch and compare histories before any force operation. Do not
 overwrite remote work without explicit approval.
 
-If `coderabbit review --agent` is unavailable in the local environment,
-record the command failure in `Surprises & discoveries`, proceed only with
-the local quality gates, and note the missing review in the pull request.
+If `coderabbit review --agent` is unavailable in the local environment, record
+the command failure in `Surprises & discoveries`, proceed only with the local
+quality gates, and note the missing review in the pull request.
 
-The branch rename is one-way once the pull request exists. Use GitHub's
-rename flow so the pull request follows the rename; do not rename locally
-and force-push.
+The branch rename is one-way once the pull request exists. Use GitHub's rename
+flow so the pull request follows the rename; do not rename locally and
+force-push.
 
 ## Artifacts and notes
 
@@ -1016,20 +1003,19 @@ External prior-art used while drafting this plan. Each entry is a bounded
 citation, not a model to copy in full.
 
 - `cargo-semver-checks` partially detects Rust semver violations using
-  rustdoc JSON. The action runs "right before `cargo publish`" and compares
-  the candidate against the latest non-prerelease version on crates.io, so
+  rustdoc JSON. The action runs "right before `cargo publish`" and compares the
+  candidate against the latest non-prerelease version on crates.io, so
   intentional major bumps produce reviewable expected failures rather than
   silent regressions. Source:
   <https://github.com/obi1kenobi/cargo-semver-checks-action>.
 - `cargo-public-api` inventories and diffs the public API surface of a
-  Rust library between releases or commits. Useful as a release guardrail
-  to confirm that the intended breaking surface, and only that surface,
-  changes. Source: <https://crates.io/crates/cargo-public-api>.
+  Rust library between releases or commits. Useful as a release guardrail to
+  confirm that the intended breaking surface, and only that surface, changes.
+  Source: <https://crates.io/crates/cargo-public-api>.
 - Rust's `#[deprecated(since = "...", note = "...")]` attribute is the
   canonical mechanism for a finite compatibility window. The Rust Reference
-  documents that `rustdoc` renders both the version and the note on the
-  item. Source:
-  <https://doc.rust-lang.org/reference/attributes/diagnostics.html>.
+  documents that `rustdoc` renders both the version and the note on the item.
+  Source: <https://doc.rust-lang.org/reference/attributes/diagnostics.html>.
 - `bytes::Bytes` is documented as "a cheaply cloneable and sliceable chunk
   of contiguous memory", with reference-counted shared storage. Source:
   <https://docs.rs/bytes/latest/bytes/struct.Bytes.html>.
@@ -1040,29 +1026,29 @@ citation, not a model to copy in full.
 - Hyper 1.0's upgrade guide is one precedent for "staged breaking release
   with finite compatibility helpers": users first enable
   `features = ["backports", "deprecated"]` on hyper 0.14, where `backports`
-  ports several 1.0 types into 0.14 and `deprecated` emits warnings on any
-  0.14 item with a direct backport. Helpers that did not fit 1.0's
-  stability bar moved into `hyper-util` rather than staying in core, so the
-  effective sunset criterion was "1.0 ships only what we will commit to
-  under SemVer". Source: <https://hyper.rs/guides/1/upgrading/>.
+  ports several 1.0 types into 0.14 and `deprecated` emits warnings on any 0.14
+  item with a direct backport. Helpers that did not fit 1.0's stability bar
+  moved into `hyper-util` rather than staying in core, so the effective sunset
+  criterion was "1.0 ships only what we will commit to under SemVer". Source:
+  <https://hyper.rs/guides/1/upgrading/>.
 - Common Changelog mandates that breaking changes are prefixed
   `**Breaking:**` and listed before other changes per category;
-  subsystem-scoped breaks use `**<subsystem> (breaking):**`. Common
-  Changelog also recommends an `UPGRADING.md` alongside the release entry
-  for semver-major releases. Source: <https://common-changelog.org/>.
+  subsystem-scoped breaks use `**<subsystem> (breaking):**`. Common Changelog
+  also recommends an `UPGRADING.md` alongside the release entry for
+  semver-major releases. Source: <https://common-changelog.org/>.
 
-Repository documents to keep aligned with this plan (listed under "Context
-and orientation").
+Repository documents to keep aligned with this plan (listed under "Context and
+orientation").
 
 ## Interfaces and dependencies
 
 This plan does not introduce a new Rust interface, but it does specify the
-shape and canonical names of the compatibility helpers that the later
-runtime work in roadmap items `12.1.x` and `12.2.x` must implement.
-ADR 009 commits to *both* the helper set and the canonical names. The
-version strings shown as `<release-version>` and `<target-removal-version>`
-are filled in at release-cut time by roadmap item `14.1.1`; ADR 009 commits
-to the substitution rule, not the literal values.
+shape and canonical names of the compatibility helpers that the later runtime
+work in roadmap items `12.1.x` and `12.2.x` must implement. ADR 009 commits to
+*both* the helper set and the canonical names. The version strings shown as
+`<release-version>` and `<target-removal-version>` are filled in at release-cut
+time by roadmap item `14.1.1`; ADR 009 commits to the substitution rule, not
+the literal values.
 
 ```rust
 // Illustrative shape only. Internal representation and exact signatures
@@ -1108,17 +1094,17 @@ impl PayloadBytes {
 ```
 
 `ServiceRequest::frame_mut`, `ServiceResponse::frame_mut`, and
-`ServiceResponse::into_inner` are *not* in the helper set. They are
-removed outright in the breaking release and replaced by the ADR 008
-edit-on-demand workflow. Retaining a `&mut Vec<u8>` accessor would
-resurrect the bottleneck ADR 008 eliminated.
+`ServiceResponse::into_inner` are *not* in the helper set. They are removed
+outright in the breaking release and replaced by the ADR 008 edit-on-demand
+workflow. Retaining a `&mut Vec<u8>` accessor would resurrect the bottleneck
+ADR 008 eliminated.
 
-`CorrelatableFrame for Vec<u8>` (runtime) and `Packet for Vec<u8>`
-(test support) are *not* governed by this policy. ADR 010 and roadmap
-items `11.2.1`, `11.2.2`, and `14.1.3` own their lifecycle.
+`CorrelatableFrame for Vec<u8>` (runtime) and `Packet for Vec<u8>` (test
+support) are *not* governed by this policy. ADR 010 and roadmap items `11.2.1`,
+`11.2.2`, and `14.1.3` own their lifecycle.
 
-These sketches are reference shapes for ADR 009 only. Do not implement them
-in Rust under `10.1.2`.
+These sketches are reference shapes for ADR 009 only. Do not implement them in
+Rust under `10.1.2`.
 
 Dependencies summary:
 
@@ -1130,7 +1116,7 @@ Dependencies summary:
 
 ## Revision note
 
-Initial draft created on 2026-06-04. It turns the user request and roadmap
-item `10.1.2` into a reviewable, approval-gated ExecPlan. The plan resolves
-nothing in ADR 009 until the user explicitly approves the proposed answers
-in `Decision log`. No runtime implementation is authorised by this draft.
+Initial draft created on 2026-06-04. It turns the user request and roadmap item
+`10.1.2` into a reviewable, approval-gated ExecPlan. The plan resolves nothing
+in ADR 009 until the user explicitly approves the proposed answers in
+`Decision log`. No runtime implementation is authorised by this draft.

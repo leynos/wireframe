@@ -35,7 +35,8 @@ Read-only packet and routing paths should preserve shared byte storage and
 cheap cloning. Middleware and client hook mutation must go through an explicit
 edit-on-demand workflow, copying only when an edit needs unique mutable
 storage. Do not introduce new public `Vec<u8>` payload contracts unless the
-compatibility policy in the zero-copy rollout explicitly calls for them.
+[ADR 009 compatibility policy](adr-009-vec-u8-migration-rollout.md) for the
+zero-copy rollout explicitly calls for them.
 
 ## Allowed aliases and prohibited mixing
 
@@ -259,8 +260,7 @@ and re-exported only when more than one test binary needs the helper.
 
 Formal-verification tools are pinned in repository metadata and installed
 through concise Makefile entry points. Contributors should use these targets
-from the repository root instead of running long `uv tool run` commands by
-hand:
+from the repository root instead of running long `uv tool run` commands by hand:
 
 - `make install-kani` installs the Kani version named in
   `tools/kani/VERSION`.

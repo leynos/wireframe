@@ -1,9 +1,8 @@
 # Implement budget enforcement for message assembly (8.3.2)
 
-This execution plan (ExecPlan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This execution plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -293,10 +292,10 @@ Then modify `src/message_assembler/state.rs`:
    `connection_budget: Option<NonZeroUsize>` and
    `in_flight_budget: Option<NonZeroUsize>`.
 
-2. Add a new constructor `with_budgets(max_message_size, timeout,
-   connection_budget,
-   in_flight_budget)`. Refactor the existing `new()` to delegate to `
-   with_budgets` with `None` for both budget fields.
+2. Add a new constructor
+   `with_budgets(max_message_size, timeout, connection_budget, in_flight_budget)`.
+   Refactor the existing `new()` to delegate to `with_budgets` with `None` for
+   both budget fields.
 
 3. Add a public `total_buffered_bytes(&self) -> usize` query method for
    diagnostics and testing.

@@ -104,9 +104,9 @@ mock stream object.
 
 **Refactoring** `handle_client`**:** A straightforward approach is to make
 `handle_client` generic over the stream’s reader and writer. The Tokio docs
-suggest writing connection handlers as functions parameterized by
-`AsyncRead`/`AsyncWrite` implementors, rather than hard-coding `TcpStream`. We
-can apply this by splitting the logic:
+suggest writing connection handlers as functions parameterized by `AsyncRead`/
+`AsyncWrite` implementors, rather than hard-coding `TcpStream`. We can apply
+this by splitting the logic:
 
 1. **Split at the call site:** In `accept_connections`, instead of calling
    `handle_client(socket, ...)` directly, we first split the socket and then
@@ -220,7 +220,7 @@ where
 In the above pseudocode, we essentially mirrored the logic from
 `handle_client`, but on generic `reader`/`writer`. This refactoring sets the
 stage for injecting **simulated failures** in tests by providing custom
-`reader`/`writer` types.
+`reader` /`writer` types.
 
 ## Simulating Network Failures with `tokio-test::io::Builder`
 
@@ -272,11 +272,11 @@ async fn handshake_times_out() {
 ```
 
 In the above test, `Builder::new().build()` for the reader yields an I/O object
-that returns EOF immediately on reads (since no `.read` is queued). The
-server’s `read_exact` will wait, but after we advance the virtual clock 5+
-seconds, the `timeout` will return `Err`, causing the server to write a timeout
-error reply. We expect the reply to be 8 bytes (`"TRTP"` + error code 3), which
-we queued as an expected write. The `test_writer` is configured with
+that returns EOF immediately on reads (since no `.read` is queued). The server’s
+`read_exact` will wait, but after we advance the virtual clock 5+ seconds, the
+`timeout` will return `Err`, causing the server to write a timeout error reply.
+We expect the reply to be 8 bytes (`"TRTP"` + error code 3), which we queued as
+an expected write. The `test_writer` is configured with
 `.write(&expected_reply)` to assert that those exact bytes are written. If the
 server fails to write this or writes different bytes, the test will fail.
 Finally, we assert that `client_handler` returned `Ok(())` – it should return

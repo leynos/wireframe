@@ -29,13 +29,13 @@ capabilities.
 The implementation must satisfy the following core requirements:
 
 <!-- markdownlint-disable MD013 MD060 -->
-| ID | Goal                                                                                                                                                                                                                   |
+| ID  | Goal                                                                                                                                                                                                                   |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| G1 | Transparent inbound reassembly → The router and handlers must always receive one complete, logical Frame.                                                                                                              |
-| G2 | Transparent outbound fragmentation when a payload exceeds a configurable, protocol-specific size.                                                                                                                      |
-| G3 | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
-| G4 | Denial‑of‑service (DoS) protection: The reassembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                     |
-| G5 | Zero Friction: Protocols that do not use fragmentation must incur no performance or complexity overhead. This feature must be strictly opt-in.                                                                         |
+| G1  | Transparent inbound reassembly → The router and handlers must always receive one complete, logical Frame.                                                                                                              |
+| G2  | Transparent outbound fragmentation when a payload exceeds a configurable, protocol-specific size.                                                                                                                      |
+| G3  | Pluggable Strategy: The logic for parsing and building fragment headers, detecting the final fragment, and managing sequence numbers must be supplied by the protocol implementation, not hard-coded in the framework. |
+| G4  | Denial‑of‑service (DoS) protection: The reassembly process must be hardened against resource exhaustion attacks via strict memory and time limits.                                                                     |
+| G5  | Zero Friction: Protocols that do not use fragmentation must incur no performance or complexity overhead. This feature must be strictly opt-in.                                                                         |
 <!-- markdownlint-enable MD013 MD060 -->
 
 ## 3. Core architecture: the `FragmentAdapter`
@@ -63,9 +63,8 @@ Per-connection memory budgets are now standardized across all assembly paths.
 While `max_message_size` remains as a per-message cap, it works alongside
 per-connection limits covering bytes buffered per message, bytes buffered per
 connection, and bytes buffered across in-flight assemblies. See
-[Section 9](#9-composition-with-streaming-requests-and-messageassembler) and
-[ADR 0002][adr-0002] for the complete budget configuration and enforcement
-model.
+[Section 9](#9-composition-with-streaming-requests-and-messageassembler). The
+complete budget configuration and enforcement model is in [ADR 0002][adr-0002].
 
 ```rust
 pub trait FragmentAdapter: Send + Sync {
@@ -359,15 +358,15 @@ This feature is designed as a foundational layer that other features build upon.
 ## 7. Measurable objectives and success criteria
 
 <!-- markdownlint-disable-next-line MD013 -->
-| Category        | Objective                                                                                                                                  | Success Metric                                                                                                                                                                              |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                      | 100% of the public API surface is present and correctly typed.                                                                                                                              |
-| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly reassembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and reassembled.                                                  |
-| Multiplexing    | The adapter can correctly reassemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly reassembled messages, A and B.                                                                                 |
-| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                    | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                              |
-| Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                               | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                              |
-| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                    | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter.           |
-| Resilience      | The adapter enforces the configured `max_message_size`, `fragment_payload_cap`, and `reassembly_timeout` used in production.               | Benchmarks and regression tests assert the 16× message cap, per-fragment payload cap derived from buffer capacity, and a 30s timeout for purging stale assemblies (WireframeApp defaults).  |
+| Category        | Objective                                                                                                                                  | Success Metric                                                                                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| API Correctness | The FragmentStrategy trait and FragmentAdapter are implemented exactly as specified in this document.                                      | 100% of the public API surface is present and correctly typed.                                                                                                                             |
+| Functionality   | A large logical frame is correctly split into N fragments, and a sequence of N fragments is correctly reassembled into the original frame. | An end-to-end test confirms byte-for-byte identity of a payload at the configured max_message_size after being fragmented and reassembled.                                                 |
+| Multiplexing    | The adapter can correctly reassemble two messages whose fragments are interleaved.                                                         | A test sending fragments A1, B1, A2, B2, A3, B3 must result in two correctly reassembled messages, A and B.                                                                                |
+| Resilience      | The adapter protects against memory exhaustion from oversized messages.                                                                    | A test sending fragments that exceed max_message_size must terminate the connection and not allocate beyond the configured cap (including allocator overhead).                             |
+| Resilience      | The adapter protects against resource leaks from abandoned partial messages.                                                               | A test that sends an initial fragment but never the final one must result in the partial buffer being purged after the reassembly_timeout duration has passed.                             |
+| Performance     | The overhead for messages that do not require fragmentation is minimal.                                                                    | A criterion benchmark passing a stream of small, non-fragmented frames through the FragmentAdapter must show < 5% throughput degradation compared to a build without the adapter.          |
+| Resilience      | The adapter enforces the configured `max_message_size`, `fragment_payload_cap`, and `reassembly_timeout` used in production.               | Benchmarks and regression tests assert the 16× message cap, per-fragment payload cap derived from buffer capacity, and a 30s timeout for purging stale assemblies (WireframeApp defaults). |
 
 ## 8. Design decisions (14 November 2025, updated 17 November 2025)
 
@@ -397,8 +396,8 @@ This feature is designed as a foundational layer that other features build upon.
   fragment indices are suppressed and do not append payload bytes, while
   out-of-order indices still fail reassembly and clear partial state.
 - Changed app-level fragmentation configuration to explicit opt-in. Builders no
-  longer auto-enable fragmentation; callers must use `enable_fragmentation()`
-  or `fragmentation(Some(cfg))`.
+  longer auto-enable fragmentation; callers must use `enable_fragmentation()` or
+  `fragmentation(Some(cfg))`.
 - Assigned purge scheduling ownership to the adapter caller via
   `FragmentAdapter::purge_expired()`. `WireframeApp` drives this on timeout
   ticks, and external callers can schedule purges directly.

@@ -1,16 +1,15 @@
 # Introduce mutation testing workflow with cargo-mutants
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: DRAFT
 
 ## Purpose / big picture
 
-After this change, the Wireframe project has a GitHub Actions workflow that
-runs `cargo-mutants` on a daily schedule (and on demand for any branch). The
+After this change, the Wireframe project has a GitHub Actions workflow that runs
+`cargo-mutants` on a daily schedule (and on demand for any branch). The
 workflow uses a change-detection guard so that the expensive mutation step is a
 cheap no-op when no relevant Rust source files changed on `main` in the
 preceding 24 hours. When changes are detected, mutations are scoped to only the

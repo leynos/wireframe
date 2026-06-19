@@ -1,9 +1,8 @@
 # Add middleware hooks for outgoing requests and incoming frames (17.1.1)
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -268,10 +267,12 @@ the submodule list.
 
 Two methods on `WireframeClientBuilder<S, P, C>`:
 
-- `before_send<F: Fn(&mut Vec<u8>) + Send + Sync + 'static>(self, f: F) ->
-  Self` — pushes `Arc::new(f)` onto `self.request_hooks.before_send`.
-- `after_receive<F: Fn(&mut BytesMut) + Send + Sync + 'static>(self, f: F) ->
-  Self` — pushes `Arc::new(f)` onto `self.request_hooks.after_receive`.
+- `before_send<F>(self, f: F) -> Self` where
+  `F: Fn(&mut Vec<u8>) + Send + Sync + 'static` — pushes `Arc::new(f)` onto
+  `self.request_hooks.before_send`.
+- `after_receive<F>(self, f: F) -> Self` where
+  `F: Fn(&mut BytesMut) + Send + Sync + 'static` — pushes `Arc::new(f)` onto
+  `self.request_hooks.after_receive`.
 
 Both documented with rustdoc examples showing counter-based hooks.
 
@@ -522,24 +523,24 @@ beginning of the failed stage. No destructive operations are involved.
 
 **Files to modify:**
 
-| File                              | Change                                                   | Current → est. new   |
-| --------------------------------- | -------------------------------------------------------- | -------------------- |
-| `src/client/hooks.rs`             | Add `BeforeSendHook`, `AfterReceiveHook`, `RequestHooks` | 113 → ~168           |
-| `src/client/builder/core.rs`      | Add `request_hooks` field                                | 61 → ~64             |
-| `src/client/builder/mod.rs`       | Extend macro + `mod request_hooks`                       | 61 → ~66             |
-| `src/client/runtime.rs`           | Add field + helper methods + hook call in `send()`       | 351 → ~370           |
-| `src/client/messaging.rs`         | Hook calls in `send_envelope()` and `receive_internal()` | 268 → ~276           |
-| `src/client/streaming.rs`         | Hook call in `call_streaming()`                          | 149 → ~153           |
-| `src/client/response_stream.rs`   | Hook call in `poll_next()`                               | 165 → ~170           |
-| `src/client/builder/connect.rs`   | Thread `request_hooks` to constructor                    | 100 → ~101           |
-| `src/client/mod.rs`               | Add re-exports                                           | 79 → ~82             |
-| `src/client/tests/mod.rs`         | Add `mod request_hooks`                                  | 175 → ~176           |
-| `tests/fixtures/mod.rs`           | Add `pub mod client_request_hooks`                       | 30 → ~31             |
-| `tests/steps/mod.rs`              | Add `mod client_request_hooks_steps`                     | 31 → ~32             |
-| `tests/scenarios/mod.rs`          | Add `mod client_request_hooks_scenarios`                 | 33 → ~34             |
-| `docs/wireframe-client-design.md` | New "Request hooks" section                              | +~40                 |
-| `docs/users-guide.md`             | New subsection + table row                               | +~50                 |
-| `docs/roadmap.md`                 | Mark 17.1.1 done                                         | 1 char change        |
+| File                              | Change                                                   | Current → est. new |
+| --------------------------------- | -------------------------------------------------------- | ------------------ |
+| `src/client/hooks.rs`             | Add `BeforeSendHook`, `AfterReceiveHook`, `RequestHooks` | 113 → ~168         |
+| `src/client/builder/core.rs`      | Add `request_hooks` field                                | 61 → ~64           |
+| `src/client/builder/mod.rs`       | Extend macro + `mod request_hooks`                       | 61 → ~66           |
+| `src/client/runtime.rs`           | Add field + helper methods + hook call in `send()`       | 351 → ~370         |
+| `src/client/messaging.rs`         | Hook calls in `send_envelope()` and `receive_internal()` | 268 → ~276         |
+| `src/client/streaming.rs`         | Hook call in `call_streaming()`                          | 149 → ~153         |
+| `src/client/response_stream.rs`   | Hook call in `poll_next()`                               | 165 → ~170         |
+| `src/client/builder/connect.rs`   | Thread `request_hooks` to constructor                    | 100 → ~101         |
+| `src/client/mod.rs`               | Add re-exports                                           | 79 → ~82           |
+| `src/client/tests/mod.rs`         | Add `mod request_hooks`                                  | 175 → ~176         |
+| `tests/fixtures/mod.rs`           | Add `pub mod client_request_hooks`                       | 30 → ~31           |
+| `tests/steps/mod.rs`              | Add `mod client_request_hooks_steps`                     | 31 → ~32           |
+| `tests/scenarios/mod.rs`          | Add `mod client_request_hooks_scenarios`                 | 33 → ~34           |
+| `docs/wireframe-client-design.md` | New "Request hooks" section                              | +~40               |
+| `docs/users-guide.md`             | New subsection + table row                               | +~50               |
+| `docs/roadmap.md`                 | Mark 17.1.1 done                                         | 1 char change      |
 
 Total: 6 new files + 16 modified files = 22 files. All under 400 lines.
 

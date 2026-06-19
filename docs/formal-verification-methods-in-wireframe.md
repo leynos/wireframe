@@ -25,8 +25,8 @@ Chutoro or mxd wholesale. Instead, use a hybrid of both:
 
 - Follow **Chutoro** for **Verus** and the overall **`make kani` /
   `make kani-full` / `make verus`** operational pattern, with pinned tool
-  versions, repo-local scripts, and a dedicated CI job for
-  Verus.[^6][^7][^8][^9][^10]
+  versions, repo-local scripts, and a dedicated CI job for Verus.[^6][^7][^8]
+  [^9][^10]
 - Follow **mxd** for **Stateright**: put models in a dedicated internal
   verification crate, run them through ordinary Rust tests, and give the
   checker a shared harness that distinguishes safety from reachability
@@ -835,7 +835,7 @@ run-verus: ## Run the configured Verus proof entry point
 
 `PROVER_TOOLS` is a pinned
 `uv tool run --python 3.14 --from "git+https://github.com/leynos/rust-prover-tools.git@<ref>"`
- invocation. The `<ref>` comes from `tools/rust-prover-tools/REF`, and
+invocation. The `<ref>` comes from `tools/rust-prover-tools/REF`, and
 `prover-tools` owns the Kani install, Kani version check, Verus download,
 checksum verification, local binary resolution, Rust toolchain handling, and
 proof-run behaviour.

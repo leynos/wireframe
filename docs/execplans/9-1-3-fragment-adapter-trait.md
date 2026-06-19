@@ -277,8 +277,8 @@ Go/no-go:
 
 2. Refactor connection-facing adapter implementation:
    `src/app/fragmentation_state.rs`, `src/app/frame_handling/core.rs`,
-   `src/app/frame_handling/reassembly.rs`,
-   `src/app/frame_handling/response.rs`, `src/app/inbound_handler.rs`.
+   `src/app/frame_handling/reassembly.rs`, `src/app/frame_handling/response.rs`,
+   `src/app/inbound_handler.rs`.
 
 3. Enforce opt-in builder behaviour:
    `src/app/builder_defaults.rs`, `src/app/builder/core.rs`,

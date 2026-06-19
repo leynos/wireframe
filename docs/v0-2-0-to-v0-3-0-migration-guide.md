@@ -628,8 +628,8 @@ partial frames, fragments, and slow I/O, plus `TestSerializer`, `TestResult`,
 `TestError`, and assembly snapshot assertion helpers. The `wireframe_testing`
 companion crate provides `WireframePair` (real loopback server–client pair),
 `ObservabilityHandle` (log + metrics capture with atomic snapshot semantics),
-`Labels`, and `HotlineFixtures` (codec regression fixtures and
-`new_test_codec`).*
+`Labels`, and `HotlineFixtures` (codec regression fixtures and `new_test_codec`
+).*
 
 `wireframe::testkit` (behind the `testkit` Cargo feature) provides optional
 test utilities for downstream protocol crates. The module is not available in
@@ -965,9 +965,9 @@ sequenceDiagram
 *Sequence diagram: `call_streaming` sends the request and returns a
 `ResponseStream` that holds an exclusive borrow of the client. Each
 `try_next()` call polls the client for the next server frame; the loop
-continues until the server sends a terminator, at which point the stream
-returns `None`. Dropping the `ResponseStream` releases the borrow, making the
-client available for further calls.*
+continues until the server sends a terminator, at which point the stream returns
+`None`. Dropping the `ResponseStream` releases the borrow, making the client
+available for further calls.*
 
 `StreamingResponseExt` is a trait on any `Stream` of response frames. It
 provides `typed_with(mapper)`, which produces a
@@ -1104,11 +1104,11 @@ classDiagram
     ClientPoolConfig --> PoolFairnessPolicy
 ```
 
-*Class diagram: `WireframeClientBuilder` creates a `WireframeClientPool` using
-a `ClientPoolConfig` (which selects a `PoolFairnessPolicy`). The pool vends
-`PoolHandle` instances; each handle yields a `PooledClientLease` on
-`acquire()`. `PooledClientLease` derefs to `WireframeClient`, exposing `call`,
-`send`, and `receive` for individual requests.*
+*Class diagram: `WireframeClientBuilder` creates a `WireframeClientPool` using a
+`ClientPoolConfig` (which selects a `PoolFairnessPolicy`). The pool vends
+`PoolHandle` instances; each handle yields a `PooledClientLease` on `acquire()`.
+`PooledClientLease` derefs to `WireframeClient`, exposing `call`, `send`, and
+`receive` for individual requests.*
 
 Sequence diagram showing the connection pool usage flow: building the pool,
 acquiring a PoolHandle, checking out a PooledClientLease, making a request, and

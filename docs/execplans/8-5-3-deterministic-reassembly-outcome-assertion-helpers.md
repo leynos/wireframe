@@ -1,9 +1,8 @@
 # 8.5.3 Add deterministic assertion helpers for reassembly outcomes
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: DONE
 
@@ -49,9 +48,9 @@ passes and the public documentation is updated.
   `wireframe_testing/src/**`.
 - No single source file may exceed 400 lines. This matters immediately because
   [`tests/fixtures/message_assembly.rs`](../../tests/fixtures/message_assembly.rs)
-   is already 340 lines and
+  is already 340 lines and
   [`tests/steps/message_assembly_steps.rs`](../../tests/steps/message_assembly_steps.rs)
-   is already 368 lines.
+  is already 368 lines.
 - Use `rstest` for the focused helper tests and `rstest-bdd` v0.5.0 for the
   behavioural coverage. Fixture names in step functions must match exactly, and
   step parameters must not be underscore-prefixed.
@@ -341,7 +340,7 @@ This stage should touch, at minimum:
 If the new helper surface also cleanly covers the budget-enforcement outcome
 assertions, refactor
 [`tests/fixtures/budget_enforcement.rs`](../../tests/fixtures/budget_enforcement.rs)
- as well. That refactor is in scope only if it remains additive and does not
+as well. That refactor is in scope only if it remains additive and does not
 expand the touched-file count beyond tolerance.
 
 Target outcome: fixture methods become thin wrappers that gather state and call

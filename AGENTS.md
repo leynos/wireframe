@@ -239,9 +239,9 @@ project:
 - **Use implicit SemVer-compatible version requirements.** All crate versions
   specified in `Cargo.toml` must use plain version numbers without an explicit
   caret prefix (e.g., `some-crate = "1.2.3"`). Cargo interprets this as a
-  caret-compatible requirement, allowing safe, non-breaking updates to minor and
-  patch versions while preventing breaking changes from new major versions. This
-  approach is critical for ensuring build stability and reproducibility.
+  caret-compatible requirement, allowing safe, non-breaking updates to minor
+  and patch versions while preventing breaking changes from new major versions.
+  This approach is critical for ensuring build stability and reproducibility.
 - **Prohibit unstable version specifiers.** The use of wildcard (`*`) or
   open-ended inequality (`>=`) version requirements is strictly forbidden as
   they introduce unacceptable risk and unpredictability. Tilde requirements (
@@ -275,7 +275,7 @@ project:
 
 - Use `tracing` for logging and diagnostics. Prefer structured
   `tracing::{trace, debug, info, warn, error}` events and spans over `println!`,
-   `eprintln!`, or direct `log` macros. Add fields for identifiers, state, and
+  `eprintln!`, or direct `log` macros. Add fields for identifiers, state, and
   error context so downstream subscribers can filter and correlate events
   without parsing message text.
 - Use `#[tracing::instrument]` or explicit spans around request handling,
