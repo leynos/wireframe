@@ -1,9 +1,8 @@
 # 9.7.2 Add codec fixtures in wireframe\_testing
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -236,8 +235,8 @@ header: `data_size: u32`, `total_size: u32`, `transaction_id: u32`,
 `reserved: [u8; 8]`, followed by payload bytes. The decoder returns `Ok(None)`
 when fewer than 20 bytes are available or when the full frame has not arrived.
 It returns `Err(InvalidData, "payload too large")` when
-`data_size > max_frame_length` and `Err(InvalidData, "invalid total size")`
-when `total_size != data_size + 20`.
+`data_size > max_frame_length` and `Err(InvalidData, "invalid total size")` when
+`total_size != data_size + 20`.
 
 `decode_frames_with_codec` (in `wireframe_testing/src/helpers/codec_ext.rs:80`)
 calls `decoder.decode()` in a loop, then `decoder.decode_eof()`, then checks
@@ -289,10 +288,9 @@ tests needing metadata inspection. Delegates to
 
 **2. Invalid frame fixtures** — wire bytes that should cause decode errors.
 
-`oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Vec<u8>`
-— crafts a Hotline header where `data_size` exceeds `max_frame_length` by 1
-byte, followed by that many payload bytes. The decoder should reject this with
-`InvalidData("payload too large")`.
+`oversized_hotline_wire(...) -> Vec<u8>` crafts a Hotline header where
+`data_size` exceeds `max_frame_length` by 1 byte, followed by that many payload
+bytes. The decoder should reject this with `InvalidData("payload too large")`.
 
 `mismatched_total_size_wire(payload: &[u8]) -> Vec<u8>` — crafts a Hotline
 header where `total_size` does not equal `data_size + 20`. The decoder should

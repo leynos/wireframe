@@ -1,7 +1,7 @@
 # Adopt rust-prover-tools for Kani and Verus tooling
 
 This ExecPlan (execution plan) is a living document. The sections `Constraints`,
- `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
 and `Outcomes & retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
@@ -303,22 +303,22 @@ Observable success is:
 
 - Observation: GitHub's GraphQL release listing was rate-limited during
   implementation, but REST API calls still returned the needed release data.
-  Evidence: `gh release list` returned `GraphQL: API rate limit already
-  exceeded`, while `gh api repos/.../releases?per_page=8` returned Kani and
-  Verus release metadata. Impact: implementation used REST results to refresh
-  pins.
+  Evidence: `gh release list` returned
+  `GraphQL: API rate limit already exceeded`, while
+  `gh api repos/.../releases?per_page=8` returned Kani and Verus release
+  metadata. Impact: implementation used REST results to refresh pins.
 
 - Observation: the latest non-prerelease Verus release available during
-  implementation was `release/0.2026.05.24.ecee80a`, published on
-  2026-05-25, with an `x86-linux` archive. Evidence:
+  implementation was `release/0.2026.05.24.ecee80a`, published on 2026-05-25,
+  with an `x86-linux` archive. Evidence:
   `gh api repos/verus-lang/verus/releases?per_page=8`. Impact: pin Verus to
   `0.2026.05.24.ecee80a` rather than the older planning candidate.
 
 - Observation: the `verus-0.2026.05.24.ecee80a-x86-linux.zip` archive has
   SHA-256 checksum
-  `323a44c0d787ce9a788665e1c6922360c44a72d1b9696359ec4f7bf5fbbc63e6`.
-  Evidence: `sha256sum /tmp/verus-0.2026.05.24.ecee80a-x86-linux.zip`.
-  Impact: record that checksum in `tools/verus/SHA256SUMS`.
+  `323a44c0d787ce9a788665e1c6922360c44a72d1b9696359ec4f7bf5fbbc63e6`. Evidence:
+  `sha256sum /tmp/verus-0.2026.05.24.ecee80a-x86-linux.zip`. Impact: record
+  that checksum in `tools/verus/SHA256SUMS`.
 
 - Observation: CodeRabbit flagged that the Verus checksum needs a visible
   repository audit trail tying it to the official artifact. Evidence:
@@ -331,15 +331,15 @@ Observable success is:
   `tools/rust-prover-tools/REF` commit SHA lacks enough repository context for
   reviewers. Evidence: `coderabbit review --agent` reported a major finding
   against `tools/rust-prover-tools/REF`. Impact: make the file structured with
-  `repository:`, `branch:`, `ref:`, and `verify:` lines, and teach the
-  Makefile to extract the `ref:` value.
+  `repository:`, `branch:`, `ref:`, and `verify:` lines, and teach the Makefile
+  to extract the `ref:` value.
 
 - Observation: repo-local Verus installs contain upstream Markdown under
   `.verus/`, and `make markdownlint` scans that directory unless it is
-  explicitly ignored. Evidence: after `make install-verus`,
-  `make markdownlint` reported violations in
-  `.verus/0.2026.05.24.ecee80a/verus/vstd/*.md`. Impact: add `.verus/**` to
-  `.markdownlint-cli2.jsonc` and keep `.verus/` in `.gitignore`.
+  explicitly ignored. Evidence: after `make install-verus`, `make markdownlint`
+  reported violations in `.verus/0.2026.05.24.ecee80a/verus/vstd/*.md`. Impact:
+  add `.verus/**` to `.markdownlint-cli2.jsonc` and keep `.verus/` in
+  `.gitignore`.
 
 ## Decision log
 
@@ -405,8 +405,7 @@ metadata plus thin Makefile entry points backed by the pinned
   `tools/verus/README.md` pinned to Verus `0.2026.05.24.ecee80a` for
   `x86-linux`.
 - `tools/rust-prover-tools/REF` with repository, branch, commit ref, and
-  verification command metadata for
-  `b07ef696f8373d54ae68e517d39d47a5d27a5bd5`.
+  verification command metadata for `b07ef696f8373d54ae68e517d39d47a5d27a5bd5`.
 - `make install-kani`, `make check-kani-version`, `make install-verus`, and
   `make run-verus`.
 - Network-free `rstest` and `rstest-bdd` coverage for metadata and Makefile
@@ -422,9 +421,9 @@ for `make install-kani`, `make check-kani-version`, and `make install-verus`.
 tool installs from polluting validation.
 
 CodeRabbit review ran after the Makefile/metadata, test, documentation, and
-final validation milestones. The first Makefile/metadata review raised
-checksum provenance and pin-context concerns; both were resolved. Later
-milestone reviews, including the final review, reported zero findings.
+final validation milestones. The first Makefile/metadata review raised checksum
+provenance and pin-context concerns; both were resolved. Later milestone
+reviews, including the final review, reported zero findings.
 
 15.1.4 and later formal-verification work still own the actual `make kani`,
 `make kani-full`, `make verus`, CI formal jobs, Kani harnesses, and Verus proof
@@ -432,7 +431,7 @@ files.
 
 Draft validation passed on 2026-05-20 before the plan-only commit:
 `markdownlint-cli2 docs/execplans/15-1-3-kani-and-verus-metadata-plus-scripts.md`,
- `make check-fmt`, `make markdownlint`, `make nixie`, `make lint`, and
+`make check-fmt`, `make markdownlint`, `make nixie`, `make lint`, and
 `make test`.
 
 `coderabbit review --agent` completed once and reported two minor prose
@@ -545,7 +544,7 @@ uv tool run --python 3.14 \
 preserving `VERUS_TARGET` and `VERUS_INSTALL_DIR` through the environment.
 `run-verus` invokes
 `prover-tools verus run --repo-root . --proof-file "$${VERUS_PROOF_FILE:-verus/wireframe_proofs.rs}"`
- while preserving `VERUS_BIN`, `VERUS_TARGET`, and `VERUS_INSTALL_DIR` through
+while preserving `VERUS_BIN`, `VERUS_TARGET`, and `VERUS_INSTALL_DIR` through
 the environment. The recipes must not run `cargo install`, `cargo kani setup`,
 `curl`, `unzip`, `sha256sum`, `shasum`, or `rustup` directly; `prover-tools`
 owns those steps. Do not add shell wrappers unless a later approved revision
@@ -868,5 +867,5 @@ Revision note: updated again on 2026-06-05 after follow-up review feedback.
 Repository-root and repository-directory helpers are now shared through
 `tests/common/repo_access.rs` rather than duplicated across formal-tooling and
 workspace-manifest test support. The formal-tooling tests now include Make
-dry-run integration checks for all four prover-tools targets and property
-tests for the version and SHA-256 validation invariants.
+dry-run integration checks for all four prover-tools targets and property tests
+for the version and SHA-256 validation invariants.

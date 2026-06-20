@@ -5,8 +5,8 @@
 This document outlines the comprehensive testing strategy for the `wireframe`
 library, synthesising the test plans from the designs for server-initiated
 messages, streaming responses, and message fragmentation. A robust,
-multi-layered approach to testing is non-negotiable for a low-level library
-like `wireframe`, where correctness, resilience, and performance are paramount.
+multi-layered approach to testing is non-negotiable for a low-level library like
+`wireframe`, where correctness, resilience, and performance are paramount.
 
 The strategy is divided into four distinct layers, each building upon the last.
 This version has been enhanced with **concrete code examples** and **measurable

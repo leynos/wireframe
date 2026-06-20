@@ -101,8 +101,7 @@ depend on owned payload bytes.
   `ServiceRequest::frame_mut(&mut self) -> &mut Vec<u8>` expose owned, mutable
   bytes directly to middleware.
 - `ServiceResponse` mirrors the same contract with
-  `inner: FrameContainer<Vec<u8>>`,
-  `ServiceResponse::new(frame: Vec<u8>, ...)`,
+  `inner: FrameContainer<Vec<u8>>`, `ServiceResponse::new(frame: Vec<u8>, ...)`,
   `frame_mut(&mut self) -> &mut Vec<u8>`, and `into_inner(self) -> Vec<u8>`.
 
 This is one of the clearest byte-ownership APIs in the crate. Any migration
@@ -308,8 +307,8 @@ payload bytes:
 
 This means epic 284 does not start from a codebase that hard-codes `Vec<u8>`
 everywhere. The remaining work is concentrated in the payload-owned surfaces
-listed above and in the actor/codec boundary described by the unified
-codec-path work.[^unified-path]
+listed above and in the actor/codec boundary described by the unified codec-path
+work.[^unified-path]
 
 ## Generalization paths and conceptual risks
 
@@ -363,17 +362,19 @@ The combined [`roadmap.md`](roadmap.md) carries the corresponding zero-copy
 migration phases. That workstream turns the inventory into phased
 implementation work, benchmark planning, and release preparation.
 
-The remaining unresolved design choices now have draft Architecture Decision
-Records (ADRs):
+The design choices are captured in three Architecture Decision Records (ADRs):
 
-- [ADR 008](adr-008-zero-copy-public-byte-container.md) accepts
+- [ADR 008](adr-008-zero-copy-public-byte-container.md) (accepted) accepts
   `bytes::Bytes`, or a transparent project wrapper over `bytes::Bytes`, as the
   stable public byte representation. It also accepts an explicit edit-on-demand
   workflow for middleware and client hooks.
-- [ADR 009](adr-009-vec-u8-migration-rollout.md) covers the compatibility and
-  release rollout strategy.
-- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) covers the
-  actor, codec-driver, and transport-frame boundary for the zero-copy path.
+- [ADR 009](adr-009-vec-u8-migration-rollout.md) (accepted) covers the
+  compatibility and release rollout strategy, including the finite `Vec<u8>`
+  helper set, default-build deprecation discipline, and the event-based removal
+  trigger.
+- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) (proposed)
+  covers the actor, codec-driver, and transport-frame boundary for the
+  zero-copy path.
 
 If epic 284 is updated outside the repository, the local source-of-truth links
 to add are:

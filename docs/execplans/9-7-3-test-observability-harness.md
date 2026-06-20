@@ -1,9 +1,8 @@
 # 9.7.3 Introduce a test observability harness in wireframe\_testing
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -231,12 +230,12 @@ docs/
 ### Key types and patterns
 
 `LoggerHandle` (in `wireframe_testing/src/logging.rs`) wraps a
-`MutexGuard<'static, Logger>` from the `logtest` crate. It implements
-`Deref`/`DerefMut` to `Logger`, providing `pop() -> Option<Record>` for
-draining log entries and `clear()` to drain all. It is a rstest `#[fixture]`.
+`MutexGuard<'static, Logger>` from the `logtest` crate. It implements `Deref`/
+`DerefMut` to `Logger`, providing `pop() -> Option<Record>` for draining log
+entries and `clear()` to drain all. It is a rstest `#[fixture]`.
 
-`DebuggingRecorder` (from `metrics_util::debugging`) creates a `Snapshotter`
-via `.snapshotter()`. After recording metrics within
+`DebuggingRecorder` (from `metrics_util::debugging`) creates a `Snapshotter` via
+`.snapshotter()`. After recording metrics within
 `metrics::with_local_recorder(&recorder, || { ... })`, the snapshotter provides
 `snapshot().into_vec()` returning
 `Vec<(CompositeKey, Option<Unit>, Option<SharedString>, DebugValue)>`.
@@ -351,15 +350,14 @@ Counter queries:
 
 Counter assertions (return `Result<(), String>` for clippy compliance):
 
-- `assert_counter(&self, name: &str, labels: &[(&str, &str)], expected: u64)
-  -> Result<(), String>` — returns `Err` if the counter does not match.
+- `assert_counter(&self, name, labels, expected) -> Result<(), String>` returns
+  `Err` if the counter does not match.
 
 - `assert_no_metric(&self, name: &str) -> Result<(), String>` — verifies
   no metric with the given name exists in the snapshot.
 
-- `assert_codec_error_counter(&self, error_type: &str,
-  recovery_policy: &str, expected: u64) -> Result<(),
-  String>` — convenience for the common codec error assertion.
+- `assert_codec_error_counter(...) -> Result<(), String>` — convenience for
+  the common codec error assertion.
 
 Log assertions (return `Result<(), String>`):
 
@@ -367,8 +365,8 @@ Log assertions (return `Result<(), String>`):
   — drains the log buffer, checks any record's `args()` string contains the
   substring.
 
-- `assert_log_at_level(&mut self, level: log::Level, substring: &str)
-  -> Result<(), String>` — same as above but also filters by level.
+- `assert_log_at_level(&mut self, level, substring) -> Result<(), String>` —
+  same as above but also filters by level.
 
 Stage C acceptance: `cargo check` (workspace root) compiles.
 
@@ -377,8 +375,8 @@ Stage C acceptance: `cargo check` (workspace root) compiles.
 Create `tests/test_observability_harness.rs` with `#![cfg(not(loom))]` and
 integration tests for every public method on `ObservabilityHandle`.
 
-Tests (all returning `io::Result<()>` with explicit error checks, no `assert!`
-/ `panic!`):
+Tests (all returning `io::Result<()>` with explicit error checks, no `assert!` /
+`panic!`):
 
 1. `counter_returns_zero_for_unrecorded_metric` — acquire handle, query
    a counter that was never incremented, verify returns 0.
@@ -684,6 +682,6 @@ Key gotcha: `wireframe_testing` is not a workspace member — internal
 `tests/` directory.
 
 Key gotcha: `WireframeApp` does not implement `Debug`. If any world struct
-holds one, it needs a manual `Debug` impl. `ObservabilityHandle` does not hold
-a `WireframeApp`, so this is unlikely to apply here, but verify whether
+holds one, it needs a manual `Debug` impl. `ObservabilityHandle` does not hold a
+`WireframeApp`, so this is unlikely to apply here, but verify whether
 `DebuggingRecorder` and `Snapshotter` implement `Debug`.

@@ -1,9 +1,8 @@
 # 8.5.1 Add utilities for feeding partial frames or fragments into an in-process app
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: DONE
 
@@ -40,8 +39,8 @@ implementation and pass after).
 - All code must pass `make check-fmt`, `make lint` (clippy with `-D warnings`
   and all strict lints), and `make test`.
 - Clippy strictness includes: no `[]` indexing (use `.get()`), no `assert!` /
-  `panic!` in Result-returning functions (return `Err`), no
-  `#[allow]`/`#[expect]` without `reason = "..."`, `doc_markdown` backticking,
+  `panic!` in Result-returning functions (return `Err`), no `#[allow]`/
+  `#[expect]` without `reason = "..."`, `doc_markdown` backticking,
   `cast_possible_truncation` via `try_from`.
 - en-GB-oxendict spelling in comments and documentation ("-ize" / "-yse" /
   "-our").
@@ -209,8 +208,8 @@ New files to create:
 
 Files to modify for registration:
 
-1. `wireframe_testing/src/helpers.rs` — add `mod partial_frame; mod
-   fragment_drive;` and re-export public symbols.
+1. `wireframe_testing/src/helpers.rs` — add
+   `mod partial_frame; mod fragment_drive;` and re-export public symbols.
 2. `wireframe_testing/src/lib.rs` — re-export new public symbols.
 3. `tests/fixtures/mod.rs` — add `pub mod partial_frame_feeding;`.
 4. `tests/steps/mod.rs` — add `mod partial_frame_feeding_steps;`.
@@ -385,8 +384,8 @@ In `wireframe_testing/src/helpers.rs`:
 
 In `wireframe_testing/src/lib.rs`:
 
-- Add re-exports for all new public symbols to the existing `pub use
-  helpers::{…};` block.
+- Add re-exports for all new public symbols to the existing
+  `pub use helpers::{…};` block.
 
 ### Stage E: Unit tests (`tests/partial_frame_feeding.rs`)
 
@@ -583,8 +582,8 @@ Total: 14 files touched.
 
 ## Interfaces and dependencies
 
-All dependencies are already present in `wireframe_testing/Cargo.toml`
-(`tokio`, `wireframe`, `bytes`, `futures`, `tokio-util`) and the main crate's
+All dependencies are already present in `wireframe_testing/Cargo.toml` (`tokio`,
+`wireframe`, `bytes`, `futures`, `tokio-util`) and the main crate's
 `Cargo.toml` (`rstest`, `rstest-bdd`, `wireframe_testing`). No new dependencies
 are required.
 

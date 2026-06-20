@@ -1,7 +1,7 @@
 # 9.6.1 Codec performance benchmarks for throughput, latency, and allocations
 
-This execution plan (ExecPlan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises and discoveries`,
+This execution plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises and discoveries`,
 `Decision log`, and `Outcomes and retrospective` must be kept up to date as
 work proceeds.
 

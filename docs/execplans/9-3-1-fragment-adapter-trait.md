@@ -154,8 +154,8 @@ A library consumer can observe success by:
   the pipeline (fragment → metrics → serialize → send). All gates pass (fmt,
   lint, test).
 - [x] (2026-02-15 02:00Z) Stage D: duplicate codec construction removed.
-  `FramePipeline` now owns outbound fragmentation; per-response fragment
-  helpers (`fragment_responses`, `serialize_response`, `send_response_payload`)
+  `FramePipeline` now owns outbound fragmentation; per-response fragment helpers
+  (`fragment_responses`, `serialize_response`, `send_response_payload`)
   removed from `frame_handling/response.rs`. Committed in `83d28f7`.
 - [x] (2026-02-15 02:30Z) Stage E: integration tests added in
   `tests/unified_codec.rs`. Five tests: round-trip, fragmented response,
@@ -226,8 +226,8 @@ A library consumer can observe success by:
   Date/Author: 2026-02-15 / Codex.
 
 - Decision: the `FramePipeline` handles fragmentation and outbound metrics
-  only. Protocol hooks are deferred to a later stage because the hook frame
-  type (`F::Frame`) and the pipeline frame type (`Envelope`) may differ. The
+  only. Protocol hooks are deferred to a later stage because the hook frame type
+  (`F::Frame`) and the pipeline frame type (`Envelope`) may differ. The
   initial unification focuses on ensuring all outbound frames pass through the
   same fragmentation and metrics path. Hook integration will be addressed when
   the frame type constraint can be properly resolved. Rationale: applying hooks

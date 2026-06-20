@@ -168,8 +168,8 @@ Current failure modelling:
 Behavioural/integration layout:
 
 - Behavioural tests run from `tests/bdd/mod.rs`, with features in
-  `tests/features/`, scenario entrypoints in `tests/scenarios/`, and fixtures
-  in `tests/fixtures/`.
+  `tests/features/`, scenario entrypoints in `tests/scenarios/`, and fixtures in
+  `tests/fixtures/`.
 - Existing client runtime integration coverage is in `tests/client_runtime.rs`.
 - Existing client runtime behavioural coverage is in
   `tests/features/client_runtime.feature` and

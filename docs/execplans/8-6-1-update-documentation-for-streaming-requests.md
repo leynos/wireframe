@@ -1,9 +1,8 @@
 # Close phase 8.6 documentation for streaming requests and shared message assembly
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -145,7 +144,7 @@ Success is observable when:
   in `docs/multi-packet-and-streaming-responses-design.md`, and the
   `MessageAssembler` and memory-cap sections in
   `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`.
-   Impact: edit existing sections in place instead of adding new headings
+  Impact: edit existing sections in place instead of adding new headings
   unless structure is genuinely missing.
 
 - Observation: `docs/users-guide.md` already documents `RequestParts`,
@@ -353,7 +352,7 @@ so the inbound request-body model is specific and actionable. It should cover:
 
 In
 `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`,
- revise the relevant sections so they describe current capability maturity:
+revise the relevant sections so they describe current capability maturity:
 
 1. `MessageAssembler` is part of the implemented feature set, not just a
    concept;

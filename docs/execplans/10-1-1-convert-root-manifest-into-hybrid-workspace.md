@@ -209,8 +209,8 @@ Observable success is:
 - Validation results:
   `cargo test --test workspace_manifest` passed.
   `cargo test --test bdd --features advanced-tests workspace_manifest` passed.
-  `cargo metadata --no-deps --format-version 1` passed. `make check-fmt`
-  passed. `make markdownlint` passed. `make nixie` passed. `make test` passed.
+  `cargo metadata --no-deps --format-version 1` passed. `make check-fmt` passed.
+  `make markdownlint` passed. `make nixie` passed. `make test` passed.
   `make test-doc` passed. `make doctest-benchmark` passed. `make fmt` could not
   complete because `mdformat-all` requires `fd`, which is absent in the
   environment; Markdown formatting was applied manually with `mdtablefix` for
@@ -348,8 +348,8 @@ implemented contract.
 ### Stage F: validation and quality gates
 
 Run targeted checks first, then the full repository gates. Because long output
-is truncated in this environment, every command should use `set -o pipefail`
-and `tee` to a log file.
+is truncated in this environment, every command should use `set -o pipefail` and
+`tee` to a log file.
 
 Targeted validation:
 

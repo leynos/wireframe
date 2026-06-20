@@ -452,7 +452,7 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
 - [x] 10.1.1. Approve the stable public byte-container and edit-on-demand model
   for `PacketParts`, `Envelope`, middleware, client hooks, and serializer
   output. See `docs/adr-008-zero-copy-public-byte-container.md`.
-- [ ] 10.1.2. Approve the compatibility and rollout policy for downstream
+- [x] 10.1.2. Approve the compatibility and rollout policy for downstream
   users, including which `Vec<u8>` helpers survive the breaking release. See
   `docs/adr-009-vec-u8-migration-rollout.md`.
 - [ ] 10.1.3. Approve the actor and codec-driver boundary so `Vec<u8>` bridges
@@ -583,33 +583,33 @@ Wireframe's protocol, framing, and message assembly layers.
 - [x] 15.1.1. Convert the root manifest into a hybrid workspace while keeping
   the root package as the default member. See
   [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
-   Success criteria: `cargo build` and `cargo test --workspace` pass with the
+  Success criteria: `cargo build` and `cargo test --workspace` pass with the
   new layout.
 - [x] 15.1.2. Add `crates/wireframe-verification` as an internal crate for
   Stateright models and shared verification harnesses. Requires 15.1.1. See
   [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
-   and
+  and
   [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
-   Success criteria: the crate compiles, is included as a workspace member, and
+  Success criteria: the crate compiles, is included as a workspace member, and
   contains a placeholder Stateright model that passes `cargo test`.
 - [x] 15.1.3. Add pinned Kani and Verus tool metadata plus repo-local Makefile
   install and run entry points. See
   [formal-verification-methods-in-wireframe.md §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
-   and
+  and
   [§Verus should *not* live inside the main build](formal-verification-methods-in-wireframe.md#why-verus-should-not-live-inside-the-main-build).
-   Success criteria: a contributor can run `make install-kani` and
+  Success criteria: a contributor can run `make install-kani` and
   `make install-verus` to obtain pinned versions through the pinned
   `rust-prover-tools` entry point.
 - [ ] 15.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
   `make verus`, `make formal-pr`, and `make formal-nightly` Makefile targets.
   Requires 15.1.2 and 15.1.3. See
   [formal-verification-methods-in-wireframe.md §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
-   Success criteria: each target is accepted by `mbake validate Makefile` and
+  Success criteria: each target is accepted by `mbake validate Makefile` and
   returns exit 0 on a clean tree.
 - [ ] 15.1.5. Add separate CI jobs for Stateright, Kani smoke, and Verus
   proofs without changing the existing `build-test` coverage flow. See
   [formal-verification-methods-in-wireframe.md §Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
-   Success criteria: CI pipelines pass on the default branch with the new jobs
+  Success criteria: CI pipelines pass on the default branch with the new jobs
   visible and green.
 
 ### 15.2. Protocol contract decisions
@@ -640,22 +640,22 @@ Wireframe's protocol, framing, and message assembly layers.
 - [ ] 15.3.1. Add smoke harnesses for supported length-prefix round-trips and
   unsupported-width rejection in `src/frame/*`. See
   [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses).
-   Requires 15.1.3 and 15.2.1. Success criteria: `make kani` completes with all
+  Requires 15.1.3 and 15.2.1. Success criteria: `make kani` completes with all
   harnesses verified.
 - [ ] 15.3.2. Add harnesses for `FragmentSeries`, `Reassembler`, and
   `MessageSeries` covering duplicates, gaps, completion, and oversize cleanup.
   See
   [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses)
-   and
+  and
   [§Phase 2 full harnesses](formal-verification-methods-in-wireframe.md#phase-2-full-harnesses).
-   Requires 15.1.3 and 15.2.2. Success criteria: `make kani-full` completes
+  Requires 15.1.3 and 15.2.2. Success criteria: `make kani-full` completes
   with all fragment and assembly harnesses verified.
 - [ ] 15.3.3. Extend existing Proptest coverage for fragment round-trips and
   mixed actor action traces where Kani bounds would be too small. See
   [formal-verification-methods-in-wireframe.md §Second priority: `src/fragment/*`](formal-verification-methods-in-wireframe.md#second-priority-srcfragment)
-   and
+  and
   [§How Proptest and Loom fit after these changes](formal-verification-methods-in-wireframe.md#how-proptest-and-loom-fit-after-these-changes).
-   Requires 15.3.1. Success criteria: `make test` includes the new Proptest
+  Requires 15.3.1. Success criteria: `make test` includes the new Proptest
   property tests and they pass.
 
 ### 15.4. Stateright model checks
@@ -664,21 +664,21 @@ Wireframe's protocol, framing, and message assembly layers.
   shutdown races, fairness state, and terminal markers in
   `crates/wireframe-verification`. See
   [formal-verification-methods-in-wireframe.md §Model scope](formal-verification-methods-in-wireframe.md#model-scope).
-   Requires 15.1.2 and 15.2.3. Success criteria: the model compiles and a
+  Requires 15.1.2 and 15.2.3. Success criteria: the model compiles and a
   bounded BFS run completes without panics or assertion failures.
 - [ ] 15.4.2. Add a shared checker harness that separates safety properties
   from reachability properties and reports both deterministically. See
   [formal-verification-methods-in-wireframe.md §Properties to encode](formal-verification-methods-in-wireframe.md#properties-to-encode)
-   and
+  and
   [§Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness).
-   Requires 15.4.1. Success criteria: `make test-verification` exercises the
+  Requires 15.4.1. Success criteria: `make test-verification` exercises the
   checker and reports property results.
 - [ ] 15.4.3. Gate a bounded breadth-first search (BFS) model run in pull
   request CI and a deeper run in scheduled or manual workflows. See
   [formal-verification-methods-in-wireframe.md §Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness)
-   and
+  and
   [§Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
-   Requires 15.1.5 and 15.4.2. Success criteria: the PR CI job completes within
+  Requires 15.1.5 and 15.4.2. Success criteria: the PR CI job completes within
   5 minutes; the nightly job explores a deeper state space.
 
 ### 15.5. Verus proofs for message assembly
@@ -686,23 +686,23 @@ Wireframe's protocol, framing, and message assembly layers.
 - [ ] 15.5.1. Enforce the chosen `total_body_len` contract in runtime code
   before relying on proofs. See
   [formal-verification-methods-in-wireframe.md §"Is `total_body_len` authoritative or advisory?"](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
-   and
+  and
   [§"What Verus should prove in Wireframe"](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
-   Requires 15.2.2. Success criteria: runtime assertions or checks enforce the
+  Requires 15.2.2. Success criteria: runtime assertions or checks enforce the
   contract, and existing tests confirm the enforcement.
 - [ ] 15.5.2. Add proof-only modules under `verus/` for declared-total and
   buffered-byte accounting invariants. See
   [formal-verification-methods-in-wireframe.md §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
-   and
+  and
   [§Representative proof tree](formal-verification-methods-in-wireframe.md#representative-proof-tree).
-   Requires 15.1.3 and 15.5.1. Success criteria: `make verus` verifies all
+  Requires 15.1.3 and 15.5.1. Success criteria: `make verus` verifies all
   proof modules without errors.
 - [ ] 15.5.3. Document proof trigger discipline and contributor expectations
   for running `make verus`. See
   [formal-verification-methods-in-wireframe.md §Trigger discipline](formal-verification-methods-in-wireframe.md#trigger-discipline)
-   and
+  and
   [§Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
-   Requires 15.5.2. Success criteria: a contributor guide section explains
+  Requires 15.5.2. Success criteria: a contributor guide section explains
   trigger patterns, and `CONTRIBUTING.md` or the user guide references it.
 
 ## 16. Wireframe client library foundation

@@ -24,8 +24,8 @@ behavioural tests in the same execution environment as unit and integration
 tests. It reuses familiar fixtures, supports compile-time validation of step
 coverage, and keeps Gherkin feature files as the source of truth for behaviour
 specifications. The `rstest-bdd` user's guide documents the current feature set
-and its limitations, which must be accounted for in a migration plan.
-[^rstest-bdd-guide]
+and its limitations, which must be accounted for in a migration
+plan.[^rstest-bdd-guide]
 
 ## Decision
 

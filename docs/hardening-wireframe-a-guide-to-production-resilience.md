@@ -36,8 +36,8 @@ The core mechanism relies on two primitives from the `tokio` ecosystem:
   the root token, a signal that is immediately visible to all clones.
 
 - `TaskTracker`: The server uses a `TaskTracker` to `spawn` all tasks. After
-  triggering cancellation, the main server task calls `tracker.close()` and
-  then `tracker.wait().await`. This call will only resolve once every single
+  triggering cancellation, the main server task calls `tracker.close()` and then
+  `tracker.wait().await`. This call will only resolve once every single
   tracked task has completed, guaranteeing that no tasks are orphaned.
 
 ### 2.2 Implementation in the Connection Actor

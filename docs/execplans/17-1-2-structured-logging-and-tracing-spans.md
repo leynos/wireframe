@@ -1,9 +1,8 @@
 # 17.1.2 Structured logging and tracing spans
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -241,8 +240,7 @@ feature), `tracing-subscriber` (0.3.18), `tracing-test` (0.2.5 dev-dep).
 Data flow for send:
 `message → serializer.serialize() → Vec<u8> → invoke_before_send_hooks() → framed.send()`
 
-Data flow for receive:
-`framed.next() → BytesMut → invoke_after_receive_hooks()`
+Data flow for receive: `framed.next() → BytesMut → invoke_after_receive_hooks()`
 `→ serializer.deserialize() → message`
 
 ## Plan of work

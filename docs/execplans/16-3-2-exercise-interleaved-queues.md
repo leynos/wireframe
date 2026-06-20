@@ -1,9 +1,8 @@
 # Exercise interleaved push queue fairness and rate-limit symmetry
 
-This Execution Plan (ExecPlan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This Execution Plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -313,8 +312,8 @@ ordering).
 
 ### Stage B: BDD behavioural tests
 
-B1. Feature file: create `tests/features/interleaved_push_queues.feature` with
-a `@interleaved` tag and four scenarios:
+B1. Feature file: create `tests/features/interleaved_push_queues.feature` with a
+`@interleaved` tag and four scenarios:
 
 1. "High-priority frames take precedence when fairness is disabled" — proves
    biased select ordering.

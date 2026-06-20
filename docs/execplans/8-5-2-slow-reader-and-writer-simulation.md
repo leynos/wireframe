@@ -1,9 +1,8 @@
 # 8.5.2 Add slow reader and writer simulation for back-pressure testing
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: DONE
 
@@ -109,7 +108,7 @@ observable when:
 - Observation: full-repo `markdownlint` and therefore `make fmt` still fail on
   pre-existing markdown issues outside this item, including
   `docs/execplans/8-5-1-utilities-for-feeding-partial-frames-into-in-process-app.md`
-   and older execplan numbering style violations. Evidence:
+  and older execplan numbering style violations. Evidence:
   `/tmp/8-5-2-markdownlint.log`, `/tmp/8-5-2-fmt.log`. Impact: validate the
   touched docs with targeted `markdownlint` until the baseline is repaired.
 
@@ -169,8 +168,8 @@ Quality-gate outcome:
 - `make test`: passed
 - targeted `markdownlint` for touched docs: passed
 - full `make markdownlint` and therefore `make fmt`: still fail on pre-existing
-  markdown issues outside this change set; see `/tmp/8-5-2-markdownlint.log`
-  and `/tmp/8-5-2-fmt.log`
+  markdown issues outside this change set; see `/tmp/8-5-2-markdownlint.log` and
+  `/tmp/8-5-2-fmt.log`
 
 ## Context and orientation
 

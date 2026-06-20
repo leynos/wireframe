@@ -126,16 +126,15 @@ Several Rust libraries provide frameworks or utilities for implementing custom
 network protocols, offering insights into effective abstractions.
 
 - `protocol` **(dylanmckay/protocol)**: This crate aims to simplify protocol
-  definitions in Rust by using a custom derive
-  `#[derive(protocol::Protocol)]`.16 It allows structured data to be sent and
-  received from any I/O stream, with built-in support for TCP and UDP. Any type
-  implementing its `Parcel` trait can be serialized. The derive macro handles
-  the implementation for custom types, though it requires types to also
-  implement `Clone`, `Debug`, and `PartialEq`, which might be overly
-  restrictive for some use cases.16 The library also supports middleware for
-  transforming sent/received data. This library exemplifies the use of derive
-  macros to reduce boilerplate in protocol definitions, a core strategy for
-  "wireframe".
+  definitions in Rust by using a custom derive `#[derive(protocol::Protocol)]`
+  .16 It allows structured data to be sent and received from any I/O stream,
+  with built-in support for TCP and UDP. Any type implementing its `Parcel`
+  trait can be serialized. The derive macro handles the implementation for
+  custom types, though it requires types to also implement `Clone`, `Debug`, and
+  `PartialEq`, which might be overly restrictive for some use cases.16 The
+  library also supports middleware for transforming sent/received data. This
+  library exemplifies the use of derive macros to reduce boilerplate in
+  protocol definitions, a core strategy for "wireframe".
 
 - `message-io`: This library provides abstractions for message-based network
   communication over various transports like TCP, UDP, and WebSockets. Notably,
@@ -406,8 +405,8 @@ Implementations of these traits define:
 - **Decoding**: How a raw byte stream from the network is parsed into discrete
   frames. This logic handles partial reads and buffering, accumulating bytes
   until one or more complete frames can be extracted. Examples include
-  length-prefixed framing (where a header indicates the payload size, similar
-  to `message-io`'s `FramedTcp` 17), delimiter-based framing (where frames are
+  length-prefixed framing (where a header indicates the payload size, similar to
+  `message-io`'s `FramedTcp` 17), delimiter-based framing (where frames are
   separated by a specific byte sequence), or fixed-size framing.
 - **Encoding**: How an outgoing message (or its serialized byte payload) is
   encapsulated into a frame for transmission, including adding any necessary

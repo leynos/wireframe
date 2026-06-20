@@ -137,9 +137,9 @@ API.
   stronger poison assertions, then reran `make check-fmt`, `make lint`,
   `make test`, and Markdown lint successfully.
 - [x] 2026-06-05: Resolved CodeRabbit's remaining Milestone 4 spelling finding
-  by changing the helper module comment to avoid the contested `Synchronization`
-  /`Synchronisation` word entirely, then reran `make check-fmt`, `make lint`,
-  `make test`, and Markdown lint successfully.
+  by changing the helper module comment to avoid the contested
+  `Synchronization` /`Synchronisation` word entirely, then reran
+  `make check-fmt`, `make lint`, `make test`, and Markdown lint successfully.
 - [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 encapsulation and metric
   findings by narrowing `lock_or_recover` to `pub(super)` and adding
   `wireframe_pool_bookkeeping_poison_recoveries_total`, then reran
@@ -374,13 +374,13 @@ API.
   bodies into `tests/common/fragment_helpers/` modules for app construction,
   assertions, config, envelopes, errors, and transport. Because the facade is
   loaded with `#[path]` from integration tests, its child modules need explicit
-  `#[path = "fragment_helpers/..."]` attributes. The `unified_codec` test has
-  a small helper that references the facade entries used by other test binaries
+  `#[path = "fragment_helpers/..."]` attributes. The `unified_codec` test has a
+  small helper that references the facade entries used by other test binaries
   so the shared facade remains warning-clean under `-D warnings`.
 - 2026-06-05: Accept CodeRabbit's Milestone 7 finding that the shared
   `spawn_app` helper's 256-byte duplex buffer was too small for larger
-  fragmented traffic. Keep the call surface stable and replace the literal
-  with an 8 KiB named constant so existing tests get a safer default without
+  fragmented traffic. Keep the call surface stable and replace the literal with
+  an 8 KiB named constant so existing tests get a safer default without
   call-site churn.
 - 2026-06-05: Accept CodeRabbit's follow-up Milestone 7 finding that
   `fragmentation_config` should name the 16x message-limit multiplier. Extract
@@ -388,8 +388,8 @@ API.
   leave the overflow and frame-budget error paths unchanged.
 - 2026-06-05: Resolve CodeRabbit's Milestone 7 documentation spelling finding
   by replacing `serialization` and `deserialization` in transport-helper
-  comments with `encoding` and `decoding`. This avoids another
-  Oxford-spelling conflict while keeping the comments precise.
+  comments with `encoding` and `decoding`. This avoids another Oxford-spelling
+  conflict while keeping the comments precise.
 
 ## Implementation Plan
 
@@ -673,17 +673,17 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
   `/tmp/lint-wireframe-code-base-audit-2026-06-05-m7-rerun6.out`, and
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m7-rerun1.out`.
 - 2026-06-05: After fixing CodeRabbit's message-limit multiplier finding,
-  validation passed again: `cargo test --test fragment_transport
-  --all-features`, `cargo test --test unified_codec --all-features`,
-  `make check-fmt`, `make lint`, and `make test`. Logs:
+  validation passed again:
+  `cargo test --test fragment_transport --all-features`,
+  `cargo test --test unified_codec --all-features`, `make check-fmt`,
+  `make lint`, and `make test`. Logs:
   `/tmp/test-fragment-transport-wireframe-code-base-audit-2026-06-05-m7-rerun4.out`,
   `/tmp/test-unified-codec-wireframe-code-base-audit-2026-06-05-m7-rerun4.out`,
   `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m7-rerun3.out`,
   `/tmp/lint-wireframe-code-base-audit-2026-06-05-m7-rerun7.out`, and
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m7-rerun2.out`.
 - 2026-06-05: After fixing CodeRabbit's transport-helper spelling finding,
-  validation passed again: `make check-fmt`, `make lint`, and `make test`.
-  Logs:
+  validation passed again: `make check-fmt`, `make lint`, and `make test`. Logs:
   `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m7-rerun4.out`,
   `/tmp/lint-wireframe-code-base-audit-2026-06-05-m7-rerun8.out`, and
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m7-rerun3.out`.

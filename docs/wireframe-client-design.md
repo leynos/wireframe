@@ -18,8 +18,8 @@ implementation of a lightweight client without duplicating protocol code.
 
 ### `WireframeClient`
 
-A new `WireframeClient` type manages a single connection to a server. It
-mirrors `WireframeServer` but operates in the opposite direction:
+A new `WireframeClient` type manages a single connection to a server. It mirrors
+`WireframeServer` but operates in the opposite direction:
 
 - Connect to a `TcpStream`, applying `SocketOptions` before the handshake.
 - Optionally, send a preamble using the existing `Preamble` helpers.
@@ -123,11 +123,11 @@ process. "In-process" means both sides run in the same process and communicate
 over a real loopback TCP socket, keeping compatibility checks honest while
 remaining fast and deterministic.
 
-The harness lives in `wireframe_testing::client_pair` rather than the
-main-crate `wireframe::testkit` module because the feature is test-only and the
-companion crate already owns reusable testing utilities. Placing it there
-avoids widening the optional production-crate feature surface without proof
-that consumers need it re-exported from `wireframe` itself.
+The harness lives in `wireframe_testing::client_pair` rather than the main-crate
+`wireframe::testkit` module because the feature is test-only and the companion
+crate already owns reusable testing utilities. Placing it there avoids widening
+the optional production-crate feature surface without proof that consumers need
+it re-exported from `wireframe` itself.
 
 The primary entry point is `spawn_wireframe_pair`, which accepts an app factory
 closure and a client-builder configuration closure. Callers that need no client
@@ -259,9 +259,9 @@ behind shared references. The existing lifecycle hooks use
 are invoked through `&self` methods. Users who need mutable state capture an
 `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure.
 
-**Design rationale — raw bytes, not typed messages**: Hooks operate on raw
-bytes (`&mut Vec<u8>` outgoing, `&mut BytesMut` incoming), not typed messages.
-This matches the server's `before_send` hook which operates on the frame type.
+**Design rationale — raw bytes, not typed messages**: Hooks operate on raw bytes
+(`&mut Vec<u8>` outgoing, `&mut BytesMut` incoming), not typed messages. This
+matches the server's `before_send` hook which operates on the frame type.
 Operating on typed messages would require hooks to be generic over every
 message type, making storage impossible without type erasure. Raw-byte hooks
 can universally inspect or modify the serialized payload.
@@ -324,9 +324,9 @@ the five `Level` variants, delegating to the corresponding
 `tracing::<level>_span!` macro per branch. Each branch has static metadata
 while branch selection is dynamic.
 
-**Design rationale — `ResponseStream` events, not spans**: Creating spans
-inside `poll_next` is problematic because it is synchronous and called many
-times. Events are lightweight and appropriate for per-frame diagnostics.
+**Design rationale — `ResponseStream` events, not spans**: Creating spans inside
+`poll_next` is problematic because it is synchronous and called many times.
+Events are lightweight and appropriate for per-frame diagnostics.
 
 ### Preamble support
 

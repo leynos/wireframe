@@ -860,10 +860,10 @@ Test code should be organized in the same way as application code.
 
   `tests/features/authentication/`, `tests/features/product_catalog/`, etc.
 
-- **Step Definitions:** Mirror the feature file structure in your `tests/steps/
-  ` directory. Create a Rust module for each feature area (e.g., `tests/steps/
-  authentication_steps.rs`, `tests/steps/catalog_steps.rs
-  `).Thispreventshavingasingle,massivestepdefinitionfileandmakesiteasiertofindthecodecorrespondingtoaGherkinstep.
+- **Step Definitions:** Mirror the feature file structure in your
+  `tests/steps/` directory. Create a Rust module for each feature area (e.g.,
+  `tests/steps/ authentication_steps.rs`, `tests/steps/catalog_steps.rs`
+  ).Thispreventshavingasingle,massivestepdefinitionfileandmakesiteasiertofindthecodecorrespondingtoaGherkinstep.
 
 ## Part 7: Common Pitfalls and Troubleshooting
 

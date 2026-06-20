@@ -1,9 +1,8 @@
 # Implement `send_streaming(frame_header, body_reader)` transport helper (8.4.1)
 
-This execution plan (ExecPlan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This execution plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -141,17 +140,17 @@ Success is observable when:
 - Observation: this project enforces strict clippy lints including
   `indexing_slicing`, `panic_in_result_fn`, `integer_division_remainder_used`,
   `cast_possible_truncation`, and `allow_attributes_without_reason`. Test code
-  must use `.get()` instead of `[]`, return `Err(...)` instead of
-  `assert!`/`panic!`, and provide reasons on `#[expect]` attributes.
+  must use `.get()` instead of `[]`, return `Err(...)` instead of `assert!`/
+  `panic!`, and provide reasons on `#[expect]` attributes.
 
 ## Decision log
 
 - Decision: place `send_streaming` in a new file `src/client/send_streaming.rs`
   rather than extending `runtime.rs`. Rationale: `runtime.rs` is at 351 lines.
   The `streaming.rs` / `send_streaming.rs` naming creates a symmetric pair
-  (inbound/outbound). This follows the same decomposition pattern used
-  elsewhere (`connection/frame.rs`, `connection/response.rs`, etc.).
-  Date/Author: 2026-02-26 / ExecPlan draft.
+  (inbound/outbound). This follows the same decomposition pattern used elsewhere
+  (`connection/frame.rs`, `connection/response.rs`, etc.). Date/Author:
+  2026-02-26 / ExecPlan draft.
 
 - Decision: use a configuration struct (`SendStreamingConfig`) rather than
   individual parameters. Rationale: ADR 0002 specifies chunk size and timeout
@@ -238,8 +237,8 @@ Key types and their locations:
   with `max_frame_length_value()` returning the maximum frame payload size.
 - `invoke_error_hook` in `src/client/messaging.rs` — calls the registered
   error handler. Declared as `pub(crate)` on `WireframeClient`.
-- `ClientStream` trait in `src/client/runtime.rs` — `AsyncRead + AsyncWrite +
-  Unpin` trait alias.
+- `ClientStream` trait in `src/client/runtime.rs` —
+  `AsyncRead + AsyncWrite + Unpin` trait alias.
 
 Inbound counterpart (for reference):
 
@@ -294,8 +293,8 @@ The file structure:
    - `frames_sent: u64`.
    - `#[derive(Clone, Copy, Debug, PartialEq, Eq)]`.
    - Accessor: `frames_sent(&self) -> u64`.
-4. `impl<S, T, C> WireframeClient<S, T, C> where S: Serializer + Send + Sync,
-   T: ClientStream` block containing `send_streaming`.
+4. `impl<S, T, C> WireframeClient<S, T, C>` block containing
+   `send_streaming`, where `S: Serializer + Send + Sync` and `T: ClientStream`.
 
 The `send_streaming` function:
 

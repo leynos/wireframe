@@ -98,9 +98,9 @@ Success is observable when:
 ## Surprises & Discoveries
 
 - Observation: the repository already uses `rstest-bdd` `0.5.0` in
-  `Cargo.toml`, so no dependency migration is needed for this feature.
-  Evidence: `Cargo.toml` dev-dependencies. Impact: behavioural-test work can
-  focus on scenario coverage only.
+  `Cargo.toml`, so no dependency migration is needed for this feature. Evidence:
+  `Cargo.toml` dev-dependencies. Impact: behavioural-test work can focus on
+  scenario coverage only.
 
 - Observation: no dedicated memory budget type or builder storage currently
   exists in `src/app/`. Evidence: `WireframeApp` fields in
