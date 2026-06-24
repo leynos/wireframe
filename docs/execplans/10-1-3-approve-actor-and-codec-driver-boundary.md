@@ -140,15 +140,17 @@ escalation, not a workaround.
 
 ## Progress
 
-- [x] (2026-06-24) Stage A: research and propose — gather code, prior art, and the
-  sibling-item delivery pattern; draft the resolved decisions. (completed during
-  planning; see `Context and orientation` and `Artifacts and notes`.)
-- [ ] (2026-06-24, in progress) Stage B: author the accepted ADR 010 rewrite
-  (status, dates, Decision
-  Outcome expansion, resolved Outstanding Decisions, tracked call-site note).
-- [ ] Stage C: propagate the acceptance across `roadmap.md`, the zero-copy
-  migration roadmap, the inventory, `contents.md`, and `developers-guide.md`.
-- [ ] Stage D: run documentation and commit gates, then a `coderabbit
+- [x] (2026-06-24) Stage A: research and propose — gather code, prior art, and
+  the sibling-item delivery pattern; draft the resolved decisions. (completed
+  during planning; see `Context and orientation` and `Artifacts and notes`.)
+- [x] (2026-06-24) Stage B: author the accepted ADR 010 rewrite (status, dates,
+  Decision Outcome expansion, resolved Outstanding Decisions, tracked call-site
+  note). Commit: `813898b`.
+- [x] (2026-06-24) Stage C: propagate the acceptance across `roadmap.md`, the
+  zero-copy migration roadmap, the inventory, `contents.md`, and
+  `developers-guide.md`. Commit: `4123b3e`.
+- [ ] (2026-06-24, in progress) Stage D: run documentation and commit gates,
+  then a `coderabbit
   review --agent` pass; clear all concerns.
 - [ ] Mark roadmap `10.1.3` done and finalise this ExecPlan to `COMPLETE`.
 
@@ -191,6 +193,14 @@ edit and its propagation can be reviewed independently.
   Impact: execution used `docs/contents.md`, the documentation style guide, and
   the governing ADR, roadmap, inventory, and developers' guide files listed in
   this plan instead.
+- Observation: The original stale-reference grep in this plan was too broad
+  after execution started because the ExecPlan itself intentionally describes
+  the risk of stale "proposed" references.
+  Evidence: after Stage C, `rg -ni "adr.?010|transport.frame boundary" docs/ |
+  rg -i "propos"` matched only this ExecPlan's risk and validation text.
+  Impact: no governing document still describes ADR 010 as proposed. The
+  concrete validation step now treats ExecPlan self-references and preserved ADR
+  proposal history as non-drift.
 
 ## Decision log
 
@@ -427,8 +437,10 @@ Run all commands from the repository root
    rg -ni "adr.?010|transport.frame boundary" docs/ | rg -i "propos"
    ```
 
-   Expected: no output (every reference now reads accepted). Stage and commit the
-   propagation edits.
+   Expected: no governing document still describes ADR 010 as proposed. Matches
+   inside this ExecPlan's risk/validation text, or inside preserved ADR proposal
+   history such as dual dates and rejected options, are not cross-reference
+   drift. Stage and commit the propagation edits.
 
 4. Run the commit gateway (documentation-only change, but the full suite must
    stay green):
