@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
 ## Purpose / big picture
 
@@ -140,10 +140,11 @@ escalation, not a workaround.
 
 ## Progress
 
-- [ ] (pending) Stage A: research and propose — gather code, prior art, and the
+- [x] (2026-06-24) Stage A: research and propose — gather code, prior art, and the
   sibling-item delivery pattern; draft the resolved decisions. (completed during
   planning; see `Context and orientation` and `Artifacts and notes`.)
-- [ ] Stage B: author the accepted ADR 010 rewrite (status, dates, Decision
+- [ ] (2026-06-24, in progress) Stage B: author the accepted ADR 010 rewrite
+  (status, dates, Decision
   Outcome expansion, resolved Outstanding Decisions, tracked call-site note).
 - [ ] Stage C: propagate the acceptance across `roadmap.md`, the zero-copy
   migration roadmap, the inventory, `contents.md`, and `developers-guide.md`.
@@ -174,6 +175,22 @@ edit and its propagation can be reviewed independently.
   contract becomes `Bytes`-native.
   Impact: ADR 010 should point its "remove the final copy" consequence at
   roadmap `11.1.2` / issue #538 rather than implying `10.1.3` removes it.
+- Observation: The plan's preflight call-site inventory still holds at
+  execution time.
+  Evidence: on 2026-06-24,
+  `rg -n "\.wrap_payload\(" src/ | grep -v -i test` returned only
+  `src/app/outbound_encoding.rs:36:    let frame =
+  codec.wrap_payload(Bytes::from(bytes));`.
+  Impact: the ADR can safely state the codec driver is the only production
+  transport-frame emission site today, while deferring enforcement coverage to
+  roadmap `11.2.3`.
+- Observation: `AGENTS.md` asks readers to start with
+  `docs/repository-layout.md`, but that file is absent in this worktree.
+  Evidence: `sed -n '1,220p' docs/repository-layout.md` failed with
+  `No such file or directory`.
+  Impact: execution used `docs/contents.md`, the documentation style guide, and
+  the governing ADR, roadmap, inventory, and developers' guide files listed in
+  this plan instead.
 
 ## Decision log
 
@@ -231,6 +248,14 @@ edit and its propagation can be reviewed independently.
   added a developers'-guide note, with no runtime change. Consistency keeps the
   decision-closure phase reviewable and reversible.
   Date/Author: 2026-06-22, planning agent.
+
+- Decision: Begin execution from explicit user approval on 2026-06-24 while
+  leaving the scope documentation-only.
+  Rationale: the user asked to proceed with implementation of this plan. The
+  branch already tracks `origin/10-1-3-approve-actor-and-codec-driver-boundary`,
+  and the preflight inventory confirmed no decision-drift tolerance has been
+  breached.
+  Date/Author: 2026-06-24, implementation agent.
 
 ## Outcomes & retrospective
 
@@ -540,3 +565,8 @@ sibling-item delivery pattern from `10.1.1`/`10.1.2`, recorded prior-art
 corroboration (tonic, tokio_util) and a Logisphere "proceed with conditions"
 review, and scoped the work to documentation only with implementation deferred
 to roadmap phase 11. Status: DRAFT, awaiting approval before execution.
+
+Execution update (2026-06-24): user approval received, branch tracking confirmed
+against `origin/10-1-3-approve-actor-and-codec-driver-boundary`, preflight
+call-site inventory rechecked, and status moved to IN PROGRESS before Stage B
+ADR edits.
