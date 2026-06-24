@@ -2,11 +2,22 @@
 
 ## Status
 
-Proposed
+Accepted
+
+Accepted on 2026-06-22. Wireframe keeps the connection actor
+packet-oriented and makes the codec driver the sole owner of transport-frame
+emission. Protocol hooks remain packet-oriented until the app-router response
+gap is closed under roadmap item `11.2.1`; no public actor-boundary
+`Vec<u8>` compatibility shim is introduced, with the public
+`CorrelatableFrame for Vec<u8>` bridge removed under roadmap item `11.2.2` and
+reviewed under `14.2.1`; and no new "serializable packet" trait is added
+because `Packet` plus `EncodeWith<Serializer>` already expresses that
+requirement. The remaining final outbound copy is removed under roadmap item
+`11.1.2`, and the sole-owner boundary is guarded under roadmap item `11.2.3`.
 
 ## Date
 
-2026-04-12
+Proposed 2026-04-12. Accepted 2026-06-22.
 
 ## Context and Problem Statement
 
@@ -94,31 +105,44 @@ adds complexity without necessarily removing copies.
 
 _Table 1: Trade-offs for the actor and transport-frame boundary._
 
-## Decision Outcome / Proposed Direction
+## Decision Outcome
 
 Adopt Option B: keep the actor packet-oriented, and make the codec driver the
 only component that owns transport frame emission.
 
-The proposed direction is:
+The accepted direction is:
 
 - `ConnectionActor` continues to reason about packet-shaped values such as
-  `Envelope`.
+  `Envelope`. In production, the actor remains generic over packet semantics
+  rather than over transport frame buffers.
 - The serializer and codec driver own the final
-  `packet -> bytes -> transport frame` transition.
-- Any protocol hook that requires codec-frame visibility is attached at the
-  codec-driver boundary, not by forcing codec frames through actor traits they
-  do not naturally satisfy.
-- `Vec<u8>` frame bridges are removed from the core runtime once the chosen
-  codec-driver path is proven.
+  `packet -> bytes -> transport frame` transition. Today the only production
+  `FrameCodec::wrap_payload` caller is the codec-driver path in
+  `src/app/outbound_encoding.rs`.
+- Protocol hooks remain packet-oriented. The codec driver hosts serialization
+  and transport framing, not a second transport-frame hook surface.
+- `Vec<u8>` frame bridges are removed from the core runtime once the approved
+  codec-driver path is proven. `Packet for Vec<u8>` stays test-only, while the
+  public `CorrelatableFrame for Vec<u8>` bridge leaves the core runtime in the
+  breaking release governed by roadmap items `11.2.2` and `14.2.1`.
+
+This closes roadmap item `10.1.3` and the corresponding zero-copy migration
+roadmap item `1.1.3`. Runtime implementation is intentionally deferred to
+roadmap items `11.1.2`, `11.2.1`, `11.2.2`, and `11.2.3`.
 
 ## Goals and Non-Goals
 
 ### Goals
 
-- Keep transport framing and packet semantics decoupled.
-- Remove accidental `Vec<u8>` dependencies at the actor boundary.
+- Keep transport framing and packet semantics decoupled. This ADR now records
+  that boundary; roadmap item `11.2.1` implements any remaining runtime
+  alignment.
+- Remove accidental `Vec<u8>` dependencies at the actor boundary. The
+  production boundary decision is accepted here; bridge removal is sequenced
+  under roadmap item `11.2.2`.
 - Give the zero-copy migration a stable place to enforce pointer reuse and
-  allocation tests.
+  allocation tests. Roadmap item `11.2.3` adds the regression coverage and the
+  guard against new non-driver production `wrap_payload` callers.
 
 ### Non-Goals
 
@@ -132,16 +156,19 @@ The proposed direction is:
 ### Phase 1: formalize the packet-to-frame boundary
 
 Document which component owns serialization, protocol hook invocation, and
-`wrap_payload`, and update the runtime so that ownership is reflected in code.
-Consolidate any non-driver `FrameCodec::wrap_payload` callers into the
-codec-driver boundary, including the current runtime inbound emission path, so
-`ConnectionActor` no longer participates in transport frame emission outside
-the codec driver.
+`wrap_payload`, and update the runtime so that ownership is reflected in code
+where any gap remains. The accepted owner is the codec driver. The known
+app-router `before_send` asymmetry is closed under roadmap item `11.2.1`;
+guard coverage for new non-driver production `wrap_payload` callers is added
+under roadmap item `11.2.3`.
 
 ### Phase 2: remove obsolete core bridges
 
 Delete or move `Vec<u8>`-specific core frame bridges once the actor no longer
-needs them for production behaviour.
+needs them for production behaviour. `Packet for Vec<u8>` remains in test
+support. `CorrelatableFrame for Vec<u8>` is a public production impl, so its
+removal is a breaking-release change tracked under roadmap items `11.2.2` and
+`14.2.1`.
 
 ### Phase 3: validate the boundary
 
@@ -151,25 +178,52 @@ stage.
 
 ## Known Risks and Limitations
 
-- The protocol hook story still needs a precise statement of which hooks run on
-  packets and which run on transport frames.
+- Protocol hooks stay packet-oriented. The current limitation is narrower:
+  `before_send` fires for actor-driven push and multi-packet frames, but not yet
+  for app-router responses routed through `FramePipeline`. Roadmap item
+  `11.2.1` owns that closure.
 - If the codec driver becomes the only framing boundary, its tests must carry
   more of the performance and correctness burden than they do today.
 - Some example or test harness code may continue to use `Vec<u8>` as a
   convenience type even after the production boundary is cleaned up.
-- Until every non-driver `FrameCodec::wrap_payload` caller is relocated, the
-  project needs an explicit tracked list of remaining call sites, including the
-  inbound emission path adjacent to `ConnectionActor`, so reviews can verify
-  that the codec driver is becoming the sole owner of transport frame emission.
+- The final serializer-to-codec bridge still materializes `Vec<u8>` before
+  converting to `Bytes`. Roadmap item `11.1.2` and issue
+  <https://github.com/leynos/wireframe/issues/538> own the
+  `Bytes`-native serializer contract that removes this copy.
+- The project needs guard coverage against future non-driver production
+  `FrameCodec::wrap_payload` callers. Roadmap item `11.2.3` owns that guard.
 
-## Outstanding Decisions
+## Tracked transport-frame call sites
+
+At acceptance time, the sole production `FrameCodec::wrap_payload` caller is
+`src/app/outbound_encoding.rs`, which sits inside the codec-driver boundary and
+performs the current `Serializer::serialize -> Bytes::from -> wrap_payload`
+transition. Other `wrap_payload` call sites are tests, examples, test helpers,
+or testkit support.
+
+Roadmap item `11.2.3` must add a guard that fails if a new non-driver
+production caller appears. Until that guard exists, reviews should verify this
+inventory manually.
+
+## Resolved Decisions
 
 - Which existing protocol hooks should move to the codec-driver boundary, and
-  which should remain packet-oriented?
+  which should remain packet-oriented? Existing hooks remain packet-oriented and
+  continue to run against `Envelope` before serialization. The codec driver
+  does not gain a new transport-frame-level hook surface. The app-router
+  response `before_send` gap is documented as a limitation and tracked under
+  roadmap item `11.2.1`.
 - Should any remaining `Vec<u8>` bridge live in `test_support`, a feature-gated
-  compatibility module, or nowhere at all?
+  compatibility module, or nowhere at all? No public feature-gated actor-boundary
+  compatibility shim is introduced. `Packet for Vec<u8>` stays in test support.
+  The public `CorrelatableFrame for Vec<u8>` impl leaves the core runtime under
+  the breaking-release work in roadmap item `11.2.2`, with retained bridges
+  reviewed under roadmap item `14.2.1`.
 - Does the project need a new internal trait to express "serializable packet"
-  separately from transport frame semantics?
+  separately from transport frame semantics? No. The existing `Packet` trait
+  composed with `EncodeWith<Serializer>` already expresses "a packet that can be
+  serialized"; `Envelope` satisfies both. Adding a bridging trait would recreate
+  rejected Option C without removing copies.
 
 ## Architectural Rationale
 
