@@ -325,7 +325,7 @@ The inventory suggests several non-prescriptive workstreams:
   long as public mutation hooks still require owned mutable bytes.
 - Remove `CorrelatableFrame for Vec<u8>` from the core surface once raw
   `Vec<u8>` stops being a documented or production frame shape. If a bridge is
-  still useful, keep it in docs, `test-support`, or a feature-gated
+  still useful, keep it in test support rather than as a public actor-boundary
   compatibility shim.
 - Keep client preamble leftovers as owned `Vec<u8>` values for now. Revisit
   that path only if the broader public byte APIs converge on a shared buffer
@@ -348,8 +348,12 @@ The current direction is now explicit:
 - The long-term outbound boundary should be `Bytes`-compatible rather than
   `Vec<u8>`-centric, with `Vec<u8>` retained only as a compatibility adapter
   while mutable byte-edit hooks still require it.
-- `CorrelatableFrame for Vec<u8>` should leave the core surface once raw
-  `Vec<u8>` stops serving as a documented or production frame shape.
+- The connection actor stays packet-oriented, while the codec driver owns
+  serialization and transport-frame emission. Protocol hooks remain
+  packet-oriented; the app-router `before_send` gap is tracked separately.
+- `CorrelatableFrame for Vec<u8>` should leave the core surface under the
+  breaking-release runtime-boundary work. `Packet for Vec<u8>` remains
+  test-only, and no public actor-boundary compatibility shim is added.
 - Client preamble leftovers remain a separate compatibility surface and should
   stay as owned `Vec<u8>` for now.
 
@@ -372,9 +376,11 @@ The design choices are captured in three Architecture Decision Records (ADRs):
   compatibility and release rollout strategy, including the finite `Vec<u8>`
   helper set, default-build deprecation discipline, and the event-based removal
   trigger.
-- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) (proposed)
-  covers the actor, codec-driver, and transport-frame boundary for the
-  zero-copy path.
+- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) (accepted)
+  keeps the connection actor packet-oriented, makes the codec driver the owner
+  of transport-frame emission, keeps protocol hooks at the packet stage, and
+  sequences public `CorrelatableFrame for Vec<u8>` removal with the
+  breaking-release runtime-boundary work.
 
 If epic 284 is updated outside the repository, the local source-of-truth links
 to add are:

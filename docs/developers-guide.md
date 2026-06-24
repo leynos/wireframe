@@ -38,6 +38,20 @@ storage. Do not introduce new public `Vec<u8>` payload contracts unless the
 [ADR 009 compatibility policy](adr-009-vec-u8-migration-rollout.md) for the
 zero-copy rollout explicitly calls for them.
 
+
+## Actor and codec-driver boundary
+
+[ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) accepts the
+runtime boundary for zero-copy transport framing. The connection actor remains
+packet-oriented and works with `Envelope` or another packet-shaped type; it
+does not become responsible for codec frame buffers.
+
+The codec driver owns the `packet -> bytes -> transport frame` transition,
+including serialization and `FrameCodec::wrap_payload`. Protocol hooks remain
+packet-oriented and run before serialization. The known gap is narrower:
+`before_send` does not yet fire for app-router responses routed through
+`FramePipeline`; roadmap item `11.2.1` owns that closure.
+
 ## Allowed aliases and prohibited mixing
 
 | Canonical term | Allowed aliases                     | Avoid in the same context                 |
