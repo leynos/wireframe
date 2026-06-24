@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -149,10 +149,11 @@ escalation, not a workaround.
 - [x] (2026-06-24) Stage C: propagate the acceptance across `roadmap.md`, the
   zero-copy migration roadmap, the inventory, `contents.md`, and
   `developers-guide.md`. Commit: `4123b3e`.
-- [ ] (2026-06-24, in progress) Stage D: run documentation and commit gates,
-  then a `coderabbit
-  review --agent` pass; clear all concerns.
-- [ ] Mark roadmap `10.1.3` done and finalise this ExecPlan to `COMPLETE`.
+- [x] (2026-06-24) Stage D: run documentation and commit gates, then a
+  `coderabbit review --agent` pass; clear all concerns. CodeRabbit completed
+  with `findings: 0`.
+- [x] (2026-06-24) Mark roadmap `10.1.3` done and finalise this ExecPlan to
+  `COMPLETE`.
 
 Each stage is gated by `make markdownlint` (and `make nixie` if a diagram is
 touched) before commit. Stages B and C are committed separately so the decision
@@ -201,6 +202,13 @@ edit and its propagation can be reviewed independently.
   Impact: no governing document still describes ADR 010 as proposed. The
   concrete validation step now treats ExecPlan self-references and preserved ADR
   proposal history as non-drift.
+- Observation: The full gate and review pass succeeded after the documentation
+  changes.
+  Evidence: `make markdownlint`, `make check-fmt`, `make lint`, and `make test`
+  all exited 0 on 2026-06-24 using tee logs under `/tmp`. `coderabbit
+  review --agent` completed with `findings: 0`.
+  Impact: no deterministic gate failure or CodeRabbit concern remains for this
+  decision-closure item.
 
 ## Decision log
 
@@ -267,12 +275,29 @@ edit and its propagation can be reviewed independently.
   breached.
   Date/Author: 2026-06-24, implementation agent.
 
+- Decision: Treat the broad stale-reference grep as an advisory drift check
+  rather than a literal zero-output command.
+  Rationale: accepted ADRs deliberately preserve proposal history such as
+  proposed dates, options considered, and rejected directions. After Stage C,
+  the only matches from the original command were this ExecPlan's own risk and
+  validation prose. No governing status reference still described ADR 010 as
+  proposed, so this did not breach the cross-reference-drift risk.
+  Date/Author: 2026-06-24, implementation agent.
+
 ## Outcomes & retrospective
 
-To be completed when the plan is executed. Compare the accepted ADR against this
-plan's purpose: a single written boundary that lets phase 11 remove `Vec<u8>`
-bridges deliberately. Note any divergence between the resolved decisions and what
-phase 11 ultimately implements.
+ADR 010 is accepted and now records the actor and codec-driver boundary needed
+for phase 11. The accepted record keeps the connection actor packet-oriented,
+makes the codec driver the production transport-frame emission owner, keeps
+protocol hooks at the packet stage, rejects a new "serializable packet" trait,
+and sequences the public `CorrelatableFrame for Vec<u8>` bridge removal with
+the breaking-release runtime-boundary work.
+
+The roadmap, zero-copy migration roadmap, inventory, developers' guide, and
+documentation index now agree with the accepted decision. No Rust code or
+public API changed in this item. The main lesson from execution is that the
+planned stale-reference grep was useful but too broad; a human check still has
+to distinguish preserved ADR history from live status drift.
 
 ## Context and orientation
 
@@ -582,3 +607,8 @@ Execution update (2026-06-24): user approval received, branch tracking confirmed
 against `origin/10-1-3-approve-actor-and-codec-driver-boundary`, preflight
 call-site inventory rechecked, and status moved to IN PROGRESS before Stage B
 ADR edits.
+
+Completion update (2026-06-24): accepted ADR 010, propagated the acceptance
+through the governing documentation, passed `make markdownlint`,
+`make check-fmt`, `make lint`, and `make test`, and completed
+`coderabbit review --agent` with `findings: 0`. Status: COMPLETE.
