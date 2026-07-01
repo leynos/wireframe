@@ -207,10 +207,12 @@ stream.
 
 - [x] 6.3.1. Provide a helper (for example `Response::with_channel`) that
   returns a bounded channel sender alongside a `Response::MultiPacket` so
-  handlers can opt into streaming ergonomically.[^adr-0001]
+  handlers can opt into streaming ergonomically (see
+  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.2. Update the multi-packet design documentation and user guide with
   tuple return examples that explain initial-frame handling, back-pressure, and
-  graceful termination.[^adr-0001]
+  graceful termination (see
+  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.3. Add an example handler (or test fixture) demonstrating spawning a
   background task that pushes frames through the returned sender while the
   connection actor manages delivery.
@@ -258,7 +260,8 @@ into a single frame, making the process transparent to the application logic.
 
 ## 8. Streaming requests and shared message assembly
 
-This phase implements the decisions from ADR 0002,[^adr-0002] adding
+This phase implements the decisions from
+[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md), adding
 first-class streaming request bodies, a generic message assembly abstraction,
 and standardized per-connection memory budgets.
 
@@ -371,7 +374,8 @@ integration boundaries.
 ### 9.2. Fragment adaptor alignment
 
 - [x] 9.2.1. Introduce a `FragmentAdapter` trait as described in the
-  fragmentation design.[^fragmentation-design] Fragmentation behaviour must
+  [fragmentation design](generic-message-fragmentation-and-re-assembly-design.md).
+  Fragmentation behaviour must
   explicitly define duplicate handling, out-of-order policies, and ownership of
   purge scheduling.
   - [x] Make fragmentation opt-in by requiring explicit configuration on the
@@ -389,7 +393,8 @@ integration boundaries.
 ### 9.3. Unified codec handling
 
 - [x] 9.3.1. Unify codec handling between the app router and the `Connection`
-  actor.[^outbound-design]
+  actor (see
+  [outbound messaging design](asynchronous-outbound-messaging-design.md)).
   - [x] Route app-level request and response handling through the
     `FramePipeline` so fragmentation and metrics apply consistently.
   - [x] Remove duplicate codec construction in `src/app/inbound_handler.rs`; the
@@ -398,8 +403,8 @@ integration boundaries.
     fragmentation, sequential requests, disabled fragmentation).
   - [x] Add BDD behavioural tests exercising the unified codec path.
   - [x] Note: protocol hooks (`before_send`) are deferred to a follow-up
-    stage because `F::Frame` and `Envelope` types may
-    differ.[^streaming-design]
+    stage because `F::Frame` and `Envelope` types may differ (see
+    [streaming responses design](multi-packet-and-streaming-responses-design.md)).
 
 ### 9.4. Property-based codec tests
 
@@ -412,12 +417,15 @@ integration boundaries.
 ### 9.5. Serializer boundaries and protocol metadata
 
 - [x] 9.5.1. Decouple message encoding from `bincode`-specific traits to
-  support alternative serializers.[^router-design][^adr-005]
+  support alternative serializers (see
+  [rust-binary-router-library-design.md](rust-binary-router-library-design.md)
+  and [adr-005-serializer-abstraction.md](adr-005-serializer-abstraction.md)).
   - [x] Introduce a serializer-agnostic message trait or adaptor layer for
     `Message` types.
   - [x] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
   - [x] Define how frame metadata is exposed to the deserialization context to
-    enable version negotiation.[^message-versioning]
+    enable version negotiation (see
+    [message-versioning.md](message-versioning.md)).
   - [x] Add migration guidance covering existing `bincode` users.
 
 ### 9.6. Codec performance benchmarks
@@ -436,7 +444,8 @@ integration boundaries.
   invalid frames, including oversized payloads and correlation metadata.
 - [x] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
-  recovery policies.[^adr-006]
+  recovery policies (see
+  [adr-006-test-observability.md](adr-006-test-observability.md)).
 - [x] 9.7.4. Add regression tests backed by `wireframe_testing` for the
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
@@ -617,21 +626,26 @@ Wireframe's protocol, framing, and message assembly layers.
 - [ ] 15.2.1. Support a determined set of length-prefix widths (either `1`,
   `2`, `4`, and `8`, or the full `1..=8` range) and enforce them in
   constructors, conversions, and tests; record the decision in an ADR. Requires
-  15.1.1. See the formal verification guide[^fv-guide] §"What widths does
-  Wireframe actually support for length prefixes?". Success criteria: an ADR
+  15.1.1. See the
+  [formal verification guide](formal-verification-methods-in-wireframe.md)
+  §"What widths does Wireframe actually support for length prefixes?".
+  Success criteria: an ADR
   records the decision, constructors enforce the chosen set, and existing tests
   cover rejected widths.
 - [ ] 15.2.2. Treat `total_body_len` as either authoritative or advisory and
   enforce or rename it consistently across the message assembly path; record
   the decision in an ADR and add tests for both conforming and violating
-  inputs. Requires 15.1.1. See the formal verification guide[^fv-guide] §"Is
-  `total_body_len` authoritative or advisory?". Success criteria: an ADR
+  inputs. Requires 15.1.1. See the
+  [formal verification guide](formal-verification-methods-in-wireframe.md)
+  §"Is `total_body_len` authoritative or advisory?". Success criteria: an ADR
   records the decision, runtime code enforces the chosen semantics, and tests
   verify both conforming and violating inputs.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
-  Requires 15.1.1. See the formal verification guide[^fv-guide] §"What fairness
-  guarantee does `ConnectionActor` actually make?". Success criteria: the
+  Requires 15.1.1. See the
+  [formal verification guide](formal-verification-methods-in-wireframe.md)
+  §"What fairness guarantee does `ConnectionActor` actually make?".
+  Success criteria: the
   design document enumerates each guarantee as a named property that can be
   referenced by Stateright model checks.
 
@@ -801,7 +815,8 @@ ecosystem.
 - [ ] 18.2.1. Implement a formal message versioning system to allow for
   protocol evolution.
 - [ ] 18.2.2. Ensure version negotiation can consume codec metadata without
-  leaking framing details into handlers.[^message-versioning]
+  leaking framing details into handlers (see
+  [message-versioning.md](message-versioning.md)).
 
 ### 18.3. Security
 
@@ -832,25 +847,3 @@ and usability.
 - [ ] 19.4.1. Ensure all public items have clear, useful documentation
   examples.
 - [ ] 19.4.2. Publish documentation to `docs.rs`.
-
-[^adr-0001]: Refer to
-[ADR 0001](adr-001-multi-packet-streaming-response-api.md).
-[^adr-0002]: Refer to
-[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md).
-[^fragmentation-design]: See
-  [fragmentation doc](generic-message-fragmentation-and-re-assembly-design.md).
-[^outbound-design]: See
-  [outbound messaging design](asynchronous-outbound-messaging-design.md).
-[^streaming-design]: See
-  [streaming responses design](multi-packet-and-streaming-responses-design.md).
-[^router-design]: See
-[rust-binary-router-library-design.md](rust-binary-router-library-design.md).
-[^message-versioning]: See
-[message-versioning.md](message-versioning.md).
-[^adr-005]: See
-[adr-005-serializer-abstraction.md](adr-005-serializer-abstraction.md).
-[^adr-006]: See
-[adr-006-test-observability.md](adr-006-test-observability.md).
-
-[^fv-guide]: See
-[formal-verification-methods-in-wireframe.md](formal-verification-methods-in-wireframe.md).
