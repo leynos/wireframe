@@ -174,6 +174,13 @@ results table (or skip message) and download the artefacts.
   upstream recommends `--in-place` in CI for build-cache reuse; full
   dispatch runs are otherwise unbounded on a 2-core runner; the workflow
   needs only read access.
+- 2026-07-04: Passed step outputs into run scripts via `env:` blocks
+  (`ROOT_FILES`, `WT_FILES`) and used `$GITHUB_EVENT_NAME` instead of
+  interpolating `${{ ... }}` expressions directly into shell text.
+  Rationale: direct interpolation of file names into script bodies is a
+  shell-injection vector (a crafted file name would be expanded into the
+  script before execution); environment variables are inert data. The ADR
+  sketch was updated to match.
 - 2026-07-04: Kept the `wireframe_testing` invocation despite expected
   false-survivor noise, recording the caveat in the ADR's Known Risks and
   the possible removal in Outstanding Decisions. Rationale: the results

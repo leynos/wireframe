@@ -208,7 +208,7 @@ jobs:
         id: detect
         run: |
           # Manual dispatch bypasses change detection — always run.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
             echo "root_files=" >> "$GITHUB_OUTPUT"
             echo "wt_files=" >> "$GITHUB_OUTPUT"
@@ -239,7 +239,7 @@ jobs:
             echo "## Mutation testing skipped" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "No Rust source changes on \`main\` in the last" \
-              "24 hours." >> "$GITHUB_STEP_SUMMARY"
+              "25 hours." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
             echo "root_files=$root_files" >> "$GITHUB_OUTPUT"
@@ -252,6 +252,8 @@ jobs:
 
       - name: Install cargo-mutants
         if: steps.detect.outputs.has_changes == 'true'
+        # Unpinned for the initial rollout; pin once the first successful
+        # run confirms a known-good version.
         run: cargo binstall --no-confirm cargo-mutants
 
       - name: Run mutation testing (root crate)
@@ -259,9 +261,11 @@ jobs:
           steps.detect.outputs.has_changes == 'true'
           && (steps.detect.outputs.root_files != ''
               || steps.detect.outputs.dispatch == 'true')
+        env:
+          ROOT_FILES: ${{ steps.detect.outputs.root_files }}
         run: |
           args=""
-          for f in ${{ steps.detect.outputs.root_files }}; do
+          for f in $ROOT_FILES; do
             args="$args --file $f"
           done
           # Exit 2 (missed mutants) and 3 (timeouts) are informative
@@ -281,9 +285,11 @@ jobs:
           steps.detect.outputs.has_changes == 'true'
           && (steps.detect.outputs.wt_files != ''
               || steps.detect.outputs.dispatch == 'true')
+        env:
+          WT_FILES: ${{ steps.detect.outputs.wt_files }}
         run: |
           args=""
-          for f in ${{ steps.detect.outputs.wt_files }}; do
+          for f in $WT_FILES; do
             # Strip the wireframe_testing/ prefix for --file.
             args="$args --file ${f#wireframe_testing/}"
           done
