@@ -189,6 +189,13 @@ on:
         required: false
         default: "main"
 
+# Serialize runs per target branch: a dispatch during a scheduled run
+# (or vice versa) queues rather than racing on runner usage. Runs are
+# informational, so queued runs wait instead of cancelling.
+concurrency:
+  group: mutation-testing-${{ github.event.inputs.branch || 'main' }}
+  cancel-in-progress: false
+
 jobs:
   mutants:
     runs-on: ubuntu-latest
@@ -198,7 +205,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ github.event.inputs.branch || 'main' }}
           fetch-depth: 0
@@ -280,6 +287,16 @@ jobs:
             *) exit "$status" ;;
           esac
 
+      - name: Reset working tree
+        # Belt-and-braces: `--in-place` restores mutated sources itself,
+        # but a restore bug or unclean tool exit must not poison the
+        # wireframe_testing run that reuses this checkout.
+        if: >-
+          steps.detect.outputs.has_changes == 'true'
+          && (steps.detect.outputs.wt_files != ''
+              || steps.detect.outputs.dispatch == 'true')
+        run: git checkout -- .
+
       - name: Run mutation testing (wireframe_testing)
         if: >-
           steps.detect.outputs.has_changes == 'true'
@@ -309,7 +326,7 @@ jobs:
           always()
           && (steps.detect.outputs.root_files != ''
               || steps.detect.outputs.dispatch == 'true')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mutation-report-root
           path: mutants.out/
@@ -319,7 +336,7 @@ jobs:
           always()
           && (steps.detect.outputs.wt_files != ''
               || steps.detect.outputs.dispatch == 'true')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mutation-report-wireframe-testing
           path: wireframe_testing/mutants.out/

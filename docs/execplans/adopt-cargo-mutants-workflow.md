@@ -189,6 +189,22 @@ results table (or skip message) and download the artefacts.
   shell-injection vector (a crafted file name would be expanded into the
   script before execution); environment variables are inert data. The ADR
   sketch was updated to match.
+- 2026-07-04 (review feedback round): Added a branch-keyed `concurrency`
+  group (`cancel-in-progress: false` — informational runs queue rather
+  than cancel), pinned `actions/checkout` and `actions/upload-artifact`
+  to full commit SHAs (matching the repo's majority pinning convention),
+  inserted a `git checkout -- .` tree-reset step before the
+  `wireframe_testing` run (belt-and-braces against `--in-place` restore
+  bugs; the second run is already skipped when the first fails), and
+  documented the workflow and the `cargo-mutants` CI-only dependency in
+  `docs/developers-guide.md`. Declined the request for a bespoke
+  workflow test harness in this repo: the detection, exit-code, and
+  summary logic is scheduled for extraction into `leynos/shared-actions`
+  as tested Python helpers with an act + pytest integration harness (see
+  `shared-actions` ExecPlan `add-mutation-testing-workflows.md`), and
+  wireframe's copy becomes a thin caller at that point; building a
+  throwaway harness here would duplicate that work without protecting
+  the eventual shape.
 - 2026-07-04: Kept the `wireframe_testing` invocation despite expected
   false-survivor noise, recording the caveat in the ADR's Known Risks and
   the possible removal in Outstanding Decisions. Rationale: the results
