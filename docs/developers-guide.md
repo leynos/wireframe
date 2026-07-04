@@ -174,6 +174,32 @@ Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
 
+## Mutation testing
+
+Scheduled mutation testing runs in CI via
+`.github/workflows/mutation-testing.yml` (see
+[ADR-007](adr-007-mutation-testing-with-cargo-mutants.md) for the design
+and its rationale). Key points for contributors:
+
+- The workflow is informational only: it never gates pull requests, and
+  surviving mutants do not fail the run. It executes daily against `main`,
+  scoped to Rust files changed in the preceding 25 hours, and skips
+  cheaply when nothing changed. It can be dispatched manually against any
+  branch from the Actions tab, which runs full (unscoped) mutations.
+- [`cargo-mutants`](https://mutants.rs/) is a CI-runtime dependency only,
+  installed in the workflow via `cargo binstall`; it is not a Cargo
+  dependency and is not required locally. To reproduce a run locally,
+  install it with `cargo install cargo-mutants` and run, for example,
+  `cargo mutants --in-place --file src/frame/mod.rs`.
+- Results appear in the workflow's job summary (caught/missed/timeout
+  counts plus a table of surviving mutants) and as downloadable
+  `mutation-report-*` artefacts containing `mutants.out/`.
+- Surviving mutants are a test-improvement backlog: triage them for
+  equivalent mutations (false survivors) before writing tests. Mutants in
+  `wireframe_testing` are mostly false survivors because that crate's
+  logic is exercised chiefly by the root crate's suite; treat its table
+  as advisory.
+
 ## Cargo workspace semantics
 
 Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
