@@ -77,7 +77,7 @@ _Table 1: Comparison of mutation testing approaches._
 Introduce `cargo-mutants` as a scheduled GitHub Actions workflow with manual
 dispatch support. The workflow runs daily but uses a change-detection guard so
 that the expensive mutation step is a cheap no-op when no relevant Rust source
-files changed on `main` in the preceding 24 hours.
+files changed on `main` in the preceding 25 hours.
 
 ### Schedule and change detection
 
@@ -411,7 +411,7 @@ jobs:
 - **Runner cost:** Scheduled runs consume GitHub Actions minutes. The daily
   schedule starts every day, but the change-detection guard ensures the
   expensive mutation step only runs when `main` received relevant Rust source
-  changes in the preceding 24 hours. On quiet days the workflow exits in
+  changes in the preceding 25 hours. On quiet days the workflow exits in
   seconds.
 - **Change detection edge cases:** The `git log --since` guard uses commit
   timestamps, not author timestamps. Force-pushed or rebased commits may carry
@@ -457,7 +457,7 @@ jobs:
 ## Resolved Decisions
 
 - **Scope filtering:** Mutations are scoped to files changed in the preceding
-  24 hours using repeated `--file` arguments rather than running against the
+  25 hours using repeated `--file` arguments rather than running against the
   full workspace. This was chosen to keep daily runs fast and focused.
 - **Workspace split:** `wireframe_testing` is not a workspace member, so it
   requires a separate `cargo mutants --dir wireframe_testing` invocation.
