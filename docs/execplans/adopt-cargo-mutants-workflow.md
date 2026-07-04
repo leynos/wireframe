@@ -4,7 +4,8 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
 and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS (Stages A and C complete; Stages B and D outstanding)
+Status: COMPLETE (all stages done; post-merge observable-behaviour checks
+and version pinning remain as follow-ups — see Outcomes & retrospective)
 
 ## Purpose / big picture
 
@@ -94,13 +95,20 @@ results table (or skip message) and download the artefacts.
   field names confirmed from source; `--output` semantics, exit codes,
   no-mutants behaviour, and `--in-place` guidance confirmed against the
   cargo-mutants handbook and source).
-- [ ] Stage B: Create the workflow file.
+- [x] Stage B: Create the workflow file (2026-07-04: implemented per the
+  corrected ADR sketch, with step outputs passed via `env:` blocks; jq
+  summary logic smoke-tested against a synthetic `outcomes.json`; detect
+  loop smoke-tested against real git history, confirming both the
+  bucketing and the skip path).
 - [x] Stage C: Update the ADR to reflect corrections (2026-07-04: output
   paths, exit-code policy, 25-hour window, deleted-file guard,
   `--in-place`, `timeout-minutes`, `persist-credentials`,
   `wireframe_testing` false-survivor caveat, cron drift and suspension
   risks all recorded in the ADR).
-- [ ] Stage D: Validation and commit.
+- [x] Stage D: Validation and commit (2026-07-04: YAML syntax and
+  yamllint clean; `make markdownlint` 0 errors; `make nixie` green;
+  CodeRabbit agent review completed with 0 findings; committed as
+  8556814).
 
 ## Surprises & discoveries
 
@@ -189,7 +197,40 @@ results table (or skip message) and download the artefacts.
 
 ## Outcomes & retrospective
 
-(To be completed.)
+Implemented 2026-07-04 on branch `adopt-cargo-mutants-workflow` in three
+commits: ADR/plan hardening (8a5f266), the workflow itself (8556814),
+and this plan closure. All deterministic gates passed and a CodeRabbit
+agent review reported zero findings.
+
+What went well:
+
+- Verifying tool behaviour against upstream source before implementation
+  caught two defects that would have shipped silently: the `--output`
+  nesting (empty job summaries) and the missed-mutant exit code (red
+  runs on an "informational" workflow).
+- Smoke-testing the jq summary against a synthetic `outcomes.json` and
+  the detect loop against real git history validated the shell logic
+  without needing a live Actions run.
+
+Post-merge follow-ups (not blocking this plan):
+
+1. Trigger a manual `workflow_dispatch` run; confirm the job summary
+   and artefacts against real `outcomes.json` output.
+2. Pin the `cargo-mutants` version confirmed by that run and note the
+   validated version next to the jq filters.
+3. Calibrate `--timeout-multiplier` against observed baseline runtime.
+4. Feed lessons into the shared-actions reusable workflow (see
+   `~/docs/mutation-testing-rollout-plan.md`, phase 2).
+
+Lessons for the shared-actions generalization:
+
+- The `outcomes.json` schema pin belongs in the shared workflow, not in
+  callers, because upstream documents the format as unstable.
+- Pass step outputs into scripts via `env:` blocks from the outset;
+  direct `${{ ... }}` interpolation into shell text is an injection
+  vector that reviewers will (rightly) flag.
+- Most repos will not need the two-invocation split; make the
+  extra-crate handling an opt-in input rather than the default shape.
 
 ## Context and orientation
 
