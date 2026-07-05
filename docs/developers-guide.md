@@ -181,19 +181,32 @@ Scheduled mutation testing runs in CI via
 [ADR-007](adr-007-mutation-testing-with-cargo-mutants.md) for the design
 and its rationale). Key points for contributors:
 
-- The workflow is informational only: it never gates pull requests, and
-  surviving mutants do not fail the run. It executes daily against `main`,
-  scoped to Rust files changed in the preceding 25 hours, and skips
-  cheaply when nothing changed. It can be dispatched manually against any
-  branch from the Actions tab, which runs full (unscoped) mutations.
-- [`cargo-mutants`](https://mutants.rs/) is a CI-runtime dependency only,
-  installed in the workflow via `cargo binstall`; it is not a Cargo
-  dependency and is not required locally. To reproduce a run locally,
-  install it with `cargo install cargo-mutants` and run, for example,
-  `cargo mutants --in-place --file src/frame/mod.rs`.
-- Results appear in the workflow's job summary (caught/missed/timeout
-  counts plus a table of surviving mutants) and as downloadable
-  `mutation-report-*` artefacts containing `mutants.out/`.
+- The workflow is a thin caller of the shared reusable workflow
+  `leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned
+  by commit SHA; caller guide in that repository's
+  `docs/mutation-cargo-workflow.md`). It is informational only: it
+  never gates pull requests, and surviving mutants do not fail the run.
+  Scheduled runs execute daily, scoped to Rust files changed in the
+  preceding 25 hours, and skip cheaply when nothing changed. Manual
+  dispatch (select the branch in the Actions "Run workflow" control)
+  runs full mutations, fanned out across six shards with one merged
+  summary.
+- The caller passes `--all-features` so feature-gated tests (e.g. the
+  `serializer-serde` bridge round-trips) run against mutants, and
+  excludes the example/test-support scaffolding
+  (`src/codec/examples.rs`, `src/test_helpers.rs`,
+  `src/connection/test_support.rs`) whose survivors are noise — both
+  per issue #571.
+- [`cargo-mutants`](https://mutants.rs/) is a CI-runtime dependency
+  only, installed by the shared workflow at a pinned version; it is not
+  a Cargo dependency and is not required locally. To reproduce a run
+  locally, install it with `cargo install cargo-mutants` and run, for
+  example,
+  `cargo mutants --in-place --all-features --file src/frame/mod.rs`.
+- Results appear in the run's merged job summary (caught/missed/timeout
+  counts plus a table of surviving mutants per target) and as
+  downloadable `mutation-report-*` artefacts containing `mutants.out/`
+  (one per shard on full runs).
 - Surviving mutants are a test-improvement backlog: triage them for
   equivalent mutations (false survivors) before writing tests. Mutants in
   `wireframe_testing` are mostly false survivors because that crate's
