@@ -100,6 +100,14 @@ feature-gated tests now run.
 - [x] (2026-07-05) Stage D: YAML parse, actionlint, and zizmor all
   clean; markdownlint and nixie green; CodeRabbit review clean; single
   commit pushed.
+- [x] (2026-07-06) Review round: added
+  `tests/workflow_contract.rs` — six contract checks over the caller
+  (full-SHA pin with hex validation, least-privilege permissions with
+  the OIDC scope, ref-keyed queueing concurrency, retained triggers,
+  the issue-571 configuration, and the companion-crate target). The
+  pin guard was negative-tested: repointing the pin at `@main` fails
+  `caller_pins_the_shared_workflow_by_full_commit_sha`; restoring the
+  SHA passes all six.
 - [ ] Stage E (post-merge, outside this branch): dispatch a manual run;
   confirm shard fan-out, merged summary, and the disappearance of the
   serde-bridge false survivors; then update the estate rollout plan
@@ -134,6 +142,35 @@ feature-gated tests now run.
   post-merge dispatch run. Rationale: recorded in Constraints; there is
   no local execution harness for GitHub Actions in this repository.
   Date/Author: 2026-07-05, planning agent.
+- Decision: add `tests/workflow_contract.rs` per review feedback,
+  raising the changed-file count to 5 against the 4-file scope
+  tolerance. Rationale: the reviewer's testing check asked for an
+  automated contract check over the caller boundary; a std-only Rust
+  integration test (using `include_str!`, so no new dependencies)
+  covers exactly the properties the reviewer named — inputs, ref
+  handling, and concurrency — and runs under `make test`. The tolerance
+  breach is accepted as the review directive itself constitutes the
+  escalation response. Executing the workflow locally remains out of
+  scope: the shared workflow's behaviour is unit- and act-tested in
+  leynos/shared-actions, and duplicating that harness here would test
+  someone else's code.
+  Date/Author: 2026-07-06, planning agent.
+- Decision: decline renaming the ExecPlan to the `NNN-N-N-` pattern.
+  Rationale: that prefix maps plans to roadmap items, and this work has
+  no roadmap item (the roadmap's only mutation reference concerns
+  zero-copy mutation paths, 13.2.2). Repository precedent explicitly
+  includes unprefixed plans for non-roadmap work:
+  `adopt-cargo-mutants-workflow.md`, `code-base-audit-2026-06-05.md`,
+  `migrate-from-cucumber-to-rstest-bdd.md`, and others.
+  Date/Author: 2026-07-06, planning agent.
+- Decision: decline adding mutation-testing coverage to
+  `docs/users-guide.md`. Rationale: that guide addresses consumers of
+  the wireframe library; mutation testing is contributor tooling, and
+  its canonical home — `docs/developers-guide.md` — was updated in this
+  change with precisely the content the review's resolution text asked
+  for (shared workflow, `--all-features`, excluded paths, and the
+  manual-dispatch sharded run model).
+  Date/Author: 2026-07-06, planning agent.
 
 ## Outcomes & retrospective
 
