@@ -2027,25 +2027,13 @@ dependencies = [
 
 [[package]]
 name = "rstest"
-version = "0.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97eeab2f3c0a199bc4be135c36c924b6590b88c377d416494288c14f2db30199"
-dependencies = [
- "futures",
- "futures-timer",
- "rstest_macros 0.18.2",
- "rustc_version",
-]
-
-[[package]]
-name = "rstest"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros 0.26.1",
+ "rstest_macros",
 ]
 
 [[package]]
@@ -2112,23 +2100,6 @@ name = "rstest-bdd-policy"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88f2ca584f7d9d359a09f616900be015302c959d58c2c2da6c075573352dfa0d"
-
-[[package]]
-name = "rstest_macros"
-version = "0.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d428f8247852f894ee1be110b375111b586d4fa431f6c46e64ba5a0dcccbe605"
-dependencies = [
- "cfg-if",
- "glob",
- "proc-macro2",
- "quote",
- "regex",
- "relative-path",
- "rustc_version",
- "syn 2.0.117",
- "unicode-ident",
-]
 
 [[package]]
 name = "rstest_macros"
@@ -3595,7 +3566,7 @@ dependencies = [
  "mockall",
  "pretty_assertions",
  "proptest",
- "rstest 0.26.1",
+ "rstest",
  "rstest-bdd",
  "rstest-bdd-macros",
  "serde",
@@ -3619,7 +3590,7 @@ dependencies = [
 name = "wireframe-verification"
 version = "0.1.0"
 dependencies = [
- "rstest 0.26.1",
+ "rstest",
  "stateright",
  "wireframe",
 ]
@@ -3635,7 +3606,7 @@ dependencies = [
  "logtest",
  "metrics",
  "metrics-util",
- "rstest 0.18.2",
+ "rstest",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
