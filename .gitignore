@@ -5,3 +5,6 @@ target/
 .verus/
 *:Zone.Identifier
 .agents/mcp/context_pack/packs/
+
+# Python bytecode from the workflow contract tests
+__pycache__/

@@ -2,11 +2,23 @@
 
 ## Status
 
-Proposed.
+Accepted. Amended 2026-07-05: the decision stands, but the bespoke
+workflow implementation described in the sketch below has been
+superseded — `.github/workflows/mutation-testing.yml` is now a thin
+caller of the shared reusable workflow
+`leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned by
+commit SHA), which generalizes this design and adds shard fan-out for
+full dispatch runs, a merged cross-shard summary, tested helper
+scripts, and a pinned `cargo-mutants` version. The caller enables
+`--all-features` (so feature-gated tests run against mutants) and
+excludes example/test-support scaffolding, addressing issue #571. The
+sketch below is retained as the historical record of the design the
+shared workflow was generalized from; the caller-facing contract now
+lives in the shared repository's `docs/mutation-cargo-workflow.md`.
 
 ## Date
 
-2026-03-31.
+2026-03-31 (amended 2026-07-05).
 
 ## Context and Problem Statement
 
