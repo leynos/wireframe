@@ -37,22 +37,23 @@ SCAFFOLDING_EXCLUDES = (
 )
 
 
-def _load() -> dict:
+def _load() -> dict[str, object]:
     """Parse the workflow file."""
     return yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
 
 
-def _triggers(workflow: dict) -> dict:
+def _triggers(workflow: dict[str, object]) -> dict[str, object]:
     """Return the ``on:`` mapping (PyYAML parses the bare key as True)."""
     triggers = workflow.get("on", workflow.get(True))
     assert isinstance(triggers, dict), "the workflow must declare an on: mapping"
     return triggers
 
 
-def _mutation_job(workflow: dict) -> dict:
+def _mutation_job(workflow: dict[str, object]) -> dict[str, object]:
     """Return the single calling job."""
     jobs = workflow.get("jobs")
-    assert isinstance(jobs, dict) and jobs, "the workflow must declare jobs"
+    assert isinstance(jobs, dict), "the workflow must declare a jobs mapping"
+    assert jobs, "the workflow must declare at least one job"
     assert list(jobs) == ["mutation"], (
         f"expected a single job named 'mutation', found {sorted(jobs)}"
     )
@@ -67,8 +68,13 @@ def test_uses_reference_is_pinned_to_the_documented_sha() -> None:
     assert path == "leynos/shared-actions/.github/workflows/mutation-cargo.yml", (
         f"jobs.mutation.uses must reference mutation-cargo.yml, got {path!r}"
     )
-    assert len(ref) == 40 and all(c in "0123456789abcdef" for c in ref), (
-        f"jobs.mutation.uses must pin a full 40-hex commit SHA, not a branch or tag: {ref!r}"
+    assert len(ref) == 40, (
+        f"jobs.mutation.uses must pin a full 40-character commit SHA, "
+        f"not a branch or tag: {ref!r}"
+    )
+    assert all(c in "0123456789abcdef" for c in ref), (
+        f"jobs.mutation.uses must pin a lowercase hex commit SHA, "
+        f"not a branch or tag: {ref!r}"
     )
     assert uses == EXPECTED_USES, (
         f"jobs.mutation.uses pins {ref!r}; the execution plan documents {PINNED_SHA!r} — "
