@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc doctest-benchmark bench-codec build release lint fmt check-fmt markdownlint nixie typecheck install-kani check-kani-version install-verus run-verus
+.PHONY: help all clean test test-doc test-workflow-contracts doctest-benchmark bench-codec build release lint fmt check-fmt markdownlint nixie typecheck install-kani check-kani-version install-verus run-verus
 
 CRATE ?= wireframe
 CARGO ?= cargo
@@ -27,6 +27,9 @@ test-bdd: ## Run rstest-bdd tests only
 
 test: ## Run all tests (bdd + unit/integration)
 	RUSTFLAGS="-D warnings" $(CARGO) test --all-targets --all-features $(BUILD_JOBS)
+
+test-workflow-contracts: ## Validate the mutation-testing caller contract
+	uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
 
 test-doc: ## Run doctests across all features
 	RUSTFLAGS="-D warnings" $(CARGO) test --doc --all-features $(BUILD_JOBS)

@@ -2541,6 +2541,47 @@ helpers become no-ops when the feature is disabled so instrumentation can stay
 in place.[^33] `handle_connection`, the connection actor, and the panic wrapper
 call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 
+## Mutation testing
+
+Wireframe's test suite is continuously assessed with mutation testing:
+small semantic faults (mutants) are injected into the source, and the
+suite must catch each one. Surviving mutants indicate code a test
+exercises without truly asserting on. Runs happen through the shared
+reusable workflow
+`leynos/shared-actions/.github/workflows/mutation-cargo.yml`, pinned by
+commit SHA, and are informational only — they never gate pull requests,
+so a red mutation run does not block contributions or releases. The
+design rationale is recorded in
+[ADR-007](adr-007-mutation-testing-with-cargo-mutants.md).
+
+Two run modes exist. Scheduled daily runs mutate only the Rust files
+changed on `main` in the preceding 25 hours and skip in seconds on
+quiet days. Manual dispatch runs (from the repository's Actions tab)
+mutate everything, fanned out across six parallel shards, and post one
+merged summary.
+
+Mutation runs build with `--all-features`, matching the CI test
+baseline. This matters for coverage fidelity: feature-gated code — for
+example the serde bridge behind the non-default `serializer-serde`
+feature — is exercised during mutation runs rather than being hidden by
+default-feature builds, so its survivors reflect real assertion gaps
+instead of compiled-out tests.
+
+Three scaffolding paths are excluded from mutation:
+`src/test_helpers.rs`, `src/connection/test_support.rs`, and
+`src/codec/examples.rs`. These contain test support and illustrative
+codecs rather than shipped behaviour, so survivors there would be noise
+rather than signal. Survivors reported for the `wireframe_testing`
+companion crate are advisory for a related reason: that crate's logic
+is exercised chiefly by the root crate's tests, which do not run in its
+scoped mutation target.
+
+Results land in two places on each run: the workflow's merged job
+summary shows caught/missed/timeout counts per target with a table of
+surviving mutants, and downloadable `mutation-report-*` artefacts
+contain the raw `mutants.out/` directories (one per shard on full
+dispatch runs) for offline triage.
+
 ## Additional utilities
 
 - `read_preamble` decodes up to 1 KiB using bincode, returning the decoded

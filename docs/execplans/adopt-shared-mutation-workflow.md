@@ -108,6 +108,19 @@ feature-gated tests now run.
   pin guard was negative-tested: repointing the pin at `@main` fails
   `caller_pins_the_shared_workflow_by_full_commit_sha`; restoring the
   SHA passes all six.
+- [x] (2026-07-06) Second review round (maintainer-directed, reversing
+  two earlier declinations): replaced the Rust string-matching contract
+  test with `tests/workflow_contracts/mutation_testing_test.py` — a
+  PyYAML-parsed pytest module asserting the exact documented pin SHA,
+  exact least-privilege permissions, ref-keyed queueing concurrency,
+  the daily cron plus branch-input-free dispatch, and the full `with:`
+  configuration — run by the new `make test-workflow-contracts` target,
+  invoked from `ci.yml` on every pull request (after a pinned
+  `setup-uv` step). The SHA guard was negative-tested (pin repointed at
+  `@v1` fails with a named-field message). Added a consumer-facing
+  "Mutation testing" section to `docs/users-guide.md` covering the
+  shared workflow, `--all-features` rationale, scaffolding excludes,
+  the two run modes, report locations, and the ADR-007 cross-link.
 - [ ] Stage E (post-merge, outside this branch): dispatch a manual run;
   confirm shard fan-out, merged summary, and the disappearance of the
   serde-bridge false survivors; then update the estate rollout plan
@@ -309,3 +322,13 @@ No Rust interfaces change. The single external dependency is
 `leynos/shared-actions/.github/workflows/mutation-cargo.yml`, pinned at
 commit `47aea18960d24f33aedc4782ec6b73e365418313`; its input contract
 is documented in that repository's `docs/mutation-cargo-workflow.md`.
+
+Revision note (2026-07-06): maintainer direction superseded two decision
+log entries from the first review round. The declined users-guide
+coverage is now implemented (consumer-oriented, complementing the
+contributor-oriented developers-guide section), and the caller contract
+test moved from Rust string matching to a PyYAML-parsed pytest module in
+`tests/workflow_contracts/`, wired into CI via `make
+test-workflow-contracts`; `tests/workflow_contract.rs` was removed so
+the pin SHA has a single test-side source of truth. Remaining work is
+unchanged (Stage E post-merge validation).
