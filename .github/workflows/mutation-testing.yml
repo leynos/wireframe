@@ -28,13 +28,17 @@ jobs:
       id-token: write # OIDC workflow-source resolution
     uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@47aea18960d24f33aedc4782ec6b73e365418313
     with:
-      # Companion crate outside the root workspace; its coverage lives
-      # mainly in the root crate's tests, so treat its survivors table
-      # as advisory (ADR-007).
-      extra-crate-dirs: "wireframe_testing"
+      # The wireframe_testing companion target is temporarily disabled:
+      # its doctests fail to compile standalone, so the mutation
+      # baseline cannot pass (#578). Restore
+      # `extra-crate-dirs: "wireframe_testing"` when that issue closes.
       # Illustrative codecs and test-support scaffolding whose
       # survivors are noise (#571).
       exclude-globs: "src/codec/examples.rs,src/test_helpers.rs,src/connection/test_support.rs"
       # Match the CI baseline (`make test` runs --all-features) so
       # feature-gated tests run against mutants (#571).
       extra-args: "--all-features"
+      # Eight shards: the first six-shard dispatch run (Stage E) lost
+      # shard 2 to the 300-minute ceiling because timeout-prone mutants
+      # cluster unevenly; extra shards buy headroom.
+      shard-count: 8

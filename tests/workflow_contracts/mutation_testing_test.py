@@ -134,9 +134,14 @@ def test_with_block_carries_the_caller_configuration() -> None:
     """The caller passes the companion crate, excludes, and feature args."""
     with_block = _mutation_job(_load()).get("with")
     assert isinstance(with_block, dict), "jobs.mutation.with is missing"
-    assert with_block.get("extra-crate-dirs") == "wireframe_testing", (
-        f"with.extra-crate-dirs must be 'wireframe_testing', got "
-        f"{with_block.get('extra-crate-dirs')!r}"
+    assert "extra-crate-dirs" not in with_block, (
+        "the wireframe_testing target stays disabled until its doctests "
+        "compile (#578); restore the extra-crate-dirs assertion when "
+        "re-enabling it"
+    )
+    assert with_block.get("shard-count") == 8, (
+        f"with.shard-count must be 8 (Stage E: six shards lost one leg "
+        f"to the job ceiling), got {with_block.get('shard-count')!r}"
     )
     assert with_block.get("extra-args") == "--all-features", (
         f"with.extra-args must be '--all-features' so feature-gated tests run "

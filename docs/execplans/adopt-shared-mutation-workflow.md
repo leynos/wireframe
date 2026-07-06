@@ -121,7 +121,20 @@ feature-gated tests now run.
   "Mutation testing" section to `docs/users-guide.md` covering the
   shared workflow, `--all-features` rationale, scaffolding excludes,
   the two run modes, report locations, and the ADR-007 cross-link.
-- [ ] Stage E (post-merge, outside this branch): dispatch a manual run;
+- [x] (2026-07-06) Stage E: dispatch run 28806201980 executed. The
+  machinery validated — detect emitted the full matrix, five of six
+  root shards completed and were merged into one summary by the
+  summarize job. Two failures, both diagnosed: root shard 2 hit the
+  300-minute job ceiling (timeout-prone mutants cluster unevenly; its
+  cancelled run also skipped the always() artefact upload — a shared
+  workflow improvement follows), and the wireframe_testing target's
+  unmutated baseline fails because the crate's doctests do not compile
+  standalone (#578 — never caught before, as CI does not run the
+  non-member crate's own tests). This branch raises shard-count to 8
+  and parks the wireframe_testing target until #578 closes.
+- [ ] Stage E follow-ups: re-enable wireframe_testing when #578 is
+  fixed; confirm serde-bridge survivors are gone from the next full
+  run's summary; consider re-dispatch after the shard bump.: dispatch a manual run;
   confirm shard fan-out, merged summary, and the disappearance of the
   serde-bridge false survivors; then update the estate rollout plan
   and the shared-actions ExecPlan Stage G.
