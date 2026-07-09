@@ -16,9 +16,14 @@ jobs:
       BUILD_PROFILE: debug
       WHITAKER_INSTALLER_VERSION: '0.2.1'
     steps:
+      # Full history so the deferred CodeScene `cs-coverage check` gate
+      # (which diffs a pull request against its merge base) can be added
+      # without a further checkout change.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+        uses: leynos/shared-actions/.github/actions/setup-rust@927edd45ae77be4251a8a18ca9eb5613a2e32cbd
       - name: Format
         run: make check-fmt
       - name: Cache Whitaker installer
@@ -45,18 +50,22 @@ jobs:
           enable-cache: true
       - name: Workflow contract tests
         run: make test-workflow-contracts
+      # Coverage runs on pull requests only and drives the ratchet gate.
+      # Main-branch coverage — the CodeScene upload plus the authoritative
+      # ratchet baseline every pull request compares against — is produced
+      # by coverage-main.yml on push, so generation is kept out of
+      # main-push runs to avoid doing the work twice.
+      #
+      # The CodeScene PR "Code Coverage" gate (`cs-coverage check`,
+      # mode: check) is intentionally NOT wired here yet: CodeScene project
+      # 68308 has no coverage-gate configuration, so `cs-coverage check`
+      # fails with "Lacks the gates configuration" and would turn this
+      # required job permanently red. It is deferred to a fast-follow once
+      # the gate is provisioned (see coverage-main.yml).
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+        if: github.event_name == 'pull_request'
+        uses: leynos/shared-actions/.github/actions/generate-coverage@927edd45ae77be4251a8a18ca9eb5613a2e32cbd
         with:
           output-path: lcov.info
           format: lcov
-      - name: Upload coverage data to CodeScene
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: ${{ env.CS_ACCESS_TOKEN }}
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@aebb3f5b831102e2a10ef909c83d7d50ea86c332
-        
-        with:
-          format: lcov
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
+          with-ratchet: 'true'
