@@ -21,10 +21,13 @@ WORKFLOW_PATH = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows" / "mutation-testing.yml"
 )
 
-#: The commit SHA documented in
+#: The repo-wide leynos/shared-actions pin. Originally documented in
 #: docs/execplans/adopt-shared-mutation-workflow.md (the merge commit of
-#: leynos/shared-actions PR #319). Bump both together.
-PINNED_SHA = "47aea18960d24f33aedc4782ec6b73e365418313"
+#: leynos/shared-actions PR #319); bumped to the single estate-wide pin
+#: that carries the CodeScene coverage `mode: check` gate
+#: (leynos/shared-actions PR #334). Every shared-actions reference in the
+#: repo shares this SHA; bump them together.
+PINNED_SHA = "927edd45ae77be4251a8a18ca9eb5613a2e32cbd"
 
 EXPECTED_USES = (
     "leynos/shared-actions/.github/workflows/mutation-cargo.yml@" + PINNED_SHA
