@@ -28,7 +28,7 @@ struct TestMsg(u8);
 
 /// Tests that a message can be extracted from a payload and that the payload cursor advances fully.
 ///
-/// Verifies that a `TestMsg` instance serialised into bytes can be correctly extracted from a
+/// Verifies that a `TestMsg` instance serialized into bytes can be correctly extracted from a
 /// `Payload` using `Message::<TestMsg>::from_message_request`, and asserts that the payload has no
 /// remaining unread data after extraction.
 #[rstest]

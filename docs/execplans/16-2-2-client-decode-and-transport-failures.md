@@ -297,7 +297,7 @@ Acceptance criteria:
 - If behavioural tests fail after dependency bump, pin the exact break in
   `Decision Log`, patch fixtures/steps, and re-run `make test`.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Expected touched files (minimum set):
 

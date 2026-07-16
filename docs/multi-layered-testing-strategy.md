@@ -3,7 +3,7 @@
 ## 1. Introduction
 
 This document outlines the comprehensive testing strategy for the `wireframe`
-library, synthesising the test plans from the designs for server-initiated
+library, synthesizing the test plans from the designs for server-initiated
 messages, streaming responses, and message fragmentation. A robust,
 multi-layered approach to testing is non-negotiable for a low-level library like
 `wireframe`, where correctness, resilience, and performance are paramount.

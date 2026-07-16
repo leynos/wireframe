@@ -55,7 +55,7 @@ pub enum FragmentError {
 /// Errors produced while fragmenting outbound messages.
 #[derive(Debug, Error)]
 pub enum FragmentationError {
-    /// Serialisation failed before chunking.
+    /// Serialization failed before chunking.
     #[error("failed to encode message: {0}")]
     Encode(#[from] EncodeError),
     /// The fragment index cannot advance because it would overflow `u32`.

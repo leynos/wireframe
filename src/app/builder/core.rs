@@ -140,7 +140,7 @@ where
     /// Helper to rebuild the app when changing type parameters.
     ///
     /// The `WireframeApp` builder carries 14 fields that must be moved together
-    /// when swapping serializer or codec types. Centralising the reconstruction
+    /// when swapping serializer or codec types. Centralizing the reconstruction
     /// here keeps the transitions consistent and avoids repeating the same
     /// field list across each type-changing method. For smaller builders with
     /// only a handful of fields and single-field updates, prefer the macro-based

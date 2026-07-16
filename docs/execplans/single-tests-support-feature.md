@@ -236,7 +236,7 @@ cause unexpected breakage, restore only the affected file to the previous
 committed state, reapply the rename in smaller commits, and re-run checks after
 each file change.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Record in implementation notes:
 

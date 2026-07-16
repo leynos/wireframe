@@ -207,7 +207,7 @@ API map generation and compile checks are re-runnable. If a visibility change
 causes excessive breakage, revert that module boundary only, then reapply with
 smaller steps and immediate compile validation.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Implementation should preserve:
 

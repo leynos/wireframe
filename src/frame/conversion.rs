@@ -93,7 +93,7 @@ pub fn bytes_to_u64(bytes: &[u8], size: usize, endianness: Endianness) -> io::Re
     let mut buf = [0u8; 8];
     fill_buf_with_prefix(&mut buf, prefix, endianness)?;
 
-    // Wire prefix declares its endianness; normalising into an 8-byte buffer and
+    // Wire prefix declares its endianness; normalizing into an 8-byte buffer and
     // using explicit conversion helpers keeps decoding deterministic on any host
     // CPU.
     let val = match endianness {

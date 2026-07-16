@@ -31,7 +31,7 @@ plumbing for large inbound messages and multi-frame requests:
 This is in tension with Wireframe’s 1.0 philosophy: provide a protocol-agnostic
 “duplex frame highway” where cross-cutting hardening and ergonomics are solved
 centrally, with clear extension points for protocol-specific
-rules.[^philosophy] The production resilience guidance also emphasises explicit
+rules.[^philosophy] The production resilience guidance also emphasizes explicit
 resource caps, timeouts, and early termination at the framework layer, rather
 than ad hoc per-protocol handling.[^hardening]
 
@@ -210,7 +210,7 @@ pub struct ContinuationFrameHeader {
   and “max in-flight bytes”; and
 - a clear failure mode (back-pressure where safe, early abort where required).
 
-This generalises the intent of the existing fragmentation adaptor design
+This generalizes the intent of the existing fragmentation adaptor design
 without introducing protocol-specific assumptions.[^fragmentation]
 
 #### Failure modes and cleanup semantics
@@ -233,7 +233,7 @@ implementers can rely on the behaviour across crates:
     frames.
 
   No handler is invoked for the aborted message. Wireframe does not attempt to
-  synthesise a protocol error response at this stage; clients observe a closed
+  synthesize a protocol error response at this stage; clients observe a closed
   connection unless the protocol itself provides an earlier, explicit error
   path.
 - **Hard cap exceeded during handler body streaming:** `RequestBodyStream` MUST
@@ -255,7 +255,7 @@ and that “bytes buffered” accounting returns to a consistent state promptly.
 
 ### 3) Configurable per-connection memory budgets and back-pressure
 
-Wireframe will standardise memory budgeting for inbound assembly and buffering
+Wireframe will standardize memory budgeting for inbound assembly and buffering
 at the connection layer, so protocols do not need to implement their own
 resource accounting to remain safe.
 

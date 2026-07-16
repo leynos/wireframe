@@ -4,7 +4,7 @@
 //! protocol code can remain explicit about wire endianness without repeating
 //! lint annotations.
 
-/// Serialise a `u16` in network byte order (big-endian).
+/// Serialize a `u16` in network byte order (big-endian).
 ///
 /// # Examples
 ///
@@ -40,7 +40,7 @@ pub fn read_network_u16(bytes: [u8; 2]) -> u16 {
     u16::from_be_bytes(bytes)
 }
 
-/// Serialise a `u32` in network byte order (big-endian).
+/// Serialize a `u32` in network byte order (big-endian).
 ///
 /// # Examples
 ///
@@ -76,7 +76,7 @@ pub fn read_network_u32(bytes: [u8; 4]) -> u32 {
     u32::from_be_bytes(bytes)
 }
 
-/// Serialise a `u64` in network byte order (big-endian).
+/// Serialize a `u64` in network byte order (big-endian).
 ///
 /// # Examples
 ///

@@ -100,7 +100,7 @@ impl FragmentWorld {
     /// Force the next expected fragment index for overflow scenarios.
     ///
     /// # Errors
-    /// Returns an error if a fragment series has not been initialised.
+    /// Returns an error if a fragment series has not been initialized.
     pub fn force_next_index(&mut self, index: u32) -> TestResult {
         self.series_mut()?
             .force_next_index_for_tests(FragmentIndex::new(index));
@@ -110,7 +110,7 @@ impl FragmentWorld {
     /// Feed a fragment that references the currently tracked message.
     ///
     /// # Errors
-    /// Returns an error if no fragment series has been initialised.
+    /// Returns an error if no fragment series has been initialized.
     pub fn accept_fragment(&mut self, index: u32, is_last: bool) -> TestResult {
         let message = self.series()?.message_id().get();
         self.accept_fragment_from(message, index, is_last)
@@ -119,7 +119,7 @@ impl FragmentWorld {
     /// Feed a fragment for an explicit message identifier.
     ///
     /// # Errors
-    /// Returns an error if no fragment series has been initialised.
+    /// Returns an error if no fragment series has been initialized.
     pub fn accept_fragment_from(&mut self, message: u64, index: u32, is_last: bool) -> TestResult {
         let header =
             FragmentHeader::new(MessageId::new(message), FragmentIndex::new(index), is_last);

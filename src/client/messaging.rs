@@ -43,7 +43,7 @@ where
     ///    operations.
     /// 2. The atomic `fetch_add` operation itself is always atomic regardless of memory ordering,
     ///    ensuring no two calls ever return the same value.
-    /// 3. There are no other memory operations that need to be synchronised with the counter
+    /// 3. There are no other memory operations that need to be synchronized with the counter
     ///    increment.
     ///
     /// The counter is safe for cross-thread access, though typical usage

@@ -160,7 +160,7 @@ termination.
 
 **Implementation:** The core mechanism relies on
 `tokio_util::sync::CancellationToken` for signalling and
-`tokio_util::task::TaskTracker` for synchronisation.
+`tokio_util::task::TaskTracker` for synchronization.
 
 ```rust
 // Inside the main server accept loop
@@ -266,7 +266,7 @@ ergonomic, extensible, and idiomatic.
 
 To avoid a sprawling collection of configuration closures, protocol-specific
 logic will be encapsulated within a single, cohesive `WireframeProtocol` trait.
-This promotes better organisation, reusability, and makes the framework easier
+This promotes better organization, reusability, and makes the framework easier
 to extend.
 
 **Implementation:**

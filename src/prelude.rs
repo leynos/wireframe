@@ -1,7 +1,7 @@
 //! Optional convenience imports for common Wireframe workflows.
 //!
 //! This module is intentionally small and focused on high-frequency types.
-//! Prefer importing specialised APIs directly from their owning modules.
+//! Prefer importing specialized APIs directly from their owning modules.
 //!
 //! # Examples
 //!

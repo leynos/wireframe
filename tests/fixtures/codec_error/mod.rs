@@ -93,7 +93,7 @@ impl CodecErrorWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if `variant` is not a recognised framing variant.
+    /// Returns an error if `variant` is not a recognized framing variant.
     pub fn set_framing_variant(&mut self, variant: &str) -> TestResult {
         self.framing_variant = match variant {
             "oversized" => FramingVariant::Oversized,
@@ -111,7 +111,7 @@ impl CodecErrorWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if `variant` is not a recognised EOF variant.
+    /// Returns an error if `variant` is not a recognized EOF variant.
     pub fn set_eof_variant(&mut self, variant: &str) -> TestResult {
         self.eof_variant = match variant {
             "clean_close" => EofVariant::CleanClose,
@@ -171,7 +171,7 @@ impl CodecErrorWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if `expected` is not a recognised policy or if the
+    /// Returns an error if `expected` is not a recognized policy or if the
     /// actual policy does not match the expected policy.
     pub fn verify_recovery_policy(&self, expected: &str) -> TestResult {
         let expected_policy = match expected {

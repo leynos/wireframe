@@ -321,7 +321,7 @@ Observable success is:
   that checksum in `tools/verus/SHA256SUMS`.
 
 - Observation: CodeRabbit flagged that the Verus checksum needs a visible
-  repository audit trail tying it to the official artifact. Evidence:
+  repository audit trail tying it to the official artefact. Evidence:
   `coderabbit review --agent` reported one critical finding against
   `tools/verus/SHA256SUMS`. Impact: add `tools/verus/README.md` with the
   official release URL and checksum reproduction command before committing the
@@ -753,7 +753,7 @@ rm -rf tools/kani tools/verus tools/rust-prover-tools
 
 Do not revert unrelated user or agent changes.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Planning sources checked:
 

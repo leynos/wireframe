@@ -27,7 +27,7 @@ and reliable process.
 
 The core mechanism relies on two primitives from the `tokio` ecosystem:
 `tokio_util::sync::CancellationToken` for signalling and
-`tokio_util::task::TaskTracker` for synchronisation.
+`tokio_util::task::TaskTracker` for synchronization.
 
 - `CancellationToken`: A single root token is created at server startup.
   This token is cloned and distributed to every spawned task, including
@@ -388,7 +388,7 @@ match self.tx.try_send(frame) {
 
 ```
 
-By default the library logs each DLQ drop to maximise visibility during
+By default the library logs each DLQ drop to maximize visibility during
 development and testing. Applications can tune verbosity using the push queue
 builder's `dlq_log_every_n` and `dlq_log_interval` settings to throttle
 warnings per handle in production.

@@ -350,9 +350,9 @@ Done criteria:
 - If documentation updates diverge from implementation, block roadmap completion
   until docs and behaviour match.
 
-## Artifacts and notes
+## Artefacts and notes
 
-Capture and keep these artifacts during implementation:
+Capture and keep these artefacts during implementation:
 
 - `/tmp/9-4-1-*.log` command logs.
 - Names of newly added tests/scenarios.

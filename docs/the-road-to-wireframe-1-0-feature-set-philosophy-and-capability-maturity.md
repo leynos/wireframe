@@ -194,7 +194,7 @@ same connection. This is essential for supporting modern protocols like HTTP/2
 or gRPC.
 
 > **14 November 2025 update:** `wireframe::fragment` now provides the
-> serialiser-agnostic `FragmentHeader`, `MessageId`, `FragmentIndex`, and
+> serializer-agnostic `FragmentHeader`, `MessageId`, `FragmentIndex`, and
 > `FragmentSeries` types. Codec implementers emit and inspect those headers,
 > keeping transport logic consistent while letting each protocol choose how the
 > data is encoded on the wire.
@@ -358,7 +358,7 @@ is committed to an API that is intuitive, flexible, and idiomatic.
   cohesive `WireframeProtocol` trait. This promotes better organization,
   reusability, and makes the framework easier to extend.
 
-- **Idiomatic Asynchronous APIs:** The library will consistently favor
+- **Idiomatic Asynchronous APIs:** The library will consistently favour
   declarative, stream-based APIs over imperative, sink-based ones. This aligns
   with the broader async Rust ecosystem and leads to code that is easier to
   compose and reason about.
@@ -390,7 +390,7 @@ A production system is a black box without good instrumentation. `wireframe`
 
   - `wireframe_reassembly_errors_total` (Counter)
 
-The following entity–relationship diagram summarises how the core metrics
+The following entity–relationship diagram summarizes how the core metrics
 relate.
 
 ```mermaid

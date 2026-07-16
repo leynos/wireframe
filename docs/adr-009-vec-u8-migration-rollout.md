@@ -141,7 +141,7 @@ surface, not one adapter per call site:
 - **Client request hooks.** `BeforeSendHook` gains one adapter constructor
   (`BeforeSendHook::from_vec_fn`, or the free-function
   `before_send_from_vec_fn` on `RequestHooks`) so existing `Fn(&mut Vec<u8>)`
-  hooks keep compiling for one release cycle. The exact bound is finalised by
+  hooks keep compiling for one release cycle. The exact bound is finalized by
   roadmap item `12.2.1`.
 - **Client preamble leftovers** stay on owned `Vec<u8>` for this breaking
   release, per the resolved direction in

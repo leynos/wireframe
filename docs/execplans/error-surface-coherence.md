@@ -198,7 +198,7 @@ The migration is refactor-oriented and re-runnable in slices. If a migration
 step causes broad breakage, restore the last coherent module boundary and
 re-run inventory before continuing.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Implementation should capture:
 

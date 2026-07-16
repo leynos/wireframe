@@ -572,7 +572,7 @@ where
 | `docs/users-guide.md`                                          | Document new public API                              |
 | `docs/roadmap.md`                                              | Mark 9.7.1 done                                      |
 
-## Artifacts and notes
+## Artefacts and notes
 
 Reference pattern for BDD world: `tests/fixtures/codec_stateful.rs` — defines
 `CodecStatefulWorld` with a `SeqFrameCodec`, server management, and frame

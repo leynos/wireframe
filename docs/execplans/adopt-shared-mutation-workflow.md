@@ -312,7 +312,7 @@ Every step is a plain file edit; re-running validation is read-only.
 Rollback at any point is `git revert` of the single commit, restoring
 the bespoke workflow verbatim.
 
-## Artifacts and notes
+## Artefacts and notes
 
 The caller (Stage B target state):
 

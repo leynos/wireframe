@@ -180,7 +180,7 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, TestRe
     Box::pin(async { Ok(()) })
 }
 
-/// Parameterised checks for error logs when DLQ interactions fail.
+/// Parameterized checks for error logs when DLQ interactions fail.
 #[rstest]
 #[case::dlq_full(
     DlqCase {

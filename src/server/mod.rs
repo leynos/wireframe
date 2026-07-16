@@ -227,7 +227,7 @@ pub struct WireframeServer<
     /// Maximum duration allowed for reading a preamble before timing out.
     ///
     /// `None` disables the timeout. A zero or sub-millisecond timeout is
-    /// normalised to 1 ms when configured.
+    /// normalized to 1 ms when configured.
     pub(crate) preamble_timeout: Option<Duration>,
     /// Typestate tracking whether the server has been bound to a listener.
     /// [`Unbound`] servers require binding before they can run.
@@ -267,7 +267,7 @@ pub mod error;
 pub use error::ServerError;
 mod runtime;
 
-/// Re-exported configuration types for server backoff behavior.
+/// Re-exported configuration types for server backoff behaviour.
 pub use runtime::BackoffConfig;
 
 #[cfg(test)]

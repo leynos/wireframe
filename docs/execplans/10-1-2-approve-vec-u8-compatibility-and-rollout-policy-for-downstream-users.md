@@ -31,7 +31,7 @@ status field set to `Accepted` with three previously open questions resolved:
 
 The accepted policy must give later roadmap items (`12.1.2`, `12.2.2`, `13.1.1`,
 `13.1.2`, `14.1.1`, `14.1.2`, `14.1.3`, and `14.2.1`) an unambiguous contract
-to implement against. No runtime Rust code changes are authorised by this plan.
+to implement against. No runtime Rust code changes are authorized by this plan.
 
 ## Constraints
 
@@ -339,7 +339,7 @@ Record further unexpected findings with evidence and impact as work proceeds.
 
 - Decision: recommend Option C from ADR 009 ("staged breaking release with
   finite compatibility helpers") as the accepted direction. Rationale: Option A
-  (hard break) maximises upgrade pain on a project that has not yet cut 1.0,
+  (hard break) maximizes upgrade pain on a project that has not yet cut 1.0,
   Option B (permanent dual support) keeps the bottleneck ADR 008 set out to
   remove, and Option C is already the proposed direction in ADR 009.
   Date/Author: 2026-06-04 / Codex.
@@ -997,7 +997,7 @@ The branch rename is one-way once the pull request exists. Use GitHub's rename
 flow so the pull request follows the rename; do not rename locally and
 force-push.
 
-## Artifacts and notes
+## Artefacts and notes
 
 External prior-art used while drafting this plan. Each entry is a bounded
 citation, not a model to copy in full.
@@ -1119,4 +1119,4 @@ Dependencies summary:
 Initial draft created on 2026-06-04. It turns the user request and roadmap item
 `10.1.2` into a reviewable, approval-gated ExecPlan. The plan resolves nothing
 in ADR 009 until the user explicitly approves the proposed answers in
-`Decision log`. No runtime implementation is authorised by this draft.
+`Decision log`. No runtime implementation is authorized by this draft.

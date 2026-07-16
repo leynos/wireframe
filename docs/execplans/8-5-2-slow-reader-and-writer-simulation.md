@@ -89,7 +89,7 @@ observable when:
 ## Surprises & discoveries
 
 - Observation: `drive_internal` currently writes all input first and reads
-  output afterward, which does not provide explicit, configurable pacing for
+  output afterwards, which does not provide explicit, configurable pacing for
   either direction. Evidence: `wireframe_testing/src/helpers/drive.rs`. Impact:
   a dedicated slow-I/O helper is required instead of extending tests only.
 
@@ -358,7 +358,7 @@ Scenario: Slow reader pacing applies outbound back-pressure ... ok
 - If a stage breaches tolerances, stop and update `Decision Log` before
   proceeding.
 
-## Artifacts and notes
+## Artefacts and notes
 
 - Keep command logs under `/tmp/8-5-2-*.log` while implementing.
 - Capture final pass/fail summaries in this plan's `Outcomes & Retrospective`.

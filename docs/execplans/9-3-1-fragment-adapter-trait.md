@@ -646,7 +646,7 @@ The existing `ConnectionActor::run(&mut self, out: &mut Vec<F>)` interface is
 preserved for standalone use. The codec-aware driver wraps it without modifying
 the public API.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Validation evidence logs:
 

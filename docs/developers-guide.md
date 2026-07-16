@@ -427,3 +427,30 @@ a fresh handle without explicitly calling the constructor.
 `LoggerHandle::new()` tolerates a poisoned mutex: if a prior test panicked
 while holding the logger lock, `new()` recovers the guard via `into_inner()`
 and drains any buffered log records, so the next test starts from a clean state.
+
+## Spelling policy
+
+The `make spelling` gate enforces en-GB-oxendict spelling across tracked text.
+It runs Typos 1.48.0 and a phrase checker that rejects the hyphenated form in
+favour of `handwritten`. `make markdownlint` depends on the same spelling gate.
+
+The tracked `typos.toml` is generated from the shared Oxford dictionary and the
+repository-specific `typos.local.toml` overlay. The generator is the focused
+`typos-config-builder` command pinned to commit
+`b604f198797fdd36a567dd0f8f07b13f9539b241`. It refreshes the untracked
+`.typos-oxendict-base.toml` cache only when the authority is newer than the
+local copy; `.typos-oxendict-base.json` records refresh metadata.
+
+Use `make spelling-config-write` after changing `typos.local.toml`, and use
+`make spelling-config` to check deterministic output. Never edit `typos.toml`
+directly. Keep repository exceptions narrow: preserve public APIs, external
+tooling keys, formal names, and immutable diagnostics without adding ordinary
+bare-word exceptions.
+
+The standalone phrase helper and its tests require Python 3.13 or later and pin
+Pathspec 1.1.1 and Hypothesis 6.156.6; Ruff targets Python 3.13 compatibility.
+The property suite protects phrase boundaries and source locations across
+generated neighbouring characters. Eligible tracked files must remain readable
+UTF-8 text so the gate cannot silently omit them. Continuous integration
+installs Nixie 1.1.0 with Python 3.14 and Merman CLI 0.7.0 before validating the
+repository's Mermaid diagrams with `make nixie`.

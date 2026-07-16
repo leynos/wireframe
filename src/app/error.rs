@@ -10,7 +10,7 @@ use crate::codec::CodecError;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum SendError {
-    /// Serialisation failed.
+    /// Serialization failed.
     #[error("serialisation error: {0}")]
     Serialize(#[source] Box<dyn std::error::Error + Send + Sync>),
     /// Writing to the stream failed.

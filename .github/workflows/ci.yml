@@ -16,9 +16,8 @@ jobs:
       BUILD_PROFILE: debug
       WHITAKER_INSTALLER_VERSION: '0.2.1'
     steps:
-      # Full history so the deferred CodeScene `cs-coverage check` gate
-      # (which diffs a pull request against its merge base) can be added
-      # without a further checkout change.
+      # Full history is required for the CodeScene `cs-coverage check` gate,
+      # which diffs a pull request against its merge base.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -48,6 +47,16 @@ jobs:
         with:
           python-version: '3.13'
           enable-cache: true
+      - name: Install Rust for Merman
+        run: rustup toolchain install 1.95.0 --profile minimal --no-self-update
+      - name: Install Merman CLI
+        run: cargo +1.95.0 install merman-cli --version "=0.7.0" --locked
+      - name: Install Nixie
+        run: uv tool install --python 3.14 "nixie-cli==1.1.0"
+      - name: Lint Markdown and enforce en-GB-oxendict spelling
+        run: make markdownlint
+      - name: Validate Mermaid diagrams
+        run: make nixie
       - name: Workflow contract tests
         run: make test-workflow-contracts
       # Coverage runs on pull requests only and drives the ratchet gate.

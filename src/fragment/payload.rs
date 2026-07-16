@@ -3,7 +3,7 @@
 //! Fragments are embedded into an existing frame payload by prefixing a
 //! short magic marker, the encoded [`FragmentHeader`], and finally the raw
 //! fragment bytes. This keeps fragmentation transport-agnostic while letting
-//! higher layers detect and strip fragment metadata before deserialising the
+//! higher layers detect and strip fragment metadata before deserializing the
 //! logical message.
 
 use std::num::NonZeroUsize;

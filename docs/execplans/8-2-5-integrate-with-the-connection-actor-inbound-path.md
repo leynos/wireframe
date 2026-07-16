@@ -339,7 +339,7 @@ All plan steps are additive and can be re-run safely. If a stage fails:
 Avoid destructive Git operations. If rollback is needed, revert only the
 specific files introduced by this feature branch.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Expected deliverables:
 

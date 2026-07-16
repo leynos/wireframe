@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The roadmap for Wireframe 1.0 prioritises improving ergonomics around
+The roadmap for Wireframe 1.0 prioritizes improving ergonomics around
 multi-packet streaming responses so handlers can deliver zero, one, or many
 frames per logical request without bespoke plumbing.[^roadmap-phase6] Existing
 infrastructure already supports correlated frames, end-of-stream markers, and

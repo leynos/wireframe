@@ -231,9 +231,9 @@ All steps are idempotent. Re-running inventory and doctest commands is safe. If
 a doctest fix introduces regressions, revert only the affected file and re-run
 the stage-specific command before continuing.
 
-## Artifacts and notes
+## Artefacts and notes
 
-Implementation artifacts retained:
+Implementation artefacts retained:
 
 - Inventory and failure clustering logs:
   `/tmp/doc-pre.log`, `/tmp/doc-pass4.log`.

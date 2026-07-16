@@ -368,7 +368,7 @@ If dependency upgrade causes widespread unrelated breakage, pin the updated
 version in branch commits, fix compatibility incrementally, and only then
 resume feature-specific edits.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Validation evidence logs:
 

@@ -508,7 +508,7 @@ All stages are additive. If any stage fails partway, `git stash` or
 `git checkout .` reverts to the last known-good state. Re-run from the
 beginning of the failed stage. No destructive operations are involved.
 
-## Artifacts and notes
+## Artefacts and notes
 
 **Files to create (new):**
 

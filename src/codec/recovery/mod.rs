@@ -1,6 +1,6 @@
 //! Recovery policy types and hooks for codec error handling.
 //!
-//! This module provides infrastructure for customising how codec errors are
+//! This module provides infrastructure for customizing how codec errors are
 //! handled, including recovery policies, error context for structured logging,
 //! and hooks for application-specific error handling.
 //!
@@ -17,7 +17,7 @@
 //!
 //! # Custom Recovery Hooks
 //!
-//! Applications can customise error handling by implementing
+//! Applications can customize error handling by implementing
 //! [`RecoveryPolicyHook`]:
 //!
 //! ```

@@ -7,7 +7,7 @@ use rstest::rstest;
 use super::{CodecError, EofError, FramingError, ProtocolError};
 use crate::codec::RecoveryPolicy;
 
-/// Parameterised test for recovery policy defaults and disconnect behaviour.
+/// Parameterized test for recovery policy defaults and disconnect behaviour.
 ///
 /// Each case specifies:
 /// - `error`: the `CodecError` variant to test
@@ -87,7 +87,7 @@ fn mid_header_eof_is_not_clean() {
     assert!(!err.is_clean_close());
 }
 
-/// Parameterised test for `CodecError` to `io::Error` conversion.
+/// Parameterized test for `CodecError` to `io::Error` conversion.
 ///
 /// Each case specifies:
 /// - `error`: the `CodecError` variant to convert
@@ -146,7 +146,7 @@ fn io_error_from_eof_variants_preserves_eof_error(#[case] variant: EofError) {
     assert_eq!(*eof, variant);
 }
 
-/// Parameterised test for `error_type()` category strings.
+/// Parameterized test for `error_type()` category strings.
 ///
 /// Each case specifies:
 /// - `error`: the `CodecError` variant to test
