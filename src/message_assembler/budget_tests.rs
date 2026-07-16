@@ -52,6 +52,20 @@ fn submit_first(
     state.accept_first_frame(input)
 }
 
+/// Submit a first frame that declares a `total` body length up front,
+/// exercising the early size-limit validation on the first frame.
+fn submit_first_with_total(
+    state: &mut MessageAssemblyState,
+    key: u64,
+    body: &[u8],
+    total: usize,
+) -> Result<Option<crate::message_assembler::AssembledMessage>, MessageAssemblyError> {
+    let header =
+        crate::message_assembler::test_helpers::first_header_with_total(key, body.len(), total);
+    let input = FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], body).unwrap();
+    state.accept_first_frame(input)
+}
+
 /// Submit a first frame at a specific timestamp.
 fn submit_first_at(
     state: &mut MessageAssemblyState,

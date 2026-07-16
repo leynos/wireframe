@@ -12,6 +12,7 @@ use super::{
     nz,
     submit_first,
     submit_first_at,
+    submit_first_with_total,
     unbounded_state,
 };
 use crate::message_assembler::{
@@ -302,4 +303,64 @@ fn single_frame_message_not_subject_to_aggregate_budgets(
 
     // Buffered bytes unchanged (single-frame was never buffered)
     assert_eq!(state.total_buffered_bytes(), 19);
+}
+
+// =============================================================================
+// Boundary-equality cases (`>` must not become `>=`)
+// =============================================================================
+
+/// A first frame whose body exactly fills the connection budget must be
+/// accepted; the guard is `new_total > limit`, so a `>=` mutant would wrongly
+/// reject the exact-fit case.
+#[rstest]
+fn connection_budget_accepts_exact_fit(
+    #[from(connection_budgeted_state)] mut state: MessageAssemblyState,
+) {
+    submit_first(&mut state, 1, &[0u8; 20], false).expect("exact-fit frame accepted");
+    assert_eq!(state.buffered_count(), 1);
+    assert_eq!(state.total_buffered_bytes(), 20);
+}
+
+/// A message that reassembles to exactly the per-message size limit must
+/// complete; the size guard is `new_len > max`, so a `>=` mutant would reject
+/// the exact-limit assembly.
+#[test]
+fn size_limit_accepts_exact_total() {
+    let mut state = MessageAssemblyState::new(nz(10), Duration::from_secs(30));
+    submit_first(&mut state, 1, &[0u8; 5], false).expect("first frame within limit");
+
+    let cont = continuation_header(1, 1, 5, true);
+    let msg = state
+        .accept_continuation_frame(&cont, &[0u8; 5])
+        .expect("continuation accepted")
+        .expect("message completes at exact limit");
+    assert_eq!(msg.body().len(), 10);
+}
+
+/// A first frame declaring a total body length equal to the per-message limit
+/// must pass early validation; `accept_first_frame`'s guard is
+/// `total_message_size > max`, so a `>=` mutant would reject the exact case.
+#[test]
+fn declared_total_at_size_limit_is_accepted() {
+    let mut state = MessageAssemblyState::new(nz(10), Duration::from_secs(30));
+    submit_first_with_total(&mut state, 1, &[], 10).expect("declared exact total accepted");
+}
+
+// =============================================================================
+// Wall-clock purge (no-argument variant)
+// =============================================================================
+
+/// The no-argument `purge_expired()` reads the wall clock; with a zero timeout
+/// a buffered assembly is immediately expired, so it must return the evicted
+/// key and empty the state (guards the `-> vec![]` mutant).
+#[test]
+fn wall_clock_purge_evicts_expired_assembly() {
+    let mut state = MessageAssemblyState::new(nz(1024), Duration::ZERO);
+    submit_first(&mut state, 7, &[0u8; 5], false).expect("buffered first frame");
+    assert_eq!(state.buffered_count(), 1);
+
+    let evicted = state.purge_expired();
+    assert_eq!(evicted, vec![MessageKey(7)]);
+    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(state.total_buffered_bytes(), 0);
 }
