@@ -93,6 +93,11 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// registry.insert(id, &handle);
     /// assert!(registry.get(&id).is_some());
     /// ```
+    // Equivalent mutant (`strong_count() == 0` → `!=`): assessed in #566. The
+    // opportunistic removal only runs once the handle has already failed to
+    // upgrade, so `get` returns `None` regardless; the sole difference is a
+    // lingering dead entry that later pruning reclaims.
+    #[cfg_attr(test, mutants::skip)]
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
         let guard = self.0.get(id);
         let handle = guard.as_ref().and_then(|weak| weak.upgrade());

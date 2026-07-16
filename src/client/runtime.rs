@@ -102,6 +102,9 @@ impl WireframeClient<BincodeSerializer, TcpStream, ()> {
     /// # Ok(())
     /// # }
     /// ```
+    // Equivalent mutant: `WireframeClientBuilder::new()` is literally what its
+    // `Default` impl returns, so `builder`→`Default::default()` is a no-op.
+    #[cfg_attr(test, mutants::skip)]
     #[must_use]
     pub fn builder() -> WireframeClientBuilder<BincodeSerializer, (), ()> {
         WireframeClientBuilder::new()

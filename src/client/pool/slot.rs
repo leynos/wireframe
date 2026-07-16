@@ -47,6 +47,9 @@ where
         }
     }
 
+    // Equivalent mutant: the synchronous fast path; forcing `None` merely
+    // defers to the async `acquire_permit`, which yields an identical lease.
+    #[cfg_attr(test, mutants::skip)]
     pub(crate) fn try_acquire_permit(self: &Arc<Self>) -> Option<OwnedSemaphorePermit> {
         self.permits.clone().try_acquire_owned().ok()
     }
@@ -95,6 +98,9 @@ where
             .is_some_and(|returned_at| returned_at.elapsed() >= self.idle_timeout)
     }
 
+    // Equivalent mutant: the cleared value is overwritten by SlotConnection's
+    // drop before any subsequent read, so an empty body is indistinguishable.
+    #[cfg_attr(test, mutants::skip)]
     fn clear_last_returned_at(&self) { *self.lock_last_returned_at() = None; }
 
     fn lock_last_returned_at(&self) -> MutexGuard<'_, Option<Instant>> {

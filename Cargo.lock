@@ -1622,6 +1622,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mutants"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "add0ac067452ff1aca8c5002111bd6b1c895baee6e45fcbc44e0193aea17be56"
+
+[[package]]
 name = "newt-hype"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3641,6 +3647,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "metrics-util",
  "mockall",
+ "mutants",
  "pretty_assertions",
  "proptest",
  "rstest",
