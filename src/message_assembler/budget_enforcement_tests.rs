@@ -12,14 +12,15 @@ use super::{
     nz,
     submit_first,
     submit_first_at,
-    submit_first_with_total,
     unbounded_state,
 };
 use crate::message_assembler::{
+    EnvelopeRouting,
+    FirstFrameInput,
     MessageAssemblyError,
     MessageAssemblyState,
     MessageKey,
-    test_helpers::continuation_header,
+    test_helpers::{continuation_header, first_header_with_total},
 };
 
 // =============================================================================
@@ -343,7 +344,12 @@ fn size_limit_accepts_exact_total() {
 #[test]
 fn declared_total_at_size_limit_is_accepted() {
     let mut state = MessageAssemblyState::new(nz(10), Duration::from_secs(30));
-    submit_first_with_total(&mut state, 1, &[], 10).expect("declared exact total accepted");
+    let header = first_header_with_total(1, 0, 10);
+    let input = FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], &[])
+        .expect("valid first-frame input");
+    state
+        .accept_first_frame(input)
+        .expect("declared exact total accepted");
 }
 
 // =============================================================================
