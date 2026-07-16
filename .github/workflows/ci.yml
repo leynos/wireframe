@@ -16,9 +16,8 @@ jobs:
       BUILD_PROFILE: debug
       WHITAKER_INSTALLER_VERSION: '0.2.1'
     steps:
-      # Full history so the deferred CodeScene `cs-coverage check` gate
-      # (which diffs a pull request against its merge base) can be added
-      # without a further checkout change.
+      # Full history is required for the CodeScene `cs-coverage check` gate,
+      # which diffs a pull request against its merge base.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
