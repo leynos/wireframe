@@ -6,10 +6,8 @@ name: Coverage (main)
 # readable by every pull-request run, so the baseline written here is the
 # one PR ratchet checks compare against.
 #
-# The pull-request `cs-coverage check` gate is deferred (see ci.yml):
-# CodeScene project 68308 currently has no gate configuration. The first
-# `mode: upload` from this workflow may provision it; once the gate is
-# live the PR `mode: check` step can be added in a fast-follow.
+# The pull-request `cs-coverage check` gate is wired in ci.yml
+# (CodeScene project 68308's coverage gate is enabled).
 
 on:
   push:
