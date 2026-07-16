@@ -101,7 +101,10 @@ async fn response_stream_terminates_on_terminator(
 
     // Mid-stream, before the terminator is polled, the stream must report
     // that it has not terminated (guards the `is_terminated` false polarity).
-    assert!(!stream.is_terminated(), "stream should not be terminated mid-stream");
+    assert!(
+        !stream.is_terminated(),
+        "stream should not be terminated mid-stream"
+    );
 
     // Second poll returns None (terminator consumed).
     let second = stream.next().await;

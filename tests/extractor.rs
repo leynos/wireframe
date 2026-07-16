@@ -99,6 +99,12 @@ fn take_body_stream_returns_stream_once() {
     let (_tx, stream) = wireframe::request::body_channel(4);
     req.set_body_stream(stream);
 
-    assert!(req.take_body_stream().is_some(), "first take should yield the stream");
-    assert!(req.take_body_stream().is_none(), "second take should be empty");
+    assert!(
+        req.take_body_stream().is_some(),
+        "first take should yield the stream"
+    );
+    assert!(
+        req.take_body_stream().is_none(),
+        "second take should be empty"
+    );
 }

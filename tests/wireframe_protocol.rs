@@ -238,11 +238,17 @@ fn protocol_accessor_reflects_installation() -> TestResult<()> {
     // A bare builder installs no protocol; the accessor must report `None`
     // rather than a constant, and `Some` once one is installed.
     let bare = TestApp::new()?;
-    assert!(bare.protocol().is_none(), "bare builder should have no protocol");
+    assert!(
+        bare.protocol().is_none(),
+        "bare builder should have no protocol"
+    );
 
     let counter = Arc::new(AtomicUsize::new(0));
     let app = TestApp::new()?.with_protocol(TestProtocol { counter });
-    assert!(app.protocol().is_some(), "installed protocol should be visible");
+    assert!(
+        app.protocol().is_some(),
+        "installed protocol should be visible"
+    );
     Ok(())
 }
 
