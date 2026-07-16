@@ -99,6 +99,10 @@ async fn response_stream_terminates_on_terminator(
     assert!(first.is_some(), "should yield one data frame");
     assert!(first.expect("some").is_ok(), "data frame should be Ok");
 
+    // Mid-stream, before the terminator is polled, the stream must report
+    // that it has not terminated (guards the `is_terminated` false polarity).
+    assert!(!stream.is_terminated(), "stream should not be terminated mid-stream");
+
     // Second poll returns None (terminator consumed).
     let second = stream.next().await;
     assert!(second.is_none(), "stream should terminate after terminator");
