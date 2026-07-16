@@ -12,6 +12,7 @@ MARKDOWNLINT_CLI2_VERSION ?= 0.22.1
 MDLINT ?= npx --yes markdownlint-cli2@$(MARKDOWNLINT_CLI2_VERSION)
 WHITAKER ?= whitaker
 NIXIE_VERSION ?= 1.1.0
+HYPOTHESIS_VERSION ?= 6.156.6
 PATHSPEC_VERSION ?= 1.1.1
 RUFF_VERSION ?= 0.15.12
 TYPOS_VERSION ?= 1.48.0
@@ -32,7 +33,7 @@ SPELLING_COVERAGE_FILE ?= /tmp/wireframe-spelling-helper.coverage
 SPELLING_HELPER_PYTEST = PYTHONPATH=scripts $(PYTHON_NO_BYTECODE_ENV) \
 	COVERAGE_FILE=$(SPELLING_COVERAGE_FILE) $(UV_ENV) $(UV) run --no-project \
 	--python 3.14 --with pathspec==$(PATHSPEC_VERSION) --with pytest==9.0.2 \
-	--with pytest-cov==7.0.0 python -m pytest
+	--with hypothesis==$(HYPOTHESIS_VERSION) --with pytest-cov==7.0.0 python -m pytest
 PROVER_TOOLS_REF_FILE ?= tools/rust-prover-tools/REF
 PROVER_TOOLS_REF ?= $(shell awk '/^ref:/ { print $$2 }' $(PROVER_TOOLS_REF_FILE))
 PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools.git@$(PROVER_TOOLS_REF)

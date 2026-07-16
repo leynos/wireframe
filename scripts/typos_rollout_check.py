@@ -223,8 +223,12 @@ def check_phrase_corrections(
 
     Raises
     ------
+    OSError
+        An eligible tracked file cannot be read.
     subprocess.CalledProcessError
         Git cannot enumerate the repository's tracked files.
+    UnicodeDecodeError
+        An eligible tracked file is not valid UTF-8 text.
     """
     found: list[PhraseFinding] = []
     exclusion_spec = _exclusion_spec(policy)
@@ -234,10 +238,7 @@ def check_phrase_corrections(
         candidate = repository / relative
         if candidate.is_symlink():
             continue
-        try:
-            text = candidate.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+        text = candidate.read_text(encoding="utf-8")
         masked = _masked(text, policy.ignore_patterns)
         found.extend(
             _phrase_findings(relative, text, masked, policy.phrase_corrections)
@@ -269,6 +270,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         Git cannot enumerate the repository's tracked files.
     tomllib.TOMLDecodeError
         A policy file contains invalid TOML.
+    UnicodeDecodeError
+        An eligible tracked file is not valid UTF-8 text.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", type=Path, default=Path.cwd())
