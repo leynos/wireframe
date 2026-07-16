@@ -175,6 +175,40 @@ fn wireframe_error_from_codec_method() {
 }
 
 #[test]
+fn wireframe_error_io_is_not_clean_close() {
+    use wireframe::WireframeError;
+
+    // The Io wrapper never represents a clean close, so `is_clean_close`
+    // forced to a constant `true` must fail here.
+    let wf_err: WireframeError<()> = WireframeError::from_io(io::Error::other("reset"));
+
+    assert!(!wf_err.is_clean_close());
+}
+
+#[test]
+fn wireframe_error_from_mid_frame_codec_is_not_clean_close() {
+    use wireframe::WireframeError;
+
+    // A non-EOF codec error wrapped at the `WireframeError` level must
+    // still report `false`, guarding the wrapper's own polarity.
+    let codec_err = CodecError::Framing(FramingError::InvalidLengthEncoding);
+    let wf_err: WireframeError<()> = WireframeError::from_codec(codec_err);
+
+    assert!(!wf_err.is_clean_close());
+}
+
+#[test]
+fn wireframe_error_protocol_is_not_clean_close() {
+    use wireframe::WireframeError;
+
+    // The Protocol variant carries no codec error, so the `matches!`
+    // guard must reject it.
+    let wf_err: WireframeError<&str> = WireframeError::from("boom");
+
+    assert!(!wf_err.is_clean_close());
+}
+
+#[test]
 fn wireframe_error_codec_variant_displays_correctly() {
     use wireframe::WireframeError;
 
