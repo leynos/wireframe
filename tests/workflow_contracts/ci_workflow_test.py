@@ -16,6 +16,7 @@ WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / 
 def _load_steps() -> list[dict[str, object]]:
     """Parse and return the CI build-test steps."""
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict), "the CI workflow must be a mapping"
     jobs = workflow.get("jobs")
     assert isinstance(jobs, dict), "the CI workflow must declare jobs"
     build_test = jobs.get("build-test")
@@ -53,7 +54,7 @@ def test_spelling_toolchain_steps_are_consecutive() -> None:
         "Install Rust for Merman",
         "Install Merman CLI",
         "Install Nixie",
-        "Enforce en-GB-oxendict spelling",
+        "Lint Markdown and enforce en-GB-oxendict spelling",
         "Validate Mermaid diagrams",
         "Workflow contract tests",
     )
@@ -61,9 +62,11 @@ def test_spelling_toolchain_steps_are_consecutive() -> None:
     assert indices == list(range(indices[0], indices[0] + len(indices))), (
         "the spelling toolchain steps must remain consecutive and ordered"
     )
-    spelling = _find_step(steps, "Enforce en-GB-oxendict spelling")
+    markdown = _find_step(steps, "Lint Markdown and enforce en-GB-oxendict spelling")
     validation = _find_step(steps, "Validate Mermaid diagrams")
-    assert spelling.get("run") == "make spelling", "CI must run the spelling gate"
+    assert markdown.get("run") == "make markdownlint", (
+        "CI must lint Markdown and run the spelling gate"
+    )
     assert validation.get("run") == "make nixie", "CI must validate Mermaid diagrams"
 def test_codescene_check_immediately_follows_coverage_generation() -> None:
     """The changed-line gate consumes the LCOV report produced just before it."""

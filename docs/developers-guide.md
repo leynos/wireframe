@@ -437,14 +437,14 @@ favour of `handwritten`. `make markdownlint` depends on the same spelling gate.
 The tracked `typos.toml` is generated from the shared Oxford dictionary and the
 repository-specific `typos.local.toml` overlay. The generator is the focused
 `typos-config-builder` command pinned to commit
-`d6da92f02240a79a945c835f69bdd08a888da1d0`. It refreshes the untracked
+`b604f198797fdd36a567dd0f8f07b13f9539b241`. It refreshes the untracked
 `.typos-oxendict-base.toml` cache only when the authority is newer than the
 local copy; `.typos-oxendict-base.json` records refresh metadata.
 
 Use `make spelling-config-write` after changing `typos.local.toml`, and use
 `make spelling-config` to check deterministic output. Never edit `typos.toml`
 directly. Keep repository exceptions narrow: preserve public APIs, external
-tooling keys, formal names and immutable diagnostics without adding ordinary
+tooling keys, formal names, and immutable diagnostics without adding ordinary
 bare-word exceptions.
 
 The standalone phrase helper and its tests require Python 3.13 or later and pin

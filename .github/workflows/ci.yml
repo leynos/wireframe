@@ -53,8 +53,8 @@ jobs:
         run: cargo +1.95.0 install merman-cli --version "=0.7.0" --locked
       - name: Install Nixie
         run: uv tool install --python 3.14 "nixie-cli==1.1.0"
-      - name: Enforce en-GB-oxendict spelling
-        run: make spelling
+      - name: Lint Markdown and enforce en-GB-oxendict spelling
+        run: make markdownlint
       - name: Validate Mermaid diagrams
         run: make nixie
       - name: Workflow contract tests

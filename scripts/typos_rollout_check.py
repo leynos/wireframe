@@ -6,8 +6,8 @@
 """Enforce exact phrase corrections alongside the Typos scanner.
 
 The checker loads shared and repository-local phrase policy, then scans eligible
-tracked UTF-8 text. It complements the Markdown-only Typos pass by catching
-prohibited forms in human-facing source comments and tests.
+tracked UTF-8 text. It complements Typos by enforcing exact phrase corrections
+in human-facing source comments and tests.
 
 Run it from the repository root with
 ``uv run scripts/typos_rollout_check.py --repository .``.
