@@ -34,7 +34,37 @@ def _find_step(steps: list[dict[str, object]], name: str) -> dict[str, object]:
     assert len(matches) == 1, f"expected one {name!r} step, found {len(matches)}"
     return matches[0]
 
+def test_spelling_tool_installations_are_pinned() -> None:
+    """The spelling gate installs the reviewed Merman and Nixie releases."""
+    steps = _load_steps()
+    merman = _find_step(steps, "Install Merman CLI")
+    nixie = _find_step(steps, "Install Nixie")
+    assert merman.get("run") == (
+        'cargo +1.95.0 install merman-cli --version "=0.7.0" --locked'
+    ), "Merman CLI must remain pinned to the reviewed release"
+    assert nixie.get("run") == 'uv tool install --python 3.14 "nixie-cli==1.1.0"', (
+        "Nixie must remain pinned to the reviewed release and Python runtime"
+    )
 
+def test_spelling_toolchain_steps_are_consecutive() -> None:
+    """Installation, spelling and Mermaid validation retain their CI order."""
+    steps = _load_steps()
+    step_names = (
+        "Install Rust for Merman",
+        "Install Merman CLI",
+        "Install Nixie",
+        "Enforce en-GB-oxendict spelling",
+        "Validate Mermaid diagrams",
+        "Workflow contract tests",
+    )
+    indices = [steps.index(_find_step(steps, name)) for name in step_names]
+    assert indices == list(range(indices[0], indices[0] + len(indices))), (
+        "the spelling toolchain steps must remain consecutive and ordered"
+    )
+    spelling = _find_step(steps, "Enforce en-GB-oxendict spelling")
+    validation = _find_step(steps, "Validate Mermaid diagrams")
+    assert spelling.get("run") == "make spelling", "CI must run the spelling gate"
+    assert validation.get("run") == "make nixie", "CI must validate Mermaid diagrams"
 def test_codescene_check_immediately_follows_coverage_generation() -> None:
     """The changed-line gate consumes the LCOV report produced just before it."""
     steps = _load_steps()

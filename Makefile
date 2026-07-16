@@ -94,7 +94,7 @@ markdownlint: spelling ## Lint Markdown and enforce en-GB-oxendict spelling
 
 spelling: spelling-phrase-check ## Enforce en-GB-oxendict spelling
 	@git ls-files -z | xargs -0 -r env $(UV_ENV) \
-		$(UV) tool run typos@$(TYPOS_VERSION) --config typos.toml --force-exclude --hidden
+		$(UV) tool run typos@$(TYPOS_VERSION) --config typos.toml --force-exclude --hidden --
 
 spelling-phrase-check: spelling-config
 	@PYTHONPATH=scripts $(PYTHON_NO_BYTECODE_ENV) $(UV_ENV) $(UV) run --no-project --python 3.14 \

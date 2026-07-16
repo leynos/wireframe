@@ -447,7 +447,7 @@ directly. Keep repository exceptions narrow: preserve public APIs, external
 tooling keys, formal names and immutable diagnostics without adding ordinary
 bare-word exceptions.
 
-The standalone phrase helper and its tests use Python 3.14 at runtime,
-Pathspec 1.1.1 and a Python 3.13 Ruff compatibility target. Continuous
-integration installs Nixie 1.1.0 and Merman CLI 0.7.0 before validating the
-repository's Mermaid diagrams with `make nixie`.
+The standalone phrase helper and its tests require Python 3.13 or later and pin
+Pathspec 1.1.1; Ruff targets Python 3.13 compatibility. Continuous integration
+installs Nixie 1.1.0 with Python 3.14 and Merman CLI 0.7.0 before validating
+the repository's Mermaid diagrams with `make nixie`.

@@ -226,7 +226,7 @@ def check_phrase_corrections(
     subprocess.CalledProcessError
         Git cannot enumerate the repository's tracked files.
     """
-    found = []
+    found: list[PhraseFinding] = []
     exclusion_spec = _exclusion_spec(policy)
     for relative in _tracked(repository):
         if relative in POLICY_PATHS or _excluded(relative, exclusion_spec):

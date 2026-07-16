@@ -375,7 +375,7 @@ individual file changes and reapply the steps one by one. Behavioural tests can
 be re-run without side effects because they bind to ephemeral TCP ports and
 clean up after each scenario.
 
-## Artefacts and Notes
+## Artefacts and notes
 
 Record key evidence here once available:
 

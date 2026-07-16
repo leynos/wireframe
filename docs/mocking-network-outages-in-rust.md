@@ -12,7 +12,7 @@ tricky without a controlled test environment.
 This tutorial demonstrates how to refactor and test `mxd`’s server components
 to **simulate unreliable network conditions**. The approach introduces a
 transport abstraction to inject failures and uses `tokio-test::io::Builder` for
-custom I/O streams. `rstest` is leveraged for parameterized tests and `mockall`
+custom I/O streams. `rstest` is leveraged for parameterized tests, and `mockall`
 is used for mocking where appropriate. The outcome is a suite of tests that
 ensures `mxd`’s server remains stable even when the network is not.
 
