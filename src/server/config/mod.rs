@@ -2,7 +2,7 @@
 //!
 //! Provides a fluent builder for configuring server instances. Worker counts,
 //! ready-signal channels and optional callbacks are set here. TCP binding lives
-//! in the [`binding`] module; preamble behaviour is customised
+//! in the [`binding`] module; preamble behaviour is customized
 //! via [`preamble`]. Servers start [`Unbound`](super::Unbound)
 //! and must call [`bind`](super::WireframeServer::bind) or
 //! [`bind_existing_listener`](super::WireframeServer::bind_existing_listener)
@@ -140,9 +140,9 @@ where
         ///
         /// The supplied configuration is passed to
         /// [`BackoffConfig::normalized`] (`cfg.normalized()`) before being
-        /// stored. Normalisation clamps `initial_delay` to at least 1 ms and no
+        /// stored. Normalization clamps `initial_delay` to at least 1 ms and no
         /// greater than `max_delay`. If `initial_delay` exceeds `max_delay`,
-        /// the values are swapped. Normalisation applies any other adjustments
+        /// the values are swapped. Normalization applies any other adjustments
         /// `BackoffConfig::normalized` defines so out-of-range values are
         /// corrected rather than preserved.
         ///

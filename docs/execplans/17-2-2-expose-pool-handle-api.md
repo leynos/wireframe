@@ -449,8 +449,8 @@ set -o pipefail && make nixie | tee /tmp/wireframe-17-2-2-nixie.log
 
 Observable completion criteria:
 
-- the new unit tests fail before the scheduler work and pass afterward;
-- the new BDD scenarios fail before the scheduler work and pass afterward;
+- the new unit tests fail before the scheduler work and pass afterwards;
+- the new BDD scenarios fail before the scheduler work and pass afterwards;
 - no existing pooled-client tests regress;
 - doctests for the new public API compile and run; and
 - `docs/roadmap.md` shows `17.2.2` as done.

@@ -94,7 +94,7 @@ pub enum ProtocolError {
     /// Invalid message type identifier.
     #[error("unknown message type: {type_id}")]
     UnknownMessageType {
-        /// Message type identifier that was not recognised.
+        /// Message type identifier that was not recognized.
         type_id: u32,
     },
 
@@ -157,7 +157,7 @@ pub enum EofError {
 /// Top-level codec error taxonomy.
 ///
 /// This enum provides a unified error type for all codec-layer failures,
-/// categorised by their origin and recovery semantics.
+/// categorized by their origin and recovery semantics.
 ///
 /// # Examples
 ///

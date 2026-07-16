@@ -502,7 +502,7 @@ individual file changes and reapply the steps one by one. The new
 `frame_payload_bytes` method has a default implementation, so existing custom
 codecs continue to work without modification.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Record key evidence here once available:
 

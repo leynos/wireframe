@@ -504,7 +504,7 @@ involved.
 If a stage fails mid-way, fix the issue and re-run the stage's validation
 command. No rollback is needed beyond `git checkout` of affected files.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Expected `ResponseStream` type signature (sketch):
 

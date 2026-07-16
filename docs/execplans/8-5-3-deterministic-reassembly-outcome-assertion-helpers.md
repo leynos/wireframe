@@ -81,7 +81,7 @@ passes and the public documentation is updated.
 
 ## Risks
 
-- Risk: over-generalising the API could make the helper names obscure and the
+- Risk: over-generalizing the API could make the helper names obscure and the
   diagnostics worse than the current bespoke assertions. Severity: medium.
   Likelihood: medium. Mitigation: group shared data into typed snapshots, but
   keep fragment and message-assembly expectations distinct rather than forcing
@@ -365,7 +365,7 @@ are stable:
 6. at least one negative assertion test that verifies the returned error string
    is specific enough to debug mismatches quickly.
 
-The tests should fail before Stage B/C and pass afterward.
+The tests should fail before Stage B/C and pass afterwards.
 
 ### Stage E: Add behavioural coverage with `rstest-bdd`
 

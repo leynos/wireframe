@@ -1,0 +1,43 @@
+schema = 1
+
+[oxford]
+stems = []
+
+[words]
+accepted = []
+
+[words.corrections]
+
+[patterns]
+ignore = [
+  "\\ \\ \\ \\ PoolServerBehavior,",
+  "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
+  "\\ \\ \\ \\ \\ \\ \\ Self::start_with_behavior\\(PoolServerBehavior::Ech",
+  "\\ \\ \\ \\ \\ \\ \\ \\ PoolServerBehavior,",
+  "\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ behavior,",
+  "\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ behavior:\\ state\\.behavior,",
+  "\\ \\ \\ \\ \\ \\ \\ \\ behavior:\\ state\\.behavior,",
+  "\\ \\ \\ \\ \\ format!\\(\"failed\\ to\\ deserialise\\ envelope:\\ \\{error\\}\"\\),",
+  "\\ \\ \\ \\ \\#\\[error\\(\"serialisation\\ error:\\ \\{0\\}\"\\)\\]",
+  "\\ \\ \\ \\ behavior:\\ PoolServerBehavior,",
+  "\\ \\ return\\ Err\\(\"state\\ not\\ initialised\"\\.into\\(\\)\\);",
+  "\\ fn\\ start_with_behavior\\(behavior:\\ PoolServerBehavior\\)\\ \\->",
+  "\\ let\\ payload\\ =\\ if\\ state\\.behavior\\ ==\\ PoolServerBehavior::",
+  "\\ reopened,\\ synchronize,\\ labeled,\\ ready_for_review\\]",
+  "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\",\\ sta",
+  "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\"\\)\\]",
+  "\\|\\|\\ \"fragment\\ series\\ not\\ initialised\"\\.into\\(\\)\\)",
+  "ask\\ items\\ with\\ a\\ GitHub\\ Flavored",
+  "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
+  "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",
+  "lTestServer::start_with_behavior\\(PoolServerBehavior::Mal",
+  "pub\\ async\\ fn\\ start_with_behavior\\(behavior:\\ PoolServerBeh",
+  "pub\\ enum\\ PoolServerBehavior\\ \\{",
+  "st\\(start_paused\\ =\\ true,\\ flavor\\ =\\ \"current_thread\"\\)\\]",
+  "tes\\(\\)\\.expect\\(\"failed\\ to\\ serialise\\ message\"\\);",
+  "with_behavior\\(PoolServerBehavior::EchoPong\\)\\.await",
+  "with_behavior\\(PoolServerBehavior::MalformedFirstResponse",
+]
+
+[files]
+exclude = []

@@ -22,7 +22,7 @@ use crate::{
 /// Concrete client type returned by `builder().connect()` in tests.
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>;
 
-/// Spawn a test echo server that deserialises envelopes and echoes them back.
+/// Spawn a test echo server that deserializes envelopes and echoes them back.
 async fn spawn_echo_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await

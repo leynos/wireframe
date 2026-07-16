@@ -1,11 +1,11 @@
-//! Hooks for customising codec error recovery behaviour.
+//! Hooks for customizing codec error recovery behaviour.
 
 use std::time::Duration;
 
 use super::{CodecErrorContext, RecoveryPolicy};
 use crate::codec::error::CodecError;
 
-/// Hook trait for customising codec error recovery behaviour.
+/// Hook trait for customizing codec error recovery behaviour.
 ///
 /// Implementations can override default recovery policies based on
 /// application-specific requirements or connection state.
@@ -71,7 +71,7 @@ pub trait RecoveryPolicyHook: Send + Sync {
 /// Default recovery policy implementation.
 ///
 /// This implementation uses the built-in default policies from
-/// [`CodecError::default_recovery_policy`] without any customisation.
+/// [`CodecError::default_recovery_policy`] without any customization.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultRecoveryPolicy;
 

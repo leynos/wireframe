@@ -277,7 +277,7 @@ where
     ///
     /// Returns a [`WireframeError`] if the response stream yields an I/O error.
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
-        // Spans removed in favour of standardised log facade.
+        // Spans removed in favour of standardized log facade.
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
         // a hard shutdown and is required for the tests.

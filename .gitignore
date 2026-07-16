@@ -8,3 +8,9 @@ target/
 
 # Python bytecode from the workflow contract tests
 __pycache__/
+*.py[cod]
+*$py.class
+.uv-cache/
+.uv-tools/
+.typos-oxendict-base.json
+.typos-oxendict-base.toml

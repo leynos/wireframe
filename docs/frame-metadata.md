@@ -4,7 +4,7 @@
 entire payload. This can be useful for routing decisions when the message type
 is encoded in a header field.
 
-Implement the trait for your serialiser or decoder that knows how to read the
+Implement the trait for your serializer or decoder that knows how to read the
 header bytes. Only the minimal header portion should be read, returning the
 frame envelope and the number of bytes consumed from the input.
 

@@ -147,7 +147,7 @@ broken senders, but it still forwards the terminator frame and calls
 
 Shutdown-driven closure is tracked separately through the `Shutdown` variant.
 The actor logs the closure so observability tools can correlate it with control
-plane events and clears any remaining state without synthesising an
+plane events and clears any remaining state without synthesizing an
 end-of-stream marker.
 
 ## 4. Public API Surface
@@ -157,7 +157,7 @@ The public API is designed for clarity, performance, and ergonomic flexibility.
 ### 4.1 The `Response` Enum
 
 The `Response` enum is the primary return type for all handlers. It is enhanced
-to provide optimised paths for common response patterns.
+to provide optimized paths for common response patterns.
 
 ```rust
 use futures_core::stream::Stream;
@@ -510,17 +510,17 @@ staying true to the architecture already in production use.
   emits the protocol end-of-stream marker and invokes `on_command_end` to
   release per-request state.
 - The actor captures the request's `correlation_id` before iterating the
-  channel and stamps it onto every serialised frame. This preserves protocol
+  channel and stamps it onto every serialized frame. This preserves protocol
   invariants without requiring handlers to mutate frames post-creation and
   mirrors the message attribution strategy outlined in the capability roadmap.
 - **Correlation provenance today.** The current implementation expects
-  correlation to live inside the serialised `Envelope` payload. See the decode
+  correlation to live inside the serialized `Envelope` payload. See the decode
   path in `src/app/inbound_handler.rs` and the payload-carried correlation
   fields in `src/app/envelope.rs`.
 - **Header correlation (if that is not the intent).** The boundary for
   injecting header correlation is the frame-to-`Envelope` step in
   `WireframeApp::decode_envelope` (`src/app/inbound_handler.rs`). That is where
-  the decoded frame and the deserialised `Envelope` are both available, so the
+  the decoded frame and the deserialized `Envelope` are both available, so the
   runtime can merge header correlation into `Envelope::correlation_id` (for
   example, “if payload correlation is `None`, inherit from the header; if both
   exist and differ, log and pick a precedence rule”). On the outbound path,

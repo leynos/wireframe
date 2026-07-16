@@ -1,6 +1,6 @@
 //! Shared low-level assertion primitives for reassembly modules.
 //!
-//! These helpers centralise common equality checks and error formatting
+//! These helpers centralize common equality checks and error formatting
 //! so `message` and `fragment` assertion modules stay thin and consistent.
 
 use crate::integration_helpers::TestResult;

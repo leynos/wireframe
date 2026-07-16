@@ -83,7 +83,7 @@ architectural model match.
   Date/Author: 2026-02-18 / Codex.
 
 - Decision: Define and document at least these layers: transport frame,
-  routing packet/envelope, domain message payload, and fragmentation artifact.
+  routing packet/envelope, domain message payload, and fragmentation artefact.
   Rationale: These are the recurring conceptual boundaries in Wireframe APIs.
   Date/Author: 2026-02-18 / Codex.
 
@@ -204,7 +204,7 @@ The glossary and inventory steps are re-runnable and safe. If a rename proves
 semantically incorrect, revert that rename set only, update glossary mapping,
 and re-run validation.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Implementation should retain:
 

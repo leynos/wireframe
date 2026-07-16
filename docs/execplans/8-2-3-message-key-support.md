@@ -379,7 +379,7 @@ All steps are additive. If a step fails, fix the underlying issue and re-run.
 The new files can be deleted and recreated without affecting existing
 functionality. Use `tee` outputs to locate failures before retrying.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Expected artefacts:
 

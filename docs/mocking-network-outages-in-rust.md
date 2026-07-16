@@ -12,7 +12,7 @@ tricky without a controlled test environment.
 This tutorial demonstrates how to refactor and test `mxd`’s server components
 to **simulate unreliable network conditions**. The approach introduces a
 transport abstraction to inject failures and uses `tokio-test::io::Builder` for
-custom I/O streams. `rstest` is leveraged for parameterised tests and `mockall`
+custom I/O streams. `rstest` is leveraged for parameterized tests and `mockall`
 is used for mocking where appropriate. The outcome is a suite of tests that
 ensures `mxd`’s server remains stable even when the network is not.
 
@@ -498,7 +498,7 @@ deterministic test suite for network failures.
 
 The preceding examples reveal a common pattern of setup and assertion across
 scenarios. Leveraging the `rstest` crate avoids repetitive code by
-parameterising the scenarios. The `#[rstest]` attribute defines multiple cases
+parameterizing the scenarios. The `#[rstest]` attribute defines multiple cases
 for a single test function.
 
 For instance, we might create a single test function
@@ -559,7 +559,7 @@ async fn test_network_outage_scenarios(scenario: Scenario) {
 In the snippet above, each `case(...)` macro provides a different `Scenario`
 variant. The test builds the appropriate `test_reader`/`test_writer` and then
 invokes `client_handler`. A `should_error` flag asserts the expected outcome.
-This single parametrised test replaces multiple individual tests, reducing
+This single parametrized test replaces multiple individual tests, reducing
 duplication. All scenarios still run in isolation with distinct setups, thanks
 to `rstest`.
 

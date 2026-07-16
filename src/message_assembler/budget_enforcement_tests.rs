@@ -22,7 +22,7 @@ use crate::message_assembler::{
 };
 
 // =============================================================================
-// Helpers for parameterised budget-dimension tests
+// Helpers for parameterized budget-dimension tests
 // =============================================================================
 
 /// Build a `MessageAssemblyState` with only the named budget dimension
@@ -82,7 +82,7 @@ fn assert_budget_exceeded_any(err: &MessageAssemblyError, dimension: &str) {
 }
 
 // =============================================================================
-// Parameterised budget enforcement (connection + in-flight)
+// Parameterized budget enforcement (connection + in-flight)
 // =============================================================================
 
 #[rstest]

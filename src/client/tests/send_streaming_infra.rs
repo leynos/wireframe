@@ -36,7 +36,7 @@ pub(super) fn protocol_header() -> Vec<u8> {
 ///
 /// Frames are returned by awaiting the server task via
 /// [`collect_frames`](Self::collect_frames), which provides deterministic
-/// synchronisation without fixed sleeps.
+/// synchronization without fixed sleeps.
 pub(super) struct ReceivingServer {
     pub addr: SocketAddr,
     handle: Option<JoinHandle<Vec<Vec<u8>>>>,
@@ -106,7 +106,7 @@ pub(super) async fn spawn_receiving_server()
 /// write side, triggering a deterministic transport error on the client.
 ///
 /// Returns the server together with a `Notify` that is signalled once the
-/// write-side shutdown has completed, so callers can synchronise
+/// write-side shutdown has completed, so callers can synchronize
 /// deterministically instead of sleeping.
 ///
 /// # Errors

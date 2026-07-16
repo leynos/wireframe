@@ -4,7 +4,7 @@
 //! are stored in `Arc<dyn Any + Send + Sync>` to allow cheap cloning and safe
 //! sharing across threads. The underlying `DashMap` provides lock-free
 //! concurrent reads and sharded writes, enabling multiple threads to insert
-//! and retrieve state simultaneously without external synchronisation.
+//! and retrieve state simultaneously without external synchronization.
 //! Typed accessors provide a small API surface while hiding the underlying
 //! type-erasure details.
 

@@ -41,7 +41,7 @@ Observable success is:
 - Preserve existing public API signatures in `src/client/`.
 - Keep the example under the existing examples feature gate
   (`required-features = ["examples"]`).
-- Unit/integration tests must use `rstest` fixtures or parameterised cases
+- Unit/integration tests must use `rstest` fixtures or parameterized cases
   where shared setup exists.
 - Behavioural tests must use `rstest-bdd` v0.5.0 with the existing
   feature/fixture/steps/scenario layout in `tests/`.
@@ -97,7 +97,7 @@ Observable success is:
       contract as an echoed login payload decode and scoped file targets.
 - [x] (2026-02-23 00:30Z) Stage B complete: added
       `examples/client_echo_login.rs` and registered it in `Cargo.toml`.
-- [x] (2026-02-23 00:42Z), Stage C complete: added parameterised `rstest`
+- [x] (2026-02-23 00:42Z), Stage C complete: added parameterized `rstest`
       integration coverage in `tests/client_runtime.rs`.
 - [x] (2026-02-23 00:55Z) Stage D complete: extended `rstest-bdd` feature,
       world, steps, and scenarios for login acknowledgement behaviour.
@@ -254,7 +254,7 @@ Go/no-go: example compiles and runs successfully against the echo server.
 ### Stage C: unit/integration validation with `rstest`
 
 Extend `tests/client_runtime.rs` with a focused test for the login
-request/acknowledgement round trip. Use `#[rstest]` parameterisation for at
+request/acknowledgement round trip. Use `#[rstest]` parameterization for at
 least two usernames to prove typed decode is not hard-coded.
 
 Prefer existing helper infrastructure (`spawn_sample_echo_server`) unless a
@@ -418,7 +418,7 @@ Quality method:
 - If BDD compile-time validation fails due to ambiguous step matching, rename
   new steps with a client-runtime-specific prefix and rerun.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Capture concise evidence in commit/PR notes:
 
@@ -447,5 +447,5 @@ Revision note (2026-02-23): Initial draft created for roadmap items 16.4.1 and
 scopes file targets, and sets mandatory validation gates for implementation.
 
 Revision note (2026-02-23): Implementation completed. This revision records
-final decisions, unexpected findings, delivered artifacts, quality-gate
+final decisions, unexpected findings, delivered artefacts, quality-gate
 evidence, and roadmap closure.

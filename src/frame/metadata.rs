@@ -24,7 +24,7 @@
 /// }
 /// ```
 pub trait FrameMetadata {
-    /// Fully deserialised frame envelope type.
+    /// Fully deserialized frame envelope type.
     /// Prefer avoiding unnecessary allocations. Zero‑copy is only possible
     /// when the caller supplies an owned, ref‑counted buffer (e.g., `Bytes`).
     /// With the current `&[u8]` input, copying the payload is typically required.

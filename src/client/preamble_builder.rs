@@ -40,9 +40,9 @@ where
     /// ```
     #[must_use]
     pub fn preamble_timeout(mut self, duration: Duration) -> Self {
-        let normalised = duration.max(Duration::from_millis(1));
+        let normalized = duration.max(Duration::from_millis(1));
         if let Some(ref mut config) = self.preamble_config {
-            config.set_timeout(normalised);
+            config.set_timeout(normalized);
         }
         self
     }

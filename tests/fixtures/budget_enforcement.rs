@@ -96,7 +96,7 @@ pub fn budget_enforcement_world() -> BudgetEnforcementWorld {
 }
 
 impl BudgetEnforcementWorld {
-    /// Re-initialise state with explicit budgets.
+    /// Re-initialize state with explicit budgets.
     pub fn init_budgeted_state(&mut self, cfg: BudgetedStateConfig) -> TestResult {
         let max_message_size =
             NonZeroUsize::new(cfg.max_message_size).ok_or("max_message_size must be non-zero")?;

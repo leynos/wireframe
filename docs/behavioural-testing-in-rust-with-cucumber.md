@@ -793,7 +793,7 @@ independent specification of a single rule.[^6]
 
 ### 6.2 Declarative vs. Imperative Steps: Finding the Balance
 
-The most maintainable test suites favor a **declarative** style over an
+The most maintainable test suites favour a **declarative** style over an
 **imperative** one.
 
 - **Imperative steps** describe *how* an action is performed, often coupling the
@@ -979,7 +979,7 @@ The process involves two main steps:
 2. **Publish reports:** Many CI platforms can parse and display test results
    in a structured format. The `cucumber` crate supports generating JUnit XML
    reports via the `output-junit` feature flag.[^16] These XML files can then
-   be published as test artifacts for platforms like GitHub Actions, GitLab CI,
+   be published as test artefacts for platforms like GitHub Actions, GitLab CI,
    or Jenkins to consume.[^33]
 
 This CI integration closes the BDD loop. The `.feature` files, once checked

@@ -18,7 +18,7 @@ outbound frames and meticulously reassembling inbound fragments into a single,
 coherent message before they reach the router.
 
 > Status: design proposal. API names, trait bounds, and configuration shapes
-> may change before stabilisation.
+> may change before stabilization.
 
 This feature is a critical component of the "Road to Wireframe 1.0," designed
 to seamlessly integrate with and underpin the streaming and server-push
@@ -110,7 +110,7 @@ let header = FragmentHeader::new(MessageId::new(7), FragmentIndex::zero(), false
 assert!(series.accept(header).is_ok());
 ```
 
-By standardising this metadata, higher layers—behavioural tests, connection
+By standardizing this metadata, higher layers—behavioural tests, connection
 actors, and observability hooks—can reason about fragments without depending on
 protocol-specific codecs. The forthcoming `FragmentStrategy` continues to
 control how headers are encoded on the wire, but it now produces a
@@ -123,7 +123,7 @@ ships a small `Fragmenter` helper. It accepts a `NonZeroUsize` payload cap and
 creates sequential fragments tagged with `MessageId`, `FragmentIndex`, and the
 `is_last_fragment` flag described above. The helper exposes three entry points:
 
-- `fragment_message` serialises any type implementing the `Message` trait and
+- `fragment_message` serializes any type implementing the `Message` trait and
   splits the resulting bytes into fragments.
 - `fragment_bytes` chunks an owned `Vec<u8>` and allocates a fresh `MessageId`.
 - `fragment_with_id` lets callers supply the identifier explicitly when a
@@ -371,7 +371,7 @@ This feature is designed as a foundational layer that other features build upon.
 ## 8. Design decisions (14 November 2025, updated 17 November 2025)
 
 - Adopted `FragmentHeader`, `MessageId`, and `FragmentIndex` as the canonical,
-  serialiser-agnostic metadata describing every fragment emitted or consumed by
+  serializer-agnostic metadata describing every fragment emitted or consumed by
   the transport layer. These types now live in `wireframe::fragment` so any
   protocol component can construct, inspect, or log fragment details without
   talking to codec internals.

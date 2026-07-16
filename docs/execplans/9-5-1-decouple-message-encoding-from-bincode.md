@@ -16,15 +16,15 @@ No `PLANS.md` exists in this repository as of 2026-02-21.
 
 Roadmap item `9.5.1` hardens the pluggable codec effort by removing
 `bincode`-specific trait coupling from message encoding boundaries. The
-implementation must preserve existing bincode flows, add a serialiser-agnostic
+implementation must preserve existing bincode flows, add a serializer-agnostic
 message adapter surface, introduce an optional bridge that reduces manual
-boilerplate, and define how frame metadata reaches deserialisation for version
+boilerplate, and define how frame metadata reaches deserialization for version
 negotiation.
 
 After this work, maintainers and library consumers can observe:
 
 - Client and server messaging APIs encode and decode message types through a
-  serialiser-agnostic adapter contract instead of direct `bincode` trait bounds.
+  serializer-agnostic adapter contract instead of direct `bincode` trait bounds.
 - Existing bincode message types continue to work with minimal or zero source
   changes through compatibility shims.
 - A feature-gated Serde (serialisation/deserialisation) bridge is available as
@@ -49,7 +49,7 @@ Authority boundaries for documentation:
 - Preserve runtime behaviour for existing bincode users unless explicitly
   documented as changed in migration guidance.
 - Keep `WireframeApp` and `WireframeClient` defaults on bincode-compatible
-  behaviour, so existing applications do not need immediate serialiser rewrites.
+  behaviour, so existing applications do not need immediate serializer rewrites.
 - Use `rstest` for unit tests and `rstest-bdd` v0.5.0 for behavioural tests.
 - Do not introduce `wire-rs` as a mandatory dependency. This item will satisfy
   the roadmap bridge requirement via an optional Serde bridge.
@@ -425,9 +425,9 @@ Acceptance is complete only when all the following are true:
 - If docs drift from implementation, stop roadmap completion until docs and
   code are aligned.
 
-## Artifacts and notes
+## Artefacts and notes
 
-Keep the following artifacts during implementation:
+Keep the following artefacts during implementation:
 
 - `/tmp/9-5-1-*.log` command logs.
 - Final adapter trait signatures and context type definitions.

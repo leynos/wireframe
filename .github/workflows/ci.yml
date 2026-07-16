@@ -48,6 +48,16 @@ jobs:
         with:
           python-version: '3.13'
           enable-cache: true
+      - name: Install Rust for Merman
+        run: rustup toolchain install 1.95.0 --profile minimal --no-self-update
+      - name: Install Merman CLI
+        run: cargo +1.95.0 install merman-cli --version "=0.7.0" --locked
+      - name: Install Nixie
+        run: uv tool install --python 3.14 "nixie-cli==1.1.0"
+      - name: Enforce en-GB-oxendict spelling
+        run: make spelling
+      - name: Validate Mermaid diagrams
+        run: make nixie
       - name: Workflow contract tests
         run: make test-workflow-contracts
       # Coverage runs on pull requests only and drives the ratchet gate.

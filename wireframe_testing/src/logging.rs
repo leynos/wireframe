@@ -22,7 +22,7 @@ use rstest::fixture;
 /// Handle to the global logger with exclusive access.
 ///
 /// This guard ensures tests do not interfere with each other's log capture by
-/// serialising access to a [`logtest::Logger`]. Acquire it using [`logger`] or
+/// serializing access to a [`logtest::Logger`]. Acquire it using [`logger`] or
 /// [`LoggerHandle::new`].
 ///
 /// ```
@@ -40,8 +40,8 @@ pub struct LoggerHandle {
 
 /// Returns a static reference to the shared global logger [`Mutex`].
 ///
-/// The logger is initialised on first access via a [`OnceLock`]. All
-/// [`LoggerHandle`] instances share this single mutex, which serialises
+/// The logger is initialized on first access via a [`OnceLock`]. All
+/// [`LoggerHandle`] instances share this single mutex, which serializes
 /// log capture across concurrent tests.
 ///
 /// If a prior test panicked while holding the mutex, callers can recover

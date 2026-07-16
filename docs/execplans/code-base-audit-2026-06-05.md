@@ -301,7 +301,7 @@ API.
   observable contract.
 - 2026-06-05: Implement the app connection-state type transition with
   `WireframeApp::rebuild_with_connection_state`. The helper keeps field
-  movement centralised and clears teardown because a teardown hook registered
+  movement centralized and clears teardown because a teardown hook registered
   for old state `C` cannot be type-correct for new state `C2`. Document that
   teardown must be registered after setup when both hooks are required.
 - 2026-06-05: Start milestone 4 by extracting

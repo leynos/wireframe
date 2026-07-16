@@ -407,7 +407,7 @@ Acceptance is behavioural and must be demonstrated by tests and docs.
 - Avoid destructive reset commands; if refactoring is needed for file-size
   limits, extract to new modules instead of reverting broad edits.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Capture implementation evidence in temporary logs under `/tmp/17-2-1-*.log`. At
 minimum retain:

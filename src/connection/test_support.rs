@@ -233,7 +233,7 @@ pub async fn poll_queue_next(rx: Option<&mut mpsc::Receiver<u8>>) -> Option<u8> 
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests for the `ActorHarness` fixture using parameterised `rstest` cases.
+    //! Unit tests for the `ActorHarness` fixture using parameterized `rstest` cases.
 
     use rstest::{fixture, rstest};
     use tokio::sync::mpsc;
@@ -244,7 +244,7 @@ mod tests {
 
     #[fixture]
     fn harness() -> TestResult<ActorHarness> {
-        // Provides an ActorHarness for parameterised multi-queue state tests.
+        // Provides an ActorHarness for parameterized multi-queue state tests.
         ActorHarness::new().map_err(Into::into)
     }
 

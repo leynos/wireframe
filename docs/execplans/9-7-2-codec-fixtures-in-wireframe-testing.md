@@ -555,7 +555,7 @@ pub fn sequential_hotline_wire(
 | `docs/roadmap.md`                                              | Mark 9.7.2 done                          |
 | `docs/hardening-wireframe-a-guide-to-production-resilience.md` | Record design decision                   |
 
-### Artifacts and notes
+### Artefacts and notes
 
 Reference pattern for raw Hotline header construction (from
 `src/codec/examples.rs:84-103`, the encoder):

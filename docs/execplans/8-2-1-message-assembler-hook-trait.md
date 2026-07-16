@@ -229,7 +229,7 @@ to locate the failure before retrying. Avoid destructive commands; if a local
 change needs to be backed out, revert only the specific files edited for this
 feature.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Expected artefacts after completion:
 

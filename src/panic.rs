@@ -1,6 +1,6 @@
 //! Utilities for formatting panic payloads.
 //!
-//! This module centralises panic formatting so logs and errors can present
+//! This module centralizes panic formatting so logs and errors can present
 //! consistent messages.
 
 use std::any::Any;

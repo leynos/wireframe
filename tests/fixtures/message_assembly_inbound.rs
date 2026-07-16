@@ -114,7 +114,7 @@ impl MessageAssemblyInboundWorld {
     /// # Errors
     ///
     /// Returns an error if the fragmentation config, app builder, or runtime
-    /// initialisation fails.
+    /// initialization fails.
     pub fn start_app(&mut self, timeout_ms: u64) -> TestResult {
         let message_limit =
             NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)).unwrap_or(NonZeroUsize::MIN);
@@ -163,7 +163,7 @@ impl MessageAssemblyInboundWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if the client is not initialised or the send fails.
+    /// Returns an error if the client is not initialized or the send fails.
     pub fn send_first_frame(&mut self, key: impl Into<MessageKey>, body: &str) -> TestResult {
         let key = key.into();
         let payload = test_helpers::first_frame_payload(key, body.as_bytes(), false, None)?;
@@ -174,7 +174,7 @@ impl MessageAssemblyInboundWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if the client is not initialised or the send fails.
+    /// Returns an error if the client is not initialized or the send fails.
     pub fn send_continuation_frame(
         &mut self,
         key: impl Into<MessageKey>,
@@ -188,7 +188,7 @@ impl MessageAssemblyInboundWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if the client is not initialised or the send fails.
+    /// Returns an error if the client is not initialized or the send fails.
     pub fn send_final_continuation_frame(
         &mut self,
         key: impl Into<MessageKey>,

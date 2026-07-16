@@ -1,6 +1,6 @@
 //! Tracing span and event helpers for wireframe client operations.
 //!
-//! These helpers centralise span creation with dynamic level selection and
+//! These helpers centralize span creation with dynamic level selection and
 //! per-command timing emission, keeping the instrumentation logic out of the
 //! hot-path client methods.
 

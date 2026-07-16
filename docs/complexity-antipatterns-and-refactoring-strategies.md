@@ -2,7 +2,7 @@
 
 ## I. Introduction: The Challenge of Software Complexity
 
-Software development is an inherently complex endeavor. As systems evolve and
+Software development is an inherently complex endeavour. As systems evolve and
 features are added, the intricacy of the codebase tends to increase, often
 leading to challenges in maintenance, scalability, and developer productivity.
 "Any fool can write code that a computer can understand. Good programmers write
@@ -110,7 +110,7 @@ Thresholds and Implications:
 
 Code with high Cognitive Complexity is harder to read, understand, test, and
 modify. SonarQube, for example, raises issues when a function's Cognitive
-Complexity exceeds a certain threshold, signaling that the code should likely
+Complexity exceeds a certain threshold, signalling that the code should likely
 be refactored into smaller, more manageable pieces. The primary impact of high
 Cognitive Complexity is a slowdown in development and an increase in
 maintenance costs.
@@ -196,7 +196,7 @@ much like a physical bumpy road slows down driving.
 ### B. How It Forms and Its Impact
 
 The Bumpy Road antipattern, like many software antipatterns, often emerges from
-development practices that prioritise short-term speed over long-term
+development practices that prioritize short-term speed over long-term
 structural integrity. Rushed development cycles, lack of clear design, or
 cutting corners on maintenance can lead to the gradual accumulation of
 conditional logic within a single function. As new requirements or edge cases
@@ -631,7 +631,7 @@ When developers write declarative code, they operate at a higher level of
 abstraction, allowing them to reason about the program's intent more directly.
 This often leads to more concise, readable, and maintainable code because the
 "noise" of explicit iteration, temporary variables, and manual state updates is
-minimized. Many declarative approaches also inherently favor immutability and
+minimized. Many declarative approaches also inherently favour immutability and
 reduce side effects, which are common culprits for bugs and increased cognitive
 load in imperative code.
 
@@ -737,7 +737,7 @@ without modifying existing dispatcher code (aligning with the Open/Closed
 Principle). However, it's important to ensure that the dispatch mechanism
 itself remains clear and that the proliferation of small classes doesn't lead
 to Ravioli Code, where the overall system flow becomes obscured. Clear naming
-conventions and logical organisation are vital.
+conventions and logical organization are vital.
 
 The **State pattern** is a related behavioural pattern useful when an object's
 behaviour changes depending on its internal state. Instead of using large

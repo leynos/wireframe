@@ -16,7 +16,7 @@
 //! - [`RecoveryPolicy::Quarantine`]: Pause the connection temporarily.
 //! - [`RecoveryPolicy::Disconnect`]: Terminate the connection.
 //!
-//! See the [`recovery`] module for customising error handling behaviour.
+//! See the [`recovery`] module for customizing error handling behaviour.
 
 use std::io;
 
@@ -166,7 +166,7 @@ impl Decoder for LengthDelimitedDecoder {
         // Try to decode any remaining data
         match self.inner.decode_eof(src) {
             Ok(Some(frame)) => Ok(Some(BytesMut::freeze(frame))),
-            // Inner decoder returns Ok(None) for incomplete data at EOF - synthesise
+            // Inner decoder returns Ok(None) for incomplete data at EOF - synthesize
             // our structured EOF error with context about what was received.
             Ok(None) => Err(build_eof_error(eof_context)),
             // Inner decoder returned an error. Preserve framing errors (InvalidData)

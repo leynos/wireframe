@@ -245,7 +245,7 @@ section to locate the failure before retrying.
   coverage. Added Hotline/MySQL codec examples, unit coverage, and a framed
   integration test using the Hotline codec.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 - None yet.
 

@@ -528,7 +528,7 @@ If `coderabbit review --agent` is unavailable in the local environment, record
 the command failure in `Surprises & discoveries`, proceed only with the local
 quality gates, and note the missing review in the pull request.
 
-## Artifacts and notes
+## Artefacts and notes
 
 External prior-art checks used while drafting this plan:
 
@@ -587,4 +587,4 @@ reopened. The existing `bytes` crate is the expected dependency foundation.
 
 Initial draft created on 2026-05-20. It turns the user request and roadmap item
 `10.1.1` into a reviewable, approval-gated ExecPlan. No runtime implementation
-is authorised by this draft.
+is authorized by this draft.

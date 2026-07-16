@@ -641,7 +641,7 @@ pub fn obs_handle() -> ObservabilityHandle;
 
 Total: 8 new + 8 modified = 16 files (within 18-file tolerance).
 
-### Artifacts and notes
+### Artefacts and notes
 
 Reference pattern for counter query (from `tests/metrics.rs:87-95`):
 

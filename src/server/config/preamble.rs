@@ -81,8 +81,8 @@ where
     /// ```
     #[must_use]
     pub fn preamble_timeout(mut self, timeout: Duration) -> Self {
-        let normalised = timeout.max(Duration::from_millis(1));
-        self.preamble_timeout = Some(normalised);
+        let normalized = timeout.max(Duration::from_millis(1));
+        self.preamble_timeout = Some(normalized);
         self
     }
 

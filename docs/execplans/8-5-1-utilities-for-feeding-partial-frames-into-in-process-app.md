@@ -553,7 +553,7 @@ is modified except for adding `mod` and `pub use` declarations. Stages can be
 re-run by overwriting the created files. If a stage fails validation, fix the
 issue and re-run that stage's validation.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Files created (7):
 

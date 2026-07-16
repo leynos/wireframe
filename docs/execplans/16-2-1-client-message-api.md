@@ -218,9 +218,9 @@ to locate the failure before retrying. Avoid destructive commands; if a local
 change needs to be backed out, revert only the specific files edited for this
 feature.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
-Expected artifacts after completion:
+Expected artefacts after completion:
 
 - Modified `src/client/runtime.rs` with new methods and correlation counter.
 - Modified `src/client/error.rs` with `CorrelationMismatch` variant.

@@ -37,7 +37,7 @@ use wireframe_testing::reassembly::{
     assert_message_assembly_incomplete,
 };
 
-/// Configuration for message assembly state initialisation.
+/// Configuration for message assembly state initialization.
 #[derive(Debug, Clone, Copy)]
 pub struct AssemblyConfig {
     pub max_message_size: usize,
@@ -112,7 +112,7 @@ impl MessageAssemblyWorld {
         )
     }
 
-    /// Initialise the assembly state with size limit and timeout.
+    /// Initialize the assembly state with size limit and timeout.
     ///
     /// # Panics
     ///
@@ -152,7 +152,7 @@ impl MessageAssemblyWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if no pending frames, state not initialised, or time not set.
+    /// Returns an error if no pending frames, state not initialized, or time not set.
     pub fn accept_first_frame(&mut self) -> TestResult {
         let Some(pending) = self.pending_first_frames.pop_front() else {
             return Err("no pending first frame".into());
@@ -181,7 +181,7 @@ impl MessageAssemblyWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if state not initialised or time not set.
+    /// Returns an error if state not initialized or time not set.
     pub fn accept_all_first_frames(&mut self) -> TestResult {
         let Some(state) = self.state.as_mut() else {
             return Err("state not initialised".into());
@@ -211,7 +211,7 @@ impl MessageAssemblyWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if state not initialised or time not set.
+    /// Returns an error if state not initialized or time not set.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "parameter object consistency with add_first_frame API"
@@ -254,7 +254,7 @@ impl MessageAssemblyWorld {
     ///
     /// # Errors
     ///
-    /// Returns an error if state not initialised or time not set.
+    /// Returns an error if state not initialized or time not set.
     pub fn purge_expired(&mut self) -> TestResult {
         let Some(state) = self.state.as_mut() else {
             return Err("state not initialised".into());

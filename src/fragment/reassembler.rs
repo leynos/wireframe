@@ -85,7 +85,7 @@ impl ReassembledMessage {
     ///
     /// # Errors
     ///
-    /// Returns any [`DecodeError`] raised while deserialising the payload.
+    /// Returns any [`DecodeError`] raised while deserializing the payload.
     pub fn decode<M: Message>(&self) -> Result<M, DecodeError> {
         let (message, _) = M::from_bytes(self.payload())?;
         Ok(message)

@@ -210,7 +210,7 @@ fn action_matches(actual: &MemoryPressureAction, expected: &MemoryPressureAction
     )
 }
 
-/// Expected variant tag for the parameterised `evaluate_memory_pressure` test.
+/// Expected variant tag for the parameterized `evaluate_memory_pressure` test.
 /// We cannot pass `MemoryPressureAction` directly in `#[case]` attributes
 /// because the `Pause` variant contains a `Duration`, so we use a simple tag
 /// that the test body maps to the real variant for comparison.

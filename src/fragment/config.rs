@@ -19,7 +19,7 @@ pub struct FragmentationConfig {
 }
 
 /// Guard bytes reserved for envelope framing overhead beyond the fragment body
-/// and header. This accommodates length prefixes and serialisation slack.
+/// and header. This accommodates length prefixes and serialization slack.
 const ENVELOPE_GUARD_BYTES: usize = 32;
 
 impl FragmentationConfig {
