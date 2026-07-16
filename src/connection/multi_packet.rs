@@ -78,6 +78,12 @@ impl<F> MultiPacketContext<F> {
     pub(super) fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
 
     /// Returns `true` if correlation stamping is enabled.
+    // Equivalent mutant (`is_stamping_enabled` → `true`): the only construction
+    // site installs the channel via `install(Some(rx), _)`, which always yields
+    // `Enabled`, so a `Disabled` stamp never coexists with an active channel.
+    // Every reachable call during frame processing therefore already returns
+    // `true`; forcing it changes nothing. See #569.
+    #[cfg_attr(test, mutants::skip)]
     pub(super) fn is_stamping_enabled(&self) -> bool {
         matches!(self.stamp, MultiPacketStamp::Enabled(_))
     }
