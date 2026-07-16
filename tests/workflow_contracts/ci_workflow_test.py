@@ -11,6 +11,7 @@ from typing import cast
 import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
+MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 
 
 def _load_steps() -> list[dict[str, object]]:
@@ -35,6 +36,7 @@ def _find_step(steps: list[dict[str, object]], name: str) -> dict[str, object]:
     assert len(matches) == 1, f"expected one {name!r} step, found {len(matches)}"
     return matches[0]
 
+
 def test_spelling_tool_installations_are_pinned() -> None:
     """The spelling gate installs the reviewed Merman and Nixie releases."""
     steps = _load_steps()
@@ -46,6 +48,19 @@ def test_spelling_tool_installations_are_pinned() -> None:
     assert nixie.get("run") == 'uv tool install --python 3.14 "nixie-cli==1.1.0"', (
         "Nixie must remain pinned to the reviewed release and Python runtime"
     )
+
+
+def test_markdownlint_runner_is_pinned() -> None:
+    """The aggregate Markdown gate installs its reviewed CLI release."""
+    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    assert "MARKDOWNLINT_CLI2_VERSION ?= 0.22.1" in makefile, (
+        "Markdownlint CLI must remain pinned to the reviewed release"
+    )
+    assert (
+        "MDLINT ?= npx --yes markdownlint-cli2@$(MARKDOWNLINT_CLI2_VERSION)"
+        in makefile
+    ), "the Markdown gate must install the pinned CLI when it runs"
+
 
 def test_spelling_toolchain_steps_are_consecutive() -> None:
     """Installation, spelling and Mermaid validation retain their CI order."""
@@ -68,6 +83,8 @@ def test_spelling_toolchain_steps_are_consecutive() -> None:
         "CI must lint Markdown and run the spelling gate"
     )
     assert validation.get("run") == "make nixie", "CI must validate Mermaid diagrams"
+
+
 def test_codescene_check_immediately_follows_coverage_generation() -> None:
     """The changed-line gate consumes the LCOV report produced just before it."""
     steps = _load_steps()
