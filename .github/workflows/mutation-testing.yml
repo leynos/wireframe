@@ -33,8 +33,12 @@ jobs:
       # baseline cannot pass (#578). Restore
       # `extra-crate-dirs: "wireframe_testing"` when that issue closes.
       # Illustrative codecs and test-support scaffolding whose
-      # survivors are noise (#571).
-      exclude-globs: "src/codec/examples.rs,src/test_helpers.rs,src/connection/test_support.rs"
+      # survivors are noise (#571). The `src/test_helpers.rs` glob only
+      # matches the module root; `src/test_helpers/**` also covers the
+      # helper submodules (frame_codec.rs, pool_client.rs). `src/**/tests.rs`
+      # covers the cfg(test)-only test modules split into companion files,
+      # which cargo-mutants cannot detect as test code (#599).
+      exclude-globs: "src/codec/examples.rs,src/test_helpers.rs,src/test_helpers/**,src/connection/test_support.rs,src/**/tests.rs"
       # Match the CI baseline (`make test` runs --all-features) so
       # feature-gated tests run against mutants (#571).
       extra-args: "--all-features"
