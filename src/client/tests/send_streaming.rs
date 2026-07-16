@@ -385,3 +385,19 @@ async fn reports_frames_sent(protocol_header: Vec<u8>) -> TestResult {
 
     Ok(())
 }
+
+/// The `chunk_size` getter has no production callers (internal code reads the
+/// field directly), so its accessor mutants survive unless asserted directly.
+/// The neighbouring `timeout` getter is guarded the same way.
+#[test]
+fn config_accessors_reflect_builder() {
+    let default = SendStreamingConfig::default();
+    assert_eq!(default.chunk_size(), None, "default chunk size is unset");
+    assert_eq!(default.timeout(), None, "default timeout is unset");
+
+    let configured = SendStreamingConfig::default()
+        .with_chunk_size(4096)
+        .with_timeout(Duration::from_secs(3));
+    assert_eq!(configured.chunk_size(), Some(4096));
+    assert_eq!(configured.timeout(), Some(Duration::from_secs(3)));
+}
