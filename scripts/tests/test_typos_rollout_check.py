@@ -101,6 +101,22 @@ class TestPhrasePolicyChecker:
             (2, TITLE_PROHIBITED),
         ], "phrase boundaries, masking, or exclusions changed"
 
+    def test_checker_skips_tracked_symlinks(
+        self, checker: types.ModuleType, tmp_path: Path
+    ) -> None:
+        """Do not scan a tracked symlink whose target is outside the repository."""
+        initialize(tmp_path, policy_files())
+        external = tmp_path.parent / f"{tmp_path.name}-external.txt"
+        external.write_text(f"{PROHIBITED}\n")
+        (tmp_path / "external.txt").symlink_to(external)
+        subprocess.run(["git", "add", "external.txt"], cwd=tmp_path, check=True)
+
+        findings = checker.check_phrase_corrections(
+            tmp_path, checker.load_policy(tmp_path)
+        )
+
+        assert findings == (), "a tracked symlink escaped the repository boundary"
+
     def test_main_reports_location_and_exit_two(
         self,
         checker: types.ModuleType,

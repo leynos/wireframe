@@ -231,8 +231,11 @@ def check_phrase_corrections(
     for relative in _tracked(repository):
         if relative in POLICY_PATHS or _excluded(relative, exclusion_spec):
             continue
+        candidate = repository / relative
+        if candidate.is_symlink():
+            continue
         try:
-            text = (repository / relative).read_text(encoding="utf-8")
+            text = candidate.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
         masked = _masked(text, policy.ignore_patterns)

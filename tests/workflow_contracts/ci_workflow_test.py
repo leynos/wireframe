@@ -1,4 +1,7 @@
-"""Contract tests for pull-request coverage enforcement in CI."""
+"""Protect pull-request coverage enforcement in CI.
+
+Run these workflow contract tests with ``make test-workflow-contracts``.
+"""
 
 from __future__ import annotations
 

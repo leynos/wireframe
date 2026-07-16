@@ -359,7 +359,7 @@ The following tooling is available in this environment:
   the tracked output without replacing it.
 - The standalone Python 3.13-compatible phrase checker is an explicit
   exception to the repository's usual Rust automation.
-- Preserve external APIs, public identifiers, fixtures, formal names and
+- Preserve external APIs, public identifiers, fixtures, formal names, and
   serialized values. Put quoted prose and identifiers in backticks or fenced
   blocks where possible rather than weakening the shared policy.
 

@@ -27,7 +27,7 @@ After this work, maintainers and library consumers can observe:
   serializer-agnostic adapter contract instead of direct `bincode` trait bounds.
 - Existing bincode message types continue to work with minimal or zero source
   changes through compatibility shims.
-- A feature-gated Serde (serialisation/deserialisation) bridge is available as
+- A feature-gated Serde (serialization/deserialization) bridge is available as
   an optional path to reduce manual adapter implementations.
 - Deserializers can inspect frame metadata through an explicit context object,
   enabling protocol version negotiation patterns.

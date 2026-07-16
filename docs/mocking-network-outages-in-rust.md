@@ -559,7 +559,7 @@ async fn test_network_outage_scenarios(scenario: Scenario) {
 In the snippet above, each `case(...)` macro provides a different `Scenario`
 variant. The test builds the appropriate `test_reader`/`test_writer` and then
 invokes `client_handler`. A `should_error` flag asserts the expected outcome.
-This single parametrized test replaces multiple individual tests, reducing
+This single parameterized test replaces multiple individual tests, reducing
 duplication. All scenarios still run in isolation with distinct setups, thanks
 to `rstest`.
 
