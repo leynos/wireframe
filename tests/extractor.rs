@@ -90,3 +90,15 @@ fn shared_state_missing_error(request: MessageRequest, mut empty_payload: Payloa
         _ => panic!("unexpected error"),
     }
 }
+
+/// `take_body_stream` yields the stream exactly once; the second call must
+/// return `None`, guarding against a mutant that always reports `None`.
+#[test]
+fn take_body_stream_returns_stream_once() {
+    let mut req = MessageRequest::default();
+    let (_tx, stream) = wireframe::request::body_channel(4);
+    req.set_body_stream(stream);
+
+    assert!(req.take_body_stream().is_some(), "first take should yield the stream");
+    assert!(req.take_body_stream().is_none(), "second take should be empty");
+}
