@@ -234,36 +234,38 @@ impl wireframe::message_assembler::MessageAssembler for DemoAssembler {
 }
 
 #[rstest]
-fn protocol_accessor_reflects_installation() -> TestResult<()> {
+fn protocol_accessor_reflects_installation() {
     // A bare builder installs no protocol; the accessor must report `None`
     // rather than a constant, and `Some` once one is installed.
-    let bare = TestApp::new()?;
+    let bare = TestApp::new().expect("builder");
     assert!(
         bare.protocol().is_none(),
         "bare builder should have no protocol"
     );
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let app = TestApp::new()?.with_protocol(TestProtocol { counter });
+    let app = TestApp::new()
+        .expect("builder")
+        .with_protocol(TestProtocol { counter });
     assert!(
         app.protocol().is_some(),
         "installed protocol should be visible"
     );
-    Ok(())
 }
 
 #[rstest]
-fn message_assembler_accessor_reflects_installation() -> TestResult<()> {
-    let bare = TestApp::new()?;
+fn message_assembler_accessor_reflects_installation() {
+    let bare = TestApp::new().expect("builder");
     assert!(
         bare.message_assembler().is_none(),
         "bare builder should have no assembler"
     );
 
-    let app = TestApp::new()?.with_message_assembler(DemoAssembler);
+    let app = TestApp::new()
+        .expect("builder")
+        .with_message_assembler(DemoAssembler);
     assert!(
         app.message_assembler().is_some(),
         "installed assembler should be visible"
     );
-    Ok(())
 }

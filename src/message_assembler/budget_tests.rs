@@ -62,7 +62,8 @@ fn submit_first_with_total(
 ) -> Result<Option<crate::message_assembler::AssembledMessage>, MessageAssemblyError> {
     let header =
         crate::message_assembler::test_helpers::first_header_with_total(key, body.len(), total);
-    let input = FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], body).unwrap();
+    let input = FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], body)
+        .expect("valid first-frame input");
     state.accept_first_frame(input)
 }
 
