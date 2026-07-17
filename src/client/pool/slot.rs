@@ -174,7 +174,7 @@ mod tests {
         max_in_flight: usize,
         idle_timeout: Duration,
     ) -> Arc<PoolSlot<BincodeSerializer, (), ()>> {
-        let addr: SocketAddr = "127.0.0.1:1".parse().expect("valid address");
+        let addr = SocketAddr::from(([127, 0, 0, 1], 1));
         let parts = ClientBuildParts {
             serializer: BincodeSerializer,
             codec_config: ClientCodecConfig::default(),
@@ -219,7 +219,7 @@ mod tests {
     async fn clear_last_returned_at_resets_recycle_decision() {
         let slot = test_slot(1, Duration::from_millis(1));
 
-        *slot.lock_last_returned_at() = Some(tokio::time::Instant::now() - Duration::from_secs(60));
+        *slot.lock_last_returned_at() = Some(tokio::time::Instant::now() - Duration::from_mins(1));
         assert!(
             slot.should_recycle_idle(),
             "stale timestamp must trigger a recycle"
