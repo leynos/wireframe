@@ -60,6 +60,9 @@ rstest-bdd-macros = { version = "0.5.0", features = ["strict-compile-time-valida
 wireframe = { path = ".", features = ["test-support", "pool", "testkit"] }
 wireframe_testing = { path = "./wireframe_testing" }
 logtest = "2.0.0"
+# No-op decorator attributes recognised by cargo-mutants; used only under
+# cfg(test) to annotate equivalent mutants, so no production dependency.
+mutants = "0.0.4"
 proptest = "1.7.0"
 googletest = "0.14.3"
 pretty_assertions = "1.4.1"

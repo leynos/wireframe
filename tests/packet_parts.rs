@@ -4,6 +4,15 @@
 use wireframe::app::{Envelope, Packet, PacketParts};
 
 #[test]
+fn plain_envelope_is_not_a_stream_terminator() {
+    // `Envelope` does not override the `Packet::is_stream_terminator` default,
+    // so a plain data envelope must report `false`. Terminator tests all use
+    // types that override the method, leaving the default's false case unguarded.
+    let env = Envelope::new(1, None, vec![42]);
+    assert!(!env.is_stream_terminator());
+}
+
+#[test]
 fn envelope_from_parts_round_trip() {
     let env = Envelope::new(2, Some(5), vec![1, 2]);
     let parts = env.into_parts();

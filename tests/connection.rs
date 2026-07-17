@@ -519,6 +519,21 @@ async fn poll_queue_returns_none_after_close() {
     assert!(value.is_none());
 }
 
+#[test]
+fn actor_state_reports_shutting_down_after_start_shutdown() {
+    // `is_shutting_down` is only ever asserted false elsewhere; drive the
+    // transition and assert the positive polarity so a constant-`false`
+    // mutant cannot survive.
+    let mut harness = ActorStateHarness::new(false, false);
+    assert!(!harness.snapshot().is_shutting_down, "should start active");
+
+    harness.start_shutdown();
+    let snapshot = harness.snapshot();
+    assert!(snapshot.is_shutting_down, "should be shutting down");
+    assert!(!snapshot.is_active, "shutting down is not active");
+    assert!(!snapshot.is_done, "shutting down is not done");
+}
+
 #[rstest(
     has_multi,
     expected_marks,

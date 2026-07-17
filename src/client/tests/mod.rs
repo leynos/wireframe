@@ -10,6 +10,7 @@ mod pool;
 mod pool_handle;
 mod request_hooks;
 mod send_streaming;
+mod send_streaming_config;
 mod send_streaming_infra;
 mod streaming;
 mod streaming_helpers;

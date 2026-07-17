@@ -30,8 +30,14 @@ USES_RE = re.compile(
 
 SCAFFOLDING_EXCLUDES = (
     "src/test_helpers.rs",
+    # The module-root glob above matches only src/test_helpers.rs; the
+    # directory glob covers the helper submodules (#599).
+    "src/test_helpers/**",
     "src/connection/test_support.rs",
     "src/codec/examples.rs",
+    # cfg(test)-only test modules split into companion files, which
+    # cargo-mutants cannot detect as test code (#599).
+    "src/**/tests.rs",
 )
 
 

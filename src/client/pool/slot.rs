@@ -148,3 +148,91 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for slot admission permits and idle-recycle bookkeeping.
+
+    use std::{net::SocketAddr, sync::Arc, time::Duration};
+
+    use super::PoolSlot;
+    use crate::{
+        client::{
+            ClientCodecConfig,
+            SocketOptions,
+            connect_parts::ClientBuildParts,
+            hooks::{LifecycleHooks, RequestHooks},
+            pool::manager::WireframeConnectionManager,
+            tracing_config::TracingConfig,
+        },
+        serializer::BincodeSerializer,
+    };
+
+    /// Build a slot without connecting: `build_unchecked` creates the bb8
+    /// pool lazily, and these tests never touch the socket path.
+    fn test_slot(
+        max_in_flight: usize,
+        idle_timeout: Duration,
+    ) -> Arc<PoolSlot<BincodeSerializer, (), ()>> {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 1));
+        let parts = ClientBuildParts {
+            serializer: BincodeSerializer,
+            codec_config: ClientCodecConfig::default(),
+            socket_options: SocketOptions::default(),
+            preamble_config: None,
+            lifecycle_hooks: LifecycleHooks::default(),
+            request_hooks: RequestHooks::default(),
+            tracing_config: TracingConfig::default(),
+        };
+        let pool = bb8::Pool::builder()
+            .max_size(1)
+            .build_unchecked(WireframeConnectionManager::new(addr, parts));
+        Arc::new(PoolSlot::new(pool, max_in_flight, idle_timeout))
+    }
+
+    /// The synchronous fast path must hand out a permit while capacity
+    /// remains and refuse once it is exhausted; forcing `None` would push
+    /// every acquire onto the waiting path.
+    #[tokio::test]
+    async fn try_acquire_permit_reflects_capacity() {
+        let slot = test_slot(1, Duration::from_secs(30));
+
+        let held = slot.try_acquire_permit();
+        assert!(held.is_some(), "fresh slot must yield an immediate permit");
+        assert!(
+            slot.try_acquire_permit().is_none(),
+            "exhausted slot must refuse an immediate permit"
+        );
+
+        drop(held);
+        assert!(
+            slot.try_acquire_permit().is_some(),
+            "released capacity must be immediately reusable"
+        );
+    }
+
+    /// Clearing the idle timestamp must reset the recycle decision; leaving
+    /// a stale timestamp would recycle the freshly created connection on the
+    /// next checkout after a recycle whose lease never sets a new timestamp
+    /// (for example when the replacement checkout fails).
+    #[tokio::test]
+    async fn clear_last_returned_at_resets_recycle_decision() {
+        let slot = test_slot(1, Duration::from_millis(1));
+
+        *slot.lock_last_returned_at() = Some(tokio::time::Instant::now() - Duration::from_mins(1));
+        assert!(
+            slot.should_recycle_idle(),
+            "stale timestamp must trigger a recycle"
+        );
+
+        slot.clear_last_returned_at();
+        assert!(
+            slot.lock_last_returned_at().is_none(),
+            "clear must remove the timestamp"
+        );
+        assert!(
+            !slot.should_recycle_idle(),
+            "cleared timestamp must not trigger a recycle"
+        );
+    }
+}

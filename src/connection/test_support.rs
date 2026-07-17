@@ -213,6 +213,9 @@ impl ActorStateHarness {
     /// Mark a source as closed.
     pub fn mark_closed(&mut self) { self.state.mark_closed(); }
 
+    /// Begin shutdown, transitioning an active state to shutting-down.
+    pub fn start_shutdown(&mut self) { self.state.start_shutdown(); }
+
     /// Observe the current state snapshot.
     #[must_use]
     pub fn snapshot(&self) -> ActorStateSnapshot {

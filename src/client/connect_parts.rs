@@ -20,6 +20,9 @@ use super::{
 };
 use crate::{rewind_stream::RewindStream, serializer::Serializer};
 
+// Equivalent mutant: a pre-allocation hint later min'd against the codec's
+// max_frame_length, so `*`→`+`/`/` cannot change observable behaviour.
+#[cfg_attr(test, mutants::skip)]
 const INITIAL_READ_BUFFER_CAPACITY: usize = 64 * 1024;
 
 /// Cloneable connection recipe used by pooled reconnect paths.

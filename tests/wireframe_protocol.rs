@@ -220,3 +220,52 @@ async fn connection_actor_uses_protocol_from_builder(queues: QueueResult) -> Tes
     );
     Ok(())
 }
+
+/// A no-op assembler used purely to exercise the `message_assembler` accessor.
+struct DemoAssembler;
+
+impl wireframe::message_assembler::MessageAssembler for DemoAssembler {
+    fn parse_frame_header(
+        &self,
+        _payload: &[u8],
+    ) -> Result<wireframe::message_assembler::ParsedFrameHeader, io::Error> {
+        Err(io::Error::new(io::ErrorKind::InvalidData, "unimplemented"))
+    }
+}
+
+#[rstest]
+fn protocol_accessor_reflects_installation() {
+    // A bare builder installs no protocol; the accessor must report `None`
+    // rather than a constant, and `Some` once one is installed.
+    let bare = TestApp::new().expect("builder");
+    assert!(
+        bare.protocol().is_none(),
+        "bare builder should have no protocol"
+    );
+
+    let counter = Arc::new(AtomicUsize::new(0));
+    let app = TestApp::new()
+        .expect("builder")
+        .with_protocol(TestProtocol { counter });
+    assert!(
+        app.protocol().is_some(),
+        "installed protocol should be visible"
+    );
+}
+
+#[rstest]
+fn message_assembler_accessor_reflects_installation() {
+    let bare = TestApp::new().expect("builder");
+    assert!(
+        bare.message_assembler().is_none(),
+        "bare builder should have no assembler"
+    );
+
+    let app = TestApp::new()
+        .expect("builder")
+        .with_message_assembler(DemoAssembler);
+    assert!(
+        app.message_assembler().is_some(),
+        "installed assembler should be visible"
+    );
+}

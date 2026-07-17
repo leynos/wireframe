@@ -356,6 +356,10 @@ impl RequestParts {
         self
     }
 
+    // Equivalent mutant (`found != expected` guard → `true`): when the ids are
+    // equal the data path is identical to the mismatch arm bar a spurious
+    // `warn!`, so the returned correlation is unchanged.
+    #[cfg_attr(test, mutants::skip)]
     #[inline]
     fn select_correlation(current: Option<u64>, source: Option<u64>) -> CorrelationResult {
         match (current, source) {

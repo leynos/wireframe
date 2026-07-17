@@ -89,3 +89,41 @@ impl<F> MultiPacketContext<F> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the stamping invariant: stamping is enabled exactly
+    //! when a channel is installed.
+
+    use tokio::sync::mpsc;
+
+    use super::MultiPacketContext;
+
+    #[test]
+    fn stamping_tracks_channel_installation() {
+        let mut ctx = MultiPacketContext::<u8>::new();
+        assert!(
+            !ctx.is_stamping_enabled(),
+            "a fresh context must not stamp frames"
+        );
+
+        let (_tx, rx) = mpsc::channel(1);
+        ctx.install(Some(rx), Some(7));
+        assert!(
+            ctx.is_stamping_enabled(),
+            "installing a channel must enable stamping"
+        );
+        assert_eq!(ctx.correlation_id(), Some(7));
+
+        ctx.install(None, Some(9));
+        assert!(
+            !ctx.is_stamping_enabled(),
+            "removing the channel must disable stamping"
+        );
+        assert_eq!(
+            ctx.correlation_id(),
+            None,
+            "a disabled context must not expose a correlation id"
+        );
+    }
+}

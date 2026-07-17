@@ -74,3 +74,11 @@ fn service_request_setter_updates_correlation_id() {
     let _ = req.set_correlation_id(None);
     assert_eq!(req.correlation_id(), None);
 }
+
+/// The `frame` accessor has no production callers, so a mutant returning a
+/// leaked constant vector survives unless asserted directly.
+#[test]
+fn service_request_frame_borrows_original_bytes() {
+    let req = ServiceRequest::new(vec![1, 2, 3], None);
+    assert_eq!(req.frame(), &[1, 2, 3]);
+}

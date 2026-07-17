@@ -113,6 +113,9 @@ impl<F> PushQueueConfig<F> {
 
 impl<F: FrameLike> PushQueues<F> {
     /// Start building a new set of push queues.
+    // Equivalent mutant: `from(Default::default())` reduces to the same value
+    // via the blanket `From<T> for T` identity, so it is indistinguishable.
+    #[cfg_attr(test, mutants::skip)]
     #[must_use]
     pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::default() }
 

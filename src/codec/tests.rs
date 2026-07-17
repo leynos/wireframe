@@ -315,3 +315,15 @@ fn mysql_decode_produces_zero_copy_payload() {
 }
 
 mod property;
+
+/// The inherent `max_frame_length` shadows the `FrameCodec` trait method in
+/// direct calls, so the trait impl is only observable through trait dispatch.
+#[test]
+fn frame_codec_trait_max_frame_length_matches_configuration() {
+    let codec = LengthDelimitedFrameCodec::new(256);
+    // UFCS resolves to the trait method rather than the inherent one.
+    assert_eq!(
+        <LengthDelimitedFrameCodec as FrameCodec>::max_frame_length(&codec),
+        256,
+    );
+}

@@ -53,6 +53,9 @@ impl BackoffConfig {
     /// assert_eq!(normalized.initial_delay, Duration::from_millis(1));
     /// assert_eq!(normalized.max_delay, Duration::from_millis(5));
     /// ```
+    // Equivalent mutant (`initial_delay > max_delay` → `>=`): when the two
+    // durations are equal the swap moves identical values, a no-op.
+    #[cfg_attr(test, mutants::skip)]
     #[must_use]
     pub fn normalized(mut self) -> Self {
         self.initial_delay = self.initial_delay.max(Duration::from_millis(1));
