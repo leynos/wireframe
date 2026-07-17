@@ -78,12 +78,6 @@ impl<F> MultiPacketContext<F> {
     pub(super) fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
 
     /// Returns `true` if correlation stamping is enabled.
-    // Equivalent mutant (`is_stamping_enabled` → `true`): the only construction
-    // site installs the channel via `install(Some(rx), _)`, which always yields
-    // `Enabled`, so a `Disabled` stamp never coexists with an active channel.
-    // Every reachable call during frame processing therefore already returns
-    // `true`; forcing it changes nothing. See #569.
-    #[cfg_attr(test, mutants::skip)]
     pub(super) fn is_stamping_enabled(&self) -> bool {
         matches!(self.stamp, MultiPacketStamp::Enabled(_))
     }
@@ -93,5 +87,43 @@ impl<F> MultiPacketContext<F> {
             MultiPacketStamp::Enabled(value) => value,
             MultiPacketStamp::Disabled => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the stamping invariant: stamping is enabled exactly
+    //! when a channel is installed.
+
+    use tokio::sync::mpsc;
+
+    use super::MultiPacketContext;
+
+    #[test]
+    fn stamping_tracks_channel_installation() {
+        let mut ctx = MultiPacketContext::<u8>::new();
+        assert!(
+            !ctx.is_stamping_enabled(),
+            "a fresh context must not stamp frames"
+        );
+
+        let (_tx, rx) = mpsc::channel(1);
+        ctx.install(Some(rx), Some(7));
+        assert!(
+            ctx.is_stamping_enabled(),
+            "installing a channel must enable stamping"
+        );
+        assert_eq!(ctx.correlation_id(), Some(7));
+
+        ctx.install(None, Some(9));
+        assert!(
+            !ctx.is_stamping_enabled(),
+            "removing the channel must disable stamping"
+        );
+        assert_eq!(
+            ctx.correlation_id(),
+            None,
+            "a disabled context must not expose a correlation id"
+        );
     }
 }

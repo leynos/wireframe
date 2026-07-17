@@ -93,11 +93,6 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// registry.insert(id, &handle);
     /// assert!(registry.get(&id).is_some());
     /// ```
-    // Equivalent mutant (`strong_count() == 0` → `!=`): assessed in #566. The
-    // opportunistic removal only runs once the handle has already failed to
-    // upgrade, so `get` returns `None` regardless; the sole difference is a
-    // lingering dead entry that later pruning reclaims.
-    #[cfg_attr(test, mutants::skip)]
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
         let guard = self.0.get(id);
         let handle = guard.as_ref().and_then(|weak| weak.upgrade());
@@ -258,4 +253,36 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// ```
     #[must_use]
     pub fn active_ids(&self) -> Vec<ConnectionId> { self.retain_and_collect(|id, _| id) }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for lazy dead-entry cleanup in the session registry.
+
+    use super::{ConnectionId, SessionRegistry};
+    use crate::push::PushQueues;
+
+    /// A failed lookup must also evict the dead weak entry; retaining it
+    /// grows the registry until a later `prune`, which is the observable
+    /// difference the `strong_count() == 0` guard protects.
+    #[tokio::test]
+    async fn get_evicts_dead_entry_from_registry() {
+        let registry = SessionRegistry::<u8>::default();
+        let id = ConnectionId::new(1);
+
+        let (queues, handle) = PushQueues::<u8>::builder()
+            .high_capacity(1)
+            .low_capacity(1)
+            .build()
+            .expect("failed to build PushQueues");
+        registry.insert(id, &handle);
+        drop(handle);
+        drop(queues);
+
+        assert!(registry.get(&id).is_none(), "dead handle must not upgrade");
+        assert!(
+            registry.0.is_empty(),
+            "failed lookup must evict the dead entry rather than leave it to prune"
+        );
+    }
 }
