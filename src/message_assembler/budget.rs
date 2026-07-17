@@ -21,7 +21,7 @@ pub(super) struct AggregateBudgets {
 
 impl AggregateBudgets {
     /// Returns `true` when at least one aggregate budget limit is configured.
-    // Equivalent mutant (`is_enabled` → `true`): a hot-path optimisation only;
+    // Equivalent mutant (`is_enabled` → `true`): a hot-path optimization only;
     // `check_aggregate_budgets` returns `Ok(())` when both budgets are `None`,
     // so forcing the gate on changes nothing observable.
     #[cfg_attr(test, mutants::skip)]
