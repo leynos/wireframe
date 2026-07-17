@@ -2,23 +2,34 @@
 
 ## Status
 
-Accepted. Amended 2026-07-05: the decision stands, but the bespoke
-workflow implementation described in the sketch below has been
-superseded — `.github/workflows/mutation-testing.yml` is now a thin
-caller of the shared reusable workflow
-`leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned by
-commit SHA), which generalizes this design and adds shard fan-out for
-full dispatch runs, a merged cross-shard summary, tested helper
-scripts, and a pinned `cargo-mutants` version. The caller enables
-`--all-features` (so feature-gated tests run against mutants) and
-excludes example/test-support scaffolding, addressing issue #571. The
-sketch below is retained as the historical record of the design the
-shared workflow was generalized from; the caller-facing contract now
-lives in the shared repository's `docs/mutation-cargo-workflow.md`.
+Accepted. Amended 2026-07-05: the decision stands, but the bespoke workflow
+implementation described in the sketch below has been superseded —
+`.github/workflows/mutation-testing.yml` is now a thin caller of the shared
+reusable workflow `leynos/shared-actions/.github/workflows/mutation-cargo.yml`
+(pinned by commit SHA), which generalizes this design and adds shard fan-out
+for full dispatch runs, a merged cross-shard summary, tested helper scripts,
+and a pinned `cargo-mutants` version. The caller enables `--all-features` (so
+feature-gated tests run against mutants) and excludes example/test-support
+scaffolding, addressing issue #571. The sketch below is retained as the
+historical record of the design the shared workflow was generalized from; the
+caller-facing contract now lives in the shared repository's
+`docs/mutation-cargo-workflow.md`.
+
+Amended 2026-07-17: full dispatch runs now fan out across eight shards (the
+first six-shard run lost a leg to the job ceiling), and the exclude-globs
+additionally cover `src/test_helpers/**` and `src/**/tests.rs` — the
+module-root glob missed the `src/test_helpers/` submodules, and cfg(test)-only
+companion `tests.rs` files are invisible to cargo-mutants' test-code detection
+(#599). The caller contract (reusable-workflow reference shape, permissions,
+triggers, excludes, extra-args, and shard count) is pinned by
+`tests/workflow_contracts/mutation_testing_test.py`. Equivalent mutants are
+annotated in source with `#[cfg_attr(test, mutants::skip)]` and a justification
+comment, using the `mutants` crate of no-op decorator attributes as a
+dev-dependency so production builds are unaffected.
 
 ## Date
 
-2026-03-31 (amended 2026-07-05).
+2026-03-31 (amended 2026-07-05 and 2026-07-17).
 
 ## Context and Problem Statement
 
@@ -109,12 +120,11 @@ files changed on `main` in the preceding 25 hours.
    relies on reflog state, which is not available in fresh CI clones. The
    window is 25 hours rather than 24 because GitHub cron start times drift
    (runs routinely begin 15–60 minutes late); the extra hour means a commit
-   landing just after one run still falls inside the next run's window, at
-   the cost of occasionally re-testing a file. Files that no longer exist at
-   the checked-out tip (deleted or renamed within the window) are filtered
-   out before being passed to `--file`. The result is stored as a step
-   output (`has_changes=true|false`) and the heavy mutation step is gated
-   with
+   landing just after one run still falls inside the next run's window, at the
+   cost of occasionally re-testing a file. Files that no longer exist at the
+   checked-out tip (deleted or renamed within the window) are filtered out
+   before being passed to `--file`. The result is stored as a step output
+   (`has_changes=true|false`) and the heavy mutation step is gated with
    `if: steps.detect.outputs.has_changes == 'true'`. Manual `workflow_dispatch`
    runs bypass the guard by setting `has_changes=true` unconditionally and
    running a full (unscoped) mutation against both the root crate and
@@ -157,10 +167,10 @@ running up to two targeted invocations:
 1. **Execution:** Installs `cargo-mutants` via `cargo binstall` (the shared
    `setup-rust` action provides `cargo-binstall`), then runs the scoped
    invocations described above with `--in-place` (the upstream CI
-   recommendation, which reuses the existing build cache instead of copying
-   the tree) and a per-mutant timeout multiplier to bound execution time. The
-   job carries an explicit `timeout-minutes` ceiling as a backstop against
-   runaway full runs.
+   recommendation, which reuses the existing build cache instead of copying the
+   tree) and a per-mutant timeout multiplier to bound execution time. The job
+   carries an explicit `timeout-minutes` ceiling as a backstop against runaway
+   full runs.
 2. **Output locations:** `cargo-mutants` creates `mutants.out/` inside the
    source directory it operates on. Note that `--output DIR` places
    `mutants.out/` _within_ `DIR` (it does not rename the directory), so the
@@ -170,9 +180,9 @@ running up to two targeted invocations:
 3. **Exit-code handling:** `cargo mutants` exits non-zero for informative
    outcomes as well as genuine failures: `0` all caught, `1` usage error, `2`
    mutants missed, `3` tests timed out, `4` baseline tests already failing,
-   `70` internal error. Because this workflow is informational, exit codes
-   `2` and `3` are treated as success (the survivors are the deliverable, not
-   a failure), while `1`, `4`, and `70` still fail the job so genuine faults
+   `70` internal error. Because this workflow is informational, exit codes `2`
+   and `3` are treated as success (the survivors are the deliverable, not a
+   failure), while `1`, `4`, and `70` still fail the job so genuine faults
    remain visible.
 4. **Artefact:** Uploads the `mutants.out/` directory (or directories) as
    GitHub Actions artefacts, preserving `outcomes.json` (machine-readable) and
@@ -413,13 +423,13 @@ jobs:
   semantically equivalent to the original (e.g. replacing `x + 0` with `x`).
   These require human triage and cannot be eliminated automatically.
 - **`wireframe_testing` false survivors:** The companion crate's logic is
-  exercised chiefly by the root crate's test suite; `wireframe_testing`
-  itself carries only a small number of in-crate tests. Because
-  `cargo mutants --dir wireframe_testing` runs only that package's own
-  tests, most mutants there will appear to survive even when the root
-  crate's tests would catch the fault. The `wireframe_testing` results
-  table is therefore advisory until the crate gains meaningful in-crate
-  coverage; treat its survivors with scepticism during triage.
+  exercised chiefly by the root crate's test suite; `wireframe_testing` itself
+  carries only a small number of in-crate tests. Because
+  `cargo mutants --dir wireframe_testing` runs only that package's own tests,
+  most mutants there will appear to survive even when the root crate's tests
+  would catch the fault. The `wireframe_testing` results table is therefore
+  advisory until the crate gains meaningful in-crate coverage; treat its
+  survivors with scepticism during triage.
 - **Runner cost:** Scheduled runs consume GitHub Actions minutes. The daily
   schedule starts every day, but the change-detection guard ensures the
   expensive mutation step only runs when `main` received relevant Rust source
@@ -429,18 +439,17 @@ jobs:
   timestamps, not author timestamps. Force-pushed or rebased commits may carry
   original timestamps outside the 25-hour window, and merge commits whose
   constituent commits were created earlier are similarly invisible (the
-  repository's squash-merge convention makes this unlikely in practice).
-  There is also no catch-up: if a scheduled run fails or is skipped, commits
-  from that window are never mutation-tested. A manual `workflow_dispatch`
-  run bypasses the guard entirely, providing the fallback in all these
-  cases. Diffing against the SHA of the last successful run (via the GitHub
-  API) would close the gap completely but was rejected as disproportionate
-  for an informational workflow.
+  repository's squash-merge convention makes this unlikely in practice). There
+  is also no catch-up: if a scheduled run fails or is skipped, commits from
+  that window are never mutation-tested. A manual `workflow_dispatch` run
+  bypasses the guard entirely, providing the fallback in all these cases.
+  Diffing against the SHA of the last successful run (via the GitHub API) would
+  close the gap completely but was rejected as disproportionate for an
+  informational workflow.
 - **Scheduled-workflow suspension:** GitHub automatically disables cron
-  triggers on repositories with no activity for 60 days. On a quiet
-  repository the workflow silently stops running until re-enabled — an
-  acceptable failure mode, since no code changes means nothing new to
-  mutate.
+  triggers on repositories with no activity for 60 days. On a quiet repository
+  the workflow silently stops running until re-enabled — an acceptable failure
+  mode, since no code changes means nothing new to mutate.
 - **Manifest-only changes:** Changes to `Cargo.toml` or `Cargo.lock` without
   accompanying Rust source changes are not detected. If a manifest change
   affects mutation outcomes (e.g. enabling a feature that changes conditional
@@ -456,9 +465,9 @@ jobs:
 - Exact `--timeout-multiplier` value — needs calibration against the current
   test suite runtime.
 - Whether to adopt `--in-diff` (line-level scoping from a diff) in place of
-  file-level `--file` scoping for scheduled runs, once the initial workflow
-  has proven itself. `--in-diff` tests only mutants on changed lines, which
-  is cheaper but misses mutants elsewhere in a changed file.
+  file-level `--file` scoping for scheduled runs, once the initial workflow has
+  proven itself. `--in-diff` tests only mutants on changed lines, which is
+  cheaper but misses mutants elsewhere in a changed file.
 - Whether full `workflow_dispatch` runs need `--shard` support to split the
   work across parallel jobs, should single-job runs approach the
   `timeout-minutes` ceiling.
@@ -480,26 +489,25 @@ jobs:
   changes landed on `main`, making quiet days a cheap no-op.
 - **Change detection mechanism:** Uses `git log --since="25 hours ago"` with
   commit timestamps rather than `origin/main@{25.hours.ago}` (which relies on
-  reflog state unavailable in fresh CI clones). The window exceeds the
-  24-hour cadence by one hour to absorb GitHub cron start-time drift;
-  occasional double-testing of a file is preferred over silently dropping a
-  commit. Files no longer present at the checked-out tip are filtered out
-  before scoping.
+  reflog state unavailable in fresh CI clones). The window exceeds the 24-hour
+  cadence by one hour to absorb GitHub cron start-time drift; occasional
+  double-testing of a file is preferred over silently dropping a commit. Files
+  no longer present at the checked-out tip are filtered out before scoping.
 - **Exit-code policy:** `cargo mutants` exit codes `2` (missed mutants) and
-  `3` (timeouts) are treated as success because the workflow is
-  informational — survivors are its output, not a failure. Exit codes `1`
-  (usage error), `4` (baseline tests failing), and `70` (internal error)
-  still fail the job so genuine faults surface as red runs.
+  `3` (timeouts) are treated as success because the workflow is informational —
+  survivors are its output, not a failure. Exit codes `1` (usage error), `4`
+  (baseline tests failing), and `70` (internal error) still fail the job so
+  genuine faults surface as red runs.
 - **Output directories:** The workflow relies on the default output
   locations (`./mutants.out/` for the root crate,
   `wireframe_testing/mutants.out/` for the companion crate) because
-  `--output DIR` creates `mutants.out/` _within_ `DIR` rather than renaming
-  it, which would otherwise nest the report one level deeper than the
-  summary and artefact steps expect.
+  `--output DIR` creates `mutants.out/` _within_ `DIR` rather than renaming it,
+  which would otherwise nest the report one level deeper than the summary and
+  artefact steps expect.
 - **Build strategy:** Runs use `--in-place`, the upstream recommendation for
   CI, so mutation builds reuse the runner's existing build cache instead of
-  copying the source tree. The job also sets `timeout-minutes: 300` as a
-  hard backstop against unbounded full runs.
+  copying the source tree. The job also sets `timeout-minutes: 300` as a hard
+  backstop against unbounded full runs.
 - **Code change definition:** The detection monitors `src/**/*.rs`,
   `wireframe_testing/src/**/*.rs`, `examples/**/*.rs`, and `benches/**/*.rs`.
   Manifest-only changes (`Cargo.toml`, `Cargo.lock`) are excluded because

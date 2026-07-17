@@ -178,52 +178,59 @@ continuous integration (CI).
 
 Scheduled mutation testing runs in CI via
 `.github/workflows/mutation-testing.yml` (see
-[ADR-007](adr-007-mutation-testing-with-cargo-mutants.md) for the design
-and its rationale). Key points for contributors:
+[ADR-007](adr-007-mutation-testing-with-cargo-mutants.md) for the design and
+its rationale). Key points for contributors:
 
 - The workflow is a thin caller of the shared reusable workflow
-  `leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned
-  by commit SHA; caller guide in that repository's
-  `docs/mutation-cargo-workflow.md`). It is informational only: it
-  never gates pull requests, and surviving mutants do not fail the run.
-  Scheduled runs execute daily, scoped to Rust files changed in the
-  preceding 25 hours, and skip cheaply when nothing changed. Manual
-  dispatch (select the branch in the Actions "Run workflow" control)
-  runs full mutations, fanned out across six shards with one merged
-  summary.
+  `leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned by
+  commit SHA; caller guide in that repository's
+  `docs/mutation-cargo-workflow.md`). It is informational only: it never gates
+  pull requests, and surviving mutants do not fail the run. Scheduled runs
+  execute daily, scoped to Rust files changed in the preceding 25 hours, and
+  skip cheaply when nothing changed. Manual dispatch (select the branch in the
+  Actions "Run workflow" control) runs full mutations, fanned out across eight
+  shards with one merged summary.
 - The caller passes `--all-features` so feature-gated tests (e.g. the
-  `serializer-serde` bridge round-trips) run against mutants, and
-  excludes the example/test-support scaffolding
-  (`src/codec/examples.rs`, `src/test_helpers.rs`,
-  `src/connection/test_support.rs`) whose survivors are noise — both
-  per issue #571.
+  `serializer-serde` bridge round-trips) run against mutants, and excludes the
+  example/test-support scaffolding whose survivors are noise — both per issue
+  #571: `src/codec/examples.rs`, `src/test_helpers.rs`, `src/test_helpers/**`
+  (the module-root glob does not match the directory's submodules),
+  `src/connection/test_support.rs`, and `src/**/tests.rs` (cfg(test) companion
+  files that cargo-mutants cannot detect as test code, #599). The contract test
+  `tests/workflow_contracts/mutation_testing_test.py` (run via
+  `make test-workflow-contracts`) pins this exclude list, the `--all-features`
+  extra-args, and the shard count.
+- Mutants proven equivalent (incapable of changing observable
+  behaviour) are annotated in source with `#[cfg_attr(test, mutants::skip)]`
+  plus a one-line justification. The attribute comes from the
+  [`mutants`](https://docs.rs/mutants) crate, a dev-dependency of no-op
+  decorator attributes; keep skips rare, justified, and reserved for stateless
+  equivalences — prefer a killing test wherever the mutation is observable.
 - [`cargo-mutants`](https://mutants.rs/) is a CI-runtime dependency
-  only, installed by the shared workflow at a pinned version; it is not
-  a Cargo dependency and is not required locally. To reproduce a run
-  locally, install it with `cargo install cargo-mutants` and run, for
-  example,
+  only, installed by the shared workflow at a pinned version; it is not a Cargo
+  dependency and is not required locally. To reproduce a run locally, install
+  it with `cargo install cargo-mutants` and run, for example,
   `cargo mutants --in-place --all-features --file src/frame/mod.rs`.
 - Results appear in the run's merged job summary (caught/missed/timeout
-  counts plus a table of surviving mutants per target) and as
-  downloadable `mutation-report-*` artefacts containing `mutants.out/`
-  (one per shard on full runs).
+  counts plus a table of surviving mutants per target) and as downloadable
+  `mutation-report-*` artefacts containing `mutants.out/` (one per shard on
+  full runs).
 - Surviving mutants are a test-improvement backlog: triage them for
   equivalent mutations (false survivors) before writing tests. Mutants in
-  `wireframe_testing` are mostly false survivors because that crate's
-  logic is exercised chiefly by the root crate's suite; treat its table
-  as advisory.
+  `wireframe_testing` are mostly false survivors because that crate's logic is
+  exercised chiefly by the root crate's suite; treat its table as advisory.
 
 ## Workflow pins and Dependabot
 
-Dependabot owns the upgrade of GitHub Actions and reusable workflows,
-including calls into `leynos/shared-actions`. Contract tests that assert a
-caller's exact commit SHA create a lockstep dependency: every time Dependabot
-opens a bump PR, the test fails until a human edits the pinned constant to
-match. That defeats the purpose of automated dependency updates and turns a
-routine bump into a manual chore.
+Dependabot owns the upgrade of GitHub Actions and reusable workflows, including
+calls into `leynos/shared-actions`. Contract tests that assert a caller's exact
+commit SHA create a lockstep dependency: every time Dependabot opens a bump PR,
+the test fails until a human edits the pinned constant to match. That defeats
+the purpose of automated dependency updates and turns a routine bump into a
+manual chore.
 
-Contract tests may still verify the *shape* of a reusable-workflow caller.
-They must not verify the specific SHA value.
+Contract tests may still verify the *shape* of a reusable-workflow caller. They
+must not verify the specific SHA value.
 
 - Do assert the workflow references the correct reusable workflow path.
 - Do assert the ref is pinned to a full 40-character commit SHA, not a
