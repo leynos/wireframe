@@ -14,7 +14,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       BUILD_PROFILE: debug
-      WHITAKER_INSTALLER_VERSION: '0.2.1'
+      WHITAKER_INSTALLER_VERSION: '0.2.6'
     steps:
       # Full history is required for the CodeScene `cs-coverage check` gate,
       # which diffs a pull request against its merge base.
