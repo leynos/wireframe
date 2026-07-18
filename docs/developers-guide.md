@@ -47,8 +47,8 @@ packet-oriented and works with `Envelope` or another packet-shaped type; it
 does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
-including serialization and `FrameCodec::wrap_payload`. Protocol hooks remain
-packet-oriented and run before serialization. The known gap is narrower:
+including serialisation and `FrameCodec::wrap_payload`. Protocol hooks remain
+packet-oriented and run before serialisation. The known gap is narrower:
 `before_send` does not yet fire for app-router responses routed through
 `FramePipeline`; roadmap item `11.2.1` owns that closure.
 

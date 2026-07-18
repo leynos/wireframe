@@ -50,7 +50,7 @@ reference when navigating the project's design and architecture material.
 - [Approve stable public byte container](execplans/10-1-1-approve-stable-public-byte-container.md)
   Completed execution plan for roadmap item `10.1.1` and ADR 008.
 - [Approve actor and codec-driver boundary](execplans/10-1-3-approve-actor-and-codec-driver-boundary.md)
-  Execution plan for roadmap item `10.1.3` and ADR 010.
+  Completed execution plan for roadmap item `10.1.3` and ADR 010.
 - [Execution plan directory](execplans/) Working plans for roadmap items,
   migrations, verification work, and documentation follow-up tasks.
 

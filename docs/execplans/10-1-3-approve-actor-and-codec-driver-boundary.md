@@ -152,7 +152,7 @@ escalation, not a workaround.
 - [x] (2026-06-24) Stage D: run documentation and commit gates, then a
   `coderabbit review --agent` pass; clear all concerns. CodeRabbit completed
   with `findings: 0`.
-- [x] (2026-06-24) Mark roadmap `10.1.3` done and finalise this ExecPlan to
+- [x] (2026-06-24) Mark roadmap `10.1.3` done and finalize this ExecPlan to
   `COMPLETE`.
 
 Each stage is gated by `make markdownlint` (and `make nixie` if a diagram is
@@ -224,7 +224,7 @@ edit and its propagation can be reviewed independently.
   because `F::Frame` and `Envelope` can differ (deferred in roadmap `9.3.1`) —
   is best closed by unifying the response path onto the actor's `Envelope` hook
   stage under `11.2.1`, not by relocating hooks downward.
-  Date/Author: 2026-06-22, planning agent (with Logisphere panel input).
+  Date: 2026-06-22
 
 - Decision: Resolve ADR 010 Outstanding Decision (B) with no public
   feature-gated compatibility shim; keep `Packet for Vec<u8>` in test support and
@@ -239,7 +239,7 @@ edit and its propagation can be reviewed independently.
   Because the impl is public, Telefono (contracts lens) flagged its removal as
   a breaking change, so it is bound to `11.2.2` / `14.2.1` rather than treated
   as a free internal cleanup.
-  Date/Author: 2026-06-22, planning agent (with Logisphere panel input).
+  Date: 2026-06-22
 
 - Decision: Resolve ADR 010 Outstanding Decision (C) as "no new trait".
   Rationale: `Packet` (`id`, `into_parts`, `from_parts`) plus
@@ -248,7 +248,7 @@ edit and its propagation can be reviewed independently.
   layer without removing copies. Prior art corroborates: tonic reuses the message
   type plus an `Encoder` rather than a bespoke packet trait, and keeps gRPC
   length-framing in a separate buffer layer (see `Artifacts and notes`).
-  Date/Author: 2026-06-22, planning agent (with Logisphere panel input).
+  Date: 2026-06-22
 
 - Decision: Record the canonical production `wrap_payload` call site in the ADR
   and require a guard against new non-driver callers (implemented in phase 11).
@@ -257,7 +257,7 @@ edit and its propagation can be reviewed independently.
   manual list rots; a grep-style guard test keeps the "sole owner" guarantee
   enforceable. The requirement is recorded now; the test is added with the
   runtime work (`11.2.3`).
-  Date/Author: 2026-06-22, planning agent (with Logisphere panel input).
+  Date: 2026-06-22
 
 - Decision: Deliver `10.1.3` as documentation only, mirroring `10.1.1` and
   `10.1.2`.
@@ -265,7 +265,7 @@ edit and its propagation can be reviewed independently.
   expanded its Decision Outcome, ticked the roadmaps, aligned the inventory, and
   added a developers'-guide note, with no runtime change. Consistency keeps the
   decision-closure phase reviewable and reversible.
-  Date/Author: 2026-06-22, planning agent.
+  Date: 2026-06-22
 
 - Decision: Begin execution from explicit user approval on 2026-06-24 while
   leaving the scope documentation-only.
@@ -273,7 +273,7 @@ edit and its propagation can be reviewed independently.
   branch already tracks `origin/10-1-3-approve-actor-and-codec-driver-boundary`,
   and the preflight inventory confirmed no decision-drift tolerance has been
   breached.
-  Date/Author: 2026-06-24, implementation agent.
+  Date: 2026-06-24
 
 - Decision: Treat the broad stale-reference grep as an advisory drift check
   rather than a literal zero-output command.
@@ -282,7 +282,7 @@ edit and its propagation can be reviewed independently.
   the only matches from the original command were this ExecPlan's own risk and
   validation prose. No governing status reference still described ADR 010 as
   proposed, so this did not breach the cross-reference-drift risk.
-  Date/Author: 2026-06-24, implementation agent.
+  Date: 2026-06-24
 
 ## Outcomes & retrospective
 
@@ -429,13 +429,12 @@ Validate with `make markdownlint` and commit Stage C on its own.
 ### Stage D: gates and review
 
 Run the full commit gateway and a CodeRabbit pass; clear every concern before
-finalising. Then tick this plan's `Progress` items, set `Status: COMPLETE`, and
+finalizing. Then tick this plan's `Progress` items, set `Status: COMPLETE`, and
 complete `Outcomes & retrospective`.
 
 ## Concrete steps
 
-Run all commands from the repository root
-(`/home/leynos/.lody/repos/github---leynos---wireframe/worktrees/9f3f8a4e-aca9-4624-b9c5-92de91c9e0bf`).
+Run all commands from the repository root (`.`).
 
 1. Confirm the call-site inventory still holds before writing the ADR claim:
 
@@ -476,7 +475,7 @@ Run all commands from the repository root
    make test      2>&1 | tee /tmp/test-wireframe-10-1-3.out
    ```
 
-   Run sequentially (the environment caches builds; do not parallelise).
+   Run sequentially (the environment caches builds; do not parallelize).
 
 5. Request review:
 
@@ -484,7 +483,7 @@ Run all commands from the repository root
    coderabbit review --agent 2>&1 | tee /tmp/coderabbit-wireframe-10-1-3.out
    ```
 
-   Resolve every concern, re-running the relevant gate, before finalising.
+   Resolve every concern, re-running the relevant gate, before finalizing.
 
 ## Validation and acceptance
 
@@ -540,7 +539,7 @@ transport framing:
   message trait's concern. tonic introduces no bespoke "serializable packet"
   trait — it reuses the message type plus an encoder.
   Source: <https://docs.rs/tonic/latest/tonic/codec/index.html>.
-- **tokio_util::codec** parameterises `Encoder<Item>`/`Decoder` on the item
+- **tokio_util::codec** parameterizes `Encoder<Item>`/`Decoder` on the item
   type and owns framing in `Framed`, keeping the *item* distinct from the byte
   buffer. The tonic maintainers note the two trait families differ mainly in
   tokio-util's `Encoder` taking the item as a type parameter.
