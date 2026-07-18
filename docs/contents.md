@@ -22,12 +22,20 @@ reference when navigating the project's design and architecture material.
 - [Preamble validator](preamble-validator.md) Validating client connection
   preambles.
 
+## Requests for comments
+
+- [RFC 0001: protocol-agnostic test harness lifecycle][rfc-0001]
+  Proposed server lifecycle and custom-client connector layers for
+  `wireframe_testing`.
+
+[rfc-0001]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md
+
 ## Architectural decision records
 
 - [ADR 001: multi-packet streaming response API](adr-001-multi-packet-streaming-response-api.md)
   Accepted response API for multi-packet and streaming replies.
 - [ADR 002: streaming requests and shared message assembly](adr-002-streaming-requests-and-shared-message-assembly.md)
-  Decision for request streaming and shared assembly behaviour.
+  Decision for streaming requests and shared assembly behaviour.
 - [ADR 003: replace Cucumber with rstest-bdd](adr-003-replace-cucumber-with-rstest-bdd.md)
   Decision to use Rust-native behaviour-driven development (BDD) tests.
 - [ADR 004: pluggable protocol codecs](adr-004-pluggable-protocol-codecs.md)
@@ -76,8 +84,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   fixtures for clean tests.
 - [Mocking network outages](mocking-network-outages-in-rust.md) Tutorial for
   simulating network outages in tests.
-- [Testing helpers](wireframe-testing-crate.md) Planned companion crate with
-  testing helpers.
+- [Testing helpers](wireframe-testing-crate.md) Design and public API for the
+  `wireframe_testing` companion crate.
 
 ## Operations and resilience
 
