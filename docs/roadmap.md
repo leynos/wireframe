@@ -777,6 +777,22 @@ document so larger deployments can adopt the library confidently.
   protocols remain ergonomic.
 - [x] 17.3.2. Publish reusable test harnesses that spin up an in-process server
   and client pair, allowing downstream crates to verify compatibility.
+- [ ] 17.3.3. Extract a protocol-agnostic server lifecycle harness that
+  accepts a fully configured, unbound `WireframeServer`, binds a reserved
+  loopback listener, waits for readiness, and returns an idempotently stoppable
+  `RunningWireframeServer`. Preserve the existing pair helpers as additive,
+  source-compatible wrappers. See
+  [RFC 0001](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md).
+- [ ] 17.3.4. Add a caller-supplied asynchronous connector that composes the
+  running server with any protocol-specific client while cleaning up the server
+  if connection fails. Prove the public API with a non-default codec, a typed
+  preamble, type-changing builder configuration, and downstream-style
+  behavioural tests. Requires 17.3.3.
+- [ ] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run its
+  all-feature tests and doctests in the Makefile and Continuous Integration
+  workflow, repair the examples tracked by issue #578, and prevent the companion
+  crate from drifting behind the root package. This item must complete before
+  publishing the lifecycle extension.
 
 ### 17.4. Docs and adoption
 
