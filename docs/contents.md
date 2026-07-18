@@ -35,7 +35,7 @@ reference when navigating the project's design and architecture material.
 - [ADR 001: multi-packet streaming response API](adr-001-multi-packet-streaming-response-api.md)
   Accepted response API for multi-packet and streaming replies.
 - [ADR 002: streaming requests and shared message assembly](adr-002-streaming-requests-and-shared-message-assembly.md)
-  Decision for streaming requests and shared assembly behaviour.
+  Decision for request streaming and shared assembly behaviour.
 - [ADR 003: replace Cucumber with rstest-bdd](adr-003-replace-cucumber-with-rstest-bdd.md)
   Decision to use Rust-native behaviour-driven development (BDD) tests.
 - [ADR 004: pluggable protocol codecs](adr-004-pluggable-protocol-codecs.md)
