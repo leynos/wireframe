@@ -375,7 +375,7 @@ Items `10.1.1` (ADR 008, commit `cd153de`) and `10.1.2` (ADR 009, commit
 ### Stage A: research and propose (no edits) — done during planning
 
 Completed. Findings are captured in `Context and orientation`, `Surprises &
-discoveries`, and `Artifacts and notes`. The three Outstanding Decisions are
+discoveries`, and `Artefacts and notes`. The three Outstanding Decisions are
 resolved in `Decision log`. The Logisphere panel returned "Proceed with
 conditions"; the conditions are folded into the constraints and the ADR rewrite
 below.
@@ -524,7 +524,7 @@ call-site inventory in step 1 returns more than one production caller, that
 breaches Tolerance 2: stop and escalate rather than weakening the ADR's "sole
 owner" claim.
 
-## Artifacts and notes
+## Artefacts and notes
 
 ### Prior art (firecrawl research)
 
