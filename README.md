@@ -1,5 +1,8 @@
 # Wireframe
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](
+https://deepwiki.com/leynos/wireframe)
+
 **Wireframe** is an experimental Rust library that simplifies building servers
 and clients for custom binary protocols. The design borrows heavily from
 [Actix Web](https://actix.rs/) to provide a familiar, declarative API for
