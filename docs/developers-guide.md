@@ -220,6 +220,38 @@ its rationale). Key points for contributors:
   `wireframe_testing` are mostly false survivors because that crate's logic is
   exercised chiefly by the root crate's suite; treat its table as advisory.
 
+### Workflow contract tests
+
+Because the caller is configuration rather than code, a contract test pins
+the shape it must uphold, failing the pull request when the caller drifts —
+repointing the pin at a branch, widening the token scope, or dropping a
+configuration input — rather than letting the breakage surface only in a
+scheduled run. The test lives at
+`tests/workflow_contracts/mutation_testing_test.py` and parses
+`.github/workflows/mutation-testing.yml` with PyYAML. Run it locally with
+`make test-workflow-contracts`. The test validates:
+
+- the `uses:` reference targets `mutation-cargo.yml` pinned to a full
+  40-character lowercase hex commit SHA — the value itself is not asserted,
+  so Dependabot bumps it freely (see [Workflow pins and
+  Dependabot](#workflow-pins-and-dependabot));
+- job permissions are exactly least-privilege (`contents: read`,
+  `id-token: write`);
+- the workflow-level default token scope is empty (`permissions: {}`);
+- `concurrency` serializes runs per ref (`mutation-testing-${{ github.ref
+  }}`) without cancelling one in progress; and
+- the triggers keep the daily schedule and a plain `workflow_dispatch` with
+  no legacy branch input.
+
+A sixth test pins the `with:` block itself: `extra-args: "--all-features"`
+(so feature-gated tests run against mutants, matching the CI baseline),
+`shard-count: 8`, and the `exclude-globs` scaffolding list
+(`src/test_helpers.rs`, `src/test_helpers/**`, `src/connection/test_support.rs`,
+`src/codec/examples.rs`, and `src/**/tests.rs`). It also asserts that
+`extra-crate-dirs` is *absent*, guarding the temporary removal of the
+`wireframe_testing` companion target until its standalone doctests compile
+again (#578); restore that assertion alongside the input when #578 closes.
+
 ## Workflow pins and Dependabot
 
 Dependabot owns the upgrade of GitHub Actions and reusable workflows, including
