@@ -29,8 +29,7 @@ A reader can observe success in three ways once the plan is executed:
    `docs/zero-copy-frame-and-payload-migration-roadmap.md` item `1.1.3` (with
    its child bullets) are checked `[x]`.
 3. `make check-fmt`, `make lint`, `make test`, and `make markdownlint` all pass
-   on a clean tree, and a `coderabbit review --agent` pass raises no
-   outstanding concerns.
+   on a clean tree, and an automated review raises no outstanding concerns.
 
 This item changes **no Rust code and no public API**. It is a documentation and
 decision artefact. The runtime changes it sanctions are deliberately deferred to
@@ -149,9 +148,8 @@ escalation, not a workaround.
 - [x] (2026-06-24) Stage C: propagate the acceptance across `roadmap.md`, the
   zero-copy migration roadmap, the inventory, `contents.md`, and
   `developers-guide.md`. Commit: `4123b3e`.
-- [x] (2026-06-24) Stage D: run documentation and commit gates, then a
-  `coderabbit review --agent` pass; clear all concerns. CodeRabbit completed
-  with `findings: 0`.
+- [x] (2026-06-24) Stage D: run documentation and commit gates, then an
+  automated review; clear all concerns. The automated review found no concerns.
 - [x] (2026-06-24) Mark roadmap `10.1.3` done and finalize this ExecPlan to
   `COMPLETE`.
 
@@ -205,10 +203,10 @@ edit and its propagation can be reviewed independently.
 - Observation: The full gate and review pass succeeded after the documentation
   changes.
   Evidence: `make markdownlint`, `make check-fmt`, `make lint`, and `make test`
-  all exited 0 on 2026-06-24 using tee logs under `/tmp`. `coderabbit
-  review --agent` completed with `findings: 0`.
-  Impact: no deterministic gate failure or CodeRabbit concern remains for this
-  decision-closure item.
+  all exited 0 on 2026-06-24 using tee logs under `/tmp`. The automated review
+  completed with no concerns.
+  Impact: no deterministic gate failure or automated-review concern remains for
+  this decision-closure item.
 
 ## Decision log
 
@@ -236,8 +234,8 @@ edit and its propagation can be reviewed independently.
   `impl CorrelatableFrame for Vec<u8>` lives in production module
   `src/correlation.rs` but has no production caller; ADR 009 already routes
   runtime bridges to ADR 010 and removes middleware `&mut Vec<u8>` editors.
-  Because the impl is public, Telefono (contracts lens) flagged its removal as
-  a breaking change, so it is bound to `11.2.2` / `14.2.1` rather than treated
+  Because the impl is public, its removal is a breaking change, so it is bound
+  to `11.2.2` / `14.2.1` rather than treated
   as a free internal cleanup.
   Date: 2026-06-22
 
@@ -253,8 +251,8 @@ edit and its propagation can be reviewed independently.
 - Decision: Record the canonical production `wrap_payload` call site in the ADR
   and require a guard against new non-driver callers (implemented in phase 11).
   Rationale: ADR 010's "Known Risks" already asks for a tracked list of
-  non-driver callers. Buzzy Bee (scaling lens) and Doggylump (ops lens) noted a
-  manual list rots; a grep-style guard test keeps the "sole owner" guarantee
+  non-driver callers. A manual list rots; a grep-style guard test keeps the
+  "sole owner" guarantee
   enforceable. The requirement is recorded now; the test is added with the
   runtime work (`11.2.3`).
   Date: 2026-06-22
@@ -376,9 +374,8 @@ Items `10.1.1` (ADR 008, commit `cd153de`) and `10.1.2` (ADR 009, commit
 
 Completed. Findings are captured in `Context and orientation`, `Surprises &
 discoveries`, and `Artefacts and notes`. The three Outstanding Decisions are
-resolved in `Decision log`. The Logisphere panel returned "Proceed with
-conditions"; the conditions are folded into the constraints and the ADR rewrite
-below.
+resolved in `Decision log`. Design review identified conditions that are folded
+into the constraints and the ADR rewrite below.
 
 ### Stage B: author the accepted ADR 010
 
@@ -428,7 +425,7 @@ Validate with `make markdownlint` and commit Stage C on its own.
 
 ### Stage D: gates and review
 
-Run the full commit gateway and a CodeRabbit pass; clear every concern before
+Run the full commit gateway and an automated review; clear every concern before
 finalizing. Then tick this plan's `Progress` items, set `Status: COMPLETE`, and
 complete `Outcomes & retrospective`.
 
@@ -477,11 +474,8 @@ Run all commands from the repository root (`.`).
 
    Run sequentially (the environment caches builds; do not parallelize).
 
-5. Request review:
-
-   ```bash
-   coderabbit review --agent 2>&1 | tee /tmp/coderabbit-wireframe-10-1-3.out
-   ```
+5. Run the automated review and record its result under
+   `/tmp/automated-review-wireframe-10-1-3.out`.
 
    Resolve every concern, re-running the relevant gate, before finalizing.
 
@@ -503,7 +497,7 @@ Acceptance is behaviour a reviewer can verify:
 3. `rg -ni "adr.?010" docs/ | rg -i "propos"` returns nothing.
 4. `make markdownlint`, `make check-fmt`, `make lint`, and `make test` each exit
    0; their `tee` logs in `/tmp` show success.
-5. `coderabbit review --agent` reports no unresolved concerns.
+5. The automated review reports no unresolved concerns.
 
 Quality criteria ("done"):
 
@@ -513,7 +507,7 @@ Quality criteria ("done"):
 - Documentation: all five governing documents agree ADR 010 is accepted; the
   developers' guide records the boundary and the tracked `before_send` gap.
 
-Quality method: the commands in `Concrete steps`, then CodeRabbit.
+Quality method: the commands in `Concrete steps`, then the automated review.
 
 ## Idempotence and recovery
 
@@ -549,23 +543,22 @@ Both build the byte plane on `bytes::Bytes`, matching ADR 008's accepted public
 byte container and reinforcing Option B: keep packet semantics in `Packet` +
 `EncodeWith`, and keep transport framing in the codec driver.
 
-### Logisphere design review (conditions folded in)
+### Design review conditions
 
-Verdict: ⚠️ Proceed with conditions. Conditions, each addressed above:
+Design review identified the following conditions, each addressed above:
 
-- ☎️ Telefono: removing public `CorrelatableFrame for Vec<u8>` is breaking —
-  sequence with the epic-284 breaking release (`11.2.2`/`14.2.1`); `10.1.3`
+- Removing public `CorrelatableFrame for Vec<u8>` is breaking. Sequence the
+  change with the epic-284 breaking release (`11.2.2`/`14.2.1`); `10.1.3`
   changes no public API. (Constraint 1; Risk 2; Decision (B).)
-- 🐶 Doggylump: document the `before_send` asymmetry, do not hide it; track to
-  `11.2.1`. (Decision (A); Risk 3; Stage C step 4.)
-- 🐝 Buzzy Bee: guard the "sole owner" guarantee with a check against new
-  non-driver `wrap_payload` callers; record now, implement in `11.2.3`.
+- Document the `before_send` asymmetry and track its closure under `11.2.1`.
+  (Decision (A); Risk 3; Stage C step 4.)
+- Guard the "sole owner" guarantee against new non-driver `wrap_payload`
+  callers. Record the requirement now and implement the check in `11.2.3`.
   (Decision; ADR tracked-call-site note.)
-- 🐼 Pandalump: state the actor stays generic over `Packet` while `Vec<u8>`
-  ceases to be a sanctioned frame type. (Context; ADR Decision Outcome.)
-- 🐈🧇 Wafflecat: the strongest alternative — move hooks to the transport-frame
-  layer — is rejected because it strips the packet semantics hooks rely on.
-  (Decision (A).)
+- State that the actor stays generic over `Packet` while `Vec<u8>` ceases to be
+  a sanctioned frame type. (Context; ADR Decision Outcome.)
+- Reject moving hooks to the transport-frame layer because it strips the packet
+  semantics hooks rely on. (Decision (A).)
 
 ## Interfaces and dependencies
 
@@ -598,8 +591,8 @@ breaking release).
 Initial draft (2026-06-22): created the decision-closure plan for roadmap
 `10.1.3`. Resolved ADR 010's three Outstanding Decisions, captured the
 sibling-item delivery pattern from `10.1.1`/`10.1.2`, recorded prior-art
-corroboration (tonic, tokio_util) and a Logisphere "proceed with conditions"
-review, and scoped the work to documentation only with implementation deferred
+corroboration (tonic, tokio_util) and a design review with conditions, and
+scoped the work to documentation only with implementation deferred
 to roadmap phase 11. Status: DRAFT, awaiting approval before execution.
 
 Execution update (2026-06-24): user approval received, branch tracking confirmed
@@ -610,4 +603,4 @@ ADR edits.
 Completion update (2026-06-24): accepted ADR 010, propagated the acceptance
 through the governing documentation, passed `make markdownlint`,
 `make check-fmt`, `make lint`, and `make test`, and completed
-`coderabbit review --agent` with `findings: 0`. Status: COMPLETE.
+an automated review with no concerns. Status: COMPLETE.
