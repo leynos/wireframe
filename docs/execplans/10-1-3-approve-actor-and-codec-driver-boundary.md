@@ -466,27 +466,39 @@ Run all commands from the repository root (`.`).
    Commit with a message recording acceptance of ADR 010 and resolution of its
    Outstanding Decisions.
 
-3. Apply Stage C edits, then re-run `make markdownlint`, and assert that no
-   governing document still calls ADR 010 proposed. The assertion filters out
-   this ExecPlan's own risk/validation prose and the ADR's preserved proposal
-   history (dual dates, rejected options), then fails if anything else survives:
+3. Apply Stage C edits, then re-run `make markdownlint`. Assert two things: that
+   the ADR itself declares acceptance, and that no governing document still
+   calls ADR 010 proposed. The stale-reference scan excludes only this
+   ExecPlan's own risk/validation prose and the ADR's documented preserved
+   proposal-history line (the dual `Proposed`/`Accepted` dates), so a future
+   stale status or governing reference elsewhere in the ADR is still caught:
 
    ```bash
+   adr=docs/adr-010-transport-frame-boundary-for-zero-copy.md
+
+   # 1. The ADR must declare acceptance in its Status section.
+   if ! rg -Uq "## Status\n\nAccepted\b" "$adr"; then
+     echo "FAIL: ADR 010 does not declare Status: Accepted"
+     exit 1
+   fi
+
+   # 2. No governing document may still call ADR 010 proposed. Exclude this
+   #    ExecPlan's own prose and the ADR's preserved dual-date line only.
    if rg -ni "adr.?010|transport.frame boundary" docs/ \
         | rg -i "propos" \
         | rg -v -e "execplans/10-1-3-approve-actor-and-codec-driver-boundary\.md" \
-              -e "adr-010-transport-frame-boundary-for-zero-copy\.md" \
+              -e "Proposed 2026-04-12\. Accepted 2026-06-22\." \
         | grep -q .; then
      echo "FAIL: a governing document still describes ADR 010 as proposed"
      exit 1
    fi
-   echo "OK: no governing document describes ADR 010 as proposed"
+   echo "OK: ADR 010 is Accepted and no governing document calls it proposed"
    ```
 
-   Expected: the assertion prints `OK` and exits 0. The only remaining matches
-   are this ExecPlan's risk/validation text and the ADR's preserved proposal
-   history, which are not cross-reference drift. Stage and commit the
-   propagation edits.
+   Expected: both checks pass and the script prints `OK` and exits 0. The scan
+   still fails on any other ADR line, or any other document, that ties a
+   governing ADR 010 reference to "proposed". Stage and commit the propagation
+   edits.
 
 4. Run the commit gateway (documentation-only change, but the full suite must
    stay green):
@@ -519,10 +531,10 @@ Acceptance is behaviour a reviewer can verify:
    Decisions, each linking a phase-11 roadmap item.
 2. `docs/roadmap.md` line for `10.1.3` and the zero-copy migration roadmap line
    for `1.1.3` (and children) render checked.
-3. The path-aware stale-reference assertion in `Concrete steps` step 3 prints
-   `OK` and exits 0: once this ExecPlan's risk/validation prose and the ADR's
-   preserved proposal history are excluded, no governing document describes ADR
-   010 as proposed.
+3. The assertion in `Concrete steps` step 3 passes: the ADR declares
+   `Status: Accepted`, and — once this ExecPlan's risk/validation prose and the
+   ADR's preserved dual-date proposal-history line are excluded — no governing
+   document, including any other line of the ADR, describes it as proposed.
 4. `make markdownlint`, `make check-fmt`, `make lint`, and `make test` each exit
    0; their `tee` logs in `/tmp` show success.
 5. The automated review reports no unresolved concerns.
