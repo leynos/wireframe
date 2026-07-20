@@ -63,7 +63,7 @@ sections below.
    The existing `Packet` trait composed with `EncodeWith<Serializer>` already
    expresses "a packet that can be serialized"; `Envelope` satisfies both.
    Adding a bridging trait is ADR 010's rejected Option C and is corroborated as
-   unnecessary by prior art (see `Artifacts and notes`).
+   unnecessary by prior art (see `Artefacts and notes`).
 
 ## Constraints
 
@@ -161,11 +161,15 @@ edit and its propagation can be reviewed independently.
 
 - Observation: The "sole owner" goal of ADR 010 is already substantially met in
   code on the outbound path.
-  Evidence: `rg -n "\.wrap_payload\(" src/` shows exactly one non-test
+  Evidence: a path-aware inventory that excludes examples, tests, test helpers,
+  and testkit —
+  `rg -n "\.wrap_payload\(" src/ -g '!**/tests.rs' -g '!**/tests/**' -g
+  '!**/testkit/**' -g '!**/examples.rs' -g '!**/examples/**' -g
+  '!**/test_helpers/**' -g '!**/test_support.rs'` — returns exactly one
   production caller, `src/app/outbound_encoding.rs:36`
-  (`codec.wrap_payload(Bytes::from(bytes))`); all other matches are under
-  `*/tests.rs`, `src/codec/examples.rs`, `src/test_helpers/`, or
-  `src/testkit/`.
+  (`codec.wrap_payload(Bytes::from(bytes))`); the excluded non-production
+  matches live under `src/codec/tests.rs`, `src/codec/tests/property/`, and
+  `src/testkit/support.rs`.
   Impact: `10.1.3` is genuinely a decision-closure item. The remaining work is
   to write the boundary down precisely and dispose of the test-only bridges, not
   to relocate production framing logic.
@@ -178,8 +182,10 @@ edit and its propagation can be reviewed independently.
   roadmap `11.1.2` / issue #538 rather than implying `10.1.3` removes it.
 - Observation: The plan's preflight call-site inventory still holds at
   execution time.
-  Evidence: on 2026-06-24,
-  `rg -n "\.wrap_payload\(" src/ | grep -v -i test` returned only
+  Evidence: on 2026-06-24, the path-aware inventory
+  `rg -n "\.wrap_payload\(" src/ -g '!**/tests.rs' -g '!**/tests/**' -g
+  '!**/testkit/**' -g '!**/examples.rs' -g '!**/examples/**' -g
+  '!**/test_helpers/**' -g '!**/test_support.rs'` returned only
   `src/app/outbound_encoding.rs:36:    let frame =
   codec.wrap_payload(Bytes::from(bytes));`.
   Impact: the ADR can safely state the codec driver is the only production
@@ -338,7 +344,7 @@ This section assumes no prior knowledge of the repository.
 ### The governing documents
 
 - [`docs/adr-010-transport-frame-boundary-for-zero-copy.md`](../adr-010-transport-frame-boundary-for-zero-copy.md)
-  — the decision to accept; currently `Proposed`.
+  — the accepted decision; now `Accepted`.
 - [`docs/frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md) — the source
   inventory; its "Resolved direction for epic 284" and ADR list reference ADR
   010.
@@ -433,13 +439,22 @@ complete `Outcomes & retrospective`.
 
 Run all commands from the repository root (`.`).
 
-1. Confirm the call-site inventory still holds before writing the ADR claim:
+1. Confirm the call-site inventory still holds before writing the ADR claim.
+   Exclude every non-production path explicitly (examples, tests, test helpers,
+   and testkit) rather than a case-insensitive `test` filter, which would drop a
+   production path that merely contains "test":
 
    ```bash
-   rg -n "\.wrap_payload\(" src/ | grep -v -i test
+   rg -n "\.wrap_payload\(" src/ \
+     -g '!**/tests.rs' -g '!**/tests/**' -g '!**/testkit/**' \
+     -g '!**/examples.rs' -g '!**/examples/**' \
+     -g '!**/test_helpers/**' -g '!**/test_support.rs'
    ```
 
-   Expected: a single line, `src/app/outbound_encoding.rs:36: ... codec.wrap_payload(Bytes::from(bytes));`.
+   Expected: a single line,
+   `src/app/outbound_encoding.rs:36:    let frame = codec.wrap_payload(Bytes::from(bytes));`.
+   The excluded non-production matches live under `src/codec/tests.rs`,
+   `src/codec/tests/property/`, and `src/testkit/support.rs`.
 
 2. Apply Stage B edits, then:
 
@@ -451,17 +466,27 @@ Run all commands from the repository root (`.`).
    Commit with a message recording acceptance of ADR 010 and resolution of its
    Outstanding Decisions.
 
-3. Apply Stage C edits, then re-run `make markdownlint`, confirm no document
-   still calls ADR 010 proposed:
+3. Apply Stage C edits, then re-run `make markdownlint`, and assert that no
+   governing document still calls ADR 010 proposed. The assertion filters out
+   this ExecPlan's own risk/validation prose and the ADR's preserved proposal
+   history (dual dates, rejected options), then fails if anything else survives:
 
    ```bash
-   rg -ni "adr.?010|transport.frame boundary" docs/ | rg -i "propos"
+   if rg -ni "adr.?010|transport.frame boundary" docs/ \
+        | rg -i "propos" \
+        | rg -v -e "execplans/10-1-3-approve-actor-and-codec-driver-boundary\.md" \
+              -e "adr-010-transport-frame-boundary-for-zero-copy\.md" \
+        | grep -q .; then
+     echo "FAIL: a governing document still describes ADR 010 as proposed"
+     exit 1
+   fi
+   echo "OK: no governing document describes ADR 010 as proposed"
    ```
 
-   Expected: no governing document still describes ADR 010 as proposed. Matches
-   inside this ExecPlan's risk/validation text, or inside preserved ADR proposal
-   history such as dual dates and rejected options, are not cross-reference
-   drift. Stage and commit the propagation edits.
+   Expected: the assertion prints `OK` and exits 0. The only remaining matches
+   are this ExecPlan's risk/validation text and the ADR's preserved proposal
+   history, which are not cross-reference drift. Stage and commit the
+   propagation edits.
 
 4. Run the commit gateway (documentation-only change, but the full suite must
    stay green):
@@ -494,7 +519,10 @@ Acceptance is behaviour a reviewer can verify:
    Decisions, each linking a phase-11 roadmap item.
 2. `docs/roadmap.md` line for `10.1.3` and the zero-copy migration roadmap line
    for `1.1.3` (and children) render checked.
-3. `rg -ni "adr.?010" docs/ | rg -i "propos"` returns nothing.
+3. The path-aware stale-reference assertion in `Concrete steps` step 3 prints
+   `OK` and exits 0: once this ExecPlan's risk/validation prose and the ADR's
+   preserved proposal history are excluded, no governing document describes ADR
+   010 as proposed.
 4. `make markdownlint`, `make check-fmt`, `make lint`, and `make test` each exit
    0; their `tee` logs in `/tmp` show success.
 5. The automated review reports no unresolved concerns.
