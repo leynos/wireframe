@@ -66,7 +66,7 @@ jobs:
       # main-push runs to avoid doing the work twice.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@18bed1ca49a6de3d8882bd72635a32ae3f023d57
+        uses: leynos/shared-actions/.github/actions/generate-coverage@c3141c3d4cb2a2828d2abbcf3d94b15197740c58
         with:
           output-path: lcov.info
           format: lcov
