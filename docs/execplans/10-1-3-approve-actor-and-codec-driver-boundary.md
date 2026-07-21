@@ -483,11 +483,14 @@ Run all commands from the repository root (`.`).
    fi
 
    # 2. No governing document may still call ADR 010 proposed. Exclude this
-   #    ExecPlan's own prose and the ADR's preserved dual-date line only.
+   #    ExecPlan's own prose and, only within the ADR's own path, its
+   #    preserved dual-date line; the same dates in any other document stay
+   #    detectable.
    if rg -ni "adr.?010|transport.frame boundary" docs/ \
         | rg -i "propos" \
-        | rg -v -e "execplans/10-1-3-approve-actor-and-codec-driver-boundary\.md" \
-              -e "Proposed 2026-04-12\. Accepted 2026-06-22\." \
+        | rg -v \
+          -e "execplans/10-1-3-approve-actor-and-codec-driver-boundary\.md" \
+          -e "adr-010-transport-frame-boundary-for-zero-copy\.md:[0-9]+:Proposed 2026-04-12\. Accepted 2026-06-22\." \
         | grep -q .; then
      echo "FAIL: a governing document still describes ADR 010 as proposed"
      exit 1
