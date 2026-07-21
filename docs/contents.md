@@ -43,12 +43,14 @@ reference when navigating the project's design and architecture material.
 - [ADR 009: owned-byte migration rollout](adr-009-vec-u8-migration-rollout.md)
   Rollout policy for owned-byte compatibility during migration.
 - [ADR 010: transport frame boundary for zero-copy](adr-010-transport-frame-boundary-for-zero-copy.md)
-  Decision for the frame boundary during zero-copy migration.
+  Accepted actor and codec-driver boundary for zero-copy transport framing.
 
 ## Execution plans
 
 - [Approve stable public byte container](execplans/10-1-1-approve-stable-public-byte-container.md)
   Completed execution plan for roadmap item `10.1.1` and ADR 008.
+- [Approve actor and codec-driver boundary](execplans/10-1-3-approve-actor-and-codec-driver-boundary.md)
+  Completed execution plan for roadmap item `10.1.3` and ADR 010.
 - [Execution plan directory](execplans/) Working plans for roadmap items,
   migrations, verification work, and documentation follow-up tasks.
 

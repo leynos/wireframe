@@ -71,13 +71,13 @@ Success is measured by the following outcomes:
     are removed, and runtime bridges are governed by ADR 010.
   - [x] Success criteria: the release branch has an agreed downstream migration
     story before code changes start landing.
-- [ ] 1.1.3. Approve the transport-frame boundary for the zero-copy path. See
+- [x] 1.1.3. Approve the transport-frame boundary for the zero-copy path. See
   [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md).
-  - [ ] Confirm whether `ConnectionActor` remains envelope-oriented or takes on
+  - [x] Confirm whether `ConnectionActor` remains envelope-oriented or takes on
     codec-frame responsibilities.
-  - [ ] Confirm where protocol hooks execute when `F::Frame` differs from the
+  - [x] Confirm where protocol hooks execute when `F::Frame` differs from the
     actor payload type.
-  - [ ] Success criteria: the actor, codec driver, and protocol hook boundary
+  - [x] Success criteria: the actor, codec driver, and protocol hook boundary
     are documented and no longer depend on ad hoc `Vec<u8>` bridges.
 
 ### 1.2. Establish performance and migration baselines
