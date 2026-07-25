@@ -374,10 +374,9 @@ integration boundaries.
 ### 9.2. Fragment adaptor alignment
 
 - [x] 9.2.1. Introduce a `FragmentAdapter` trait as described in the
-  [fragmentation design](generic-message-fragmentation-and-re-assembly-design.md).
-  Fragmentation behaviour must
-  explicitly define duplicate handling, out-of-order policies, and ownership of
-  purge scheduling.
+  [fragmentation](generic-message-fragmentation-and-re-assembly-design.md)
+  design. Fragmentation behaviour must explicitly define duplicate handling,
+  out-of-order policies, and ownership of purge scheduling.
   - [x] Make fragmentation opt-in by requiring explicit configuration on the
     `WireframeApp` builder.
   - [x] Expose a public purge API, so callers can drive timeout eviction.
@@ -403,8 +402,9 @@ integration boundaries.
     fragmentation, sequential requests, disabled fragmentation).
   - [x] Add BDD behavioural tests exercising the unified codec path.
   - [x] Note: protocol hooks (`before_send`) are deferred to a follow-up
-    stage because `F::Frame` and `Envelope` types may differ (see
-    [streaming responses design](multi-packet-and-streaming-responses-design.md)).
+    stage because `F::Frame` and `Envelope` types may differ; see the
+    [streaming responses](multi-packet-and-streaming-responses-design.md)
+    design.
 
 ### 9.4. Property-based codec tests
 
@@ -417,15 +417,15 @@ integration boundaries.
 ### 9.5. Serializer boundaries and protocol metadata
 
 - [x] 9.5.1. Decouple message encoding from `bincode`-specific traits to
-  support alternative serializers (see
-  [rust-binary-router-library-design.md](rust-binary-router-library-design.md)
-  and [adr-005-serializer-abstraction.md](adr-005-serializer-abstraction.md)).
+  support alternative serializers (see the
+  [binary router library design](rust-binary-router-library-design.md) and
+  [ADR 0005](adr-005-serializer-abstraction.md)).
   - [x] Introduce a serializer-agnostic message trait or adaptor layer for
     `Message` types.
   - [x] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
   - [x] Define how frame metadata is exposed to the deserialization context to
-    enable version negotiation (see
-    [message-versioning.md](message-versioning.md)).
+    enable version negotiation (see the
+    [message versioning design](message-versioning.md)).
   - [x] Add migration guidance covering existing `bincode` users.
 
 ### 9.6. Codec performance benchmarks
@@ -444,8 +444,7 @@ integration boundaries.
   invalid frames, including oversized payloads and correlation metadata.
 - [x] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
-  recovery policies (see
-  [adr-006-test-observability.md](adr-006-test-observability.md)).
+  recovery policies (see [ADR 0006](adr-006-test-observability.md)).
 - [x] 9.7.4. Add regression tests backed by `wireframe_testing` for the
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
@@ -623,31 +622,29 @@ Wireframe's protocol, framing, and message assembly layers.
 
 ### 15.2. Protocol contract decisions
 
+Each decision below is analysed in the
+[formal verification guide](formal-verification-methods-in-wireframe.md); the
+cited section names the specific question it answers.
+
 - [ ] 15.2.1. Support a determined set of length-prefix widths (either `1`,
   `2`, `4`, and `8`, or the full `1..=8` range) and enforce them in
   constructors, conversions, and tests; record the decision in an ADR. Requires
-  15.1.1. See the
-  [formal verification guide](formal-verification-methods-in-wireframe.md)
-  §"What widths does Wireframe actually support for length prefixes?".
-  Success criteria: an ADR
-  records the decision, constructors enforce the chosen set, and existing tests
-  cover rejected widths.
+  15.1.1. See §"What widths does Wireframe actually support for length
+  prefixes?". Success criteria: an ADR records the decision, constructors
+  enforce the chosen set, and existing tests cover rejected widths.
 - [ ] 15.2.2. Treat `total_body_len` as either authoritative or advisory and
   enforce or rename it consistently across the message assembly path; record
   the decision in an ADR and add tests for both conforming and violating
-  inputs. Requires 15.1.1. See the
-  [formal verification guide](formal-verification-methods-in-wireframe.md)
-  §"Is `total_body_len` authoritative or advisory?". Success criteria: an ADR
-  records the decision, runtime code enforces the chosen semantics, and tests
-  verify both conforming and violating inputs.
+  inputs. Requires 15.1.1. See §"Is `total_body_len` authoritative or
+  advisory?". Success criteria: an ADR records the decision, runtime code
+  enforces the chosen semantics, and tests verify both conforming and violating
+  inputs.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
-  Requires 15.1.1. See the
-  [formal verification guide](formal-verification-methods-in-wireframe.md)
-  §"What fairness guarantee does `ConnectionActor` actually make?".
-  Success criteria: the
-  design document enumerates each guarantee as a named property that can be
-  referenced by Stateright model checks.
+  Requires 15.1.1. See §"What fairness guarantee does `ConnectionActor`
+  actually make?". Success criteria: the design document enumerates each
+  guarantee as a named property that can be referenced by Stateright model
+  checks.
 
 ### 15.3. Kani bounded model checks
 
@@ -815,8 +812,8 @@ ecosystem.
 - [ ] 18.2.1. Implement a formal message versioning system to allow for
   protocol evolution.
 - [ ] 18.2.2. Ensure version negotiation can consume codec metadata without
-  leaking framing details into handlers (see
-  [message-versioning.md](message-versioning.md)).
+  leaking framing details into handlers (see the
+  [message versioning design](message-versioning.md)).
 
 ### 18.3. Security
 
