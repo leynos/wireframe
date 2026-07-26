@@ -792,13 +792,17 @@ document so larger deployments can adopt the library confidently.
   accepts a fully configured, unbound `WireframeServer`, binds a reserved
   loopback listener, waits for readiness, and returns an idempotently stoppable
   `RunningWireframeServer`. Preserve the existing pair helpers as additive,
-  source-compatible wrappers. See
+  source-compatible wrappers. Cover the shutdown-idempotence, readiness, and
+  concurrent-handle invariants with `proptest` alongside the example-based
+  `rstest` cases. See
   [RFC 0001](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md).
 - [ ] 17.3.4. Add a caller-supplied asynchronous connector that composes the
   running server with any protocol-specific client while cleaning up the server
   if connection fails. Prove the public API with a non-default codec, a typed
-  preamble, type-changing builder configuration, and downstream-style
-  behavioural tests. Requires 17.3.3.
+  preamble, type-changing builder configuration, downstream-style behavioural
+  tests, and a `trybuild` compile-time test that pins the retained pair
+  helpers' inferred types and rejects misconfigured lifecycle calls. Requires
+  17.3.3.
 - [ ] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run its
   all-feature tests and doctests in the Makefile and Continuous Integration
   workflow, repair the examples tracked by issue #578, and prevent the companion

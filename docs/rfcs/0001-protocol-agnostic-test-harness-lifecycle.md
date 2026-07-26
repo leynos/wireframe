@@ -137,9 +137,11 @@ not depend on application or protocol types.
 
 ### 5.2. Running server handle
 
-The illustrative public shape is:
+The illustrative public shape is (schematic; the generic bounds and method
+bodies are elided, so the block is marked `ignore` rather than advertised as
+compilable):
 
-```rust,no_run
+```rust,ignore
 use std::net::{SocketAddr, TcpListener};
 
 use wireframe::server::{Unbound, WireframeServer};
@@ -213,9 +215,10 @@ error. A readiness timeout initiates cleanup before returning.
 ### 5.4. Caller-supplied client connector
 
 A second helper removes the remaining connection boilerplate without claiming
-ownership of arbitrary client teardown semantics:
+ownership of arbitrary client teardown semantics (schematic; `S` and the
+elided bounds keep this block `ignore` rather than compilable):
 
-```rust,no_run
+```rust,ignore
 use std::{future::Future, net::SocketAddr};
 
 use wireframe_testing::{RunningWireframeServer, TestResult};
@@ -248,9 +251,10 @@ error shape emerges during implementation.
 
 ### 5.5. Existing pair compatibility
 
-The current public functions remain:
+The current public functions remain (schematic; parameters are elided, so the
+block is marked `ignore`):
 
-```rust,no_run
+```rust,ignore
 pub async fn spawn_wireframe_pair(/* existing parameters */)
     -> TestResult<WireframePair>;
 
@@ -345,11 +349,25 @@ public `wireframe_testing` API rather than private test helpers.
 Behaviour-driven development coverage should describe observable lifecycle and
 compatibility behaviour. It should not assert private channel or task fields.
 
-### 7.3. Compatibility coverage
+### 7.3. Compatibility and compile-time coverage
 
 Existing `client_pair_harness` integration and behavioural suites remain green.
-Add compile-time coverage demonstrating that the old calls infer the same
-public types after the internal refactor.
+
+Add explicit `trybuild` compile-time coverage, reusing the pattern already
+present in the root crate's `tests/compile_error.rs`. The repository already
+depends on `trybuild`, so the companion crate should gain its own UI test
+target that:
+
+- pass-checks that the retained `spawn_wireframe_pair` and
+  `spawn_wireframe_pair_default` calls still infer the same concrete
+  `WireframePair` type after the internal refactor; and
+- compile-fail-checks that a misconfigured lifecycle call (for example, a
+  connector whose future resolves to the wrong client type, or a server passed
+  after binding) is rejected with a stable diagnostic.
+
+Keep the expected-error snapshots focused on the lifecycle and connector
+boundary rather than on incidental generic-bound spew, so that unrelated
+compiler wording changes do not churn the fixtures.
 
 ### 7.4. Companion-crate quality gates
 
@@ -367,6 +385,27 @@ success alone is not sufficient evidence because `default-members = ["."]` and
 the current Make targets omit `--workspace` and `-p wireframe_testing`.
 
 [issue-578]: https://github.com/leynos/wireframe/issues/578
+
+### 7.5. Property-based invariant coverage
+
+The lifecycle guarantees in section 5.3 are stated as invariants that must hold
+across orderings and repetition, not just for the fixed sequences that the
+`rstest` cases in section 7.1 exercise. Add `proptest` coverage that generates
+these varying inputs and asserts the invariant survives:
+
+- idempotent shutdown under a generated number of repeated `shutdown` calls,
+  including interleaved `Drop`, always converges to a single joined task and one
+  released listener;
+- readiness followed by a generated schedule of connect-then-shutdown
+  operations never orphans a task or leaks a listener; and
+- a generated pool of concurrently spawned handles binds distinct listeners and
+  shuts down independently, with no cross-handle interference.
+
+These property tests supplement, and do not replace, the example-based `rstest`
+cases. Reserve an exhaustive or formal proof only for a genuine lemma or proof
+assumption (for example, a bounded state-machine argument that shutdown cannot
+deadlock); the idempotence and ordering behaviour here is adequately covered by
+property tests and does not warrant a model checker in the first release.
 
 ## 8. Migration and release sequencing
 
