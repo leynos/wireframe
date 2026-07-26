@@ -86,8 +86,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   fixtures for clean tests.
 - [Mocking network outages](mocking-network-outages-in-rust.md) Tutorial for
   simulating network outages in tests.
-- [Testing helpers](wireframe-testing-crate.md) Design and public API for the
-  `wireframe_testing` companion crate.
+- [Testing helpers](wireframe-testing-crate.md) In-process server and client
+  pair helpers provided by the `wireframe_testing` companion crate.
 
 ## Operations and resilience
 
