@@ -1,9 +1,8 @@
 # Approve the actor and codec-driver boundary (10.1.3)
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -32,17 +31,17 @@ A reader can observe success in three ways once the plan is executed:
    on a clean tree, and an automated review raises no outstanding concerns.
 
 This item changes **no Rust code and no public API**. It is a documentation and
-decision artefact. The runtime changes it sanctions are deliberately deferred to
-roadmap phase 11 (items `11.1.2`, `11.2.1`, `11.2.2`, `11.2.3`) and the release
-review in `14.2.1`.
+decision artefact. The runtime changes it sanctions are deliberately deferred
+to roadmap phase 11 (items `11.1.2`, `11.2.1`, `11.2.2`, `11.2.3`) and the
+release review in `14.2.1`.
 
 ## The decision being approved (summary)
 
 The plan approves ADR 010's **Option B**: the connection actor stays
 packet-oriented, and the codec driver becomes the sole owner of transport-frame
-emission. Concretely, the three Outstanding Decisions in ADR 010 are resolved as
-follows. Each is justified in the `Decision Log` and `Context and orientation`
-sections below.
+emission. Concretely, the three Outstanding Decisions in ADR 010 are resolved
+as follows. Each is justified in the `Decision Log` and
+`Context and orientation` sections below.
 
 1. **Where protocol hooks run.** Protocol hooks stay **packet-oriented** and
    continue to execute against `Envelope` (a `Packet`) inside the connection
@@ -50,8 +49,8 @@ sections below.
    transport framing only; it introduces no new transport-frame-level hook. The
    current asymmetry — `before_send` fires for actor-driven push and
    multi-packet frames but not yet for app-router responses routed through
-   `FramePipeline` — is documented as a known limitation and tracked for closure
-   under roadmap `11.2.1`.
+   `FramePipeline` — is documented as a known limitation and tracked for
+   closure under roadmap `11.2.1`.
 2. **Where the `Vec<u8>` bridges live.** No public, feature-gated `Vec<u8>`
    compatibility shim is introduced at the actor boundary. `Packet for Vec<u8>`
    stays test-only in `src/connection/test_support.rs`. The public
@@ -62,8 +61,8 @@ sections below.
 3. **Whether a new "serializable packet" trait is needed.** **No new trait.**
    The existing `Packet` trait composed with `EncodeWith<Serializer>` already
    expresses "a packet that can be serialized"; `Envelope` satisfies both.
-   Adding a bridging trait is ADR 010's rejected Option C and is corroborated as
-   unnecessary by prior art (see `Artefacts and notes`).
+   Adding a bridging trait is ADR 010's rejected Option C and is corroborated
+   as unnecessary by prior art (see `Artefacts and notes`).
 
 ## Constraints
 
@@ -75,13 +74,13 @@ escalation, not a workaround.
    or `wireframe_testing/`. Runtime changes belong to phase 11.
 2. **ADRs are append-only decisions, not rewrites of history.** ADR 010 must be
    moved to `Accepted` by *resolving* its Outstanding Decisions and expanding
-   the Decision Outcome, mirroring how ADR 008 and ADR 009 were accepted. Do not
-   delete the record of the options considered or the rationale.
+   the Decision Outcome, mirroring how ADR 008 and ADR 009 were accepted. Do
+   not delete the record of the options considered or the rationale.
 3. **The accepted boundary must match the code as it exists today.** The
-   production outbound path already routes every frame through the codec driver,
-   with exactly one production `FrameCodec::wrap_payload` call site at
-   `src/app/outbound_encoding.rs:36`. The ADR text must not claim a boundary the
-   code does not yet have; where the boundary is aspirational (for example,
+   production outbound path already routes every frame through the codec
+   driver, with exactly one production `FrameCodec::wrap_payload` call site at
+   `src/app/outbound_encoding.rs:36`. The ADR text must not claim a boundary
+   the code does not yet have; where the boundary is aspirational (for example,
    `before_send` for app-router responses), it must be labelled as deferred and
    linked to its roadmap item.
 4. **British English, Oxford spelling.** Follow the documentation style guide:
@@ -94,19 +93,20 @@ escalation, not a workaround.
 
 ## Tolerances (exception triggers)
 
-1. **Scope.** If executing the plan appears to require editing any non-documentation
+1. **Scope.** If executing the plan appears to require editing any
+   non-documentation
    file, stop and escalate. This item is documentation-only by definition.
 2. **Decision drift.** If, while writing the accepted ADR, any of the three
    resolved decisions appears wrong against the actual code (for example, a
-   second production `wrap_payload` caller is discovered, or `before_send` turns
-   out to already fire for app-router responses), stop and escalate rather than
-   quietly changing the decision.
+   second production `wrap_payload` caller is discovered, or `before_send`
+   turns out to already fire for app-router responses), stop and escalate
+   rather than quietly changing the decision.
 3. **Ambiguity.** If the user's intent for a decision differs from the
-   resolution recorded here and the difference is material to phase 11, stop and
-   present the options with trade-offs.
+   resolution recorded here and the difference is material to phase 11, stop
+   and present the options with trade-offs.
 4. **Document growth.** If the ADR rewrite exceeds roughly double its current
-   length, stop and reconsider — an accepted decision record should be
-   sharper, not longer.
+   length, stop and reconsider — an accepted decision record should be sharper,
+   not longer.
 5. **Gate failures.** If `make markdownlint`, `make check-fmt`, `make lint`, or
    `make test` fail after the documentation edits and the cause is not an
    obvious local formatting fix, stop and escalate.
@@ -115,27 +115,26 @@ escalation, not a workaround.
 
 1. Risk: The accepted ADR overstates the boundary, claiming the codec driver is
    the sole framing owner when a non-driver `wrap_payload` caller still exists.
-   Severity: medium. Likelihood: low.
-   Mitigation: the inventory of `wrap_payload` call sites was taken during
-   planning (one production caller, `src/app/outbound_encoding.rs:36`; all
-   others are tests, examples, or testkit). The ADR records this list and the
-   plan adds a requirement (executed in phase 11) for a guard test that fails if
-   a new non-driver production caller appears.
+   Severity: medium. Likelihood: low. Mitigation: the inventory of
+   `wrap_payload` call sites was taken during planning (one production caller,
+   `src/app/outbound_encoding.rs:36`; all others are tests, examples, or
+   testkit). The ADR records this list and the plan adds a requirement
+   (executed in phase 11) for a guard test that fails if a new non-driver
+   production caller appears.
 2. Risk: Removing the public `impl CorrelatableFrame for Vec<u8>` is treated as
-   a free internal change and slips into a non-breaking release.
-   Severity: medium. Likelihood: medium.
-   Mitigation: the ADR and decision log mark the removal as breaking and bind it
-   to the epic-284 breaking release via roadmap `11.2.2` and the review in
-   `14.2.1`, governed by the ADR 009 rollout policy.
+   a free internal change and slips into a non-breaking release. Severity:
+   medium. Likelihood: medium. Mitigation: the ADR and decision log mark the
+   removal as breaking and bind it to the epic-284 breaking release via roadmap
+   `11.2.2` and the review in `14.2.1`, governed by the ADR 009 rollout policy.
 3. Risk: The documented `before_send` asymmetry confuses a downstream protocol
    author whose hook fires for push frames but not for routed responses.
-   Severity: low. Likelihood: medium.
-   Mitigation: the asymmetry is stated explicitly in ADR 010 and the developers'
-   guide, with a tracked closure item (`11.2.1`).
+   Severity: low. Likelihood: medium. Mitigation: the asymmetry is stated
+   explicitly in ADR 010 and the developers' guide, with a tracked closure item
+   (`11.2.1`).
 4. Risk: Cross-reference drift — one document still calls ADR 010 "proposed".
-   Severity: low. Likelihood: medium.
-   Mitigation: the concrete steps enumerate every file that names the ADR
-   status, and validation greps for stale "proposed" references to ADR 010.
+   Severity: low. Likelihood: medium. Mitigation: the concrete steps enumerate
+   every file that names the ADR status, and validation greps for stale
+   "proposed" references to ADR 010.
 
 ## Progress
 
@@ -160,32 +159,30 @@ edit and its propagation can be reviewed independently.
 ## Surprises & discoveries
 
 - Observation: The "sole owner" goal of ADR 010 is already substantially met in
-  code on the outbound path.
-  Evidence: a path-aware inventory that excludes examples, tests, test helpers,
-  and testkit —
+  code on the outbound path. Evidence: a path-aware inventory that excludes
+  examples, tests, test helpers, and testkit —
   `rg -n "\.wrap_payload\(" src/ -g '!**/tests.rs' -g '!**/tests/**' -g
   '!**/testkit/**' -g '!**/examples.rs' -g '!**/examples/**' -g
-  '!**/test_helpers/**' -g '!**/test_support.rs'` — returns exactly one
-  production caller, `src/app/outbound_encoding.rs:36`
+  '!**/test_helpers/**' -g '!**/test_support.rs'` —
+  returns exactly one production caller, `src/app/outbound_encoding.rs:36`
   (`codec.wrap_payload(Bytes::from(bytes))`); the excluded non-production
   matches live under `src/codec/tests.rs`, `src/codec/tests/property/`, and
-  `src/testkit/support.rs`.
-  Impact: `10.1.3` is genuinely a decision-closure item. The remaining work is
-  to write the boundary down precisely and dispose of the test-only bridges, not
-  to relocate production framing logic.
+  `src/testkit/support.rs`. Impact: `10.1.3` is genuinely a decision-closure
+  item. The remaining work is to write the boundary down precisely and dispose
+  of the test-only bridges, not to relocate production framing logic.
 - Observation: The final outbound copy is a single, already-annotated bridge.
   Evidence: `src/app/outbound_encoding.rs` carries a comment citing
   `https://github.com/leynos/wireframe/issues/538`, noting the
   `Bytes::from(bytes)` conversion is behaviour-preserving until the serializer
-  contract becomes `Bytes`-native.
-  Impact: ADR 010 should point its "remove the final copy" consequence at
-  roadmap `11.1.2` / issue #538 rather than implying `10.1.3` removes it.
+  contract becomes `Bytes`-native. Impact: ADR 010 should point its "remove the
+  final copy" consequence at roadmap `11.1.2` / issue #538 rather than implying
+  `10.1.3` removes it.
 - Observation: The plan's preflight call-site inventory still holds at
-  execution time.
-  Evidence: on 2026-06-24, the path-aware inventory
+  execution time. Evidence: on 2026-06-24, the path-aware inventory
   `rg -n "\.wrap_payload\(" src/ -g '!**/tests.rs' -g '!**/tests/**' -g
   '!**/testkit/**' -g '!**/examples.rs' -g '!**/examples/**' -g
-  '!**/test_helpers/**' -g '!**/test_support.rs'` returned only
+  '!**/test_helpers/**' -g '!**/test_support.rs'`
+  returned only
   `src/app/outbound_encoding.rs:36:    let frame =
   codec.wrap_payload(Bytes::from(bytes));`.
   Impact: the ADR can safely state the codec driver is the only production
@@ -194,99 +191,87 @@ edit and its propagation can be reviewed independently.
 - Observation: `AGENTS.md` asks readers to start with
   `docs/repository-layout.md`, but that file is absent in this worktree.
   Evidence: `sed -n '1,220p' docs/repository-layout.md` failed with
-  `No such file or directory`.
-  Impact: execution used `docs/contents.md`, the documentation style guide, and
-  the governing ADR, roadmap, inventory, and developers' guide files listed in
-  this plan instead.
+  `No such file or directory`. Impact: execution used `docs/contents.md`, the
+  documentation style guide, and the governing ADR, roadmap, inventory, and
+  developers' guide files listed in this plan instead.
 - Observation: The original stale-reference grep in this plan was too broad
   after execution started because the ExecPlan itself intentionally describes
-  the risk of stale "proposed" references.
-  Evidence: after Stage C, `rg -ni "adr.?010|transport.frame boundary" docs/ |
-  rg -i "propos"` matched only this ExecPlan's risk and validation text.
-  Impact: no governing document still describes ADR 010 as proposed. The
-  concrete validation step now treats ExecPlan self-references and preserved ADR
-  proposal history as non-drift.
+  the risk of stale "proposed" references. Evidence: after Stage C,
+  `rg -ni "adr.?010|transport.frame boundary" docs/ | rg -i "propos"` matched
+  only this ExecPlan's risk and validation text. Impact: no governing document
+  still describes ADR 010 as proposed. The concrete validation step now treats
+  ExecPlan self-references and preserved ADR proposal history as non-drift.
 - Observation: The full gate and review pass succeeded after the documentation
-  changes.
-  Evidence: `make markdownlint`, `make check-fmt`, `make lint`, and `make test`
-  all exited 0 on 2026-06-24 using tee logs under `/tmp`. The automated review
-  completed with no concerns.
-  Impact: no deterministic gate failure or automated-review concern remains for
-  this decision-closure item.
+  changes. Evidence: `make markdownlint`, `make check-fmt`, `make lint`, and
+  `make test` all exited 0 on 2026-06-24 using tee logs under `/tmp`. The
+  automated review completed with no concerns. Impact: no deterministic gate
+  failure or automated-review concern remains for this decision-closure item.
 
 ## Decision log
 
 - Decision: Resolve ADR 010 Outstanding Decision (A) by keeping protocol hooks
   packet-oriented and documenting the app-router `before_send` gap as a tracked
-  limitation.
-  Rationale: `before_send` currently runs in `ConnectionActor::push_frame`
-  (`src/connection/frame.rs`) against `F: Packet` (production `Envelope`), where
-  it has access to packet identity and correlation. Moving hooks to the
-  transport-frame layer would force them to operate on `F::Frame` (for example
-  `Bytes`), discarding the packet semantics they rely on. The genuine gap — that
-  `FramePipeline` does not yet fire `before_send` for app-router responses
-  because `F::Frame` and `Envelope` can differ (deferred in roadmap `9.3.1`) —
-  is best closed by unifying the response path onto the actor's `Envelope` hook
-  stage under `11.2.1`, not by relocating hooks downward.
-  Date: 2026-06-22
+  limitation. Rationale: `before_send` currently runs in
+  `ConnectionActor::push_frame` (`src/connection/frame.rs`) against `F: Packet`
+  (production `Envelope`), where it has access to packet identity and
+  correlation. Moving hooks to the transport-frame layer would force them to
+  operate on `F::Frame` (for example `Bytes`), discarding the packet semantics
+  they rely on. The genuine gap — that `FramePipeline` does not yet fire
+  `before_send` for app-router responses because `F::Frame` and `Envelope` can
+  differ (deferred in roadmap `9.3.1`) — is best closed by unifying the
+  response path onto the actor's `Envelope` hook stage under `11.2.1`, not by
+  relocating hooks downward. Date: 2026-06-22
 
 - Decision: Resolve ADR 010 Outstanding Decision (B) with no public
-  feature-gated compatibility shim; keep `Packet for Vec<u8>` in test support and
-  sanction the public `CorrelatableFrame for Vec<u8>` impl to leave the core
-  surface under the breaking release.
-  Rationale: `Packet for Vec<u8>` is already test-only
-  (`src/connection/test_support.rs`) and provides actor-test value, matching ADR
-  010's non-goal of removing test helpers prematurely.
+  feature-gated compatibility shim; keep `Packet for Vec<u8>` in test support
+  and sanction the public `CorrelatableFrame for Vec<u8>` impl to leave the
+  core surface under the breaking release. Rationale: `Packet for Vec<u8>` is
+  already test-only (`src/connection/test_support.rs`) and provides actor-test
+  value, matching ADR 010's non-goal of removing test helpers prematurely.
   `impl CorrelatableFrame for Vec<u8>` lives in production module
   `src/correlation.rs` but has no production caller; ADR 009 already routes
   runtime bridges to ADR 010 and removes middleware `&mut Vec<u8>` editors.
   Because the impl is public, its removal is a breaking change, so it is bound
-  to `11.2.2` / `14.2.1` rather than treated
-  as a free internal cleanup.
-  Date: 2026-06-22
+  to `11.2.2` / `14.2.1` rather than treated as a free internal cleanup. Date:
+  2026-06-22
 
 - Decision: Resolve ADR 010 Outstanding Decision (C) as "no new trait".
   Rationale: `Packet` (`id`, `into_parts`, `from_parts`) plus
   `EncodeWith<Serializer>` already composes "serializable packet", satisfied by
-  `Envelope`. A bridging trait is ADR 010's rejected Option C and adds a wrapper
-  layer without removing copies. Prior art corroborates: tonic reuses the message
-  type plus an `Encoder` rather than a bespoke packet trait, and keeps gRPC
-  length-framing in a separate buffer layer (see `Artifacts and notes`).
-  Date: 2026-06-22
+  `Envelope`. A bridging trait is ADR 010's rejected Option C and adds a
+  wrapper layer without removing copies. Prior art corroborates: tonic reuses
+  the message type plus an `Encoder` rather than a bespoke packet trait, and
+  keeps gRPC length-framing in a separate buffer layer (see
+  `Artifacts and notes`). Date: 2026-06-22
 
 - Decision: Record the canonical production `wrap_payload` call site in the ADR
   and require a guard against new non-driver callers (implemented in phase 11).
   Rationale: ADR 010's "Known Risks" already asks for a tracked list of
   non-driver callers. A manual list rots; a grep-style guard test keeps the
-  "sole owner" guarantee
-  enforceable. The requirement is recorded now; the test is added with the
-  runtime work (`11.2.3`).
-  Date: 2026-06-22
+  "sole owner" guarantee enforceable. The requirement is recorded now; the test
+  is added with the runtime work (`11.2.3`). Date: 2026-06-22
 
 - Decision: Deliver `10.1.3` as documentation only, mirroring `10.1.1` and
-  `10.1.2`.
-  Rationale: those sibling approval items each flipped an ADR to `Accepted`,
-  expanded its Decision Outcome, ticked the roadmaps, aligned the inventory, and
-  added a developers'-guide note, with no runtime change. Consistency keeps the
-  decision-closure phase reviewable and reversible.
-  Date: 2026-06-22
+  `10.1.2`. Rationale: those sibling approval items each flipped an ADR to
+  `Accepted`, expanded its Decision Outcome, ticked the roadmaps, aligned the
+  inventory, and added a developers'-guide note, with no runtime change.
+  Consistency keeps the decision-closure phase reviewable and reversible. Date:
+  2026-06-22
 
 - Decision: Begin execution from explicit user approval on 2026-06-24 while
-  leaving the scope documentation-only.
-  Rationale: the user asked to proceed with implementation of this plan. The
-  branch already tracks `origin/10-1-3-approve-actor-and-codec-driver-boundary`,
-  and the preflight inventory confirmed no decision-drift tolerance has been
-  breached.
-  Date: 2026-06-24
+  leaving the scope documentation-only. Rationale: the user asked to proceed
+  with implementation of this plan. The branch already tracks
+  `origin/10-1-3-approve-actor-and-codec-driver-boundary`, and the preflight
+  inventory confirmed no decision-drift tolerance has been breached. Date:
+  2026-06-24
 
 - Decision: Treat the broad stale-reference grep as an advisory drift check
-  rather than a literal zero-output command.
-  Rationale: accepted ADRs deliberately preserve proposal history such as
-  proposed dates, options considered, and rejected directions. After Stage C,
-  the only matches from the original command were this ExecPlan's own risk and
-  validation prose. No governing status reference still described ADR 010 as
-  proposed, so this did not breach the cross-reference-drift risk.
-  Date: 2026-06-24
+  rather than a literal zero-output command. Rationale: accepted ADRs
+  deliberately preserve proposal history such as proposed dates, options
+  considered, and rejected directions. After Stage C, the only matches from the
+  original command were this ExecPlan's own risk and validation prose. No
+  governing status reference still described ADR 010 as proposed, so this did
+  not breach the cross-reference-drift risk. Date: 2026-06-24
 
 ## Outcomes & retrospective
 
@@ -322,14 +307,14 @@ This section assumes no prior knowledge of the repository.
   (fragmentation and metrics over `Envelope`) and `send_envelope`.
   `src/app/outbound_encoding.rs::encode_message_frame` performs the
   `packet -> bytes -> transport frame` transition: it calls
-  `Serializer::serialize` (returning `Vec<u8>`), bridges with `Bytes::from`, and
-  calls `FrameCodec::wrap_payload` — the single production framing site.
+  `Serializer::serialize` (returning `Vec<u8>`), bridges with `Bytes::from`,
+  and calls `FrameCodec::wrap_payload` — the single production framing site.
 - **Production connection wiring.** `src/server/connection_spawner.rs` reads the
   preamble, wraps the stream in `RewindStream`, then calls
   `app.handle_connection_result`. The app path drives responses through the
   codec driver. The actor's hook stage is `ConnectionActor::push_frame`
-  (`src/connection/frame.rs`), which calls `self.hooks.before_send(&mut frame,
-  ..)` before buffering each outbound frame.
+  (`src/connection/frame.rs`), which calls
+  `self.hooks.before_send(&mut frame, ..)` before buffering each outbound frame.
 - **The `Vec<u8>` bridges.** `src/correlation.rs` implements
   `CorrelatableFrame` for `u8`, `Vec<u8>`, and (in `src/app/envelope.rs`)
   `Envelope`. The `Vec<u8>` impl is a no-op correlation carrier with no
@@ -363,8 +348,8 @@ Items `10.1.1` (ADR 008, commit `cd153de`) and `10.1.2` (ADR 009, commit
 `3969c3b`) set the template this plan follows. Each:
 
 1. flipped the ADR `Status` from `Proposed` to `Accepted`, with the date field
-   becoming `Proposed <date>. Accepted <date>.` and a prose acceptance statement
-   in the Status section;
+   becoming `Proposed <date>. Accepted <date>.` and a prose acceptance
+   statement in the Status section;
 2. renamed `## Decision Outcome / Proposed Direction` to `## Decision Outcome`
    and changed "The proposed direction is:" to "The accepted direction is:";
 3. expanded the outcome with concrete, named commitments and links to the
@@ -378,20 +363,20 @@ Items `10.1.1` (ADR 008, commit `cd153de`) and `10.1.2` (ADR 009, commit
 
 ### Stage A: research and propose (no edits) — done during planning
 
-Completed. Findings are captured in `Context and orientation`, `Surprises &
-discoveries`, and `Artefacts and notes`. The three Outstanding Decisions are
-resolved in `Decision log`. Design review identified conditions that are folded
-into the constraints and the ADR rewrite below.
+Completed. Findings are captured in `Context and orientation`,
+`Surprises & discoveries`, and `Artefacts and notes`. The three Outstanding
+Decisions are resolved in `Decision log`. Design review identified conditions
+that are folded into the constraints and the ADR rewrite below.
 
 ### Stage B: author the accepted ADR 010
 
 Edit `docs/adr-010-transport-frame-boundary-for-zero-copy.md` only:
 
 1. **Status.** Change `Proposed` to `Accepted` and add an acceptance paragraph
-   in the form used by ADR 008/009: "Accepted on 2026-06-22. Wireframe keeps the
-   connection actor packet-oriented and makes the codec driver the sole owner of
-   transport-frame emission …", naming the three resolved decisions in one
-   sentence each and linking roadmap items `11.1.2`, `11.2.1`, `11.2.2`,
+   in the form used by ADR 008/009: "Accepted on 2026-06-22. Wireframe keeps
+   the connection actor packet-oriented and makes the codec driver the sole
+   owner of transport-frame emission …", naming the three resolved decisions in
+   one sentence each and linking roadmap items `11.1.2`, `11.2.1`, `11.2.2`,
    `11.2.3`, and `14.2.1`.
 2. **Date.** Change `2026-04-12` to `Proposed 2026-04-12. Accepted 2026-06-22.`
 3. **Decision Outcome.** Rename the heading to `## Decision Outcome`, change the
@@ -403,9 +388,9 @@ Edit `docs/adr-010-transport-frame-boundary-for-zero-copy.md` only:
    Keep the question text so the record shows what was asked and answered.
 5. **Tracked call-site note.** In `## Known Risks and Limitations` (or a short
    `## Tracked transport-frame call sites` subsection), record that the sole
-   production `wrap_payload` caller today is `src/app/outbound_encoding.rs`, that
-   all other callers are tests/examples/testkit, and that a guard against new
-   non-driver production callers is required and tracked under `11.2.3`.
+   production `wrap_payload` caller today is `src/app/outbound_encoding.rs`,
+   that all other callers are tests/examples/testkit, and that a guard against
+   new non-driver production callers is required and tracked under `11.2.3`.
 6. **Goals/Non-Goals.** Adjust tense so the decision-closure goals read as
    achieved, leaving the runtime goals pointing at phase 11.
 
@@ -422,8 +407,8 @@ Validate with `make markdownlint` and commit Stage B on its own.
 4. `docs/developers-guide.md`: add a short "Actor and codec-driver boundary"
    subsection after "Public byte-container model", stating that the actor stays
    packet-oriented, the codec driver owns transport-frame emission, protocol
-   hooks run at the packet stage, and the app-router `before_send` gap is tracked
-   under `11.2.1`; cross-reference ADR 010.
+   hooks run at the packet stage, and the app-router `before_send` gap is
+   tracked under `11.2.1`; cross-reference ADR 010.
 5. `docs/contents.md`: update the ADR 010 line to acceptance wording and add an
    "Execution plans" index line for this plan.
 
@@ -441,8 +426,8 @@ Run all commands from the repository root (`.`).
 
 1. Confirm the call-site inventory still holds before writing the ADR claim.
    Exclude every non-production path explicitly (examples, tests, test helpers,
-   and testkit) rather than a case-insensitive `test` filter, which would drop a
-   production path that merely contains "test":
+   and testkit) rather than a case-insensitive `test` filter, which would drop
+   a production path that merely contains "test":
 
    ```bash
    rg -n "\.wrap_payload\(" src/ \
@@ -523,8 +508,8 @@ Run all commands from the repository root (`.`).
 
 Because this item changes only documentation, there is no Red-Green-Refactor
 code cycle; the nearest observable substitutes are the documentation gates and
-the cross-reference checks below (recorded under the execplans guidance for when
-test-first delivery is genuinely unavailable).
+the cross-reference checks below (recorded under the execplans guidance for
+when test-first delivery is genuinely unavailable).
 
 Acceptance is behaviour a reviewer can verify:
 
@@ -555,8 +540,8 @@ Quality method: the commands in `Concrete steps`, then the automated review.
 ## Idempotence and recovery
 
 Every step is a documentation edit and is safe to re-run; re-running
-`make markdownlint` or the grep checks has no side effects. If a stage commit is
-wrong, `git revert` it — there is no runtime state to roll back. If the
+`make markdownlint` or the grep checks has no side effects. If a stage commit
+is wrong, `git revert` it — there is no runtime state to roll back. If the
 call-site inventory in step 1 returns more than one production caller, that
 breaches Tolerance 2: stop and escalate rather than weakening the ADR's "sole
 owner" claim.
@@ -565,22 +550,22 @@ owner" claim.
 
 ### Prior art (firecrawl research)
 
-The "no new trait" resolution of Outstanding Decision (C) is corroborated by two
-mature Rust networking ecosystems that separate message/packet semantics from
-transport framing:
+The "no new trait" resolution of Outstanding Decision (C) is corroborated by
+two mature Rust networking ecosystems that separate message/packet semantics
+from transport framing:
 
 - **tonic** (`tonic::codec`) defines a `Codec` that yields an `Encoder` and
   `Decoder` over *message types*, while gRPC length-framing is handled by a
   separate buffer layer (`EncodeBuf`/`DecodeBuf` over `bytes::Bytes`). The
   decoder receives "exactly the bytes of a full message"; framing is not the
   message trait's concern. tonic introduces no bespoke "serializable packet"
-  trait — it reuses the message type plus an encoder.
-  Source: <https://docs.rs/tonic/latest/tonic/codec/index.html>.
+  trait — it reuses the message type plus an encoder. Source:
+  <https://docs.rs/tonic/latest/tonic/codec/index.html>.
 - **tokio_util::codec** parameterizes `Encoder<Item>`/`Decoder` on the item
   type and owns framing in `Framed`, keeping the *item* distinct from the byte
   buffer. The tonic maintainers note the two trait families differ mainly in
-  tokio-util's `Encoder` taking the item as a type parameter.
-  Source: <https://github.com/grpc/grpc-rust/discussions/761>.
+  tokio-util's `Encoder` taking the item as a type parameter. Source:
+  <https://github.com/grpc/grpc-rust/discussions/761>.
 
 Both build the byte plane on `bytes::Bytes`, matching ADR 008's accepted public
 byte container and reinforcing Option B: keep packet semantics in `Packet` +
@@ -635,15 +620,15 @@ Initial draft (2026-06-22): created the decision-closure plan for roadmap
 `10.1.3`. Resolved ADR 010's three Outstanding Decisions, captured the
 sibling-item delivery pattern from `10.1.1`/`10.1.2`, recorded prior-art
 corroboration (tonic, tokio_util) and a design review with conditions, and
-scoped the work to documentation only with implementation deferred
-to roadmap phase 11. Status: DRAFT, awaiting approval before execution.
+scoped the work to documentation only with implementation deferred to roadmap
+phase 11. Status: DRAFT, awaiting approval before execution.
 
-Execution update (2026-06-24): user approval received, branch tracking confirmed
-against `origin/10-1-3-approve-actor-and-codec-driver-boundary`, preflight
-call-site inventory rechecked, and status moved to IN PROGRESS before Stage B
-ADR edits.
+Execution update (2026-06-24): user approval received, branch tracking
+confirmed against `origin/10-1-3-approve-actor-and-codec-driver-boundary`,
+preflight call-site inventory rechecked, and status moved to IN PROGRESS before
+Stage B ADR edits.
 
 Completion update (2026-06-24): accepted ADR 010, propagated the acceptance
 through the governing documentation, passed `make markdownlint`,
-`make check-fmt`, `make lint`, and `make test`, and completed
-an automated review with no concerns. Status: COMPLETE.
+`make check-fmt`, `make lint`, and `make test`, and completed an automated
+review with no concerns. Status: COMPLETE.

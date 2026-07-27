@@ -4,16 +4,16 @@
 
 Accepted
 
-Accepted on 2026-06-22. Wireframe keeps the connection actor
-packet-oriented and makes the codec driver the sole owner of transport-frame
-emission. Protocol hooks remain packet-oriented until the app-router response
-gap is closed under roadmap item `11.2.1`; no public actor-boundary
-`Vec<u8>` compatibility shim is introduced, with the public
-`CorrelatableFrame for Vec<u8>` bridge removed under roadmap item `11.2.2` and
-reviewed under `14.2.1`; and no new "serializable packet" trait is added
-because `Packet` plus `EncodeWith<Serializer>` already expresses that
-requirement. The remaining final outbound copy is removed under roadmap item
-`11.1.2`, and the sole-owner boundary is guarded under roadmap item `11.2.3`.
+Accepted on 2026-06-22. Wireframe keeps the connection actor packet-oriented
+and makes the codec driver the sole owner of transport-frame emission. Protocol
+hooks remain packet-oriented until the app-router response gap is closed under
+roadmap item `11.2.1`; no public actor-boundary `Vec<u8>` compatibility shim is
+introduced, with the public `CorrelatableFrame for Vec<u8>` bridge removed
+under roadmap item `11.2.2` and reviewed under `14.2.1`; and no new
+"serializable packet" trait is added because `Packet` plus
+`EncodeWith<Serializer>` already expresses that requirement. The remaining
+final outbound copy is removed under roadmap item `11.1.2`, and the sole-owner
+boundary is guarded under roadmap item `11.2.3`.
 
 ## Date
 
@@ -158,9 +158,9 @@ roadmap items `11.1.2`, `11.2.1`, `11.2.2`, and `11.2.3`.
 Document which component owns serialization, protocol hook invocation, and
 `wrap_payload`, and update the runtime so that ownership is reflected in code
 where any gap remains. The accepted owner is the codec driver. The known
-app-router `before_send` asymmetry is closed under roadmap item `11.2.1`;
-guard coverage for new non-driver production `wrap_payload` callers is added
-under roadmap item `11.2.3`.
+app-router `before_send` asymmetry is closed under roadmap item `11.2.1`; guard
+coverage for new non-driver production `wrap_payload` callers is added under
+roadmap item `11.2.3`.
 
 ### Phase 2: remove obsolete core bridges
 
@@ -179,8 +179,8 @@ stage.
 ## Known Risks and Limitations
 
 - Protocol hooks stay packet-oriented. The current limitation is narrower:
-  `before_send` fires for actor-driven push and multi-packet frames, but not yet
-  for app-router responses routed through `FramePipeline`. Roadmap item
+  `before_send` fires for actor-driven push and multi-packet frames, but not
+  yet for app-router responses routed through `FramePipeline`. Roadmap item
   `11.2.1` owns that closure.
 - If the codec driver becomes the only framing boundary, its tests must carry
   more of the performance and correctness burden than they do today.
@@ -188,8 +188,8 @@ stage.
   convenience type even after the production boundary is cleaned up.
 - The final serializer-to-codec bridge still materializes `Vec<u8>` before
   converting to `Bytes`. Roadmap item `11.1.2` and issue
-  <https://github.com/leynos/wireframe/issues/538> own the
-  `Bytes`-native serializer contract that removes this copy.
+  <https://github.com/leynos/wireframe/issues/538> own the `Bytes`-native
+  serializer contract that removes this copy.
 - The project needs guard coverage against future non-driver production
   `FrameCodec::wrap_payload` callers. Roadmap item `11.2.3` owns that guard.
 
@@ -208,22 +208,22 @@ inventory manually.
 ## Resolved Decisions
 
 - Which existing protocol hooks should move to the codec-driver boundary, and
-  which should remain packet-oriented? Existing hooks remain packet-oriented and
-  continue to run against `Envelope` before serialization. The codec driver
+  which should remain packet-oriented? Existing hooks remain packet-oriented
+  and continue to run against `Envelope` before serialization. The codec driver
   does not gain a new transport-frame-level hook surface. The app-router
   response `before_send` gap is documented as a limitation and tracked under
   roadmap item `11.2.1`.
 - Should any remaining `Vec<u8>` bridge live in `test_support`, a feature-gated
-  compatibility module, or nowhere at all? No public feature-gated actor-boundary
-  compatibility shim is introduced. `Packet for Vec<u8>` stays in test support.
-  The public `CorrelatableFrame for Vec<u8>` impl leaves the core runtime under
-  the breaking-release work in roadmap item `11.2.2`, with retained bridges
-  reviewed under roadmap item `14.2.1`.
+  compatibility module, or nowhere at all? No public feature-gated
+  actor-boundary compatibility shim is introduced. `Packet for Vec<u8>` stays
+  in test support. The public `CorrelatableFrame for Vec<u8>` impl leaves the
+  core runtime under the breaking-release work in roadmap item `11.2.2`, with
+  retained bridges reviewed under roadmap item `14.2.1`.
 - Does the project need a new internal trait to express "serializable packet"
   separately from transport frame semantics? No. The existing `Packet` trait
-  composed with `EncodeWith<Serializer>` already expresses "a packet that can be
-  serialized"; `Envelope` satisfies both. Adding a bridging trait would recreate
-  rejected Option C without removing copies.
+  composed with `EncodeWith<Serializer>` already expresses "a packet that can
+  be serialized"; `Envelope` satisfies both. Adding a bridging trait would
+  recreate rejected Option C without removing copies.
 
 ## Architectural Rationale
 

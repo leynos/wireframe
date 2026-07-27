@@ -4,8 +4,8 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
 and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: COMPLETE (all stages done; post-merge observable-behaviour checks
-and version pinning remain as follow-ups — see Outcomes & retrospective)
+Status: COMPLETE (all stages done; post-merge observable-behaviour checks and
+version pinning remain as follow-ups — see Outcomes & retrospective)
 
 ## Purpose / big picture
 
@@ -40,8 +40,8 @@ results table (or skip message) and download the artefacts.
 - Change detection must use `git log --since` with commit timestamps (not
   reflog-based `@{25.hours.ago}`) because fresh CI clones lack reflog state.
   The window is 25 hours (one hour wider than the daily cadence) to absorb
-  GitHub cron start-time drift, and files absent from the checked-out tip
-  must be filtered out before scoping.
+  GitHub cron start-time drift, and files absent from the checked-out tip must
+  be filtered out before scoping.
 - The detection step must monitor: `src/**/*.rs`,
   `wireframe_testing/src/**/*.rs`, `examples/**/*.rs`, `benches/**/*.rs`.
   Manifest-only changes (`Cargo.toml`, `Cargo.lock`) are excluded.
@@ -49,14 +49,13 @@ results table (or skip message) and download the artefacts.
   `cargo mutants --dir wireframe_testing` invocation.
 - Mutation runs must not use `--output`: `--output DIR` creates
   `mutants.out/` _within_ `DIR`, so the workflow relies on the defaults —
-  `./mutants.out/` for the root crate and `wireframe_testing/mutants.out/`
-  for the companion crate — and all artefact and summary paths must match.
+  `./mutants.out/` for the root crate and `wireframe_testing/mutants.out/` for
+  the companion crate — and all artefact and summary paths must match.
 - Run steps must treat `cargo mutants` exit codes `2` (missed mutants) and
-  `3` (timeouts) as success, and exit codes `1`, `4`, and `70` as failures.
-  The workflow is informational; survivors must not produce red runs.
+  `3` (timeouts) as success, and exit codes `1`, `4`, and `70` as failures. The
+  workflow is informational; survivors must not produce red runs.
 - Mutation runs must pass `--in-place` (upstream CI recommendation) and the
-  job must set `timeout-minutes: 300` as a backstop against unbounded full
-  runs.
+  job must set `timeout-minutes: 300` as a backstop against unbounded full runs.
 - The checkout step must set `persist-credentials: false`; the workflow only
   needs read access.
 - The ADR at `docs/adr-007-mutation-testing-with-cargo-mutants.md` must be
@@ -96,19 +95,17 @@ results table (or skip message) and download the artefacts.
   no-mutants behaviour, and `--in-place` guidance confirmed against the
   cargo-mutants handbook and source).
 - [x] Stage B: Create the workflow file (2026-07-04: implemented per the
-  corrected ADR sketch, with step outputs passed via `env:` blocks; jq
-  summary logic smoke-tested against a synthetic `outcomes.json`; detect
-  loop smoke-tested against real git history, confirming both the
-  bucketing and the skip path).
+  corrected ADR sketch, with step outputs passed via `env:` blocks; jq summary
+  logic smoke-tested against a synthetic `outcomes.json`; detect loop
+  smoke-tested against real git history, confirming both the bucketing and the
+  skip path).
 - [x] Stage C: Update the ADR to reflect corrections (2026-07-04: output
-  paths, exit-code policy, 25-hour window, deleted-file guard,
-  `--in-place`, `timeout-minutes`, `persist-credentials`,
-  `wireframe_testing` false-survivor caveat, cron drift and suspension
-  risks all recorded in the ADR).
+  paths, exit-code policy, 25-hour window, deleted-file guard, `--in-place`,
+  `timeout-minutes`, `persist-credentials`, `wireframe_testing` false-survivor
+  caveat, cron drift and suspension risks all recorded in the ADR).
 - [x] Stage D: Validation and commit (2026-07-04: YAML syntax and
-  yamllint clean; `make markdownlint` 0 errors; `make nixie` green;
-  CodeRabbit agent review completed with 0 findings; committed as
-  8556814).
+  yamllint clean; `make markdownlint` 0 errors; `make nixie` green; CodeRabbit
+  agent review completed with 0 findings; committed as 8556814).
 
 ## Surprises & discoveries
 
@@ -128,21 +125,20 @@ results table (or skip message) and download the artefacts.
   summary step. The defaults (`./mutants.out/`, and
   `wireframe_testing/mutants.out/` under `--dir`) are used instead.
 - `cargo mutants` exits non-zero for informative outcomes: `2` = missed
-  mutants, `3` = timeouts. Without explicit exit-code handling, every run
-  with a surviving mutant would show as a failed workflow, contradicting
-  the "purely informational" intent. Exit codes `1` (usage), `4` (baseline
-  failing), `5`/`6` (`--in-diff` problems), and `70` (internal error)
-  indicate genuine faults.
+  mutants, `3` = timeouts. Without explicit exit-code handling, every run with
+  a surviving mutant would show as a failed workflow, contradicting the "purely
+  informational" intent. Exit codes `1` (usage), `4` (baseline failing), `5`/`6`
+  (`--in-diff` problems), and `70` (internal error) indicate genuine faults.
 - If scoping matches no mutants (for example, every changed file was
-  subsequently deleted), `cargo mutants` exits successfully with a warning,
-  so stale `--file` arguments are benign — the tip-existence guard is
+  subsequently deleted), `cargo mutants` exits successfully with a warning, so
+  stale `--file` arguments are benign — the tip-existence guard is
   belt-and-braces.
 - The cargo-mutants handbook recommends `--in-place` for CI so runs reuse
   the existing build cache instead of copying the tree. `--in-place` is
   incompatible with `-j` parallelism, which this workflow does not use.
 - `cargo-binstall` is provided by the shared `setup-rust` action (confirmed:
-  `ci.yml` runs `cargo binstall` immediately after it), so no separate
-  install step is needed.
+  `ci.yml` runs `cargo binstall` immediately after it), so no separate install
+  step is needed.
 - `wireframe_testing` has only a handful of in-crate tests; its logic is
   exercised mainly by the root crate's suite. Its mutation results will be
   noisy with false survivors — recorded as a known limitation in the ADR.
@@ -164,69 +160,66 @@ results table (or skip message) and download the artefacts.
 - 2026-07-04: Dropped `--output` from both invocations and aligned artefact
   and summary paths with the default output locations. Rationale:
   `--output DIR` nests `mutants.out/` inside `DIR`, so the sketched
-  `--output mutants.out` would have hidden the report from the summary jq
-  and produced doubly nested artefacts.
+  `--output mutants.out` would have hidden the report from the summary jq and
+  produced doubly nested artefacts.
 - 2026-07-04: Treat exit codes `2` and `3` as success in the run steps;
   `1`, `4`, and `70` still fail the job. Rationale: the workflow is
   informational — survivors are its deliverable, not a failure — but broken
   invocations and failing baselines must stay visible as red runs.
 - 2026-07-04: Widened the change-detection window from 24 to 25 hours and
-  added a tip-existence guard (`[ -f "$f" ]`) before scoping. Rationale:
-  GitHub cron start times drift by up to an hour, which would silently drop
-  commits landing in the gap; deleted or renamed files should not reach
-  `--file`. Diffing against the last successful run's SHA was considered
-  and rejected as disproportionate complexity for an informational
-  workflow.
+  added a tip-existence guard (`[ -f "$f" ]`) before scoping. Rationale: GitHub
+  cron start times drift by up to an hour, which would silently drop commits
+  landing in the gap; deleted or renamed files should not reach `--file`.
+  Diffing against the last successful run's SHA was considered and rejected as
+  disproportionate complexity for an informational workflow.
 - 2026-07-04: Added `--in-place` to both invocations, `timeout-minutes: 300`
-  on the job, and `persist-credentials: false` on checkout. Rationale:
-  upstream recommends `--in-place` in CI for build-cache reuse; full
-  dispatch runs are otherwise unbounded on a 2-core runner; the workflow
-  needs only read access.
+  on the job, and `persist-credentials: false` on checkout. Rationale: upstream
+  recommends `--in-place` in CI for build-cache reuse; full dispatch runs are
+  otherwise unbounded on a 2-core runner; the workflow needs only read access.
 - 2026-07-04: Passed step outputs into run scripts via `env:` blocks
   (`ROOT_FILES`, `WT_FILES`) and used `$GITHUB_EVENT_NAME` instead of
-  interpolating `${{ ... }}` expressions directly into shell text.
-  Rationale: direct interpolation of file names into script bodies is a
-  shell-injection vector (a crafted file name would be expanded into the
-  script before execution); environment variables are inert data. The ADR
-  sketch was updated to match.
+  interpolating `${{ ... }}` expressions directly into shell text. Rationale:
+  direct interpolation of file names into script bodies is a shell-injection
+  vector (a crafted file name would be expanded into the script before
+  execution); environment variables are inert data. The ADR sketch was updated
+  to match.
 - 2026-07-04 (review feedback round): Added a branch-keyed `concurrency`
-  group (`cancel-in-progress: false` — informational runs queue rather
-  than cancel), pinned `actions/checkout` and `actions/upload-artifact`
-  to full commit SHAs (matching the repo's majority pinning convention),
-  inserted a `git checkout -- .` tree-reset step before the
-  `wireframe_testing` run (belt-and-braces against `--in-place` restore
-  bugs; the second run is already skipped when the first fails), and
-  documented the workflow and the `cargo-mutants` CI-only dependency in
-  `docs/developers-guide.md`. Declined the request for a bespoke
-  workflow test harness in this repo: the detection, exit-code, and
-  summary logic is scheduled for extraction into `leynos/shared-actions`
-  as tested Python helpers with an act + pytest integration harness (see
-  `shared-actions` ExecPlan `add-mutation-testing-workflows.md`), and
-  wireframe's copy becomes a thin caller at that point; building a
-  throwaway harness here would duplicate that work without protecting
-  the eventual shape.
+  group (`cancel-in-progress: false` — informational runs queue rather than
+  cancel), pinned `actions/checkout` and `actions/upload-artifact` to full
+  commit SHAs (matching the repo's majority pinning convention), inserted a
+  `git checkout -- .` tree-reset step before the `wireframe_testing` run
+  (belt-and-braces against `--in-place` restore bugs; the second run is already
+  skipped when the first fails), and documented the workflow and the
+  `cargo-mutants` CI-only dependency in `docs/developers-guide.md`. Declined
+  the request for a bespoke workflow test harness in this repo: the detection,
+  exit-code, and summary logic is scheduled for extraction into
+  `leynos/shared-actions` as tested Python helpers with an act + pytest
+  integration harness (see `shared-actions` ExecPlan
+  `add-mutation-testing-workflows.md`), and wireframe's copy becomes a thin
+  caller at that point; building a throwaway harness here would duplicate that
+  work without protecting the eventual shape.
 - 2026-07-04: Kept the `wireframe_testing` invocation despite expected
-  false-survivor noise, recording the caveat in the ADR's Known Risks and
-  the possible removal in Outstanding Decisions. Rationale: the results
-  remain useful for the crate's genuinely in-crate logic, and dropping the
-  run is trivial later if triage noise proves too high.
+  false-survivor noise, recording the caveat in the ADR's Known Risks and the
+  possible removal in Outstanding Decisions. Rationale: the results remain
+  useful for the crate's genuinely in-crate logic, and dropping the run is
+  trivial later if triage noise proves too high.
 
 ## Outcomes & retrospective
 
 Implemented 2026-07-04 on branch `adopt-cargo-mutants-workflow` in three
-commits: ADR/plan hardening (8a5f266), the workflow itself (8556814),
-and this plan closure. All deterministic gates passed and a CodeRabbit
-agent review reported zero findings.
+commits: ADR/plan hardening (8a5f266), the workflow itself (8556814), and this
+plan closure. All deterministic gates passed and a CodeRabbit agent review
+reported zero findings.
 
 What went well:
 
 - Verifying tool behaviour against upstream source before implementation
-  caught two defects that would have shipped silently: the `--output`
-  nesting (empty job summaries) and the missed-mutant exit code (red
-  runs on an "informational" workflow).
+  caught two defects that would have shipped silently: the `--output` nesting
+  (empty job summaries) and the missed-mutant exit code (red runs on an
+  "informational" workflow).
 - Smoke-testing the jq summary against a synthetic `outcomes.json` and
-  the detect loop against real git history validated the shell logic
-  without needing a live Actions run.
+  the detect loop against real git history validated the shell logic without
+  needing a live Actions run.
 
 Post-merge follow-ups (not blocking this plan):
 
@@ -243,8 +236,8 @@ Lessons for the shared-actions generalization:
 - The `outcomes.json` schema pin belongs in the shared workflow, not in
   callers, because upstream documents the format as unstable.
 - Pass step outputs into scripts via `env:` blocks from the outset;
-  direct `${{ ... }}` interpolation into shell text is an injection
-  vector that reviewers will (rightly) flag.
+  direct `${{ ... }}` interpolation into shell text is an injection vector that
+  reviewers will (rightly) flag.
 - Most repos will not need the two-invocation split; make the
   extra-crate handling an opt-in input rather than the default shape.
 
@@ -304,16 +297,16 @@ And the correct count filters use `.outcomes[]` (not `.[]`).
 cargo-mutants handbook at <https://mutants.rs/> and the upstream source):
 
 - `--output DIR` creates `mutants.out/` _within_ `DIR`; the default is
-  `mutants.out/` in the source directory being mutated (for `--dir
-  wireframe_testing`, that is `wireframe_testing/mutants.out/`).
+  `mutants.out/` in the source directory being mutated (for
+  `--dir wireframe_testing`, that is `wireframe_testing/mutants.out/`).
 - Exit codes: `0` all caught, `1` usage error, `2` missed mutants, `3`
-  timeouts, `4` baseline tests already failing, `5`/`6` `--in-diff`
-  problems, `70` internal error.
+  timeouts, `4` baseline tests already failing, `5`/`6` `--in-diff` problems,
+  `70` internal error.
 - If no mutants match the scoping arguments, `cargo mutants` warns and
   exits `0`.
 - `--in-place` mutates the source tree directly (restoring after each
-  mutant) instead of copying it, reusing the build cache; recommended for
-  CI. Incompatible with `-j` parallelism.
+  mutant) instead of copying it, reusing the build cache; recommended for CI.
+  Incompatible with `-j` parallelism.
 - `--in-diff` and `--shard` exist as future refinements (line-level scoping
   and parallel splitting respectively); both are recorded as outstanding
   decisions in the ADR.
@@ -339,8 +332,8 @@ Identify the corrections needed to the ADR's workflow sketch:
 
 Additional corrections confirmed 2026-07-04 (see "cargo-mutants behavioural
 facts" above): no `--output`, exit-code handling in the run steps,
-`--in-place`, the 25-hour window, the tip-existence guard,
-`timeout-minutes`, and `persist-credentials: false`.
+`--in-place`, the 25-hour window, the tip-existence guard, `timeout-minutes`,
+and `persist-credentials: false`.
 
 No code changes in this stage — just confirming the corrections above.
 
@@ -393,9 +386,9 @@ reflect:
 - Daily schedule with change-detection guard (25-hour window, tip-existence
   guard).
 - Revised workflow sketch with `fetch-depth: 0`,
-  `persist-credentials: false`, `timeout-minutes: 300`, `detect` step,
-  gated steps, split root/`wireframe_testing` invocations using default
-  output locations, `--in-place`, and exit-code handling.
+  `persist-credentials: false`, `timeout-minutes: 300`, `detect` step, gated
+  steps, split root/`wireframe_testing` invocations using default output
+  locations, `--in-place`, and exit-code handling.
 - Updated risk and limitation sections for the new approach, including
   `wireframe_testing` false survivors, cron drift, no-catch-up, and
   scheduled-workflow suspension.
@@ -429,13 +422,13 @@ step.
 
 The ADR at `docs/adr-007-mutation-testing-with-cargo-mutants.md` already
 carries the corrected jq field names, daily schedule with guard, workspace
-split, and Resolved Decisions section, plus the 2026-07-04 corrections:
-default output locations (no `--output`), exit-code policy, 25-hour window
-with tip-existence guard, `--in-place`, `timeout-minutes: 300`,
+split, and Resolved Decisions section, plus the 2026-07-04 corrections: default
+output locations (no `--output`), exit-code policy, 25-hour window with
+tip-existence guard, `--in-place`, `timeout-minutes: 300`,
 `persist-credentials: false`, and the expanded risks (including
-`wireframe_testing` false survivors and cron drift/suspension). No further
-ADR edits are expected in this task; Stage B must implement the workflow
-exactly as the ADR sketch now describes.
+`wireframe_testing` false survivors and cron drift/suspension). No further ADR
+edits are expected in this task; Stage B must implement the workflow exactly as
+the ADR sketch now describes.
 
 **Stage D — validate:**
 
@@ -483,8 +476,8 @@ git commit
   `has_changes=true` unconditionally and running full (unscoped) mutations.
 - Root crate and `wireframe_testing` mutation runs are separate steps with
   appropriate `--file` and `--dir` arguments, both passing `--in-place`,
-  neither passing `--output`, and both wrapping the invocation in the
-  exit-code handling (`0`/`2`/`3` succeed; all else fails).
+  neither passing `--output`, and both wrapping the invocation in the exit-code
+  handling (`0`/`2`/`3` succeed; all else fails).
 - Artefact and summary paths reference `mutants.out/` and
   `wireframe_testing/mutants.out/`.
 - The jq filters in both the workflow and the ADR use the corrected field
@@ -530,8 +523,7 @@ git log --since="25 hours ago" --name-only \
 # `[ -f "$f" ]` fails (deleted or renamed since the change).
 ```
 
-The exit-code wrapper for the run steps (for reference during
-implementation):
+The exit-code wrapper for the run steps (for reference during implementation):
 
 ```sh
 set +e

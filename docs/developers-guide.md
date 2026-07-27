@@ -472,5 +472,5 @@ Pathspec 1.1.1 and Hypothesis 6.156.6; Ruff targets Python 3.13 compatibility.
 The property suite protects phrase boundaries and source locations across
 generated neighbouring characters. Eligible tracked files must remain readable
 UTF-8 text so the gate cannot silently omit them. Continuous integration
-installs Nixie 1.1.0 with Python 3.14 and Merman CLI 0.7.0 before validating the
-repository's Mermaid diagrams with `make nixie`.
+installs Nixie 1.1.0 with Python 3.14 and Merman CLI 0.7.0 before validating
+the repository's Mermaid diagrams with `make nixie`.
