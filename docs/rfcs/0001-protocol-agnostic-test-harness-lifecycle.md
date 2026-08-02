@@ -24,10 +24,10 @@ own client.
 
 This RFC adds a lower-level, protocol-agnostic server lifecycle primitive. It
 accepts a fully configured, unbound `WireframeServer`, reserves or accepts a
-loopback listener, waits for readiness, and returns a
-`RunningWireframeServer`. An optional asynchronous connector composes that
-handle with any caller-owned client. Existing `WireframePair` functions remain
-source-compatible wrappers for the default client.
+loopback listener, waits for readiness, and returns a `RunningWireframeServer`.
+An optional asynchronous connector composes that handle with any caller-owned
+client. Existing `WireframePair` functions remain source-compatible wrappers
+for the default client.
 
 The proposal also makes `wireframe_testing` an explicit quality-gate target.
 The root package is currently the only default workspace member, so the
@@ -182,9 +182,10 @@ connection-state, packet, codec, or preamble bounds.
 
 The caller configures the server before passing it to the helper. This includes
 its app factory, worker count, codec-bearing app type, typed preamble, preamble
-success and failure hooks, preamble timeout, and accept backoff. The helper does
-not silently replace those settings. The readiness sender is the sole reserved
-setting because the harness must know when connection attempts are safe.
+success and failure hooks, preamble timeout, and accept backoff. The helper
+does not silently replace those settings. The readiness sender is the sole
+reserved setting because the harness must know when connection attempts are
+safe.
 
 The default helper uses documented readiness and shutdown timeouts. A compact
 options type may expose overrides if the implementation spike proves that fixed
@@ -204,8 +205,8 @@ server builder.
 - it releases the listener before returning success.
 
 `Drop` remains a safety net, not the normal path. Inside a Tokio runtime it
-allows a short bounded grace period before aborting. Outside a runtime it aborts
-immediately because synchronous drop cannot drive graceful asynchronous
+allows a short bounded grace period before aborting. Outside a runtime it
+aborts immediately because synchronous drop cannot drive graceful asynchronous
 shutdown.
 
 Startup follows the same failure discipline. If the server exits before
@@ -215,8 +216,8 @@ error. A readiness timeout initiates cleanup before returning.
 ### 5.4. Caller-supplied client connector
 
 A second helper removes the remaining connection boilerplate without claiming
-ownership of arbitrary client teardown semantics (schematic; `S` and the
-elided bounds keep this block `ignore` rather than compilable):
+ownership of arbitrary client teardown semantics (schematic; `S` and the elided
+bounds keep this block `ignore` rather than compilable):
 
 ```rust,ignore
 use std::{future::Future, net::SocketAddr};
@@ -311,8 +312,8 @@ The implementation must preserve these invariants:
   shutdown, join, or abort-after-timeout.
 - The original connector failure remains primary when cleanup also fails.
 
-The helpers continue to use real loopback TCP. In-memory `duplex` drivers remain
-the faster choice for isolated application and codec tests.
+The helpers continue to use real loopback TCP. In-memory `duplex` drivers
+remain the faster choice for isolated application and codec tests.
 
 ## 7. Verification plan
 
@@ -408,8 +409,8 @@ across orderings and repetition, not just for the fixed sequences that the
 these varying inputs and asserts the invariant survives:
 
 - idempotent shutdown under a generated number of repeated `shutdown` calls,
-  including interleaved `Drop`, always converges to a single joined task and one
-  released listener;
+  including interleaved `Drop`, always converges to a single joined task and
+  one released listener;
 - readiness followed by a generated schedule of connect-then-shutdown
   operations never orphans a task or leaks a listener; and
 - a generated pool of concurrently spawned handles binds distinct listeners and
@@ -434,23 +435,23 @@ The change is additive and should land in five stages:
 5. Adopt the primitive in a downstream protocol crate, with mxd as the first
    candidate, before declaring the extension mature.
 
-No downstream migration is mandatory. Existing callers continue to use the
-pair helpers. Protocol crates can replace only their local server lifecycle and
-keep their own scenario world, database fixtures, codec, and client.
+No downstream migration is mandatory. Existing callers continue to use the pair
+helpers. Protocol crates can replace only their local server lifecycle and keep
+their own scenario world, database fixtures, codec, and client.
 
 ## 9. Risks and mitigations
 
 <!-- markdownlint-disable MD013 -->
 
-| Risk | Mitigation |
-| --- | --- |
+| Risk                                                          | Mitigation                                                                                  |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | The generic server signature produces unreadable diagnostics. | Keep generic bounds in one private helper and expose concrete examples with inferred types. |
-| Readiness ownership conflicts with a caller-provided signal. | Reserve `ready_signal` for the harness and document that constraint explicitly. |
-| Generic client teardown becomes underspecified. | Return the caller-owned client separately instead of inventing a universal close trait. |
-| Connector failure leaks a running server. | Perform explicit shutdown and join before returning the connection error. |
-| Drop hides shutdown faults. | Treat explicit `shutdown` as normative and keep `Drop` only as a bounded safety net. |
-| The convenience API becomes a breaking generic rewrite. | Keep `WireframePair` concrete and delegate internally. |
-| The companion crate drifts again. | Add package-specific all-feature and doctest gates before release. |
+| Readiness ownership conflicts with a caller-provided signal.  | Reserve `ready_signal` for the harness and document that constraint explicitly.             |
+| Generic client teardown becomes underspecified.               | Return the caller-owned client separately instead of inventing a universal close trait.     |
+| Connector failure leaks a running server.                     | Perform explicit shutdown and join before returning the connection error.                   |
+| Drop hides shutdown faults.                                   | Treat explicit `shutdown` as normative and keep `Drop` only as a bounded safety net.        |
+| The convenience API becomes a breaking generic rewrite.       | Keep `WireframePair` concrete and delegate internally.                                      |
+| The companion crate drifts again.                             | Add package-specific all-feature and doctest gates before release.                          |
 
 <!-- markdownlint-enable MD013 -->
 

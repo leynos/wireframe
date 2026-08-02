@@ -805,9 +805,9 @@ document so larger deployments can adopt the library confidently.
   17.3.3.
 - [ ] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run its
   all-feature tests and doctests in the Makefile and Continuous Integration
-  workflow, repair the examples tracked by issue #578, and prevent the companion
-  crate from drifting behind the root package. This item must complete before
-  publishing the lifecycle extension.
+  workflow, repair the examples tracked by issue #578, and prevent the
+  companion crate from drifting behind the root package. This item must
+  complete before publishing the lifecycle extension.
 
 ### 17.4. Docs and adoption
 
