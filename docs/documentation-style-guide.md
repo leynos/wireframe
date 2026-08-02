@@ -64,7 +64,7 @@ consistent, and easy to maintain across projects.
 - Footnotes must be numbered in order of appearance in the document.
 - Exception: roadmap-shaped Markdown edited with `mapsplice` (for example
   `docs/roadmap.md`) must cite references with inline links instead of
-  footnotes, because the `mapsplice` roadmap grammar rejects footnote
+  footnotes because the `mapsplice` roadmap grammar rejects footnote
   references.
 - Caption every table, and caption every diagram.
 
