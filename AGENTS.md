@@ -308,7 +308,7 @@ project:
 - Use GitHub-flavoured Markdown footnotes (`[^1]`) for references and
   footnotes.
   - Exception: roadmap-shaped Markdown edited with `mapsplice` (for example
-    `docs/roadmap.md`) must use inline links instead, because the `mapsplice`
+    `docs/roadmap.md`) must use inline links instead because the `mapsplice`
     roadmap grammar rejects footnote references (`unsupported inline node
     footnoteReference`). Cite references inline, either as a parenthetical
     `(see [target](path))` or by linking an existing phrase.
