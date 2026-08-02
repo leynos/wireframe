@@ -367,7 +367,21 @@ target that:
 
 Keep the expected-error snapshots focused on the lifecycle and connector
 boundary rather than on incidental generic-bound spew, so that unrelated
-compiler wording changes do not churn the fixtures.
+compiler wording changes do not churn the fixtures. A `trybuild` `.stderr`
+fixture is a snapshot of compiler output, so it must be trimmed to the
+diagnostic under test; a fixture that captures the full generic-bound expansion
+of `WireframeServer` will churn on every unrelated toolchain bump.
+
+The runtime counterpart is the section 6 requirement that error text identify
+the lifecycle stage: bind, readiness, connect, shutdown, join, or
+abort-after-timeout. Assert that semantically rather than by whole-string
+equality. Prefer matching the typed `TestError` variant and then asserting the
+stage marker with a `googletest` matcher such as `contains_substring`, so that
+rewording the surrounding diagnostic prose does not break the suite while a
+lost or wrong stage label still fails it. Reserve exact-text assertions for the
+few messages whose precise wording is itself the contract. When connector and
+cleanup both fail, assert that both the primary and secondary causes are
+present, not merely that some error was returned.
 
 ### 7.4. Companion-crate quality gates
 
