@@ -24,11 +24,9 @@ reference when navigating the project's design and architecture material.
 
 ## Requests for comments
 
-- [RFC 0001: protocol-agnostic test harness lifecycle][rfc-0001]
+- [RFC 0001: protocol-agnostic test harness lifecycle](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md)
   Proposed server lifecycle and custom-client connector layers for
   `wireframe_testing`.
-
-[rfc-0001]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md
 
 ## Architectural decision records
 
