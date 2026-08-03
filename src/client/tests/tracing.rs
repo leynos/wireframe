@@ -7,11 +7,11 @@
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use rstest::rstest;
-use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing_test::traced_test;
 use wireframe_testing::{ServerMode, process_frame};
 
+use super::helpers::{TestResult, bind_loopback};
 use crate::{
     app::Envelope,
     client::{ClientError, TracingConfig, WireframeClient},
@@ -23,14 +23,14 @@ use crate::{
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>;
 
 /// Spawn a test echo server that deserializes envelopes and echoes them back.
-async fn spawn_echo_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("listener addr");
+async fn spawn_echo_server() -> TestResult<(
+    std::net::SocketAddr,
+    tokio::task::JoinHandle<std::io::Result<()>>,
+)> {
+    let (listener, addr) = bind_loopback().await?;
 
     let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept client");
+        let (stream, _) = listener.accept().await?;
         let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
         while let Some(Ok(bytes)) = framed.next().await {
@@ -41,9 +41,10 @@ async fn spawn_echo_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<(
                 break;
             }
         }
+        Ok(())
     });
 
-    (addr, handle)
+    Ok((addr, handle))
 }
 
 /// Spawn an echo server, connect a client with the given tracing config,
@@ -51,19 +52,19 @@ async fn spawn_echo_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<(
 ///
 /// The closure takes ownership of the client so that operations such as
 /// `close()` (which consumes `self`) work without lifetime gymnastics.
-async fn with_echo_client<F, Fut>(config: TracingConfig, f: F)
+async fn with_echo_client<F, Fut>(config: TracingConfig, f: F) -> TestResult
 where
     F: FnOnce(TestClient, std::net::SocketAddr) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    let (addr, server) = spawn_echo_server().await;
+    let (addr, server) = spawn_echo_server().await?;
     let client = WireframeClient::builder()
         .tracing_config(config)
         .connect(addr)
-        .await
-        .expect("connect");
+        .await?;
     f(client, addr).await;
     server.abort();
+    Ok(())
 }
 
 /// Return a closure that asserts at least one log line contains
@@ -91,7 +92,9 @@ pub(super) fn span_assertion(
 /// scope-bound local injected by `#[traced_test]` into each test body.
 macro_rules! test_span_emission {
     ($config:expr, $span_name:expr, $required_fields:expr, $operation:expr $(,)?) => {
-        with_echo_client($config, $operation).await;
+        with_echo_client($config, $operation)
+            .await
+            .expect("run echo client");
         logs_assert(span_assertion($span_name, $required_fields));
     };
 }
@@ -108,7 +111,8 @@ async fn connect_emits_span_with_peer_address() {
             async {}
         },
     )
-    .await;
+    .await
+    .expect("run echo client");
 
     // The peer address is dynamic, so we capture it from the closure.
     let addr_str = captured_addr.get().expect("addr captured");
@@ -204,7 +208,8 @@ async fn close_emits_span() {
             client.close().await;
         },
     )
-    .await;
+    .await
+    .expect("run echo client");
 
     logs_assert(span_assertion("client.close", &[]));
 }
@@ -213,10 +218,7 @@ async fn close_emits_span() {
 #[traced_test]
 #[tokio::test]
 async fn call_correlated_error_records_result_err_and_emits_timing() {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("listener addr");
+    let (listener, addr) = bind_loopback().await.expect("bind listener");
 
     // Accept one frame then drop the connection so that the correlated
     // receive fails with a disconnect error.
@@ -253,10 +255,7 @@ async fn call_correlated_error_records_result_err_and_emits_timing() {
 #[traced_test]
 #[tokio::test]
 async fn receive_error_records_result_err() {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("listener addr");
+    let (listener, addr) = bind_loopback().await.expect("bind listener");
 
     let accept = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("accept");
@@ -285,7 +284,8 @@ async fn timing_disabled_by_default() {
         let envelope = Envelope::new(1, None, vec![1, 2, 3]);
         let _response: Envelope = client.call(&envelope).await.expect("call");
     })
-    .await;
+    .await
+    .expect("run echo client");
 
     assert!(
         !logs_contain("elapsed_us"),
@@ -331,7 +331,8 @@ async fn all_timing_convenience_enables_all_operations() {
             let _response: Envelope = client.call(&envelope).await.expect("call");
         },
     )
-    .await;
+    .await
+    .expect("run echo client");
 
     // At minimum: connect + send + receive + call = 4 timing events.
     logs_assert(|lines: &[&str]| {
@@ -350,7 +351,7 @@ async fn all_timing_convenience_enables_all_operations() {
 async fn default_config_is_backwards_compatible() {
     // No tracing_config() call — uses the default. Verifies no panic
     // occurs and basic operations succeed with default configuration.
-    let (addr, server) = spawn_echo_server().await;
+    let (addr, server) = spawn_echo_server().await.expect("spawn echo server");
     let mut client = WireframeClient::builder()
         .connect(addr)
         .await

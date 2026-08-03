@@ -11,8 +11,9 @@ use super::helpers::{counting_hook, test_error_hook_on_disconnect, test_with_cli
 async fn setup_callback_invoked_on_connect() {
     let (setup_count, increment) = counting_hook();
 
-    let _client =
-        test_with_client(|builder| builder.on_connection_setup(move || increment(42u32))).await;
+    let _client = test_with_client(|builder| builder.on_connection_setup(move || increment(42u32)))
+        .await
+        .expect("connect client");
 
     assert_eq!(
         setup_count.load(Ordering::SeqCst),
@@ -40,7 +41,8 @@ async fn teardown_callback_receives_setup_state() {
                 }
             })
     })
-    .await;
+    .await
+    .expect("connect client");
 
     client.close().await;
 
@@ -58,7 +60,8 @@ async fn teardown_without_setup_does_not_run() {
     let client = test_with_client(|builder| {
         builder.on_connection_teardown(move |value: ()| increment(value))
     })
-    .await;
+    .await
+    .expect("connect client");
 
     client.close().await;
 
@@ -96,7 +99,8 @@ async fn setup_and_teardown_callbacks_run() {
                 }
             })
     })
-    .await;
+    .await
+    .expect("connect client");
 
     assert_eq!(
         setup_count.load(Ordering::SeqCst),
@@ -131,7 +135,8 @@ async fn on_connection_setup_preserves_error_hook() {
             })
             .on_connection_setup(|| async { 42u32 })
     })
-    .await;
+    .await
+    .expect("run error hook scenario");
 
     assert_eq!(
         error_count.load(Ordering::SeqCst),

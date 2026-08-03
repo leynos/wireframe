@@ -3,10 +3,6 @@
 //! Provides server/client coordination for lifecycle hook scenarios.
 
 #![expect(
-    clippy::expect_used,
-    reason = "test code uses expect for concise assertions"
-)]
-#![expect(
     clippy::excessive_nesting,
     reason = "async closures within builder patterns are inherently nested"
 )]
@@ -65,7 +61,7 @@ type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::Tc
 #[derive(Debug, Default)]
 pub struct ClientLifecycleWorld {
     addr: Option<SocketAddr>,
-    server: Option<JoinHandle<()>>,
+    server: Option<JoinHandle<TestResult>>,
     client: Option<TestClient>,
     setup_count: Arc<AtomicUsize>,
     teardown_count: Arc<AtomicUsize>,
@@ -95,13 +91,13 @@ impl ClientLifecycleWorld {
     async fn spawn_server<F, Fut>(&mut self, behaviour: F) -> TestResult
     where
         F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ()> + Send,
+        Fut: std::future::Future<Output = TestResult> + Send,
     {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("accept");
-            behaviour(stream).await;
+            let (stream, _) = listener.accept().await?;
+            behaviour(stream).await
         });
 
         self.addr = Some(addr);
@@ -137,12 +133,10 @@ impl ClientLifecycleWorld {
     ///
     /// # Errors
     /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept fails.
     pub async fn start_standard_server(&mut self) -> TestResult {
         self.spawn_server(|_stream| async {
             tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
         })
         .await
     }
@@ -151,12 +145,10 @@ impl ClientLifecycleWorld {
     ///
     /// # Errors
     /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept fails.
     pub async fn start_disconnecting_server(&mut self) -> TestResult {
         self.spawn_server(|stream| async {
             drop(stream);
+            Ok(())
         })
         .await
     }
@@ -165,18 +157,12 @@ impl ClientLifecycleWorld {
     ///
     /// # Errors
     /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if preamble read or ack write fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
         self.spawn_server(|mut stream| async move {
-            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
-                .await
-                .expect("read preamble");
-            write_preamble(&mut stream, &ServerAck { accepted: true })
-                .await
-                .expect("write ack");
+            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream).await?;
+            write_preamble(&mut stream, &ServerAck { accepted: true }).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
         })
         .await
     }

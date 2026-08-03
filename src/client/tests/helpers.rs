@@ -23,35 +23,45 @@ use crate::{
 pub type CountingHookClosure<T> =
     Arc<dyn Fn(T) -> Pin<Box<dyn Future<Output = T> + Send>> + Send + Sync>;
 
+/// Result alias for fallible client test helpers.
+///
+/// Arranging a fixture can fail, so helpers propagate the failure to the test
+/// body rather than panicking inside the arrangement.
+pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Handle to a task accepting a single connection on a loopback listener.
+pub type AcceptHandle = tokio::task::JoinHandle<std::io::Result<TcpStream>>;
+
+/// Binds a listener on an ephemeral loopback port and reports its address.
+pub async fn bind_loopback() -> TestResult<(TcpListener, SocketAddr)> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    Ok((listener, addr))
+}
+
 /// Spawns a TCP listener and returns the address and a handle to accept a connection.
-pub async fn spawn_listener() -> (SocketAddr, tokio::task::JoinHandle<TcpStream>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("listener addr");
-    let accept = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept client");
-        stream
-    });
-    (addr, accept)
+pub async fn spawn_listener() -> TestResult<(SocketAddr, AcceptHandle)> {
+    let (listener, addr) = bind_loopback().await?;
+    let accept = tokio::spawn(async move { listener.accept().await.map(|(stream, _)| stream) });
+    Ok((addr, accept))
 }
 
 /// Helper function to test that a builder option is correctly applied to the TCP socket.
-pub async fn assert_builder_option<F, A>(configure_builder: F, assert_option: A)
+pub async fn assert_builder_option<F, A>(configure_builder: F, assert_option: A) -> TestResult
 where
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder,
     A: FnOnce(&WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>>),
 {
-    let (addr, accept) = spawn_listener().await;
+    let (addr, accept) = spawn_listener().await?;
 
     let client = configure_builder(WireframeClient::builder())
         .connect(addr)
-        .await
-        .expect("connect client");
+        .await?;
 
     assert_option(&client);
 
-    let _server_stream = accept.await.expect("join accept task");
+    let _server_stream = accept.await??;
+    Ok(())
 }
 
 /// Helper function to test lifecycle hooks with a connected client.
@@ -60,19 +70,18 @@ where
 /// server. This allows tests to verify client behaviour when the peer disconnects.
 pub async fn test_with_client<F, C>(
     configure_builder: F,
-) -> WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>, C>
+) -> TestResult<WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>, C>>
 where
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<BincodeSerializer, (), C>,
     C: Send + 'static,
 {
-    let (addr, accept) = spawn_listener().await;
+    let (addr, accept) = spawn_listener().await?;
     let client = configure_builder(WireframeClient::builder())
         .connect(addr)
-        .await
-        .expect("connect client");
+        .await?;
     // Server stream is dropped here, simulating a disconnected server.
-    let _server = accept.await.expect("join accept task");
-    client
+    let _server = accept.await??;
+    Ok(client)
 }
 
 /// Creates a counter and an incrementing hook for use in lifecycle tests.
@@ -101,7 +110,9 @@ where
 ///
 /// Spawns a listener, connects a client configured via the provided closure,
 /// disconnects the server, attempts to receive, and returns the error count.
-pub async fn test_error_hook_on_disconnect<F, C>(configure_builder: F) -> Arc<AtomicUsize>
+pub async fn test_error_hook_on_disconnect<F, C>(
+    configure_builder: F,
+) -> TestResult<Arc<AtomicUsize>>
 where
     F: FnOnce(
         WireframeClientBuilder,
@@ -110,22 +121,21 @@ where
     C: Send + 'static,
 {
     let error_count = Arc::new(AtomicUsize::new(0));
-    let (addr, accept) = spawn_listener().await;
+    let (addr, accept) = spawn_listener().await?;
 
     let mut client = configure_builder(WireframeClient::builder(), error_count.clone())
         .connect(addr)
-        .await
-        .expect("connect client");
+        .await?;
 
     // Drop the server side to cause a disconnection
-    let server = accept.await.expect("join accept task");
+    let server = accept.await??;
     drop(server);
 
     // Try to receive - should fail and invoke error hook
     let result: Result<Vec<u8>, ClientError> = client.receive().await;
     assert!(result.is_err(), "receive should fail after disconnect");
 
-    error_count
+    Ok(error_count)
 }
 
 /// A serializer that always fails to serialize, used for testing error hooks.
@@ -161,7 +171,9 @@ macro_rules! socket_option_test {
     ($name:ident, $configure:expr, $assert:expr $(,)?) => {
         #[tokio::test]
         async fn $name() {
-            $crate::client::tests::helpers::assert_builder_option($configure, $assert).await;
+            $crate::client::tests::helpers::assert_builder_option($configure, $assert)
+                .await
+                .expect("assert builder option");
         }
     };
 }
