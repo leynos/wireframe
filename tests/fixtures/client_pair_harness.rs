@@ -36,32 +36,20 @@ impl std::fmt::Debug for ClientPairHarnessWorld {
     }
 }
 
-impl Default for ClientPairHarnessWorld {
-    fn default() -> Self {
-        // `Default` has no error channel, and rstest-bdd resolves this world as
-        // a plain fixture value that every step borrows mutably, so the failure
-        // cannot be threaded out to the scenario either. A runtime that refuses
-        // to start is an environment fault rather than a test outcome, so this
-        // is the one deliberate panic boundary in the harness.
-        let runtime = match tokio::runtime::Runtime::new() {
-            Ok(runtime) => runtime,
-            Err(err) => panic!("failed to create Tokio runtime for the BDD world: {err}"),
-        };
-
-        Self {
-            runtime,
-            counter: Arc::new(AtomicUsize::new(0)),
-            pair: None,
-            response: None,
-        }
-    }
-}
-
 /// Fixture for `ClientPairHarnessWorld`.
+///
+/// Building the runtime can fail, so the fixture reports that to the scenario
+/// rather than panicking during arrangement, following the pattern established
+/// by `slow_io_backpressure_world`.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_pair_harness_world() -> ClientPairHarnessWorld {
-    ClientPairHarnessWorld::default()
+pub fn client_pair_harness_world() -> TestResult<ClientPairHarnessWorld> {
+    Ok(ClientPairHarnessWorld {
+        runtime: tokio::runtime::Runtime::new()?,
+        counter: Arc::new(AtomicUsize::new(0)),
+        pair: None,
+        response: None,
+    })
 }
 
 impl ClientPairHarnessWorld {
