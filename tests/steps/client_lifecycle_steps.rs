@@ -77,7 +77,11 @@ fn when_connect_with_preamble_and_lifecycle(
 
 #[then("the setup callback is invoked exactly once")]
 fn then_setup_invoked_once(client_lifecycle_world: &mut ClientLifecycleWorld) -> TestResult {
-    assert_count_equals(client_lifecycle_world.setup_count(), 1, "setup")
+    assert_count_equals(client_lifecycle_world.setup_count(), 1, "setup")?;
+    // This is the closing step of both scenarios that use a cleanly completing
+    // server, so it is where the server's own result is finally observed.
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_lifecycle_world.finish_server())
 }
 
 #[then("the teardown callback is invoked exactly once")]

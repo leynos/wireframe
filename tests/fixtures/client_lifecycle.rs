@@ -72,6 +72,10 @@ pub struct ClientLifecycleWorld {
 }
 
 impl Drop for ClientLifecycleWorld {
+    /// Aborts any server task a scenario did not explicitly finish.
+    ///
+    /// This is a fallback: [`ClientLifecycleWorld::finish_server`] is the path
+    /// that actually observes the task's result.
     fn drop(&mut self) {
         if let Some(handle) = self.server.take() {
             handle.abort();
@@ -323,4 +327,18 @@ impl ClientLifecycleWorld {
     /// Get a reference to the last captured error, if any.
     #[must_use]
     pub fn last_error(&self) -> Option<&ClientError> { self.last_error.as_ref() }
+
+    /// Await the server task and surface both join and inner errors.
+    ///
+    /// Without this the task's `TestResult` is only ever aborted on drop, so a
+    /// server-side failure would pass unnoticed.
+    ///
+    /// # Errors
+    /// Returns an error if no server was started, if the task panicked or was
+    /// cancelled, or if the server itself failed.
+    pub async fn finish_server(&mut self) -> TestResult {
+        let handle = self.server.take().ok_or("server task missing")?;
+        handle.await??;
+        Ok(())
+    }
 }

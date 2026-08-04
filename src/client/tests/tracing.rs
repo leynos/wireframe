@@ -4,14 +4,13 @@
 //! appear as context prefixes. Tests enable per-command timing so an event is
 //! emitted within each span, making the span name visible in captured output.
 
-use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use rstest::rstest;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing_test::traced_test;
-use wireframe_testing::{ServerMode, process_frame};
+use wireframe_testing::ServerMode;
 
-use super::helpers::{TestResult, bind_loopback};
+use super::helpers::{TestResult, bind_loopback, spawn_frame_server};
 use crate::{
     app::Envelope,
     client::{ClientError, TracingConfig, WireframeClient},
@@ -21,31 +20,6 @@ use crate::{
 
 /// Concrete client type returned by `builder().connect()` in tests.
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>;
-
-/// Spawn a test echo server that deserializes envelopes and echoes them back.
-async fn spawn_echo_server() -> TestResult<(
-    std::net::SocketAddr,
-    tokio::task::JoinHandle<std::io::Result<()>>,
-)> {
-    let (listener, addr) = bind_loopback().await?;
-
-    let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await?;
-        let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
-
-        while let Some(Ok(bytes)) = framed.next().await {
-            let Some(response_bytes) = process_frame(ServerMode::Echo, &bytes) else {
-                break;
-            };
-            if framed.send(Bytes::from(response_bytes)).await.is_err() {
-                break;
-            }
-        }
-        Ok(())
-    });
-
-    Ok((addr, handle))
-}
 
 /// Spawn an echo server, connect a client with the given tracing config,
 /// run an async closure against it, then tear down the server.
@@ -57,7 +31,7 @@ where
     F: FnOnce(TestClient, std::net::SocketAddr) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    let (addr, server) = spawn_echo_server().await?;
+    let (addr, server) = spawn_frame_server(ServerMode::Echo).await?;
     let client = WireframeClient::builder()
         .tracing_config(config)
         .connect(addr)
@@ -351,7 +325,9 @@ async fn all_timing_convenience_enables_all_operations() {
 async fn default_config_is_backwards_compatible() {
     // No tracing_config() call — uses the default. Verifies no panic
     // occurs and basic operations succeed with default configuration.
-    let (addr, server) = spawn_echo_server().await.expect("spawn echo server");
+    let (addr, server) = spawn_frame_server(ServerMode::Echo)
+        .await
+        .expect("spawn echo server");
     let mut client = WireframeClient::builder()
         .connect(addr)
         .await

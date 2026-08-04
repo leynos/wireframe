@@ -4,48 +4,25 @@
 //! that [`super::request_hooks`] exercises, keeping that module within the
 //! repository's 400-line limit.
 
-use std::sync::{
-    Arc,
-    Mutex,
-    MutexGuard,
-    PoisonError,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    future::Future,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
-use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use rstest::fixture;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe_testing::ServerMode;
 
-use super::helpers::{TestResult, bind_loopback};
+use super::helpers::{TestResult, bind_loopback, spawn_frame_server};
 use crate::{app::Envelope, client::WireframeClient};
-
-/// Spawn a simple echo server that reads one frame and echoes it back.
-pub(super) async fn spawn_echo_server() -> TestResult<(
-    std::net::SocketAddr,
-    tokio::task::JoinHandle<std::io::Result<()>>,
-)> {
-    let (listener, addr) = bind_loopback().await?;
-
-    let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await?;
-        let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
-
-        while let Some(Ok(bytes)) = framed.next().await {
-            let Some(response_bytes) = wireframe_testing::process_frame(ServerMode::Echo, &bytes)
-            else {
-                break;
-            };
-            if framed.send(Bytes::from(response_bytes)).await.is_err() {
-                break;
-            }
-        }
-        Ok(())
-    });
-
-    Ok((addr, handle))
-}
 
 /// Spawn a server that captures each received frame payload for inspection.
 pub(super) async fn spawn_capturing_server() -> TestResult<(
@@ -110,12 +87,12 @@ where
         &'a mut TestClient,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
 {
-    let (addr, server) = spawn_echo_server().await?;
-    let mut client = connect_client_with_hooks(addr, configure_hooks).await?;
-    test_body(&mut client).await?;
-    drop(client);
-    let _ = server.await;
-    Ok(())
+    run_hook_test_with_server(
+        configure_hooks,
+        test_body,
+        spawn_frame_server(ServerMode::Echo),
+    )
+    .await
 }
 
 /// Variant for tests that need the capturing server.
@@ -129,7 +106,29 @@ where
         &'a mut TestClient,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
 {
-    let (addr, server) = spawn_capturing_server().await?;
+    run_hook_test_with_server(configure_hooks, test_body, spawn_capturing_server()).await
+}
+
+/// Shared harness behind [`run_hook_test`] and [`run_hook_test_with_capture`].
+///
+/// Takes the server as an unpolled future so each caller chooses its own
+/// server without duplicating the connect, run-body, teardown, and join steps.
+/// The client is dropped before the join so the server sees the connection
+/// close and its loop can finish, and both the `JoinError` and the server's own
+/// I/O error propagate rather than being discarded.
+async fn run_hook_test_with_server<F, T, R, S>(
+    configure_hooks: F,
+    test_body: T,
+    server: S,
+) -> TestResult<R>
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
+    S: Future<Output = TestResult<(SocketAddr, tokio::task::JoinHandle<std::io::Result<R>>)>>,
+{
+    let (addr, server) = server.await?;
     let mut client = connect_client_with_hooks(addr, configure_hooks).await?;
     test_body(&mut client).await?;
     drop(client);

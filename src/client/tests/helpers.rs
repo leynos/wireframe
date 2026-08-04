@@ -10,7 +10,11 @@ use std::{
     },
 };
 
+use bytes::Bytes;
+use futures::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use wireframe_testing::{ServerMode, process_frame};
 
 use crate::{
     client::{ClientError, WireframeClient, WireframeClientBuilder},
@@ -44,6 +48,34 @@ pub async fn spawn_listener() -> TestResult<(SocketAddr, AcceptHandle)> {
     let (listener, addr) = bind_loopback().await?;
     let accept = tokio::spawn(async move { listener.accept().await.map(|(stream, _)| stream) });
     Ok((addr, accept))
+}
+
+/// Handle to a background frame server, reporting any accept failure on join.
+pub type FrameServerHandle = tokio::task::JoinHandle<std::io::Result<()>>;
+
+/// Spawns a loopback server that answers each length-delimited frame per `mode`.
+///
+/// The loop stops when `process_frame` declines to answer or the peer goes
+/// away, and the task reports an accept failure on join rather than panicking.
+pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, FrameServerHandle)> {
+    let (listener, addr) = bind_loopback().await?;
+
+    let handle = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
+
+        while let Some(Ok(bytes)) = framed.next().await {
+            let Some(response_bytes) = process_frame(mode, &bytes) else {
+                break;
+            };
+            if framed.send(Bytes::from(response_bytes)).await.is_err() {
+                break;
+            }
+        }
+        Ok(())
+    });
+
+    Ok((addr, handle))
 }
 
 /// Helper function to test that a builder option is correctly applied to the TCP socket.

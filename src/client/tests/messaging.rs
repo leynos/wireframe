@@ -5,13 +5,10 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
 use rstest::rstest;
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use wireframe_testing::{ServerMode, process_frame};
+use wireframe_testing::ServerMode;
 
-use super::helpers::{TestResult, bind_loopback, spawn_listener};
+use super::helpers::{FrameServerHandle, TestResult, spawn_frame_server, spawn_listener};
 use crate::{
     WireframeError,
     app::{Envelope, Packet},
@@ -19,39 +16,15 @@ use crate::{
     correlation::CorrelatableFrame,
 };
 
-/// Handle to a background test server, reporting any accept failure on join.
-type ServerHandle = tokio::task::JoinHandle<std::io::Result<()>>;
-
-/// Spawn a test server with the specified mode.
-async fn spawn_test_server(mode: ServerMode) -> TestResult<(std::net::SocketAddr, ServerHandle)> {
-    let (listener, addr) = bind_loopback().await?;
-
-    let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await?;
-        let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
-
-        while let Some(Ok(bytes)) = framed.next().await {
-            let Some(response_bytes) = process_frame(mode, &bytes) else {
-                break;
-            };
-            if framed.send(Bytes::from(response_bytes)).await.is_err() {
-                break;
-            }
-        }
-        Ok(())
-    });
-
-    Ok((addr, handle))
-}
-
 /// Spawn a TCP listener and return an echo server that preserves correlation IDs.
-async fn spawn_envelope_echo_server() -> TestResult<(std::net::SocketAddr, ServerHandle)> {
-    spawn_test_server(ServerMode::Echo).await
+async fn spawn_envelope_echo_server() -> TestResult<(std::net::SocketAddr, FrameServerHandle)> {
+    spawn_frame_server(ServerMode::Echo).await
 }
 
 /// Spawn a server that returns envelopes with a different correlation ID.
-async fn spawn_mismatched_correlation_server() -> TestResult<(std::net::SocketAddr, ServerHandle)> {
-    spawn_test_server(ServerMode::Mismatch).await
+async fn spawn_mismatched_correlation_server()
+-> TestResult<(std::net::SocketAddr, FrameServerHandle)> {
+    spawn_frame_server(ServerMode::Mismatch).await
 }
 
 #[tokio::test]
