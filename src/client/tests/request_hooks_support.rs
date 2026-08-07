@@ -1,0 +1,269 @@
+//! Shared support for the client request-hook tests.
+//!
+//! Holds the echo and capturing servers, the hook harnesses, and the fixtures
+//! that [`super::request_hooks`] exercises, keeping that module within the
+//! repository's 400-line limit.
+
+use std::{
+    future::Future,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+use futures::{SinkExt, StreamExt};
+use rstest::fixture;
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use wireframe_testing::ServerMode;
+
+use super::helpers::{TestResult, bind_loopback, is_expected_disconnect, spawn_frame_server};
+use crate::{app::Envelope, client::WireframeClient};
+
+/// Spawn a server that captures each received frame payload for inspection.
+pub(super) async fn spawn_capturing_server() -> TestResult<(
+    std::net::SocketAddr,
+    tokio::task::JoinHandle<std::io::Result<Vec<Vec<u8>>>>,
+)> {
+    let (listener, addr) = bind_loopback().await?;
+
+    let handle = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
+        let mut captured = Vec::new();
+
+        loop {
+            let bytes = match framed.next().await {
+                None => break,
+                Some(Ok(bytes)) => bytes,
+                Some(Err(error)) if is_expected_disconnect(&error) => break,
+                Some(Err(error)) => return Err(error),
+            };
+            captured.push(bytes.to_vec());
+            // Echo the frame back so the client can receive it.
+            match framed.send(bytes.freeze()).await {
+                Ok(()) => {}
+                Err(error) if is_expected_disconnect(&error) => break,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(captured)
+    });
+
+    Ok((addr, handle))
+}
+
+/// Locks a hook log, recovering the entries if a previous holder panicked.
+///
+/// The log only accumulates marker bytes, so no invariant is broken by a
+/// poisoning; discarding the recorded markers would lose the very evidence the
+/// assertion needs.
+pub(super) fn lock_log(log: &Mutex<Vec<u8>>) -> MutexGuard<'_, Vec<u8>> {
+    log.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Client type returned by [`connect_client_with_hooks`].
+pub(super) type TestClient = WireframeClient<
+    crate::serializer::BincodeSerializer,
+    crate::rewind_stream::RewindStream<tokio::net::TcpStream>,
+>;
+
+/// Helper to build and connect a client with custom hook configuration.
+pub(super) async fn connect_client_with_hooks<F>(
+    addr: std::net::SocketAddr,
+    configure: F,
+) -> TestResult<TestClient>
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+{
+    let builder = WireframeClient::builder();
+    Ok(configure(builder).connect(addr).await?)
+}
+
+/// Generic test harness for request hook tests.
+///
+/// Spawns an echo server, connects a client with custom hooks,
+/// runs the test body, and handles cleanup automatically.
+pub(super) async fn run_hook_test<F, T>(configure_hooks: F, test_body: T) -> TestResult
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
+{
+    run_hook_test_with_server(
+        configure_hooks,
+        test_body,
+        spawn_frame_server(ServerMode::Echo),
+    )
+    .await
+}
+
+/// Variant for tests that need the capturing server.
+pub(super) async fn run_hook_test_with_capture<F, T>(
+    configure_hooks: F,
+    test_body: T,
+) -> TestResult<Vec<Vec<u8>>>
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
+{
+    run_hook_test_with_server(configure_hooks, test_body, spawn_capturing_server()).await
+}
+
+/// Shared harness behind [`run_hook_test`] and [`run_hook_test_with_capture`].
+///
+/// Takes the server as an unpolled future so each caller chooses its own
+/// server without duplicating the connect, run-body, teardown, and join steps.
+///
+/// The server task is accounted for on every exit path. On success the client
+/// is already dropped, so the serve loop ends and the join yields its result,
+/// propagating both the `JoinError` and the server's own I/O error. On failure
+/// the task is aborted and reaped instead: the client may never have connected,
+/// leaving the server parked in `accept`, so waiting for a loop that cannot end
+/// would hang the test rather than report the original error.
+async fn run_hook_test_with_server<F, T, R, S>(
+    configure_hooks: F,
+    test_body: T,
+    server: S,
+) -> TestResult<R>
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
+    S: Future<Output = TestResult<(SocketAddr, tokio::task::JoinHandle<std::io::Result<R>>)>>,
+{
+    let (addr, server) = server.await?;
+
+    match drive_client(addr, configure_hooks, test_body).await {
+        Ok(()) => Ok(server.await??),
+        Err(error) => {
+            server.abort();
+            let _ = server.await;
+            Err(error)
+        }
+    }
+}
+
+/// Connects a client, runs the body against it, and drops it before returning.
+///
+/// The drop happens on the failure path too, so the server always observes the
+/// close rather than the connection being held open by a leaked client.
+async fn drive_client<F, T>(addr: SocketAddr, configure_hooks: F, test_body: T) -> TestResult
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
+{
+    let mut client = connect_client_with_hooks(addr, configure_hooks).await?;
+    let outcome = test_body(&mut client).await;
+    drop(client);
+    outcome
+}
+
+/// Test fixture for tracking hook invocations with a counter.
+pub(super) struct HookCounter {
+    counter: Arc<AtomicUsize>,
+}
+
+impl HookCounter {
+    pub(super) fn new() -> Self {
+        Self {
+            counter: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub(super) fn before_send_hook(&self) -> impl Fn(&mut Vec<u8>) + Send + Sync + 'static {
+        let count = self.counter.clone();
+        move |_bytes: &mut Vec<u8>| {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    pub(super) fn after_receive_hook(
+        &self,
+    ) -> impl Fn(&mut bytes::BytesMut) + Send + Sync + 'static {
+        let count = self.counter.clone();
+        move |_bytes: &mut bytes::BytesMut| {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    pub(super) fn assert_count(&self, expected: usize, message: &str) {
+        assert_eq!(self.counter.load(Ordering::SeqCst), expected, "{message}");
+    }
+}
+
+/// Test fixture for tracking hook invocations with a log.
+pub(super) struct HookLog {
+    log: Arc<Mutex<Vec<u8>>>,
+}
+
+impl HookLog {
+    pub(super) fn new() -> Self {
+        Self {
+            log: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub(super) fn before_send_hook(
+        &self,
+        marker: u8,
+    ) -> impl Fn(&mut Vec<u8>) + Send + Sync + 'static {
+        let log = self.log.clone();
+        move |_bytes: &mut Vec<u8>| {
+            lock_log(&log).push(marker);
+        }
+    }
+
+    pub(super) fn after_receive_hook(
+        &self,
+        marker: u8,
+    ) -> impl Fn(&mut bytes::BytesMut) + Send + Sync + 'static {
+        let log = self.log.clone();
+        move |_bytes: &mut bytes::BytesMut| {
+            lock_log(&log).push(marker);
+        }
+    }
+
+    pub(super) fn assert_entries(&self, expected: &[u8], message: &str) {
+        assert_eq!(lock_log(&self.log).as_slice(), expected, "{message}");
+    }
+}
+
+/// Fixture: create a fresh [`HookCounter`].
+#[rustfmt::skip]
+#[fixture]
+pub(super) fn hook_counter() -> HookCounter {
+    HookCounter::new()
+}
+
+/// Fixture: create a fresh [`HookLog`].
+#[rustfmt::skip]
+#[fixture]
+pub(super) fn hook_log() -> HookLog {
+    HookLog::new()
+}
+
+/// Helper: test body that sends an envelope.
+pub(super) async fn send_envelope_test_body(client: &mut TestClient) -> TestResult {
+    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+    client.send_envelope(envelope).await?;
+    Ok(())
+}
+
+/// Helper: test body that sends an envelope and receives a response.
+pub(super) async fn send_and_receive_test_body(client: &mut TestClient) -> TestResult {
+    let envelope = Envelope::new(1, None, vec![1, 2, 3]);
+    client.send_envelope(envelope).await?;
+    let _response: Envelope = client.receive_envelope().await?;
+    Ok(())
+}

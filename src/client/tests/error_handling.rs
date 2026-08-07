@@ -15,6 +15,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use super::helpers::{
     FailingSerializer,
+    TestResult,
     spawn_listener,
     test_error_hook_on_disconnect,
     test_with_client,
@@ -32,19 +33,18 @@ use crate::{
 /// such as sending invalid data or dropping the connection at specific times.
 async fn connect_with_server<S, F, C>(
     configure_builder: F,
-) -> (WireframeClient<S, RewindStream<TcpStream>, C>, TcpStream)
+) -> TestResult<(WireframeClient<S, RewindStream<TcpStream>, C>, TcpStream)>
 where
     S: Serializer + Send + Sync + 'static,
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<S, (), C>,
     C: Send + 'static,
 {
-    let (addr, accept) = spawn_listener().await;
+    let (addr, accept) = spawn_listener().await?;
     let client = configure_builder(WireframeClient::builder())
         .connect(addr)
-        .await
-        .expect("connect client");
-    let server_stream = accept.await.expect("join accept task");
-    (client, server_stream)
+        .await?;
+    let server_stream = accept.await??;
+    Ok((client, server_stream))
 }
 
 #[tokio::test]
@@ -61,7 +61,8 @@ async fn error_callback_invoked_on_receive_error() {
             }
         })
     })
-    .await;
+    .await
+    .expect("run error hook scenario");
 
     assert_eq!(
         error_count.load(Ordering::SeqCst),
@@ -73,7 +74,9 @@ async fn error_callback_invoked_on_receive_error() {
 #[tokio::test]
 async fn no_error_hook_does_not_panic() {
     // Server is dropped inside test_with_client after connection
-    let mut client = test_with_client(|builder| builder).await;
+    let mut client = test_with_client(|builder| builder)
+        .await
+        .expect("connect client");
 
     // Receive should fail but not panic since there's no error hook
     let result: Result<Vec<u8>, ClientError> = client.receive().await;
@@ -100,7 +103,8 @@ async fn error_callback_invoked_on_deserialize_error() {
             }
         })
     })
-    .await;
+    .await
+    .expect("connect client and server");
 
     // Send invalid bincode data via the server stream
     let mut framed = Framed::new(server_stream, LengthDelimitedCodec::new());
@@ -151,7 +155,8 @@ async fn error_callback_invoked_on_send_io_error() {
             }
         })
     })
-    .await;
+    .await
+    .expect("connect client and server");
 
     // Drop the server side to cause a broken pipe on send
     drop(server_stream);
@@ -201,7 +206,8 @@ async fn error_callback_invoked_on_serialize_error() {
             }
         })
     })
-    .await;
+    .await
+    .expect("connect client and server");
 
     // Try to send - should fail with serialization error and invoke error hook
     let result = client.send(&TestMessage(42)).await;

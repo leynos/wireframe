@@ -77,7 +77,11 @@ fn when_connect_with_preamble_and_lifecycle(
 
 #[then("the setup callback is invoked exactly once")]
 fn then_setup_invoked_once(client_lifecycle_world: &mut ClientLifecycleWorld) -> TestResult {
-    assert_count_equals(client_lifecycle_world.setup_count(), 1, "setup")
+    assert_count_equals(client_lifecycle_world.setup_count(), 1, "setup")?;
+    // This is the closing step of both scenarios that use a cleanly completing
+    // server, so it is where the server's own result is finally observed.
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_lifecycle_world.finish_server())
 }
 
 #[then("the teardown callback is invoked exactly once")]
@@ -92,7 +96,9 @@ fn then_teardown_receives_state(client_lifecycle_world: &mut ClientLifecycleWorl
     if state != expected {
         return Err(format!("expected teardown to receive state {expected}, got {state}").into());
     }
-    Ok(())
+    // Closing step of this scenario, so the server's own result is observed here.
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_lifecycle_world.finish_server())
 }
 
 #[then("the error callback is invoked")]
@@ -121,10 +127,16 @@ fn then_client_error_is_wireframe_transport_error(
         .ok_or("expected a captured client error in world.last_error")?;
 
     match last_error {
-        wireframe::client::ClientError::Wireframe(wireframe::WireframeError::Io(_)) => Ok(()),
-        other => Err(format!(
-            "expected ClientError::Wireframe(WireframeError::Io(_)), got {other:?}"
-        )
-        .into()),
+        wireframe::client::ClientError::Wireframe(wireframe::WireframeError::Io(_)) => {}
+        other => {
+            return Err(format!(
+                "expected ClientError::Wireframe(WireframeError::Io(_)), got {other:?}"
+            )
+            .into());
+        }
     }
+
+    // Closing step of this scenario, so the server's own result is observed here.
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_lifecycle_world.finish_server())
 }

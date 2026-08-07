@@ -8,7 +8,7 @@ use crate::fixtures::client_pair_harness::*;
     path = "tests/features/client_pair_harness.feature",
     name = "Downstream crate verifies a request/response contract through the pair harness"
 )]
-fn client_pair_harness_round_trip(client_pair_harness_world: ClientPairHarnessWorld) {
+fn client_pair_harness_round_trip(client_pair_harness_world: TestResult<ClientPairHarnessWorld>) {
     let _ = &client_pair_harness_world;
 }
 
@@ -16,6 +16,8 @@ fn client_pair_harness_round_trip(client_pair_harness_world: ClientPairHarnessWo
     path = "tests/features/client_pair_harness.feature",
     name = "Downstream crate supplies non-default client configuration through the pair harness"
 )]
-fn client_pair_harness_custom_config(client_pair_harness_world: ClientPairHarnessWorld) {
+fn client_pair_harness_custom_config(
+    client_pair_harness_world: TestResult<ClientPairHarnessWorld>,
+) {
     let _ = &client_pair_harness_world;
 }

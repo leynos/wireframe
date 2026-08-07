@@ -34,12 +34,16 @@ impl Fragmentable for TestPacket {
     }
 }
 
-fn adapter_config() -> FragmentationConfig {
-    FragmentationConfig {
-        fragment_payload_cap: NonZeroUsize::new(4).expect("non-zero"),
-        max_message_size: NonZeroUsize::new(64).expect("non-zero"),
+/// Result alias for fallible fragment-adapter test helpers.
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+fn adapter_config() -> TestResult<FragmentationConfig> {
+    Ok(FragmentationConfig {
+        fragment_payload_cap: NonZeroUsize::new(4)
+            .ok_or("fragment payload cap must be non-zero")?,
+        max_message_size: NonZeroUsize::new(64).ok_or("max message size must be non-zero")?,
         reassembly_timeout: Duration::from_secs(30),
-    }
+    })
 }
 
 fn build_test_packet() -> TestPacket {
@@ -64,39 +68,30 @@ fn assert_fragment_metadata(fragments: &[TestPacket], packet: &TestPacket) {
 fn reassemble_fragment_sequence(
     adapter: &mut DefaultFragmentAdapter,
     fragments: &[TestPacket],
-) -> Vec<TestPacket> {
+) -> TestResult<Vec<TestPacket>> {
     let first = fragments
         .first()
         .cloned()
-        .expect("fragment list must contain at least one fragment");
-    assert!(
-        adapter
-            .reassemble(first.clone())
-            .expect("first fragment should be accepted")
-            .is_none()
-    );
-    assert!(
-        adapter
-            .reassemble(first)
-            .expect("duplicate fragment should be suppressed")
-            .is_none()
-    );
+        .ok_or("fragment list must contain at least one fragment")?;
+    if adapter.reassemble(first.clone())?.is_some() {
+        return Err("first fragment should not complete a message".into());
+    }
+    if adapter.reassemble(first)?.is_some() {
+        return Err("duplicate fragment should be suppressed".into());
+    }
 
-    fragments
-        .iter()
-        .skip(1)
-        .cloned()
-        .filter_map(|fragment| {
-            adapter
-                .reassemble(fragment)
-                .expect("reassembly should not fail")
-        })
-        .collect()
+    let mut reassembled = Vec::new();
+    for fragment in fragments.iter().skip(1).cloned() {
+        if let Some(packet) = adapter.reassemble(fragment)? {
+            reassembled.push(packet);
+        }
+    }
+    Ok(reassembled)
 }
 
 #[test]
 fn default_fragment_adapter_fragments_and_reassembles_test_packets() {
-    let mut adapter = DefaultFragmentAdapter::new(adapter_config());
+    let mut adapter = DefaultFragmentAdapter::new(adapter_config().expect("build adapter config"));
     let packet = build_test_packet();
 
     let fragments = adapter
@@ -104,7 +99,8 @@ fn default_fragment_adapter_fragments_and_reassembles_test_packets() {
         .expect("fragmenting packet should succeed");
     assert_fragment_metadata(&fragments, &packet);
 
-    let reconstructed = reassemble_fragment_sequence(&mut adapter, &fragments);
+    let reconstructed = reassemble_fragment_sequence(&mut adapter, &fragments)
+        .expect("reassemble fragment sequence");
     assert_eq!(reconstructed.len(), 1);
     assert_eq!(
         reconstructed.first(),
@@ -115,7 +111,7 @@ fn default_fragment_adapter_fragments_and_reassembles_test_packets() {
 
 #[test]
 fn default_fragment_adapter_passes_through_non_fragment_payloads() {
-    let mut adapter = DefaultFragmentAdapter::new(adapter_config());
+    let mut adapter = DefaultFragmentAdapter::new(adapter_config().expect("build adapter config"));
     let packet = TestPacket {
         id: 12,
         correlation_id: Some(9),
@@ -131,7 +127,7 @@ fn default_fragment_adapter_passes_through_non_fragment_payloads() {
 
 #[test]
 fn default_fragment_adapter_exposes_purge_api() {
-    let mut config = adapter_config();
+    let mut config = adapter_config().expect("build adapter config");
     config.reassembly_timeout = Duration::ZERO;
     let mut adapter = DefaultFragmentAdapter::new(config);
     let header = FragmentHeader::new(MessageId::new(81), FragmentIndex::zero(), false);

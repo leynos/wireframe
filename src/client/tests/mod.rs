@@ -9,6 +9,7 @@ mod pool;
 #[cfg(feature = "pool")]
 mod pool_handle;
 mod request_hooks;
+mod request_hooks_support;
 mod send_streaming;
 mod send_streaming_config;
 mod send_streaming_infra;
