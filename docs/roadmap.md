@@ -207,10 +207,12 @@ stream.
 
 - [x] 6.3.1. Provide a helper (for example `Response::with_channel`) that
   returns a bounded channel sender alongside a `Response::MultiPacket` so
-  handlers can opt into streaming ergonomically.[^adr-0001]
+  handlers can opt into streaming ergonomically (see
+  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.2. Update the multi-packet design documentation and user guide with
   tuple return examples that explain initial-frame handling, back-pressure, and
-  graceful termination.[^adr-0001]
+  graceful termination (see
+  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.3. Add an example handler (or test fixture) demonstrating spawning a
   background task that pushes frames through the returned sender while the
   connection actor manages delivery.
@@ -258,7 +260,8 @@ into a single frame, making the process transparent to the application logic.
 
 ## 8. Streaming requests and shared message assembly
 
-This phase implements the decisions from ADR 0002,[^adr-0002] adding
+This phase implements the decisions from
+[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md), adding
 first-class streaming request bodies, a generic message assembly abstraction,
 and standardized per-connection memory budgets.
 
@@ -371,9 +374,9 @@ integration boundaries.
 ### 9.2. Fragment adaptor alignment
 
 - [x] 9.2.1. Introduce a `FragmentAdapter` trait as described in the
-  fragmentation design.[^fragmentation-design] Fragmentation behaviour must
-  explicitly define duplicate handling, out-of-order policies, and ownership of
-  purge scheduling.
+  [fragmentation](generic-message-fragmentation-and-re-assembly-design.md)
+  design. Fragmentation behaviour must explicitly define duplicate handling,
+  out-of-order policies, and ownership of purge scheduling.
   - [x] Make fragmentation opt-in by requiring explicit configuration on the
     `WireframeApp` builder.
   - [x] Expose a public purge API, so callers can drive timeout eviction.
@@ -389,7 +392,8 @@ integration boundaries.
 ### 9.3. Unified codec handling
 
 - [x] 9.3.1. Unify codec handling between the app router and the `Connection`
-  actor.[^outbound-design]
+  actor (see
+  [outbound messaging design](asynchronous-outbound-messaging-design.md)).
   - [x] Route app-level request and response handling through the
     `FramePipeline` so fragmentation and metrics apply consistently.
   - [x] Remove duplicate codec construction in `src/app/inbound_handler.rs`; the
@@ -398,8 +402,9 @@ integration boundaries.
     fragmentation, sequential requests, disabled fragmentation).
   - [x] Add BDD behavioural tests exercising the unified codec path.
   - [x] Note: protocol hooks (`before_send`) are deferred to a follow-up
-    stage because `F::Frame` and `Envelope` types may
-    differ.[^streaming-design]
+    stage because `F::Frame` and `Envelope` types may differ; see the
+    [streaming responses](multi-packet-and-streaming-responses-design.md)
+    design.
 
 ### 9.4. Property-based codec tests
 
@@ -412,12 +417,15 @@ integration boundaries.
 ### 9.5. Serializer boundaries and protocol metadata
 
 - [x] 9.5.1. Decouple message encoding from `bincode`-specific traits to
-  support alternative serializers.[^router-design][^adr-005]
+  support alternative serializers (see the
+  [binary router library design](rust-binary-router-library-design.md) and
+  [ADR 0005](adr-005-serializer-abstraction.md)).
   - [x] Introduce a serializer-agnostic message trait or adaptor layer for
     `Message` types.
   - [x] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
   - [x] Define how frame metadata is exposed to the deserialization context to
-    enable version negotiation.[^message-versioning]
+    enable version negotiation (see the
+    [message versioning design](message-versioning.md)).
   - [x] Add migration guidance covering existing `bincode` users.
 
 ### 9.6. Codec performance benchmarks
@@ -436,7 +444,7 @@ integration boundaries.
   invalid frames, including oversized payloads and correlation metadata.
 - [x] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
-  recovery policies.[^adr-006]
+  recovery policies (see [ADR 0006](adr-006-test-observability.md)).
 - [x] 9.7.4. Add regression tests backed by `wireframe_testing` for the
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
@@ -582,19 +590,19 @@ Wireframe's protocol, framing, and message assembly layers.
 
 - [x] 15.1.1. Convert the root manifest into a hybrid workspace while keeping
   the root package as the default member. See
-  [formal-verification-methods-in-wireframe.md §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
+  [formal verification guide §Root `Cargo.toml` changes](formal-verification-methods-in-wireframe.md#root-cargotoml-changes).
   Success criteria: `cargo build` and `cargo test --workspace` pass with the
   new layout.
 - [x] 15.1.2. Add `crates/wireframe-verification` as an internal crate for
   Stateright models and shared verification harnesses. Requires 15.1.1. See
-  [formal-verification-methods-in-wireframe.md §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
+  [formal verification guide §Why Stateright belongs in a separate verification crate](formal-verification-methods-in-wireframe.md#why-stateright-belongs-in-a-separate-verification-crate)
   and
   [§Suggested Stateright file layout](formal-verification-methods-in-wireframe.md#suggested-stateright-file-layout).
   Success criteria: the crate compiles, is included as a workspace member, and
   contains a placeholder Stateright model that passes `cargo test`.
 - [x] 15.1.3. Add pinned Kani and Verus tool metadata plus repo-local Makefile
   install and run entry points. See
-  [formal-verification-methods-in-wireframe.md §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
+  [formal verification guide §Recommended repository layout](formal-verification-methods-in-wireframe.md#recommended-repository-layout)
   and
   [§Verus should *not* live inside the main build](formal-verification-methods-in-wireframe.md#why-verus-should-not-live-inside-the-main-build).
   Success criteria: a contributor can run `make install-kani` and
@@ -603,56 +611,59 @@ Wireframe's protocol, framing, and message assembly layers.
 - [ ] 15.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
   `make verus`, `make formal-pr`, and `make formal-nightly` Makefile targets.
   Requires 15.1.2 and 15.1.3. See
-  [formal-verification-methods-in-wireframe.md §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
+  [formal verification guide §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
   Success criteria: each target is accepted by `mbake validate Makefile` and
   returns exit 0 on a clean tree.
 - [ ] 15.1.5. Add separate CI jobs for Stateright, Kani smoke, and Verus
   proofs without changing the existing `build-test` coverage flow. See
-  [formal-verification-methods-in-wireframe.md §Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
+  [formal verification guide §Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
   Success criteria: CI pipelines pass on the default branch with the new jobs
   visible and green.
 
 ### 15.2. Protocol contract decisions
 
+Each decision below is analysed in the
+[formal verification guide](formal-verification-methods-in-wireframe.md); the
+cited section names the specific question it answers.
+
 - [ ] 15.2.1. Support a determined set of length-prefix widths (either `1`,
   `2`, `4`, and `8`, or the full `1..=8` range) and enforce them in
   constructors, conversions, and tests; record the decision in an ADR. Requires
-  15.1.1. See the formal verification guide[^fv-guide] §"What widths does
-  Wireframe actually support for length prefixes?". Success criteria: an ADR
-  records the decision, constructors enforce the chosen set, and existing tests
-  cover rejected widths.
+  15.1.1. See §"What widths does Wireframe actually support for length
+  prefixes?". Success criteria: an ADR records the decision, constructors
+  enforce the chosen set, and existing tests cover rejected widths.
 - [ ] 15.2.2. Treat `total_body_len` as either authoritative or advisory and
   enforce or rename it consistently across the message assembly path; record
   the decision in an ADR and add tests for both conforming and violating
-  inputs. Requires 15.1.1. See the formal verification guide[^fv-guide] §"Is
-  `total_body_len` authoritative or advisory?". Success criteria: an ADR
-  records the decision, runtime code enforces the chosen semantics, and tests
-  verify both conforming and violating inputs.
+  inputs. Requires 15.1.1. See §"Is `total_body_len` authoritative or
+  advisory?". Success criteria: an ADR records the decision, runtime code
+  enforces the chosen semantics, and tests verify both conforming and violating
+  inputs.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
-  Requires 15.1.1. See the formal verification guide[^fv-guide] §"What fairness
-  guarantee does `ConnectionActor` actually make?". Success criteria: the
-  design document enumerates each guarantee as a named property that can be
-  referenced by Stateright model checks.
+  Requires 15.1.1. See §"What fairness guarantee does `ConnectionActor`
+  actually make?". Success criteria: the design document enumerates each
+  guarantee as a named property that can be referenced by Stateright model
+  checks.
 
 ### 15.3. Kani bounded model checks
 
 - [ ] 15.3.1. Add smoke harnesses for supported length-prefix round-trips and
   unsupported-width rejection in `src/frame/*`. See
-  [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses).
+  [formal verification guide §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses).
   Requires 15.1.3 and 15.2.1. Success criteria: `make kani` completes with all
   harnesses verified.
 - [ ] 15.3.2. Add harnesses for `FragmentSeries`, `Reassembler`, and
   `MessageSeries` covering duplicates, gaps, completion, and oversize cleanup.
   See
-  [formal-verification-methods-in-wireframe.md §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses)
+  [formal verification guide §Phase 1 smoke harnesses](formal-verification-methods-in-wireframe.md#phase-1-smoke-harnesses)
   and
   [§Phase 2 full harnesses](formal-verification-methods-in-wireframe.md#phase-2-full-harnesses).
   Requires 15.1.3 and 15.2.2. Success criteria: `make kani-full` completes
   with all fragment and assembly harnesses verified.
 - [ ] 15.3.3. Extend existing Proptest coverage for fragment round-trips and
   mixed actor action traces where Kani bounds would be too small. See
-  [formal-verification-methods-in-wireframe.md §Second priority: `src/fragment/*`](formal-verification-methods-in-wireframe.md#second-priority-srcfragment)
+  [formal verification guide §Second priority: `src/fragment/*`](formal-verification-methods-in-wireframe.md#second-priority-srcfragment)
   and
   [§How Proptest and Loom fit after these changes](formal-verification-methods-in-wireframe.md#how-proptest-and-loom-fit-after-these-changes).
   Requires 15.3.1. Success criteria: `make test` includes the new Proptest
@@ -663,19 +674,19 @@ Wireframe's protocol, framing, and message assembly layers.
 - [ ] 15.4.1. Model queue arrivals, active response and multi-packet outputs,
   shutdown races, fairness state, and terminal markers in
   `crates/wireframe-verification`. See
-  [formal-verification-methods-in-wireframe.md §Model scope](formal-verification-methods-in-wireframe.md#model-scope).
+  [formal verification guide §Model scope](formal-verification-methods-in-wireframe.md#model-scope).
   Requires 15.1.2 and 15.2.3. Success criteria: the model compiles and a
   bounded BFS run completes without panics or assertion failures.
 - [ ] 15.4.2. Add a shared checker harness that separates safety properties
   from reachability properties and reports both deterministically. See
-  [formal-verification-methods-in-wireframe.md §Properties to encode](formal-verification-methods-in-wireframe.md#properties-to-encode)
+  [formal verification guide §Properties to encode](formal-verification-methods-in-wireframe.md#properties-to-encode)
   and
   [§Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness).
   Requires 15.4.1. Success criteria: `make test-verification` exercises the
   checker and reports property results.
 - [ ] 15.4.3. Gate a bounded breadth-first search (BFS) model run in pull
   request CI and a deeper run in scheduled or manual workflows. See
-  [formal-verification-methods-in-wireframe.md §Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness)
+  [formal verification guide §Shared checker harness](formal-verification-methods-in-wireframe.md#shared-checker-harness)
   and
   [§Recommended CI changes](formal-verification-methods-in-wireframe.md#recommended-ci-changes).
   Requires 15.1.5 and 15.4.2. Success criteria: the PR CI job completes within
@@ -685,21 +696,21 @@ Wireframe's protocol, framing, and message assembly layers.
 
 - [ ] 15.5.1. Enforce the chosen `total_body_len` contract in runtime code
   before relying on proofs. See
-  [formal-verification-methods-in-wireframe.md §"Is `total_body_len` authoritative or advisory?"](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
+  [formal verification guide §"Is `total_body_len` authoritative or advisory?"](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
   and
   [§"What Verus should prove in Wireframe"](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
   Requires 15.2.2. Success criteria: runtime assertions or checks enforce the
   contract, and existing tests confirm the enforcement.
 - [ ] 15.5.2. Add proof-only modules under `verus/` for declared-total and
   buffered-byte accounting invariants. See
-  [formal-verification-methods-in-wireframe.md §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
+  [formal verification guide §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
   and
   [§Representative proof tree](formal-verification-methods-in-wireframe.md#representative-proof-tree).
   Requires 15.1.3 and 15.5.1. Success criteria: `make verus` verifies all
   proof modules without errors.
 - [ ] 15.5.3. Document proof trigger discipline and contributor expectations
   for running `make verus`. See
-  [formal-verification-methods-in-wireframe.md §Trigger discipline](formal-verification-methods-in-wireframe.md#trigger-discipline)
+  [formal verification guide §Trigger discipline](formal-verification-methods-in-wireframe.md#trigger-discipline)
   and
   [§Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).
   Requires 15.5.2. Success criteria: a contributor guide section explains
@@ -801,7 +812,8 @@ ecosystem.
 - [ ] 18.2.1. Implement a formal message versioning system to allow for
   protocol evolution.
 - [ ] 18.2.2. Ensure version negotiation can consume codec metadata without
-  leaking framing details into handlers.[^message-versioning]
+  leaking framing details into handlers (see the
+  [message versioning design](message-versioning.md)).
 
 ### 18.3. Security
 
@@ -832,25 +844,3 @@ and usability.
 - [ ] 19.4.1. Ensure all public items have clear, useful documentation
   examples.
 - [ ] 19.4.2. Publish documentation to `docs.rs`.
-
-[^adr-0001]: Refer to
-[ADR 0001](adr-001-multi-packet-streaming-response-api.md).
-[^adr-0002]: Refer to
-[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md).
-[^fragmentation-design]: See
-  [fragmentation doc](generic-message-fragmentation-and-re-assembly-design.md).
-[^outbound-design]: See
-  [outbound messaging design](asynchronous-outbound-messaging-design.md).
-[^streaming-design]: See
-  [streaming responses design](multi-packet-and-streaming-responses-design.md).
-[^router-design]: See
-[rust-binary-router-library-design.md](rust-binary-router-library-design.md).
-[^message-versioning]: See
-[message-versioning.md](message-versioning.md).
-[^adr-005]: See
-[adr-005-serializer-abstraction.md](adr-005-serializer-abstraction.md).
-[^adr-006]: See
-[adr-006-test-observability.md](adr-006-test-observability.md).
-
-[^fv-guide]: See
-[formal-verification-methods-in-wireframe.md](formal-verification-methods-in-wireframe.md).
