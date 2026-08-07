@@ -203,3 +203,29 @@ async fn after_receive_hook_can_mutate_frame_bytes_before_deserialization() {
     .await
     .expect("run hook test");
 }
+
+/// A body that fails must surface its error rather than the harness hanging.
+///
+/// The harness aborts and reaps the server task on the failure path, so this
+/// test completing at all is the evidence that the task is not left running.
+#[tokio::test]
+async fn failing_test_body_propagates_and_releases_the_server() {
+    let result = run_hook_test(
+        |builder| builder,
+        |_client| {
+            Box::pin(async {
+                Err::<(), Box<dyn std::error::Error + Send + Sync>>(
+                    "intentional body failure".into(),
+                )
+            })
+        },
+    )
+    .await;
+
+    let error = result.expect_err("a failing body must fail the harness");
+    assert_eq!(
+        error.to_string(),
+        "intentional body failure",
+        "the body's own error should reach the caller unchanged"
+    );
+}

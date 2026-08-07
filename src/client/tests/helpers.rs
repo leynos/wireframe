@@ -53,10 +53,26 @@ pub async fn spawn_listener() -> TestResult<(SocketAddr, AcceptHandle)> {
 /// Handle to a background frame server, reporting any accept failure on join.
 pub type FrameServerHandle = tokio::task::JoinHandle<std::io::Result<()>>;
 
+/// Whether a framed I/O error is just the peer having gone away.
+///
+/// A test client that finishes its work and drops its connection produces one
+/// of these, so they end the serve loop normally. Every other error is a real
+/// fault the test should see, rather than being reported as clean completion.
+pub fn is_expected_disconnect(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+    )
+}
+
 /// Spawns a loopback server that answers each length-delimited frame per `mode`.
 ///
-/// The loop stops when `process_frame` declines to answer or the peer goes
-/// away, and the task reports an accept failure on join rather than panicking.
+/// The loop stops when `process_frame` declines to answer or the peer
+/// disconnects. Read and write failures that are not an ordinary disconnect are
+/// returned, so they surface when the caller joins the task.
 pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, FrameServerHandle)> {
     let (listener, addr) = bind_loopback().await?;
 
@@ -64,12 +80,20 @@ pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, Fra
         let (stream, _) = listener.accept().await?;
         let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
-        while let Some(Ok(bytes)) = framed.next().await {
+        loop {
+            let bytes = match framed.next().await {
+                None => break,
+                Some(Ok(bytes)) => bytes,
+                Some(Err(error)) if is_expected_disconnect(&error) => break,
+                Some(Err(error)) => return Err(error),
+            };
             let Some(response_bytes) = process_frame(mode, &bytes) else {
                 break;
             };
-            if framed.send(Bytes::from(response_bytes)).await.is_err() {
-                break;
+            match framed.send(Bytes::from(response_bytes)).await {
+                Ok(()) => {}
+                Err(error) if is_expected_disconnect(&error) => break,
+                Err(error) => return Err(error),
             }
         }
         Ok(())

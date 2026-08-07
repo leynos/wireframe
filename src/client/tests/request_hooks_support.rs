@@ -21,7 +21,7 @@ use rstest::fixture;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe_testing::ServerMode;
 
-use super::helpers::{TestResult, bind_loopback, spawn_frame_server};
+use super::helpers::{TestResult, bind_loopback, is_expected_disconnect, spawn_frame_server};
 use crate::{app::Envelope, client::WireframeClient};
 
 /// Spawn a server that captures each received frame payload for inspection.
@@ -36,11 +36,19 @@ pub(super) async fn spawn_capturing_server() -> TestResult<(
         let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
         let mut captured = Vec::new();
 
-        while let Some(Ok(bytes)) = framed.next().await {
+        loop {
+            let bytes = match framed.next().await {
+                None => break,
+                Some(Ok(bytes)) => bytes,
+                Some(Err(error)) if is_expected_disconnect(&error) => break,
+                Some(Err(error)) => return Err(error),
+            };
             captured.push(bytes.to_vec());
             // Echo the frame back so the client can receive it.
-            if framed.send(bytes.freeze()).await.is_err() {
-                break;
+            match framed.send(bytes.freeze()).await {
+                Ok(()) => {}
+                Err(error) if is_expected_disconnect(&error) => break,
+                Err(error) => return Err(error),
             }
         }
         Ok(captured)
@@ -113,9 +121,13 @@ where
 ///
 /// Takes the server as an unpolled future so each caller chooses its own
 /// server without duplicating the connect, run-body, teardown, and join steps.
-/// The client is dropped before the join so the server sees the connection
-/// close and its loop can finish, and both the `JoinError` and the server's own
-/// I/O error propagate rather than being discarded.
+///
+/// The server task is accounted for on every exit path. On success the client
+/// is already dropped, so the serve loop ends and the join yields its result,
+/// propagating both the `JoinError` and the server's own I/O error. On failure
+/// the task is aborted and reaped instead: the client may never have connected,
+/// leaving the server parked in `accept`, so waiting for a loop that cannot end
+/// would hang the test rather than report the original error.
 async fn run_hook_test_with_server<F, T, R, S>(
     configure_hooks: F,
     test_body: T,
@@ -129,10 +141,32 @@ where
     S: Future<Output = TestResult<(SocketAddr, tokio::task::JoinHandle<std::io::Result<R>>)>>,
 {
     let (addr, server) = server.await?;
+
+    match drive_client(addr, configure_hooks, test_body).await {
+        Ok(()) => Ok(server.await??),
+        Err(error) => {
+            server.abort();
+            let _ = server.await;
+            Err(error)
+        }
+    }
+}
+
+/// Connects a client, runs the body against it, and drops it before returning.
+///
+/// The drop happens on the failure path too, so the server always observes the
+/// close rather than the connection being held open by a leaked client.
+async fn drive_client<F, T>(addr: SocketAddr, configure_hooks: F, test_body: T) -> TestResult
+where
+    F: FnOnce(crate::client::WireframeClientBuilder) -> crate::client::WireframeClientBuilder,
+    T: for<'a> FnOnce(
+        &'a mut TestClient,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
+{
     let mut client = connect_client_with_hooks(addr, configure_hooks).await?;
-    test_body(&mut client).await?;
+    let outcome = test_body(&mut client).await;
     drop(client);
-    Ok(server.await??)
+    outcome
 }
 
 /// Test fixture for tracking hook invocations with a counter.
