@@ -30,12 +30,10 @@ extend-exclude = [
 [default]
 locale = "en-gb"
 extend-ignore-re = [
+    "(?s)```.*?```",
     "-fuse-ld=mold",
-    "mold linker",
     "Cranelift \\+ mold",
     "Cranelift and mold",
-    "`mold`",
-    "(?s)```.*?```",
     "\\ \\ \\ \\ PoolServerBehavior,",
     "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
     "\\ \\ \\ \\ \\ \\ \\ Self::start_with_behavior\\(PoolServerBehavior::Ech",
@@ -55,10 +53,12 @@ extend-ignore-re = [
     "\\brust-analyzer\\b",
     "\\|\\|\\ \"fragment\\ series\\ not\\ initialised\"\\.into\\(\\)\\)",
     "`[^`\\n]+`",
+    "`mold`",
     "ask\\ items\\ with\\ a\\ GitHub\\ Flavored",
     "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
     "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",
     "lTestServer::start_with_behavior\\(PoolServerBehavior::Mal",
+    "mold linker",
     "pub\\ async\\ fn\\ start_with_behavior\\(behavior:\\ PoolServerBeh",
     "pub\\ enum\\ PoolServerBehavior\\ \\{",
     "st\\(start_paused\\ =\\ true,\\ flavor\\ =\\ \"current_thread\"\\)\\]",
