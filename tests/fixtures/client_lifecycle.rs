@@ -58,8 +58,14 @@ pub const EXPECTED_SETUP_STATE: u32 = 42;
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, u32>;
 
 /// Test world exercising client lifecycle hooks.
-#[derive(Debug, Default)]
+///
+/// The world owns the runtime for the whole scenario so the server task, the
+/// client that connects to it, and the final join all run on one runtime. A
+/// per-step runtime would be dropped when its step returned, taking the server
+/// task with it.
+#[derive(Debug)]
 pub struct ClientLifecycleWorld {
+    runtime: tokio::runtime::Runtime,
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<TestResult>>,
     client: Option<TestClient>,
@@ -84,11 +90,24 @@ impl Drop for ClientLifecycleWorld {
 }
 
 /// Fixture for `ClientLifecycleWorld`.
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+///
+/// Building the runtime can fail, so the fixture reports that to the scenario
+/// rather than panicking during arrangement.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_lifecycle_world() -> ClientLifecycleWorld {
-    ClientLifecycleWorld::default()
+pub fn client_lifecycle_world() -> TestResult<ClientLifecycleWorld> {
+    Ok(ClientLifecycleWorld {
+        runtime: tokio::runtime::Runtime::new()?,
+        addr: None,
+        server: None,
+        client: None,
+        setup_count: Arc::new(AtomicUsize::new(0)),
+        teardown_count: Arc::new(AtomicUsize::new(0)),
+        teardown_received_state: Arc::new(AtomicUsize::new(0)),
+        error_count: Arc::new(AtomicUsize::new(0)),
+        preamble_success_invoked: Arc::new(AtomicBool::new(false)),
+        last_error: None,
+    })
 }
 
 impl ClientLifecycleWorld {
@@ -323,6 +342,13 @@ impl ClientLifecycleWorld {
     pub fn preamble_success_invoked(&self) -> bool {
         self.preamble_success_invoked.load(Ordering::SeqCst)
     }
+
+    /// Handle to the scenario's runtime.
+    ///
+    /// Returning an owned handle ends the borrow of `self`, so a step can drive
+    /// a `&mut self` async method on the world's own runtime.
+    #[must_use]
+    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
 
     /// Get a reference to the last captured error, if any.
     #[must_use]

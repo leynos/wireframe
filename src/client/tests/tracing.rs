@@ -37,7 +37,9 @@ where
         .connect(addr)
         .await?;
     f(client, addr).await;
-    server.abort();
+    // `f` owns the client, so it is dropped by now and the serve loop has ended;
+    // joining surfaces the server's own failure instead of discarding it.
+    server.await??;
     Ok(())
 }
 
@@ -334,5 +336,9 @@ async fn default_config_is_backwards_compatible() {
         .expect("connect");
     let envelope = Envelope::new(1, None, vec![1, 2, 3]);
     let _response: Envelope = client.call(&envelope).await.expect("call");
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }

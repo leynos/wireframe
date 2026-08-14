@@ -68,12 +68,23 @@ pub fn is_expected_disconnect(error: &std::io::Error) -> bool {
     )
 }
 
-/// Spawns a loopback server that answers each length-delimited frame per `mode`.
+/// Spawns a loopback server driven by a per-frame handler.
 ///
-/// The loop stops when `process_frame` declines to answer or the peer
-/// disconnects. Read and write failures that are not an ordinary disconnect are
-/// returned, so they surface when the caller joins the task.
-pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, FrameServerHandle)> {
+/// `state` is threaded through every iteration and returned when the loop ends,
+/// so a caller that only serves replies passes `()` while one that records
+/// traffic passes its accumulator. `on_frame` returns the reply to send, or
+/// `None` to stop serving.
+///
+/// The loop also stops when the peer disconnects. Read and write failures that
+/// are not an ordinary disconnect are returned, so they surface on join.
+pub async fn spawn_serving_task<S, F>(
+    mut state: S,
+    mut on_frame: F,
+) -> TestResult<(SocketAddr, tokio::task::JoinHandle<std::io::Result<S>>)>
+where
+    S: Send + 'static,
+    F: FnMut(&mut S, bytes::BytesMut) -> Option<Bytes> + Send + 'static,
+{
     let (listener, addr) = bind_loopback().await?;
 
     let handle = tokio::spawn(async move {
@@ -87,19 +98,30 @@ pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, Fra
                 Some(Err(error)) if is_expected_disconnect(&error) => break,
                 Some(Err(error)) => return Err(error),
             };
-            let Some(response_bytes) = process_frame(mode, &bytes) else {
+            let Some(response) = on_frame(&mut state, bytes) else {
                 break;
             };
-            match framed.send(Bytes::from(response_bytes)).await {
+            match framed.send(response).await {
                 Ok(()) => {}
                 Err(error) if is_expected_disconnect(&error) => break,
                 Err(error) => return Err(error),
             }
         }
-        Ok(())
+        Ok(state)
     });
 
     Ok((addr, handle))
+}
+
+/// Spawns a loopback server that answers each length-delimited frame per `mode`.
+///
+/// The loop stops when `process_frame` declines to answer or the peer
+/// disconnects.
+pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, FrameServerHandle)> {
+    spawn_serving_task((), move |(), bytes| {
+        process_frame(mode, &bytes).map(Bytes::from)
+    })
+    .await
 }
 
 /// Helper function to test that a builder option is correctly applied to the TCP socket.

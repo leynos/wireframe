@@ -74,7 +74,11 @@ async fn send_envelope_auto_generates_correlation_id_when_none() {
     );
 
     // Clean up.
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[tokio::test]
@@ -98,7 +102,11 @@ async fn send_envelope_preserves_existing_correlation_id() {
         "should preserve explicit correlation ID"
     );
 
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[tokio::test]
@@ -127,7 +135,11 @@ async fn receive_envelope_returns_envelope_with_correlation_id() {
     assert_eq!(response.id(), 42);
     assert_eq!(response.into_parts().into_payload(), &[1, 2, 3]);
 
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[tokio::test]
@@ -152,7 +164,11 @@ async fn call_correlated_validates_matching_correlation_id() {
         "response should have correlation ID"
     );
 
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[tokio::test]
@@ -182,7 +198,11 @@ async fn call_correlated_returns_error_on_correlation_mismatch() {
         Err(e) => panic!("expected CorrelationMismatch error, got {e:?}"),
     }
 
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[tokio::test]
@@ -214,7 +234,11 @@ async fn call_correlated_invokes_error_hook_on_mismatch() {
         "error hook should be invoked on correlation mismatch"
     );
 
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[tokio::test]
@@ -253,7 +277,11 @@ async fn multiple_sequential_calls_get_unique_correlation_ids() {
         "all correlation IDs should be unique"
     );
 
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[rstest]
@@ -279,7 +307,11 @@ async fn round_trip_with_various_payload_sizes(#[case] payload: Vec<u8>) {
 
     assert_eq!(response.into_parts().into_payload(), payload.as_slice());
 
-    server.abort();
+    drop(client);
+    server
+        .await
+        .expect("join server")
+        .expect("server ran without error");
 }
 
 #[tokio::test]

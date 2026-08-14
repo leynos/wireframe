@@ -8,7 +8,7 @@ use crate::fixtures::client_lifecycle::*;
     path = "tests/features/client_lifecycle.feature",
     name = "Setup hook invoked on successful connection"
 )]
-fn setup_hook_invoked(client_lifecycle_world: ClientLifecycleWorld) {
+fn setup_hook_invoked(client_lifecycle_world: TestResult<ClientLifecycleWorld>) {
     let _ = client_lifecycle_world;
 }
 
@@ -16,7 +16,7 @@ fn setup_hook_invoked(client_lifecycle_world: ClientLifecycleWorld) {
     path = "tests/features/client_lifecycle.feature",
     name = "Teardown hook invoked when connection closes"
 )]
-fn teardown_hook_invoked(client_lifecycle_world: ClientLifecycleWorld) {
+fn teardown_hook_invoked(client_lifecycle_world: TestResult<ClientLifecycleWorld>) {
     let _ = client_lifecycle_world;
 }
 
@@ -24,7 +24,7 @@ fn teardown_hook_invoked(client_lifecycle_world: ClientLifecycleWorld) {
     path = "tests/features/client_lifecycle.feature",
     name = "Error hook invoked on receive failure"
 )]
-fn error_hook_invoked(client_lifecycle_world: ClientLifecycleWorld) {
+fn error_hook_invoked(client_lifecycle_world: TestResult<ClientLifecycleWorld>) {
     let _ = client_lifecycle_world;
 }
 
@@ -32,6 +32,6 @@ fn error_hook_invoked(client_lifecycle_world: ClientLifecycleWorld) {
     path = "tests/features/client_lifecycle.feature",
     name = "Lifecycle hooks work with preamble callbacks"
 )]
-fn lifecycle_with_preamble(client_lifecycle_world: ClientLifecycleWorld) {
+fn lifecycle_with_preamble(client_lifecycle_world: TestResult<ClientLifecycleWorld>) {
     let _ = client_lifecycle_world;
 }

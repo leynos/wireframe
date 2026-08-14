@@ -16,45 +16,25 @@ use std::{
     },
 };
 
-use futures::{SinkExt, StreamExt};
 use rstest::fixture;
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe_testing::ServerMode;
 
-use super::helpers::{TestResult, bind_loopback, is_expected_disconnect, spawn_frame_server};
+use super::helpers::{TestResult, bind_loopback, spawn_frame_server, spawn_serving_task};
 use crate::{app::Envelope, client::WireframeClient};
 
 /// Spawn a server that captures each received frame payload for inspection.
+///
+/// Every frame is recorded and echoed back so the client can receive it; the
+/// accumulated frames come back through the join handle.
 pub(super) async fn spawn_capturing_server() -> TestResult<(
     std::net::SocketAddr,
     tokio::task::JoinHandle<std::io::Result<Vec<Vec<u8>>>>,
 )> {
-    let (listener, addr) = bind_loopback().await?;
-
-    let handle = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await?;
-        let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
-        let mut captured = Vec::new();
-
-        loop {
-            let bytes = match framed.next().await {
-                None => break,
-                Some(Ok(bytes)) => bytes,
-                Some(Err(error)) if is_expected_disconnect(&error) => break,
-                Some(Err(error)) => return Err(error),
-            };
-            captured.push(bytes.to_vec());
-            // Echo the frame back so the client can receive it.
-            match framed.send(bytes.freeze()).await {
-                Ok(()) => {}
-                Err(error) if is_expected_disconnect(&error) => break,
-                Err(error) => return Err(error),
-            }
-        }
-        Ok(captured)
-    });
-
-    Ok((addr, handle))
+    spawn_serving_task(Vec::new(), |captured: &mut Vec<Vec<u8>>, bytes| {
+        captured.push(bytes.to_vec());
+        Some(bytes.freeze())
+    })
+    .await
 }
 
 /// Locks a hook log, recovering the entries if a previous holder panicked.
@@ -266,4 +246,57 @@ pub(super) async fn send_and_receive_test_body(client: &mut TestClient) -> TestR
     client.send_envelope(envelope).await?;
     let _response: Envelope = client.receive_envelope().await?;
     Ok(())
+}
+
+/// The harness must surface a server task's own I/O error, not report success.
+#[tokio::test]
+async fn server_task_io_error_reaches_the_caller() {
+    let server = async {
+        let (listener, addr) = bind_loopback().await?;
+        let handle: tokio::task::JoinHandle<std::io::Result<()>> = tokio::spawn(async move {
+            let _accepted = listener.accept().await?;
+            Err(std::io::Error::other("server failed"))
+        });
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>((addr, handle))
+    };
+
+    let error = run_hook_test_with_server(
+        |builder| builder,
+        |_client| Box::pin(async { Ok(()) }),
+        server,
+    )
+    .await
+    .expect_err("a server-side I/O failure must reach the caller");
+
+    assert!(
+        error.to_string().contains("server failed"),
+        "expected the server's own error, got: {error}"
+    );
+}
+
+/// A panicking server task must surface as a join failure rather than success.
+///
+/// The panic is deliberate, so the runtime prints its message during this test.
+#[tokio::test]
+async fn server_task_panic_reaches_the_caller() {
+    let server = async {
+        let (listener, addr) = bind_loopback().await?;
+        let handle: tokio::task::JoinHandle<std::io::Result<()>> = tokio::spawn(async move {
+            let _accepted = listener.accept().await?;
+            panic!("server panicked")
+        });
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>((addr, handle))
+    };
+
+    let result = run_hook_test_with_server(
+        |builder| builder,
+        |_client| Box::pin(async { Ok(()) }),
+        server,
+    )
+    .await;
+
+    assert!(
+        result.is_err(),
+        "a panicking server task must fail the harness through its JoinError"
+    );
 }
