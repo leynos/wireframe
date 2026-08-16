@@ -462,8 +462,8 @@ section of `docs/wireframe-testing-crate.md`.
 
 **Fixtures and helpers are not tests.** A fixture or helper arranges state,
 and arrangement can fail, so it returns `Result` and propagates failures with
-`?`. Only a test body unwraps or asserts, because there a failure is the
-verdict being checked. The whitaker `no_expect_outside_tests` lint enforces
+`?`. Only a test body unwraps or asserts, because there a failure becomes
+the test's verdict. The whitaker `no_expect_outside_tests` lint enforces
 this rule, but it cannot see through proc-macro expansion, so an `rstest`
 `#[fixture]` function counts as non-test code even though it exists only to
 support tests.

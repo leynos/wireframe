@@ -68,6 +68,26 @@ pub fn is_expected_disconnect(error: &std::io::Error) -> bool {
     )
 }
 
+/// Reads the next frame, reporting an ordinary disconnect as end of stream.
+///
+/// Collapses the read into the two outcomes the serve loop acts on: `Some`
+/// frame to handle, or `None` to stop. A disconnect the peer was entitled to
+/// make ends the stream, while any other I/O error is returned so it surfaces
+/// on join.
+async fn next_frame<T>(
+    framed: &mut Framed<T, LengthDelimitedCodec>,
+) -> std::io::Result<Option<bytes::BytesMut>>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    match framed.next().await {
+        None => Ok(None),
+        Some(Ok(bytes)) => Ok(Some(bytes)),
+        Some(Err(error)) if is_expected_disconnect(&error) => Ok(None),
+        Some(Err(error)) => Err(error),
+    }
+}
+
 /// Spawns a loopback server driven by a per-frame handler.
 ///
 /// `state` is threaded through every iteration and returned when the loop ends,
@@ -77,6 +97,22 @@ pub fn is_expected_disconnect(error: &std::io::Error) -> bool {
 ///
 /// The loop also stops when the peer disconnects. Read and write failures that
 /// are not an ordinary disconnect are returned, so they surface on join.
+///
+/// # Usage
+///
+/// Call it with the initial state and a handler, then keep the returned join
+/// handle. [`spawn_frame_server`] is the simplest caller: it passes `()` and
+/// answers each frame through `process_frame`. `spawn_capturing_server` in
+/// `super::request_hooks_support` passes a `Vec<Vec<u8>>` accumulator, pushes
+/// every frame into it, and echoes the frame back.
+///
+/// # Outcome
+///
+/// Once the client drops its connection the loop ends and the task completes,
+/// so awaiting the handle yields `Ok(Ok(state))` with whatever the handler
+/// accumulated. Awaiting before the peer disconnects blocks, so drop the client
+/// first. A server-side I/O failure yields `Ok(Err(error))`, and a panic in the
+/// task yields `Err(join_error)`; `handle.await??` propagates both.
 pub async fn spawn_serving_task<S, F>(
     mut state: S,
     mut on_frame: F,
@@ -92,11 +128,8 @@ where
         let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
         loop {
-            let bytes = match framed.next().await {
-                None => break,
-                Some(Ok(bytes)) => bytes,
-                Some(Err(error)) if is_expected_disconnect(&error) => break,
-                Some(Err(error)) => return Err(error),
+            let Some(bytes) = next_frame(&mut framed).await? else {
+                break;
             };
             let Some(response) = on_frame(&mut state, bytes) else {
                 break;
@@ -117,6 +150,21 @@ where
 ///
 /// The loop stops when `process_frame` declines to answer or the peer
 /// disconnects.
+///
+/// # Usage
+///
+/// Call it with the mode the test needs — `ServerMode::Echo` to reflect each
+/// frame, `ServerMode::Mismatch` to reply with a different correlation
+/// identifier — and keep the returned handle. `spawn_envelope_echo_server` and
+/// `spawn_mismatched_correlation_server` in `super::messaging` are the two
+/// call sites.
+///
+/// # Outcome
+///
+/// The task serves frames until the client disconnects. Drop the client, then
+/// await the handle: `handle.await??` yields `()` on a clean run and surfaces a
+/// server-side I/O failure or a task panic otherwise. Awaiting while the client
+/// is still connected blocks, because the serve loop has no reason to end.
 pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, FrameServerHandle)> {
     spawn_serving_task((), move |(), bytes| {
         process_frame(mode, &bytes).map(Bytes::from)
