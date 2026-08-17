@@ -34,7 +34,10 @@ async fn verify_single_frame_stream<S>(
 where
     S: StreamExt<Item = Result<TestStreamEnvelope, ClientError>> + Unpin,
 {
-    let frame = stream.next().await.expect("data frame").expect("Ok");
+    let frame = stream
+        .next()
+        .await
+        .ok_or("stream ended before yielding a data frame")??;
     assert_eq!(frame.payload, expected_payload);
 
     let end = stream.next().await;

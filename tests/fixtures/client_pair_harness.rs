@@ -36,26 +36,20 @@ impl std::fmt::Debug for ClientPairHarnessWorld {
     }
 }
 
-impl Default for ClientPairHarnessWorld {
-    #[expect(
-        clippy::expect_used,
-        reason = "BDD world cannot propagate errors from Default"
-    )]
-    fn default() -> Self {
-        Self {
-            runtime: tokio::runtime::Runtime::new().expect("failed to create runtime"),
-            counter: Arc::new(AtomicUsize::new(0)),
-            pair: None,
-            response: None,
-        }
-    }
-}
-
 /// Fixture for `ClientPairHarnessWorld`.
+///
+/// Building the runtime can fail, so the fixture reports that to the scenario
+/// rather than panicking during arrangement, following the pattern established
+/// by `slow_io_backpressure_world`.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_pair_harness_world() -> ClientPairHarnessWorld {
-    ClientPairHarnessWorld::default()
+pub fn client_pair_harness_world() -> TestResult<ClientPairHarnessWorld> {
+    Ok(ClientPairHarnessWorld {
+        runtime: tokio::runtime::Runtime::new()?,
+        counter: Arc::new(AtomicUsize::new(0)),
+        pair: None,
+        response: None,
+    })
 }
 
 impl ClientPairHarnessWorld {

@@ -3,10 +3,6 @@
 //! Provides server/client coordination for lifecycle hook scenarios.
 
 #![expect(
-    clippy::expect_used,
-    reason = "test code uses expect for concise assertions"
-)]
-#![expect(
     clippy::excessive_nesting,
     reason = "async closures within builder patterns are inherently nested"
 )]
@@ -62,10 +58,16 @@ pub const EXPECTED_SETUP_STATE: u32 = 42;
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, u32>;
 
 /// Test world exercising client lifecycle hooks.
-#[derive(Debug, Default)]
+///
+/// The world owns the runtime for the whole scenario so the server task, the
+/// client that connects to it, and the final join all run on one runtime. A
+/// per-step runtime would be dropped when its step returned, taking the server
+/// task with it.
+#[derive(Debug)]
 pub struct ClientLifecycleWorld {
+    runtime: tokio::runtime::Runtime,
     addr: Option<SocketAddr>,
-    server: Option<JoinHandle<()>>,
+    server: Option<JoinHandle<TestResult>>,
     client: Option<TestClient>,
     setup_count: Arc<AtomicUsize>,
     teardown_count: Arc<AtomicUsize>,
@@ -76,6 +78,10 @@ pub struct ClientLifecycleWorld {
 }
 
 impl Drop for ClientLifecycleWorld {
+    /// Aborts any server task a scenario did not explicitly finish.
+    ///
+    /// This is a fallback: [`ClientLifecycleWorld::finish_server`] is the path
+    /// that actually observes the task's result.
     fn drop(&mut self) {
         if let Some(handle) = self.server.take() {
             handle.abort();
@@ -84,24 +90,37 @@ impl Drop for ClientLifecycleWorld {
 }
 
 /// Fixture for `ClientLifecycleWorld`.
-// rustfmt collapses simple fixtures into one line, which triggers unused_braces.
+///
+/// Building the runtime can fail, so the fixture reports that to the scenario
+/// rather than panicking during arrangement.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_lifecycle_world() -> ClientLifecycleWorld {
-    ClientLifecycleWorld::default()
+pub fn client_lifecycle_world() -> TestResult<ClientLifecycleWorld> {
+    Ok(ClientLifecycleWorld {
+        runtime: tokio::runtime::Runtime::new()?,
+        addr: None,
+        server: None,
+        client: None,
+        setup_count: Arc::new(AtomicUsize::new(0)),
+        teardown_count: Arc::new(AtomicUsize::new(0)),
+        teardown_received_state: Arc::new(AtomicUsize::new(0)),
+        error_count: Arc::new(AtomicUsize::new(0)),
+        preamble_success_invoked: Arc::new(AtomicBool::new(false)),
+        last_error: None,
+    })
 }
 
 impl ClientLifecycleWorld {
     async fn spawn_server<F, Fut>(&mut self, behaviour: F) -> TestResult
     where
         F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ()> + Send,
+        Fut: std::future::Future<Output = TestResult> + Send,
     {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("accept");
-            behaviour(stream).await;
+            let (stream, _) = listener.accept().await?;
+            behaviour(stream).await
         });
 
         self.addr = Some(addr);
@@ -137,12 +156,10 @@ impl ClientLifecycleWorld {
     ///
     /// # Errors
     /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept fails.
     pub async fn start_standard_server(&mut self) -> TestResult {
         self.spawn_server(|_stream| async {
             tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
         })
         .await
     }
@@ -151,12 +168,10 @@ impl ClientLifecycleWorld {
     ///
     /// # Errors
     /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if accept fails.
     pub async fn start_disconnecting_server(&mut self) -> TestResult {
         self.spawn_server(|stream| async {
             drop(stream);
+            Ok(())
         })
         .await
     }
@@ -165,18 +180,12 @@ impl ClientLifecycleWorld {
     ///
     /// # Errors
     /// Returns an error if binding fails.
-    ///
-    /// # Panics
-    /// The spawned task panics if preamble read or ack write fails.
     pub async fn start_ack_server(&mut self) -> TestResult {
         self.spawn_server(|mut stream| async move {
-            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
-                .await
-                .expect("read preamble");
-            write_preamble(&mut stream, &ServerAck { accepted: true })
-                .await
-                .expect("write ack");
+            let (_preamble, _) = read_preamble::<_, TestPreamble>(&mut stream).await?;
+            write_preamble(&mut stream, &ServerAck { accepted: true }).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
         })
         .await
     }
@@ -334,7 +343,28 @@ impl ClientLifecycleWorld {
         self.preamble_success_invoked.load(Ordering::SeqCst)
     }
 
+    /// Handle to the scenario's runtime.
+    ///
+    /// Returning an owned handle ends the borrow of `self`, so a step can drive
+    /// a `&mut self` async method on the world's own runtime.
+    #[must_use]
+    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
+
     /// Get a reference to the last captured error, if any.
     #[must_use]
     pub fn last_error(&self) -> Option<&ClientError> { self.last_error.as_ref() }
+
+    /// Await the server task and surface both join and inner errors.
+    ///
+    /// Without this the task's `TestResult` is only ever aborted on drop, so a
+    /// server-side failure would pass unnoticed.
+    ///
+    /// # Errors
+    /// Returns an error if no server was started, if the task panicked or was
+    /// cancelled, or if the server itself failed.
+    pub async fn finish_server(&mut self) -> TestResult {
+        let handle = self.server.take().ok_or("server task missing")?;
+        handle.await??;
+        Ok(())
+    }
 }

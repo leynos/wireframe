@@ -437,6 +437,67 @@ Add new scenarios by:
    scenario, injects the fixture, and delegates to a helper that invokes the
    step logic in sequence.
 
+### Fallible test helpers and server-task results
+
+Two distinct `TestResult` aliases exist in the codebase; do not assume they
+are the same type.
+
+- `wireframe::testkit::result::TestResult<T = ()>` (re-exported as
+  `wireframe_testing::TestResult`) is `Result<T, TestError>`, where
+  `TestError` (`src/testkit/result.rs`) collects the typed errors produced
+  across the root crate, client and server runtimes, push queues, codecs, and
+  fragmentation. Use it for any helper that crosses those boundaries, and in
+  BDD fixtures and steps that import it from `wireframe_testing`.
+- A module-local `TestResult<T = ()> = Result<T, Box<dyn Error + Send +
+  Sync>>` is scoped to individual test modules, for example
+  `src/client/tests/helpers.rs` and the corresponding aliases in
+  `src/fragment/tests/`. Use it where a helper only needs to erase the error
+  type for `?`-propagation within that module and gains nothing from
+  `TestError`'s typed variants.
+
+For the in-process server/client pair harness, which also returns
+`wireframe_testing::TestResult`, see the ["In-process server/client pair
+harness"](wireframe-testing-crate.md#in-process-serverclient-pair-harness)
+section of `docs/wireframe-testing-crate.md`.
+
+**Fixtures and helpers are not tests.** A fixture or helper arranges state,
+and arrangement can fail, so it returns `Result` and propagates failures with
+`?`. Only a test body unwraps or asserts, because there a failure becomes
+the test's verdict. The whitaker `no_expect_outside_tests` lint enforces
+this rule, but it cannot see through proc-macro expansion, so an `rstest`
+`#[fixture]` function counts as non-test code even though it exists only to
+support tests.
+
+**The `finish_server` convention.** A fixture that spawns a server as a
+`JoinHandle<TestResult>` exposes an `async fn finish_server(&mut self) ->
+TestResult` that takes the handle and propagates both the `JoinError` and the
+inner error with `handle.await??`. `Drop` remains an abort-only fallback for
+scenarios that fail or are interrupted before calling `finish_server`, so a
+server-side failure is never silently discarded on the happy path. See
+`ClientLifecycleWorld::finish_server` in `tests/fixtures/client_lifecycle.rs`
+and the precedent in `tests/fixtures/client_preamble.rs`.
+
+**The server-task cleanup contract**, as implemented by
+`run_hook_test_with_server` in `src/client/tests/request_hooks_support.rs`:
+on success the client is dropped first so the serve loop ends, then the
+server task is joined and its result propagated; on failure the task is
+aborted and reaped instead, because the client may never have connected and
+the server may be parked in `accept`, where joining would hang rather than
+report the original failure. The rule: **await the server handle on the
+success path; reserve `abort` for the failure path where the aborted task's
+result is explicitly discarded.**
+
+**Loopback server helpers** in `src/client/tests/helpers.rs` —
+`bind_loopback`, `spawn_listener`, `spawn_frame_server`, and
+`is_expected_disconnect` — provide the building blocks for spawning a
+listener and driving a length-delimited frame loop. `is_expected_disconnect`
+classifies I/O errors observed while serving: an ordinary peer disconnect
+(`UnexpectedEof`, `ConnectionReset`, `ConnectionAborted`, or `BrokenPipe`)
+ends the serve loop normally, because a client that finishes its work and
+drops its connection produces exactly one of those kinds. Every other I/O
+error is returned from the task instead, so it surfaces when the caller
+joins the handle.
+
 ### `LoggerHandle::Default` and `ObservabilityHandle::Default`
 
 Both `LoggerHandle` (in `wireframe_testing::logging`) and `ObservabilityHandle`

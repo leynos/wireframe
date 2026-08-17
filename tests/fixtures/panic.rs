@@ -20,15 +20,16 @@ struct PanicServer {
 }
 
 impl PanicServer {
-    #[expect(
-        clippy::expect_used,
-        reason = "panic world should fail loudly if the panic app cannot be built"
-    )]
     async fn spawn() -> TestResult<Self> {
-        let factory = || {
-            TestApp::new()
-                .and_then(|app| app.on_connection_setup(|| async { panic!("boom") }))
-                .expect("failed to build panic app")
+        // `WireframeServer` takes a factory returning the app itself, so a
+        // construction failure has nowhere to go. The app is a fixed
+        // construction that cannot fail in practice, so a failure here is a
+        // harness bug and this is the single deliberate panic boundary.
+        let factory = || match TestApp::new()
+            .and_then(|app| app.on_connection_setup(|| async { panic!("boom") }))
+        {
+            Ok(app) => app,
+            Err(err) => panic!("failed to build the panic app: {err}"),
         };
         let listener = unused_listener()?;
         let server = WireframeServer::new(factory)

@@ -16,13 +16,35 @@ use crate::fragment::{
 #[derive(Debug, Encode, BorrowDecode)]
 struct DummyMessage(Vec<u8>);
 
-fn assert_fragment(batch: &FragmentBatch, index: usize, payload: &[u8], is_last: bool) {
+/// Result alias for fallible fragmenter test helpers.
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Checks a batch fragment's payload and last-fragment flag.
+///
+/// Reports a mismatch as an error rather than asserting: the lookup can fail,
+/// and a helper is arrangement rather than a test, so it hands the verdict back
+/// to the calling test.
+fn check_fragment(
+    batch: &FragmentBatch,
+    index: usize,
+    payload: &[u8],
+    is_last: bool,
+) -> TestResult {
     let fragment = batch
         .fragments()
         .get(index)
-        .expect("fragment missing at requested index");
-    assert_eq!(fragment.payload(), payload);
-    assert_eq!(fragment.header().is_last_fragment(), is_last);
+        .ok_or("fragment missing at requested index")?;
+    if fragment.payload() != payload {
+        return Err(format!(
+            "fragment {index} payload {:?} did not match expected {payload:?}",
+            fragment.payload()
+        )
+        .into());
+    }
+    if fragment.header().is_last_fragment() != is_last {
+        return Err(format!("fragment {index} last-fragment flag should be {is_last}").into());
+    }
+    Ok(())
 }
 
 #[test]
@@ -37,9 +59,9 @@ fn fragmenter_splits_payload_into_multiple_frames() {
     assert!(batch.is_fragmented());
     assert_eq!(batch.message_id(), MessageId::new(0));
 
-    assert_fragment(&batch, 0, &[0, 1, 2], false);
-    assert_fragment(&batch, 1, &[3, 4, 5], false);
-    assert_fragment(&batch, 2, &[6, 7], true);
+    check_fragment(&batch, 0, &[0, 1, 2], false).expect("check fragment 0");
+    check_fragment(&batch, 1, &[3, 4, 5], false).expect("check fragment 1");
+    check_fragment(&batch, 2, &[6, 7], true).expect("check fragment 2");
 }
 
 #[test]

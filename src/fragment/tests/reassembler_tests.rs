@@ -19,23 +19,27 @@ use crate::fragment::{
     ReassemblyError,
 };
 
+/// Result alias for fallible reassembler test fixtures.
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Arranges a reassembler that has already accepted its first fragment.
+///
+/// An `rstest` fixture is arrangement, not a test, so it reports failure to the
+/// test body rather than panicking here.
 #[fixture]
 fn reassembler_with_first_fragment(
     #[default(1)] message_id: u64,
     #[default(&[])] first_payload: &'static [u8],
-) -> Reassembler {
+) -> TestResult<Reassembler> {
     let mut reassembler = Reassembler::new(
-        NonZeroUsize::new(8).expect("non-zero"),
+        NonZeroUsize::new(8).ok_or("reassembly capacity must be non-zero")?,
         Duration::from_secs(30),
     );
     let first = FragmentHeader::new(MessageId::new(message_id), FragmentIndex::zero(), false);
-    assert!(
-        reassembler
-            .push(first, first_payload)
-            .expect("first fragment accepted")
-            .is_none()
-    );
-    reassembler
+    if reassembler.push(first, first_payload)?.is_some() {
+        return Err("first fragment should not complete the message".into());
+    }
+    Ok(reassembler)
 }
 
 #[test]
@@ -104,51 +108,60 @@ fn reassembler_returns_single_fragment_immediately() {
 
 #[rstest]
 fn reassembler_accumulates_ordered_fragments(
-    #[with(2, &[5_u8, 6, 7])] mut reassembler_with_first_fragment: Reassembler,
+    #[with(2, &[5_u8, 6, 7])]
+    #[from(reassembler_with_first_fragment)]
+    fixture: TestResult<Reassembler>,
 ) {
+    let mut reassembler = fixture.expect("arrange reassembler with first fragment");
     let final_fragment = FragmentHeader::new(MessageId::new(2), FragmentIndex::new(1), true);
 
-    let complete = reassembler_with_first_fragment
+    let complete = reassembler
         .push(final_fragment, [8_u8, 9])
         .expect("final fragment accepted")
         .expect("message should complete");
 
     assert_eq!(complete.payload(), &[5, 6, 7, 8, 9]);
-    assert_eq!(reassembler_with_first_fragment.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_len(), 0);
 }
 
 #[rstest]
 fn reassembler_rejects_out_of_order_and_drops_partial(
-    #[with(3, &[1_u8, 2])] mut reassembler_with_first_fragment: Reassembler,
+    #[with(3, &[1_u8, 2])]
+    #[from(reassembler_with_first_fragment)]
+    fixture: TestResult<Reassembler>,
 ) {
+    let mut reassembler = fixture.expect("arrange reassembler with first fragment");
     let skipped = FragmentHeader::new(MessageId::new(3), FragmentIndex::new(2), true);
 
-    let err = reassembler_with_first_fragment
+    let err = reassembler
         .push(skipped, [3_u8])
         .expect_err("out-of-order fragment must be rejected");
     assert!(matches!(
         err,
         ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
     ));
-    assert_eq!(reassembler_with_first_fragment.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_len(), 0);
 }
 
 #[rstest]
 fn reassembler_suppresses_duplicate_fragment(
-    #[with(31, &[1_u8, 2])] mut reassembler_with_first_fragment: Reassembler,
+    #[with(31, &[1_u8, 2])]
+    #[from(reassembler_with_first_fragment)]
+    fixture: TestResult<Reassembler>,
 ) {
+    let mut reassembler = fixture.expect("arrange reassembler with first fragment");
     let duplicate = FragmentHeader::new(MessageId::new(31), FragmentIndex::zero(), false);
     let final_fragment = FragmentHeader::new(MessageId::new(31), FragmentIndex::new(1), true);
 
     assert!(
-        reassembler_with_first_fragment
+        reassembler
             .push(duplicate, [9_u8, 9])
             .expect("duplicate fragment should be suppressed")
             .is_none()
     );
-    assert_eq!(reassembler_with_first_fragment.buffered_len(), 1);
+    assert_eq!(reassembler.buffered_len(), 1);
 
-    let complete = reassembler_with_first_fragment
+    let complete = reassembler
         .push(final_fragment, [3_u8])
         .expect("final fragment should complete message")
         .expect("message should be complete");

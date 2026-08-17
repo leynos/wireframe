@@ -501,8 +501,26 @@ spawning the server, eliminating address-race flakiness. The server is bound
 through `WireframeServer::bind_existing_listener` and runs with a one-shot
 shutdown channel. If the client connection fails after the server has started,
 the server task is torn down before the error is returned. A `Drop`
-implementation sends the shutdown signal and immediately aborts the server task
-as a safety net if explicit shutdown is skipped.
+implementation sends the shutdown signal and joins the server task
+with a bounded timeout, aborting it only if it has not finished by
+then, as a safety net if explicit shutdown is skipped.
+
+`shutdown()` returns `TestResult` rather than panicking or discarding server
+failures because a swallowed `JoinError` or `ServerError` would let a broken
+server pass a test silently. Converting both into `TestError` lets callers
+propagate the failure with `?` and attributes it to the assertion that
+exercised it, rather than to an unrelated later failure or a hang.
+
+The join-versus-abort decision balances two risks: joining an unbounded task
+could hang the test if the server never notices the shutdown signal, whereas
+aborting unconditionally would discard a result the test might otherwise
+observe. `shutdown()` therefore sends the shutdown signal first, giving the
+server's accept or serve loop a reason to end, and then joins the task
+without a timeout, so its `TestResult` is always observed on the explicit
+path. `Drop` is a safety net for scenarios that skip or are interrupted
+before calling `shutdown()`: it also signals shutdown, but bounds the join
+with a short timeout and aborts only if the task has not finished by then,
+because `Drop` cannot await indefinitely.
 
 ### Usage
 
