@@ -277,6 +277,11 @@ Observable success:
   graceful shutdown should call `shutdown()`. Date/Author: 2026-04-04 / review
   refinement.
 
+  Correction (2026-08-17): `Drop` was subsequently changed from immediate
+  abort to scheduled bounded cleanup — signal, then a detached task racing
+  the join against a 100 ms grace period, aborting only on timeout; immediate
+  abort remains when no runtime is current. See RFC 0001 section 5.3.
+
 - Decision: tear down the server task when the client connection fails in
   `spawn_wireframe_pair`. Rationale: the server was spawned before the client
   `connect` call; if that call fails the server task and bound listener would
@@ -615,6 +620,12 @@ Post-review refinements (2026-04-04):
 - Replaced the OS-thread-based `Drop` safety net (5-second sleep before
   abort) with an immediate `handle.abort()` after signalling shutdown. Callers
   wanting graceful teardown should call `shutdown()`.
+
+  Correction (2026-08-17): this immediate-abort behaviour was subsequently
+  replaced by scheduled bounded cleanup — signal, then a detached task
+  racing the join against a 100 ms grace period, aborting only on timeout;
+  immediate abort remains when no runtime is current. See RFC 0001
+  section 5.3.
 - Added server task cleanup on client connect failure so
   `spawn_wireframe_pair` never leaks a detached server task.
 - Extracted the echo app setup into `wireframe_testing::echo_app_factory`

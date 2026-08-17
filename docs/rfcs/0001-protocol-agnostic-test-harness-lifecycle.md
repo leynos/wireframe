@@ -166,9 +166,22 @@ pub async fn spawn_wireframe_server_on<F, T, Ser, Ctx, E, Codec>(
 ) -> TestResult<RunningWireframeServer>;
 ```
 
-The omitted generic bounds are exactly those already required by
-`WireframeServer`. The implementation must not introduce default serializer,
-connection-state, packet, codec, or preamble bounds.
+The omitted generic bounds are those already required by `WireframeServer`'s
+`run_with_shutdown`:
+
+- `F: AppFactory<Ser, Ctx, E, Codec>`;
+- `T: Preamble`;
+- `Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static`;
+- `Ctx: Send + 'static`;
+- `E: Packet`;
+- `Codec: FrameCodec`; and
+- `Envelope: DecodeWith<Ser> + EncodeWith<Ser>`.
+
+Because the helper drives `run_with_shutdown` inside `tokio::spawn`, the
+spawned future must also be `Send + 'static`. That is the one requirement not
+already implied by `WireframeServer` alone. The implementation must not
+introduce default serializer, connection-state, packet, codec, or preamble
+bounds.
 
 `spawn_wireframe_server` calls `unused_listener()` and delegates to
 `spawn_wireframe_server_on`. The latter:
@@ -204,10 +217,13 @@ server builder.
 - it reports task panic, server error, and timeout as distinct failures; and
 - it releases the listener before returning success.
 
-`Drop` remains a safety net, not the normal path. Inside a Tokio runtime it
-allows a short bounded grace period before aborting. Outside a runtime it
-aborts immediately because synchronous drop cannot drive graceful asynchronous
-shutdown.
+`Drop` remains a safety net, not the normal path; only an explicit
+`shutdown().await` guarantees graceful completion. Inside a Tokio runtime,
+`Drop` sends the shutdown signal and schedules bounded cleanup on a detached
+task, then returns immediately without awaiting anything. That detached task
+races the join against a short grace period and aborts the server task only
+if the period elapses first. Outside a runtime, `Drop` aborts immediately
+because there is no executor to run the scheduled cleanup.
 
 Startup follows the same failure discipline. If the server exits before
 readiness, the helper joins the task and returns the underlying join or server
@@ -310,6 +326,9 @@ The implementation must preserve these invariants:
 - Protocol-specific setup remains outside the lifecycle module.
 - Error text identifies the lifecycle stage: bind, readiness, connect,
   shutdown, join, or abort-after-timeout.
+- A server-task `ServerError`, a `JoinError` from a panicked or cancelled
+  task, and a readiness or shutdown timeout each map onto distinct `TestError`
+  variants, so callers can distinguish them without parsing message text.
 - The original connector failure remains primary when cleanup also fails.
 
 The helpers continue to use real loopback TCP. In-memory `duplex` drivers
@@ -327,7 +346,10 @@ Add `rstest` coverage for:
 - readiness timeout cleaning up the task and listener;
 - idempotent explicit shutdown;
 - cancelled shutdown followed by `Drop` cleanup;
-- defensive drop inside and outside a Tokio runtime;
+- defensive drop inside and outside a Tokio runtime, including that `Drop`
+  returns without waiting, that the detached scheduled-cleanup task completes
+  the join when the server stops within the grace period, and that it aborts
+  the task when the grace period elapses;
 - connector failure cleaning up the server;
 - simultaneous connector and cleanup failures retaining both diagnostics; and
 - parallel handles using distinct listeners without shared state.
