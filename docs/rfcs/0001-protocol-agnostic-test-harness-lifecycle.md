@@ -200,10 +200,13 @@ does not silently replace those settings. The readiness sender is the sole
 reserved setting because the harness must know when connection attempts are
 safe.
 
-The default helper uses documented readiness and shutdown timeouts. A compact
-options type may expose overrides if the implementation spike proves that fixed
-defaults are insufficient. Timeout configuration must not become a second
-server builder.
+The default helper should use a 5-second readiness timeout and a 5-second
+explicit shutdown join timeout; neither exists today, so these are proposed
+defaults rather than documented behaviour. The `Drop` grace period keeps the
+existing 100-millisecond value from `WireframePair`
+(`wireframe_testing/src/client_pair.rs`). A compact options type may expose
+overrides if the implementation spike proves that fixed defaults are
+insufficient. Timeout configuration must not become a second server builder.
 
 ### 5.3. Lifecycle guarantees
 
@@ -216,6 +219,12 @@ server builder.
 - it bounds the join and aborts the task only after timeout;
 - it reports task panic, server error, and timeout as distinct failures; and
 - it releases the listener before returning success.
+
+This bounded join is a deliberate departure from `WireframePair::shutdown`'s
+unbounded join, which exists so the server's result is never discarded; here a
+server that never notices the shutdown signal fails the test with a
+diagnosable timeout, reported as a distinct failure per the bullet above,
+instead of hanging the suite indefinitely.
 
 `Drop` remains a safety net, not the normal path; only an explicit
 `shutdown().await` guarantees graceful completion. Inside a Tokio runtime,
@@ -430,9 +439,12 @@ across orderings and repetition, not just for the fixed sequences that the
 `rstest` cases in section 7.1 exercise. Add `proptest` coverage that generates
 these varying inputs and asserts the invariant survives:
 
-- idempotent shutdown under a generated number of repeated `shutdown` calls,
-  including interleaved `Drop`, always converges to a single joined task and
-  one released listener;
+- repeated `shutdown` calls on a live `RunningWireframeServer`, under a
+  generated call count, always converge to a single joined task and one
+  released listener;
+- a generated trace of zero or more `shutdown` calls followed by `Drop` as the
+  terminal action converges to the same state, covering both dropping after
+  shutdown and dropping without shutdown;
 - readiness followed by a generated schedule of connect-then-shutdown
   operations never orphans a task or leaks a listener; and
 - a generated pool of concurrently spawned handles binds distinct listeners and
