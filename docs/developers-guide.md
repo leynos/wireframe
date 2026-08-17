@@ -509,6 +509,35 @@ a fresh handle without explicitly calling the constructor.
 while holding the logger lock, `new()` recovers the guard via `into_inner()`
 and drains any buffered log records, so the next test starts from a clean state.
 
+## Roadmap editing with mapsplice
+
+[The combined roadmap](roadmap.md) is roadmap-shaped Markdown: `mapsplice`
+parses it to append, insert, delete, and replace numbered items, so it must
+stay within that tool's grammar. Phases are level-2 headings
+(`## 9. Phase title`), steps are level-3 headings (`### 9.2. Step title`), and
+tasks are numbered checklist items (`- [ ] 9.2.1. Task title`).
+
+That grammar rejects footnote references, failing with `unsupported inline
+node footnoteReference`. Roadmap references must therefore use inline links
+instead of the GitHub-flavoured `[^1]` footnotes used elsewhere in the
+documentation set: cite a target either as a parenthetical
+`(see [target](path))` or by linking an existing phrase. This is a scoped
+exception to the footnote rule recorded in the
+[documentation style guide](documentation-style-guide.md).
+
+Keep the visible link text consistent: cite ADRs by number (for example
+`ADR 0005`) and design documents by a short descriptive name, rather than by
+raw filename.
+
+`mapsplice` fails closed when the target does not match the supported grammar,
+so previewing an edit to stdout doubles as a grammar check:
+
+```bash
+MAPSPLICE_IN_PLACE=false mapsplice append docs/roadmap.md fragment.md >/dev/null
+```
+
+Run `make fmt` to reformat and rewrap after editing, then `make markdownlint`.
+
 ## Spelling policy
 
 The `make spelling` gate enforces en-GB-oxendict spelling across tracked text.
