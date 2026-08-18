@@ -220,6 +220,19 @@ insufficient. Timeout configuration must not become a second server builder.
 - it reports task panic, server error, and timeout as distinct failures; and
 - it releases the listener before returning success.
 
+A repeated `shutdown` call returns the outcome of the terminal state already
+reached, rather than repeating the underlying work:
+
+- after a successful shutdown, a later call returns `Ok(())` without
+  re-signalling or re-joining;
+- after a timeout, a later call reports the same timeout failure rather than
+  blocking again; and
+- after a cancelled shutdown future, a later call completes the outstanding
+  join rather than starting a new one.
+
+A call after `Drop` is not expressible, because `Drop` consumes the handle and
+ends its life; this is why the list above has three cases and not four.
+
 This bounded join is a deliberate departure from `WireframePair::shutdown`'s
 unbounded join, which exists so the server's result is never discarded; here a
 server that never notices the shutdown signal fails the test with a
@@ -291,9 +304,17 @@ pub async fn spawn_wireframe_pair_default(/* existing parameters */)
 Their signatures and observable behaviour do not change. Internally they:
 
 1. build the current default server and set one worker;
-2. call the new server-and-connector helper;
+2. call the new server-and-connector helper to spawn the server and connect
+   the default client;
 3. store the resulting default client and running server; and
 4. call `WireframeClient::close` before server shutdown.
+
+`WireframePair::shutdown` keeps its own unbounded join rather than delegating
+to `RunningWireframeServer::shutdown`'s bounded join: the pair's explicit
+shutdown path exists so the server's result is always observed, and a bound
+would add a new timeout failure mode that existing callers' tests do not
+expect. If the compact options type from section 5.2 lands, the pair wrapper
+sets no shutdown bound.
 
 `WireframePair` remains concrete. Turning it into `WireframePair<C>` would make
 client teardown either incomplete or trait-bound, while creating needless type
@@ -329,7 +350,9 @@ The implementation must preserve these invariants:
   port race.
 - A successful spawn means the readiness signal has fired, not merely that the
   task exists.
-- Each running handle owns exactly one shutdown sender and task handle.
+- Each running handle owns at most one shutdown sender and at most one task
+  handle: both are present while the handle is live, both are consumed by the
+  first successful `shutdown` or by `Drop`, and neither is present thereafter.
 - Explicit shutdown and connector-failure cleanup join the server task.
 - Dropping one handle cannot affect another parallel test.
 - Protocol-specific setup remains outside the lifecycle module.
@@ -371,7 +394,10 @@ cannot represent:
 - a non-default `FrameCodec`;
 - a typed server preamble;
 - server preamble success or failure hooks;
-- a client connector that performs the matching preamble; and
+- a client connector that performs the matching preamble;
+- a client connector that builds its client via a type-changing builder
+  method, such as `with_preamble` or `on_connection_setup`, which section 2
+  identifies as unable to pass through the current callback; and
 - a protocol-specific client type that is not `WireframeClient`.
 
 The test should exchange at least one framed request and response after the
@@ -392,10 +418,13 @@ target that:
 
 - pass-checks that the retained `spawn_wireframe_pair` and
   `spawn_wireframe_pair_default` calls still infer the same concrete
-  `WireframePair` type after the internal refactor; and
+  `WireframePair` type after the internal refactor;
+- pass-checks that `spawn_wireframe_server_and_connect` accepts an arbitrary
+  caller-defined client type `C`, since section 5.4 leaves `C` unconstrained
+  and infers it from the connector future's output; and
 - compile-fail-checks that a misconfigured lifecycle call (for example, a
-  connector whose future resolves to the wrong client type, or a server passed
-  after binding) is rejected with a stable diagnostic.
+  server passed after binding, where `Unbound` and `Bound` are distinct
+  typestates) is rejected with a stable diagnostic.
 
 Keep the expected-error snapshots focused on the lifecycle and connector
 boundary rather than on incidental generic-bound spew, so that unrelated
@@ -440,11 +469,12 @@ across orderings and repetition, not just for the fixed sequences that the
 these varying inputs and asserts the invariant survives:
 
 - repeated `shutdown` calls on a live `RunningWireframeServer`, under a
-  generated call count, always converge to a single joined task and one
-  released listener;
+  generated call count, always converge to exactly one joined task and one
+  released listener across the whole trace, with the handle holding neither
+  sender nor task handle afterwards;
 - a generated trace of zero or more `shutdown` calls followed by `Drop` as the
-  terminal action converges to the same state, covering both dropping after
-  shutdown and dropping without shutdown;
+  terminal action converges to the same terminal state, covering both
+  dropping after shutdown and dropping without shutdown;
 - readiness followed by a generated schedule of connect-then-shutdown
   operations never orphans a task or leaks a listener; and
 - a generated pool of concurrently spawned handles binds distinct listeners and
