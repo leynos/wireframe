@@ -788,6 +788,39 @@ document so larger deployments can adopt the library confidently.
   protocols remain ergonomic.
 - [x] 17.3.2. Publish reusable test harnesses that spin up an in-process server
   and client pair, allowing downstream crates to verify compatibility.
+- [ ] 17.3.3. Extract a protocol-agnostic server lifecycle harness that
+  accepts a fully configured, unbound `WireframeServer`, binds a reserved
+  loopback listener, waits for readiness, and returns an idempotently stoppable
+  `RunningWireframeServer`. Preserve the existing pair helpers as additive,
+  source-compatible wrappers. Cover the shutdown-idempotence, readiness, and
+  concurrent-handle invariants with `proptest` alongside the example-based
+  `rstest` cases. See RFC 0001 for the lifecycle harness and
+  `RunningWireframeServer` requirements
+  ([§5.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle),
+  [§5.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees),
+  [§5.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility))
+  and for the `rstest` and `proptest` requirements
+  ([§7.1](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests),
+  [§7.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage)).
+- [ ] 17.3.4. Add a caller-supplied asynchronous connector that composes the
+  running server with any protocol-specific client while cleaning up the server
+  if connection fails. Prove the public API with a non-default codec, a typed
+  preamble, type-changing builder configuration, downstream-style behavioural
+  tests, and a `trybuild` compile-time test that pins the retained pair
+  helpers' inferred types and rejects misconfigured lifecycle calls. Requires
+  17.3.3. See RFC 0001 for the caller-supplied connector and
+  connection-failure cleanup
+  ([§5.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#54-caller-supplied-client-connector))
+  and for protocol-generic and `trybuild` verification
+  ([§7.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof),
+  [§7.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
+- [ ] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run
+  `cargo test -p wireframe_testing --all-targets --all-features` and
+  `cargo test -p wireframe_testing --doc --all-features` in the Makefile and
+  Continuous Integration workflow, repair the examples tracked by issue #578,
+  and prevent the companion crate from drifting behind the root package. This
+  item must complete before publishing the lifecycle extension. See RFC 0001
+  [§7.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#74-companion-crate-quality-gates).
 
 ### 17.4. Docs and adoption
 

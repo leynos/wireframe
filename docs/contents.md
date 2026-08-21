@@ -22,6 +22,12 @@ reference when navigating the project's design and architecture material.
 - [Preamble validator](preamble-validator.md) Validating client connection
   preambles.
 
+## Requests for comments
+
+- [RFC 0001: protocol-agnostic test harness lifecycle](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md)
+  Proposed server lifecycle and custom-client connector layers for
+  `wireframe_testing`.
+
 ## Architectural decision records
 
 - [ADR 001: multi-packet streaming response API](adr-001-multi-packet-streaming-response-api.md)
@@ -78,8 +84,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   fixtures for clean tests.
 - [Mocking network outages](mocking-network-outages-in-rust.md) Tutorial for
   simulating network outages in tests.
-- [Testing helpers](wireframe-testing-crate.md) Planned companion crate with
-  testing helpers.
+- [Testing helpers](wireframe-testing-crate.md) In-process server and client
+  pair helpers provided by the `wireframe_testing` companion crate.
 
 ## Operations and resilience
 
