@@ -10,6 +10,13 @@ accepted = []
 
 [patterns]
 ignore = [
+  # TEMPORARY HOLD, not a policy position. The shared en-GB-oxendict base
+  # deliberately dropped this exclusion on 2026-08-07 so that inline code is
+  # spellchecked. This repository is not yet ready: identifiers inside code
+  # spans would fail across existing documents. Pinning it here keeps the
+  # gate meaningful until those are reworded or added to `[words] accepted`.
+  # Retire this entry — do not refresh it away — once that sweep is done.
+  "`[^`\\n]+`",
   "\\ \\ \\ \\ PoolServerBehavior,",
   "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
   "\\ \\ \\ \\ \\ \\ \\ Self::start_with_behavior\\(PoolServerBehavior::Ech",
