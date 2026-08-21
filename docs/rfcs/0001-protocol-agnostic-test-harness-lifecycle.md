@@ -309,6 +309,13 @@ Their signatures and observable behaviour do not change. Internally they:
 3. store the resulting default client and running server; and
 4. call `WireframeClient::close` before server shutdown.
 
+The pair wrapper re-wraps the helper's typed startup failures back into
+`TestError::Msg`, preserving the message shape existing callers see today,
+because the compatibility promise in this section covers the variant a caller
+observes, not just the function signature. The distinct typed variants remain
+the contract of the new helper API in section 6; callers that want to match on
+a variant should use that API directly.
+
 `WireframePair::shutdown` keeps its own unbounded join rather than delegating
 to `RunningWireframeServer::shutdown`'s bounded join: the pair's explicit
 shutdown path exists so the server's result is always observed, and a bound
@@ -358,9 +365,12 @@ The implementation must preserve these invariants:
 - Protocol-specific setup remains outside the lifecycle module.
 - Error text identifies the lifecycle stage: bind, readiness, connect,
   shutdown, join, or abort-after-timeout.
-- A server-task `ServerError`, a `JoinError` from a panicked or cancelled
-  task, and a readiness or shutdown timeout each map onto distinct `TestError`
-  variants, so callers can distinguish them without parsing message text.
+- For the new server-and-connector helper, a server-task `ServerError`, a
+  `JoinError` from a panicked or cancelled task, and a readiness or shutdown
+  timeout each map onto distinct `TestError` variants, so callers can
+  distinguish them without parsing message text; the `WireframePair` wrappers
+  are the one carve-out, re-wrapping these failures as `TestError::Msg` to
+  preserve their existing observable behaviour.
 - The original connector failure remains primary when cleanup also fails.
 
 The helpers continue to use real loopback TCP. In-memory `duplex` drivers
@@ -410,6 +420,8 @@ compatibility behaviour. It should not assert private channel or task fields.
 ### 7.3. Compatibility and compile-time coverage
 
 Existing `client_pair_harness` integration and behavioural suites remain green.
+A test also pins the `WireframePair` startup-failure error shape, so a future
+refactor cannot silently switch it from `TestError::Msg` to a typed variant.
 
 Add explicit `trybuild` compile-time coverage, reusing the pattern already
 present in the root crate's `tests/compile_error.rs`. The repository already
