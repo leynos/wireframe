@@ -29,25 +29,30 @@ blurred ownership graph:
 - some immutable objects acquire one strong reference per callback adapter
   rather than one per independently owned runtime.
 
-Concrete instances of each pattern exist in the current tree:
+Concrete instances of each pattern exist in the current tree. Each is annotated
+with its frequency class so baseline and benchmark effort
+([#639](https://github.com/leynos/wireframe/issues/639)) concentrates on the
+hot cases; the one-time cases are justified on clarity grounds alone:
 
 - the connection actor clones its `CancellationToken` and awaits
   `cancelled_owned()` inside its own `select!` loop (`src/connection/mod.rs`,
   `src/connection/polling.rs`), where the borrowing `cancelled()` future would
-  suffice;
+  suffice — once per actor-loop iteration;
 - `PushHandle::push_with_priority` clones an `mpsc::Sender` before calling
-  `send`, although `send` takes `&self` (`src/push/queues/handle.rs`);
-- `FnService` stores its middleware function as `Arc<F>` despite being its
-  sole owner (`src/middleware.rs`);
-- `ProtocolHooks::from_protocol` clones the same `Arc` of the protocol
-  object once per callback adapter — six clones for one protocol
-  (`src/hooks.rs`);
-- the connection actor stores a connection-local fragmenter as
-  `Option<Arc<Fragmenter>>` although it is never shared
-  (`src/connection/mod.rs`);
+  `send`, although `send` takes `&self` (`src/push/queues/handle.rs`) — once
+  per pushed message;
 - the client-pool scheduler couples an `Arc<PoolScheduler>` root, a
   `Mutex<SchedulerState>`, an atomic single-flight flag, and spawn-on-demand
-  service tasks (`src/client/pool/scheduler.rs`).
+  service tasks (`src/client/pool/scheduler.rs`) — once per acquisition or
+  lease drop;
+- `ProtocolHooks::from_protocol` clones the same `Arc` of the protocol
+  object once per callback adapter — six clones for one protocol
+  (`src/hooks.rs`) — once per connection;
+- the connection actor stores a connection-local fragmenter as
+  `Option<Arc<Fragmenter>>` although it is never shared
+  (`src/connection/mod.rs`) — once per connection;
+- `FnService` stores its middleware function as `Arc<F>` despite being its
+  sole owner (`src/middleware.rs`) — once per application build.
 
 Without an explicit policy, local fixes can remove individual clones while
 later changes recreate the same topology under different names.
@@ -137,34 +142,54 @@ only inside dependency types.
 
 This produces simple local rules but is too rigid. `PushHandle`, weak session
 registries, application-wide immutable state, and independent connection tasks
-have genuine multiple ownership.
+have genuine multiple ownership. This option is included to mark the outer
+boundary of the design space rather than as a live candidate.
 
-### Option C: use one shared root per independently owned graph and borrow beneath it (preferred)
+### Option C: use one shared root per independently owned graph and borrow beneath it
 
 Allow `Arc` at explicit lifetime boundaries, then borrow or move fields inside
 the task. Use structured concurrency for scope-bound work and actors/channels
 for mutable coordination with one conceptual owner.
 
 This preserves legitimate sharing while making nested shared ownership
-exceptional and reviewable.
+exceptional and reviewable. Enforcement rests entirely on review vocabulary,
+which is the weakest defence against the drift this ADR exists to stop.
 
-| Topic                        | Option A: accept `Arc` | Option B: prohibit `Arc` | Option C: shared roots |
-| ---------------------------- | ---------------------- | ------------------------ | ---------------------- |
-| Ownership clarity            | Weak                   | Strong                   | Strong                 |
-| Fit with legitimate sharing  | Good                   | Poor                     | Good                   |
-| Hot-path refcount traffic    | High                   | Low                      | Low                    |
-| Design and review effort     | Low                    | High                     | Medium                 |
-| Resistance to topology drift | Weak                   | Strong                   | Strong                 |
+### Option D: shared roots plus mechanical enforcement (preferred)
+
+Adopt Option C's rules and back the mechanically recognizable ones with lints.
+The repository already runs a Dylint suite in its commit gates, so the
+enforcement machinery exists today. Patterns with grep-able signatures — an
+owned-cancellation clone inside a persistent loop, a sender clone immediately
+before an `&self` `send` — gain `disallowed_methods` or custom Dylint coverage,
+with a tightly scoped, justified `#[allow]` as the escape hatch for legitimate
+rule R6 sharing. Semantic judgements (graph shape, nested-`Arc` topology)
+remain review-enforced through the
+[#649](https://github.com/leynos/wireframe/issues/649) checklist.
+
+| Topic                        | Option A: accept `Arc` | Option B: prohibit `Arc` | Option C: shared roots | Option D: C plus lints |
+| ---------------------------- | ---------------------- | ------------------------ | ---------------------- | ---------------------- |
+| Ownership clarity            | Weak                   | Strong                   | Strong                 | Strong                 |
+| Fit with legitimate sharing  | Good                   | Poor                     | Good                   | Good                   |
+| Hot-path refcount traffic    | High                   | Low                      | Low                    | Low                    |
+| Design and review effort     | Low                    | High                     | Medium                 | Medium                 |
+| Resistance to topology drift | Weak                   | Strong                   | Review-dependent       | Strong                 |
 
 _Table 1: Trade-offs for the runtime ownership policy._
 
 ## Decision Outcome
 
-Adopt Option C.
+Adopt Option D: Option C's ownership rules, with mechanical enforcement for the
+lint-expressible subset.
 
-Wireframe will apply the following rules.
+Wireframe will apply the following rules. Each rule carries a stable identifier
+(R1-R7) so reviews and the
+[#649](https://github.com/leynos/wireframe/issues/649) developer-guide
+checklist can cite it without paraphrase. The single litmus question behind R2,
+R4, and R6 is: **can this value escape its owner independently? If not, it does
+not get its own `Arc`.**
 
-### 1. Spawn only for independent lifetime or scheduling
+### R1. Spawn only for independent lifetime or scheduling
 
 Use `tokio::spawn` or `TaskTracker::spawn` when the child:
 
@@ -180,7 +205,7 @@ equivalent scoped future collection.
 A spawn is not justified merely to make an async block easier to type or to
 obtain `'static`.
 
-### 2. Put `Arc` at graph roots, not on every node
+### R2. Put `Arc` at graph roots, not on every node
 
 An independently owned task may clone one `Arc` that roots the immutable/shared
 object graph it needs. Values reachable exclusively through that root should
@@ -190,7 +215,7 @@ Nested `Arc` remains appropriate when a child node has an ownership lifetime
 independent of the root, such as a cloneable public handle that can escape by
 itself.
 
-### 3. Borrow owned handles within the task
+### R3. Borrow owned handles within the task
 
 If an actor already owns a `CancellationToken`, sender, route table, protocol
 object, or configuration object for the duration of an operation, call borrowed
@@ -204,7 +229,7 @@ Examples governed by this rule include:
 - borrowing a prepared route table from the application root during one
   connection task.
 
-### 4. Move sole-owned values directly
+### R4. Move sole-owned values directly
 
 Values with exactly one runtime owner should be stored directly, even when the
 type itself supports concurrent use. Examples include a connection-local
@@ -212,7 +237,7 @@ type itself supports concurrent use. Examples include a connection-local
 
 Thread-safe internals do not imply shared ownership at every call site.
 
-### 5. Use actors for one-owner mutable coordination
+### R5. Use actors for one-owner mutable coordination
 
 When mutable state has one conceptual authority, prefer one task owning the
 state and receiving commands over `Arc<Mutex<State>>` plus multiple tasks
@@ -221,7 +246,12 @@ mutating it.
 This rule applies especially to the client-pool scheduler. The actor's command
 handle may be cloneable; the scheduler state itself should have one owner.
 
-### 6. Preserve legitimate shared handles
+An actor is warranted when the state carries at least two coupled invariants or
+a shutdown protocol. Otherwise a plain owned struct with `&mut self` methods
+suffices; this criterion stops the policy itself from driving actor
+proliferation.
+
+### R6. Preserve legitimate shared handles
 
 This ADR explicitly retains shared ownership where it communicates real
 semantics:
@@ -233,7 +263,7 @@ semantics:
 - one prepared-application root shared by independent connection tasks;
 - one client-pool root shared by pool handles and leases.
 
-### 7. Do not substitute `Rc` merely to avoid atomics
+### R7. Do not substitute `Rc` merely to avoid atomics
 
 Wireframe targets Tokio's multithreaded runtime and exposes `Send` APIs. A
 local runtime and `Rc` may be valid in downstream applications, but core
@@ -293,19 +323,32 @@ layers that no longer encode independent lifetimes.
 
 ### Phase 4: verify and document
 
-Add benchmarks, shutdown tests, mutation tests, and developer guidance that
-make the intended ownership boundaries visible.
+Add benchmarks, shutdown tests, mutation tests, lint coverage for the
+mechanically enforceable rules, and developer guidance that makes the intended
+ownership boundaries visible. The
+[#649](https://github.com/leynos/wireframe/issues/649) developer-guide
+checklist is the canonical review artefact derived from rules R1-R7, with this
+ADR as its source of truth.
 
 ## Verification
 
 Implementation work governed by this ADR should demonstrate:
 
-- no behaviour change in cancellation, fairness, backpressure, or shutdown;
+- no change to externally contracted behaviour in cancellation, fairness,
+  backpressure, or shutdown; the intentional behaviour changes are recorded in
+  [ADR 012](adr-012-prepared-application-and-connection-runtime.md) (factory
+  evaluation frequency, readiness timing, startup error surfacing) and
+  [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) (lease-drop
+  servicing), and this ADR must not be cited against them;
 - no new leaked task or strong-reference cycle;
 - no loss of public cloneable-handle semantics;
 - benchmark coverage for affected hot paths;
 - tests that prove actors and connection tasks terminate after their final
-  owning handle is dropped or cancellation is requested.
+  owning handle is dropped or cancellation is requested;
+- a recorded lint-or-checklist disposition per rule under
+  [#649](https://github.com/leynos/wireframe/issues/649): R3 and R4 have
+  grep-able signatures and are lint candidates; R1, R2, R5, R6, and R7 are
+  judgement calls enforced through the review checklist.
 
 ## Outstanding Decisions
 

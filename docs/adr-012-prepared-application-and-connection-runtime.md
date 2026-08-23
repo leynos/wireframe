@@ -143,8 +143,10 @@ runtime state after accept.
 This aligns preparation, readiness, sharing, and connection ownership. It
 matches the shape used across the ecosystem: tower's `MakeService` builds one
 factory whose cheap per-connection services derive from shared configuration,
-and hyper 1.x constructs a per-connection service value in the accept loop
-while routing/configuration state stays shared.
+hyper 1.x constructs a per-connection service value in the accept loop while
+routing/configuration state stays shared, and axum's `Router` is the closest
+structural precedent — a prepared, cheaply cloneable artefact built once and
+handed to every connection.
 
 ### Option D: expose both per-server and per-connection application strategies immediately
 
@@ -156,13 +158,27 @@ has evidence that per-connection application construction is needed.
 Per-connection resources can already be created through the connection setup
 hook.
 
-| Topic                       | Option A: per connection | Option B: per worker | Option C: per server | Option D: both APIs |
-| --------------------------- | ------------------------ | -------------------- | -------------------- | ------------------- |
-| Preparation repeated        | Per connection           | Per worker           | Once                 | Depends on choice   |
-| Readiness meaning           | Undefined                | Partial              | Precise              | Ambiguous           |
-| Ownership boundary fidelity | Weak                     | Accidental           | Strong               | Mixed               |
-| Public API surface          | Unchanged                | New                  | Small change         | Doubled             |
-| Migration size              | None                     | Medium               | Medium               | Large               |
+### Option E: prepare lazily on the first connection
+
+Wrap `PreparedApp` in an async `OnceCell` and prepare it inside the first
+accepted connection, keeping the existing factory API and synchronous startup
+untouched.
+
+This is the natural incremental step from the current
+`OnceCell<Arc<HashMap<...>>>` code and the smallest possible migration, with an
+identical steady-state sharing topology. It is rejected because it forfeits the
+readiness guarantee and deterministic startup failure: preparation errors
+surface on the first client's connection instead of at boot, and the first
+connection pays the preparation latency. Both directly contradict the readiness
+and deterministic-error decision drivers.
+
+| Topic                       | Option A: per connection | Option B: per worker | Option C: per server | Option D: both APIs | Option E: lazy first use |
+| --------------------------- | ------------------------ | -------------------- | -------------------- | ------------------- | ------------------------ |
+| Preparation repeated        | Per connection           | Per worker           | Once                 | Depends on choice   | Once                     |
+| Readiness meaning           | Undefined                | Partial              | Precise              | Ambiguous           | Undefined                |
+| Ownership boundary fidelity | Weak                     | Accidental           | Strong               | Mixed               | Strong                   |
+| Public API surface          | Unchanged                | New                  | Small change         | Doubled             | Unchanged                |
+| Migration size              | None                     | Medium               | Medium               | Large               | Small                    |
 
 _Table 1: Trade-offs for application preparation frequency._
 
@@ -186,11 +202,30 @@ PreparedApp
 ConnectionRuntime
 ```
 
+The split follows one uniform template-versus-instance rule: `PreparedApp` owns
+immutable definitions, configuration, and factories; `ConnectionRuntime` owns
+the per-connection mutable instances derived from them. Where the same domain
+appears in both lists below — protocol hooks, message assembly, fragmentation —
+the prepared side holds the definition and the runtime side holds the
+per-connection invocation or reassembly state, so each concrete responsibility
+has exactly one owner.
+
+`prepare()` consumes the builder by value and returns `PreparedApp`, making
+post-preparation route registration unrepresentable rather than a runtime
+error. This mirrors the sealed `Unbound`/`Bound` typestate that
+`WireframeServer` already uses. A reusable template is expressed as
+`Arc<PreparedApp>`, so no separately cloneable builder snapshot is needed.
+
 #### `WireframeApp`
 
 `WireframeApp` remains the fluent registration/builder surface. It owns mutable
 route and middleware registrations and is not used directly to process a stream
 after preparation.
+
+The builder deliberately keeps the `WireframeApp` name for compatibility even
+though `PreparedApp` becomes the actual application; Phase 5 should consider a
+`WireframeAppBuilder` alias so the vocabulary drift is acknowledged rather than
+silent.
 
 #### `PreparedApp`
 
@@ -200,7 +235,7 @@ after preparation.
 - serializer and codec templates/configuration;
 - application data;
 - lifecycle callback definitions;
-- protocol and message-assembler implementations;
+- protocol and message-assembler definitions;
 - immutable fragmentation, memory-budget, timeout, and push configuration.
 
 The server owns one `Arc<PreparedApp>` and clones it once per independent
@@ -215,7 +250,7 @@ connection task. Values that cannot escape independently should not add another
 - connection setup state `C`;
 - `ConnectionContext` and protocol-hook invocation state;
 - inbound frame pipeline, deserialization failure count, fragment
-  reassembly, and message assembly;
+  reassembly, and message-assembly instance state;
 - outbound connection actor state, connection-local `Fragmenter`, queues,
   and cancellation observations;
 - peer metadata and teardown guard.
@@ -234,9 +269,23 @@ by rebuilding the entire application.
 5. send the readiness signal through the existing `ready_tx` oneshot
    channel.
 
-Application build or preparation errors become `ServerError` variants and fail
-startup. No connection is accepted by a server whose application template
-failed to prepare.
+Application build or preparation errors become distinct `ServerError` variants
+— for example `ServerError::AppBuild` and `ServerError::Prepare`, with
+source-error chaining — so orchestration and rollback automation can
+distinguish preparation failure from `Bind` failure. On failure,
+`run_with_shutdown` returns the typed error and the readiness channel is
+resolved or observably closed rather than silently dropped, so a readiness
+waiter learns of the failure promptly instead of hanging.
+
+Preparation runs arbitrary user middleware transforms, so it must be
+observable: wrap `prepare()` in a tracing span, log its duration, and consider
+an optional preparation timeout mapped to a `ServerError` variant so a hung
+transform fails the deploy loudly instead of stalling readiness forever.
+
+No connection is accepted by a server whose application template failed to
+prepare. This guarantee should be structural, not merely tested: the
+accept-loop spawn takes the `Arc<PreparedApp>` by value, so an accept loop
+cannot exist before preparation has succeeded.
 
 ### 3. Treat `AppFactory` as a startup factory
 
@@ -252,6 +301,19 @@ The implementation issue must assess semver impact and choose one of:
   `from_prepared_app` constructor and deprecate ambiguous factory semantics;
 - retain an explicitly named per-connection factory API only if a concrete
   use case cannot be expressed through connection setup state.
+
+The disposition list must also cover the adjacent public surface the split
+invalidates:
+
+- `WireframeApp::handle_connection_result` and `handle_connection` are `pub`
+  and embody the builder/template/runtime hybrid being dissolved; they should
+  be deprecated on `WireframeApp` and re-homed on the `PreparedApp`/
+  `ConnectionRuntime` path, with removal acceptable pre-1.0 alongside a
+  migration note;
+- the `AppFactory` trait's `Clone` bound and its rustdoc contract ("build an
+  application instance for a new connection") become vestigial under per-server
+  evaluation and must be revised together with the `WireframeServer` rustdoc's
+  per-worker claim.
 
 The final public API disposition must be recorded before this ADR is accepted.
 
@@ -270,6 +332,14 @@ early when stream processing fails and skips the teardown callback entirely.
 The connection runtime should use an explicit guard/finalization path rather
 than a clean-path-only tail call. This coordinates with
 [#549](https://github.com/leynos/wireframe/issues/549).
+
+The guard mechanism must be panic-aware. Teardown callbacks are async, so a
+`Drop`-based guard cannot run them during unwind; the implementation must state
+which paths recover a panic (for example a task join error observed by the
+spawner) and run teardown, and which abandon it — noting that `panic = "abort"`
+builds make unwind paths vacuous. The guard disarms before invoking teardown,
+so a panic inside a teardown callback cannot re-trigger the guard or fire
+teardown twice.
 
 ### 6. Apply protocol hooks consistently
 
@@ -326,6 +396,18 @@ Add `PreparedApp` and `ConnectionRuntime` internally, with compatibility
 wrappers for current entry points
 ([#641](https://github.com/leynos/wireframe/issues/641)).
 
+This phase must also ship the test-harness replacement, because roughly fifteen
+test files and fixtures drive `WireframeApp::handle_connection_result` over
+duplex streams and Phase 1 restructures the type they depend on. Deliver a
+`wireframe_testing`/testkit drive helper (builder, then `prepare().await`, then
+a connection runtime over a duplex stream) alongside
+[#641](https://github.com/leynos/wireframe/issues/641), and migrate existing
+tests through one mechanical, documented substitution.
+
+Compatibility wrappers in this plan are internal scaffolding, not API: they are
+removed before this ADR flips to Accepted, verified at
+[#649](https://github.com/leynos/wireframe/issues/649) closure.
+
 ### Phase 2: move route and middleware preparation
 
 Consume handler and middleware registrations during preparation and remove
@@ -347,9 +429,19 @@ ownership under [#644](https://github.com/leynos/wireframe/issues/644).
 
 ### Phase 5: settle public API and documentation
 
-Document factory evaluation semantics, update examples, add migration notes if
-required, and expose only the preparation/runtime APIs that downstream users
-genuinely need.
+Document factory evaluation semantics, update examples, and expose only the
+preparation/runtime APIs that downstream users genuinely need. The concrete
+documentation obligations, delivered under
+[#649](https://github.com/leynos/wireframe/issues/649), are:
+
+- `docs/users-guide.md`: readiness semantics and factory evaluation
+  frequency;
+- `docs/developers-guide.md`: the ownership section, reproducing the
+  builder/template/runtime diagram from this ADR;
+- a versioned migration guide if `WireframeServer::new(factory)` semantics
+  change observably, following the existing
+  `docs/v0-2-0-to-v0-3-0-migration-guide.md` pattern;
+- the `WireframeAppBuilder` alias decision noted in section 1.
 
 ## Verification
 
@@ -366,16 +458,25 @@ genuinely need.
 - Existing handler ordering, codec, fragmentation, message assembly,
   memory-budget, and shutdown tests continue to pass.
 - Connection-startup benchmarks compare the old and prepared paths.
+- A readiness waiter observes preparation failure promptly; preparation
+  failure is distinguishable from bind failure.
+- A handler panic still runs teardown exactly once; a panic inside teardown
+  does not run teardown twice or poison later connections.
+- Preparation duration is visible in tracing output.
 
 ## Outstanding Decisions Before Acceptance
 
 - Whether `PreparedApp` and `ConnectionRuntime` remain internal or gain
   public advanced APIs.
-- The exact public migration for `WireframeServer::new(factory)`.
-- Whether preparation consumes the builder irreversibly or supports a
-  separately cloneable reusable prepared template.
+- The exact public migration for `WireframeServer::new(factory)`, including
+  the `handle_connection_result`/`handle_connection` and `AppFactory` bound
+  dispositions from section 3.
 - How testkit helpers expose preparation without making tests depend on
-  private internals.
+  private internals, given the Phase 1 drive-helper deliverable.
+
+The question of whether preparation consumes the builder irreversibly is
+resolved in section 1: `prepare()` consumes the builder, and reuse is expressed
+through `Arc<PreparedApp>`.
 
 ## References
 
@@ -389,3 +490,4 @@ genuinely need.
 - [tower `MakeService`](https://docs.rs/tower/latest/tower/trait.MakeService.html)
 - [hyper 1.x server guide](https://hyper.rs/guides/1/server/hello-world/)
 - [actix-web server model](https://actix.rs/docs/server/)
+- [axum `Router`](https://docs.rs/axum/latest/axum/struct.Router.html)
