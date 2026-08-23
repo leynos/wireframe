@@ -64,24 +64,6 @@ where
         self
     }
 
-    /// Configure TCP linger behaviour for the connection.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::client::WireframeClientBuilder;
-    ///
-    /// let builder = WireframeClientBuilder::new().linger(Some(Duration::from_secs(1)));
-    /// let _ = builder;
-    /// ```
-    #[must_use]
-    pub fn linger(mut self, duration: Option<Duration>) -> Self {
-        self.socket_options = self.socket_options.linger(duration);
-        self
-    }
-
     /// Configure the socket send buffer size.
     ///
     /// # Examples

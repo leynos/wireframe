@@ -36,7 +36,6 @@ const MIN_FRAME_LENGTH: usize = 64;
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_FRAME_LENGTH: usize = 1024;
 const KEEPALIVE_DURATION: Duration = Duration::from_secs(30);
-const LINGER_DURATION: Duration = Duration::from_secs(1);
 const BUFFER_SIZE_U32: u32 = 256 * 1024;
 const BUFFER_SIZE_USIZE: usize = 256 * 1024;
 
@@ -116,19 +115,6 @@ socket_option_test!(
         assert!(
             sock_ref.keepalive().expect("query SO_KEEPALIVE"),
             "SO_KEEPALIVE should be enabled when configured via builder"
-        );
-    },
-);
-
-socket_option_test!(
-    builder_applies_linger_option,
-    |builder| builder.linger(Some(LINGER_DURATION)),
-    |client| {
-        let sock_ref = SockRef::from(client.tcp_stream());
-        assert_eq!(
-            sock_ref.linger().expect("query SO_LINGER"),
-            Some(LINGER_DURATION),
-            "SO_LINGER should match builder configuration"
         );
     },
 );
