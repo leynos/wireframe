@@ -608,7 +608,7 @@ Wireframe's protocol, framing, and message assembly layers.
   Success criteria: a contributor can run `make install-kani` and
   `make install-verus` to obtain pinned versions through the pinned
   `rust-prover-tools` entry point.
-- [ ] 15.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
+- [x] 15.1.4. Add `make test-verification`, `make kani`, `make kani-full`,
   `make verus`, `make formal-pr`, and `make formal-nightly` Makefile targets.
   Requires 15.1.2 and 15.1.3. See
   [formal verification guide §Recommended Makefile changes](formal-verification-methods-in-wireframe.md#recommended-makefile-changes).

@@ -378,6 +378,28 @@ Keep Verus proof files outside the normal Cargo build under `verus/`. The
 diagnostic until later formal-verification roadmap work adds
 `verus/wireframe_proofs.rs`.
 
+### Formal verification execution targets
+
+Run `make test-verification` to execute the Stateright verification crate with
+the repository's ordinary Rust test runner. `make kani`, `make kani-full`, and
+`make verus` are deliberately tool-free placeholders until their owned roadmap
+work supplies Kani harnesses and Verus proofs. Each writes a `FORMAL-SKIP:`
+marker to standard error and succeeds on a clean checkout.
+
+Use `FORMAL_STRICT=1` with any placeholder target to make that skip fail. This
+is the tripwire for a CI job that must detect a placeholder left behind after
+the target should have been activated. `make formal-pr` combines
+`test-verification`, `kani`, and `verus`; `make formal-nightly` replaces the
+smoke target with `kani-full`; `make formal` aliases the pull-request gate.
+
+The owning roadmap item must replace the corresponding one-line placeholder
+recipe rather than adding an automatic readiness check. Roadmap 15.3.1 owns the
+`kani` smoke harnesses, later 15.3.x work owns the full Kani harness set, and
+15.5.2 owns `verus/wireframe_proofs.rs`. Kani activation must use the pinned
+tooling route, and a change that turns a placeholder into a real tool command
+must move or guard its execution test: the default `make test` suite must not
+install or invoke Kani or Verus.
+
 ### Formal tooling test support
 
 The shared module `tests/common/formal_tooling_support.rs` keeps

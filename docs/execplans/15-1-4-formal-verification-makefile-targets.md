@@ -231,11 +231,14 @@ Stop and escalate (do not improvise) when any threshold is crossed:
       six dry-runs, 46 focused integration tests, and 204 BDD tests pass.
       Green evidence is in
       `/tmp/green-wireframe-15-1-4-formal-verification-makefile-targets.out`.
-- [ ] (2026-08-23) Stage C review: the staged change exceeds the original
-      400-net-line scope tolerance. An explicit stop-hook instruction directed
-      a commit after quality gates, accepting this completed Stage C plateau for
-      checkpointing and review; CodeRabbit remains required before Stage D.
-- [ ] (pending) Stage D: documentation and roadmap tick.
+- [x] (2026-08-23) Stage C review: the committed change exceeds the original
+      400-net-line scope tolerance under the explicit stop-hook checkpoint
+      instruction. CodeRabbit reviewed `4785b14` with zero findings.
+- [x] (2026-08-23) Stage D: documented the execution targets, strict-mode
+      tripwire, activation contract, and tool-free test invariant; ticked
+      roadmap 15.1.4. `make check-fmt` and `make markdownlint` passed (logs:
+      `/tmp/check-fmt-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out` and
+      `/tmp/markdownlint-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out`).
 - [ ] (pending) Stage E: full gate run and CodeRabbit review.
 
 ## Surprises & discoveries
@@ -285,6 +288,20 @@ Stop and escalate (do not improvise) when any threshold is crossed:
   `mbake validate Makefile`, and ShellCheck passed; their logs end in
   `15-1-4-formal-verification-makefile-targets-3.out` under `/tmp`.
   Impact: Stage C is a coherent, quality-gated plateau ready for CodeRabbit.
+- Observation: CodeRabbit reviewed commit `4785b14` with zero findings.
+  Evidence: `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets-1.out`.
+  Impact: Stage C is cleared and Stage D may proceed.
+- Observation: the required Mapsplice preview for roadmap 15.1.4 rewrote many
+  unrelated list indentations and escaped parentheses in untouched headings.
+  Evidence: `/tmp/roadmap-15-1-4-preview.md` differs from `docs/roadmap.md`
+  beyond the intended checklist marker.
+  Impact: the preview was rejected; the identical one-line checkbox change was
+  applied manually to avoid unrelated roadmap churn.
+- Observation: `make fmt` rewrote seven unrelated documents and then failed on
+  three pre-existing `docs/roadmap.md` line-length errors.
+  Evidence: `/tmp/fmt-wireframe-15-1-4-formal-verification-makefile-targets.out`.
+  Impact: restored the formatter churn and retained only the three intended
+  Stage D documents for targeted Markdown validation.
 
 - Observation: a complete formal-tooling test harness already exists.
   Evidence: `tests/formal_tooling.rs`, `tests/common/formal_tooling_support.rs`,
@@ -325,6 +342,12 @@ Stop and escalate (do not improvise) when any threshold is crossed:
   the plan's 12-file limit and passed every deterministic gate.
   Impact: this accepts the 509-net-line staged scope for the completed
   milestone only; review concerns must still be resolved before Stage D.
+  Date/Author: 2026-08-23, implementation agent.
+- Decision: do not apply Mapsplice's broad formatting rewrite for roadmap
+  15.1.4; manually change only its completion marker.
+  Rationale: the mandatory preview demonstrated unrelated transformations, and
+  the roadmap-editing guidance requires rejecting rather than blindly applying
+  such a rewrite.
   Date/Author: 2026-08-23, implementation agent.
 
 - Decision: treat the matching in-repository ExecPlan as the requested plan.
@@ -793,6 +816,13 @@ Test interfaces that must exist at the end of the milestone:
   matching step definitions.
 
 ## Revision note
+
+- Change: recorded the clean Stage C CodeRabbit review, the rejected Mapsplice
+  preview, formatter-churn recovery, and the Stage D documentation draft.
+- Why: both automation previews made unrelated changes outside the requested
+  documentation scope.
+- Effect on remaining work: validate the targeted Stage D documents and
+  roadmap edit, then run CodeRabbit before Stage E.
 
 - Change: resumed the plan to checkpoint the completed Stage C work and request
   its CodeRabbit review.
