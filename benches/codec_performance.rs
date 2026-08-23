@@ -5,7 +5,9 @@
 //! - default and custom codec paths (`LengthDelimitedFrameCodec`, `HotlineFrameCodec`), and
 //! - fragmented versus unfragmented payload-wrapping overhead.
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, Throughput};
 use wireframe_testing::codec_benchmarks::{
     FRAGMENT_PAYLOAD_CAP_BYTES,
     Measurement,
