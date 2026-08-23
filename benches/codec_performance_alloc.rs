@@ -6,11 +6,12 @@
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
+    hint::black_box,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering, fence},
 };
 
 use bytes::{Bytes, BytesMut};
-use criterion::{BenchmarkId, Criterion, black_box};
+use criterion::{BenchmarkId, Criterion};
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe::codec::{
     FrameCodec,
