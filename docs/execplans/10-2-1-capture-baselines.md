@@ -808,8 +808,11 @@ Milestone EP-M5.
   amortizes clock resolution across a batch. Use `Throughput::Bytes` for
   decode, encode, and the framed write; `Throughput::Elements(1)` for
   middleware and read-only hooks, where a bytes figure would report a pointer
-  move in TiB/s and be quoted out of context. `black_box` the loop body, not
-  just the aggregate, or the no-work stages are deleted by the optimizer.
+  move in TiB/s and be quoted out of context. Apply `std::hint::black_box` to
+  the loop body, not just the aggregate, or the no-work stages are deleted by
+  the optimizer. Import it from `std::hint`, not from `criterion`: the
+  re-export is deprecated as of Criterion 0.8 and the existing benches were
+  migrated off it in commit `a31c01a`.
 - **Documentation**:
   - `docs/frame-vec-u8-baseline.md` — the generated tables, the inversion
     register from EP-M3, the provenance stamp, and the falsifiable claim about
@@ -1028,6 +1031,19 @@ for this item; see the verification plan.
   assert zero-copy by pointer identity, parameterized across three codecs.
   Impact: V-3a extends an existing convention instead of inventing one.
 
+- Observation: `main` upgraded Criterion from 0.5.1 to 0.8.2 while this plan
+  was being drafted, and three dependency bumps landed alongside it.
+  Evidence: commits `a31c01a` (Criterion upgrade and `black_box` deprecation
+  fix, touching `benches/codec_performance.rs` and
+  `benches/codec_performance_alloc.rs`), `0210f51`, `5ff9ba2`, and `2e16058`.
+  Impact: two-fold. New bench code must import `std::hint::black_box` rather
+  than `criterion::black_box`. And the churn is direct evidence for decision
+  D-6: four dependency-affecting commits reached `main` inside a single day,
+  which is exactly the cadence that would have kept a committed allocation
+  figure permanently red. The API this plan relies on — `iter_custom`,
+  `Throughput::Bytes`, `Throughput::Elements`, and `BenchmarkId` — is
+  unchanged in 0.8.2.
+
 - Observation: `docs/repository-layout.md` is referenced by `AGENTS.md:41-43`,
   the style guide, and the roadmap, but does not exist.
   Impact: out of scope; recorded so it is not mistaken for a search failure.
@@ -1119,6 +1135,13 @@ for this item; see the verification plan.
   `11.1.2` would appear to remove "the final copy" while a payload-sized copy
   per frame remained. 2026-08-23, decided at design review.
 
+- **D-12.** Target Criterion 0.8.2, the version now on `main`, and import
+  `black_box` from `std::hint`. Commit `a31c01a` upgraded the crate and
+  migrated the existing benches off the deprecated `criterion::black_box`
+  re-export; new bench code follows that pattern rather than reintroducing it.
+  The API surface this plan depends on is unchanged across the upgrade.
+  2026-08-23, recorded when rebasing onto `main`.
+
 ## Outcomes and retrospective
 
 To be completed at EP-M5. Before setting this plan to `COMPLETE`, reconcile
@@ -1177,6 +1200,11 @@ What changed, and why:
 - **Scope tightened** from six milestones to five, and the tolerance from
   32 files and 2,500 lines to 20 and 1,400, matching the completed `9.6.1`
   plan.
+
+**Rebase onto `main` (2026-08-23)** brought Criterion 0.8.2 and three
+dependency bumps. The plan gained decision D-12 and a discovery entry: new
+bench code imports `std::hint::black_box`, and the churn itself is evidence for
+the invariants-not-numbers split.
 
 Effect on remaining work: Stage A now ships an independently valuable
 docs-only correction before any instrument exists, and the measurement work
