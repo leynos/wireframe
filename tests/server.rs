@@ -1,8 +1,30 @@
 //! Tests for [`WireframeServer`] configuration.
 #![cfg(not(loom))]
 
+use std::net::SocketAddr;
+
+use tokio::{
+    net::TcpStream,
+    sync::oneshot,
+    time::{Duration, sleep, timeout},
+};
 use wireframe::server::WireframeServer;
 use wireframe_testing::{TestResult, factory, unused_listener};
+
+async fn wait_for_listener_release(addr: SocketAddr) -> TestResult {
+    timeout(Duration::from_secs(1), async {
+        loop {
+            match TcpStream::connect(addr).await {
+                Ok(stream) => drop(stream),
+                Err(_) => break,
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| format!("server listener at {addr} remained bound for one second"))?;
+    Ok(())
+}
 
 #[test]
 fn default_worker_count_matches_cpu_count() -> TestResult {
@@ -58,12 +80,6 @@ fn workers_accepts_large_values() -> TestResult {
 /// prevent the server from accepting connections.
 #[tokio::test]
 async fn readiness_receiver_dropped() -> TestResult {
-    use tokio::{
-        net::TcpStream,
-        sync::oneshot,
-        time::{Duration, sleep},
-    };
-
     let listener = unused_listener()?;
     let server = WireframeServer::new(factory())
         .workers(1)
@@ -88,5 +104,111 @@ async fn readiness_receiver_dropped() -> TestResult {
 
     // Server should still accept connections
     let _stream = TcpStream::connect(addr).await.expect("connect failed");
+    Ok(())
+}
+
+#[tokio::test]
+async fn aborting_server_supervisor_releases_listener() -> TestResult {
+    let listener = unused_listener()?;
+    let server = WireframeServer::new(factory())
+        .workers(1)
+        .bind_existing_listener(listener)
+        .expect("failed to bind existing listener");
+    let addr = server.local_addr().expect("local addr missing");
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let handle = tokio::spawn(async move {
+        server
+            .ready_signal(ready_tx)
+            .run_with_shutdown(std::future::pending())
+            .await
+    });
+
+    timeout(Duration::from_secs(1), ready_rx)
+        .await
+        .expect("server did not reach readiness")
+        .expect("server dropped readiness sender");
+
+    handle.abort();
+    let error = handle
+        .await
+        .expect_err("aborted server supervisor unexpectedly completed");
+    if !error.is_cancelled() {
+        return Err("server supervisor was not cancelled".into());
+    }
+
+    wait_for_listener_release(addr).await
+}
+
+#[tokio::test]
+async fn dropping_server_supervisor_releases_listener() -> TestResult {
+    let listener = unused_listener()?;
+    let server = WireframeServer::new(factory())
+        .workers(1)
+        .bind_existing_listener(listener)
+        .expect("failed to bind existing listener");
+    let addr = server.local_addr().expect("local addr missing");
+    let (ready_tx, mut ready_rx) = oneshot::channel();
+    let mut supervisor = Box::pin(
+        server
+            .ready_signal(ready_tx)
+            .run_with_shutdown(std::future::pending()),
+    );
+
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus internally"
+    )]
+    let readiness: TestResult = timeout(Duration::from_secs(1), async {
+        tokio::select! {
+            readiness = &mut ready_rx => {
+                readiness.map_err(|error| {
+                    format!("server dropped readiness sender: {error}").into()
+                })
+            }
+            result = &mut supervisor => {
+                Err(format!("server supervisor completed before readiness: {result:?}").into())
+            }
+        }
+    })
+    .await
+    .map_err(|_| "server did not reach readiness")?;
+    readiness?;
+
+    drop(supervisor);
+    wait_for_listener_release(addr).await
+}
+
+#[tokio::test]
+async fn server_reaches_readiness_and_accepts_before_shutdown() -> TestResult {
+    let listener = unused_listener()?;
+    let server = WireframeServer::new(factory())
+        .workers(1)
+        .bind_existing_listener(listener)
+        .expect("failed to bind existing listener");
+    let addr = server.local_addr().expect("local addr missing");
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let handle = tokio::spawn(async move {
+        server
+            .ready_signal(ready_tx)
+            .run_with_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    timeout(Duration::from_secs(1), ready_rx)
+        .await
+        .expect("server did not reach readiness")
+        .expect("server dropped readiness sender");
+
+    let stream = TcpStream::connect(addr)
+        .await
+        .expect("ready server did not accept connections");
+    drop(stream);
+    shutdown_tx
+        .send(())
+        .expect("server shutdown receiver was dropped");
+    handle.await??;
     Ok(())
 }

@@ -155,6 +155,8 @@ where
             ..
         } = self;
         let shutdown_token = CancellationToken::new();
+        // Cancel workers if this future is dropped, for example via JoinHandle::abort.
+        let _cancel_workers_on_drop = shutdown_token.drop_guard_ref();
         let tracker = TaskTracker::new();
         let preamble = PreambleHooks {
             on_success: on_preamble_success,

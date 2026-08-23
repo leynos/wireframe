@@ -11,10 +11,10 @@ use std::{
 
 use rstest::rstest;
 use tokio::{
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::oneshot,
     task::yield_now,
-    time::{Duration, Instant, advance, timeout},
+    time::{Duration, Instant, advance, sleep, timeout},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
@@ -67,6 +67,48 @@ async fn test_server_graceful_shutdown_with_ctrl_c_simulation(
     });
     let _ = tx.send(());
     handle.await.expect("server join error");
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_graceful_shutdown_releases_listener(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+    free_listener: std::io::Result<std::net::TcpListener>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let listener = free_listener?;
+    let addr = listener.local_addr()?;
+    let server = bind_server(factory, listener)?;
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let handle = tokio::spawn(async move {
+        server
+            .ready_signal(ready_tx)
+            .run_with_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    timeout(Duration::from_secs(1), ready_rx)
+        .await
+        .expect("server did not reach readiness")
+        .expect("server dropped readiness sender");
+    shutdown_tx
+        .send(())
+        .expect("server shutdown receiver was dropped");
+    assert!(handle.await?.is_ok(), "graceful shutdown failed");
+
+    timeout(Duration::from_secs(1), async {
+        loop {
+            if TcpStream::connect(addr).await.is_err() {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("server listener remained bound after graceful shutdown");
     Ok(())
 }
 
