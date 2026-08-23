@@ -8,3 +8,8 @@ Feature: Formal verification tooling metadata
     And the Verus checksum manifest covers the configured Linux archive
     And the Makefile exposes the formal verification tool entry points
     And the Makefile entry points delegate to prover-tools
+
+  Scenario: The repository exposes formal-verification execution targets
+    Given the formal verification tooling metadata is loaded
+    Then the Makefile exposes the formal verification execution targets
+    And the formal execution stubs skip cleanly on a clean tree

@@ -11,6 +11,8 @@ use crate::formal_tooling_support::{
     kani_version,
     makefile,
     prover_tools_ref_metadata,
+    run_make,
+    run_make_dry_run,
     verus_checksums,
     verus_linux_archive_name,
     verus_version,
@@ -169,4 +171,98 @@ impl FormalToolingWorld {
         }
         Ok(())
     }
+
+    /// Verify the formal-execution Makefile targets and their composition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a required target, recipe, or prerequisite is
+    /// absent or does not match the contributor contract.
+    pub fn verify_formal_execution_targets(&self) -> TestResult {
+        let makefile = MakefileContent(self.loaded_makefile()?);
+        for target in [
+            "test-verification",
+            "kani",
+            "kani-full",
+            "verus",
+            "formal-pr",
+            "formal-nightly",
+        ] {
+            if !makefile.has_phony_target(target) || makefile.target_prerequisites(target).is_none()
+            {
+                return Err(format!("Makefile should expose `{target}`").into());
+            }
+        }
+
+        for (target, expected_content) in [
+            ("test-verification", "test -p $(VERIFICATION_CRATE)"),
+            ("kani", "$(FORMAL_STUB) kani"),
+            ("kani-full", "$(FORMAL_STUB) kani-full"),
+            ("verus", "$(FORMAL_STUB) verus"),
+        ] {
+            let recipe = makefile
+                .target_recipe(target)
+                .ok_or_else(|| format!("Makefile should expose `{target}`"))?;
+            if !recipe.contains(expected_content) {
+                return Err(format!("`{target}` should contain `{expected_content}`").into());
+            }
+        }
+
+        for (target, expected_prerequisites) in [
+            ("formal-pr", &["test-verification", "kani", "verus"][..]),
+            (
+                "formal-nightly",
+                &["test-verification", "kani-full", "verus"][..],
+            ),
+        ] {
+            let prerequisites = makefile
+                .target_prerequisites(target)
+                .ok_or_else(|| format!("Makefile should expose `{target}`"))?;
+            if prerequisites
+                != expected_prerequisites
+                    .iter()
+                    .map(|prerequisite| (*prerequisite).to_owned())
+                    .collect::<Vec<_>>()
+            {
+                return Err(format!("`{target}` should have the expected prerequisites").into());
+            }
+        }
+
+        for target in ["formal-pr", "formal-nightly"] {
+            let dry_run = run_make_dry_run(target)?;
+            if !dry_run.contains("wireframe-verification") || !dry_run.contains("formal-stub.sh") {
+                return Err(
+                    format!("`make --dry-run {target}` should compose formal targets").into(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Verify that each formal-execution placeholder skips successfully.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder exits unsuccessfully or omits its
+    /// structured skip marker.
+    pub fn verify_formal_execution_stubs_skip_cleanly(&self) -> TestResult {
+        let makefile = MakefileContent(self.loaded_makefile()?);
+        for target in ["kani", "kani-full", "verus"] {
+            let recipe = makefile
+                .target_recipe(target)
+                .ok_or_else(|| format!("Makefile should expose `{target}`"))?;
+            if !recipe.contains("$(FORMAL_STUB)") {
+                return Err(format!("`{target}` should invoke the formal stub").into());
+            }
+            let (status, _stdout, stderr) = run_make(target, false)?;
+            if !status.success() || !contains_formal_skip_for(&stderr, target) {
+                return Err(format!("`make {target}` should skip successfully").into());
+            }
+        }
+        Ok(())
+    }
+}
+
+fn contains_formal_skip_for(stderr: &str, target: &str) -> bool {
+    stderr.contains("FORMAL-SKIP:") && stderr.contains(target)
 }
