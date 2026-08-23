@@ -5,7 +5,12 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision log`, `Outcomes & retrospective`, `Conformance basis`, and
 `Verification plan` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: BLOCKED
+
+This plan is blocked on the architecture deviation recorded as decision D8
+in `Decision log`: `JoinHandle::abort()` does not stop a Wireframe server, so
+RFC 0001's abort-after-timeout cleanup guarantee is not implementable as
+written. The deviation needs explicit acceptance before EP-M1 begins.
 
 ## Purpose / big picture
 
@@ -1325,7 +1330,182 @@ with `ss -ltn | grep 127.0.0.1` before re-running.
   "workers launched onto a bound listener", and the listen backlog is what
   makes an immediate connect safe.
 
+- Observation: `WireframeServer::run_with_shutdown` cannot fail. It destructures
+  the server, spawns its workers, fires `ready_tx`, `select!`s on shutdown,
+  drains the tracker, and returns `Ok(())` — there is no `Err` path.
+  `accept_loop` returns `()`, and `ServerError::Accept` is constructed nowhere
+  in `src/`. App-factory failures are logged per connection, not propagated.
+  Evidence: `src/server/runtime.rs:142-198`; `src/server/runtime/accept.rs:149`;
+  `src/server/connection_spawner.rs:99-108`; `grep -rn "ServerError::Accept"
+  src/` returns nothing.
+  Impact: three consequences. First, `ShutdownOutcome::ServerFailed` is
+  unreachable through this harness today; the arm must exist because the task's
+  type is `JoinHandle<Result<(), ServerError>>`, but the plan must not claim
+  test coverage for it. Second, the original Stage B case 3 — "an app factory
+  that returns an error makes the spawn fail" — was vacuous and has been
+  rewritten. Third, the only reachable pre-readiness failures are a panicking
+  server task, a readiness timeout, and a `bind_existing_listener` error that
+  cannot be forced from outside the crate.
+
+- Observation: the reachable way to fail a server task before readiness is a
+  panicking `Clone`. `AppFactory` requires `Send + Sync + Clone + 'static`, and
+  `run_with_shutdown` calls `factory.clone()` once per worker *before* firing
+  `ready_tx`; the default worker count is at least one.
+  Evidence: `src/server/mod.rs:122-139`; `src/server/runtime.rs:166-188`;
+  `src/server/config/mod.rs:76-90`.
+  Impact: gives the startup-failure case a real fault to inject — a test
+  factory whose `Clone` panics — yielding `TestError::Join` and
+  `ShutdownOutcome::TaskFailed`.
+
+- Observation: `RunningWireframeServer::shutdown` takes `&mut self`, so the
+  borrow checker already excludes concurrent operations on one handle.
+  Evidence: the signature in `Interfaces and dependencies`.
+  Impact: the handle's lifecycle is a sequential decision table, not a
+  concurrency problem. This falsifies the original rationale for reaching past
+  the ordinary tools, and is why the verification strategy moved from a
+  separate Stateright model to an exhaustive enumeration over the real
+  transition function. See decision D5.
+
+- Observation: `crates/wireframe-verification` does not and cannot depend on
+  `wireframe_testing`.
+  Evidence: `crates/wireframe-verification/Cargo.toml:7-12` lists only
+  `stateright` and `wireframe`.
+  Impact: a Stateright model there could never reference the type it claims to
+  mirror, so its correspondence to the implementation would be enforced by a
+  comment and nothing else. Decisive against the original EP-M3.
+
+- Observation: `unused_listener()` binds `"localhost:0"`, which resolves
+  through `ToSocketAddrs` and on a dual-stack host can yield `::1` rather than
+  a `127.0.0.0/8` address.
+  Evidence: `wireframe_testing/src/integration_helpers.rs:44`; the crate's own
+  existing test asserts `is_loopback()` rather than an IPv4 range.
+  Impact: address assertions must use `SocketAddr::ip().is_loopback()`.
+
+- Observation: `tokio_util::sync` is ungated, while `tokio_util::task` is
+  behind the `rt` feature.
+  Evidence: `tokio-util-0.7.17/src/lib.rs:50-57`; `wireframe_testing`
+  already depends on `tokio-util` with only the `codec` feature.
+  Impact: `CancellationToken` is available with no manifest change, but
+  `AbortOnDropHandle` is not. See the considered-and-rejected notes.
+
+- Observation: the root package already enables tokio's `test-util` feature, so
+  `tokio::time::pause()` is available in the root `tests/` tree.
+  Evidence: `Cargo.toml:88`.
+  Impact: a paused clock is a third way to test timeout paths. It does not
+  replace `ServerHarnessOptions`, because the pair still needs an unbounded
+  join and a paused clock interacts awkwardly with real loopback I/O, but it is
+  recorded so a later reader does not think it was overlooked.
+
+## Escalation: abort does not stop the server
+
+**This blocks EP-M1 and requires an explicit decision.**
+
+RFC 0001 §5.3 states that explicit shutdown "bounds the join and aborts the
+task only after timeout", and §6 requires that every cleanup path "join the
+server task". Both assume that aborting the spawned `run_with_shutdown` future
+tears the server down. It does not.
+
+`run_with_shutdown` is a supervisor, not the server. It creates a
+`CancellationToken` and a `TaskTracker` locally, then spawns one `accept_loop`
+task per worker, giving each its own token clone and its own `Arc<TcpListener>`:
+
+```rust
+// src/server/runtime.rs:157-181
+let shutdown_token = CancellationToken::new();
+let tracker = TaskTracker::new();
+for _ in 0..workers {
+    let listener = Arc::clone(&listener);
+    let token = shutdown_token.clone();
+    tracker.spawn(accept_loop(listener, factory, AcceptLoopOptions { shutdown: token, .. }));
+}
+```
+
+The token is cancelled in exactly one place — the graceful arm of the
+`select!` at `src/server/runtime.rs:191`. Aborting the supervisor never reaches
+it, and neither of the two types involved cleans up on drop:
+
+- `tokio-util-0.7.17/src/task/task_tracker.rs:56`: "Note that unlike
+  `JoinSet`, dropping a `TaskTracker` does not abort the tasks."
+- `tokio-util-0.7.17/src/sync/cancellation_token.rs:125-129`: `Drop` only calls
+  `decrease_handle_refcount`; it does not cancel.
+
+An accept loop terminates only on `handles.shutdown.cancelled()`
+(`src/server/runtime/accept.rs:213`). So after `abort()`, every accept loop is
+still running and still holding an `Arc` to the listener. **The port stays
+bound for the remaining lifetime of the runtime.**
+
+This is not a defect this plan would introduce. `WireframePair::Drop` already
+relies on the same ineffective abort (`wireframe_testing/src/client_pair.rs:167`
+and `:226`). It is a pre-existing defect that RFC 0001 formalizes into a
+guarantee, and that this plan would have propagated into a public API and a
+verification claim.
+
+### Blast radius
+
+Inside `#[tokio::test]`, the runtime is torn down at the end of the test and
+takes the accept loops with it, so the leak is invisible. The pattern where it
+bites is a long-lived runtime: the behaviour-driven world at
+`tests/fixtures/client_pair_harness.rs` owns a `tokio::runtime::Runtime` for a
+whole feature file and drives it with synchronous steps. A downstream crate
+adopting this harness in that shape — which RFC §2 names mxd as the first
+candidate to do — accumulates bound listeners until `unused_listener()` starts
+failing in unrelated tests.
+
+### Options
+
+1. **Report the leak instead of hiding it.** Keep the bounded join, but when
+   the bound elapses, stop claiming cleanup: rename the terminal state to
+   `Abandoned`, log a `log::warn!` naming the stage and the address, and
+   document that the listener remains bound until the runtime is dropped. No
+   upstream change. Honest, cheap, and it makes the failure greppable in CI
+   output.
+2. **Fix it upstream.** Let `run_with_shutdown` accept a caller-supplied
+   `CancellationToken`, or return a handle exposing one, so the harness can
+   cancel and then drain the tracker. This is the only option that makes
+   abort-after-timeout mean what RFC §5.3 says. It changes `src/server/`'s
+   public API, which breaches Constraint 5 and the interface tolerance, and it
+   is plausibly its own roadmap item.
+3. **Accept silently.** Ship the RFC's wording unchanged and let the guarantee
+   be false. Rejected: it would make INV-3 vacuous, and a harness whose stated
+   purpose is diagnosable cleanup must not lie about cleaning up.
+
+### Recommendation
+
+Take option 1 for 17.3.3 and raise option 2 as a separate roadmap item. Option
+1 keeps this item's scope intact, removes a false guarantee from the public
+documentation, and turns a silent leak into a logged one. Option 2 is the real
+fix but is server-side work, not test-harness work.
+
+Whichever option is chosen, RFC 0001 §5.3 and §6 need amending, because their
+current wording describes behaviour that no implementation can provide.
+
 ## Decision log
+
+- Decision (D8): **ESCALATED, BLOCKING.** `JoinHandle::abort()` does not stop a
+  Wireframe server, so RFC §5.3's abort-after-timeout cleanup guarantee and
+  §6's "every cleanup path joins the server task" are not implementable.
+  Rationale, evidence, blast radius, and three options are set out in
+  `Escalation: abort does not stop the server`. The recommendation is option 1
+  — report the leak rather than hide it — with the upstream fix raised as its
+  own roadmap item.
+  Affected identifiers: RFC-5.3, RFC-6, INV-3, INV-4, Constraint 5, and the
+  `ShutdownOutcome`/`LifecycleStage` vocabulary.
+  Required upstream change: an amendment to RFC 0001 §5.3 and §6 regardless of
+  which option is chosen.
+  Approving authority: the repository maintainer.
+  Date/Author: 2026-08-23, planning agent. **Plan status is BLOCKED until this
+  is accepted.**
+
+- Decision (D9): correct the compatibility premise. Constraint 1's original
+  claim that `spawn_wireframe_pair` startup failures "surface as
+  `TestError::Msg`" is false; only two of its six failure paths produce `Msg`
+  today. The obligation is to preserve each path's *current* variant
+  individually, per the table in `Constraints`, not to impose a uniform `Msg`
+  shape that has never existed. RFC §5.5's wording has the same error and needs
+  the same amendment.
+  Rationale: a blanket re-wrap in EP-M4 would have broken the `Io`, `Server`,
+  and `Client` paths in the name of preserving compatibility.
+  Date/Author: 2026-08-23, planning agent.
 
 - Decision (D1): scope this plan to RFC §5.2, §5.3, §5.5, §5.6, §6, §7.1, and
   §7.5 only. The connector (§5.4), the protocol-generic proof (§7.2), and
