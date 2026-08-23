@@ -50,6 +50,15 @@ reference when navigating the project's design and architecture material.
   Rollout policy for owned-byte compatibility during migration.
 - [ADR 010: transport frame boundary for zero-copy](adr-010-transport-frame-boundary-for-zero-copy.md)
   Accepted actor and codec-driver boundary for zero-copy transport framing.
+- [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
+  Proposed policy for aligning `Arc`, spawning, and borrowing with real runtime
+  lifetimes.
+- [ADR 012: prepared application templates and connection-local runtimes](adr-012-prepared-application-and-connection-runtime.md)
+  Proposed separation of the application builder, prepared template, and
+  connection runtime.
+- [ADR 013: single-owner client-pool scheduler and slot graph](adr-013-client-pool-scheduler-and-slot-ownership.md)
+  Proposed persistent scheduler actor and index-based slot ownership for the
+  client pool.
 
 ## Execution plans
 
