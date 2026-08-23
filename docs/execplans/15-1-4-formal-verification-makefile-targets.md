@@ -239,7 +239,17 @@ Stop and escalate (do not improvise) when any threshold is crossed:
       roadmap 15.1.4. `make check-fmt` and `make markdownlint` passed (logs:
       `/tmp/check-fmt-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out` and
       `/tmp/markdownlint-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out`).
-- [ ] (pending) Stage E: full gate run and CodeRabbit review.
+- [x] (2026-08-23) Stage D review: CodeRabbit reviewed `d535dcb` with zero
+      findings; evidence is in
+      `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out`.
+- [x] (2026-08-23) Stage E deterministic and behavioural acceptance: `make
+      check-fmt`, `make lint`, `make test`, `make markdownlint`, `mbake
+      validate Makefile`, and ShellCheck passed. All six targets exit `0` on a
+      clean tree; each stub reports `FORMAL-SKIP:` and fails under
+      `FORMAL_STRICT=1`. Logs are in `/tmp/*-stage-e.out` and
+      `/tmp/formal-targets-stage-e-wireframe-15-1-4-formal-verification-makefile-targets.out`.
+- [ ] (pending) Stage E review: commit the acceptance evidence and clear the
+      final CodeRabbit review.
 
 ## Surprises & discoveries
 
@@ -302,6 +312,16 @@ Stop and escalate (do not improvise) when any threshold is crossed:
   Evidence: `/tmp/fmt-wireframe-15-1-4-formal-verification-makefile-targets.out`.
   Impact: restored the formatter churn and retained only the three intended
   Stage D documents for targeted Markdown validation.
+- Observation: CodeRabbit reviewed the Stage D documentation commit `d535dcb`
+  with zero findings.
+  Evidence: `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out`.
+  Impact: Stage D is cleared and the final acceptance gates may begin.
+- Observation: the final full deterministic suite and clean-tree behavioural
+  acceptance both pass without Kani or Verus installed.
+  Evidence: the Stage E gate logs in `/tmp/*-stage-e.out` and
+  `/tmp/formal-targets-stage-e-wireframe-15-1-4-formal-verification-makefile-targets.out`.
+  Impact: the delivery satisfies the tool-free execution-surface contract; only
+  the final review remains.
 
 - Observation: a complete formal-tooling test harness already exists.
   Evidence: `tests/formal_tooling.rs`, `tests/common/formal_tooling_support.rs`,
@@ -417,10 +437,19 @@ Stop and escalate (do not improvise) when any threshold is crossed:
 
 ## Outcomes & retrospective
 
-To be completed at the end of implementation. Compare the delivered targets
-against the six required names and the exit-`0` criterion; confirm the
-`FORMAL_STRICT` tripwire works and the activation contract is documented for
-15.3.x/15.5.x.
+The delivery adds the six required targets: `test-verification`, `kani`,
+`kani-full`, `verus`, `formal-pr`, and `formal-nightly`, plus `formal` as the
+PR-gate alias. On a clean tree each required target exits `0`:
+`test-verification` runs the Stateright model crate while the three unavailable
+prover entry points emit explicit `FORMAL-SKIP:` notices. `FORMAL_STRICT=1`
+turns each skip into the intended non-zero CI tripwire.
+
+The default test suite remains tool-free. Regression and BDD coverage assert
+the Makefile declarations, recipes, aggregate prerequisites, dry-run commands,
+and strict/non-strict stub behaviour. The developers' guide records the
+15.3.x/15.5.x activation ownership and pinned-Kani requirement. Final
+deterministic and behavioural evidence is green; final CodeRabbit clearance is
+recorded next.
 
 ## Design review summary
 
@@ -817,12 +846,24 @@ Test interfaces that must exist at the end of the milestone:
 
 ## Revision note
 
+- Change: recorded Stage E's successful deterministic gates and clean-tree
+  behavioural transcript.
+- Why: the final review must be based on explicit evidence that all six targets
+  work now and that strict mode fails every intentional stub.
+- Effect on remaining work: commit this evidence and clear the final CodeRabbit
+  review before marking the plan complete.
+
 - Change: recorded the clean Stage C CodeRabbit review, the rejected Mapsplice
   preview, formatter-churn recovery, and the Stage D documentation draft.
 - Why: both automation previews made unrelated changes outside the requested
   documentation scope.
 - Effect on remaining work: validate the targeted Stage D documents and
   roadmap edit, then run CodeRabbit before Stage E.
+
+- Change: recorded Stage D's clean CodeRabbit review.
+- Why: the user requires each major milestone to clear review before the next.
+- Effect on remaining work: run the Stage E full deterministic and behavioural
+  acceptance evidence, then request the final CodeRabbit review.
 
 - Change: resumed the plan to checkpoint the completed Stage C work and request
   its CodeRabbit review.
