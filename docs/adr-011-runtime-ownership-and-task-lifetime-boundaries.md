@@ -4,11 +4,15 @@
 
 Proposed.
 
+First proposed on 2026-08-08 in issue
+[#636](https://github.com/leynos/wireframe/issues/636); imported and refined on
+2026-08-23 following design review.
+
 ## Date
 
-Proposed 2026-08-08. Imported and refined 2026-08-23.
+2026-08-23.
 
-## Context and Problem Statement
+## Context and problem statement
 
 Tokio does not intrinsically require application state to live behind `Arc`.
 The requirement appears when Wireframe creates an independently scheduled
@@ -57,7 +61,7 @@ hot cases; the one-time cases are justified on clarity grounds alone:
 Without an explicit policy, local fixes can remove individual clones while
 later changes recreate the same topology under different names.
 
-## Prior Art
+## Prior art
 
 Tokio's own guidance frames the policy this ADR adopts. The Tokio tutorial
 states that spawned tasks must satisfy `'static` and that `Arc` is the tool for
@@ -109,7 +113,7 @@ Implementation of this ADR is sequenced through:
 - [#649](https://github.com/leynos/wireframe/issues/649), publication and
   regression guidance.
 
-## Decision Drivers
+## Decision drivers
 
 - Make ownership express runtime lifetime rather than compiler appeasement.
 - Avoid atomic reference-count operations on event-loop and message hot paths
@@ -123,7 +127,7 @@ Implementation of this ADR is sequenced through:
 - Give reviews a stable vocabulary for rejecting accidental `'static`
   inflation.
 
-## Options Considered
+## Options considered
 
 ### Option A: treat `Arc` as normal Tokio plumbing
 
@@ -177,7 +181,7 @@ remain review-enforced through the
 
 _Table 1: Trade-offs for the runtime ownership policy._
 
-## Decision Outcome
+## Decision outcome
 
 Adopt Option D: Option C's ownership rules, with mechanical enforcement for the
 lint-expressible subset.
@@ -293,7 +297,7 @@ remove atomic operations.
 - A single shared root can become a new god-object if capability boundaries
   are ignored.
 
-## Rejected Shortcuts
+## Rejected shortcuts
 
 - Replacing every `Arc<T>` with `T: Clone` without checking semantic
   ownership.
@@ -304,7 +308,7 @@ remove atomic operations.
 - Treating microbenchmarks as the sole justification for an ownership model;
   correctness and lifetime clarity remain primary.
 
-## Migration Plan
+## Migration plan
 
 ### Phase 1: remove unambiguous local taxes
 
@@ -350,7 +354,7 @@ Implementation work governed by this ADR should demonstrate:
   grep-able signatures and are lint candidates; R1, R2, R5, R6, and R7 are
   judgement calls enforced through the review checklist.
 
-## Outstanding Decisions
+## Outstanding decisions
 
 ADR 012 must decide the exact application preparation frequency and migration
 path for `AppFactory`.

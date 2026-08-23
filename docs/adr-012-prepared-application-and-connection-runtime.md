@@ -4,11 +4,15 @@
 
 Proposed.
 
+First proposed on 2026-08-08 in issue
+[#637](https://github.com/leynos/wireframe/issues/637); imported and refined on
+2026-08-23 following design review.
+
 ## Date
 
-Proposed 2026-08-08. Imported and refined 2026-08-23.
+2026-08-23.
 
-## Context and Problem Statement
+## Context and problem statement
 
 `WireframeApp` currently represents three different lifecycle phases:
 
@@ -95,7 +99,7 @@ Implementation of this ADR is sequenced through:
 - [#648](https://github.com/leynos/wireframe/issues/648), collapse of
   nested application-owned sharing beneath `PreparedApp`.
 
-## Decision Drivers
+## Decision drivers
 
 - Prepare immutable routing and middleware state once, before serving
   traffic.
@@ -109,7 +113,7 @@ Implementation of this ADR is sequenced through:
 - Keep the migration reviewable and avoid coupling it to ADR 010 or the
   zero-copy public API migration.
 
-## Options Considered
+## Options considered
 
 ### Option A: retain a fresh `WireframeApp` per connection
 
@@ -182,7 +186,7 @@ and deterministic-error decision drivers.
 
 _Table 1: Trade-offs for application preparation frequency._
 
-## Decision Outcome
+## Decision outcome
 
 Adopt Option C.
 
@@ -190,6 +194,11 @@ Adopt Option C.
 
 Wireframe will distinguish the following concepts, whether initially public or
 crate-private:
+
+For screen readers: The following diagram shows the three lifecycle phases — the
+`WireframeApp` builder is consumed by `prepare().await` into a `PreparedApp`
+template, which is `Arc`-cloned at each independent connection-task boundary
+into a per-connection `ConnectionRuntime`.
 
 ```text
 WireframeApp builder
@@ -201,6 +210,8 @@ PreparedApp
         ▼
 ConnectionRuntime
 ```
+
+_Figure 1: Application lifecycle phases from builder to connection runtime._
 
 The split follows one uniform template-versus-instance rule: `PreparedApp` owns
 immutable definitions, configuration, and factories; `ConnectionRuntime` owns
@@ -334,12 +345,21 @@ than a clean-path-only tail call. This coordinates with
 [#549](https://github.com/leynos/wireframe/issues/549).
 
 The guard mechanism must be panic-aware. Teardown callbacks are async, so a
-`Drop`-based guard cannot run them during unwind; the implementation must state
-which paths recover a panic (for example a task join error observed by the
-spawner) and run teardown, and which abandon it — noting that `panic = "abort"`
-builds make unwind paths vacuous. The guard disarms before invoking teardown,
-so a panic inside a teardown callback cannot re-trigger the guard or fire
-teardown twice.
+`Drop`-based guard cannot run them during unwind. The terminal paths are
+classified explicitly, and each classification carries its own test:
+
+- **Handler panic, recovered.** The connection task's panic surfaces as a
+  task join error observed by the spawner (or an equivalent recovery point);
+  teardown runs exactly once on that path.
+- **Teardown-callback panic, isolated.** The guard disarms before invoking
+  teardown, so a panic inside a teardown callback cannot re-trigger the guard,
+  fire teardown twice, or poison later connections.
+- **Abandoned unwind.** Paths where no recovery point exists cannot run an
+  async teardown; the implementation must enumerate them and record each as an
+  accepted, documented gap rather than an implicit omission.
+- **`panic = "abort"` builds.** Unwind-dependent paths are vacuous; the
+  recovered-panic classification then applies only where the spawner observes
+  task failure without unwinding through the runtime.
 
 ### 6. Apply protocol hooks consistently
 
@@ -378,7 +398,7 @@ API.
 - Tests that called `WireframeApp::handle_connection_result` directly may
   need a preparation helper or lower-level harness.
 
-## Rejected Shortcuts
+## Rejected shortcuts
 
 - Keeping `WireframeApp` as all three phases and only changing
   `OnceCell<Arc<_>>` to `OnceCell<_>`.
@@ -388,7 +408,7 @@ API.
 - Moving connection-local mutable state into the shared prepared root
   behind locks.
 
-## Migration Plan
+## Migration plan
 
 ### Phase 1: introduce internal preparation types
 
@@ -460,11 +480,22 @@ documentation obligations, delivered under
 - Connection-startup benchmarks compare the old and prepared paths.
 - A readiness waiter observes preparation failure promptly; preparation
   failure is distinguishable from bind failure.
-- A handler panic still runs teardown exactly once; a panic inside teardown
-  does not run teardown twice or poison later connections.
+- A handler panic recovered through the task join path still runs teardown
+  exactly once.
+- A panic inside a teardown callback does not run teardown twice or poison
+  later connections.
+- Each abandoned-unwind path enumerated by the implementation is recorded
+  with a test or an explicit accepted-gap note.
 - Preparation duration is visible in tracing output.
+- Property-based or bounded-model coverage exercises the lifecycle
+  invariants — preparation runs once, readiness never precedes preparation, and
+  teardown fires exactly once — across generated interleavings of terminal
+  paths (clean close, decode error, transport error, cancellation, and panic),
+  using `proptest`, `loom`, or the bounded checkers described in
+  [formal-verification-methods-in-wireframe.md](formal-verification-methods-in-wireframe.md),
+  mirroring ADR 013's state-machine verification.
 
-## Outstanding Decisions Before Acceptance
+## Outstanding decisions before acceptance
 
 - Whether `PreparedApp` and `ConnectionRuntime` remain internal or gain
   public advanced APIs.

@@ -4,16 +4,26 @@
 
 Proposed.
 
+First proposed on 2026-08-08 in issue
+[#638](https://github.com/leynos/wireframe/issues/638); imported and refined on
+2026-08-23 following design review.
+
 ## Date
 
-Proposed 2026-08-08. Imported and refined 2026-08-23.
+2026-08-23.
 
-## Context and Problem Statement
+## Context and problem statement
 
 The client pool has one conceptual scheduler, one fixed set of physical socket
 slots, and many logical handles and leases. Its current ownership graph is
 substantially more distributed. `WireframeClientPool` wraps one
 `Arc<ClientPoolInner>` shaped as:
+
+For screen readers: The following tree shows the current ownership graph —
+`Arc<ClientPoolInner>` holds a shared slice of `Arc<PoolSlot>` values, each
+containing an `Arc<Semaphore>`, alongside an `Arc<PoolScheduler>` combining a
+`Mutex<SchedulerState>`, an `AtomicBool` service guard, and spawn-on-demand
+service tasks.
 
 ```text
 Arc<ClientPoolInner>
@@ -24,6 +34,8 @@ Arc<ClientPoolInner>
           ├── AtomicBool service guard
           └── spawn-on-demand service tasks
 ```
+
+_Figure 1: Current client-pool ownership graph._
 
 This creates several costs and reasoning hazards:
 
@@ -49,7 +61,7 @@ The scheduler is already actor-shaped in behaviour: callers submit requests,
 one authority orders them, and replies return through oneshot channels. Its
 ownership model should make that authority explicit.
 
-## Prior Art
+## Prior art
 
 The mainstream Rust connection pools all avoid a central scheduler task: sqlx
 gates acquisition with a fairness-configurable semaphore and bounds waiting by
@@ -118,7 +130,7 @@ Implementation of this ADR is sequenced through:
 - [#647](https://github.com/leynos/wireframe/issues/647), persistent
   scheduler actor replacing spawn-on-demand servicing.
 
-## Decision Drivers
+## Decision drivers
 
 - Give scheduler invariants one owner.
 - Eliminate scheduler task creation from the acquire/drop hot path.
@@ -131,7 +143,7 @@ Implementation of this ADR is sequenced through:
 - Preserve `OwnedSemaphorePermit` where a permit must outlive a borrowed
   acquisition future.
 
-## Options Considered
+## Options considered
 
 ### Option A: retain the current mutex and spawn-on-demand service model
 
@@ -192,7 +204,7 @@ should be re-evaluated first.
 
 _Table 1: Trade-offs for the client-pool scheduler ownership model._
 
-## Decision Outcome
+## Decision outcome
 
 Adopt Option B.
 
@@ -408,8 +420,12 @@ direction.
 
 The design requires:
 
-- the scheduler task's `JoinHandle` is retained (by `PoolCore` or the close
-  path), so the panic is observed rather than swallowed;
+- the scheduler task's `JoinHandle` is retained only by a non-shared close
+  owner (for example inside `WireframeClientPool`), never by `PoolCore`: the
+  task itself holds `Arc<PoolCore>`, so storing the handle in the shared core
+  would blur section 4's cycle-avoidance rule and risk retaining the core;
+  panic observation and `SchedulerFailed` reporting flow through that close
+  owner;
 - abnormal termination maps to a dedicated error — for example
   `ClientError::SchedulerFailed` — distinct from `PoolClosed`, so callers and
   operators can tell a crash from a clean shutdown;
@@ -468,7 +484,7 @@ The implementation must maintain:
     degrades to delayed cleanup via grant-sweep pruning, never an unbounded
     leak.
 
-## Rejected Shortcuts
+## Rejected shortcuts
 
 - Keeping `PoolSlot` behind `Arc` solely because permit futures were boxed
   as `'static` trait objects.
@@ -480,7 +496,7 @@ The implementation must maintain:
   limit.
 - Detaching the scheduler task without an explicit shutdown/drain protocol.
 
-## Migration Plan
+## Migration plan
 
 ### Phase 1: characterize behaviour
 
@@ -520,15 +536,16 @@ Complete or coordinate the following, plus any remaining useful scope from
 
 ## Verification
 
-- Uncontended acquire/drop creates no scheduler task after pool
-  construction.
+- Uncontended acquire/drop creates no additional scheduler task after pool
+  construction; the pool retains exactly one persistent scheduler task.
 - Pool task count remains constant under repeated acquisitions.
 - Pool sizes greater than one rotate/grant across slots as configured.
 - FIFO and round-robin behavioural tests preserve ordering.
 - Saturated pools enforce waiter bounds and acquisition timeouts.
 - Dropped acquire futures are pruned and do not receive leases.
 - Shutdown resolves blocked waiters promptly and the actor terminates.
-- Dropping all public handles without `close` releases the pool core.
+- Dropping all public handles without `close` releases the pool core,
+  including with the `JoinHandle` held by the non-shared close owner.
 - Loom or deterministic state-machine tests cover enqueue, capacity,
   cancellation, deregistration, and shutdown races, naming at minimum: the
   pending-flag RAII clear when a permit race is dropped mid-`select!`, and a
@@ -547,14 +564,14 @@ Complete or coordinate the following, plus any remaining useful scope from
   admission rejections, and scheduler-task liveness, so "is the actor alive and
   is the queue draining?" is answerable without a debugger.
 
-## Outstanding Decisions Before Acceptance
+## Outstanding decisions before acceptance
 
 - Bounded versus unbounded internal command mailbox; waiter admission must
   remain bounded either way, and `Shutdown` delivery must remain guaranteed
   regardless of the choice.
 - Whether explicit `close` waits on the stored `JoinHandle`, the oneshot
   acknowledgement, or both; section 10 requires the `JoinHandle` to be retained
-  in any case.
+  by a non-shared close owner in any case.
 - Whether [#535](https://github.com/leynos/wireframe/issues/535) is closed
   as superseded or retained for smaller transition helpers inside the actor.
 
