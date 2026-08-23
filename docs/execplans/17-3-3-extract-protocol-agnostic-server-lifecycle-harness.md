@@ -120,21 +120,44 @@ module.
 
 ### Server-side API this harness must drive
 
-Verified against the current tree:
+Verified against the current tree. The declaration at `src/server/mod.rs:188`
+is:
 
-- `WireframeServer<F, T = (), S = Unbound, Ser = BincodeSerializer, Ctx = (),
-  E = Envelope, Codec = LengthDelimitedFrameCodec>` — `src/server/mod.rs:188`.
-- `WireframeServer::<Unbound>::bind_existing_listener(self, std_listener:
-  std::net::TcpListener) -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>,
-  ServerError>` — `src/server/config/binding.rs:172`.
-- `WireframeServer::<Bound>::local_addr(&self) -> Option<SocketAddr>` —
-  `src/server/config/binding.rs:209`. It returns `Option` because reading the
-  address from the listener can itself fail.
-- `ready_signal(self, tx: tokio::sync::oneshot::Sender<()>) -> Self` —
-  `src/server/config/mod.rs:135`.
-- `run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError> where S:
-  Future<Output = ()> + Send` — `src/server/runtime.rs:142`, available only on
-  the `Bound` typestate.
+```rust
+pub struct WireframeServer<
+    F,
+    T = (),
+    S = Unbound,
+    Ser = BincodeSerializer,
+    Ctx = (),
+    E = Envelope,
+    Codec = LengthDelimitedFrameCodec,
+>
+```
+
+The methods the harness drives are:
+
+```rust
+// src/server/config/binding.rs:172, on the Unbound typestate
+pub fn bind_existing_listener(
+    self,
+    std_listener: StdTcpListener,
+) -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>, ServerError>;
+
+// src/server/config/binding.rs:209, on the Bound typestate
+pub fn local_addr(&self) -> Option<SocketAddr>;
+
+// src/server/config/mod.rs:135, on either typestate
+pub fn ready_signal(self, tx: tokio::sync::oneshot::Sender<()>) -> Self;
+
+// src/server/runtime.rs:142, on the Bound typestate only
+pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
+where
+    S: Future<Output = ()> + Send;
+```
+
+Note that `local_addr` returns an `Option` even once bound, because reading the
+address from the underlying listener can itself fail.
 
 The `where` clause on the impl block that provides `run_with_shutdown`
 (`src/server/runtime.rs:29`) is exactly:
@@ -429,22 +452,22 @@ Stop and escalate when any of these is reached. Do not work around them.
 
 ### Axioms (assumed, not verified here)
 
-- **AX-1**: Tokio's `oneshot` channel delivers at most one value, and
+- **AXIOM-1**: Tokio's `oneshot` channel delivers at most one value, and
   `JoinHandle::await` resolves exactly once with either the task's output or a
   `JoinError`. Third-party contract; not re-verified.
-- **AX-2**: `tokio::time::timeout` resolves with `Err(Elapsed)` no earlier than
+- **AXIOM-2**: `tokio::time::timeout` resolves with `Err(Elapsed)` no earlier than
   the supplied duration when the inner future has not completed.
-- **AX-3**: `WireframeServer::run_with_shutdown` returns once its shutdown
+- **AXIOM-3**: `WireframeServer::run_with_shutdown` returns once its shutdown
   future resolves and its worker tracker drains, and fires `ready_tx` exactly
   once before awaiting shutdown (`src/server/runtime.rs:165-188`). This is a
   repository-owned interface, so EP-M1's rstest cases exercise it against the
   real server rather than a stub.
-- **AX-4**: `std::net::TcpListener::bind("localhost:0")` yields a listener on a
-  free ephemeral loopback port, and handing it to `bind_existing_listener`
+- **AXIOM-4**: `std::net::TcpListener::bind("localhost:0")` yields a listener
+  on a free ephemeral loopback port, and handing it to `bind_existing_listener`
   transfers ownership without releasing the port. This is the property that
   eliminates the classic reserve-then-release race; EP-M1 exercises it directly
   by asserting the address is preserved.
-- **AX-5**: `tokio::runtime::Handle::try_current()` returns `Err` exactly when
+- **AXIOM-5**: `tokio::runtime::Handle::try_current()` returns `Err` exactly when
   no runtime is entered on the current thread.
 
 ### Invariants and lemmas
@@ -605,8 +628,8 @@ refactor as before, including the `TestError::Msg` shape of startup failures.
 ### Residual gaps
 
 - The bounded model abstracts the OS. It proves the handle's transition system
-  is sound; it does not prove Tokio implements AX-1 or that the kernel implements
-  AX-4. Those remain axioms, exercised by the real-socket rstest cases.
+  is sound; it does not prove Tokio implements AXIOM-1 or that the kernel implements
+  AXIOM-4. Those remain axioms, exercised by the real-socket rstest cases.
 - Model depth 8 admits traces of at most eight actions. Sequences longer than
   that are covered only by the property tests, whose generated call counts stop
   at four. Longer adversarial sequences are not covered; record this and revisit
@@ -996,9 +1019,18 @@ consuming `with_*` builders, its getters, and a small
 the stage-labelled text RFC §6 requires. Keeping message construction in one
 place is what makes the `contains_substring` assertions stable.
 
-`handle.rs` holds `RunningWireframeServer`, the private
-`enum HarnessState { Live { shutdown_tx, task }, Signalled { task }, Stopped(ShutdownOutcome) }`,
-the retained failure text, `Debug`, `Drop`, and the accessors. The state machine
+`handle.rs` holds `RunningWireframeServer`, the retained failure text, `Debug`,
+`Drop`, the accessors, and the private state enum:
+
+```rust
+enum HarnessState {
+    Live { shutdown_tx: oneshot::Sender<()>, task: JoinHandle<Result<(), ServerError>> },
+    Signalled { task: JoinHandle<Result<(), ServerError>> },
+    Stopped(ShutdownOutcome),
+}
+```
+
+The state machine
 is the heart of this change; write it as an explicit `match` over the taken
 state so that every arm is visible in one place and so it corresponds one-for-one
 with the Stateright model. Transitions:
