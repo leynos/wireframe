@@ -425,7 +425,9 @@ The design requires:
   task itself holds `Arc<PoolCore>`, so storing the handle in the shared core
   would blur section 4's cycle-avoidance rule and risk retaining the core;
   panic observation and `SchedulerFailed` reporting flow through that close
-  owner;
+  owner, and the close owner's shutdown sequence is: drop the final command
+  sender, then await the `JoinHandle` before dropping it, so mailbox closure
+  deterministically terminates the actor rather than detaching it;
 - abnormal termination maps to a dedicated error — for example
   `ClientError::SchedulerFailed` — distinct from `PoolClosed`, so callers and
   operators can tell a crash from a clean shutdown;
@@ -544,8 +546,8 @@ Complete or coordinate the following, plus any remaining useful scope from
 - Saturated pools enforce waiter bounds and acquisition timeouts.
 - Dropped acquire futures are pruned and do not receive leases.
 - Shutdown resolves blocked waiters promptly and the actor terminates.
-- Dropping all public handles without `close` releases the pool core,
-  including with the `JoinHandle` held by the non-shared close owner.
+- Dropping all public handles without `close` eventually releases the pool
+  core, including with the `JoinHandle` held by the non-shared close owner.
 - Loom or deterministic state-machine tests cover enqueue, capacity,
   cancellation, deregistration, and shutdown races, naming at minimum: the
   pending-flag RAII clear when a permit race is dropped mid-`select!`, and a
@@ -569,9 +571,10 @@ Complete or coordinate the following, plus any remaining useful scope from
 - Bounded versus unbounded internal command mailbox; waiter admission must
   remain bounded either way, and `Shutdown` delivery must remain guaranteed
   regardless of the choice.
-- Whether explicit `close` waits on the stored `JoinHandle`, the oneshot
-  acknowledgement, or both; section 10 requires the `JoinHandle` to be retained
-  by a non-shared close owner in any case.
+- Whether explicit `close` also waits on the oneshot acknowledgement in
+  addition to awaiting the stored `JoinHandle`; section 10 requires the
+  non-shared close owner to drop the final command sender and await the
+  `JoinHandle` in any case.
 - Whether [#535](https://github.com/leynos/wireframe/issues/535) is closed
   as superseded or retained for smaller transition helpers inside the actor.
 

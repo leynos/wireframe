@@ -197,8 +197,10 @@ crate-private:
 
 For screen readers: The following diagram shows the three lifecycle phases — the
 `WireframeApp` builder is consumed by `prepare().await` into a `PreparedApp`
-template, which is `Arc`-cloned at each independent connection-task boundary
-into a per-connection `ConnectionRuntime`.
+template; each independent connection task then receives its own clone of the
+shared `Arc<PreparedApp>` and constructs its own connection-local
+`ConnectionRuntime`. The `PreparedApp` remains shared; only the
+`ConnectionRuntime` is per-connection.
 
 ```text
 WireframeApp builder
@@ -206,7 +208,8 @@ WireframeApp builder
         │ prepare().await
         ▼
 PreparedApp
-        │ Arc clone at independent connection-task boundary
+        │ per connection: clone Arc<PreparedApp>,
+        │ construct connection-local runtime
         ▼
 ConnectionRuntime
 ```
@@ -348,18 +351,23 @@ The guard mechanism must be panic-aware. Teardown callbacks are async, so a
 `Drop`-based guard cannot run them during unwind. The terminal paths are
 classified explicitly, and each classification carries its own test:
 
-- **Handler panic, recovered.** The connection task's panic surfaces as a
-  task join error observed by the spawner (or an equivalent recovery point);
-  teardown runs exactly once on that path.
+- **Handler panic, recovered in-task.** Recovery must happen inside the
+  connection task, before the moved `ConnectionRuntime` becomes inaccessible —
+  for example by catching the unwind at the runtime boundary — because a
+  spawner observing a task join error no longer holds the runtime and cannot
+  run its teardown. Teardown runs exactly once on that path. Any panic not
+  recovered in-task falls into the abandoned-unwind classification below and is
+  an accepted, documented gap.
 - **Teardown-callback panic, isolated.** The guard disarms before invoking
   teardown, so a panic inside a teardown callback cannot re-trigger the guard,
   fire teardown twice, or poison later connections.
 - **Abandoned unwind.** Paths where no recovery point exists cannot run an
   async teardown; the implementation must enumerate them and record each as an
   accepted, documented gap rather than an implicit omission.
-- **`panic = "abort"` builds.** Unwind-dependent paths are vacuous; the
-  recovered-panic classification then applies only where the spawner observes
-  task failure without unwinding through the runtime.
+- **`panic = "abort"` builds.** An aborting panic terminates the process
+  immediately: there is no unwind, no join error, and nothing recoverable, so
+  the recovered classification is inapplicable and teardown cannot run. The
+  process-level abort is the accepted outcome.
 
 ### 6. Apply protocol hooks consistently
 
@@ -480,8 +488,7 @@ documentation obligations, delivered under
 - Connection-startup benchmarks compare the old and prepared paths.
 - A readiness waiter observes preparation failure promptly; preparation
   failure is distinguishable from bind failure.
-- A handler panic recovered through the task join path still runs teardown
-  exactly once.
+- A handler panic recovered in-task still runs teardown exactly once.
 - A panic inside a teardown callback does not run teardown twice or poison
   later connections.
 - Each abandoned-unwind path enumerated by the implementation is recorded
