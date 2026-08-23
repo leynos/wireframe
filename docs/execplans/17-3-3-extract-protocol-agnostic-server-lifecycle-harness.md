@@ -88,7 +88,7 @@ lifecycle machinery. Reading it is the single most useful preparation for this
 work. It contains:
 
 - `WireframePair { addr: SocketAddr, running: Option<Running> }`, the public
-  handle, with a hand-written `Debug` that redacts `running`.
+  handle, with a handwritten `Debug` that redacts `running`.
 - `Running { client: Option<WireframeClient<...>>, shutdown_tx:
   Option<oneshot::Sender<()>>, handle: Option<JoinHandle<Result<(),
   ServerError>>> }`, the private live-resource bundle.
