@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Client (breaking):** Remove `SocketOptions::linger` and
+  `WireframeClientBuilder::linger`. Tokio-managed client sockets must not use
+  duration-based `SO_LINGER`; call `WireframeClient::close().await` for
+  graceful shutdown. (#624)
 - Renamed internal module `src/app/connection.rs` to
   `src/app/inbound_handler.rs` and `src/server/connection.rs` to
   `src/server/connection_spawner.rs` to clarify directionality and eliminate

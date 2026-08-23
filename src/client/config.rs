@@ -26,7 +26,6 @@ use tokio::net::TcpSocket;
 pub struct SocketOptions {
     nodelay: Option<bool>,
     keepalive: Option<KeepAliveSetting>,
-    linger: Option<LingerSetting>,
     send_buffer_size: Option<u32>,
     recv_buffer_size: Option<u32>,
     reuseaddr: Option<bool>,
@@ -37,21 +36,6 @@ pub struct SocketOptions {
         not(target_os = "cygwin"),
     ))]
     reuseport: Option<bool>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LingerSetting {
-    Disabled,
-    Duration(Duration),
-}
-
-impl LingerSetting {
-    const fn to_option(self) -> Option<Duration> {
-        match self {
-            Self::Disabled => None,
-            Self::Duration(value) => Some(value),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,28 +89,6 @@ impl SocketOptions {
         self.keepalive = Some(match duration {
             Some(value) => KeepAliveSetting::Duration(value),
             None => KeepAliveSetting::Disabled,
-        });
-        self
-    }
-
-    /// Configure TCP linger settings on the socket.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::time::Duration;
-    ///
-    /// use wireframe::client::SocketOptions;
-    ///
-    /// let options = SocketOptions::default().linger(Some(Duration::from_secs(1)));
-    /// let expected = SocketOptions::default().linger(Some(Duration::from_secs(1)));
-    /// assert_eq!(options, expected);
-    /// ```
-    #[must_use]
-    pub fn linger(mut self, duration: Option<Duration>) -> Self {
-        self.linger = Some(match duration {
-            Some(value) => LingerSetting::Duration(value),
-            None => LingerSetting::Disabled,
         });
         self
     }
@@ -208,7 +170,6 @@ impl SocketOptions {
     pub(crate) fn apply(&self, socket: &TcpSocket) -> io::Result<()> {
         self.apply_nodelay(socket)?;
         self.apply_keepalive(socket)?;
-        self.apply_linger(socket)?;
         self.apply_send_buffer_size(socket)?;
         self.apply_recv_buffer_size(socket)?;
         self.apply_reuseaddr(socket)?;
@@ -236,13 +197,6 @@ impl SocketOptions {
                     socket.set_keepalive(false)?;
                 }
             }
-        }
-        Ok(())
-    }
-
-    fn apply_linger(&self, socket: &TcpSocket) -> io::Result<()> {
-        if let Some(linger) = self.linger {
-            socket.set_linger(linger.to_option())?;
         }
         Ok(())
     }
