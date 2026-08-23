@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -248,8 +248,9 @@ Stop and escalate (do not improvise) when any threshold is crossed:
       clean tree; each stub reports `FORMAL-SKIP:` and fails under
       `FORMAL_STRICT=1`. Logs are in `/tmp/*-stage-e.out` and
       `/tmp/formal-targets-stage-e-wireframe-15-1-4-formal-verification-makefile-targets.out`.
-- [ ] (pending) Stage E review: commit the acceptance evidence and clear the
-      final CodeRabbit review.
+- [x] (2026-08-23) Stage E review: CodeRabbit reviewed `5a82b8c` with zero
+      findings after every deterministic and behavioural gate passed. Evidence:
+      `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-e-final.out`.
 
 ## Surprises & discoveries
 
@@ -320,8 +321,11 @@ Stop and escalate (do not improvise) when any threshold is crossed:
   acceptance both pass without Kani or Verus installed.
   Evidence: the Stage E gate logs in `/tmp/*-stage-e.out` and
   `/tmp/formal-targets-stage-e-wireframe-15-1-4-formal-verification-makefile-targets.out`.
-  Impact: the delivery satisfies the tool-free execution-surface contract; only
-  the final review remains.
+  Impact: the delivery satisfies the tool-free execution-surface contract and
+  supplied the evidence for the final review.
+- Observation: CodeRabbit's final Stage E review found no concerns.
+  Evidence: `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-e-final.out`.
+  Impact: all required review and deterministic acceptance criteria are clear.
 
 - Observation: a complete formal-tooling test harness already exists.
   Evidence: `tests/formal_tooling.rs`, `tests/common/formal_tooling_support.rs`,
@@ -448,8 +452,8 @@ The default test suite remains tool-free. Regression and BDD coverage assert
 the Makefile declarations, recipes, aggregate prerequisites, dry-run commands,
 and strict/non-strict stub behaviour. The developers' guide records the
 15.3.x/15.5.x activation ownership and pinned-Kani requirement. Final
-deterministic and behavioural evidence is green; final CodeRabbit clearance is
-recorded next.
+deterministic and behavioural evidence is green, and the final CodeRabbit
+review reported zero findings.
 
 ## Design review summary
 
@@ -845,6 +849,12 @@ Test interfaces that must exist at the end of the milestone:
   matching step definitions.
 
 ## Revision note
+
+- Change: marked the ExecPlan complete after the final CodeRabbit review.
+- Why: all deterministic gates, behavioural acceptance checks, and review
+  requirements are green with no outstanding concerns.
+- Effect on remaining work: none; the branch is ready for user-directed
+  publication.
 
 - Change: recorded Stage E's successful deterministic gates and clean-tree
   behavioural transcript.
