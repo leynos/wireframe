@@ -7,11 +7,23 @@ This ExecPlan (execution plan) is a living document. The sections
 
 Status: BLOCKED
 
-This plan is blocked on the architecture deviation recorded as decision D8:
-`JoinHandle::abort()` does not stop a Wireframe server, so RFC 0001's
-abort-after-timeout cleanup guarantee is not implementable as written. See
-`Escalation: abort does not stop the server`. That deviation must be accepted,
-along with decisions D2, D3, and D5, before EP-M1 begins.
+This plan is blocked on two upstream issues and four decisions.
+
+Blocking issues, both raised from this plan's design review:
+
+- [#656](https://github.com/leynos/wireframe/issues/656) — cancel server accept
+  loops when the `run_with_shutdown` future is dropped. **Must land before
+  EP-M1.** Until it does, `JoinHandle::abort()` does not stop a Wireframe
+  server, and RFC 0001's abort-after-timeout cleanup guarantee is not
+  implementable. See `Escalation: abort does not stop the server` and decision
+  D8.
+- [#657](https://github.com/leynos/wireframe/issues/657) — make server shutdown
+  awaitable and report abnormal termination. **Must land, or be explicitly
+  deferred, before this plan reaches `COMPLETE`**, because the wording of the
+  RFC §5.3 amendment in Stage E depends on whether a synchronous drain
+  guarantee exists. See decision D14.
+
+Blocking decisions: D2, D3, D5, and D11.
 
 ## Purpose / big picture
 
@@ -202,32 +214,53 @@ adopting this harness in that shape — which RFC §2 names mxd as the first
 candidate to do — accumulates bound listeners until `unused_listener()` starts
 failing in unrelated tests.
 
-### Options
+### Resolution
 
-1. **Report the leak instead of hiding it.** Keep the bounded join, but when
-   the bound elapses stop claiming cleanup: name the terminal state
-   `Abandoned` rather than `TimedOut`, emit a `log::warn!` naming the stage and
-   the address, and document that the listener stays bound until the runtime is
-   dropped. No upstream change. Honest, cheap, and it makes the failure
-   greppable in CI output.
-2. **Fix it upstream.** Let `run_with_shutdown` accept a caller-supplied
-   `CancellationToken`, or return a handle exposing one, so the harness can
-   cancel and then drain the tracker. This is the only option that makes
-   abort-after-timeout mean what RFC §5.3 says. It changes `src/server/`'s
-   public API, breaching Constraint 6, and is plausibly its own roadmap item.
-3. **Accept silently.** Rejected: it would make the no-orphan invariant vacuous,
-   and a harness whose purpose is diagnosable cleanup must not lie about
-   cleaning up.
+An earlier revision of this plan offered three options and recommended merely
+documenting the leak, on the grounds that the upstream fix was expensive.
+Re-scoping it against the source showed that estimate was wrong, and the fix
+splits into two independent pieces, now tracked as issues.
 
-### Recommendation
+**[#656](https://github.com/leynos/wireframe/issues/656) — cancel on drop.**
+Holding a cancellation drop guard in the supervisor's frame makes a dropped or
+aborted future cancel its workers, so the accept loops exit and the listener is
+released. Two lines plus a test. `CancellationToken::drop_guard_ref` borrows
+rather than clones, which is the ADR 011 R3 shape; the binding must be named,
+because `let _ = token.drop_guard_ref();` would cancel at construction. This
+converts the defect from a permanent leak into one bounded by scheduler
+latency, which is enough for this plan to make an honest, testable guarantee
+through `await_port_released`. **EP-M1 depends on it.**
 
-Take option 1 for 17.3.3 and raise option 2 as a separate roadmap item. Option
-1 keeps this item's scope intact, removes a false guarantee from the public
-documentation, and turns a silent leak into a logged one. Option 2 is the real
-fix, but it is server-side work rather than test-harness work.
+**[#657](https://github.com/leynos/wireframe/issues/657) — awaitable drain.**
+For `shutdown()` to *prove* the listener is released, the harness must drain
+the tracker itself, which needs `run_with_shutdown` to accept a caller-supplied
+`CancellationToken` or return a handle exposing one. That is a public API
+change, and it is the server-side mirror of the pattern ADR 013 sections 9 and
+10 already adopt for the client pool: non-blocking shutdown delivery, a
+retained `JoinHandle` so a panic is observed rather than swallowed, and a
+dedicated error variant distinguishing a crash from a clean stop. **This plan
+depends on it for the Stage E wording, not for implementation.**
 
-Either way RFC 0001 §5.3 and §6 need amending, because their current wording
-describes behaviour no implementation can provide.
+Rejected: accepting the defect silently. It would make the no-orphaned-task
+invariant vacuous, and a harness whose purpose is diagnosable cleanup must not
+lie about cleaning up.
+
+### What each issue buys this plan
+
+With #656 alone the graceful path is fully correct — `run_with_shutdown`
+already cancels and then drains before returning `Ok(())`
+(`src/server/runtime.rs:191-197`) — and the bound-elapsed path becomes
+eventually correct. This plan can be delivered honestly on that basis, keeping
+the `Abandoned` terminal outcome and its logged warning.
+
+With #657 as well, the bound-elapsed path becomes synchronously observable and
+the residual gap disappears, at which point `Abandoned` could be narrowed or
+retired.
+
+RFC 0001 sections 5.3 and 6 need amending either way, because their current
+wording describes behaviour that no implementation provides today. The
+amendment's wording differs depending on whether #657 has landed, which is why
+this plan cannot reach `COMPLETE` until #657 lands or its deferral is accepted.
 
 ## Risks
 
@@ -496,6 +529,71 @@ Upstream artefacts at the revisions in the working tree:
   separate Terms of Reference document; do not invent one.
 - `docs/roadmap.md` item 17.3.3, with 17.3.4 and 17.3.5 out of scope.
 - `AGENTS.md` and `docs/documentation-style-guide.md`.
+- ADRs 011, 012, and 013, all Status Proposed, on branch
+  `runtime-ownership-adrs` under
+  [PR #653](https://github.com/leynos/wireframe/pull/653). ADR 011 names
+  `src/server/runtime.rs` as a governed surface and ADR 012 restructures
+  `run_with_shutdown`, so this plan sits inside their remit even though none is
+  yet Accepted. See `Known expiry` below.
+- Epic [#635](https://github.com/leynos/wireframe/issues/635) and its work
+  breakdown, in particular
+  [#642](https://github.com/leynos/wireframe/issues/642).
+
+### Upstream dependencies
+
+```plaintext
+#656 (cancel on drop)  -> EP-M1  [hard block]
+#657 (awaitable drain) -> EP-M4  [blocks COMPLETE, or an accepted deferral]
+```
+
+Neither existed when this plan was drafted; both were raised from its design
+review after confirming no epic #635 issue covers them.
+[#640](https://github.com/leynos/wireframe/issues/640) explicitly excludes
+"Redesigning `CancellationToken` use across independent tasks" in its
+non-goals, and #642 explicitly requires that `run_with_shutdown` "retain
+current shutdown and panic-isolation behaviour". No other epic issue mentions
+abort or drop guards.
+
+### Known expiry
+
+ADR 012 §2 makes `run_with_shutdown` fallible, adding `ServerError::AppBuild`
+and `ServerError::Prepare`. That expires several findings this plan relies on.
+Whoever implements 17.3.3 after
+[#642](https://github.com/leynos/wireframe/issues/642) lands **must re-derive
+these rather than trusting them**:
+
+<!-- markdownlint-disable MD013 -->
+
+| Plan element | True today | After #642 |
+| --- | --- | --- |
+| "`run_with_shutdown` cannot fail" | Verified | False |
+| `ShutdownOutcome::ServerFailed` documented as reserved and unreachable | Accurate | Reachable and testable |
+| Stage B case 3 using a factory whose `Clone` panics | The only reachable pre-readiness fault | Unnecessary, and possibly unwritable — ADR 012 §3 calls `AppFactory`'s `Clone` bound vestigial and up for removal |
+| Stage B case 3 as an app factory returning an error | Vacuous | Valid, and the preferred formulation |
+| `await_readiness` inferring failure from a dropped sender | Correct | Readiness is "resolved or observably closed" carrying a typed error |
+
+<!-- markdownlint-enable MD013 -->
+
+*Table 3: findings with a known expiry date, and the upstream change that
+expires them.*
+
+Two further couplings, neither fatal:
+
+- **Testkit overlap.** ADR 012 Phase 1 requires shipping "a
+  `wireframe_testing`/testkit drive helper (builder, then `prepare().await`,
+  then a connection runtime over a duplex stream)" alongside
+  [#641](https://github.com/leynos/wireframe/issues/641), and lists as an
+  outstanding decision "How testkit helpers expose preparation without making
+  tests depend on private internals". That is the same crate and an adjacent
+  surface to `server_harness`. Unless the two are cross-referenced, #641 will
+  design a second harness entry point in the same module tree. `server_harness`
+  is arguably its natural home, which is an argument for sequencing 17.3.3
+  before #641.
+- **Constraint 1 tension.** `spawn_wireframe_pair(app_factory, …)` takes a
+  factory whose semantics ADR 012 §3 contemplates deprecating in favour of
+  `from_app` or `from_prepared_app`. This plan freezes that signature as an
+  external compatibility promise. `spawn_wireframe_server(server)` is
+  insulated, because it takes an already-configured server.
 
 ```plaintext
 ROADMAP-17.3.3 -> RFC-5.2 -> EP-M1 -> tests/server_harness_lifecycle.rs::spawn_then_connect_round_trip
@@ -542,9 +640,14 @@ RFC sections deliberately not discharged here:
   descriptor without releasing it.
 - **AXIOM-5**: `Handle::try_current()` returns `Err` exactly when no runtime is
   entered on the current thread.
-- **AXIOM-6** (from the escalation): aborting the supervisor does **not** stop
-  the accept loops. Everything below treats abandonment, not cleanup, as the
-  outcome of an elapsed bound.
+- **AXIOM-6** (from the escalation): with
+  [#656](https://github.com/leynos/wireframe/issues/656) merged, dropping or
+  aborting the supervisor cancels its workers, so the accept loops exit and the
+  listener is released — but asynchronously, on scheduler latency rather than
+  before `abort()` returns. Everything below therefore treats an elapsed bound
+  as abandonment with an eventual release, not as synchronous cleanup. Without
+  #656 the listener is never released and this axiom is false, which is why
+  EP-M0 gates on it.
 
 ### The design decision that makes verification tractable
 
@@ -698,8 +801,12 @@ addresses and share no state; stopping one does not affect another.
 - The `LifecycleStage::Bind` path is reachable only if `set_nonblocking` or
   `TcpListener::from_std` fails, which cannot be forced from a test. Documented
   as defensive.
-- Per AXIOM-6, an elapsed bound abandons rather than cleans up. No test asserts
-  that the listener is released on that path, because it is not.
+- Per AXIOM-6, an elapsed bound abandons rather than synchronously cleans up.
+  With [#656](https://github.com/leynos/wireframe/issues/656) merged the
+  listener is released within scheduler latency, so `await_port_released` can
+  assert it with a deadline; without #656 it is never released. Only
+  [#657](https://github.com/leynos/wireframe/issues/657) makes the release
+  synchronously observable, at which point this gap closes.
 - If `Drop` runs while the runtime is shutting down, the detached cleanup task
   is cancelled before it executes and the server task is neither joined nor
   abandoned by us; it dies with the runtime. Benign in-process, but INV-3's
@@ -858,14 +965,17 @@ variant without a label fails.
 
 ## Milestones and plateaus
 
-### EP-M0 — escalations accepted, green baseline
+### EP-M0 — dependencies landed, escalations accepted, green baseline
 
-- Outcome: D2, D3, D5, D8, and D11 accepted or amended; `make check-fmt`,
+- Outcome: [#656](https://github.com/leynos/wireframe/issues/656) is merged to
+  `main`; D2, D3, D5, D8, D11, and D14 accepted or amended; `make check-fmt`,
   `make lint`, and `make test` recorded green on an unmodified tree.
 - Acceptance evidence: transcripts under `/tmp`; a note in `Decision log`
-  recording who accepted what.
+  recording who accepted what; `git log origin/main` showing #656.
 - Conformance check: confirm RFC 0001 has not changed since this plan was
-  written.
+  written, and re-read `Known expiry` against the current state of
+  [#642](https://github.com/leynos/wireframe/issues/642). If #642 has landed,
+  every row of Table 3 must be re-derived before EP-M1.
 - Recovery: nothing to undo.
 - Compatibility decision: none.
 
@@ -939,10 +1049,15 @@ variant without a label fails.
 ### EP-M4 — documentation, RFC amendment, roadmap
 
 - Outcome: the design record matches the code and roadmap 17.3.3 is ticked.
+- Requirements: resolution of
+  [#657](https://github.com/leynos/wireframe/issues/657), either merged or with
+  an accepted deferral, because the RFC §5.3 amendment says different things in
+  the two cases.
 - Acceptance evidence: `make markdownlint` and `make nixie` pass; the roadmap
   checkbox is `[x]`.
 - Conformance check: every deviation in `Decision log` has a corresponding RFC
-  amendment. The plan moves to `COMPLETE` only when none remains unaccepted.
+  amendment. The plan moves to `COMPLETE` only when none remains unaccepted and
+  #657 is resolved one way or the other.
 - Recovery: documentation-only.
 - Compatibility decision: none.
 
@@ -973,9 +1088,13 @@ it grow.*
 ### Stage A — understand and propose (no code changes)
 
 Load the skills. Run `leta workspace add .`. Read `client_pair.rs` in full and
-`src/server/runtime.rs:29-198`. Record a green baseline. Obtain acceptance for
-D2, D3, D5, D8, and D11. Stage A ends when the baseline is green and the
-escalations are resolved.
+`src/server/runtime.rs:29-198`. Record a green baseline. Confirm
+[#656](https://github.com/leynos/wireframe/issues/656) is merged. Obtain
+acceptance for D2, D3, D5, D8, D11, and D14. Check whether
+[#642](https://github.com/leynos/wireframe/issues/642) has landed and, if so,
+re-derive every row of Table 3 in `Known expiry` before writing a single test.
+Stage A ends when the baseline is green, #656 is in, and the escalations are
+resolved.
 
 ### Stage B0 — compiling stubs, so each test can fail on its own assertion
 
@@ -1258,8 +1377,12 @@ output is a Constraint 1 breach: stop and escalate.
 5. Do **not** add an ADR. The RFC is the governing artefact for this feature and
    amending it is clearer than an ADR that qualifies it. If the reviewer
    disagrees, the file is
-   `docs/adr-011-server-lifecycle-shutdown-contract.md`, follows the
-   Status/Date/Context template, and gains a line in `docs/contents.md`.
+   `docs/adr-014-server-lifecycle-shutdown-contract.md` — 011 to 013 are taken
+   by [PR #653](https://github.com/leynos/wireframe/pull/653) — following the
+   Status/Date/Context template, and gains a line in `docs/contents.md`. Note
+   that [#657](https://github.com/leynos/wireframe/issues/657) also contemplates
+   ADR 014 for the server shutdown-ownership contract; coordinate the number
+   before writing either.
 6. Tick roadmap 17.3.3 with `mapsplice`, preserving its inline links verbatim.
 7. Check `CHANGELOG.md`'s conventions and add an entry if it covers unreleased
    test-support changes.
@@ -1492,15 +1615,49 @@ If a run is interrupted, check `ss -ltn | grep 127.0.0.1` before re-running.
 
 - Decision (D8): **ESCALATED, BLOCKING.** `JoinHandle::abort()` does not stop a
   Wireframe server, so RFC §5.3's abort-after-timeout guarantee and §6's
-  "every cleanup path joins the server task" are not implementable. Evidence,
-  blast radius, and three options are in `Escalation: abort does not stop the
-  server`; the recommendation is option 1, report the leak rather than hide it,
-  with the upstream fix raised as its own roadmap item.
-  Affected identifiers: RFC-5.3, RFC-6, INV-3, Constraint 6, and the
+  "every cleanup path joins the server task" are not implementable. Evidence
+  and blast radius are in `Escalation: abort does not stop the server`.
+  Resolution: raise the fix upstream rather than document around it. Re-scoping
+  showed the earlier "plausibly its own roadmap item" estimate was wrong — the
+  cancel-on-drop half is two lines. Split into
+  [#656](https://github.com/leynos/wireframe/issues/656) (blocks EP-M1) and
+  [#657](https://github.com/leynos/wireframe/issues/657) (blocks `COMPLETE`).
+  Affected identifiers: RFC-5.3, RFC-6, INV-3, AXIOM-6, Constraint 6, and the
   `ShutdownOutcome` vocabulary (`TimedOut` becomes `Abandoned`).
-  Required upstream change: an amendment to RFC 0001 §5.3 and §6 whichever
-  option is chosen.
+  Required upstream change: an amendment to RFC 0001 §5.3 and §6 in either
+  case; the wording depends on #657's disposition.
   Date/Author: 2026-08-23, planning agent. **Requires acceptance.**
+
+- Decision (D14): depend on #656 and #657 rather than absorbing either into
+  this plan.
+  Rationale: both are server-runtime changes in `src/server/`, which
+  Constraint 6 puts outwith this plan's scope, and both sit inside epic
+  [#635](https://github.com/leynos/wireframe/issues/635)'s remit. Confirmed
+  that no existing epic issue covers either:
+  [#640](https://github.com/leynos/wireframe/issues/640)'s non-goals exclude
+  "Redesigning `CancellationToken` use across independent tasks",
+  [#642](https://github.com/leynos/wireframe/issues/642) requires
+  `run_with_shutdown` to "retain current shutdown and panic-isolation
+  behaviour", and no issue in the epic mentions abort or drop guards. Both new
+  issues are written against the governing ADRs — #656 against ADR 011 R3 and
+  its no-leaked-task verification obligation, #657 against ADR 013 sections 9
+  and 10 — so the epic gains two consistent slices rather than two orphans.
+  Alternative rejected: fixing either inside `wireframe_testing`. Neither is
+  fixable from there; the token and tracker are locals of `run_with_shutdown`.
+  Alternative rejected: shipping 17.3.3 with the leak documented. That was the
+  earlier recommendation and it is no longer justified now that #656 is known
+  to be two lines.
+  Date/Author: 2026-08-23, planning agent. **Requires acceptance.**
+
+- Decision (D15): record ADRs 011-013 as conformance basis despite their
+  Proposed status, and carry an explicit `Known expiry` table.
+  Rationale: ADR 011 names `src/server/runtime.rs` as governed and ADR 012
+  restructures `run_with_shutdown`, so this plan is inside their remit whether
+  or not they are Accepted when it is implemented. ADR 012 §2 in particular
+  makes `run_with_shutdown` fallible, which flips five of this plan's verified
+  findings. Recording them as a dated table, gated at EP-M0, is more honest
+  than either ignoring proposed ADRs or pretending the findings are permanent.
+  Date/Author: 2026-08-23, planning agent.
 
 - Decision (D9): correct the compatibility premise. An earlier draft's claim
   that `spawn_wireframe_pair` startup failures "surface as `TestError::Msg`" is
