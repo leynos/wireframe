@@ -3,14 +3,17 @@
 import importlib
 from pathlib import Path
 import subprocess
+import tomllib
 import types
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+REPOSITORY = SCRIPTS.parent
 PROHIBITED = "hand" + "-written"
 TITLE_PROHIBITED = "Hand" + "-written"
+INLINE_CODE_EXCLUSION = r"`[^`\n]+`"
 
 
 @pytest.fixture
@@ -74,6 +77,17 @@ class TestPhrasePolicyChecker:
         (tmp_path / ".typos-oxendict-base.toml").unlink()
         with pytest.raises(FileNotFoundError, match=r"docs/developers-guide\.md"):
             checker.load_policy(tmp_path)
+
+    def test_local_policy_does_not_mask_every_inline_code_span(self) -> None:
+        """Reject the retired repository-wide inline-code spelling exemption."""
+        with (REPOSITORY / "typos.local.toml").open("rb") as stream:
+            document = tomllib.load(stream)
+
+        patterns = document["patterns"]
+        assert isinstance(patterns, dict), "the local spelling patterns are absent"
+        assert INLINE_CODE_EXCLUSION not in patterns["ignore"], (
+            "the local spelling policy masks every inline-code span"
+        )
 
     def test_checker_preserves_boundaries_masking_and_exclusions(
         self, checker: types.ModuleType, tmp_path: Path
@@ -198,12 +212,12 @@ def test_phrase_boundaries_hold_for_generated_neighbours(
 @given(content=st.text(alphabet=" abcdefghijklmnopqrstuvwxyz-", max_size=40))
 # Each example uses the same immutable imported module, so fixture reuse is safe.
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_generated_ignored_spans_remain_masked(
+def test_generated_narrow_ignored_span_remains_masked(
     checker: types.ModuleType, content: str
 ) -> None:
-    """Prevent prohibited phrases inside generated ignored spans from leaking."""
-    text = f"`{content}{PROHIBITED}{content}`"
-    masked = checker._masked(text, (r"`[^`\n]+`",))
+    """Prevent a deliberately narrow generated ignored span from leaking."""
+    text = f"{content}`{PROHIBITED}`{content}"
+    masked = checker._masked(text, (rf"`{PROHIBITED}`",))
 
     assert len(masked) == len(text), "masking changed source offsets"
     assert (

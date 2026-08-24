@@ -579,6 +579,14 @@ directly. Keep repository exceptions narrow: preserve public APIs, external
 tooling keys, formal names, and immutable diagnostics without adding ordinary
 bare-word exceptions.
 
+The local overlay must never mask every Markdown inline-code span. When adding
+an exception, use one exact, documented pattern rather than disabling a whole
+syntax class. The current exceptions are limited to the `PoolServerBehavior`
+test-server fixture, immutable en-GB diagnostic fixtures, Tokio test attributes
+and the literal GitHub product phrase. Add a new pattern only when a narrower
+correction or wording change would alter a public API, external-tool key,
+formal name, or deliberately fixed diagnostic.
+
 The standalone phrase helper and its tests require Python 3.13 or later and pin
 Pathspec 1.1.1 and Hypothesis 6.156.6; Ruff targets Python 3.13 compatibility.
 The property suite protects phrase boundaries and source locations across
