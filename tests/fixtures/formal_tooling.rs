@@ -180,63 +180,86 @@ impl FormalToolingWorld {
     /// absent or does not match the contributor contract.
     pub fn verify_formal_execution_targets(&self) -> TestResult {
         let makefile = MakefileContent(self.loaded_makefile()?);
-        for target in [
+        Self::verify_formal_target_declarations(&makefile)?;
+        Self::verify_formal_direct_recipe_content(&makefile)?;
+        Self::verify_formal_aggregate_prerequisites(&makefile)?;
+        Self::verify_formal_aggregate_dry_run_composition()
+    }
+
+    fn verify_formal_target_declarations(makefile: &MakefileContent<'_>) -> TestResult {
+        [
             "test-verification",
             "kani",
             "kani-full",
             "verus",
             "formal-pr",
             "formal-nightly",
-        ] {
-            if !makefile.has_phony_target(target) || makefile.target_prerequisites(target).is_none()
-            {
-                return Err(format!("Makefile should expose `{target}`").into());
-            }
-        }
+        ]
+        .into_iter()
+        .find(|target| {
+            !makefile.has_phony_target(target) || makefile.target_prerequisites(target).is_none()
+        })
+        .map_or(Ok(()), |target| {
+            Err(format!("Makefile should expose `{target}`").into())
+        })
+    }
 
-        for (target, expected_content) in [
+    fn verify_formal_direct_recipe_content(makefile: &MakefileContent<'_>) -> TestResult {
+        [
             ("test-verification", "test -p $(VERIFICATION_CRATE)"),
             ("kani", "$(FORMAL_STUB) kani"),
             ("kani-full", "$(FORMAL_STUB) kani-full"),
             ("verus", "$(FORMAL_STUB) verus"),
-        ] {
-            let recipe = makefile
-                .target_recipe(target)
-                .ok_or_else(|| format!("Makefile should expose `{target}`"))?;
-            if !recipe.contains(expected_content) {
-                return Err(format!("`{target}` should contain `{expected_content}`").into());
-            }
-        }
+        ]
+        .into_iter()
+        .find_map(|(target, expected_content)| {
+            makefile.target_recipe(target).map_or(
+                Some(format!("Makefile should expose `{target}`")),
+                |recipe| {
+                    (!recipe.contains(expected_content))
+                        .then(|| format!("`{target}` should contain `{expected_content}`"))
+                },
+            )
+        })
+        .map_or(Ok(()), |message| Err(message.into()))
+    }
 
-        for (target, expected_prerequisites) in [
+    fn verify_formal_aggregate_prerequisites(makefile: &MakefileContent<'_>) -> TestResult {
+        [
             ("formal-pr", &["test-verification", "kani", "verus"][..]),
             (
                 "formal-nightly",
                 &["test-verification", "kani-full", "verus"][..],
             ),
-        ] {
-            let prerequisites = makefile
-                .target_prerequisites(target)
-                .ok_or_else(|| format!("Makefile should expose `{target}`"))?;
-            if prerequisites
-                != expected_prerequisites
-                    .iter()
-                    .map(|prerequisite| (*prerequisite).to_owned())
-                    .collect::<Vec<_>>()
-            {
-                return Err(format!("`{target}` should have the expected prerequisites").into());
-            }
-        }
+        ]
+        .into_iter()
+        .find_map(|(target, expected_prerequisites)| {
+            let expected_prerequisites = expected_prerequisites
+                .iter()
+                .map(|prerequisite| (*prerequisite).to_owned())
+                .collect::<Vec<_>>();
+            makefile.target_prerequisites(target).map_or(
+                Some(format!("Makefile should expose `{target}`")),
+                |prerequisites| {
+                    (prerequisites != expected_prerequisites)
+                        .then(|| format!("`{target}` should have the expected prerequisites"))
+                },
+            )
+        })
+        .map_or(Ok(()), |message| Err(message.into()))
+    }
 
-        for target in ["formal-pr", "formal-nightly"] {
-            let dry_run = run_make_dry_run(target)?;
-            if !dry_run.contains("wireframe-verification") || !dry_run.contains("formal-stub.sh") {
-                return Err(
-                    format!("`make --dry-run {target}` should compose formal targets").into(),
-                );
-            }
-        }
-        Ok(())
+    fn verify_formal_aggregate_dry_run_composition() -> TestResult {
+        ["formal-pr", "formal-nightly"]
+            .into_iter()
+            .try_for_each(|target| {
+                let dry_run = run_make_dry_run(target)?;
+                (dry_run.contains("wireframe-verification") && dry_run.contains("formal-stub.sh"))
+                    .then_some(())
+                    .ok_or_else(|| {
+                        format!("`make --dry-run {target}` should compose formal targets").into()
+                    })
+            })
     }
 
     /// Verify that each formal-execution placeholder skips successfully.
