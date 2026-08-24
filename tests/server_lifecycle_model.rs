@@ -36,7 +36,7 @@ impl TerminalAction {
 
 /// Exercise the bounded supervisor model for every worker/action combination.
 ///
-/// The worker-count domain contains normalisation (`0`), one worker, and two
+/// The worker-count domain contains normalization (`0`), one worker, and two
 /// multi-worker configurations. Each action starts from a ready server, while
 /// the graceful path also accepts a connection, so immediate guard
 /// cancellation is detected before the terminal transition is applied.
