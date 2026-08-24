@@ -23,6 +23,7 @@ use super::{
     BackoffConfig,
     MockAcceptListener,
     PreambleHooks,
+    SupervisorLifecycle,
     WireframeServer,
     accept_loop,
 };
@@ -162,6 +163,7 @@ async fn test_accept_loop_shutdown_signal(
             shutdown: token.clone(),
             tracker: tracker.clone(),
             backoff: BackoffConfig::default(),
+            lifecycle: SupervisorLifecycle::new(),
         },
     ));
 
@@ -258,6 +260,7 @@ async fn test_accept_loop_exponential_backoff_async(
             shutdown: token.clone(),
             tracker: tracker.clone(),
             backoff,
+            lifecycle: SupervisorLifecycle::new(),
         },
     ));
 

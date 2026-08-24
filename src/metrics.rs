@@ -52,6 +52,48 @@ pub const POOL_BOOKKEEPING_POISON_RECOVERIES: &str =
 /// ```
 pub const CODEC_ERRORS: &str = "wireframe_codec_errors_total";
 
+/// Name of the counter tracking server-supervisor cancellation requests.
+///
+/// The `reason` label is always either `"graceful"`, when the supplied
+/// shutdown future resolved, or `"dropped"`, when the supervisor future was
+/// dropped before graceful shutdown completed. The latter includes task abort.
+///
+/// ```plaintext
+/// # HELP wireframe_server_supervisor_cancellations_total Count of server-supervisor cancellation requests.
+/// # TYPE wireframe_server_supervisor_cancellations_total counter
+/// wireframe_server_supervisor_cancellations_total{reason="graceful"} 1
+/// ```
+pub const SERVER_SUPERVISOR_CANCELLATIONS: &str = "wireframe_server_supervisor_cancellations_total";
+
+/// Name of the counter tracking accept loops that observed cancellation.
+///
+/// The `reason` label has the same bounded vocabulary as
+/// [`SERVER_SUPERVISOR_CANCELLATIONS`].
+///
+/// ```plaintext
+/// # HELP wireframe_server_accept_loops_exited_total Count of accept loops that exited after cancellation.
+/// # TYPE wireframe_server_accept_loops_exited_total counter
+/// wireframe_server_accept_loops_exited_total{reason="dropped"} 2
+/// ```
+pub const SERVER_ACCEPT_LOOPS_EXITED: &str = "wireframe_server_accept_loops_exited_total";
+
+/// Bounded reasons for server-supervisor cancellation metrics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ServerCancellationReason {
+    Graceful,
+    Dropped,
+}
+
+impl ServerCancellationReason {
+    /// Return the stable metric and tracing label value for this reason.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Graceful => "graceful",
+            Self::Dropped => "dropped",
+        }
+    }
+}
+
 /// Direction of frame processing.
 #[derive(Clone, Copy)]
 pub enum Direction {
@@ -168,3 +210,21 @@ pub fn inc_codec_error(error_type: &'static str, recovery_policy: &'static str) 
 
 #[cfg(not(feature = "metrics"))]
 pub fn inc_codec_error(_error_type: &'static str, _recovery_policy: &'static str) {}
+
+/// Record a server-supervisor cancellation request with a bounded reason.
+#[cfg(feature = "metrics")]
+pub(crate) fn inc_server_supervisor_cancellation(reason: ServerCancellationReason) {
+    counter!(SERVER_SUPERVISOR_CANCELLATIONS, "reason" => reason.as_str()).increment(1);
+}
+
+#[cfg(not(feature = "metrics"))]
+pub(crate) fn inc_server_supervisor_cancellation(_reason: ServerCancellationReason) {}
+
+/// Record an accept loop that exited after supervisor cancellation.
+#[cfg(feature = "metrics")]
+pub(crate) fn inc_server_accept_loop_exit(reason: ServerCancellationReason) {
+    counter!(SERVER_ACCEPT_LOOPS_EXITED, "reason" => reason.as_str()).increment(1);
+}
+
+#[cfg(not(feature = "metrics"))]
+pub(crate) fn inc_server_accept_loop_exit(_reason: ServerCancellationReason) {}

@@ -1,8 +1,6 @@
 //! Tests for [`WireframeServer`] configuration.
 #![cfg(not(loom))]
 
-use std::{io::ErrorKind, net::SocketAddr};
-
 use rstest::rstest;
 use tokio::{
     net::TcpStream,
@@ -10,24 +8,13 @@ use tokio::{
     time::{Duration, sleep, timeout},
 };
 use wireframe::server::WireframeServer;
-use wireframe_testing::{TestResult, factory, unused_listener};
-
-async fn wait_for_listener_release(addr: SocketAddr) -> TestResult {
-    let release_result: TestResult = timeout(Duration::from_secs(1), async {
-        loop {
-            match TcpStream::connect(addr).await {
-                Ok(stream) => drop(stream),
-                Err(error) if error.kind() == ErrorKind::ConnectionRefused => return Ok(()),
-                Err(error) => return Err(error.into()),
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .map_err(|_| format!("server listener at {addr} remained bound for one second"))?;
-    release_result?;
-    Ok(())
-}
+use wireframe_testing::{
+    TestResult,
+    factory,
+    unused_listener,
+    wait_for_listener_release,
+    wait_for_server_readiness,
+};
 
 #[test]
 fn default_worker_count_matches_cpu_count() -> TestResult {
@@ -118,10 +105,7 @@ async fn aborting_server_supervisor_releases_listener() -> TestResult {
             .await
     });
 
-    timeout(Duration::from_secs(1), ready_rx)
-        .await
-        .expect("server did not reach readiness")
-        .expect("server dropped readiness sender");
+    wait_for_server_readiness(ready_rx).await?;
 
     handle.abort();
     let error = handle
@@ -170,7 +154,6 @@ async fn dropping_server_supervisor_releases_listener() -> TestResult {
     readiness?;
 
     drop(supervisor);
-    sleep(Duration::from_millis(10)).await;
     wait_for_listener_release(addr).await
 }
 
@@ -193,10 +176,7 @@ async fn server_reaches_readiness_and_accepts_before_shutdown() -> TestResult {
             .await
     });
 
-    timeout(Duration::from_secs(1), ready_rx)
-        .await
-        .expect("server did not reach readiness")
-        .expect("server dropped readiness sender");
+    wait_for_server_readiness(ready_rx).await?;
 
     let stream = TcpStream::connect(addr)
         .await

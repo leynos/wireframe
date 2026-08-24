@@ -11,12 +11,13 @@ use tokio::{
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use super::backoff::BackoffConfig;
+use super::{SupervisorLifecycle, backoff::BackoffConfig};
 use crate::{
     app::{Envelope, Packet},
     codec::FrameCodec,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
+    metrics::inc_server_accept_loop_exit,
     preamble::Preamble,
     serializer::Serializer,
     server::{
@@ -53,6 +54,7 @@ pub(in crate::server) struct AcceptLoopOptions<T> {
     pub shutdown: CancellationToken,
     pub tracker: TaskTracker,
     pub backoff: BackoffConfig,
+    pub lifecycle: SupervisorLifecycle,
 }
 
 struct AcceptHandles<'a, T> {
@@ -165,16 +167,9 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
         shutdown,
         tracker,
         backoff,
+        lifecycle,
     } = options;
-    let backoff = backoff.normalized();
-    debug_assert!(
-        backoff.initial_delay <= backoff.max_delay,
-        "BackoffConfig invariant violated: initial_delay > max_delay"
-    );
-    debug_assert!(
-        backoff.initial_delay >= Duration::from_millis(1),
-        "BackoffConfig invariant violated: initial_delay < 1ms"
-    );
+    let backoff = normalized_backoff(backoff);
     let mut delay = backoff.initial_delay;
     let handles = AcceptHandles {
         preamble: &preamble,
@@ -184,6 +179,32 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     };
     while let Some(next_delay) = accept_iteration(&listener, &factory, &handles, delay).await {
         delay = next_delay;
+    }
+    record_accept_loop_exit(&shutdown, &lifecycle);
+}
+
+fn normalized_backoff(backoff: BackoffConfig) -> BackoffConfig {
+    let backoff = backoff.normalized();
+    debug_assert!(
+        backoff.initial_delay <= backoff.max_delay,
+        "BackoffConfig invariant violated: initial_delay > max_delay"
+    );
+    debug_assert!(
+        backoff.initial_delay >= Duration::from_millis(1),
+        "BackoffConfig invariant violated: initial_delay < 1ms"
+    );
+    backoff
+}
+
+fn record_accept_loop_exit(shutdown: &CancellationToken, lifecycle: &SupervisorLifecycle) {
+    if shutdown.is_cancelled() {
+        let reason = lifecycle.cancellation_reason();
+        inc_server_accept_loop_exit(reason);
+        tracing::info!(
+            event = "server_accept_loop_exited",
+            reason = reason.as_str(),
+            "server_accept_loop_exited",
+        );
     }
 }
 

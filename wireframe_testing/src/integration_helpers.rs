@@ -6,7 +6,8 @@
 //! unused local port without relying on file-level lint suppressions.
 
 use std::{
-    net::TcpListener as StdTcpListener,
+    io::ErrorKind,
+    net::{SocketAddr, TcpListener as StdTcpListener},
     pin::Pin,
     sync::{
         Arc,
@@ -15,6 +16,11 @@ use std::{
 };
 
 use rstest::fixture;
+use tokio::{
+    net::TcpStream,
+    sync::oneshot,
+    time::{Duration, sleep, timeout},
+};
 pub use wireframe::testkit::{TestError, TestResult};
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
@@ -42,6 +48,45 @@ use wireframe::{
 /// }
 /// ```
 pub fn unused_listener() -> TestResult<StdTcpListener> { Ok(StdTcpListener::bind("localhost:0")?) }
+
+/// Wait until a loopback listener refuses new connections.
+///
+/// This keeps the active Tokio runtime alive while accept loops observe their
+/// cancellation signal and release the listener. Only `ConnectionRefused`
+/// proves release; all other connection failures are propagated.
+///
+/// # Errors
+///
+/// Returns an error when the listener remains bound for one second or when a
+/// probe fails for a reason other than `ConnectionRefused`.
+pub async fn wait_for_listener_release(addr: SocketAddr) -> TestResult {
+    let release_result: TestResult = timeout(Duration::from_secs(1), async {
+        loop {
+            sleep(Duration::from_millis(10)).await;
+            match TcpStream::connect(addr).await {
+                Ok(stream) => drop(stream),
+                Err(error) if error.kind() == ErrorKind::ConnectionRefused => return Ok(()),
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await
+    .map_err(|_| format!("server listener at {addr} remained bound for one second"))?;
+    release_result
+}
+
+/// Wait for a server supervisor to report readiness.
+///
+/// # Errors
+///
+/// Returns an error when readiness is not reported within one second or when
+/// the supervisor drops the readiness sender.
+pub async fn wait_for_server_readiness(readiness: oneshot::Receiver<()>) -> TestResult {
+    timeout(Duration::from_secs(1), readiness)
+        .await
+        .map_err(|_| "server did not reach readiness")?
+        .map_err(|error| format!("server dropped readiness sender: {error}").into())
+}
 
 /// Minimal payload type for echo-style round-trip tests.
 ///
