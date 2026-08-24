@@ -70,6 +70,21 @@ boundaries for Epic 635:
 These records are proposed, not yet accepted; the review checklist derived from
 ADR 011's rules lands with their implementation epic.
 
+### Server supervisor lifecycle
+
+`WireframeServer::run_with_shutdown` owns the server's
+`CancellationToken` and `TaskTracker` while it supervises the worker accept
+loops. A named `drop_guard_ref()` guard cancels the token when the supervisor
+future is dropped, including when its `JoinHandle` is aborted. The accept loops
+then stop accepting and release their listener references. This release is
+eventual rather than synchronous because the loops must be scheduled to observe
+the cancellation.
+
+When the supplied shutdown future resolves, the existing graceful path still
+cancels the accept loops and waits for tracked work. The drop guard does not
+cancel connection tasks that were already accepted; those tasks continue under
+the existing graceful-drain semantics.
+
 ## Allowed aliases and prohibited mixing
 
 | Canonical term | Allowed aliases                     | Avoid in the same context                 |

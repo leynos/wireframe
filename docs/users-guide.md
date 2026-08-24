@@ -1466,15 +1466,20 @@ signal, and normalizes accept-loop backoff settings through
 `bind_existing_listener` to transition into the `Bound` typestate, inspect the
 bound address, or rebind later.[^17]
 
-`run` awaits Ctrl+C, while `run_with_shutdown` cancels all worker tasks when
-the supplied future resolves.[^18] Each worker runs `accept_loop`, which clones
-the factory, rewinds leftover preamble bytes, and hands the stream to the
-application. Transient accept failures trigger exponential backoff capped by
-the configured maximum delay.[^18][^19] Preamble hooks support asynchronous
-success handlers and asynchronous failure callbacks that receive the stream,
-enabling replies or decode-error logging before the application runs. An
-optional `preamble_timeout` caps how long `read_preamble` waits; timeouts use
-the failure callback path.[^20]
+`run` awaits Ctrl+C, while `run_with_shutdown` cancels the worker accept loops
+and waits for tracked work when the supplied future resolves.[^18] Dropping the
+`run_with_shutdown` future, including by aborting its `JoinHandle`, also
+cancels the accept loops and eventually releases the listener. This cleanup is
+eventual rather than synchronous: the loops must be scheduled to observe the
+cancellation. In-flight connection tasks are not cancelled and may continue
+until they finish. Each worker runs `accept_loop`, which clones the factory,
+rewinds leftover preamble bytes, and hands the stream to the application.
+Transient accept failures trigger exponential backoff capped by the configured
+maximum delay.[^18][^19] Preamble hooks support asynchronous success handlers
+and asynchronous failure callbacks that receive the stream, enabling replies
+or decode-error logging before the application runs. An optional
+`preamble_timeout` caps how long `read_preamble` waits; timeouts use the
+failure callback path.[^20]
 
 `spawn_connection_task` wraps each accepted stream in `read_preamble` and
 `RewindStream`, records connection panics, and logs failures without crashing
