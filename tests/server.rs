@@ -1,8 +1,9 @@
 //! Tests for [`WireframeServer`] configuration.
 #![cfg(not(loom))]
 
-use std::net::SocketAddr;
+use std::{io::ErrorKind, net::SocketAddr};
 
+use rstest::rstest;
 use tokio::{
     net::TcpStream,
     sync::oneshot,
@@ -12,17 +13,19 @@ use wireframe::server::WireframeServer;
 use wireframe_testing::{TestResult, factory, unused_listener};
 
 async fn wait_for_listener_release(addr: SocketAddr) -> TestResult {
-    timeout(Duration::from_secs(1), async {
+    let release_result: TestResult = timeout(Duration::from_secs(1), async {
         loop {
             match TcpStream::connect(addr).await {
                 Ok(stream) => drop(stream),
-                Err(_) => break,
+                Err(error) if error.kind() == ErrorKind::ConnectionRefused => return Ok(()),
+                Err(error) => return Err(error.into()),
             }
             sleep(Duration::from_millis(10)).await;
         }
     })
     .await
     .map_err(|_| format!("server listener at {addr} remained bound for one second"))?;
+    release_result?;
     Ok(())
 }
 
@@ -50,18 +53,20 @@ fn default_workers_at_least_one() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn workers_normalizes_configured_values() -> TestResult {
-    for (requested, expected) in [(0, 1), (128, 128)] {
-        let server = WireframeServer::new(factory()).workers(requested);
-        let actual = server.worker_count();
-        if actual != expected {
-            return Err(format!(
-                "worker count mismatch: requested={requested}, actual={actual}, \
-                 expected={expected}"
-            )
-            .into());
-        }
+#[rstest]
+#[case::clamps_zero_to_one(0, 1)]
+#[case::retains_large_worker_count(128, 128)]
+fn workers_normalizes_configured_values(
+    #[case] requested: usize,
+    #[case] expected: usize,
+) -> TestResult {
+    let server = WireframeServer::new(factory()).workers(requested);
+    let actual = server.worker_count();
+    if actual != expected {
+        return Err(format!(
+            "worker count mismatch: requested={requested}, actual={actual}, expected={expected}"
+        )
+        .into());
     }
     Ok(())
 }
@@ -165,6 +170,7 @@ async fn dropping_server_supervisor_releases_listener() -> TestResult {
     readiness?;
 
     drop(supervisor);
+    sleep(Duration::from_millis(10)).await;
     wait_for_listener_release(addr).await
 }
 

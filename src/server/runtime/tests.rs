@@ -99,16 +99,19 @@ async fn test_graceful_shutdown_releases_listener(
         .expect("server shutdown receiver was dropped");
     assert!(handle.await?.is_ok(), "graceful shutdown failed");
 
-    timeout(Duration::from_secs(1), async {
+    let release_result = timeout(Duration::from_secs(1), async {
         loop {
-            if TcpStream::connect(addr).await.is_err() {
-                break;
+            match TcpStream::connect(addr).await {
+                Ok(stream) => drop(stream),
+                Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => return Ok(()),
+                Err(error) => return Err(error),
             }
             sleep(Duration::from_millis(10)).await;
         }
     })
     .await
     .expect("server listener remained bound after graceful shutdown");
+    release_result?;
     Ok(())
 }
 
