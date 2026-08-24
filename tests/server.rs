@@ -51,27 +51,17 @@ fn default_workers_at_least_one() -> TestResult {
 }
 
 #[test]
-fn workers_method_enforces_minimum() -> TestResult {
-    let server = WireframeServer::new(factory()).workers(0);
-    if server.worker_count() != 1 {
-        return Err(format!(
-            "worker count should clamp to 1, got {}",
-            server.worker_count()
-        )
-        .into());
-    }
-    Ok(())
-}
-
-#[test]
-fn workers_accepts_large_values() -> TestResult {
-    let server = WireframeServer::new(factory()).workers(128);
-    if server.worker_count() != 128 {
-        return Err(format!(
-            "worker count should be 128 after config, got {}",
-            server.worker_count()
-        )
-        .into());
+fn workers_normalizes_configured_values() -> TestResult {
+    for (requested, expected) in [(0, 1), (128, 128)] {
+        let server = WireframeServer::new(factory()).workers(requested);
+        let actual = server.worker_count();
+        if actual != expected {
+            return Err(format!(
+                "worker count mismatch: requested={requested}, actual={actual}, \
+                 expected={expected}"
+            )
+            .into());
+        }
     }
     Ok(())
 }
