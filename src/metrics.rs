@@ -116,6 +116,7 @@ impl Direction {
 #[cfg(feature = "metrics")]
 pub fn inc_connections() { gauge!(CONNECTIONS_ACTIVE).increment(1.0); }
 
+/// Increment the active connections gauge.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connections() {}
 
@@ -123,6 +124,7 @@ pub fn inc_connections() {}
 #[cfg(feature = "metrics")]
 pub fn dec_connections() { gauge!(CONNECTIONS_ACTIVE).decrement(1.0); }
 
+/// Decrement the active connections gauge.
 #[cfg(not(feature = "metrics"))]
 pub fn dec_connections() {}
 
@@ -132,6 +134,7 @@ pub fn inc_frames(direction: Direction) {
     counter!(FRAMES_PROCESSED, "direction" => direction.as_str()).increment(1);
 }
 
+/// Record a processed frame for the given direction.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_frames(_direction: Direction) {}
 
@@ -139,6 +142,7 @@ pub fn inc_frames(_direction: Direction) {}
 #[cfg(feature = "metrics")]
 pub fn inc_deser_errors() { counter!(ERRORS_TOTAL, "kind" => "deserialization").increment(1); }
 
+/// Record a deserialization error.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_deser_errors() {}
 
@@ -146,6 +150,7 @@ pub fn inc_deser_errors() {}
 #[cfg(feature = "metrics")]
 pub fn inc_handler_errors() { counter!(ERRORS_TOTAL, "kind" => "handler").increment(1); }
 
+/// Record a handler error.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_handler_errors() {}
 
@@ -168,6 +173,7 @@ pub fn inc_handler_errors() {}
 #[cfg(feature = "metrics")]
 pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
 
+/// Record a panicking connection task.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connection_panics() {}
 
@@ -208,6 +214,7 @@ pub fn inc_codec_error(error_type: &'static str, recovery_policy: &'static str) 
     .increment(1);
 }
 
+/// Record a codec error with its type and recovery policy.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_codec_error(_error_type: &'static str, _recovery_policy: &'static str) {}
 

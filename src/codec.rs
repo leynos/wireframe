@@ -49,6 +49,7 @@ pub const MIN_FRAME_LENGTH: usize = 64;
 /// value to prevent unbounded memory allocation.
 pub const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
 
+/// Clamp a requested frame length to the supported range.
 pub(crate) fn clamp_frame_length(value: usize) -> usize {
     value.clamp(MIN_FRAME_LENGTH, MAX_FRAME_LENGTH)
 }
@@ -142,6 +143,7 @@ impl Default for LengthDelimitedFrameCodec {
 /// Length prefix header size (4 bytes for big-endian u32).
 pub const LENGTH_HEADER_SIZE: usize = 4;
 
+/// Decoder half of [`LengthDelimitedFrameCodec`].
 #[doc(hidden)]
 pub struct LengthDelimitedDecoder {
     inner: LengthDelimitedCodec,
@@ -236,6 +238,7 @@ fn build_eof_error(context: EofContext) -> io::Error {
     }
 }
 
+/// Encoder half of [`LengthDelimitedFrameCodec`].
 #[doc(hidden)]
 pub struct LengthDelimitedEncoder {
     inner: LengthDelimitedCodec,
