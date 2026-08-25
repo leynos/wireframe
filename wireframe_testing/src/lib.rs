@@ -98,6 +98,8 @@ pub use integration_helpers::{
     echo_handler,
     factory,
     unused_listener,
+    wait_for_listener_release,
+    wait_for_server_readiness,
 };
 pub use logging::{LoggerHandle, logger};
 #[doc(inline)]

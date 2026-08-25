@@ -233,6 +233,22 @@ Examples governed by this rule include:
 - borrowing a prepared route table from the application root during one
   connection task.
 
+### Server supervisor cancellation
+
+`WireframeServer::run_with_shutdown` is a supervisor for independently
+scheduled accept-loop tasks. It owns their `CancellationToken` and
+`TaskTracker`, and `src/server/runtime.rs` holds a named `drop_guard_ref()`
+borrow in the supervisor frame. If the supervisor future is dropped, including
+through `JoinHandle::abort()`, the guard cancels the accept loops so they
+eventually release their listener references. The guarantee is eventual: the
+worker tasks must be scheduled to observe cancellation.
+
+When the caller's shutdown future resolves, the supervisor follows the existing
+graceful path and waits for tracked work. The drop guard does not cancel
+connection tasks that have already been accepted; they retain the existing
+graceful-drain semantics. The borrowed guard is a one-time application of R3,
+not a per-iteration handle clone.
+
 ### R4. Move sole-owned values directly
 
 Values with exactly one runtime owner should be stored directly, even when the
@@ -339,7 +355,11 @@ ADR as its source of truth.
 Implementation work governed by this ADR should demonstrate:
 
 - no change to externally contracted behaviour in cancellation, fairness,
-  backpressure, or shutdown; the intentional behaviour changes are recorded in
+  backpressure, or graceful shutdown, except for the documented
+  server-supervisor drop/abort contract: abandoning `run_with_shutdown`
+  eventually cancels its accept loops and releases the listener; the graceful
+  shutdown path and in-flight connection-task drain remain unchanged. The
+  other intentional behaviour changes are recorded in
   [ADR 012](adr-012-prepared-application-and-connection-runtime.md) (factory
   evaluation frequency, readiness timing, startup error surfacing) and
   [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) (lease-drop
@@ -349,6 +369,8 @@ Implementation work governed by this ADR should demonstrate:
 - benchmark coverage for affected hot paths;
 - tests that prove actors and connection tasks terminate after their final
   owning handle is dropped or cancellation is requested;
+- server-supervisor tests that prove graceful shutdown remains successful and
+  that dropping or aborting the supervisor eventually releases its listener;
 - a recorded lint-or-checklist disposition per rule under
   [#649](https://github.com/leynos/wireframe/issues/649): R3 and R4 have
   grep-able signatures and are lint candidates; R1, R2, R5, R6, and R7 are
