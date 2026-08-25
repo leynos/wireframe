@@ -80,7 +80,9 @@ pub const SERVER_ACCEPT_LOOPS_EXITED: &str = "wireframe_server_accept_loops_exit
 /// Bounded reasons for server-supervisor cancellation metrics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerCancellationReason {
+    /// Cancellation followed completion of the graceful-shutdown future.
     Graceful,
+    /// Cancellation followed the server-supervisor future being dropped.
     Dropped,
 }
 
@@ -224,6 +226,7 @@ pub(crate) fn inc_server_supervisor_cancellation(reason: ServerCancellationReaso
     counter!(SERVER_SUPERVISOR_CANCELLATIONS, "reason" => reason.as_str()).increment(1);
 }
 
+/// Record a server-supervisor cancellation request with a bounded reason.
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_server_supervisor_cancellation(_reason: ServerCancellationReason) {}
 
@@ -233,5 +236,6 @@ pub(crate) fn inc_server_accept_loop_exit(reason: ServerCancellationReason) {
     counter!(SERVER_ACCEPT_LOOPS_EXITED, "reason" => reason.as_str()).increment(1);
 }
 
+/// Record an accept loop that exited after supervisor cancellation.
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_server_accept_loop_exit(_reason: ServerCancellationReason) {}
