@@ -33,16 +33,13 @@ macro_rules! assert_trace_event {
     ($event:expr, $reason:expr) => {
         logs_assert(|lines: &[&str]| {
             let captured = lines.join("\\n");
-            if !lines.iter().any(|line| line.contains($event)) {
+            if !lines
+                .iter()
+                .any(|line| line.contains($event) && line.contains($reason))
+            {
                 return Err(format!(
-                    "trace event {:?} was not captured; captured logs: {captured}",
-                    $event
-                ));
-            }
-            if !lines.iter().any(|line| line.contains($reason)) {
-                return Err(format!(
-                    "trace reason {:?} was not captured; captured logs: {captured}",
-                    $reason
+                    "trace event {:?} with reason {:?} was not captured; captured logs: {captured}",
+                    $event, $reason
                 ));
             }
             Ok(())

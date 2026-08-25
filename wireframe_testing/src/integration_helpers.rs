@@ -59,6 +59,20 @@ pub fn unused_listener() -> TestResult<StdTcpListener> { Ok(StdTcpListener::bind
 ///
 /// Returns an error when the listener remains bound for one second or when a
 /// probe fails for a reason other than `ConnectionRefused`.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use std::net::SocketAddr;
+///
+/// use wireframe_testing::{TestResult, wait_for_listener_release};
+///
+/// # async fn example(addr: SocketAddr) -> TestResult {
+/// wait_for_listener_release(addr).await?;
+/// // Successful completion means a connection probe was refused.
+/// Ok(())
+/// # }
+/// ```
 pub async fn wait_for_listener_release(addr: SocketAddr) -> TestResult {
     let release_result: TestResult = timeout(Duration::from_secs(1), async {
         loop {
@@ -81,6 +95,19 @@ pub async fn wait_for_listener_release(addr: SocketAddr) -> TestResult {
 ///
 /// Returns an error when readiness is not reported within one second or when
 /// the supervisor drops the readiness sender.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tokio::sync::oneshot;
+/// use wireframe_testing::{TestResult, wait_for_server_readiness};
+///
+/// # async fn example(readiness: oneshot::Receiver<()>) -> TestResult {
+/// wait_for_server_readiness(readiness).await?;
+/// // Successful completion means the supervisor reported readiness.
+/// Ok(())
+/// # }
+/// ```
 pub async fn wait_for_server_readiness(readiness: oneshot::Receiver<()>) -> TestResult {
     timeout(Duration::from_secs(1), readiness)
         .await

@@ -85,6 +85,19 @@ cancels the accept loops and waits for tracked work. The drop guard does not
 cancel connection tasks that were already accepted; those tasks continue under
 the existing graceful-drain semantics.
 
+The private `SupervisorLifecycle` state starts as `Running` and records one
+terminal outcome: `Graceful` when the shutdown future resolves, `Dropped` when
+the supervisor frame is abandoned, or `Finished` when tracked work ends before
+either cancellation path. Cloned lifecycle handles pass the recorded
+cancellation reason to each accept loop, which records its own exit after it
+observes cancellation. The supervisor cancellation counter and accept-loop
+exit counter (`wireframe_server_supervisor_cancellations_total` and
+`wireframe_server_accept_loops_exited_total`) use only the bounded `reason`
+values `"graceful"` and `"dropped"`; direct future drops and
+`JoinHandle::abort()` therefore have the same `"dropped"` reason. The
+corresponding static tracing events are `server_supervisor_cancellation` and
+`server_accept_loop_exited`, each with the same `reason` field.
+
 ## Allowed aliases and prohibited mixing
 
 | Canonical term | Allowed aliases                     | Avoid in the same context                 |

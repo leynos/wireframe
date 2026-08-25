@@ -7,8 +7,13 @@
 
 use std::future;
 
+use proptest::{
+    prelude::*,
+    test_runner::{TestCaseError, TestCaseResult},
+};
 use tokio::{
     net::TcpStream,
+    runtime::Builder,
     sync::oneshot,
     time::{Duration, timeout},
 };
@@ -34,6 +39,14 @@ impl TerminalAction {
     const ALL: [Self; 3] = [Self::Graceful, Self::Drop, Self::Abort];
 }
 
+fn terminal_actions() -> impl Strategy<Value = TerminalAction> {
+    prop_oneof![
+        Just(TerminalAction::Graceful),
+        Just(TerminalAction::Drop),
+        Just(TerminalAction::Abort),
+    ]
+}
+
 /// Exercise the bounded supervisor model for every worker/action combination.
 ///
 /// The worker-count domain contains normalization (`0`), one worker, and two
@@ -48,6 +61,35 @@ async fn bounded_server_supervisor_lifecycle_model() -> TestResult {
         }
     }
     Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 12,
+        .. ProptestConfig::default()
+    })]
+
+    /// Generate bounded lifecycle cases in addition to the exhaustive matrix.
+    #[test]
+    fn generated_server_supervisor_lifecycle_cases(
+        requested_workers in prop_oneof![Just(0usize), Just(1), 2usize..=4],
+        action in terminal_actions(),
+    ) {
+        run_generated_lifecycle_case(requested_workers, action)?;
+    }
+}
+
+fn run_generated_lifecycle_case(
+    requested_workers: usize,
+    action: TerminalAction,
+) -> TestCaseResult {
+    let runtime = Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| TestCaseError::fail(error.to_string()))?;
+    runtime
+        .block_on(exercise_lifecycle(requested_workers, action))
+        .map_err(|error| TestCaseError::fail(error.to_string()))
 }
 
 async fn exercise_lifecycle(requested_workers: usize, action: TerminalAction) -> TestResult {
