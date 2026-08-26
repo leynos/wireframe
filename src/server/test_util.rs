@@ -10,12 +10,16 @@ use rstest::fixture;
 use super::{Bound, ServerError, WireframeServer};
 use crate::app::WireframeApp;
 
+/// Test-only preamble payload.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct TestPreamble {
+    /// Preamble identifier used by tests.
     pub id: u32,
+    /// Preamble message used by tests.
     pub message: String,
 }
 
+/// Produce a default [`WireframeApp`] factory closure for tests.
 #[fixture]
 pub fn factory() -> impl Fn() -> WireframeApp + Send + Sync + Clone + 'static {
     || WireframeApp::default()
@@ -68,6 +72,7 @@ pub fn free_addr() -> io::Result<SocketAddr> {
 #[cfg(test)]
 pub fn listener_addr(listener: &StdTcpListener) -> io::Result<SocketAddr> { listener.local_addr() }
 
+/// Bind a [`WireframeServer`] to an existing listener for tests.
 pub fn bind_server<F>(
     factory: F,
     listener: StdTcpListener,
@@ -78,6 +83,7 @@ where
     WireframeServer::new(factory).bind_existing_listener(listener)
 }
 
+/// Build a [`WireframeServer`] configured with [`TestPreamble`].
 #[cfg(test)]
 pub fn server_with_preamble<F>(factory: F) -> WireframeServer<F, TestPreamble>
 where

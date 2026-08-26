@@ -80,7 +80,9 @@ pub const SERVER_ACCEPT_LOOPS_EXITED: &str = "wireframe_server_accept_loops_exit
 /// Bounded reasons for server-supervisor cancellation metrics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerCancellationReason {
+    /// Cancellation followed completion of the graceful-shutdown future.
     Graceful,
+    /// Cancellation followed the server-supervisor future being dropped.
     Dropped,
 }
 
@@ -116,6 +118,9 @@ impl Direction {
 #[cfg(feature = "metrics")]
 pub fn inc_connections() { gauge!(CONNECTIONS_ACTIVE).increment(1.0); }
 
+/// Increment the active connections gauge.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connections() {}
 
@@ -123,6 +128,9 @@ pub fn inc_connections() {}
 #[cfg(feature = "metrics")]
 pub fn dec_connections() { gauge!(CONNECTIONS_ACTIVE).decrement(1.0); }
 
+/// Decrement the active connections gauge.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn dec_connections() {}
 
@@ -132,6 +140,9 @@ pub fn inc_frames(direction: Direction) {
     counter!(FRAMES_PROCESSED, "direction" => direction.as_str()).increment(1);
 }
 
+/// Record a processed frame for the given direction.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_frames(_direction: Direction) {}
 
@@ -139,6 +150,9 @@ pub fn inc_frames(_direction: Direction) {}
 #[cfg(feature = "metrics")]
 pub fn inc_deser_errors() { counter!(ERRORS_TOTAL, "kind" => "deserialization").increment(1); }
 
+/// Record a deserialization error.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_deser_errors() {}
 
@@ -146,6 +160,9 @@ pub fn inc_deser_errors() {}
 #[cfg(feature = "metrics")]
 pub fn inc_handler_errors() { counter!(ERRORS_TOTAL, "kind" => "handler").increment(1); }
 
+/// Record a handler error.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_handler_errors() {}
 
@@ -168,6 +185,9 @@ pub fn inc_handler_errors() {}
 #[cfg(feature = "metrics")]
 pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
 
+/// Record a panicking connection task.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connection_panics() {}
 
@@ -177,6 +197,9 @@ pub fn inc_pool_bookkeeping_poison_recoveries() {
     counter!(POOL_BOOKKEEPING_POISON_RECOVERIES).increment(1);
 }
 
+/// Record a recovered client pool bookkeeping lock poison event.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_pool_bookkeeping_poison_recoveries() {}
 
@@ -208,6 +231,9 @@ pub fn inc_codec_error(error_type: &'static str, recovery_policy: &'static str) 
     .increment(1);
 }
 
+/// Record a codec error with its type and recovery policy.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_codec_error(_error_type: &'static str, _recovery_policy: &'static str) {}
 
@@ -217,6 +243,9 @@ pub(crate) fn inc_server_supervisor_cancellation(reason: ServerCancellationReaso
     counter!(SERVER_SUPERVISOR_CANCELLATIONS, "reason" => reason.as_str()).increment(1);
 }
 
+/// Record a server-supervisor cancellation request with a bounded reason.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_server_supervisor_cancellation(_reason: ServerCancellationReason) {}
 
@@ -226,5 +255,8 @@ pub(crate) fn inc_server_accept_loop_exit(reason: ServerCancellationReason) {
     counter!(SERVER_ACCEPT_LOOPS_EXITED, "reason" => reason.as_str()).increment(1);
 }
 
+/// Record an accept loop that exited after supervisor cancellation.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_server_accept_loop_exit(_reason: ServerCancellationReason) {}

@@ -11,22 +11,38 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use super::FrameCodec;
 
+/// A Hotline frame with a 20-byte big-endian header and transaction identifier.
 #[derive(Clone, Debug)]
 pub struct HotlineFrame {
+    /// Transaction identifier from the Hotline frame header.
     pub transaction_id: u32,
+    /// Frame payload following the Hotline header.
     pub payload: Bytes,
 }
 
+/// Codec for Hotline frames with 20-byte big-endian headers.
 #[derive(Clone, Debug)]
 pub struct HotlineFrameCodec {
     max_frame_length: usize,
 }
 
 impl HotlineFrameCodec {
+    /// Construct a Hotline codec with a maximum frame length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::codec::{FrameCodec, examples::HotlineFrameCodec};
+    ///
+    /// let codec = HotlineFrameCodec::new(1024);
+    ///
+    /// assert_eq!(codec.max_frame_length(), 1024);
+    /// ```
     #[must_use]
     pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
+/// Adapter that encodes and decodes Hotline frames.
 #[derive(Clone, Debug)]
 #[doc(hidden)]
 pub struct HotlineAdapter {
@@ -130,22 +146,38 @@ impl FrameCodec for HotlineFrameCodec {
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
 
+/// A `MySQL` frame with a 3-byte little-endian length and sequence number.
 #[derive(Clone, Debug)]
 pub struct MysqlFrame {
+    /// Sequence number from the `MySQL` frame header.
     pub sequence_id: u8,
+    /// Frame payload following the `MySQL` header.
     pub payload: Bytes,
 }
 
+/// Codec for `MySQL` frames with 3-byte little-endian length headers.
 #[derive(Clone, Debug)]
 pub struct MysqlFrameCodec {
     max_frame_length: usize,
 }
 
 impl MysqlFrameCodec {
+    /// Construct a `MySQL` codec with a maximum frame length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::codec::{FrameCodec, examples::MysqlFrameCodec};
+    ///
+    /// let codec = MysqlFrameCodec::new(1024);
+    ///
+    /// assert_eq!(codec.max_frame_length(), 1024);
+    /// ```
     #[must_use]
     pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
+/// Adapter that encodes and decodes `MySQL` frames.
 #[derive(Clone, Debug)]
 #[doc(hidden)]
 pub struct MysqlAdapter {
