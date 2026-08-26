@@ -269,3 +269,36 @@ fn message_assembler_accessor_reflects_installation() {
         "installed assembler should be visible"
     );
 }
+
+#[rstest]
+#[tokio::test]
+async fn prepared_app_retains_runtime_protocol_accessors(queues: QueueResult) -> TestResult<()> {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let prepared = TestApp::new()?
+        .with_protocol(TestProtocol {
+            counter: Arc::clone(&counter),
+        })
+        .with_message_assembler(DemoAssembler)
+        .prepare()
+        .await
+        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+
+    assert!(
+        prepared.protocol().is_some(),
+        "prepared protocol should be visible"
+    );
+    assert!(
+        prepared.message_assembler().is_some(),
+        "prepared assembler should be visible"
+    );
+
+    let (_queues, handle) = queues?;
+    let mut hooks = prepared.protocol_hooks();
+    hooks.on_connection_setup(handle, &mut ConnectionContext);
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "prepared hooks should run"
+    );
+    Ok(())
+}

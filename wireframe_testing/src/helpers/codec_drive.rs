@@ -1,4 +1,8 @@
 //! Codec-aware in-memory driving helpers.
+#![expect(
+    deprecated,
+    reason = "legacy test drivers preserve builder-based coverage during migration"
+)]
 //!
 //! These functions extend the frame-oriented drivers in [`super::drive`] with
 //! automatic encoding and decoding through an arbitrary [`FrameCodec`]. Test

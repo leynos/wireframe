@@ -1,5 +1,9 @@
 //! Integration coverage for custom `FrameCodec` implementations.
 #![cfg(not(loom))]
+#![expect(
+    deprecated,
+    reason = "codec tests retain compatibility-driver coverage during migration"
+)]
 
 use std::{
     io,

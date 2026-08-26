@@ -1,5 +1,10 @@
 //! Behavioural fixture for budget cleanup and reclamation scenarios (8.3.6).
 
+#![expect(
+    deprecated,
+    reason = "behavioural fixtures retain compatibility-driver coverage during migration"
+)]
+
 use std::{fmt, future::Future, num::NonZeroUsize, str::FromStr, time::Duration};
 
 use futures::SinkExt;

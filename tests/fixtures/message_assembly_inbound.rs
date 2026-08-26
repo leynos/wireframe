@@ -1,5 +1,10 @@
 //! `MessageAssemblyInboundWorld` fixture for inbound assembly integration.
 
+#![expect(
+    deprecated,
+    reason = "behavioural fixtures retain compatibility-driver coverage during migration"
+)]
+
 use std::{fmt, future::Future, num::NonZeroUsize, time::Duration};
 
 use futures::SinkExt;

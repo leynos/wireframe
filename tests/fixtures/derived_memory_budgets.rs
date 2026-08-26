@@ -1,5 +1,10 @@
 //! Behavioural fixture for derived memory budget default scenarios.
 
+#![expect(
+    deprecated,
+    reason = "behavioural fixtures retain compatibility-driver coverage during migration"
+)]
+
 use std::{fmt, future::Future, num::NonZeroUsize, time::Duration};
 
 use futures::SinkExt;

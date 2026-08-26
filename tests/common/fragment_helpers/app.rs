@@ -1,5 +1,10 @@
 //! Test application builders for fragment integration tests.
 
+#![expect(
+    deprecated,
+    reason = "fragment tests retain compatibility-driver coverage during migration"
+)]
+
 use std::io;
 
 use tokio::sync::mpsc;

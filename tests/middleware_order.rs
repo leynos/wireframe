@@ -2,6 +2,10 @@
 //!
 //! Verifies tags are applied in reverse to request and response bodies.
 #![cfg(not(loom))]
+#![expect(
+    deprecated,
+    reason = "middleware tests retain compatibility-driver coverage during migration"
+)]
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};

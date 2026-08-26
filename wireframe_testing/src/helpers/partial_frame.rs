@@ -1,4 +1,5 @@
 //! Chunked-write in-memory driving helpers.
+#![expect(deprecated, reason = "legacy test drivers preserve builder-based coverage during migration")]
 //!
 //! These functions extend the frame-oriented drivers in [`super::drive`] with
 //! configurable chunk sizes, forcing the codec decoder on the server side to
