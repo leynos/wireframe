@@ -87,29 +87,40 @@ fn response_payload(bytes: Vec<u8>) -> TestResult<Vec<u8>> {
     reason = "assertions make transform counts and middleware order failures explicit"
 )]
 async fn prepared_app_transforms_routes_once_and_reuses_them() -> TestResult<()> {
+    let factory_calls = Arc::new(AtomicUsize::new(0));
     let transforms = Arc::new(AtomicUsize::new(0));
-    let app = TestApp::new()?
-        .route(1, handler())?
-        .route(2, handler())?
-        .wrap(TransformCountingMiddleware {
-            tag: b'A',
-            transforms: Arc::clone(&transforms),
-        })?
-        .wrap(TransformCountingMiddleware {
-            tag: b'B',
-            transforms: Arc::clone(&transforms),
-        })?;
+    let app_factory = {
+        let factory_calls = Arc::clone(&factory_calls);
+        let transforms = Arc::clone(&transforms);
+        move || {
+            factory_calls.fetch_add(1, Ordering::SeqCst);
+            TestApp::new()?
+                .route(1, handler())?
+                .route(2, handler())?
+                .wrap(TransformCountingMiddleware {
+                    tag: b'A',
+                    transforms: Arc::clone(&transforms),
+                })?
+                .wrap(TransformCountingMiddleware {
+                    tag: b'B',
+                    transforms: Arc::clone(&transforms),
+                })
+        }
+    };
 
+    assert_eq!(factory_calls.load(Ordering::SeqCst), 0);
     assert_eq!(transforms.load(Ordering::SeqCst), 0);
-    let prepared: TestPreparedApp = app
+    let prepared: TestPreparedApp = app_factory()?
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+    assert_eq!(factory_calls.load(Ordering::SeqCst), 1);
     assert_eq!(transforms.load(Ordering::SeqCst), 4);
 
     let first = drive_prepared_with_frames(&prepared, vec![build_frame(1, vec![b'X'])?]).await?;
     let second = drive_prepared_with_frames(&prepared, vec![build_frame(2, vec![b'Y'])?]).await?;
 
+    assert_eq!(factory_calls.load(Ordering::SeqCst), 1);
     assert_eq!(transforms.load(Ordering::SeqCst), 4);
     assert_eq!(response_payload(first)?, [b'X', b'A', b'B', b'B', b'A']);
     assert_eq!(response_payload(second)?, [b'Y', b'A', b'B', b'B', b'A']);
