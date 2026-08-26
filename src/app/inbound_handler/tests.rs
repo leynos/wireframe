@@ -5,7 +5,7 @@ use tokio_util::codec::{Decoder, Encoder};
 use wireframe_testing::logger;
 
 use super::*;
-use crate::serializer::BincodeSerializer;
+use crate::{app::frame_handling, serializer::BincodeSerializer};
 
 #[derive(Clone, Debug)]
 struct BadFrame {
@@ -78,7 +78,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
         let mut failure_tracker =
             frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
         let result = frame_handling::decode_envelope::<BadCodec>(
-            app.parse_envelope(BadCodec::frame_payload(&frame)),
+            core::parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
             &frame,
             &mut failure_tracker,
         );
@@ -89,7 +89,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
     let mut failure_tracker =
         frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
     let err = frame_handling::decode_envelope::<BadCodec>(
-        app.parse_envelope(BadCodec::frame_payload(&frame)),
+        core::parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
         &frame,
         &mut failure_tracker,
     )

@@ -1,4 +1,5 @@
 //! Slow reader and writer simulation helpers for in-memory app driving.
+#![expect(deprecated, reason = "legacy test drivers preserve builder-based coverage during migration")]
 //!
 //! These helpers extend the existing duplex-based drivers with configurable
 //! pacing on the client write side (slow writer) and client read side (slow

@@ -1,5 +1,10 @@
 //! Fragment-aware in-memory driving helpers.
 
+#![expect(
+    deprecated,
+    reason = "legacy testkit drivers preserve builder-based coverage during migration"
+)]
+
 use std::{io, num::NonZeroUsize};
 
 use super::support::{

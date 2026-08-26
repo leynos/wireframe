@@ -1,4 +1,5 @@
 //! Fragment-aware in-memory driving helpers.
+#![expect(deprecated, reason = "legacy test drivers preserve builder-based coverage during migration")]
 //!
 //! These functions fragment a payload using a [`Fragmenter`], encode each
 //! fragment via [`encode_fragment_payload`], wrap the `FRAG`-prefixed bytes

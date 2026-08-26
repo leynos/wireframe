@@ -1,9 +1,14 @@
 //! Frame-oriented in-memory driving helpers.
 
+#![expect(
+    deprecated,
+    reason = "legacy test drivers preserve builder-based coverage during migration"
+)]
+
 use std::io;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
-use wireframe::app::{Packet, WireframeApp};
+use wireframe::app::{Packet, PreparedApp, WireframeApp};
 
 use super::{DEFAULT_CAPACITY, TestSerializer};
 
@@ -225,6 +230,47 @@ where
         |server| async move { app.handle_connection(server).await },
         frames,
         capacity,
+    )
+    .await
+}
+
+/// Prepare `app`, drive it with multiple frames, and return the response bytes.
+///
+/// This is the migration path for tests that own a builder but need to exercise
+/// the prepared connection path.
+pub async fn prepare_and_drive_with_frames<S, C, E>(
+    app: WireframeApp<S, C, E>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    let prepared = app
+        .prepare()
+        .await
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    drive_prepared_with_frames(&prepared, frames).await
+}
+
+/// Drive one connection through an already prepared application.
+///
+/// The borrowed prepared application can be driven repeatedly, allowing tests
+/// to verify that route middleware transforms are not rebuilt per connection.
+pub async fn drive_prepared_with_frames<S, C, E>(
+    app: &PreparedApp<S, C, E>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+{
+    drive_internal(
+        |server| async move { app.handle_connection(server).await },
+        frames,
+        DEFAULT_CAPACITY,
     )
     .await
 }

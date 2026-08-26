@@ -121,7 +121,7 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
 /// Initialize tracing, bind the listener, and serve until shutdown is signalled.
 async fn run() -> std::io::Result<()> {
     runtime_bootstrap::init_tracing();
-    let app = runtime_bootstrap::build_runtime_app(build_app)?;
+    let app = runtime_bootstrap::build_runtime_app(build_app).await?;
     let listener = runtime_bootstrap::bind_listener(parse_server_addr()?).await?;
     runtime_bootstrap::serve_until_shutdown(
         listener,

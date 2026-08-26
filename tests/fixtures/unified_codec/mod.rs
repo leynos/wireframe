@@ -5,6 +5,11 @@
 //! via `WireframeApp::handle_connection_result` over in-memory duplex
 //! streams.
 
+#![expect(
+    deprecated,
+    reason = "behavioural fixtures retain compatibility-driver coverage during migration"
+)]
+
 mod transport;
 
 use std::io;
