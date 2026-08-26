@@ -1,5 +1,10 @@
 //! Runtime-level helpers for running apps against in-memory streams.
 
+#![expect(
+    deprecated,
+    reason = "legacy test drivers preserve builder-based coverage during migration"
+)]
+
 use std::io;
 
 use tokio::io::duplex;

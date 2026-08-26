@@ -179,7 +179,7 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
 /// same lifecycle as the example process.
 async fn run() -> std::io::Result<()> {
     runtime_bootstrap::init_tracing();
-    let app = runtime_bootstrap::build_runtime_app(build_app)?;
+    let app = runtime_bootstrap::build_runtime_app(build_app).await?;
     let listener = runtime_bootstrap::bind_listener(parse_server_addr()?).await?;
     runtime_bootstrap::serve_until_shutdown(
         listener,

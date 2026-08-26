@@ -1,5 +1,10 @@
 //! Private support utilities shared across `wireframe::testkit`.
 
+#![expect(
+    deprecated,
+    reason = "legacy testkit drivers preserve builder-based coverage during migration"
+)]
+
 use std::{io, num::NonZeroUsize};
 
 use bytes::{Bytes, BytesMut};

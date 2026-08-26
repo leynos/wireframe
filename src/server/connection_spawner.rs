@@ -100,7 +100,13 @@ where
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     match factory.build() {
-        Ok(app) => {
+        Ok(app) =>
+        {
+            #[expect(
+                deprecated,
+                reason = "the server retains per-connection factory evaluation until the runtime \
+                          slice"
+            )]
             if let Err(e) = app.handle_connection_result(stream).await {
                 warn!("connection task error: {e:?}");
             }

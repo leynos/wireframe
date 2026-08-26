@@ -1,5 +1,9 @@
 //! Tests for shared example codecs.
 #![cfg(not(loom))]
+#![expect(
+    deprecated,
+    reason = "codec tests retain compatibility-driver coverage during migration"
+)]
 
 use std::{io, sync::Arc};
 

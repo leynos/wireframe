@@ -1,0 +1,5 @@
+error[E0599]: no method named `route` found for struct `PreparedApp<S, C, E, F>` in the current scope
+  --> tests/ui/prepared_app_rejects_route.rs:14:22
+   |
+14 |     let _ = prepared.route(1, handler);
+   |                      ^^^^^ method not found in `PreparedApp`
