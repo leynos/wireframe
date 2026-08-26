@@ -28,6 +28,16 @@ pub struct HotlineFrameCodec {
 
 impl HotlineFrameCodec {
     /// Construct a Hotline codec with a maximum frame length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::codec::{FrameCodec, examples::HotlineFrameCodec};
+    ///
+    /// let codec = HotlineFrameCodec::new(1024);
+    ///
+    /// assert_eq!(codec.max_frame_length(), 1024);
+    /// ```
     #[must_use]
     pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
@@ -153,6 +163,16 @@ pub struct MysqlFrameCodec {
 
 impl MysqlFrameCodec {
     /// Construct a `MySQL` codec with a maximum frame length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::codec::{FrameCodec, examples::MysqlFrameCodec};
+    ///
+    /// let codec = MysqlFrameCodec::new(1024);
+    ///
+    /// assert_eq!(codec.max_frame_length(), 1024);
+    /// ```
     #[must_use]
     pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
