@@ -238,6 +238,10 @@ where
 ///
 /// This is the migration path for tests that own a builder but need to exercise
 /// the prepared connection path.
+///
+/// # Errors
+///
+/// Returns an I/O error if preparation or duplex connection handling fails.
 pub async fn prepare_and_drive_with_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -258,6 +262,10 @@ where
 ///
 /// The borrowed prepared application can be driven repeatedly, allowing tests
 /// to verify that route middleware transforms are not rebuilt per connection.
+///
+/// # Errors
+///
+/// Returns an I/O error from the duplex transport or prepared application.
 pub async fn drive_prepared_with_frames<S, C, E>(
     app: &PreparedApp<S, C, E>,
     frames: Vec<Vec<u8>>,
