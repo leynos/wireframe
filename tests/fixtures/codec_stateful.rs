@@ -3,11 +3,6 @@
 //! Ensures per-connection codec state is isolated so sequence numbers reset
 //! between client connections.
 
-#![expect(
-    deprecated,
-    reason = "behavioural fixtures retain compatibility-driver coverage during migration"
-)]
-
 use std::{
     net::SocketAddr,
     sync::atomic::{AtomicU64, Ordering},
@@ -159,6 +154,10 @@ struct StatefulServer {
     handle: JoinHandle<()>,
 }
 
+#[expect(
+    deprecated,
+    reason = "fixture covers the legacy builder connection API"
+)]
 async fn serve_stateful_connections(
     listener: TcpListener,
     app: WireframeApp<BincodeSerializer, (), Envelope, SeqFrameCodec>,

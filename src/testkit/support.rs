@@ -1,10 +1,5 @@
 //! Private support utilities shared across `wireframe::testkit`.
 
-#![expect(
-    deprecated,
-    reason = "legacy testkit drivers preserve builder-based coverage during migration"
-)]
-
 use std::{io, num::NonZeroUsize};
 
 use bytes::{Bytes, BytesMut};
@@ -305,6 +300,10 @@ pub(crate) fn extract_payloads<F: FrameCodec>(frames: &[F::Frame]) -> Vec<Vec<u8
 }
 
 /// Run an app on the server half, preserving ownership for task orchestration.
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub(crate) async fn run_owned_app<S, C, E, F>(app: WireframeApp<S, C, E, F>, server: DuplexStream)
 where
     S: TestSerializer,

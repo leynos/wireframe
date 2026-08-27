@@ -2,10 +2,6 @@
 //!
 //! Verifies tags are applied in reverse to request and response bodies.
 #![cfg(not(loom))]
-#![expect(
-    deprecated,
-    reason = "middleware tests retain compatibility-driver coverage during migration"
-)]
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
@@ -61,6 +57,7 @@ impl Transform<HandlerService<Envelope>> for TagMiddleware {
     clippy::panic_in_result_fn,
     reason = "asserts provide clearer diagnostics in tests"
 )]
+#[expect(deprecated, reason = "test covers the legacy builder connection API")]
 async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let handler: Handler<Envelope> = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
     let app = TestApp::new()

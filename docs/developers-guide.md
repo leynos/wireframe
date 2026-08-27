@@ -67,8 +67,22 @@ boundaries for Epic 635:
   client-pool scheduler a single persistent owner task and index-based slot
   leases beneath one `PoolCore` root.
 
-These records are proposed, not yet accepted; the review checklist derived from
-ADR 011's rules lands with their implementation epic.
+The first implementation slice is now in place: consuming
+`WireframeApp::prepare().await` returns an immutable `PreparedApp` or a typed
+`PrepareError`. Preparation consumes route and middleware registrations and
+builds each route chain once. Connection tasks borrow the prepared route table,
+so a single prepared application can serve multiple connections without
+repeating middleware transforms. `WireframeApp` remains the registration
+builder, and its direct connection methods are compatibility APIs.
+
+Server factory evaluation and readiness semantics remain unchanged in this
+slice. The server-runtime work tracked by issue
+[#642](https://github.com/leynos/wireframe/issues/642) will prepare the factory
+result before server readiness; connection-local state and the
+`ConnectionRuntime` follow in issue
+[#643](https://github.com/leynos/wireframe/issues/643). The records remain
+proposed, and the review checklist derived from ADR 011's rules lands with
+their implementation epic.
 
 ### Server supervisor lifecycle
 
