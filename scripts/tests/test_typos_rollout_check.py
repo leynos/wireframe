@@ -14,6 +14,10 @@ REPOSITORY = SCRIPTS.parent
 PROHIBITED = "hand" + "-written"
 TITLE_PROHIBITED = "Hand" + "-written"
 INLINE_CODE_EXCLUSION = r"`[^`\n]+`"
+SPELLING_POLICY_PATTERNS = (
+    ("typos.local.toml", "patterns", "ignore"),
+    ("typos.toml", "default", "extend-ignore-re"),
+)
 
 
 @pytest.fixture
@@ -78,15 +82,22 @@ class TestPhrasePolicyChecker:
         with pytest.raises(FileNotFoundError, match=r"docs/developers-guide\.md"):
             checker.load_policy(tmp_path)
 
-    def test_local_policy_does_not_mask_every_inline_code_span(self) -> None:
+    @pytest.mark.parametrize(
+        ("filename", "table_name", "field_name"), SPELLING_POLICY_PATTERNS
+    )
+    def test_spelling_policies_do_not_mask_every_inline_code_span(
+        self, filename: str, table_name: str, field_name: str
+    ) -> None:
         """Reject the retired repository-wide inline-code spelling exemption."""
-        with (REPOSITORY / "typos.local.toml").open("rb") as stream:
+        with (REPOSITORY / filename).open("rb") as stream:
             document = tomllib.load(stream)
 
-        patterns = document["patterns"]
-        assert isinstance(patterns, dict), "the local spelling patterns are absent"
-        assert INLINE_CODE_EXCLUSION not in patterns["ignore"], (
-            "the local spelling policy masks every inline-code span"
+        patterns = document[table_name]
+        assert isinstance(patterns, dict), (
+            f"the {filename} spelling patterns are absent"
+        )
+        assert INLINE_CODE_EXCLUSION not in patterns[field_name], (
+            f"the {filename} spelling policy masks every inline-code span"
         )
 
     def test_checker_preserves_boundaries_masking_and_exclusions(

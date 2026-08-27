@@ -31,6 +31,7 @@ extend-exclude = [
 locale = "en-gb"
 extend-ignore-re = [
     "(?s)```.*?```",
+    "BackoffConfig::normalised",
     "\\ \\ \\ \\ PoolServerBehavior,",
     "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
     "\\ \\ \\ \\ \\ \\ \\ Self::start_with_behavior\\(PoolServerBehavior::Ech",
@@ -47,9 +48,9 @@ extend-ignore-re = [
     "\\ reopened,\\ synchronize,\\ labeled,\\ ready_for_review\\]",
     "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\",\\ sta",
     "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\"\\)\\]",
+    "\\bPoolServerBehavior\\b",
     "\\brust-analyzer\\b",
     "\\|\\|\\ \"fragment\\ series\\ not\\ initialised\"\\.into\\(\\)\\)",
-    "`[^`\\n]+`",
     "ask\\ items\\ with\\ a\\ GitHub\\ Flavored",
     "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
     "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",
