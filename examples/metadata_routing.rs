@@ -16,8 +16,12 @@ use wireframe::{
     serializer::{MessageCompatibilitySerializer, Serializer},
 };
 
+/// Application type used to route envelopes after the metadata header is read.
+/// The serializer extracts the route ID before payload decoding, so dispatch can
+/// select a handler without coupling routing to the bincode representation.
 type App = wireframe::app::WireframeApp<HeaderSerializer, (), Envelope>;
 
+/// Maximum frame buffer used by this in-memory protocol demonstration.
 const MAX_FRAME: usize = 64 * 1024;
 
 /// Frame format with a two-byte id, one-byte flags, and bincode payload.
@@ -74,8 +78,12 @@ impl FrameMetadata for HeaderSerializer {
 }
 
 #[derive(bincode::Decode, bincode::Encode)]
+/// Empty payload used to exercise metadata-only dispatch for a ping route.
 struct Ping;
 
+/// Builds the in-memory client/server exchange and verifies orderly shutdown.
+/// The client writes one length-delimited frame, closes its write side, and
+/// waits for the server task so the example does not leave an actor running.
 async fn run() -> io::Result<()> {
     let app = App::with_serializer(HeaderSerializer)
         .map_err(|error| io::Error::other(error.to_string()))?
