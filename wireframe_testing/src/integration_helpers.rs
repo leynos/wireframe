@@ -371,10 +371,9 @@ mod tests {
     }
 
     #[test]
-    fn factory_builds_default_app() -> super::TestResult {
+    fn factory_builds_default_app() {
         let build = factory();
         let app = build();
         let _codec = app.length_codec();
-        Ok(())
     }
 }

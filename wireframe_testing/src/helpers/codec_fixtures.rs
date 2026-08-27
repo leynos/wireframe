@@ -202,11 +202,9 @@ pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u
     let data_size = u32_from_usize(payload_len);
     let total_size = u32_from_usize(payload_len.saturating_add(HEADER_LEN));
 
-    let half_payload = payload_len / 2;
+    let half_payload = payload_len >> 1;
     let mut buf = Vec::with_capacity(HEADER_LEN + half_payload);
-    buf.extend_from_slice(&data_size.to_be_bytes());
-    buf.extend_from_slice(&total_size.to_be_bytes());
-    buf.extend_from_slice(&0u32.to_be_bytes()); // transaction_id
+    append_hotline_header(&mut buf, data_size, total_size, 0); // transaction_id
     buf.extend_from_slice(&[0u8; 8]); // reserved
     buf.extend_from_slice(&vec![0xcc; half_payload]);
     buf
@@ -301,10 +299,7 @@ fn build_hotline_wire(
     };
 
     let mut buf = Vec::with_capacity(HEADER_LEN + payload.len());
-    buf.extend_from_slice(&data_size_u32.to_be_bytes());
-    buf.extend_from_slice(&total_size.to_be_bytes());
-    buf.extend_from_slice(&transaction_id.to_be_bytes());
-    buf.extend_from_slice(&[0u8; 8]); // reserved
+    append_hotline_header(&mut buf, data_size_u32, total_size, transaction_id);
     buf.extend_from_slice(payload);
     buf
 }
@@ -314,3 +309,15 @@ fn build_hotline_wire(
 /// Fixture payloads are always small enough to fit in `u32`, but we avoid a
 /// truncating cast to satisfy Clippy.
 fn u32_from_usize(value: usize) -> u32 { u32::try_from(value).unwrap_or(u32::MAX) }
+
+/// Append the fixed-width Hotline header fields in the protocol's network byte order.
+#[expect(
+    clippy::big_endian_bytes,
+    reason = "Hotline fixtures must construct the protocol's big-endian wire header"
+)]
+fn append_hotline_header(buf: &mut Vec<u8>, data_size: u32, total_size: u32, transaction_id: u32) {
+    buf.extend_from_slice(&data_size.to_be_bytes());
+    buf.extend_from_slice(&total_size.to_be_bytes());
+    buf.extend_from_slice(&transaction_id.to_be_bytes());
+    buf.extend_from_slice(&[0_u8; 8]);
+}
