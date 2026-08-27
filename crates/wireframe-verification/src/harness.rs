@@ -7,13 +7,13 @@ use stateright::{Checker, CheckerBuilder, Model};
 /// Default maximum depth for repository-local Stateright checks.
 pub const DEFAULT_TARGET_MAX_DEPTH: NonZeroUsize = match NonZeroUsize::new(8) {
     Some(v) => v,
-    _ => unreachable!(),
+    None => NonZeroUsize::MIN,
 };
 
 /// Default state budget for repository-local Stateright checks.
 pub const DEFAULT_TARGET_STATE_COUNT: NonZeroUsize = match NonZeroUsize::new(5_000) {
     Some(v) => v,
-    _ => unreachable!(),
+    None => NonZeroUsize::MIN,
 };
 
 /// Bounds applied to a Stateright checker run.
