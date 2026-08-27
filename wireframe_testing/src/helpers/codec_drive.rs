@@ -1,8 +1,4 @@
 //! Codec-aware in-memory driving helpers.
-#![expect(
-    deprecated,
-    reason = "legacy test drivers preserve builder-based coverage during migration"
-)]
 //!
 //! These functions extend the frame-oriented drivers in [`super::drive`] with
 //! automatic encoding and decoding through an arbitrary [`FrameCodec`]. Test
@@ -180,6 +176,10 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_codec_payloads_with_capacity_mut<S, C, E, F>(
     app: &mut WireframeApp<S, C, E, F>,
     codec: &F,
@@ -261,6 +261,10 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_codec_frames_with_capacity<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,

@@ -199,7 +199,15 @@ where
             );
         }
     }
+}
 
+impl<S, C, E, F> PreparedApp<S, C, E, F>
+where
+    S: Serializer + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+{
     /// Get a clone of the configured protocol, if any.
     ///
     /// # Examples

@@ -1,5 +1,4 @@
 //! Slow reader and writer simulation helpers for in-memory app driving.
-#![expect(deprecated, reason = "legacy test drivers preserve builder-based coverage during migration")]
 //!
 //! These helpers extend the existing duplex-based drivers with configurable
 //! pacing on the client write side (slow writer) and client read side (slow
@@ -267,6 +266,7 @@ fn encode_length_delimited_payloads(payloads: Vec<Vec<u8>>) -> io::Result<Vec<u8
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_slow_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -288,6 +288,7 @@ where
 
 /// Encode payloads with the default length-delimited codec and drive `app`
 /// using optional slow writer and reader pacing.
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_slow_payloads<S, C, E>(
     app: WireframeApp<S, C, E>,
     payloads: Vec<Vec<u8>>,
@@ -356,6 +357,7 @@ where
 
 /// Drive `app` with codec-encoded payloads using optional slow I/O pacing and
 /// return decoded response frames.
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_slow_codec_frames<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,

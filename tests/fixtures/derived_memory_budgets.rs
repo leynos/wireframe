@@ -1,10 +1,5 @@
 //! Behavioural fixture for derived memory budget default scenarios.
 
-#![expect(
-    deprecated,
-    reason = "behavioural fixtures retain compatibility-driver coverage during migration"
-)]
-
 use std::{fmt, future::Future, num::NonZeroUsize, time::Duration};
 
 use futures::SinkExt;
@@ -230,6 +225,10 @@ impl DerivedMemoryBudgetsWorld {
         self.start_with_app(app, rx)
     }
 
+    #[expect(
+        deprecated,
+        reason = "fixture covers the legacy builder connection API"
+    )]
     fn start_with_app(
         &mut self,
         app: WireframeApp,

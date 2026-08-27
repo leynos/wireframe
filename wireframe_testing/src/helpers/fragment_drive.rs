@@ -1,5 +1,4 @@
 //! Fragment-aware in-memory driving helpers.
-#![expect(deprecated, reason = "legacy test drivers preserve builder-based coverage during migration")]
 //!
 //! These functions fragment a payload using a [`Fragmenter`], encode each
 //! fragment via [`encode_fragment_payload`], wrap the `FRAG`-prefixed bytes
@@ -191,6 +190,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_fragments_with_capacity<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -237,6 +237,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_fragments_mut<S, C, E, F>(
     app: &mut WireframeApp<S, C, E, F>,
     codec: &F,
@@ -286,6 +287,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_fragment_frames<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -334,6 +336,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_fragments<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,

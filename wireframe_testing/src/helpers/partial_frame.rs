@@ -1,5 +1,4 @@
 //! Chunked-write in-memory driving helpers.
-#![expect(deprecated, reason = "legacy test drivers preserve builder-based coverage during migration")]
 //!
 //! These functions extend the frame-oriented drivers in [`super::drive`] with
 //! configurable chunk sizes, forcing the codec decoder on the server side to
@@ -216,6 +215,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_frames_with_capacity<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -262,6 +262,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_frames_mut<S, C, E, F>(
     app: &mut WireframeApp<S, C, E, F>,
     codec: &F,
@@ -312,6 +313,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_codec_frames<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,

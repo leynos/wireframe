@@ -46,7 +46,9 @@ A `WireframeApp` collects route handlers and middleware. Each handler is stored
 as an `Arc` pointing to an async function that receives a packet reference and
 returns `()`. For manually accepted streams, consume the builder with
 `prepare().await` after registration to construct immutable middleware chains
-once and obtain a `PreparedApp`.[^2]
+once and obtain a `PreparedApp`. The transition returns
+`Result<PreparedApp, PrepareError>`; a preparation failure therefore produces
+no partially usable runtime.[^2]
 
 ```no_run
 use std::sync::Arc;
@@ -177,12 +179,13 @@ fn inspect_transport_source(error: &WireframeError) -> Option<&dyn Error> {
 ```
 
 For a manually accepted stream, prepare the application once and then call
-`PreparedApp::handle_connection_result(stream)` for every connection. The
+`PreparedApp::handle_connection_result(stream)` (or the logging
+`PreparedApp::handle_connection(stream)` wrapper) for every connection. The
 prepared application reuses its middleware chains, wraps each transport in the
 configured frame codec (length-delimited by default), enforces per-frame read
-timeouts, and writes responses. The deprecated `WireframeApp::handle_connection`
-methods rebuild route chains for compatibility and should not be used in new
-code.
+timeouts, and writes responses. The deprecated
+`WireframeApp::handle_connection` methods rebuild route chains for
+compatibility and should not be used in new code.
 
 ```rust,no_run
 use tokio::io::duplex;

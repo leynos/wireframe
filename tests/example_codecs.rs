@@ -1,9 +1,5 @@
 //! Tests for shared example codecs.
 #![cfg(not(loom))]
-#![expect(
-    deprecated,
-    reason = "codec tests retain compatibility-driver coverage during migration"
-)]
 
 use std::{io, sync::Arc};
 
@@ -105,6 +101,7 @@ fn mysql_codec_rejects_oversized_payload() {
 }
 
 #[tokio::test]
+#[expect(deprecated, reason = "test covers the legacy builder connection API")]
 async fn hotline_codec_round_trips_through_app() {
     let codec = HotlineFrameCodec::new(64);
     let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()

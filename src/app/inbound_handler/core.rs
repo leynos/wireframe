@@ -150,6 +150,8 @@ where
         memory_budgets,
         read_timeout_ms,
     } = context;
+    // Each connection needs isolated framing state: cloning resets the
+    // counters `SeqFrameCodec` and `TaggedFrameCodec::wrap_payload` consume.
     let codec = codec.clone();
     let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
     let mut framed = Framed::new(stream, combined);
