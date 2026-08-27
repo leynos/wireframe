@@ -88,6 +88,18 @@ where
     /// transition. The returned template can then drive multiple connections
     /// without rebuilding its route chains.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe::app::{PreparedApp, WireframeApp};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+    /// # let _ = prepared;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`PrepareError`] if a future fallible preparation step fails.
@@ -121,6 +133,21 @@ where
 {
     /// Handle an accepted connection using the prepared route services.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use tokio::io::duplex;
+    /// use wireframe::app::{PreparedApp, WireframeApp};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+    /// let (client, server) = duplex(64);
+    /// drop(client);
+    /// prepared.handle_connection_result(server).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns an [`io::Error`] if stream processing or handler execution fails.
@@ -146,6 +173,21 @@ where
     }
 
     /// Handle an accepted connection and log any processing failure.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use tokio::io::duplex;
+    /// use wireframe::app::{PreparedApp, WireframeApp};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+    /// let (client, server) = duplex(64);
+    /// drop(client);
+    /// prepared.handle_connection(server).await;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn handle_connection<W>(&self, stream: W)
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -159,6 +201,18 @@ where
     }
 
     /// Get a clone of the configured protocol, if any.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe::app::{PreparedApp, WireframeApp};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+    /// assert!(prepared.protocol().is_none());
+    /// # Ok(())
+    /// # }
+    /// ```
     #[must_use]
     pub fn protocol(
         &self,
@@ -167,6 +221,19 @@ where
     }
 
     /// Return protocol hooks derived from the installed protocol.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe::app::{PreparedApp, WireframeApp};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+    /// let hooks = prepared.protocol_hooks();
+    /// # let _ = hooks;
+    /// # Ok(())
+    /// # }
+    /// ```
     #[must_use]
     pub fn protocol_hooks(&self) -> crate::hooks::ProtocolHooks<F::Frame, ()> {
         self.protocol
@@ -176,6 +243,18 @@ where
     }
 
     /// Get the configured message assembler, if any.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe::app::{PreparedApp, WireframeApp};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+    /// assert!(prepared.message_assembler().is_none());
+    /// # Ok(())
+    /// # }
+    /// ```
     #[must_use]
     pub fn message_assembler(&self) -> Option<&Arc<dyn MessageAssembler>> {
         self.message_assembler.as_ref()
