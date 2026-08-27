@@ -120,6 +120,7 @@ pub(super) fn should_pause_inbound_reads(
     is_at_or_above_soft_limit(buffered_bytes, aggregate_limit)
 }
 
+/// Select the stricter connection-wide or in-flight assembly cap.
 fn active_aggregate_limit_bytes(budgets: MemoryBudgets) -> usize {
     budgets
         .bytes_per_connection()
@@ -140,6 +141,7 @@ pub(crate) fn resolve_effective_budgets(
     explicit.unwrap_or_else(|| default_memory_budgets(frame_budget))
 }
 
+/// Compare buffered bytes against the configured soft pause threshold safely.
 fn is_at_or_above_soft_limit(buffered_bytes: usize, aggregate_limit: usize) -> bool {
     let lhs = (buffered_bytes as u128).saturating_mul(SOFT_LIMIT_DENOMINATOR);
     let rhs = (aggregate_limit as u128).saturating_mul(SOFT_LIMIT_NUMERATOR);

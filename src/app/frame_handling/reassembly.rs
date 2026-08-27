@@ -26,6 +26,7 @@ pub(crate) fn reassemble_if_needed(
     handle_reassembly_result(state.reassemble(env), &mut failures, correlation_id)
 }
 
+/// Convert fragment-processing errors into counted connection failures.
 fn handle_reassembly_result(
     result: Result<Option<Envelope>, FragmentProcessError>,
     failures: &mut DeserFailureTracker<'_>,

@@ -13,6 +13,7 @@ use crate::app::PacketParts;
 /// Generic container for request and response frame data.
 #[derive(Debug, Default)]
 pub struct FrameContainer<F> {
+    /// Frame value transformed by middleware or consumed by a handler.
     frame: F,
 }
 
@@ -37,7 +38,9 @@ impl<F> FrameContainer<F> {
 /// Incoming request wrapper passed through middleware.
 #[derive(Debug)]
 pub struct ServiceRequest {
+    /// Mutable payload presented to the middleware chain.
     inner: FrameContainer<Vec<u8>>,
+    /// Correlation metadata preserved across middleware transformations.
     correlation_id: Option<u64>,
 }
 
@@ -78,7 +81,9 @@ impl ServiceRequest {
 /// Response produced by a handler or middleware.
 #[derive(Debug, Default)]
 pub struct ServiceResponse {
+    /// Payload returned by a handler and later encoded for transport.
     inner: FrameContainer<Vec<u8>>,
+    /// Correlation metadata copied from the corresponding request.
     correlation_id: Option<u64>,
 }
 
@@ -121,6 +126,7 @@ pub struct Next<'a, S>
 where
     S: Service + ?Sized,
 {
+    /// Borrowed next service; borrowing prevents continuation after its scope.
     service: &'a S,
 }
 
@@ -194,6 +200,7 @@ where
 /// the remaining middleware chain. It must return a [`ServiceResponse`] wrapped
 /// in a [`Result`]. The error type is the same as the wrapped service.
 pub struct FromFn<F> {
+    /// User callback invoked once for each request.
     f: F,
 }
 
@@ -236,7 +243,9 @@ pub fn from_fn<F>(f: F) -> FromFn<F> { FromFn::new(f) }
 /// `Arc` to the middleware function. The function is invoked on each request
 /// with a [`ServiceRequest`] and [`Next`] continuation.
 pub struct FnService<S, F> {
+    /// Wrapped service invoked by the continuation.
     service: S,
+    /// Shared callback so cloned middleware services preserve behaviour.
     f: Arc<F>,
 }
 
@@ -276,7 +285,9 @@ use crate::app::{Handler, Packet};
 
 /// Service that invokes a stored route handler and middleware chain.
 pub struct HandlerService<E: Packet> {
+    /// Route identifier retained for diagnostics and dispatch metadata.
     id: u32,
+    /// Type-erased middleware and handler service.
     svc: Box<dyn Service<Error = Infallible> + Send + Sync>,
     /// Marker to bind the generic parameter `E` without storing a value.
     _marker: std::marker::PhantomData<E>,
@@ -312,9 +323,13 @@ impl<E: Packet> HandlerService<E> {
     pub const fn id(&self) -> u32 { self.id }
 }
 
+/// Concrete service that invokes a packet handler for one route.
 struct RouteService<E: Packet> {
+    /// Route identifier copied into generated responses.
     id: u32,
+    /// Handler invoked after middleware accepts the request.
     handler: Handler<E>,
+    /// Keeps the packet type associated with the erased service.
     _marker: std::marker::PhantomData<E>,
 }
 

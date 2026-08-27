@@ -35,7 +35,9 @@ use crate::{
 #[async_trait]
 #[cfg_attr(test, mockall::automock)]
 pub(in crate::server) trait AcceptListener: Send + Sync {
+    /// Await one incoming stream and its peer address.
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
+    /// Return the listener address for diagnostics after an accept failure.
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 
@@ -49,25 +51,40 @@ impl AcceptListener for TcpListener {
 }
 
 #[derive(Debug)]
+/// Inputs shared by one accept-loop worker.
 pub(in crate::server) struct AcceptLoopOptions<T> {
+    /// Preamble callbacks and timeout applied to each accepted stream.
     pub preamble: PreambleHooks<T>,
+    /// Shared cancellation signal for every worker loop.
     pub shutdown: CancellationToken,
+    /// Tracker retaining spawned connection tasks for graceful shutdown.
     pub tracker: TaskTracker,
+    /// Normalised retry policy for transient accept failures.
     pub backoff: BackoffConfig,
+    /// Shared lifecycle state used to classify worker termination.
     pub lifecycle: SupervisorLifecycle,
 }
 
+/// Borrowed worker inputs used for one `select!` iteration.
 struct AcceptHandles<'a, T> {
+    /// Borrowed handshake callbacks; ownership remains with the accept loop.
     preamble: &'a PreambleHooks<T>,
+    /// Borrowed cancellation token observed by `select!`.
     shutdown: &'a CancellationToken,
+    /// Borrowed task tracker used when spawning connection work.
     tracker: &'a TaskTracker,
+    /// Borrowed immutable retry policy.
     backoff: &'a BackoffConfig,
 }
 
 #[derive(Default)]
+/// Preamble callbacks copied into each connection task.
 pub(in crate::server) struct PreambleHooks<T> {
+    /// Callback invoked after a valid preamble has been read.
     pub on_success: Option<PreambleHandler<T>>,
+    /// Callback invoked when the preamble is invalid or times out.
     pub on_failure: Option<PreambleFailure>,
+    /// Optional upper bound for the handshake read.
     pub timeout: Option<Duration>,
 }
 
@@ -183,6 +200,7 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     record_accept_loop_exit(&shutdown, &lifecycle);
 }
 
+/// Normalise retry delays and assert the backoff safety invariants.
 fn normalized_backoff(backoff: BackoffConfig) -> BackoffConfig {
     let backoff = backoff.normalized();
     debug_assert!(
@@ -196,6 +214,7 @@ fn normalized_backoff(backoff: BackoffConfig) -> BackoffConfig {
     backoff
 }
 
+/// Record cancellation only when the worker actually exited because of it.
 fn record_accept_loop_exit(shutdown: &CancellationToken, lifecycle: &SupervisorLifecycle) {
     if shutdown.is_cancelled() {
         let reason = lifecycle.cancellation_reason();
@@ -212,6 +231,7 @@ fn record_accept_loop_exit(shutdown: &CancellationToken, lifecycle: &SupervisorL
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
+/// Select between shutdown and one accept attempt, returning the next delay.
 async fn accept_iteration<F, T, L, Ser, Ctx, E, Codec>(
     listener: &Arc<L>,
     factory: &F,
