@@ -46,7 +46,7 @@ pub struct WireframeApp<
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
     /// Optional asynchronous hook that releases state after clean processing.
     pub(in crate::app) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
-    /// Optional protocol hook used to customise frame-level processing.
+    /// Optional protocol hook used to customize frame-level processing.
     pub(in crate::app) protocol:
         Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional dead-letter sink for pushes that cannot be delivered.

@@ -33,7 +33,6 @@ struct PartialAssembly {
     /// Start time used to discard incomplete peer-controlled state.
     started_at: Instant,
 }
-
 impl PartialAssembly {
     /// Create empty assembly storage anchored at the first frame's timestamp.
     fn new(series: MessageSeries, routing: EnvelopeRouting, started_at: Instant) -> Self {
@@ -45,20 +44,15 @@ impl PartialAssembly {
             started_at,
         }
     }
-
     /// Append body bytes after the caller has validated size and ordering.
     fn push_body(&mut self, data: &[u8]) { self.body_buffer.extend_from_slice(data); }
-
     /// Replace the first-frame metadata retained for the completed message.
     fn set_metadata(&mut self, data: Vec<u8>) { self.metadata = data; }
-
     /// Return body bytes accumulated so far for per-message budget checks.
     fn accumulated_len(&self) -> usize { self.body_buffer.len() }
-
     /// Total heap bytes held by this partial assembly (body + metadata).
     fn buffered_bytes(&self) -> usize { self.body_buffer.len().saturating_add(self.metadata.len()) }
 }
-
 /// Stateful manager for multiple concurrent message assemblies.
 ///
 /// Tracks in-flight assemblies keyed by [`MessageKey`], applying continuity
@@ -128,7 +122,6 @@ pub struct MessageAssemblyState {
     /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
-
 impl MessageAssemblyState {
     /// Create a new assembly state manager.
     ///
@@ -140,7 +133,6 @@ impl MessageAssemblyState {
     pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self {
         Self::with_budgets(max_message_size, timeout, None, None)
     }
-
     /// Create a new assembly state manager with optional aggregate budgets.
     ///
     /// When `connection_budget` or `in_flight_budget` is `Some`, frames that
@@ -163,7 +155,6 @@ impl MessageAssemblyState {
             },
         }
     }
-
     /// Process a first frame, starting a new assembly.
     ///
     /// Returns `Ok(Some(msg))` if the first frame is also the last (single-
@@ -182,7 +173,6 @@ impl MessageAssemblyState {
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
         self.accept_first_frame_at(input, Instant::now())
     }
-
     /// Process a first frame with an explicit timestamp.
     ///
     /// See [`accept_first_frame`](Self::accept_first_frame) for details.
@@ -198,7 +188,6 @@ impl MessageAssemblyState {
         now: Instant,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
         self.purge_expired_at(now);
-
         let key = input.header.message_key;
 
         // Check for duplicate first frame
@@ -252,7 +241,6 @@ impl MessageAssemblyState {
 
         Ok(None)
     }
-
     /// Process a continuation frame.
     ///
     /// Returns `Ok(Some(msg))` if the message is now complete, `Ok(None)` if
@@ -269,7 +257,6 @@ impl MessageAssemblyState {
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
         self.accept_continuation_frame_at(header, body, Instant::now())
     }
-
     /// Whether a continuity error is unrecoverable and requires assembly removal.
     ///
     /// Unrecoverable errors (`KeyMismatch`, `SequenceOverflow`, etc.) indicate the

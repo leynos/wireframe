@@ -26,7 +26,7 @@ type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 const DEFAULT_ADDR: &str = "127.0.0.1:7879";
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
-/// Packet variants demonstrate dispatch after deserialisation at the edge.
+/// Packet variants demonstrate dispatch after deserialization at the edge.
 enum ExamplePacket {
     /// Health-style message with no payload.
     Ping,
@@ -46,7 +46,7 @@ enum ExamplePacket {
 struct Frame {
     /// Metadata available to middleware for logging or routing decisions.
     headers: HashMap<String, String>,
-    /// Deserialised application message selected by the packet discriminator.
+    /// Deserialized application message selected by the packet discriminator.
     packet: ExamplePacket,
 }
 
@@ -118,7 +118,7 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
     })
 }
 
-/// Initialise tracing, bind the listener, and serve until shutdown is signalled.
+/// Initialize tracing, bind the listener, and serve until shutdown is signalled.
 async fn run() -> std::io::Result<()> {
     runtime_bootstrap::init_tracing();
     let app = runtime_bootstrap::build_runtime_app(build_app)?;

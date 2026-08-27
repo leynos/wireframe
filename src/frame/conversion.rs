@@ -9,10 +9,18 @@ use crate::byte_order::{
     write_network_u64,
 };
 
+/// Explains that the configured wire prefix cannot represent any supported
+/// fixed-width integer and therefore cannot be decoded safely.
 pub(crate) const ERR_UNSUPPORTED_PREFIX: &str = "unsupported length prefix size";
+/// Preserves the distinction between an invalid local frame length and an I/O
+/// failure when encoding a bounded wire prefix.
 pub(crate) const ERR_FRAME_TOO_LARGE: &str = "frame too large";
+/// Reports truncation before decoding so callers never mistake a partial
+/// length prefix for a complete zero-length frame.
 pub(crate) const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
 
+/// Decodes an explicitly little-endian eight-byte prefix independently of the
+/// host architecture selected to run the codec.
 #[inline]
 fn u64_from_le_bytes(bytes: [u8; 8]) -> u64 {
     #[expect(

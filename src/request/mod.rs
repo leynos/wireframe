@@ -119,7 +119,6 @@ pub fn body_channel(
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     (tx, Box::pin(stream))
 }
-
 /// Adapter wrapping a [`RequestBodyStream`] as [`AsyncRead`].
 ///
 /// Protocol crates can use this to feed streaming bytes into parsers
@@ -142,9 +141,9 @@ pub fn body_channel(
 /// }
 /// ```
 pub struct RequestBodyReader {
+    /// Owns ordered chunks so `AsyncRead` preserves backpressure and cancellation semantics.
     inner: StreamReader<RequestBodyStream, Bytes>,
 }
-
 impl RequestBodyReader {
     /// Create a new reader from a streaming body.
     ///
@@ -164,7 +163,6 @@ impl RequestBodyReader {
             inner: StreamReader::new(stream),
         }
     }
-
     /// Consume the reader and return the underlying stream.
     ///
     /// # Data loss warning
@@ -183,7 +181,6 @@ impl RequestBodyReader {
     #[must_use]
     pub fn into_inner(self) -> RequestBodyStream { self.inner.into_inner() }
 }
-
 impl AsyncRead for RequestBodyReader {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -193,7 +190,6 @@ impl AsyncRead for RequestBodyReader {
         Pin::new(&mut self.inner).poll_read(cx, buf)
     }
 }
-
 /// Request metadata extracted outwith the request body.
 ///
 /// `RequestParts` separates routing and protocol metadata from the request
@@ -228,7 +224,6 @@ pub struct RequestParts {
     /// interpret the body.
     metadata: Vec<u8>,
 }
-
 impl RequestParts {
     /// Construct a new set of request parts.
     ///
@@ -359,6 +354,8 @@ impl RequestParts {
     // Equivalent mutant (`found != expected` guard → `true`): when the ids are
     // equal the data path is identical to the mismatch arm bar a spurious
     // `warn!`, so the returned correlation is unchanged.
+    /// Resolves inherited identifiers deterministically, retaining the local value unless a source
+    /// must win.
     #[cfg_attr(test, mutants::skip)]
     #[inline]
     fn select_correlation(current: Option<u64>, source: Option<u64>) -> CorrelationResult {
@@ -378,7 +375,12 @@ enum CorrelationResult {
     /// The correlation ID was inherited (or remained unchanged).
     Inherited(Option<u64>),
     /// A mismatch was detected; the source value takes precedence.
-    Mismatch { found: u64, expected: u64 },
+    Mismatch {
+        /// Identifier retained for a useful warning although it cannot be propagated.
+        found: u64,
+        /// Source identifier that keeps the request within the source correlation chain.
+        expected: u64,
+    },
 }
 
 impl CorrelationResult {

@@ -6,12 +6,12 @@ use tokio::{
 };
 use tracing::{error, info};
 
+/// Report either a signal-wait failure or the normal shutdown message.
 #[expect(
     clippy::cognitive_complexity,
     reason = "This helper only logs the two shutdown outcomes; tracing macros inflate the lint \
               score"
 )]
-/// Report either a signal-wait failure or the normal shutdown message.
 fn log_shutdown_result(result: std::io::Result<()>, shutdown_message: &str) {
     if let Err(error) = result {
         error!("failed waiting for shutdown signal: {error}");

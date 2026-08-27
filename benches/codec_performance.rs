@@ -65,7 +65,7 @@ fn benchmark_encode(c: &mut Criterion) {
 ///
 /// The decode path mirrors the encode measurement contract: elapsed time comes
 /// from the shared workload helper, and the decoded byte count is black-boxed
-/// to prevent optimisation from removing the operation under test.
+/// to prevent optimization from removing the operation under test.
 fn benchmark_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/decode");
 

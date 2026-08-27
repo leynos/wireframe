@@ -38,7 +38,7 @@ use crate::{
 pub(crate) struct FramePipeline {
     /// Optional state that turns oversized envelopes into ordered fragments.
     fragmentation: Option<FragmentationState>,
-    /// Envelopes waiting to be serialised and written to the transport.
+    /// Envelopes waiting to be serialized and written to the transport.
     out: Vec<Envelope>,
 }
 

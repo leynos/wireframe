@@ -17,7 +17,11 @@ pub enum Endianness {
 /// Format of the length prefix preceding each frame.
 #[derive(Clone, Copy, Debug)]
 pub struct LengthFormat {
+    /// Number of bytes reserved before each frame; construction constrains it
+    /// to a width that conversion helpers can decode without ambiguity.
     bytes: usize,
+    /// Establishes how those prefix bytes become a length, making the wire
+    /// contract independent from the host byte order.
     endianness: Endianness,
 }
 
