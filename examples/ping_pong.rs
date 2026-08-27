@@ -19,17 +19,23 @@ mod runtime_bootstrap;
 #[path = "support/server_loop.rs"]
 mod server_loop;
 
+/// Application type assembled from bincode envelopes and the middleware chain.
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
+/// Request payload whose counter is incremented by the pong service.
 struct Ping(u32);
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
+/// Successful response payload carrying the incremented counter.
 struct Pong(u32);
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
+/// Error response payload used when decoding, encoding, or incrementing fails.
 struct ErrorMsg(String);
 
+/// Encodes a protocol error while retaining an empty payload fallback for the
+/// example's infallible middleware boundary.
 fn encode_error(msg: impl Into<String>) -> Vec<u8> {
     let err = ErrorMsg(msg.into());
     match err.to_bytes() {
@@ -41,6 +47,7 @@ fn encode_error(msg: impl Into<String>) -> Vec<u8> {
     }
 }
 
+/// Route ID registered for ping requests in the sample application.
 const PING_ID: u32 = 1;
 
 /// Handler invoked for `PING_ID` messages.
@@ -53,9 +60,13 @@ const PING_ID: u32 = 1;
 )]
 async fn ping_handler() {}
 
+/// Middleware adapter that turns a decoded ping into a pong response.
 struct PongMiddleware;
 
+/// Service wrapper that performs ping decoding, incrementing, and encoding
+/// while preserving the inner handler's correlation ID.
 struct PongService<S> {
+    /// Inner handler retained so middleware can compose with normal routing.
     inner: S,
 }
 
@@ -109,9 +120,12 @@ impl Transform<HandlerService<Envelope>> for PongMiddleware {
     }
 }
 
+/// Middleware marker that adds request/response tracing around a handler.
 struct Logging;
 
+/// Service wrapper that logs both sides of a call before returning its result.
 struct LoggingService<S> {
+    /// Inner service whose result is observed without changing its semantics.
     inner: S,
 }
 
@@ -140,6 +154,7 @@ impl<E: Packet> Transform<HandlerService<E>> for Logging {
     }
 }
 
+/// Constructs the ping route and wraps it with response and logging middleware.
 fn build_app() -> AppResult<App> {
     App::new()?
         .serializer(BincodeSerializer)
@@ -148,8 +163,10 @@ fn build_app() -> AppResult<App> {
         .wrap(Logging)
 }
 
+/// Default listener address used when no command-line address is supplied.
 const DEFAULT_ADDR: &str = "127.0.0.1:7878";
 
+/// Parses an optional listener address, falling back to the documented default.
 fn parse_server_addr() -> std::io::Result<SocketAddr> {
     let addr = std::env::args()
         .nth(1)
@@ -157,6 +174,9 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
     addr.parse().map_err(std::io::Error::other)
 }
 
+/// Starts the server and keeps it alive until the shared shutdown signal fires.
+/// The server loop owns listener shutdown, ensuring accepted tasks finish in the
+/// same lifecycle as the example process.
 async fn run() -> std::io::Result<()> {
     runtime_bootstrap::init_tracing();
     let app = runtime_bootstrap::build_runtime_app(build_app)?;
