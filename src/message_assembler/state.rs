@@ -22,14 +22,20 @@ use super::{
 /// Partial message assembly in progress.
 #[derive(Debug)]
 struct PartialAssembly {
+    /// Ordering state that rejects gaps, duplicates, and post-completion data.
     series: MessageSeries,
+    /// Envelope routing retained until the assembled message is emitted.
     routing: EnvelopeRouting,
+    /// First-frame metadata kept separate from the body for reconstruction.
     metadata: Vec<u8>,
+    /// Ordered body bytes accumulated from first and continuation frames.
     body_buffer: Vec<u8>,
+    /// Start time used to discard incomplete peer-controlled state.
     started_at: Instant,
 }
 
 impl PartialAssembly {
+    /// Create empty assembly storage anchored at the first frame's timestamp.
     fn new(series: MessageSeries, routing: EnvelopeRouting, started_at: Instant) -> Self {
         Self {
             series,
@@ -40,10 +46,13 @@ impl PartialAssembly {
         }
     }
 
+    /// Append body bytes after the caller has validated size and ordering.
     fn push_body(&mut self, data: &[u8]) { self.body_buffer.extend_from_slice(data); }
 
+    /// Replace the first-frame metadata retained for the completed message.
     fn set_metadata(&mut self, data: Vec<u8>) { self.metadata = data; }
 
+    /// Return body bytes accumulated so far for per-message budget checks.
     fn accumulated_len(&self) -> usize { self.body_buffer.len() }
 
     /// Total heap bytes held by this partial assembly (body + metadata).
@@ -110,9 +119,13 @@ impl PartialAssembly {
 /// ```
 #[derive(Debug)]
 pub struct MessageAssemblyState {
+    /// Maximum body size permitted for one logical message.
     max_message_size: NonZeroUsize,
+    /// Age after which incomplete assemblies are removed.
     timeout: Duration,
+    /// Active assemblies keyed by protocol message key.
     assemblies: HashMap<MessageKey, PartialAssembly>,
+    /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
 

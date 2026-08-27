@@ -61,6 +61,7 @@ enum SequenceTracking {
 /// ```
 #[derive(Clone, Debug)]
 pub struct MessageSeries {
+    /// Logical message key required on every continuation frame.
     message_key: MessageKey,
     /// Next expected sequence number (None if protocol does not supply them).
     next_sequence: Option<FrameSequence>,
@@ -256,6 +257,7 @@ impl MessageSeries {
         self.advance_sequence_or_overflow(incoming, is_last)
     }
 
+    /// Validate the incoming sequence and advance the tracker atomically.
     fn validate_and_advance_sequence(
         &mut self,
         incoming: FrameSequence,
