@@ -82,6 +82,7 @@ impl FragmentationOverhead {
 }
 
 /// Measure unfragmented payload wrapping performance for the default codec.
+#[must_use]
 pub fn measure_unfragmented_wrap(payload_class: PayloadClass, iterations: u64) -> Measurement {
     let payload = payload_for_class(payload_class);
     let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
@@ -101,6 +102,10 @@ pub fn measure_unfragmented_wrap(payload_class: PayloadClass, iterations: u64) -
 }
 
 /// Measure fragmented payload wrapping performance for the default codec.
+///
+/// # Errors
+///
+/// Returns a description when the requested cap cannot produce valid fragments.
 pub fn measure_fragmented_wrap(
     payload_class: PayloadClass,
     iterations: u64,
@@ -134,6 +139,10 @@ pub fn measure_fragmented_wrap(
 }
 
 /// Measure fragmentation overhead for one payload class.
+///
+/// # Errors
+///
+/// Propagates the fragmented measurement failure for an invalid fragmentation cap.
 pub fn measure_fragmentation_overhead(
     payload_class: PayloadClass,
     iterations: u64,
