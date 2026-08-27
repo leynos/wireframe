@@ -13,8 +13,11 @@ use super::{FragmentationError, Fragmenter, encode_fragment_payload};
 /// types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FragmentParts {
+    /// Application route or packet identifier preserved across fragmentation.
     id: u32,
+    /// Optional request correlation value preserved on each emitted frame.
     correlation_id: Option<u64>,
+    /// Payload bytes being passed between packet and transport layers.
     payload: Vec<u8>,
 }
 
