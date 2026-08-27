@@ -20,6 +20,7 @@ use super::{
 };
 use crate::{rewind_stream::RewindStream, serializer::Serializer};
 
+/// Initial read-buffer hint bounded by the configured maximum frame length.
 // Equivalent mutant: a pre-allocation hint later min'd against the codec's
 // max_frame_length, so `*`→`+`/`/` cannot change observable behaviour.
 #[cfg_attr(test, mutants::skip)]
@@ -27,12 +28,19 @@ const INITIAL_READ_BUFFER_CAPACITY: usize = 64 * 1024;
 
 /// Cloneable connection recipe used by pooled reconnect paths.
 pub(crate) struct ClientBuildParts<S, P, C> {
+    /// Serializer cloned into each reconnect attempt.
     pub(crate) serializer: S,
+    /// Frame prefix and size limits shared by pooled and direct clients.
     pub(crate) codec_config: ClientCodecConfig,
+    /// Socket options applied before each TCP connection.
     pub(crate) socket_options: super::SocketOptions,
+    /// Optional preamble exchange performed before framing starts.
     pub(crate) preamble_config: Option<PreambleConfig<P>>,
+    /// Connection setup and teardown callbacks with their state type.
     pub(crate) lifecycle_hooks: LifecycleHooks<C>,
+    /// Request-level callbacks copied into the resulting client.
     pub(crate) request_hooks: RequestHooks,
+    /// Span and timing configuration copied into the resulting client.
     pub(crate) tracing_config: TracingConfig,
 }
 

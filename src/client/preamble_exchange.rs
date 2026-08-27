@@ -15,9 +15,13 @@ use crate::preamble::write_preamble;
 
 /// Holds optional preamble configuration for the client builder.
 pub(crate) struct PreambleConfig<P> {
+    /// Encoded handshake value sent before length-delimited frames.
     pub(crate) preamble: P,
+    /// Callback that may read handshake response bytes for the codec.
     pub(crate) on_success: Option<ClientPreambleSuccessHandler<P>>,
+    /// Best-effort callback invoked after a failed handshake.
     pub(crate) on_failure: Option<ClientPreambleFailureHandler>,
+    /// Optional bound for the complete write-and-success-callback exchange.
     pub(crate) timeout: Option<Duration>,
 }
 

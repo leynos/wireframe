@@ -22,9 +22,13 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Size-one pool containing the reusable physical client.
     pub(crate) pool: Pool<WireframeConnectionManager<S, P, C>>,
+    /// Admission semaphore limiting concurrent logical operations.
     permits: Arc<Semaphore>,
+    /// Idle age at which the physical resource must be replaced.
     idle_timeout: Duration,
+    /// Last healthy return time used for idle recycling.
     last_returned_at: Mutex<Option<Instant>>,
 }
 
@@ -34,6 +38,7 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Construct a slot with independent admission and recycle state.
     pub(crate) fn new(
         pool: Pool<WireframeConnectionManager<S, P, C>>,
         max_in_flight_per_socket: usize,
@@ -47,10 +52,12 @@ where
         }
     }
 
+    /// Try to reserve capacity without waiting or registering a waiter.
     pub(crate) fn try_acquire_permit(self: &Arc<Self>) -> Option<OwnedSemaphorePermit> {
         self.permits.clone().try_acquire_owned().ok()
     }
 
+    /// Wait for capacity; semaphore closure is surfaced as disconnection.
     pub(crate) async fn acquire_permit(
         self: &Arc<Self>,
     ) -> Result<OwnedSemaphorePermit, ClientError> {
@@ -61,6 +68,7 @@ where
             .map_err(|_| ClientError::disconnected())
     }
 
+    /// Check out a healthy connection, refreshing an idle one before use.
     pub(crate) async fn checkout(&self) -> Result<SlotConnection<'_, S, P, C>, ClientError> {
         let mut connection = self.get_connection().await?;
 
@@ -77,6 +85,7 @@ where
         })
     }
 
+    /// Obtain the bb8 resource and translate checkout failures to client errors.
     async fn get_connection(
         &self,
     ) -> Result<PooledConnection<'_, WireframeConnectionManager<S, P, C>>, ClientError> {
@@ -89,26 +98,32 @@ where
         })
     }
 
+    /// Determine whether the last healthy return exceeded the idle lifetime.
     fn should_recycle_idle(&self) -> bool {
         self.lock_last_returned_at()
             .as_ref()
             .is_some_and(|returned_at| returned_at.elapsed() >= self.idle_timeout)
     }
 
+    /// Clear the timestamp while replacing or invalidating the physical socket.
     fn clear_last_returned_at(&self) { *self.lock_last_returned_at() = None; }
 
+    /// Recover the timestamp mutex after a poisoned test or worker thread.
     fn lock_last_returned_at(&self) -> MutexGuard<'_, Option<Instant>> {
         lock_or_recover(&self.last_returned_at)
     }
 }
 
+/// Borrowed checkout that records whether its physical resource stayed healthy.
 pub(crate) struct SlotConnection<'a, S, P, C>
 where
     S: Serializer + Clone + Send + Sync + 'static,
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Checked-out resource whose drop records healthy or broken return state.
     connection: PooledConnection<'a, WireframeConnectionManager<S, P, C>>,
+    /// Slot timestamp updated when the checkout is returned.
     last_returned_at: &'a Mutex<Option<Instant>>,
 }
 

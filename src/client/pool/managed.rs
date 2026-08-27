@@ -19,7 +19,9 @@ where
     S: Serializer + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Manually dropped client so teardown can run on an available runtime.
     client: ManuallyDrop<WireframeClient<S, RewindStream<TcpStream>, C>>,
+    /// Set after protocol or I/O failure to force pool replacement.
     is_broken: bool,
 }
 
@@ -28,6 +30,7 @@ where
     S: Serializer + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Wrap a connected client as a healthy pooled resource.
     pub(crate) fn new(client: WireframeClient<S, RewindStream<TcpStream>, C>) -> Self {
         Self {
             client: ManuallyDrop::new(client),
@@ -35,8 +38,10 @@ where
         }
     }
 
+    /// Mark the resource so `bb8` discards it instead of reusing it.
     pub(crate) fn mark_broken(&mut self) { self.is_broken = true; }
 
+    /// Report whether a prior operation invalidated this physical connection.
     pub(crate) const fn is_broken(&self) -> bool { self.is_broken }
 }
 

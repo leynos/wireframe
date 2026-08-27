@@ -24,10 +24,15 @@ use tokio::net::TcpSocket;
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SocketOptions {
+    /// Whether small writes bypass Nagle coalescing.
     nodelay: Option<bool>,
+    /// Keepalive policy; `None` means leave the platform default untouched.
     keepalive: Option<KeepAliveSetting>,
+    /// Requested kernel send-buffer capacity.
     send_buffer_size: Option<u32>,
+    /// Requested kernel receive-buffer capacity.
     recv_buffer_size: Option<u32>,
+    /// Whether the address may be rebound while it is in use.
     reuseaddr: Option<bool>,
     #[cfg(all(
         unix,
@@ -35,16 +40,21 @@ pub struct SocketOptions {
         not(target_os = "illumos"),
         not(target_os = "cygwin"),
     ))]
+    /// Whether supported platforms may share a listening port.
     reuseport: Option<bool>,
 }
 
+/// Internal representation of the optional TCP keepalive override.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum KeepAliveSetting {
+    /// Explicitly disable keepalive probes.
     Disabled,
+    /// Enable probes after the supplied idle duration.
     Duration(Duration),
 }
 
 impl KeepAliveSetting {
+    /// Convert the policy to the socket API's optional duration form.
     const fn to_option(self) -> Option<Duration> {
         match self {
             Self::Disabled => None,
@@ -167,6 +177,7 @@ impl SocketOptions {
         self
     }
 
+    /// Apply every configured option, preserving the first OS error.
     pub(crate) fn apply(&self, socket: &TcpSocket) -> io::Result<()> {
         self.apply_nodelay(socket)?;
         self.apply_keepalive(socket)?;
@@ -177,6 +188,7 @@ impl SocketOptions {
         Ok(())
     }
 
+    /// Apply `TCP_NODELAY` when the caller supplied an override.
     fn apply_nodelay(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(enabled) = self.nodelay {
             socket.set_nodelay(enabled)?;
@@ -184,6 +196,7 @@ impl SocketOptions {
         Ok(())
     }
 
+    /// Apply keepalive enablement and its platform-specific idle interval.
     fn apply_keepalive(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(keepalive) = self.keepalive {
             match keepalive.to_option() {
@@ -201,6 +214,7 @@ impl SocketOptions {
         Ok(())
     }
 
+    /// Apply the requested kernel send-buffer capacity.
     fn apply_send_buffer_size(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(size) = self.send_buffer_size {
             socket.set_send_buffer_size(size)?;
@@ -208,6 +222,7 @@ impl SocketOptions {
         Ok(())
     }
 
+    /// Apply the requested kernel receive-buffer capacity.
     fn apply_recv_buffer_size(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(size) = self.recv_buffer_size {
             socket.set_recv_buffer_size(size)?;
@@ -215,6 +230,7 @@ impl SocketOptions {
         Ok(())
     }
 
+    /// Apply address reuse before the connect attempt.
     fn apply_reuseaddr(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(enabled) = self.reuseaddr {
             socket.set_reuseaddr(enabled)?;
@@ -228,6 +244,7 @@ impl SocketOptions {
         not(target_os = "illumos"),
         not(target_os = "cygwin"),
     ))]
+    /// Apply port sharing on platforms that expose this option.
     fn apply_reuseport(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(enabled) = self.reuseport {
             socket.set_reuseport(enabled)?;
@@ -241,5 +258,6 @@ impl SocketOptions {
         not(target_os = "illumos"),
         not(target_os = "cygwin"),
     )))]
+    /// Keep the option pipeline portable where port sharing is unavailable.
     fn apply_reuseport(&self, _socket: &TcpSocket) -> io::Result<()> { Ok(()) }
 }

@@ -64,10 +64,15 @@ where
     S: Serializer + Send + Sync,
     T: ClientStream,
 {
+    /// Exclusive mutable client borrow used to read the next framed response.
     client: &'a mut super::WireframeClient<S, T, C>,
+    /// Correlation value every non-terminator frame must carry.
     correlation_id: u64,
+    /// Set once the terminator, EOF, decode error, or mismatch is observed.
     terminated: bool,
+    /// Number of successfully decoded data frames, excluding the terminator.
     frame_count: usize,
+    /// Keeps the packet type at the stream level without storing a value.
     _phantom: PhantomData<fn() -> P>,
 }
 

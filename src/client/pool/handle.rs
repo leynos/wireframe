@@ -38,7 +38,9 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Shared pool state whose scheduler tracks this logical session.
     inner: Arc<ClientPoolInner<S, P, C>>,
+    /// Scheduler identity removed when this handle is dropped.
     handle_id: u64,
 }
 
@@ -48,6 +50,7 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Bind a scheduler-assigned identity to the shared pool state.
     pub(crate) fn new(inner: Arc<ClientPoolInner<S, P, C>>, handle_id: u64) -> Self {
         Self { inner, handle_id }
     }

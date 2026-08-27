@@ -27,21 +27,29 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Slot and admission token returned by a successful checkout.
 type AcquirePermit<S, P, C> = (Arc<PoolSlot<S, P, C>>, tokio::sync::OwnedSemaphorePermit);
 
+/// Erased future used to race all slots for the first available permit.
 type AcquirePermitFuture<S, P, C> =
     Pin<Box<dyn Future<Output = Result<AcquirePermit<S, P, C>, ClientError>> + Send>>;
 
+/// Shared state coordinating slots, fairness, and cancellation for a pool.
 pub(crate) struct ClientPoolInner<S, P = (), C = ()>
 where
     S: Serializer + Clone + Send + Sync + 'static,
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Physical slots participating in round-robin selection.
     pub(crate) slots: Arc<[Arc<PoolSlot<S, P, C>>]>,
+    /// Cursor used to rotate the first slot attempted by each acquisition.
     pub(crate) next_slot: AtomicUsize,
+    /// Fairness coordinator for handles waiting on slot capacity.
     pub(crate) scheduler: Arc<PoolScheduler<S, P, C>>,
+    /// Release flag observed by blocked acquisitions and close.
     shutdown: AtomicBool,
+    /// Notification used to cancel scheduler waits during shutdown.
     shutdown_notify: Notify,
 }
 
@@ -52,6 +60,7 @@ where
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Reference-counted state shared by pool handles and leases.
     inner: Arc<ClientPoolInner<S, P, C>>,
 }
 
@@ -61,6 +70,7 @@ where
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Build all configured slots and their warm physical connections.
     pub(crate) async fn connect(
         addr: SocketAddr,
         pool_config: ClientPoolConfig,
@@ -146,16 +156,20 @@ where
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Read the release-acquire shutdown flag used by all waiters.
     pub(crate) fn is_shutdown(&self) -> bool { self.shutdown.load(Ordering::Acquire) }
 
+    /// Wait until pool shutdown wakes a cancellation-sensitive operation.
     pub(crate) async fn shutdown_notified(&self) { self.shutdown_notify.notified().await; }
 
+    /// Publish shutdown and wake both direct and scheduler-managed waiters.
     pub(crate) fn shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.shutdown_notify.notify_waiters();
         self.scheduler.notify_shutdown();
     }
 
+    /// Attempt a non-blocking lease while preserving slot rotation fairness.
     pub(crate) fn try_acquire_immediately(self: &Arc<Self>) -> Option<PooledClientLease<S, P, C>> {
         if self.is_shutdown() {
             return None;
@@ -166,6 +180,7 @@ where
         })
     }
 
+    /// Race slot permits and return the first available capacity or error.
     pub(crate) async fn acquire_slot_permit(&self) -> Result<AcquirePermit<S, P, C>, ClientError> {
         let waiters = self
             .ordered_slots()
@@ -181,6 +196,7 @@ where
         result
     }
 
+    /// Rotate slots from an atomic cursor to avoid favouring one socket.
     fn ordered_slots(&self) -> Vec<Arc<PoolSlot<S, P, C>>> {
         let mut ordered = self.slots.iter().cloned().collect::<Vec<_>>();
         let len = ordered.len();
