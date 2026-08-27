@@ -51,6 +51,7 @@ pub enum MessageAssemblyErrorExpectation {
     },
 }
 
+/// Match a structured assembly error against the expected protocol failure.
 pub(super) fn matches_message_error(
     err: &MessageAssemblyError,
     expected: MessageAssemblyErrorExpectation,
@@ -80,6 +81,7 @@ pub(super) fn matches_message_error(
     }
 }
 
+/// Match a sequence gap while retaining both expected and received indexes.
 fn matches_sequence_mismatch(
     err: &MessageAssemblyError,
     expected: FrameSequence,
@@ -94,6 +96,7 @@ fn matches_sequence_mismatch(
     )
 }
 
+/// Match a repeated continuation frame for one message key.
 fn matches_duplicate_frame(
     err: &MessageAssemblyError,
     key: MessageKey,
@@ -108,6 +111,7 @@ fn matches_duplicate_frame(
     )
 }
 
+/// Match a continuation that arrived without a registered first frame.
 fn matches_missing_first_frame(err: &MessageAssemblyError, key: MessageKey) -> bool {
     matches!(
         err,
@@ -117,6 +121,7 @@ fn matches_missing_first_frame(err: &MessageAssemblyError, key: MessageKey) -> b
     )
 }
 
+/// Match a second first frame for an already active message key.
 fn matches_duplicate_first_frame(err: &MessageAssemblyError, key: MessageKey) -> bool {
     matches!(
         err,
@@ -125,6 +130,7 @@ fn matches_duplicate_first_frame(err: &MessageAssemblyError, key: MessageKey) ->
     )
 }
 
+/// Match a per-message size-limit rejection.
 fn matches_message_too_large(err: &MessageAssemblyError, key: MessageKey) -> bool {
     matches!(
         err,
@@ -133,6 +139,7 @@ fn matches_message_too_large(err: &MessageAssemblyError, key: MessageKey) -> boo
     )
 }
 
+/// Match a connection-wide aggregate budget rejection.
 fn matches_connection_budget_exceeded(err: &MessageAssemblyError, key: MessageKey) -> bool {
     matches!(
         err,
@@ -141,6 +148,7 @@ fn matches_connection_budget_exceeded(err: &MessageAssemblyError, key: MessageKe
     )
 }
 
+/// Match an in-flight aggregate budget rejection.
 fn matches_in_flight_budget_exceeded(err: &MessageAssemblyError, key: MessageKey) -> bool {
     matches!(
         err,

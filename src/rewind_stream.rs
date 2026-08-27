@@ -14,8 +14,11 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 /// A stream adapter that replays buffered bytes before reading
 /// from the underlying stream.
 pub struct RewindStream<S> {
+    /// Bytes already read with the preamble that must precede socket reads.
     leftover: Vec<u8>,
+    /// Cursor into `leftover`; reset when the buffered prefix is exhausted.
     pos: usize,
+    /// Underlying stream used after buffered bytes have been replayed.
     inner: S,
 }
 

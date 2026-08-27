@@ -23,6 +23,7 @@ use crate::{
     serializer::{MessageCompatibilitySerializer, Serializer},
 };
 
+/// Default in-memory duplex capacity used by test drivers.
 pub(crate) const DEFAULT_CAPACITY: usize = 4096;
 
 /// Serializer bounds expected by the in-memory test harness.
@@ -158,6 +159,7 @@ pub(crate) async fn read_all(mut reader: impl AsyncRead + Unpin) -> io::Result<V
 // High-level internal drivers (convenience wrappers)
 // ---------------------------------------------------------------------------
 
+/// Adapt the frame writer to the strategy callback expected by the driver.
 async fn write_frames_strategy(
     mut writer: WriteHalf<DuplexStream>,
     frames: Vec<Vec<u8>>,
@@ -166,6 +168,7 @@ async fn write_frames_strategy(
     Ok(writer)
 }
 
+/// Adapt the chunked writer to the strategy callback expected by the driver.
 async fn write_chunked_strategy(
     mut writer: WriteHalf<DuplexStream>,
     bytes: Vec<u8>,
@@ -175,6 +178,7 @@ async fn write_chunked_strategy(
     Ok(writer)
 }
 
+/// Drive a list of already encoded frames through the shared harness.
 pub(crate) async fn drive_internal<F, Fut>(
     server_fn: F,
     frames: Vec<Vec<u8>>,
@@ -193,6 +197,7 @@ where
     .await
 }
 
+/// Drive contiguous bytes through the harness using fixed-size writes.
 pub(crate) async fn drive_chunked_internal<F, Fut>(
     server_fn: F,
     wire_bytes: Vec<u8>,
@@ -216,6 +221,7 @@ where
 // Codec encode / decode
 // ---------------------------------------------------------------------------
 
+/// Encode each logical payload independently before flattening onto the wire.
 pub(crate) fn encode_payloads_with_codec<F: FrameCodec>(
     codec: &F,
     payloads: Vec<Vec<u8>>,
@@ -237,6 +243,7 @@ pub(crate) fn encode_payloads_with_codec<F: FrameCodec>(
         .collect()
 }
 
+/// Decode all frames and reject trailing bytes that form an incomplete frame.
 pub(crate) fn decode_frames_with_codec<F: FrameCodec>(
     codec: &F,
     bytes: &[u8],
@@ -284,6 +291,7 @@ where
     decode_frames_with_codec(codec, &raw)
 }
 
+/// Copy payloads out of decoded frames for concise test assertions.
 pub(crate) fn extract_payloads<F: FrameCodec>(frames: &[F::Frame]) -> Vec<Vec<u8>> {
     frames
         .iter()
@@ -291,6 +299,7 @@ pub(crate) fn extract_payloads<F: FrameCodec>(frames: &[F::Frame]) -> Vec<Vec<u8
         .collect()
 }
 
+/// Run an app on the server half, preserving ownership for task orchestration.
 pub(crate) async fn run_owned_app<S, C, E, F>(app: WireframeApp<S, C, E, F>, server: DuplexStream)
 where
     S: TestSerializer,

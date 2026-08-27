@@ -33,6 +33,7 @@ use dashmap::DashMap;
 /// ```
 #[derive(Clone, Default)]
 pub struct AppDataStore {
+    /// Concurrent type-erased values keyed by their concrete [`TypeId`].
     values: DashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 

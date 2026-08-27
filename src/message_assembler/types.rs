@@ -179,9 +179,13 @@ impl<'a> FirstFrameInput<'a> {
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssembledMessage {
+    /// Key that correlated all frames contributing to this message.
     message_key: MessageKey,
+    /// Envelope routing metadata preserved from the first frame.
     routing: EnvelopeRouting,
+    /// Metadata bytes carried by the first frame.
     metadata: Vec<u8>,
+    /// Body bytes concatenated in validated frame order.
     body: Vec<u8>,
 }
 

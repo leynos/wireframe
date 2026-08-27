@@ -18,6 +18,7 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
+/// Fragment payload bytes and encode each fragment as a test envelope.
 fn fragment_and_encode(
     fragmenter: &Fragmenter,
     payload: Vec<u8>,
@@ -51,6 +52,7 @@ fn fragment_and_encode(
         .collect()
 }
 
+/// Stable route id used by fragment-driving fixtures.
 const DEFAULT_FRAGMENT_ROUTE_ID: u32 = 1;
 
 /// Fragment `payload`, encode each fragment into a codec frame, and drive
