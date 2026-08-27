@@ -32,17 +32,31 @@ use wireframe_testing::codec_benchmarks::{
     payload_for_class,
 };
 
+/// Forwards allocations to the system allocator while counting only those
+/// observed while the benchmark's measurement window is enabled.
 struct CountingAllocator;
 
+/// Number of allocation operations observed in the current measurement
+/// window, including allocations made by the benchmark harness.
 static ALLOCATION_COUNT: AtomicUsize = AtomicUsize::new(0);
+/// Gate that keeps setup and reporting allocations out of a baseline count.
 static ALLOCATION_COUNTING_ENABLED: AtomicBool = AtomicBool::new(false);
 
+/// Process allocator used by this benchmark so encode/decode baselines cover
+/// the same allocation path as the code under test.
 #[global_allocator]
 static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
 
+/// Decoder type used by the length-delimited workload, kept as an alias so
+/// the prepared-input enum and its macro-generated constructor share a clear
+/// type-level contract.
 type LengthDelimitedFrameDecoder = LengthDelimitedDecoder;
+/// Decoder type used by the Hotline workload, paired with the encoded bytes
+/// it consumes during each prepared decode iteration.
 type HotlineFrameDecoder = HotlineAdapter;
 
+/// Increment the shared counter only while an allocation baseline is active;
+/// the acquire load pairs with the measurement fences when toggling the gate.
 fn record_allocation_if_enabled() {
     if ALLOCATION_COUNTING_ENABLED.load(Ordering::Acquire) {
         ALLOCATION_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -102,17 +116,28 @@ where
     ALLOCATION_COUNT.load(Ordering::SeqCst)
 }
 
+/// Owns encoded input and its stateful decoder so repeated decode measurements
+/// reuse the same prepared wire representation without measuring setup work.
 enum PreparedDecodeInput {
+    /// Prepared length-delimited bytes and decoder state.
     LengthDelimited {
+        /// Frozen encoded frame copied into a fresh mutable buffer per decode.
         encoded: Bytes,
+        /// Stateful decoder retained across iterations for protocol framing.
         decoder: LengthDelimitedFrameDecoder,
     },
+    /// Prepared Hotline bytes and decoder state.
     Hotline {
+        /// Frozen encoded Hotline frame used as the source for each iteration.
         encoded: Bytes,
+        /// Hotline decoder retained across iterations while each buffer is new.
         decoder: HotlineFrameDecoder,
     },
 }
 
+/// Generates a constructor that encodes one payload before a benchmark starts;
+/// this keeps allocation measurement focused on decoding and preserves the
+/// decoder's ownership of protocol state.
 macro_rules! codec_prepare_decode_input_fn {
     ($fn_name:ident, $codec_type:ty, $decoder_type:ty, $label_str:literal) => {
         fn $fn_name(payload: Bytes) -> Result<(Bytes, $decoder_type), String> {
@@ -140,6 +165,8 @@ codec_prepare_decode_input_fn!(
     "hotline"
 );
 
+/// Builds the codec-specific prepared input and reports seed-encoding failures
+/// before timing begins, so setup errors cannot be mistaken for decode results.
 fn prepare_decode_input(workload: BenchmarkWorkload) -> Result<PreparedDecodeInput, String> {
     let payload = payload_for_class(workload.payload_class);
     match workload.codec {
@@ -154,11 +181,18 @@ fn prepare_decode_input(workload: BenchmarkWorkload) -> Result<PreparedDecodeInp
     }
 }
 
+/// Supplies the codec-specific naming and payload projection needed to apply
+/// one generic decode loop to both frame formats.
 struct DecodeOps<D: Decoder> {
+    /// Label included in errors so a failed iteration identifies its workload.
     codec_name: &'static str,
+    /// Extracts the payload to assert that framing yielded usable data.
     frame_payload: fn(&D::Item) -> &[u8],
 }
 
+/// Repeatedly decodes independent copies of one frame and checks that each
+/// result has a payload; a fresh buffer prevents consumed bytes from leaking
+/// between iterations while the decoder state remains owned by the caller.
 fn run_decode_iterations<D>(
     decoder: &mut D,
     encoded: &Bytes,
@@ -186,6 +220,8 @@ where
     Ok(())
 }
 
+/// Dispatches prepared input to its matching decoder and payload invariant,
+/// preserving the codec-specific state while sharing iteration accounting.
 fn run_prepared_decode_iterations(
     prepared_decode_input: &mut PreparedDecodeInput,
     iterations: u64,
@@ -212,6 +248,9 @@ fn run_prepared_decode_iterations(
     }
 }
 
+/// Registers allocation-baseline labels and timed encode/decode measurements;
+/// each workload completes its validation count before Criterion iterations
+/// begin, keeping labels stable and making regressions comparable across runs.
 fn benchmark_allocations(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/allocations");
 
