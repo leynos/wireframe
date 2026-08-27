@@ -1,10 +1,5 @@
 //! Test application builders for fragment integration tests.
 
-#![expect(
-    deprecated,
-    reason = "fragment tests retain compatibility-driver coverage during migration"
-)]
-
 use std::io;
 
 use tokio::sync::mpsc;
@@ -55,6 +50,7 @@ pub fn make_app(
 }
 
 /// Spawn an app and return the client connection and server task handle.
+#[expect(deprecated, reason = "fragment helper drives the legacy builder API")]
 pub fn spawn_app(
     app: WireframeApp,
 ) -> (

@@ -1,10 +1,5 @@
 //! Runtime-level helpers for running apps against in-memory streams.
 
-#![expect(
-    deprecated,
-    reason = "legacy test drivers preserve builder-based coverage during migration"
-)]
-
 use std::io;
 
 use tokio::io::duplex;
@@ -34,6 +29,10 @@ use super::{EMPTY_SERVER_CAPACITY, MAX_CAPACITY, TestSerializer, drive::drive_in
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn run_app<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -83,6 +82,10 @@ where
 /// run_with_duplex_server(app).await;
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn run_with_duplex_server<S, C, E>(app: WireframeApp<S, C, E>)
 where
     S: TestSerializer,

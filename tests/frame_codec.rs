@@ -1,9 +1,5 @@
 //! Integration coverage for custom `FrameCodec` implementations.
 #![cfg(not(loom))]
-#![expect(
-    deprecated,
-    reason = "codec tests retain compatibility-driver coverage during migration"
-)]
 
 use std::{
     io,
@@ -141,6 +137,7 @@ impl FrameCodec for TaggedFrameCodec {
 }
 
 #[tokio::test]
+#[expect(deprecated, reason = "test covers the legacy builder connection API")]
 async fn custom_codec_round_trips_frames() {
     let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .expect("build app")
@@ -194,6 +191,7 @@ async fn custom_codec_round_trips_frames() {
 }
 
 #[tokio::test]
+#[expect(deprecated, reason = "test covers the legacy builder connection API")]
 async fn stateful_codec_advances_tags_per_connection() {
     let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .expect("build app")

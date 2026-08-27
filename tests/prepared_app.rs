@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use tokio::{
     io::AsyncWriteExt,
     net::TcpStream,
-    sync::oneshot,
+    sync::{Barrier, oneshot},
     time::{sleep, timeout},
 };
 use wireframe::{
@@ -252,5 +252,85 @@ async fn connection_startup_records_counts_before_and_after_preparation() -> Tes
     assert_eq!(instrumentation.snapshot(), prepared_counts);
     assert_eq!(response_payload(first)?, [b'X', b'A', b'B', b'B', b'A']);
     assert_eq!(response_payload(second)?, [b'Y', b'A', b'B', b'B', b'A']);
+    Ok(())
+}
+
+#[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "assertions make prepared-connection failure behaviour explicit"
+)]
+async fn prepared_app_runs_teardown_after_processing_error() -> TestResult<()> {
+    let teardown_calls = Arc::new(AtomicUsize::new(0));
+    let teardown_counter = Arc::clone(&teardown_calls);
+    let prepared = TestApp::new()?
+        .on_connection_setup(|| async {})?
+        .on_connection_teardown(move |()| {
+            let teardown_counter = Arc::clone(&teardown_counter);
+            async move {
+                teardown_counter.fetch_add(1, Ordering::SeqCst);
+            }
+        })?
+        .prepare()
+        .await
+        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+
+    let (mut client, server) = tokio::io::duplex(64);
+    client.write_all(&[0, 0, 0, 2, 1]).await?;
+    client.shutdown().await?;
+    let error = prepared
+        .handle_connection_result(server)
+        .await
+        .expect_err("truncated frame should fail processing");
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+    assert_eq!(teardown_calls.load(Ordering::SeqCst), 1);
+
+    let (mut client, server) = tokio::io::duplex(64);
+    client.write_all(&[0, 0, 0, 2, 1]).await?;
+    client.shutdown().await?;
+    prepared.handle_connection(server).await;
+    assert_eq!(teardown_calls.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
+#[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "assertions make concurrent prepared-service reuse explicit"
+)]
+async fn prepared_app_reuses_services_across_overlapping_connections() -> TestResult<()> {
+    let transforms = Arc::new(AtomicUsize::new(0));
+    let barrier = Arc::new(Barrier::new(CONNECTIONS));
+    let handler_barrier = Arc::clone(&barrier);
+    let handler: Handler<Envelope> = Arc::new(move |_: &Envelope| {
+        let barrier = Arc::clone(&handler_barrier);
+        Box::pin(async move {
+            barrier.wait().await;
+        })
+    });
+    let prepared = TestApp::new()?
+        .route(1, handler)?
+        .wrap(TransformCountingMiddleware {
+            tag: b'A',
+            transforms: Arc::clone(&transforms),
+        })?
+        .prepare()
+        .await
+        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+
+    let first_frame = build_frame(1, vec![b'X'])?;
+    let second_frame = build_frame(1, vec![b'Y'])?;
+    let (first, second) = timeout(Duration::from_secs(1), async {
+        tokio::join!(
+            drive_prepared_with_frames(&prepared, vec![first_frame]),
+            drive_prepared_with_frames(&prepared, vec![second_frame]),
+        )
+    })
+    .await
+    .map_err(|_| "prepared connections did not overlap")?;
+    assert_eq!(response_payload(first?)?, [b'X', b'A', b'A']);
+    assert_eq!(response_payload(second?)?, [b'Y', b'A', b'A']);
+    assert_eq!(transforms.load(Ordering::SeqCst), 1);
     Ok(())
 }

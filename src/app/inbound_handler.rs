@@ -84,7 +84,7 @@ where
         None
     };
 
-    if let Err(error) = core::process_stream(
+    let processing_result = core::process_stream(
         stream,
         core::StreamProcessingContext {
             routes,
@@ -96,17 +96,18 @@ where
             read_timeout_ms,
         },
     )
-    .await
-    {
+    .await;
+
+    if let (Some(teardown), Some(state)) = (on_disconnect, state) {
+        teardown(state).await;
+    }
+
+    if let Err(error) = processing_result {
         warn!(
             "connection terminated with error: correlation_id={:?}, error={error:?}",
             None::<u64>
         );
         return Err(error);
-    }
-
-    if let (Some(teardown), Some(state)) = (on_disconnect, state) {
-        teardown(state).await;
     }
 
     Ok(())

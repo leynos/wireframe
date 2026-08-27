@@ -1,10 +1,5 @@
 //! Behavioural fixture for budget cleanup and reclamation scenarios (8.3.6).
 
-#![expect(
-    deprecated,
-    reason = "behavioural fixtures retain compatibility-driver coverage during migration"
-)]
-
 use std::{fmt, future::Future, num::NonZeroUsize, str::FromStr, time::Duration};
 
 use futures::SinkExt;
@@ -137,6 +132,10 @@ impl BudgetCleanupWorld {
     }
 
     /// Start the app under test using the supplied budget and timeout config.
+    #[expect(
+        deprecated,
+        reason = "fixture covers the legacy builder connection API"
+    )]
     pub fn start_app(&mut self, config: CleanupConfig) -> TestResult {
         let Some(fragment_limit) = NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)) else {
             return Err("buffer-derived fragment limit should be non-zero".into());

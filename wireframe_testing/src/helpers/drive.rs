@@ -1,10 +1,5 @@
 //! Frame-oriented in-memory driving helpers.
 
-#![expect(
-    deprecated,
-    reason = "legacy test drivers preserve builder-based coverage during migration"
-)]
-
 use std::io;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
@@ -216,6 +211,10 @@ forward_default! {
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_frames_with_capacity<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -347,6 +346,10 @@ forward_default! {
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_frames_with_capacity_mut<S, C, E>(
     app: &mut WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,

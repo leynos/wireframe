@@ -1,3 +1,4 @@
+//! Compile-fail coverage for the `PreparedApp` route-registration boundary.
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
     serializer::BincodeSerializer,
