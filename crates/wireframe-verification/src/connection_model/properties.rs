@@ -29,6 +29,11 @@ pub(super) fn properties() -> Vec<Property<PlaceholderConnectionModel>> {
 }
 
 /// Invariant: the multi-packet terminator count never exceeds 1.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Stateright property callbacks are function pointers with `&Model` as their required \
+              first parameter."
+)]
 fn multi_packet_terminator_is_single(
     _model: &PlaceholderConnectionModel,
     state: &ConnectionState,
@@ -37,31 +42,56 @@ fn multi_packet_terminator_is_single(
 }
 
 /// Witness: a high-priority frame has been emitted.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Stateright property callbacks are function pointers with `&Model` as their required \
+              first parameter."
+)]
 fn high_priority_progress(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
-    state.emitted_high_priority
+    state.emissions.high_priority
 }
 
 /// Witness: a low-priority frame has been emitted.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Stateright property callbacks are function pointers with `&Model` as their required \
+              first parameter."
+)]
 fn low_priority_progress(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
-    state.emitted_low_priority
+    state.emissions.low_priority
 }
 
 /// Witness: a response output stream has completed.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Stateright property callbacks are function pointers with `&Model` as their required \
+              first parameter."
+)]
 fn response_completion(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
-    state.response_completed
+    state.completed_outputs.response
 }
 
 /// Witness: a multi-packet output stream has completed.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Stateright property callbacks are function pointers with `&Model` as their required \
+              first parameter."
+)]
 fn multi_packet_completion(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
-    state.multi_packet_completed
+    state.completed_outputs.multi_packet
 }
 
 /// Witness: shutdown was requested while an output was active.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Stateright property callbacks are function pointers with `&Model` as their required \
+              first parameter."
+)]
 fn shutdown_races_active_output(
     _model: &PlaceholderConnectionModel,
     state: &ConnectionState,
 ) -> bool {
-    state.shutdown_during_output
+    state.shutdown.during_output
 }
 
 #[cfg(test)]
@@ -96,7 +126,10 @@ mod tests {
     ) {
         let model = PlaceholderConnectionModel::default();
         let state = ConnectionState {
-            emitted_high_priority,
+            emissions: super::super::state::EmissionEvidence {
+                high_priority: emitted_high_priority,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -112,7 +145,10 @@ mod tests {
     ) {
         let model = PlaceholderConnectionModel::default();
         let state = ConnectionState {
-            emitted_low_priority,
+            emissions: super::super::state::EmissionEvidence {
+                low_priority: emitted_low_priority,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -128,7 +164,10 @@ mod tests {
     ) {
         let model = PlaceholderConnectionModel::default();
         let state = ConnectionState {
-            response_completed,
+            completed_outputs: super::super::state::CompletedOutputs {
+                response: response_completed,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -144,7 +183,10 @@ mod tests {
     ) {
         let model = PlaceholderConnectionModel::default();
         let state = ConnectionState {
-            multi_packet_completed,
+            completed_outputs: super::super::state::CompletedOutputs {
+                multi_packet: multi_packet_completed,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -160,7 +202,10 @@ mod tests {
     ) {
         let model = PlaceholderConnectionModel::default();
         let state = ConnectionState {
-            shutdown_during_output,
+            shutdown: super::super::state::ShutdownState {
+                during_output: shutdown_during_output,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
