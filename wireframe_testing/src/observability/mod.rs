@@ -86,9 +86,13 @@ pub(crate) type SnapshotEntry = (CompositeKey, Option<Unit>, Option<SharedString
 /// log::info!("captured");
 /// ```
 pub struct ObservabilityHandle {
+    /// Log-capture guard held for the whole metrics observation transaction.
     pub(crate) logger: LoggerHandle,
+    /// Thread-local recorder receiving metrics emitted inside the fixture scope.
     recorder: DebuggingRecorder,
+    /// Draining view used to transfer the recorder's current values into assertions.
     snapshotter: Snapshotter,
+    /// Most recent drained metric values queried by the assertion helpers.
     pub(crate) captured: Vec<SnapshotEntry>,
 }
 
@@ -106,6 +110,7 @@ pub struct ObservabilityHandle {
 /// ```
 impl ObservabilityHandle {
     /// Create a new observability handle.
+    #[must_use]
     pub fn new() -> Self {
         let logger = LoggerHandle::new();
         let recorder = DebuggingRecorder::new();
@@ -144,6 +149,7 @@ impl ObservabilityHandle {
     ///     // Metrics emitted here are captured by the recorder.
     /// });
     /// ```
+    #[must_use]
     pub fn recorder(&self) -> &DebuggingRecorder { &self.recorder }
 
     /// Take a snapshot of the current metrics state.

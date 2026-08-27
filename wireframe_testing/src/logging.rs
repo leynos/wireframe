@@ -35,6 +35,7 @@ use rstest::fixture;
 /// assert!(log.pop().is_none());
 /// ```
 pub struct LoggerHandle {
+    /// Exclusive guard that keeps another test from draining this test's logs.
     guard: MutexGuard<'static, Logger>,
 }
 
@@ -64,6 +65,7 @@ impl LoggerHandle {
     /// assert!(log.pop().is_some());
     /// assert!(log.pop().is_none());
     /// ```
+    #[must_use]
     pub fn new() -> Self {
         // Preserve the shared logger even if a prior test panicked while
         // holding the mutex, but clear any buffered state so the next test
@@ -126,7 +128,7 @@ mod tests {
         let join_result = std::thread::spawn(|| {
             let _guard = shared_logger()
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             log::info!("stale");
             panic!("poison logger mutex");
         })

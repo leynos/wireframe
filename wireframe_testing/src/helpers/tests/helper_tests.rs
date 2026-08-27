@@ -82,10 +82,11 @@ async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
             format!("failed to deserialise envelope: {error}"),
         )
     })?;
-    assert_eq!(
-        decoded.payload_bytes(),
-        payload.as_slice(),
-        "payload mismatch"
-    );
+    if decoded.payload_bytes() != payload.as_slice() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "response payload did not preserve the request payload",
+        ));
+    }
     Ok(())
 }

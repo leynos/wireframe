@@ -45,7 +45,7 @@ where
             .catch_unwind()
             .await;
         match result {
-            Ok(_) => Ok(()),
+            Ok(()) => Ok(()),
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
                 Err(io::Error::other(format!("server task failed: {panic_msg}")))
@@ -68,6 +68,7 @@ where
     Ok(buf)
 }
 
+/// Defines a default-capacity façade that preserves the supplied helper docs.
 macro_rules! forward_default {
     (
         $(#[$docs:meta])* $vis:vis fn $name:ident(
@@ -77,6 +78,10 @@ macro_rules! forward_default {
         => $inner:ident($app_expr:ident, $arg_expr:expr)
     ) => {
         $(#[$docs])*
+        ///
+        /// # Errors
+        ///
+        /// Returns I/O errors from the duplex transport or the driven application.
         $vis async fn $name<S, C, E>(
             $app: $app_ty,
             $arg: $arg_ty,
@@ -91,6 +96,7 @@ macro_rules! forward_default {
     };
 }
 
+/// Defines a capacity-selectable façade that preserves the supplied helper docs.
 macro_rules! forward_with_capacity {
     (
         $(#[$docs:meta])* $vis:vis fn $name:ident(
@@ -101,6 +107,10 @@ macro_rules! forward_with_capacity {
         => $inner:ident($app_expr:ident, $arg_expr:expr, capacity)
     ) => {
         $(#[$docs])*
+        ///
+        /// # Errors
+        ///
+        /// Returns I/O errors from the duplex transport or the driven application.
         $vis async fn $name<S, C, E>(
             $app: $app_ty,
             $arg: $arg_ty,
@@ -188,6 +198,10 @@ forward_default! {
 ///
 /// This variant exposes the buffer size for fine-grained control in tests.
 ///
+/// # Errors
+///
+/// Returns I/O errors from the duplex transport or the driven application.
+///
 /// ```rust
 /// # use wireframe_testing::drive_with_frames_with_capacity;
 /// # use wireframe::app::WireframeApp;
@@ -265,6 +279,10 @@ forward_default! {
 }
 
 /// Feed multiple frames into `app` with a duplex buffer of `capacity` bytes.
+///
+/// # Errors
+///
+/// Returns I/O errors from the duplex transport or the driven application.
 ///
 /// ```rust
 /// # use wireframe_testing::drive_with_frames_with_capacity_mut;

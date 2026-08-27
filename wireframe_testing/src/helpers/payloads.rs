@@ -17,6 +17,10 @@ use super::{DEFAULT_CAPACITY, TestSerializer, drive, new_test_codec};
 /// This helper wraps each payload using the default length-delimited framing
 /// format before sending it to the application.
 ///
+/// # Errors
+///
+/// Returns I/O errors while framing payloads or driving the application.
+///
 /// ```rust
 /// # use wireframe_testing::drive_with_payloads;
 /// # use wireframe::app::WireframeApp;
@@ -41,6 +45,10 @@ where
 
 /// Encode payloads as length-delimited frames and drive a mutable `app`.
 ///
+/// # Errors
+///
+/// Returns I/O errors while framing payloads or driving the application.
+///
 /// ```rust
 /// # use wireframe_testing::drive_with_payloads_mut;
 /// # use wireframe::app::WireframeApp;
@@ -63,6 +71,7 @@ where
     drive_with_payloads_with_capacity_mut(app, payloads, DEFAULT_CAPACITY).await
 }
 
+/// Converts each payload into an owned frame so the writer can preserve input order.
 fn encode_payloads(
     payloads: Vec<Vec<u8>>,
     mut codec: LengthDelimitedCodec,
@@ -83,6 +92,7 @@ fn encode_payloads(
         .collect()
 }
 
+/// Drives an owned application with payload fixtures using the caller's back-pressure cap.
 async fn drive_with_payloads_with_capacity<S, C, E>(
     app: WireframeApp<S, C, E>,
     payloads: Vec<Vec<u8>>,
@@ -98,6 +108,7 @@ where
     drive::drive_with_frames_with_capacity(app, frames, capacity).await
 }
 
+/// Drives a reusable application while preserving its state between fixture exchanges.
 async fn drive_with_payloads_with_capacity_mut<S, C, E>(
     app: &mut WireframeApp<S, C, E>,
     payloads: Vec<Vec<u8>>,
@@ -114,6 +125,10 @@ where
 }
 
 /// Encode `msg` using bincode, frame it and drive `app`.
+///
+/// # Errors
+///
+/// Returns invalid-data errors for bincode failures and I/O errors from framing or driving.
 ///
 /// ```rust
 /// # use wireframe_testing::drive_with_bincode;

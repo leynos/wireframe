@@ -55,8 +55,11 @@ use crate::{TestError, TestResult, integration_helpers::unused_listener};
 /// Fields are `Option` so they can be individually extracted during shutdown
 /// while keeping the `Running` struct in place until all awaits complete.
 struct Running {
+    /// Connected client retained until graceful teardown closes its hooks.
     client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>, ()>>,
+    /// One-shot signal consumed when graceful server shutdown begins.
     shutdown_tx: Option<oneshot::Sender<()>>,
+    /// Server task joined before the harness releases its listener resources.
     handle: Option<JoinHandle<Result<(), wireframe::server::ServerError>>>,
 }
 
@@ -74,7 +77,9 @@ struct Running {
 /// [`WireframeServer`]: wireframe::server::WireframeServer
 /// [`WireframeClient`]: wireframe::client::WireframeClient
 pub struct WireframePair {
+    /// Loopback endpoint reserved for the paired client and server.
     addr: SocketAddr,
+    /// Live resources, removed only after shutdown completes or drop takes ownership.
     running: Option<Running>,
 }
 
@@ -180,6 +185,10 @@ impl Drop for WireframePair {
 /// This gives the server task a chance to run `tracker.close()` and
 /// `tracker.wait().await` for spawned connection tasks before being
 /// force-aborted.
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "Tokio's select macro expands to scheduler arithmetic outside this harness"
+)]
 fn spawn_bounded_shutdown(
     mut handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
     timeout: std::time::Duration,
@@ -190,7 +199,7 @@ fn spawn_bounded_shutdown(
                 _ = &mut handle => {
                     // Task completed within timeout.
                 }
-                _ = tokio::time::sleep(timeout) => {
+                () = tokio::time::sleep(timeout) => {
                     // Timeout expired, abort the task.
                     handle.abort();
                 }
@@ -212,6 +221,7 @@ type ServerShutdownHandle = (
     JoinHandle<Result<(), wireframe::server::ServerError>>,
 );
 
+/// Owns a not-yet-published server task so failed setup cannot leak it.
 struct PendingServer(Option<ServerShutdownHandle>);
 
 impl PendingServer {

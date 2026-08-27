@@ -135,6 +135,10 @@ pub struct Measurement {
 }
 
 /// Measure encode performance for one workload.
+///
+/// # Errors
+///
+/// Returns a description when the selected codec rejects a generated frame.
 pub fn measure_encode(workload: BenchmarkWorkload, iterations: u64) -> Result<Measurement, String> {
     let payload = payload_for_class(workload.payload_class);
     let payload_len = payload.len() as u64;
@@ -156,6 +160,10 @@ pub fn measure_encode(workload: BenchmarkWorkload, iterations: u64) -> Result<Me
 }
 
 /// Measure decode performance for one workload.
+///
+/// # Errors
+///
+/// Returns a description when seeding or decoding the selected codec fails.
 pub fn measure_decode(workload: BenchmarkWorkload, iterations: u64) -> Result<Measurement, String> {
     if iterations == 0 {
         return Ok(Measurement {
@@ -176,6 +184,7 @@ pub fn measure_decode(workload: BenchmarkWorkload, iterations: u64) -> Result<Me
     }
 }
 
+/// Defines a codec-specific encode probe while retaining one shared timing contract.
 macro_rules! codec_measure_encode_fn {
     ($fn_name:ident, $codec_type:ty, $label_str:literal) => {
         fn $fn_name(
@@ -209,6 +218,7 @@ codec_measure_encode_fn!(
 );
 codec_measure_encode_fn!(measure_encode_hotline, HotlineFrameCodec, "hotline");
 
+/// Defines a codec-specific decode probe with a common malformed-result check.
 macro_rules! codec_measure_decode_fn {
     ($fn_name:ident, $codec_type:ty, $label_str:literal, $frame_payload_path:path) => {
         fn $fn_name(
