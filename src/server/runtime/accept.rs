@@ -59,7 +59,7 @@ pub(in crate::server) struct AcceptLoopOptions<T> {
     pub shutdown: CancellationToken,
     /// Tracker retaining spawned connection tasks for graceful shutdown.
     pub tracker: TaskTracker,
-    /// Normalised retry policy for transient accept failures.
+    /// Normalized retry policy for transient accept failures.
     pub backoff: BackoffConfig,
     /// Shared lifecycle state used to classify worker termination.
     pub lifecycle: SupervisorLifecycle,
@@ -200,7 +200,7 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     record_accept_loop_exit(&shutdown, &lifecycle);
 }
 
-/// Normalise retry delays and assert the backoff safety invariants.
+/// Normalize retry delays and assert the backoff safety invariants.
 fn normalized_backoff(backoff: BackoffConfig) -> BackoffConfig {
     let backoff = backoff.normalized();
     debug_assert!(
@@ -227,11 +227,11 @@ fn record_accept_loop_exit(shutdown: &CancellationToken, lifecycle: &SupervisorL
     }
 }
 
+/// Select between shutdown and one accept attempt, returning the next delay.
 #[expect(
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
-/// Select between shutdown and one accept attempt, returning the next delay.
 async fn accept_iteration<F, T, L, Ser, Ctx, E, Codec>(
     listener: &Arc<L>,
     factory: &F,

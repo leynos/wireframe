@@ -87,7 +87,6 @@ pub fn parse_frame(
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
     parse_frame_at(buf, 0, max_frame_length, 0)
 }
-
 /// Parse a line and convert to UTF-8.
 fn parse_text_line<'a>(
     ctx: ParseContext<'a>,
@@ -100,7 +99,6 @@ fn parse_text_line<'a>(
         str::from_utf8(line).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, error_msg))?;
     Ok(Some((text, next)))
 }
-
 /// Parse a text-based RESP frame (simple string or error).
 fn parse_text_frame<F>(
     ctx: ParseContext<'_>,
@@ -117,9 +115,7 @@ where
     let frame = constructor(text.to_string());
     Ok(Some((frame, next - start)))
 }
-
-/// Decode a `+` frame, retaining incremental `Ok(None)` behaviour for a
-/// terminator that has not arrived yet.
+/// Decode a `+` frame without consuming incomplete input.
 fn parse_simple_string(
     buf: &BytesMut,
     start: usize,
@@ -131,7 +127,6 @@ fn parse_simple_string(
         RespFrame::SimpleString,
     )
 }
-
 /// Decode a `-` frame and classify malformed or non-UTF-8 text as input data.
 fn parse_error(
     buf: &BytesMut,
@@ -144,7 +139,6 @@ fn parse_error(
         RespFrame::Error,
     )
 }
-
 /// Decode a `:` frame as a signed 64-bit value without consuming partial input.
 fn parse_integer(
     buf: &BytesMut,
@@ -169,8 +163,8 @@ enum BulkLength {
     Sized(usize),
 }
 
-#[derive(Clone, Copy, Debug)]
 /// Captures the offsets and byte budget needed to validate one bulk payload.
+#[derive(Clone, Copy, Debug)]
 struct BulkPayloadSpec {
     /// Start of the complete bulk frame, used for the consumed-byte count.
     start: usize,
@@ -234,8 +228,7 @@ fn parse_bulk_length(
     Ok(Some((BulkLength::Sized(len), next)))
 }
 
-/// Check availability and framing of a bulk payload before copying its bytes.
-/// Returning `Ok(None)` leaves incomplete input untouched for the next read.
+/// Validate a bulk payload without consuming incomplete input.
 fn parse_bulk_payload(
     buf: &BytesMut,
     spec: BulkPayloadSpec,
@@ -289,8 +282,7 @@ fn validate_bulk_terminator(buf: &BytesMut, cursor: usize) -> Result<(), io::Err
     Ok(())
 }
 
-/// Decode an array recursively while bounding element count, depth, and bytes.
-/// Child parsing advances the cursor only after a complete child is available.
+/// Decode an array while bounding element count, depth, and bytes.
 fn parse_array(
     buf: &BytesMut,
     start: usize,
@@ -349,9 +341,7 @@ fn parse_array(
     Ok(Some((RespFrame::Array(Some(frames)), consumed)))
 }
 
-/// Dispatch one frame at an offset while preserving incomplete-buffer semantics.
-/// The depth check prevents attacker-controlled nesting from exhausting the
-/// parser stack.
+/// Dispatch one complete frame while bounding attacker-controlled nesting.
 fn parse_frame_at(
     buf: &BytesMut,
     start: usize,
@@ -380,8 +370,7 @@ fn parse_frame_at(
     }
 }
 
-/// Find a CRLF-terminated line without reading beyond the configured budget.
-/// Partial lines remain in the caller's buffer so a subsequent read can resume.
+/// Find a bounded CRLF line without consuming partial input.
 fn parse_line(
     buf: &BytesMut,
     start: usize,

@@ -36,6 +36,9 @@ use super::{ExtractError, FromMessageRequest, MessageRequest, Payload};
 ///
 /// [`RequestBodyStream`]: crate::request::RequestBodyStream
 pub struct StreamingBody {
+    /// Sole receiver for incremental request bytes; ownership prevents a
+    /// buffered extractor and a streaming extractor from consuming the same
+    /// body concurrently.
     stream: crate::request::RequestBodyStream,
 }
 

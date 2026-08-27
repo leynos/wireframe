@@ -61,6 +61,6 @@ where
     pub(crate) framed: &'a mut Framed<W, ConnectionCodec<F>>,
     /// Outbound pipeline that applies fragmentation and metrics.
     pub(crate) pipeline: &'a mut FramePipeline,
-    /// Codec that wraps serialised payloads into wire frames.
+    /// Codec that wraps serialized payloads into wire frames.
     pub(crate) codec: &'a F,
 }

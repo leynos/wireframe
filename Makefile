@@ -6,7 +6,7 @@
 CRATE ?= wireframe
 CARGO ?= cargo
 BUILD_JOBS ?=
-CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
+CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MARKDOWNLINT_CLI2_VERSION ?= 0.22.1
 MDLINT ?= npx --yes markdownlint-cli2@$(MARKDOWNLINT_CLI2_VERSION)
@@ -52,13 +52,15 @@ test-bdd: ## Run rstest-bdd tests only
 	RUSTFLAGS="-D warnings" $(CARGO) test --test bdd --all-features $(BUILD_JOBS)
 
 test: ## Run all tests (bdd + unit/integration)
-	RUSTFLAGS="-D warnings" $(CARGO) test --all-targets --all-features $(BUILD_JOBS)
+	RUSTFLAGS="-D warnings" $(CARGO) test --workspace --all-targets --all-features $(BUILD_JOBS)
 
 test-workflow-contracts: ## Validate workflow invocation contracts
 	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
 
 test-doc: ## Run doctests across all features
-	RUSTFLAGS="-D warnings" $(CARGO) test --doc --all-features $(BUILD_JOBS)
+	# `wireframe_testing` doctests need generic app types that standalone snippets
+	# cannot infer; issue #578 tracks their repair.
+	RUSTFLAGS="-D warnings" $(CARGO) test --workspace --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
 
 doctest-benchmark: ## Check runnable/no_run doctest ratios
 	./scripts/doctest-benchmark.sh
@@ -67,7 +69,7 @@ bench-codec: ## Run codec performance benchmarks
 	RUSTFLAGS="-D warnings" $(CARGO) bench --bench codec_performance --bench codec_performance_alloc --features test-support $(BUILD_JOBS)
 
 typecheck: ## Run a workspace typecheck
-	RUSTFLAGS="-D warnings" $(CARGO) check --all-targets --all-features $(BUILD_JOBS)
+	RUSTFLAGS="-D warnings" $(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
 
 # will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib
 target/%/lib$(CRATE).rlib: ## Build library in debug or release
@@ -80,7 +82,7 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 	  $@
 
 lint: ## Run Clippy with warnings denied
-	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --no-deps
+	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --workspace --no-deps
 	$(CARGO) clippy $(CLIPPY_FLAGS)
 	RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 

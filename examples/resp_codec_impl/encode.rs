@@ -128,11 +128,7 @@ fn digits_len_i64(value: i64) -> usize {
         cursor /= 10;
         digits += 1;
     }
-    if value < 0 {
-        digits + 1
-    } else {
-        digits
-    }
+    if value < 0 { digits + 1 } else { digits }
 }
 
 /// Add encoded-size components and report overflow as a frame-size error.

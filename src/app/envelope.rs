@@ -288,8 +288,8 @@ impl PacketParts {
         self
     }
 
-    #[inline]
     /// Resolve inherited correlation metadata and flag conflicting identifiers.
+    #[inline]
     fn select_correlation(current: Option<u64>, source: Option<u64>) -> (Option<u64>, bool) {
         match (current, source) {
             (None, cid) => (cid, false),
