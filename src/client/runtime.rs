@@ -60,11 +60,17 @@ pub struct WireframeClient<S = BincodeSerializer, T = TcpStream, C = ()>
 where
     T: ClientStream,
 {
+    /// Framed transport whose mutable borrow serializes client operations.
     pub(crate) framed: Framed<T, LengthDelimitedCodec>,
+    /// Serializer used for every message on this connection.
     pub(crate) serializer: S,
+    /// Configuration retained for frame construction and diagnostics.
     pub(crate) codec_config: ClientCodecConfig,
+    /// State returned by the connection setup hook, if configured.
     pub(crate) connection_state: Option<C>,
+    /// Teardown callback consuming connection state during close.
     pub(crate) on_disconnect: Option<ClientConnectionTeardownHandler<C>>,
+    /// Best-effort callback invoked before returning client errors.
     pub(crate) on_error: Option<ClientErrorHandler>,
     /// Hooks invoked on every outgoing and incoming frame.
     pub(crate) request_hooks: RequestHooks,

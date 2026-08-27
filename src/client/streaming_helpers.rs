@@ -152,9 +152,13 @@ pub struct TypedResponseStream<S, Mapper, P, Item>
 where
     S: Stream<Item = Result<P, ClientError>>,
 {
+    /// Wrapped response stream preserving transport order and termination.
     inner: S,
+    /// Mapper that may drop control frames or terminate with an error.
     mapper: Mapper,
+    /// Prevents polling after a mapper or underlying stream terminal result.
     terminated: bool,
+    /// Retains erased protocol and item types for type checking only.
     _phantom: PhantomData<fn() -> (P, Item)>,
 }
 
@@ -162,6 +166,7 @@ impl<S, Mapper, P, Item> TypedResponseStream<S, Mapper, P, Item>
 where
     S: Stream<Item = Result<P, ClientError>>,
 {
+    /// Construct an adapter with an active stream and mapper.
     fn new(inner: S, mapper: Mapper) -> Self {
         Self {
             inner,
