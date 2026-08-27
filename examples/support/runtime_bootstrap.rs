@@ -8,6 +8,9 @@ use wireframe::{app::Envelope, serializer::BincodeSerializer};
 
 use crate::server_loop;
 
+/// Concrete application handle shared by the TCP examples' bootstrap helpers.
+/// Keeping the alias here ensures each example wires the same envelope and
+/// serializer contract into its runtime and connection tasks.
 type ExampleApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 /// Initialize tracing for examples, ignoring duplicate global subscriber setup.

@@ -61,12 +61,16 @@ fn decimal_digits(mut value: usize) -> usize {
 /// Encapsulates buffer context for RESP frame parsing.
 #[derive(Clone, Copy)]
 struct ParseContext<'a> {
+    /// Borrowed receive buffer; parsing never consumes it directly.
     buf: &'a BytesMut,
+    /// Offset of the current frame, used to report bytes consumed precisely.
     start: usize,
+    /// Per-frame byte budget applied to line and payload parsing.
     max_frame_length: usize,
 }
 
 impl<'a> ParseContext<'a> {
+    /// Capture the immutable buffer view and limits for one parser operation.
     fn new(buf: &'a BytesMut, start: usize, max_frame_length: usize) -> Self {
         Self {
             buf,
@@ -114,6 +118,8 @@ where
     Ok(Some((frame, next - start)))
 }
 
+/// Decode a `+` frame, retaining incremental `Ok(None)` behaviour for a
+/// terminator that has not arrived yet.
 fn parse_simple_string(
     buf: &BytesMut,
     start: usize,
@@ -126,6 +132,7 @@ fn parse_simple_string(
     )
 }
 
+/// Decode a `-` frame and classify malformed or non-UTF-8 text as input data.
 fn parse_error(
     buf: &BytesMut,
     start: usize,
@@ -138,6 +145,7 @@ fn parse_error(
     )
 }
 
+/// Decode a `:` frame as a signed 64-bit value without consuming partial input.
 fn parse_integer(
     buf: &BytesMut,
     start: usize,
@@ -153,19 +161,28 @@ fn parse_integer(
     Ok(Some((RespFrame::Integer(value), next - start)))
 }
 
+/// Describes whether a bulk header carries a payload or RESP's null marker.
 enum BulkLength {
+    /// The `-1` header denotes an absent payload rather than zero bytes.
     Null,
+    /// A non-negative length whose payload and trailing CRLF must follow.
     Sized(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
+/// Captures the offsets and byte budget needed to validate one bulk payload.
 struct BulkPayloadSpec {
+    /// Start of the complete bulk frame, used for the consumed-byte count.
     start: usize,
+    /// First byte of payload data, immediately after the header CRLF.
     payload_start: usize,
+    /// Number of payload bytes promised by the header.
     len: usize,
+    /// Maximum complete-frame size accepted by the transport.
     max_frame_length: usize,
 }
 
+/// Parse a bulk header and, when present, validate and copy its payload.
 fn parse_bulk_string(
     buf: &BytesMut,
     start: usize,
@@ -188,6 +205,7 @@ fn parse_bulk_string(
     }
 }
 
+/// Parse the signed length header, accepting only `-1` or non-negative sizes.
 fn parse_bulk_length(
     buf: &BytesMut,
     start: usize,
@@ -216,6 +234,8 @@ fn parse_bulk_length(
     Ok(Some((BulkLength::Sized(len), next)))
 }
 
+/// Check availability and framing of a bulk payload before copying its bytes.
+/// Returning `Ok(None)` leaves incomplete input untouched for the next read.
 fn parse_bulk_payload(
     buf: &BytesMut,
     spec: BulkPayloadSpec,
@@ -250,6 +270,7 @@ fn parse_bulk_payload(
     )))
 }
 
+/// Require the CRLF delimiter that terminates every non-null bulk payload.
 fn validate_bulk_terminator(buf: &BytesMut, cursor: usize) -> Result<(), io::Error> {
     let cr = buf
         .get(cursor)
@@ -268,6 +289,8 @@ fn validate_bulk_terminator(buf: &BytesMut, cursor: usize) -> Result<(), io::Err
     Ok(())
 }
 
+/// Decode an array recursively while bounding element count, depth, and bytes.
+/// Child parsing advances the cursor only after a complete child is available.
 fn parse_array(
     buf: &BytesMut,
     start: usize,
@@ -326,6 +349,9 @@ fn parse_array(
     Ok(Some((RespFrame::Array(Some(frames)), consumed)))
 }
 
+/// Dispatch one frame at an offset while preserving incomplete-buffer semantics.
+/// The depth check prevents attacker-controlled nesting from exhausting the
+/// parser stack.
 fn parse_frame_at(
     buf: &BytesMut,
     start: usize,
@@ -354,6 +380,8 @@ fn parse_frame_at(
     }
 }
 
+/// Find a CRLF-terminated line without reading beyond the configured budget.
+/// Partial lines remain in the caller's buffer so a subsequent read can resume.
 fn parse_line(
     buf: &BytesMut,
     start: usize,
