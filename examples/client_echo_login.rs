@@ -22,19 +22,29 @@ mod echo_login_contract;
 
 use echo_login_contract::{LOGIN_ROUTE_ID, LoginAck, LoginRequest};
 
+/// Fallible result used by the example's setup and protocol steps.
 type ExampleResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+/// Client configuration for a TCP stream that can replay bytes consumed while
+/// negotiating the connection preamble.
 type Client = WireframeClient<BincodeSerializer, RewindStream<TcpStream>, ()>;
 
+/// Installs the default formatter once, leaving embedding applications free to
+/// provide their own subscriber when this example is reused.
 fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
 
+/// Returns the address used by the companion echo server.
 fn server_addr() -> ExampleResult<SocketAddr> { Ok("127.0.0.1:7878".parse()?) }
 
+/// Supplies the deterministic guest credentials used in the runnable example.
 fn default_login() -> LoginRequest {
     LoginRequest {
         username: "guest".to_string(),
     }
 }
 
+/// Logs the acknowledgement and its correlation token so request/response
+/// pairing remains visible when several calls share a connection.
 fn log_acknowledgement(response: &Envelope, ack: &LoginAck) {
     info!(
         username = %ack.username,
@@ -43,6 +53,9 @@ fn log_acknowledgement(response: &Envelope, ack: &LoginAck) {
     );
 }
 
+/// Rejects an acknowledgement whose echoed identity does not match the request.
+/// This check keeps a successful transport exchange from being mistaken for a
+/// successful application-level login.
 fn validate_acknowledgement(login: &LoginRequest, ack: &LoginAck) -> ExampleResult<()> {
     if ack.username != login.username {
         error!(
@@ -60,6 +73,8 @@ fn validate_acknowledgement(login: &LoginRequest, ack: &LoginAck) -> ExampleResu
     Ok(())
 }
 
+/// Encodes a login request, performs one correlated call, and decodes its reply.
+/// The returned envelope is retained so callers can inspect the correlation ID.
 async fn request_acknowledgement(
     client: &mut Client,
     login: &LoginRequest,
@@ -71,6 +86,7 @@ async fn request_acknowledgement(
     Ok((response, ack))
 }
 
+/// Runs the complete login handshake and reports protocol or transport errors.
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
 
