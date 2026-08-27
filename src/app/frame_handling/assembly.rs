@@ -26,7 +26,9 @@ const DEFAULT_MESSAGE_ASSEMBLY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Borrowed inbound runtime state used for message assembly.
 pub(crate) struct AssemblyRuntime<'a> {
+    /// Shared assembler implementation, absent when assembly is disabled.
     pub(crate) assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    /// Mutable connection-local assembly state and its memory accounting.
     pub(crate) state: &'a mut Option<MessageAssemblyState>,
 }
 
@@ -163,9 +165,13 @@ pub(crate) fn assemble_if_needed(
     }
 }
 
+/// Mutable assembly state plus the failure budget for one inbound frame.
 struct AssemblyContext<'a, 'b> {
+    /// Connection-local assembler state updated by accepted fragments.
     state: &'a mut MessageAssemblyState,
+    /// Failure tracker that closes the connection at its configured threshold.
     failures: &'a mut DeserFailureTracker<'b>,
+    /// Correlation metadata used to diagnose malformed frame errors.
     correlation_id: Option<u64>,
 }
 
@@ -181,6 +187,7 @@ impl AssemblyContext<'_, '_> {
     }
 }
 
+/// Validate and feed a first assembly frame into connection-local state.
 fn process_first_frame(
     context: &mut AssemblyContext<'_, '_>,
     header: &FirstFrameHeader,
@@ -239,6 +246,7 @@ fn process_first_frame(
     }
 }
 
+/// Validate and append a continuation frame in sequence order.
 fn process_continuation_frame(
     context: &mut AssemblyContext<'_, '_>,
     header: &ContinuationFrameHeader,

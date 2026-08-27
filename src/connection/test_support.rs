@@ -62,7 +62,9 @@ pub fn create_test_actor_with_hooks(
 
 /// Convenience harness wrapping an actor, its state, and buffered output.
 pub struct ActorHarness {
+    /// Actor under test, retaining the real queue and lifecycle logic.
     actor: ConnectionActor<u8>,
+    /// Mutable lifecycle state supplied to direct drain helpers.
     state: ActorState,
     /// Frames emitted by the actor during tests, preserved for assertions.
     pub out: Vec<u8>,
@@ -198,6 +200,7 @@ pub struct ActorStateSnapshot {
 
 /// Harness around `ActorState` for integration tests.
 pub struct ActorStateHarness {
+    /// Lifecycle state exercised by verification helpers.
     state: ActorState,
 }
 

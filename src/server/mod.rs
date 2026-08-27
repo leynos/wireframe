@@ -206,9 +206,13 @@ pub struct WireframeServer<
     E: Packet,
     Codec: FrameCodec,
 {
+    /// Factory cloned for each accepted connection.
     pub(crate) factory: F,
+    /// Number of accept-loop worker tasks to supervise.
     pub(crate) workers: usize,
+    /// Optional callback run after a valid preamble.
     pub(crate) on_preamble_success: Option<PreambleHandler<T>>,
+    /// Optional callback run when preamble validation fails.
     pub(crate) on_preamble_failure: Option<PreambleFailure>,
     /// Channel used to notify when the server is ready.
     ///
@@ -223,6 +227,7 @@ pub struct WireframeServer<
     /// Because only one notification may be sent, a new `ready_tx` must be
     /// provided each time the server is started.
     pub(crate) ready_tx: Option<oneshot::Sender<()>>,
+    /// Retry policy used when accepting a connection fails transiently.
     pub(crate) backoff_config: BackoffConfig,
     /// Maximum duration allowed for reading a preamble before timing out.
     ///
@@ -232,7 +237,9 @@ pub struct WireframeServer<
     /// Typestate tracking whether the server has been bound to a listener.
     /// [`Unbound`] servers require binding before they can run.
     pub(crate) state: S,
+    /// Typestate marker retaining application generic parameters.
     pub(crate) _app: PhantomData<(Ser, Ctx, E, Codec)>,
+    /// Typestate marker retaining the preamble type.
     pub(crate) _preamble: PhantomData<T>,
 }
 
@@ -243,6 +250,7 @@ pub struct Unbound;
 /// Marker indicating the server is bound to a TCP listener.
 #[derive(Debug, Clone)]
 pub struct Bound {
+    /// Shared non-blocking listener used by all supervised workers.
     pub(crate) listener: Arc<TcpListener>,
 }
 
@@ -252,6 +260,7 @@ pub trait ServerState: sealed::Sealed {}
 mod sealed {
     //! Prevent external implementations of [`ServerState`].
 
+    /// Private supertrait prevents external typestate implementations.
     pub trait Sealed {}
     impl Sealed for super::Unbound {}
     impl Sealed for super::Bound {}

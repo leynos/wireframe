@@ -16,6 +16,7 @@ use tokio::sync::oneshot;
 use super::{AppFactory, BackoffConfig, ServerState, Unbound, WireframeServer};
 use crate::{app::Packet, codec::FrameCodec, preamble::Preamble, serializer::Serializer};
 
+/// Generate a consuming setter that preserves builder typestate.
 macro_rules! builder_setter {
     ($(#[$meta:meta])* $fn:ident, $field:ident, $arg:ident: $ty:ty => $assign:expr) => {
         $(#[$meta])*
@@ -27,6 +28,7 @@ macro_rules! builder_setter {
     };
 }
 
+/// Generate a callback setter that stores handlers behind shared ownership.
 macro_rules! builder_callback {
     ($(#[$meta:meta])* $fn:ident, $field:ident, $($bound:tt)*) => {
         $(#[$meta])*
@@ -44,6 +46,7 @@ macro_rules! builder_callback {
 pub mod binding;
 pub mod preamble;
 
+/// Delegate worker-count selection to the server-wide CPU fallback policy.
 fn default_worker_count() -> usize { super::default_worker_count() }
 #[cfg(test)]
 mod tests;

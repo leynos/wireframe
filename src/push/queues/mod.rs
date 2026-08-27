@@ -40,6 +40,7 @@ impl<T> FrameLike for T where T: Send + 'static {}
 
 // Default maximum pushes per second when no custom rate is specified.
 // This is an internal implementation detail and may change.
+/// Default throughput cap applied when callers do not choose a rate.
 const DEFAULT_PUSH_RATE: usize = 100;
 /// Highest supported rate for [`PushQueuesBuilder::rate`].
 pub const MAX_PUSH_RATE: usize = 10_000;
@@ -69,7 +70,9 @@ pub enum PushPolicy {
 
 /// Receiver ends of the push queues stored by the connection actor.
 pub struct PushQueues<F> {
+    /// Urgent receiver owned by the connection actor.
     pub(crate) high_priority_rx: mpsc::Receiver<F>,
+    /// Best-effort receiver owned by the connection actor.
     pub(crate) low_priority_rx: mpsc::Receiver<F>,
 }
 
@@ -79,11 +82,17 @@ pub struct PushQueues<F> {
 /// plus logging cadence for dropped frames.
 #[derive(Debug, Clone)]
 pub struct PushQueueConfig<F> {
+    /// Capacity bounding urgent queue memory.
     pub high_capacity: usize,
+    /// Capacity bounding best-effort queue memory.
     pub low_capacity: usize,
+    /// Optional aggregate producer rate limit.
     pub rate: Option<usize>,
+    /// Optional destination for frames discarded on overflow.
     pub dlq: Option<mpsc::Sender<F>>,
+    /// Number of discarded frames between diagnostics.
     pub dlq_log_every_n: usize,
+    /// Minimum elapsed time between diagnostics.
     pub dlq_log_interval: Duration,
 }
 
@@ -127,6 +136,7 @@ impl<F: FrameLike> PushQueues<F> {
         }
     }
 
+    /// Validate configuration, allocate channels, and pair them with a handle.
     pub(super) fn build_with_config(
         config: PushQueueConfig<F>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {

@@ -39,6 +39,7 @@ where
 trait WireframePreamble: Preamble {}
 impl<T> WireframePreamble for T where T: Preamble {}
 
+/// Bound typestate alias returned after a listener is configured.
 type BoundServer<F, T, Ser, Ctx, E, Codec> = WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>;
 
 /// Blanket impl uses private trait aliases; suppress visibility lint
@@ -56,6 +57,7 @@ where
     E: Packet,
     Codec: FrameCodec,
 {
+    /// Convert a standard listener to Tokio's non-blocking listener.
     fn bind_to_listener(
         self,
         std_listener: StdTcpListener,

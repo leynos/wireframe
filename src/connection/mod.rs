@@ -77,7 +77,9 @@ pub enum ConnectionStateError {
 /// # drop(actor);
 /// ```
 pub struct ConnectionActor<F, E = NoProtocolError> {
+    /// Receiver for urgent frames, polled before all other data sources.
     high_rx: Option<mpsc::Receiver<F>>,
+    /// Receiver for best-effort frames, serviced subject to fairness limits.
     low_rx: Option<mpsc::Receiver<F>>,
     /// Active output source: either a streaming response or a multi-packet channel.
     ///
@@ -85,13 +87,21 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     /// is drained after low-priority frames to preserve fairness with queued sources.
     /// The actor emits the protocol terminator when the sender closes the channel.
     active_output: ActiveOutput<F, E>,
+    /// Cancellation signal shared by the supervisor and this actor.
     shutdown: CancellationToken,
+    /// RAII registration keeping the global active-connection gauge accurate.
     counter: Option<ActiveConnection>,
+    /// Protocol callbacks invoked around frame and stream lifecycle events.
     hooks: ProtocolHooks<F, E>,
+    /// Per-connection context passed to protocol callbacks.
     ctx: ConnectionContext,
+    /// Scheduler state preventing high-priority traffic from starving low traffic.
     fairness: FairnessTracker,
+    /// Optional fragmenter applied immediately before outbound emission.
     fragmenter: Option<Arc<Fragmenter>>,
+    /// Identifier used to correlate actor diagnostics with connection setup.
     connection_id: Option<ConnectionId>,
+    /// Peer address retained for diagnostics when the socket exposes it.
     peer_addr: Option<SocketAddr>,
 }
 
