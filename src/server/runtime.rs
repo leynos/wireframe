@@ -135,11 +135,11 @@ impl Drop for SupervisorCancellationDropGuard<'_> {
     fn drop(&mut self) { self.lifecycle.record_dropped_cancellation(); }
 }
 
+/// Wait for either intentional shutdown or completion of all worker tasks.
 #[expect(
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
-/// Wait for either intentional shutdown or completion of all worker tasks.
 async fn await_supervisor_termination<S>(
     shutdown: S,
     shutdown_token: &CancellationToken,
