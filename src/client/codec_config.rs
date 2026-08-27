@@ -4,8 +4,11 @@ use tokio_util::codec::LengthDelimitedCodec;
 
 use crate::frame::{Endianness, LengthFormat};
 
+/// Smallest frame accepted so a length prefix cannot consume the payload.
 const MIN_FRAME_LENGTH: usize = 64;
+/// Upper bound preventing a peer from forcing an unbounded read allocation.
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
+/// Conservative default that keeps ordinary request buffers small.
 const DEFAULT_MAX_FRAME_LENGTH: usize = 1024;
 
 /// Codec configuration for the wireframe client.
@@ -20,7 +23,9 @@ const DEFAULT_MAX_FRAME_LENGTH: usize = 1024;
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct ClientCodecConfig {
+    /// Width and byte order of the wire length prefix.
     length_format: LengthFormat,
+    /// Maximum encoded frame size enforced by both decoder and encoder.
     max_frame_length: usize,
 }
 
@@ -99,6 +104,7 @@ impl ClientCodecConfig {
     #[must_use]
     pub const fn length_format_value(&self) -> LengthFormat { self.length_format }
 
+    /// Build the framed transport codec with the configured wire limits.
     pub(crate) fn build_codec(&self) -> LengthDelimitedCodec {
         let mut builder = LengthDelimitedCodec::builder();
         builder.length_field_length(self.length_format.bytes());
