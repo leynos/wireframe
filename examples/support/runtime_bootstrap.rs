@@ -12,6 +12,7 @@ use crate::server_loop;
 /// Keeping the alias here ensures each example wires the same envelope and
 /// serializer contract into its runtime and connection tasks.
 type ExampleApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+/// Immutable runtime application shared by all accepted example connections.
 type PreparedExampleApp = wireframe::app::PreparedApp<BincodeSerializer, (), Envelope>;
 /// Initialize tracing for examples, ignoring duplicate global subscriber setup.
 pub(crate) fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
