@@ -36,7 +36,9 @@ use crate::{
 /// Produces a buffer of processed envelopes ready for serialization and
 /// transmission.
 pub(crate) struct FramePipeline {
+    /// Optional state that turns oversized envelopes into ordered fragments.
     fragmentation: Option<FragmentationState>,
+    /// Envelopes waiting to be serialised and written to the transport.
     out: Vec<Envelope>,
 }
 
@@ -105,6 +107,7 @@ impl FramePipeline {
     #[cfg(test)]
     pub(crate) fn has_fragmentation(&self) -> bool { self.fragmentation.is_some() }
 
+    /// Append one processed envelope and account for its outbound emission.
     fn push_frame(&mut self, envelope: Envelope) {
         self.out.push(envelope);
         crate::metrics::inc_frames(crate::metrics::Direction::Outbound);

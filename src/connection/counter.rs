@@ -10,6 +10,7 @@ static ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
 pub(super) struct ActiveConnection;
 
 impl ActiveConnection {
+    /// Register one live actor before it begins polling connection sources.
     pub(super) fn new() -> Self {
         ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
         crate::metrics::inc_connections();

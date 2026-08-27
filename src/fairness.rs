@@ -46,18 +46,25 @@ impl Clock for TokioClock {
 }
 
 #[derive(Debug)]
+/// Mutable scheduling state enforcing bounded high-priority bursts.
 pub(crate) struct FairnessTracker<C: Clock = TokioClock> {
+    /// Threshold and optional time slice governing yield decisions.
     config: FairnessConfig,
+    /// Injectable clock used to make time-based decisions testable.
     clock: C,
+    /// Consecutive high-priority frames since the last low-priority frame.
     high_counter: usize,
+    /// Start of the current uninterrupted high-priority burst.
     high_start: Option<Instant>,
 }
 
 impl FairnessTracker {
+    /// Create a tracker using Tokio's monotonic clock.
     pub(crate) fn new(config: FairnessConfig) -> Self { Self::with_clock(config, TokioClock) }
 }
 
 impl<C: Clock> FairnessTracker<C> {
+    /// Construct a tracker with an explicit clock for deterministic tests.
     pub(crate) fn with_clock(config: FairnessConfig, clock: C) -> Self {
         Self {
             config,
@@ -67,11 +74,13 @@ impl<C: Clock> FairnessTracker<C> {
         }
     }
 
+    /// Replace policy and clear prior burst history so old traffic cannot bias it.
     pub(crate) fn set_config(&mut self, config: FairnessConfig) {
         self.config = config;
         self.reset();
     }
 
+    /// Count one emitted high-priority frame and start its burst timer if needed.
     pub(crate) fn record_high_priority(&mut self) {
         self.high_counter += 1;
         if self.high_counter == 1 {
@@ -79,6 +88,7 @@ impl<C: Clock> FairnessTracker<C> {
         }
     }
 
+    /// Report whether fairness policy requires checking the low-priority queue.
     pub(crate) fn should_yield_to_low_priority(&self) -> bool {
         if self.config.max_high_before_low > 0
             && self.high_counter >= self.config.max_high_before_low
@@ -93,8 +103,10 @@ impl<C: Clock> FairnessTracker<C> {
         false
     }
 
+    /// End the current high-priority burst after a low-priority frame is served.
     pub(crate) fn reset(&mut self) { self.clear(); }
 
+    /// Clear counters and timer without changing configured fairness policy.
     fn clear(&mut self) {
         self.high_counter = 0;
         self.high_start = None;

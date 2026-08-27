@@ -7,15 +7,20 @@ use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
 
 /// Context for drain operations containing mutable references to output and actor state.
 pub(super) struct DrainContext<'a, F> {
+    /// Destination preserving the actor's wire-order output.
     pub(super) out: &'a mut Vec<F>,
+    /// Lifecycle state updated when a queue closes or yields a frame.
     pub(super) state: &'a mut ActorState,
 }
 
 /// Queue variants processed by the connection actor.
 #[derive(Clone, Copy)]
 pub(super) enum QueueKind {
+    /// Urgent pushes that take precedence in the biased select loop.
     High,
+    /// Best-effort pushes subject to fairness yielding.
     Low,
+    /// Frames from the currently active multi-packet response.
     Multi,
 }
 
@@ -122,6 +127,7 @@ where
         state.mark_closed();
     }
 
+    /// Forward one frame, then update fairness and lifecycle bookkeeping.
     fn forward_queue_frame(&mut self, kind: QueueKind, frame: F, ctx: DrainContext<'_, F>) {
         let DrainContext { out, state } = ctx;
         if self.should_emit_multi_packet_frame(kind) {
@@ -136,6 +142,7 @@ where
         }
     }
 
+    /// Check whether multi-packet output needs correlation stamping.
     fn should_emit_multi_packet_frame(&mut self, kind: QueueKind) -> bool {
         matches!(kind, QueueKind::Multi)
             && self
@@ -144,6 +151,7 @@ where
                 .is_some_and(|ctx| ctx.is_stamping_enabled())
     }
 
+    /// Mark a source closed when polling reports no further frames.
     fn handle_empty_queue(&mut self, kind: QueueKind, state: &mut ActorState, out: &mut Vec<F>) {
         match kind {
             QueueKind::High => {
@@ -159,6 +167,7 @@ where
         }
     }
 
+    /// Perform one non-blocking low-priority drain after a fairness yield.
     fn try_opportunistic_low_drain(&mut self, state: &mut ActorState, out: &mut Vec<F>) -> bool {
         let Some(receiver) = self.low_rx.as_mut() else {
             return false;
@@ -178,6 +187,7 @@ where
         }
     }
 
+    /// Perform one non-blocking multi-packet drain after a fairness yield.
     fn try_opportunistic_multi_drain(&mut self, state: &mut ActorState, out: &mut Vec<F>) -> bool {
         let Some(ctx) = self.active_output.multi_packet_mut() else {
             return false;

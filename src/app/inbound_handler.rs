@@ -26,6 +26,7 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Remove stale outbound and message-assembly state after an idle interval.
 fn purge_expired(
     pipeline: &mut FramePipeline,
     message_assembly: &mut Option<MessageAssemblyState>,
@@ -43,10 +44,15 @@ where
     W: AsyncRead + AsyncWrite + Unpin,
     F: FrameCodec,
 {
+    /// Framed transport borrowed for response writes during frame handling.
     framed: &'a mut Framed<W, ConnectionCodec<F>>,
+    /// Connection-wide malformed-frame counter shared with all stages.
     deser_failures: &'a mut u32,
+    /// Immutable middleware chains used to dispatch decoded envelopes.
     routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Outbound processing state for fragmenting and counting responses.
     pipeline: &'a mut FramePipeline,
+    /// Connection-local state for assembling multi-frame messages.
     message_assembly: &'a mut Option<MessageAssemblyState>,
 }
 
@@ -55,9 +61,13 @@ struct DispatchBuildContext<'a, F>
 where
     F: FrameCodec,
 {
+    /// Raw frame borrowed while decoding its envelope metadata and payload.
     frame: &'a F::Frame,
+    /// Pipeline needed to reassemble fragmented input and emit responses.
     pipeline: &'a mut FramePipeline,
+    /// Mutable assembly state retained across inbound frames.
     message_assembly: &'a mut Option<MessageAssemblyState>,
+    /// Failure counter used to enforce the malformed-input limit.
     deser_failures: &'a mut u32,
 }
 
@@ -143,6 +153,7 @@ where
         }
     }
 
+    /// Build middleware chains once, preserving reverse wrapping order.
     async fn build_chains(&self) -> HashMap<u32, HandlerService<E>> {
         let mut routes = HashMap::new();
         for (&id, handler) in &self.handlers {
@@ -155,6 +166,7 @@ where
         routes
     }
 
+    /// Read frames until EOF, timeout, or a transport/handler error occurs.
     async fn process_stream<W>(
         &self,
         stream: W,
@@ -225,6 +237,7 @@ where
         Ok(())
     }
 
+    /// Decode one frame, apply reassembly, and dispatch its response.
     async fn handle_frame<W>(
         &self,
         frame: &F::Frame,
@@ -275,6 +288,7 @@ where
         Ok(())
     }
 
+    /// Run decode, fragment reassembly, and message assembly in order.
     fn build_dispatchable_envelope(
         &self,
         ctx: DispatchBuildContext<'_, F>,

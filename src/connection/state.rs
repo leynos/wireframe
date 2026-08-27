@@ -12,8 +12,11 @@ enum RunState {
 
 /// Tracks progress through the actor lifecycle.
 pub(super) struct ActorState {
+    /// Current lifecycle phase; only `Active` may accept normal frames.
     run_state: RunState,
+    /// Number of source closures observed by the actor.
     closed_sources: usize,
+    /// Number of sources that must close before the actor can finish.
     total_sources: usize,
 }
 
