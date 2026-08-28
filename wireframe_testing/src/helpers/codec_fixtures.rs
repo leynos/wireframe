@@ -68,8 +68,12 @@ const HEADER_LEN: usize = 20;
 /// ```
 #[must_use]
 pub fn valid_hotline_wire(payload: &[u8], transaction_id: impl Into<TransactionId>) -> Vec<u8> {
-    let transaction_id = transaction_id.into().0;
-    build_hotline_wire(payload, transaction_id, payload.len(), true)
+    build_hotline_wire(HotlineWireFixture {
+        payload,
+        transaction_id: transaction_id.into(),
+        declared_payload_size: payload.len(),
+        total_size_policy: TotalSizePolicy::Matching,
+    })
 }
 
 /// Return a typed [`HotlineFrame`] with the given payload and transaction ID.
@@ -120,7 +124,13 @@ pub fn valid_hotline_frame(
 pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Vec<u8> {
     let max_frame_length = max_frame_length.into().0;
     let oversized_len = max_frame_length.saturating_add(1);
-    build_hotline_wire(&vec![0xab; oversized_len], 0, oversized_len, true)
+    let payload = vec![0xab; oversized_len];
+    build_hotline_wire(HotlineWireFixture {
+        payload: &payload,
+        transaction_id: TransactionId(0),
+        declared_payload_size: oversized_len,
+        total_size_policy: TotalSizePolicy::Matching,
+    })
 }
 
 /// Build a Hotline frame with a mismatched `total_size` field.
@@ -143,7 +153,12 @@ pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Ve
 /// ```
 #[must_use]
 pub fn mismatched_total_size_wire(payload: &[u8]) -> Vec<u8> {
-    build_hotline_wire(payload, 0, payload.len(), false)
+    build_hotline_wire(HotlineWireFixture {
+        payload,
+        transaction_id: TransactionId(0),
+        declared_payload_size: payload.len(),
+        total_size_policy: TotalSizePolicy::OffByOne,
+    })
 }
 
 /// Return fewer than 20 bytes — a truncated Hotline header.
@@ -199,13 +214,15 @@ pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u
     // Clamp to at least 1 so the header always claims more payload than
     // the buffer provides, guaranteeing a genuinely truncated frame.
     let payload_len = payload_len.into().0.max(1);
-    let data_size = u32_from_usize(payload_len);
-    let total_size = u32_from_usize(payload_len.saturating_add(HEADER_LEN));
+    let header = HotlineHeader {
+        data_size: u32_from_usize(payload_len),
+        total_size: u32_from_usize(payload_len.saturating_add(HEADER_LEN)),
+        transaction_id: TransactionId(0),
+    };
 
     let half_payload = payload_len >> 1;
     let mut buf = Vec::with_capacity(HEADER_LEN + half_payload);
-    append_hotline_header(&mut buf, data_size, total_size, 0); // transaction_id
-    buf.extend_from_slice(&[0u8; 8]); // reserved
+    append_hotline_header(&mut buf, header);
     buf.extend_from_slice(&vec![0xcc; half_payload]);
     buf
 }
@@ -278,29 +295,79 @@ pub fn sequential_hotline_wire(
 
 // ── Internal helpers ────────────────────────────────────────────────────
 
-/// Construct a Hotline wire frame with explicit control over header fields.
+/// The encoded fields that form a fixed-width Hotline header.
 ///
-/// When `correct_total_size` is `true`, `total_size` is set to
-/// `data_size + HEADER_LEN`. When `false`, `total_size` is set to
-/// `data_size + HEADER_LEN + 1` (deliberately wrong).
-fn build_hotline_wire(
-    payload: &[u8],
-    transaction_id: impl Into<TransactionId>,
-    data_size: usize,
-    correct_total_size: bool,
-) -> Vec<u8> {
-    let transaction_id = transaction_id.into().0;
-    let data_size_u32 = u32_from_usize(data_size);
-    let total_size = if correct_total_size {
-        u32_from_usize(data_size.saturating_add(HEADER_LEN))
-    } else {
-        // Off by one — triggers "invalid total size" in the decoder.
-        u32_from_usize(data_size.saturating_add(HEADER_LEN).saturating_add(1))
-    };
+/// Keeping the coupled length and correlation fields together prevents a
+/// fixture from accidentally combining metadata from separate protocol frames.
+#[derive(Debug, Clone, Copy)]
+struct HotlineHeader {
+    /// The payload length the decoder must accept before reading the frame.
+    data_size: u32,
+    /// The complete frame length, including the fixed-width header.
+    total_size: u32,
+    /// The correlation value carried through the decoded frame sequence.
+    transaction_id: TransactionId,
+}
 
-    let mut buf = Vec::with_capacity(HEADER_LEN + payload.len());
-    append_hotline_header(&mut buf, data_size_u32, total_size, transaction_id);
-    buf.extend_from_slice(payload);
+/// The intentional relationship between a Hotline header and its payload.
+#[derive(Debug, Clone, Copy)]
+enum TotalSizePolicy {
+    /// Advertise the exact header-plus-payload length required by valid frames.
+    Matching,
+    /// Advertise one extra byte to exercise the decoder's size-consistency error.
+    OffByOne,
+}
+
+impl TotalSizePolicy {
+    /// Calculate the declared frame length for the fixture's validation scenario.
+    fn total_size(self, declared_payload_size: usize) -> u32 {
+        let total_size = declared_payload_size.saturating_add(HEADER_LEN);
+        let total_size = match self {
+            Self::Matching => total_size,
+            Self::OffByOne => total_size.saturating_add(1),
+        };
+        u32_from_usize(total_size)
+    }
+}
+
+/// A payload and the header contract it deliberately presents to the decoder.
+///
+/// The declared payload size is independent from `payload` so malformed
+/// fixtures can exercise framing validation without exposing raw header fields
+/// throughout the fixture API.
+#[derive(Debug, Clone, Copy)]
+struct HotlineWireFixture<'a> {
+    /// The bytes placed after the header, which may differ from the declared size.
+    payload: &'a [u8],
+    /// The correlation metadata encoded with this frame.
+    transaction_id: TransactionId,
+    /// The payload length reported in the header for decoder validation.
+    declared_payload_size: usize,
+    /// The validity rule governing the header's total-size field.
+    total_size_policy: TotalSizePolicy,
+}
+
+impl HotlineWireFixture<'_> {
+    /// Materialise the header while retaining the fixture's deliberate size policy.
+    fn header(&self) -> HotlineHeader {
+        HotlineHeader {
+            data_size: u32_from_usize(self.declared_payload_size),
+            total_size: self
+                .total_size_policy
+                .total_size(self.declared_payload_size),
+            transaction_id: self.transaction_id,
+        }
+    }
+}
+
+/// Construct a Hotline wire frame from one payload-and-header contract.
+///
+/// The fixture owns every correlated protocol field, so this helper cannot
+/// emit a header whose size or correlation metadata was supplied separately.
+fn build_hotline_wire(fixture: HotlineWireFixture<'_>) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(HEADER_LEN + fixture.payload.len());
+    append_hotline_header(&mut buf, fixture.header());
+    buf.extend_from_slice(fixture.payload);
     buf
 }
 
@@ -310,14 +377,17 @@ fn build_hotline_wire(
 /// truncating cast to satisfy Clippy.
 fn u32_from_usize(value: usize) -> u32 { u32::try_from(value).unwrap_or(u32::MAX) }
 
-/// Append the fixed-width Hotline header fields in the protocol's network byte order.
+/// Append a fixed-width Hotline header in the protocol's network byte order.
+///
+/// The reserved bytes remain zero because the decoder treats them as opaque
+/// protocol space rather than payload data.
 #[expect(
     clippy::big_endian_bytes,
     reason = "Hotline fixtures must construct the protocol's big-endian wire header"
 )]
-fn append_hotline_header(buf: &mut Vec<u8>, data_size: u32, total_size: u32, transaction_id: u32) {
-    buf.extend_from_slice(&data_size.to_be_bytes());
-    buf.extend_from_slice(&total_size.to_be_bytes());
-    buf.extend_from_slice(&transaction_id.to_be_bytes());
+fn append_hotline_header(buf: &mut Vec<u8>, header: HotlineHeader) {
+    buf.extend_from_slice(&header.data_size.to_be_bytes());
+    buf.extend_from_slice(&header.total_size.to_be_bytes());
+    buf.extend_from_slice(&header.transaction_id.0.to_be_bytes());
     buf.extend_from_slice(&[0_u8; 8]);
 }
