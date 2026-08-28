@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Breaking: `WireframeServer::new` now evaluates its `AppFactory` once per
+  server run, prepares the result once, and shares that immutable application
+  root across connections. Move per-connection state to `on_connection_setup`,
+  or use `WireframeServer::from_app(app)` when the application is already
+  built. See `docs/v0-2-0-to-v0-3-0-migration-guide.md` for migration examples.
+  (#642)
+
 - **Client (breaking):** Remove `SocketOptions::linger` and
   `WireframeClientBuilder::linger`. Tokio-managed client sockets must not use
   duration-based `SO_LINGER`; call `WireframeClient::close().await` for

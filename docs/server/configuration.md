@@ -48,8 +48,14 @@ sequenceDiagram
   note over Ready,Caller: Send readiness signal when bound
 ```
 
-Readiness is signalled after all worker tasks have been spawned in
-`WireframeServer::run_with_shutdown`, immediately before the accept loop begins.
+The server evaluates `WireframeServer::new`'s factory once per
+`run_with_shutdown` invocation, prepares the resulting application once, and
+shares one immutable prepared root between accept loops and connection tasks.
+`WireframeServer::from_app(app)` follows the same preparation path for an
+already-built application. Readiness is signalled only after that preparation
+succeeds and all worker tasks have been installed. Put connection-specific
+state in lifecycle setup state `C` through `on_connection_setup`, rather than
+rebuilding the application graph for each connection.
 
 ## Accept loop backoff
 

@@ -30,7 +30,10 @@ use super::{
 };
 use crate::{
     app::WireframeApp,
-    server::test_util::{bind_server, factory, free_listener},
+    server::{
+        ServerError,
+        test_util::{bind_server, factory, free_listener},
+    },
 };
 
 #[rstest]
@@ -138,6 +141,33 @@ async fn test_multiple_worker_creation(
     )
     .await
     .map_err(|_| "server did not finish in time")??;
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+/// Startup factory failures prevent readiness and worker installation.
+#[rstest]
+#[tokio::test]
+async fn factory_failure_returns_before_readiness(
+    free_listener: std::io::Result<std::net::TcpListener>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let factory = || -> Result<WireframeApp, io::Error> {
+        Err(io::Error::other("application construction failed"))
+    };
+    let server = WireframeServer::new(factory)
+        .workers(3)
+        .bind_existing_listener(free_listener?)?;
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let result = server
+        .ready_signal(ready_tx)
+        .run_with_shutdown(std::future::pending())
+        .await;
+
+    assert!(
+        matches!(result, Err(ServerError::FactoryBuild(error)) if error.to_string() == "application construction failed")
+    );
+    assert!(ready_rx.await.is_err());
     Ok(())
 }
 
@@ -153,11 +183,12 @@ async fn test_accept_loop_shutdown_signal(
             .await
             .expect("failed to bind test listener"),
     );
+    let app = Arc::new(factory().prepare().await.expect("prepare app"));
 
     tracker.spawn(accept_loop(
         listener,
-        factory,
         AcceptLoopOptions::<()> {
+            app,
             preamble: PreambleHooks::default(),
             shutdown: token.clone(),
             tracker: tracker.clone(),
@@ -252,11 +283,12 @@ async fn test_accept_loop_exponential_backoff_async(
         initial_delay: Duration::from_millis(5),
         max_delay: Duration::from_millis(20),
     };
+    let app = Arc::new(factory().prepare().await.expect("prepare app"));
 
     tracker.spawn(accept_loop(
         listener,
-        factory,
         AcceptLoopOptions::<()> {
+            app,
             preamble: PreambleHooks::default(),
             shutdown: token.clone(),
             tracker: tracker.clone(),

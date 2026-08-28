@@ -294,10 +294,14 @@ where
             on_failure: on_preamble_failure,
             timeout: preamble_timeout,
         };
+        let app = factory
+            .build()
+            .map_err(|error| ServerError::FactoryBuild(Box::new(error)))?;
+        let prepared_app = Arc::new(app.prepare().await.map_err(ServerError::Prepare)?);
 
         for _ in 0..workers {
             let listener = Arc::clone(&listener);
-            let factory = factory.clone();
+            let app = Arc::clone(&prepared_app);
             let preamble_hooks = preamble.clone();
             let token = shutdown_token.clone();
             let t = tracker.clone();
@@ -305,8 +309,8 @@ where
             tracker.spawn(
                 accept_loop(
                     listener,
-                    factory,
                     AcceptLoopOptions {
+                        app,
                         preamble: preamble_hooks,
                         shutdown: token,
                         tracker: t,
