@@ -6,7 +6,7 @@ Run these workflow contract tests with ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import yaml
@@ -22,12 +22,21 @@ SHARED_ACTION_USES_RE = re.compile(
 def _workflow_mappings(value: object) -> Iterator[dict[str, object]]:
     """Yield every mapping nested beneath a parsed workflow document."""
     if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from _workflow_mappings(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _workflow_mappings(child)
+        yield from _mapping_and_children(value)
+    if isinstance(value, list):
+        yield from _mappings_in_values(value)
+
+
+def _mapping_and_children(mapping: dict[str, object]) -> Iterator[dict[str, object]]:
+    """Yield a mapping before traversing its nested values."""
+    yield mapping
+    yield from _mappings_in_values(mapping.values())
+
+
+def _mappings_in_values(values: Iterable[object]) -> Iterator[dict[str, object]]:
+    """Yield mappings nested within the supplied workflow values."""
+    for value in values:
+        yield from _workflow_mappings(value)
 
 
 def _shared_action_invocations() -> list[tuple[Path, str]]:
