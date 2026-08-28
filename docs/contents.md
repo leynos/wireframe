@@ -96,6 +96,11 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 - [Testing helpers](wireframe-testing-crate.md) In-process server and client
   pair helpers provided by the `wireframe_testing` companion crate.
 
+## Migration guides
+
+- [v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md)
+  Moving from builder connection handling to reusable prepared applications.
+
 ## Operations and resilience
 
 - [Resilience guide](hardening-wireframe-a-guide-to-production-resilience.md)

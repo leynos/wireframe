@@ -205,7 +205,7 @@ async fn drive_slow_internal<F, Fut>(
 ) -> io::Result<Vec<u8>>
 where
     F: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()>,
+    Fut: std::future::Future<Output = io::Result<()>>,
 {
     let config = config.validate()?;
     let (client, server) = tokio::io::duplex(config.capacity);
@@ -217,7 +217,7 @@ where
             .catch_unwind()
             .await;
         match result {
-            Ok(()) => Ok(()),
+            Ok(result) => result,
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
                 Err(io::Error::other(format!("server task failed: {panic_msg}")))
@@ -279,7 +279,7 @@ where
 {
     let wire_bytes: Vec<u8> = frames.into_iter().flatten().collect();
     drive_slow_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         config,
     )
@@ -301,7 +301,7 @@ where
 {
     let wire_bytes = encode_length_delimited_payloads(payloads)?;
     drive_slow_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         config,
     )
@@ -373,7 +373,7 @@ where
     let encoded = encode_payloads_with_codec(codec, payloads)?;
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
     let raw = drive_slow_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         config,
     )
