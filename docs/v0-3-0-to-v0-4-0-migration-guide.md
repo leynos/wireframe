@@ -94,6 +94,123 @@ mutable drivers remain available as deprecated compatibility paths; migrate
 tests to the prepared helpers when they need to prove one-time middleware
 transformation or reuse prepared route services.
 
+## Migrate byte-handling APIs
+
+The prepared-application transition is independent of the zero-copy byte
+migration. The v0.4 byte-facing APIs use `bytes::Bytes` (or the `PayloadBytes`
+wrapper) for read-only hand-offs and an explicit edit-on-demand operation for
+mutation. The following examples show the required shape of the migration. The
+editor method names are illustrative until roadmap item 12.1.2 finalizes the
+public editing API; the compatibility helper names are defined by
+[ADR 009](adr-009-vec-u8-migration-rollout.md).
+
+### Middleware
+
+Replace direct mutable access to a request or response `Vec<u8>` with an
+explicit edit. Read-only middleware should keep the shared bytes and avoid an
+edit altogether.
+
+```text
+# Before: the middleware owns and mutates a Vec<u8> directly.
+async fn tag(mut request, next) {
+    request.frame_mut().extend_from_slice(b"tag");
+    next.call(request).await
+}
+
+# After: request bytes are read-only until an edit is requested.
+async fn tag(mut request, next) {
+    request.edit_frame(|editor| editor.extend_from_slice(b"tag"));
+    next.call(request).await
+}
+```
+
+Likewise, replace `response.frame_mut()` and `response.into_inner()` with the
+response editor and its final byte hand-off. Do not retain a `&mut Vec<u8>` in
+middleware state; this would reintroduce the allocation-heavy compatibility
+path that the new API is intended to remove.
+
+### Protocol and client hooks
+
+Hooks that only inspect bytes should borrow the shared representation. Hooks
+that edit bytes should use the same edit-on-demand operation as middleware.
+Existing mutation closures can cross the migration boundary for one release
+through the deliberately narrow adapter:
+
+```text
+# Before: the hook contract is tied directly to Vec<u8>.
+client.before_send(|bytes: &mut Vec<u8>| bytes.extend_from_slice(b"tag"));
+
+# Transitional adapter: keep the old closure while migrating its owner.
+let hook = BeforeSendHook::from_vec_fn(|bytes: &mut Vec<u8>| {
+    bytes.extend_from_slice(b"tag");
+});
+```
+
+Prefer the new hook editor for new code, and remove the adapter once the hook
+has no downstream `Vec<u8>` callers. Client preamble leftovers intentionally
+remain `Vec<u8>` in this release; see the compatibility policy in ADR 009.
+
+### Serializers
+
+Serializer output moves from an owned vector to the stable byte wrapper. Use
+`PayloadBytes::from_vec` only at an existing compatibility boundary, and keep
+the zero-copy value through the codec hand-off:
+
+```text
+# Before: serialization materializes a Vec<u8> for every outbound message.
+let bytes: Vec<u8> = serializer.serialize(&message)?;
+let frame = codec.wrap_payload(bytes::Bytes::from(bytes));
+
+# After: the serializer returns the stable shared byte representation.
+let bytes: PayloadBytes = serializer.serialize(&message)?;
+let frame = codec.wrap_payload(bytes.into_bytes());
+
+# Compatibility only: an older caller that still requires Vec<u8>.
+let bytes: Vec<u8> = serializer.serialize_to_vec(&message)?;
+```
+
+`serialize_to_vec` is a temporary compatibility shim where provided; new code
+should consume `PayloadBytes` directly. `PayloadBytes::into_vec` is likewise an
+escape hatch, not the normal transport path.
+
+### Custom codecs
+
+Codecs should store payloads as `Bytes` when possible and override
+`frame_payload_bytes` to return a cheap clone. The `wrap_payload` argument is
+already `Bytes`, so only the frame type and extraction methods need changing:
+
+```rust
+// Before: a custom frame owns a Vec<u8> payload.
+struct MyFrame {
+    payload: Vec<u8>,
+}
+
+// After: the frame shares its payload buffer with the codec driver.
+use bytes::Bytes;
+
+struct MyFrame {
+    payload: Bytes,
+}
+
+impl FrameCodec for MyCodec {
+    type Frame = MyFrame;
+
+    fn frame_payload(frame: &MyFrame) -> &[u8] { &frame.payload }
+
+    fn frame_payload_bytes(frame: &MyFrame) -> Bytes { frame.payload.clone() }
+
+    fn wrap_payload(&self, payload: Bytes) -> MyFrame { MyFrame { payload } }
+}
+```
+
+Keep `Vec<u8>` conversion at the edge of legacy callers with
+`PayloadBytes::from_vec` or `PayloadBytes::into_vec`; do not add per-codec
+conversion constructors. See
+[ADR 008](adr-008-zero-copy-public-byte-container.md) for the read-only and
+edit-on-demand design, and the
+[zero-copy migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)
+for the staged rollout.
+
 ## Server factory compatibility
 
 `WireframeServer` continues to accept an `AppFactory` and retains its existing

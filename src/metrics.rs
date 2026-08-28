@@ -276,7 +276,8 @@ pub fn inc_codec_error(_error_type: &'static str, _recovery_policy: &'static str
 #[cfg(feature = "metrics")]
 pub(crate) fn record_application_preparation(outcome: PreparationOutcome, elapsed: Duration) {
     counter!(APPLICATION_PREPARATIONS, "outcome" => outcome.as_str()).increment(1);
-    histogram!(APPLICATION_PREPARATION_DURATION).record(elapsed.as_secs_f64());
+    histogram!(APPLICATION_PREPARATION_DURATION, "outcome" => outcome.as_str())
+        .record(elapsed.as_secs_f64());
 }
 
 /// Record an application preparation outcome and its elapsed duration.

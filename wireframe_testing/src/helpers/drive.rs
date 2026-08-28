@@ -47,7 +47,7 @@ where
 
     let server_fut = async {
         use futures::FutureExt as _;
-        let result = std::panic::AssertUnwindSafe(server_fn(server))
+        let result = std::panic::AssertUnwindSafe(async { server_fn(server).await })
             .catch_unwind()
             .await;
         match result {
