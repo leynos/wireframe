@@ -162,8 +162,8 @@ async fn wait_for_counts(
     Ok(())
 }
 
-/// Runs legacy server connections and waits for their startup instrumentation.
-async fn run_legacy_server_connections(
+/// Runs server connections and waits for their startup instrumentation.
+async fn run_server_connections(
     app_factory: impl Fn() -> TestResult<TestApp> + Clone + Send + Sync + 'static,
     instrumentation: &ConnectionStartupInstrumentation,
     expected: &ConnectionStartupCounts,
@@ -244,20 +244,20 @@ async fn connection_startup_records_counts_before_and_after_preparation() -> Tes
         }
     );
 
-    let legacy_counts = ConnectionStartupCounts {
-        factory_calls: CONNECTIONS,
-        transforms: CONNECTIONS * ROUTES * MIDDLEWARE_LAYERS,
+    let server_counts = ConnectionStartupCounts {
+        factory_calls: 1,
+        transforms: ROUTES * MIDDLEWARE_LAYERS,
     };
-    run_legacy_server_connections(app_factory.clone(), &instrumentation, &legacy_counts).await?;
-    assert_eq!(instrumentation.snapshot(), legacy_counts);
+    run_server_connections(app_factory.clone(), &instrumentation, &server_counts).await?;
+    assert_eq!(instrumentation.snapshot(), server_counts);
 
     let prepared: TestPreparedApp = app_factory()?
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
     let prepared_counts = ConnectionStartupCounts {
-        factory_calls: CONNECTIONS + 1,
-        transforms: (CONNECTIONS + 1) * ROUTES * MIDDLEWARE_LAYERS,
+        factory_calls: 2,
+        transforms: 2 * ROUTES * MIDDLEWARE_LAYERS,
     };
     assert_eq!(instrumentation.snapshot(), prepared_counts);
 

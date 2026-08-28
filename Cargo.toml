@@ -226,5 +226,9 @@ name = "codec_performance"
 harness = false
 
 [[bench]]
+name = "connection_startup"
+harness = false
+
+[[bench]]
 name = "codec_performance_alloc"
 harness = false

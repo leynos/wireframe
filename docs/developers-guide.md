@@ -430,9 +430,9 @@ methods that the step definitions and scenario can reuse.
 
 TCP server examples that share the standard
 `WireframeApp<BincodeSerializer, (), Envelope>` runtime shape should use
-`examples/support/runtime_bootstrap.rs` for tracing setup, runtime app
-construction, listener binding, connection spawning, shutdown-aware accept
-loops, and current-thread Tokio runtime startup. Keep example-specific address
+`WireframeServer::from_app` for tracing setup, server preparation, listener
+binding, connection spawning, shutdown-aware accept loops, and current-thread
+Tokio runtime startup. Keep example-specific address
 parsing, app construction, handlers, and middleware in the example file.
 
 Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench

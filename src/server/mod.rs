@@ -4,7 +4,11 @@
 //! decode an optional preamble before handing the stream to the application.
 
 use core::marker::PhantomData;
-use std::{io, sync::Arc, time::Duration};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use bincode::error::DecodeError;
 use futures::future::BoxFuture;
@@ -119,7 +123,15 @@ where
     fn into_result(self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error> { self }
 }
 
-/// Factory trait for building `WireframeApp` instances used by the server.
+/// Factory trait for building the `WireframeApp` used by the server.
+///
+/// The server evaluates this factory exactly once for each
+/// [`WireframeServer::run_with_shutdown`] invocation. It then prepares that
+/// application once and shares the resulting immutable
+/// [`crate::app::PreparedApp`] root
+/// across every accepted connection. Put connection-specific state in lifecycle
+/// setup state `C` via [`WireframeApp::on_connection_setup`], rather than
+/// rebuilding the application graph for each connection.
 pub trait AppFactory<Ser, Ctx, E, Codec>: Send + Sync + Clone + 'static
 where
     Ser: Serializer + Send + Sync,
@@ -130,12 +142,81 @@ where
     /// Error type returned when the factory cannot construct an application.
     type Error: std::error::Error + Send + Sync + 'static;
 
-    /// Build an application instance for a new connection.
+    /// Build the application instance for one server run.
     ///
     /// # Errors
     ///
     /// Returns any error raised by the factory while constructing the app.
     fn build(&self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error>;
+}
+
+/// A factory that consumes one application supplied to
+/// [`WireframeServer::from_app`].
+///
+/// This type is public only because Rust exposes the constructor's inferred
+/// server type to downstream callers; construct it through `from_app`.
+#[doc(hidden)]
+pub struct PrebuiltAppFactory<Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    /// Application reserved for the sole startup evaluation of one server.
+    app: PrebuiltAppSlot<Ser, Ctx, E, Codec>,
+}
+
+/// Shared slot retaining an application until the server evaluates its factory.
+type PrebuiltAppSlot<Ser, Ctx, E, Codec> = Arc<Mutex<Option<WireframeApp<Ser, Ctx, E, Codec>>>>;
+
+impl<Ser, Ctx, E, Codec> Clone for PrebuiltAppFactory<Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    fn clone(&self) -> Self {
+        Self {
+            app: Arc::clone(&self.app),
+        }
+    }
+}
+
+impl<Ser, Ctx, E, Codec> PrebuiltAppFactory<Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    /// Retain an application until the server starts.
+    pub(crate) fn new(app: WireframeApp<Ser, Ctx, E, Codec>) -> Self {
+        Self {
+            app: Arc::new(Mutex::new(Some(app))),
+        }
+    }
+}
+
+impl<Ser, Ctx, E, Codec> AppFactory<Ser, Ctx, E, Codec> for PrebuiltAppFactory<Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    type Error = io::Error;
+
+    fn build(&self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error> {
+        let mut app = self
+            .app
+            .lock()
+            .map_err(|_| io::Error::other("pre-built application factory lock poisoned"))?;
+        app.take().ok_or_else(|| {
+            io::Error::other("pre-built application was already consumed by a server run")
+        })
+    }
 }
 
 impl<F, R, Ser, Ctx, E, Codec> AppFactory<Ser, Ctx, E, Codec> for F
@@ -159,9 +240,10 @@ where
 /// The server carries a typestate `S` indicating whether it is
 /// [`Unbound`] (not yet bound to a TCP listener) or [`Bound`]. New
 /// servers start `Unbound` and must call [`WireframeServer::bind`] or
-/// [`WireframeServer::bind_existing_listener`] before running. A worker task is spawned
-/// per thread; each receives its own `WireframeApp` from the provided factory
-/// closure. The server listens for a shutdown signal using
+/// [`WireframeServer::bind_existing_listener`] before running. The startup
+/// factory is evaluated once, its app is prepared once, and one immutable
+/// prepared root is shared by every worker and connection task. The server
+/// listens for a shutdown signal using
 /// `tokio::signal::ctrl_c` and notifies all workers to stop accepting new
 /// connections.
 ///
@@ -206,7 +288,7 @@ pub struct WireframeServer<
     E: Packet,
     Codec: FrameCodec,
 {
-    /// Factory cloned for each accepted connection.
+    /// Startup factory evaluated once for each server run.
     pub(crate) factory: F,
     /// Number of accept-loop worker tasks to supervise.
     pub(crate) workers: usize,
