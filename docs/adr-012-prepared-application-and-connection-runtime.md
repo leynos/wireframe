@@ -37,9 +37,9 @@ The current hybrid creates several observable problems:
 - the route table is stored as
   `OnceCell<Arc<HashMap<u32, HandlerService<E>>>>` and cloned into connection
   handling even though the app remains alive for the whole connection;
-- the generic server and examples use different application-sharing
-  topologies: `examples/support/runtime_bootstrap.rs` shares one
-  `Arc<WireframeApp>` across connections and bypasses `AppFactory` entirely;
+- the generic server and examples used different application-sharing topologies:
+  the former runtime bootstrap shared one `Arc<WireframeApp>` across
+  connections and bypassed `AppFactory` entirely;
 - documentation variously describes an app per worker and an app per
   connection; the rustdoc for `WireframeServer` states that each worker
   "receives its own `WireframeApp`", while the code builds one per accepted
@@ -69,7 +69,7 @@ Primary code surfaces:
 - `src/server/runtime.rs`;
 - `src/server/runtime/accept.rs`;
 - `src/server/connection_spawner.rs`;
-- `examples/support/runtime_bootstrap.rs`.
+- `examples/ping_pong.rs` and `examples/packet_enum.rs`.
 
 Related issues and decisions:
 

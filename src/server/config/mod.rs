@@ -13,8 +13,13 @@ use core::marker::PhantomData;
 
 use tokio::sync::oneshot;
 
-use super::{AppFactory, BackoffConfig, ServerState, Unbound, WireframeServer};
-use crate::{app::Packet, codec::FrameCodec, preamble::Preamble, serializer::Serializer};
+use super::{AppFactory, BackoffConfig, PrebuiltAppFactory, ServerState, Unbound, WireframeServer};
+use crate::{
+    app::{Packet, WireframeApp},
+    codec::FrameCodec,
+    preamble::Preamble,
+    serializer::Serializer,
+};
 
 /// Generate a consuming setter that preserves builder typestate.
 macro_rules! builder_setter {
@@ -54,12 +59,17 @@ mod tests;
 impl<F, Ser, Ctx, E, Codec> WireframeServer<F, (), Unbound, Ser, Ctx, E, Codec>
 where
     F: AppFactory<Ser, Ctx, E, Codec>,
-    Ser: Serializer + Send + Sync,
+    Ser: Serializer + Send + Sync + 'static,
     Ctx: Send + 'static,
     E: Packet,
     Codec: FrameCodec,
 {
     /// Create a new `WireframeServer` from the given application factory.
+    ///
+    /// The factory is evaluated once at the beginning of each server run. Its
+    /// application is prepared once and then shared immutably by every
+    /// connection. Use [`WireframeServer::from_app`] when the application has
+    /// already been built.
     ///
     /// The worker count defaults to the number of available CPU cores (or 1 if
     /// this cannot be determined). The server is initially [`Unbound`]; call
@@ -90,6 +100,26 @@ where
             _app: PhantomData,
             _preamble: PhantomData,
         }
+    }
+}
+
+impl<Ser, Ctx, E, Codec>
+    WireframeServer<PrebuiltAppFactory<Ser, Ctx, E, Codec>, (), Unbound, Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    /// Create an unbound server from an already-built application.
+    ///
+    /// The supplied application is prepared once when the server starts, then
+    /// shared immutably by all connection tasks. Use lifecycle setup state `C`
+    /// through [`WireframeApp::on_connection_setup`] for connection-specific
+    /// state.
+    #[must_use]
+    pub fn from_app(app: WireframeApp<Ser, Ctx, E, Codec>) -> Self {
+        Self::new(PrebuiltAppFactory::new(app))
     }
 }
 

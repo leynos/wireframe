@@ -15,6 +15,7 @@ addressed when migrating from wireframe v0.2.0 to v0.3.0.
 - [Serializer trait bounds](#serializer-trait-bounds)
 - [WireframeApp construction](#wireframeapp-construction)
 - [Server factory trait](#server-factory-trait)
+- [Server startup factory evaluation](#server-startup-factory-evaluation)
 - [AppDataStore module](#new-appdatastore-module)
 - [Message assembler type additions](#message-assembler-type-additions)
 
@@ -401,6 +402,31 @@ WireframeServer::new(|| build_app_or_fail())
     .bind(addr)?
     .run_with_shutdown(shutdown_signal)
     .await?;
+```
+
+## Server startup factory evaluation
+
+`WireframeServer::new` now evaluates an `AppFactory` once for each server run,
+prepares the resulting application once, and shares the immutable prepared root
+across all connection tasks. This is observable if a factory previously created
+per-connection state. Put that state in lifecycle setup state `C` with
+`on_connection_setup` instead.
+
+Before, the factory could be evaluated as connections arrived:
+
+```rust
+let server = WireframeServer::new(|| build_app_with_connection_resource())
+    .bind(addr)?;
+```
+
+After, keep `new` for one-time startup construction, or pass a completed app
+directly:
+
+```rust
+let server = WireframeServer::new(build_startup_app).bind(addr)?;
+
+let app = build_startup_app()?;
+let server = WireframeServer::from_app(app).bind(addr)?;
 ```
 
 ## Memory budget configuration

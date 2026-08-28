@@ -47,31 +47,19 @@ fn build_app(handler: EchoHandler) -> wireframe::app::Result<App> { App::new()?.
 
 /// Starts the echo server and waits for a Ctrl-C shutdown signal.
 ///
-/// A factory supplies independently constructed application state to the
-/// server, while the shared handler remains thread-safe for those instances.
-/// Binding, application construction, and server execution errors propagate to
-/// the command-line boundary for reporting.
+/// The completed application is prepared once by the server and shared by all
+/// connections. Binding, application construction, and server execution errors
+/// propagate to the command-line boundary for reporting.
 async fn run() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
 
     let handler: EchoHandler = Arc::new(|_: &Envelope| echo_handler());
-    build_app(handler.clone())
+    let app = build_app(handler)
         .inspect_err(|err| error!("failed to build echo app: {err}"))
         .map_err(|error| std::io::Error::other(error.to_string()))?;
 
-    let factory = {
-        let handler = Arc::clone(&handler);
-        move || match build_app(Arc::clone(&handler)) {
-            Ok(app) => app,
-            Err(err) => {
-                error!("failed to rebuild echo app: {err}");
-                App::default()
-            }
-        }
-    };
-
     let addr: SocketAddr = "127.0.0.1:7878".parse()?;
-    let server = WireframeServer::new(factory).bind(addr)?;
+    let server = WireframeServer::from_app(app).bind(addr)?;
 
     server
         .run_with_shutdown(async {

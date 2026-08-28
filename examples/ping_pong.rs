@@ -6,18 +6,15 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
+use tokio::signal;
 use tracing::{error, info};
 use wireframe::{
     app::{Envelope, Packet, Result as AppResult},
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
+    server::WireframeServer,
 };
-
-#[path = "support/runtime_bootstrap.rs"]
-mod runtime_bootstrap;
-#[path = "support/server_loop.rs"]
-mod server_loop;
 
 /// Application type assembled from bincode envelopes and the middleware chain.
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -178,15 +175,25 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
 /// The server loop owns listener shutdown, ensuring accepted tasks finish in the
 /// same lifecycle as the example process.
 async fn run() -> std::io::Result<()> {
-    runtime_bootstrap::init_tracing();
-    let app = runtime_bootstrap::build_runtime_app(build_app).await?;
-    let listener = runtime_bootstrap::bind_listener(parse_server_addr()?).await?;
-    runtime_bootstrap::serve_until_shutdown(
-        listener,
-        app,
-        "ping-pong server received shutdown signal",
-    )
-    .await
+    let _ = tracing_subscriber::fmt::try_init();
+    let app = build_app().map_err(|error| std::io::Error::other(error.to_string()))?;
+    let server = WireframeServer::from_app(app)
+        .bind(parse_server_addr()?)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    server
+        .run_with_shutdown(async {
+            match signal::ctrl_c().await {
+                Ok(()) => info!("ping-pong server received shutdown signal"),
+                Err(error) => error!("failed waiting for shutdown signal: {error}"),
+            }
+        })
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
-fn main() -> std::io::Result<()> { runtime_bootstrap::run_current_thread(run()) }
+fn main() -> std::io::Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
