@@ -19,6 +19,29 @@ SHARED_ACTION_USES_RE = re.compile(
 )
 
 
+def _workflow_paths() -> Iterator[Path]:
+    """Yield supported workflow paths in deterministic order.
+
+    For example, ``.yaml`` and ``.yml`` files are yielded, while other
+    directory entries are skipped.
+    """
+    for workflow_path in sorted(WORKFLOWS_DIR.iterdir()):
+        if workflow_path.suffix in WORKFLOW_SUFFIXES:
+            yield workflow_path
+
+
+def _shared_action_use(mapping: dict[str, object]) -> str | None:
+    """Return a shared-actions invocation from a workflow mapping.
+
+    For example, ``leynos/shared-actions/...`` is returned, whereas an
+    unrelated or non-string ``uses`` value produces ``None``.
+    """
+    uses = mapping.get("uses")
+    if isinstance(uses, str) and uses.startswith("leynos/shared-actions/"):
+        return uses
+    return None
+
+
 def _workflow_mappings(value: object) -> Iterator[dict[str, object]]:
     """Yield every mapping nested beneath a parsed workflow document."""
     if isinstance(value, dict):
@@ -42,22 +65,14 @@ def _mappings_in_values(values: Iterable[object]) -> Iterator[dict[str, object]]
 def _shared_action_invocations() -> list[tuple[Path, str]]:
     """Return each shared-action invocation and its containing workflow."""
     invocations = []
-    for workflow_path in sorted(WORKFLOWS_DIR.iterdir()):
-        if workflow_path.suffix not in WORKFLOW_SUFFIXES:
-            continue
+    for workflow_path in _workflow_paths():
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
-        assert isinstance(workflow, dict), (
-            f"{workflow_path.name} must be a mapping"
-        )
+        assert isinstance(workflow, dict), f"{workflow_path.name} must be a mapping"
         for mapping in _workflow_mappings(workflow):
-            uses = mapping.get("uses")
-            if isinstance(uses, str) and uses.startswith(
-                "leynos/shared-actions/"
-            ):
+            uses = _shared_action_use(mapping)
+            if uses is not None:
                 invocations.append((workflow_path, uses))
-    assert invocations, (
-        "at least one workflow must invoke leynos/shared-actions"
-    )
+    assert invocations, "at least one workflow must invoke leynos/shared-actions"
     return invocations
 
 
