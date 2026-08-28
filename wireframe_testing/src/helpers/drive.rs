@@ -3,7 +3,10 @@
 use std::io;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
-use wireframe::app::{Packet, PreparedApp, WireframeApp};
+use wireframe::{
+    app::{Packet, PreparedApp, WireframeApp},
+    codec::FrameCodec,
+};
 
 use super::{DEFAULT_CAPACITY, TestSerializer};
 
@@ -241,14 +244,15 @@ where
 /// # Errors
 ///
 /// Returns an I/O error if preparation or duplex connection handling fails.
-pub async fn prepare_and_drive_with_frames<S, C, E>(
-    app: WireframeApp<S, C, E>,
+pub async fn prepare_and_drive_with_frames<S, C, E, F>(
+    app: WireframeApp<S, C, E, F>,
     frames: Vec<Vec<u8>>,
 ) -> io::Result<Vec<u8>>
 where
     S: TestSerializer,
     C: Send + 'static,
     E: Packet,
+    F: FrameCodec,
 {
     let prepared = app
         .prepare()
@@ -265,14 +269,15 @@ where
 /// # Errors
 ///
 /// Returns an I/O error from the duplex transport or prepared application.
-pub async fn drive_prepared_with_frames<S, C, E>(
-    app: &PreparedApp<S, C, E>,
+pub async fn drive_prepared_with_frames<S, C, E, F>(
+    app: &PreparedApp<S, C, E, F>,
     frames: Vec<Vec<u8>>,
 ) -> io::Result<Vec<u8>>
 where
     S: TestSerializer,
     C: Send + 'static,
     E: Packet,
+    F: FrameCodec,
 {
     drive_internal(
         |server| async move { app.handle_connection(server).await },

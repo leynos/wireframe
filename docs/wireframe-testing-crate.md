@@ -64,9 +64,10 @@ tests should prepare a builder before driving a connection: `prepare().await`
 consumes the `WireframeApp`, applies each route's middleware transforms once,
 and returns an immutable `PreparedApp`. The prepared value can then be borrowed
 by `drive_prepared_with_frames` for multiple connections without rebuilding its
-route services. `PrepareError` is the typed preparation error; the convenience
-helper `prepare_and_drive_with_frames` maps it to the helper's `io::Result`
-surface.
+route services. Both prepared helpers preserve the prepared codec type, so
+custom `FrameCodec` implementations can use this migration path as well.
+`PrepareError` is the typed preparation error; the convenience helper
+`prepare_and_drive_with_frames` maps it to the helper's `io::Result` surface.
 
 The existing builder-oriented drivers remain compatibility paths for tests that
 have not migrated. They call the deprecated `WireframeApp::handle_connection`
@@ -99,6 +100,7 @@ length-delimited framing.
 ```rust,no_run
 use std::io;
 use wireframe::app::{Packet, PreparedApp, WireframeApp};
+use wireframe::codec::FrameCodec;
 
 pub async fn drive_with_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
@@ -136,23 +138,25 @@ where
     C: Send + 'static,
     E: Packet;
 
-pub async fn prepare_and_drive_with_frames<S, C, E>(
-    app: WireframeApp<S, C, E>,
+pub async fn prepare_and_drive_with_frames<S, C, E, F>(
+    app: WireframeApp<S, C, E, F>,
     frames: Vec<Vec<u8>>,
 ) -> io::Result<Vec<u8>>
 where
     S: TestSerializer,
     C: Send + 'static,
-    E: Packet;
+    E: Packet,
+    F: FrameCodec;
 
-pub async fn drive_prepared_with_frames<S, C, E>(
-    app: &PreparedApp<S, C, E>,
+pub async fn drive_prepared_with_frames<S, C, E, F>(
+    app: &PreparedApp<S, C, E, F>,
     frames: Vec<Vec<u8>>,
 ) -> io::Result<Vec<u8>>
 where
     S: TestSerializer,
     C: Send + 'static,
-    E: Packet;
+    E: Packet,
+    F: FrameCodec;
 ```
 
 Codec-aware helpers should be added as non-breaking extensions, so tests can
