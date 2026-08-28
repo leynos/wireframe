@@ -85,7 +85,8 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     ///
     /// At most one output source can be active at a time. The multi-packet channel
     /// is drained after low-priority frames to preserve fairness with queued sources.
-    /// The actor emits the protocol terminator when the sender closes the channel.
+    /// The actor emits the protocol terminator after the sender closes the channel only when
+    /// `stream_end_frame` returns `Some`.
     active_output: ActiveOutput<F, E>,
     /// Cancellation signal shared by the supervisor and this actor.
     shutdown: CancellationToken,

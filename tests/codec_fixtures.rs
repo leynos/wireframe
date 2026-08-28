@@ -113,6 +113,22 @@ fn truncated_payload_produces_decode_error() -> io::Result<()> {
     assert_decode_fails_with(wire, "bytes remaining")
 }
 
+#[test]
+fn truncated_payload_contains_only_header_and_partial_payload() {
+    let wire = truncated_hotline_payload(8);
+    let expected: &[u8] = &[
+        // data_size = 8
+        0, 0, 0, 8, // total_size = header (20) + data (8)
+        0, 0, 0, 28, // transaction_id = 0
+        0, 0, 0, 0, // reserved header bytes
+        0, 0, 0, 0, 0, 0, 0, 0, // half of the declared payload
+        0xcc, 0xcc, 0xcc, 0xcc,
+    ];
+
+    assert_eq!(wire.len(), expected.len());
+    assert_eq!(wire, expected);
+}
+
 /// Verify each frame carries the expected transaction ID.
 fn assert_transaction_ids(
     frames: &[wireframe::codec::examples::HotlineFrame],

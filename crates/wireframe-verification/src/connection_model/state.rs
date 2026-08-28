@@ -89,6 +89,9 @@ impl ConnectionState {
 
 #[cfg(test)]
 mod tests {
+    //! State tests verify idle, output-admission, and fairness decisions that
+    //! constrain the model's legal connection transitions.
+
     use rstest::rstest;
 
     use super::{ActiveOutput, ConnectionState, PendingOutputs, ShutdownState};

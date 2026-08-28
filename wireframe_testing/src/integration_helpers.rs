@@ -326,6 +326,9 @@ pub fn echo_app_factory(
 
 #[cfg(test)]
 mod tests {
+    //! Integration-helper tests verify that shared fixtures build usable
+    //! envelopes, applications, and loopback listeners for crate consumers.
+
     use wireframe::{app::Packet, correlation::CorrelatableFrame};
 
     use super::{CommonTestEnvelope, factory, unused_listener};

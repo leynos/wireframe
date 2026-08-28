@@ -46,7 +46,9 @@ impl fmt::Display for MultiPacketTerminationReason {
 
 /// Multi-packet channel state tracking the active receiver and stamping config.
 pub(super) struct MultiPacketContext<F> {
-    /// Receiver owned by the actor until closure or shutdown.
+    /// Receiver owned by the actor only while this output is active. Calling
+    /// `set_multi_packet_with_correlation(None, ...)` may clear or replace it
+    /// before channel closure or shutdown.
     channel: Option<mpsc::Receiver<F>>,
     /// Correlation metadata applied to frames emitted from the receiver.
     stamp: MultiPacketStamp,

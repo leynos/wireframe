@@ -190,6 +190,9 @@ impl Model for PlaceholderConnectionModel {
 
 #[cfg(test)]
 mod tests {
+    //! Bounded state-space tests verify the model's transitions and their
+    //! interaction with the connection properties.
+
     use rstest::rstest;
     use stateright::Model;
 

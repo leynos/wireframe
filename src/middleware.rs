@@ -83,7 +83,7 @@ impl ServiceRequest {
 pub struct ServiceResponse {
     /// Payload returned by a handler and later encoded for transport.
     inner: FrameContainer<Vec<u8>>,
-    /// Correlation metadata copied from the corresponding request.
+    /// Correlation metadata carried by the response.
     correlation_id: Option<u64>,
 }
 

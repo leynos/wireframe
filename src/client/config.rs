@@ -238,13 +238,13 @@ impl SocketOptions {
         Ok(())
     }
 
+    /// Apply port sharing on platforms that expose this option.
     #[cfg(all(
         unix,
         not(target_os = "solaris"),
         not(target_os = "illumos"),
         not(target_os = "cygwin"),
     ))]
-    /// Apply port sharing on platforms that expose this option.
     fn apply_reuseport(&self, socket: &TcpSocket) -> io::Result<()> {
         if let Some(enabled) = self.reuseport {
             socket.set_reuseport(enabled)?;
@@ -252,12 +252,12 @@ impl SocketOptions {
         Ok(())
     }
 
+    /// Keep the option pipeline portable where port sharing is unavailable.
     #[cfg(not(all(
         unix,
         not(target_os = "solaris"),
         not(target_os = "illumos"),
         not(target_os = "cygwin"),
     )))]
-    /// Keep the option pipeline portable where port sharing is unavailable.
     fn apply_reuseport(&self, _socket: &TcpSocket) -> io::Result<()> { Ok(()) }
 }

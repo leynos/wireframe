@@ -9,7 +9,7 @@ use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
 pub(super) struct DrainContext<'a, F> {
     /// Destination preserving the actor's wire-order output.
     pub(super) out: &'a mut Vec<F>,
-    /// Lifecycle state updated when a queue closes or yields a frame.
+    /// Actor lifecycle state borrowed for queue-closure handling and related termination paths.
     pub(super) state: &'a mut ActorState,
 }
 

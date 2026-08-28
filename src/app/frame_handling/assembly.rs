@@ -169,7 +169,8 @@ pub(crate) fn assemble_if_needed(
 struct AssemblyContext<'a, 'b> {
     /// Connection-local assembler state updated by accepted fragments.
     state: &'a mut MessageAssemblyState,
-    /// Failure tracker that closes the connection at its configured threshold.
+    /// Shared, connection-wide malformed-frame accounting borrowed from
+    /// `FrameHandlingContext` while this inbound frame is processed.
     failures: &'a mut DeserFailureTracker<'b>,
     /// Correlation metadata used to diagnose malformed frame errors.
     correlation_id: Option<u64>,

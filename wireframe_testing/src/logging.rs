@@ -109,6 +109,9 @@ pub fn logger() -> LoggerHandle {
 
 #[cfg(test)]
 mod tests {
+    //! Logger tests verify shared-handle acquisition and the clean state
+    //! required for independent log-capture assertions.
+
     use super::{LoggerHandle, shared_logger};
 
     #[test]
