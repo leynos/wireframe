@@ -105,7 +105,7 @@ fn multi_packet_response() -> Response<Frame> {
     response
 }
 
-/// Emits one response item using the example's display representation.
+/// Logs one response item using the example's display representation.
 fn log_frame(frame: &Frame) {
     info!("{frame}");
 }

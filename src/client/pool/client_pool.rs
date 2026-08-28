@@ -27,7 +27,9 @@ use crate::{
     serializer::Serializer,
 };
 
-/// Slot and admission token returned by a successful checkout.
+/// Slot and admission token returned by successful permit acquisition; the
+/// later `PoolSlot::checkout` step in `PooledClientLease::dispatch_on_connection`
+/// obtains a physical connection for the lease.
 type AcquirePermit<S, P, C> = (Arc<PoolSlot<S, P, C>>, tokio::sync::OwnedSemaphorePermit);
 
 /// Erased future used to race all slots for the first available permit.
@@ -53,7 +55,8 @@ where
     shutdown_notify: Notify,
 }
 
-/// Pool of warm wireframe client sockets.
+/// Pool of configured slots that create physical wireframe connections on
+/// demand.
 pub struct WireframeClientPool<S, P = (), C = ()>
 where
     S: Serializer + Clone + Send + Sync + 'static,
@@ -70,7 +73,8 @@ where
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Build all configured slots and their warm physical connections.
+    /// Build the configured slots; physical connections are created on demand
+    /// when a lease checks out a slot.
     pub(crate) async fn connect(
         addr: SocketAddr,
         pool_config: ClientPoolConfig,

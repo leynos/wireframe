@@ -57,7 +57,8 @@ pub enum PoolServerBehavior {
 pub struct PoolTestServer {
     /// Socket address the test server is listening on.
     pub addr: SocketAddr,
-    /// Count of successful preamble exchanges observed by the fixture.
+    /// Count of client preambles decoded by `read_preamble`, regardless of
+    /// whether the subsequent `write_preamble` acknowledgement succeeds.
     preamble_count: Arc<AtomicUsize>,
     /// Count of physical TCP connections accepted by the fixture.
     connection_count: Arc<AtomicUsize>,

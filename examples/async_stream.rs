@@ -37,9 +37,10 @@ fn stream_response() -> Response<Frame> {
 
 /// Runs the stream consumer and logs each frame as it arrives.
 ///
-/// Awaiting `next` one item at a time demonstrates that stream back-pressure
-/// keeps consumption ordered; the loop also naturally stops when the producer
-/// signals completion. This example intentionally treats a stream error as
+/// Awaiting `next` one item at a time applies back-pressure, while the
+/// producer's yield order determines the consumer's observed order. The loop
+/// also naturally stops when the producer signals completion. This example
+/// intentionally treats a stream error as
 /// termination because it is illustrating response shape, not error recovery.
 async fn run() {
     tracing_subscriber::fmt::init();

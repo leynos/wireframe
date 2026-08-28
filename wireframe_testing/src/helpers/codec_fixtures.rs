@@ -223,7 +223,6 @@ pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u
     let half_payload = payload_len >> 1;
     let mut buf = Vec::with_capacity(HEADER_LEN + half_payload);
     append_hotline_header(&mut buf, header);
-    buf.extend_from_slice(&[0u8; 8]); // reserved
     buf.extend_from_slice(&vec![0xcc; half_payload]);
     buf
 }

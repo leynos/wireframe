@@ -26,7 +26,8 @@ use crate::{
     serializer::Serializer,
 };
 
-/// Remove stale outbound and message-assembly state after an idle interval.
+/// Remove stale fragment-reassembly and message-assembly state after an idle
+/// interval.
 fn purge_expired(
     pipeline: &mut FramePipeline,
     message_assembly: &mut Option<MessageAssemblyState>,
@@ -50,7 +51,8 @@ where
     deser_failures: &'a mut u32,
     /// Immutable middleware chains used to dispatch decoded envelopes.
     routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Outbound processing state for fragmenting and counting responses.
+    /// Pipeline for inbound fragment reassembly and outbound response
+    /// processing.
     pipeline: &'a mut FramePipeline,
     /// Connection-local state for assembling multi-frame messages.
     message_assembly: &'a mut Option<MessageAssemblyState>,

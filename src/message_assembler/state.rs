@@ -50,7 +50,7 @@ impl PartialAssembly {
     fn set_metadata(&mut self, data: Vec<u8>) { self.metadata = data; }
     /// Return body bytes accumulated so far for per-message budget checks.
     fn accumulated_len(&self) -> usize { self.body_buffer.len() }
-    /// Total heap bytes held by this partial assembly (body + metadata).
+    /// Logical payload length represented by the body and metadata buffers.
     fn buffered_bytes(&self) -> usize { self.body_buffer.len().saturating_add(self.metadata.len()) }
 }
 /// Stateful manager for multiple concurrent message assemblies.

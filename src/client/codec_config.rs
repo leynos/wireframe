@@ -4,7 +4,7 @@ use tokio_util::codec::LengthDelimitedCodec;
 
 use crate::frame::{Endianness, LengthFormat};
 
-/// Smallest frame accepted so a length prefix cannot consume the payload.
+/// Smallest allowed configured maximum frame length.
 const MIN_FRAME_LENGTH: usize = 64;
 /// Upper bound preventing a peer from forcing an unbounded read allocation.
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;

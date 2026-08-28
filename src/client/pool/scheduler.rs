@@ -19,7 +19,7 @@ use super::{
 };
 use crate::{client::ClientError, serializer::Serializer};
 
-/// One-shot completion channel for a blocked logical-session acquisition.
+/// One-shot completion channel for a queued logical-session acquisition.
 type WaiterSender<S, P, C> = oneshot::Sender<Result<PooledClientLease<S, P, C>, ClientError>>;
 
 /// Policy-specific waiter queues protected by the scheduler mutex.

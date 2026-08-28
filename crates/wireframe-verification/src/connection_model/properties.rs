@@ -96,6 +96,9 @@ fn shutdown_races_active_output(
 
 #[cfg(test)]
 mod tests {
+    //! Property tests verify that each safety or liveness predicate observes
+    //! the intended connection-state evidence.
+
     use rstest::rstest;
 
     use super::*;

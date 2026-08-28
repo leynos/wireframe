@@ -298,6 +298,9 @@ pub fn obs_handle() -> ObservabilityHandle {
 
 #[cfg(test)]
 mod tests {
+    //! Observability tests verify that the combined logger and metrics handle
+    //! provides isolated state for instrumentation assertions.
+
     use super::ObservabilityHandle;
 
     #[test]
