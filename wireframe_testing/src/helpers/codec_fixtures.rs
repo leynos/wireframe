@@ -71,7 +71,7 @@ pub fn valid_hotline_wire(payload: &[u8], transaction_id: impl Into<TransactionI
     build_hotline_wire(HotlineWireFixture {
         payload,
         transaction_id: transaction_id.into(),
-        declared_payload_size: payload.len(),
+        data_size: payload.len(),
         total_size_policy: TotalSizePolicy::Matching,
     })
 }
@@ -128,7 +128,7 @@ pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Ve
     build_hotline_wire(HotlineWireFixture {
         payload: &payload,
         transaction_id: TransactionId(0),
-        declared_payload_size: oversized_len,
+        data_size: oversized_len,
         total_size_policy: TotalSizePolicy::Matching,
     })
 }
@@ -156,7 +156,7 @@ pub fn mismatched_total_size_wire(payload: &[u8]) -> Vec<u8> {
     build_hotline_wire(HotlineWireFixture {
         payload,
         transaction_id: TransactionId(0),
-        declared_payload_size: payload.len(),
+        data_size: payload.len(),
         total_size_policy: TotalSizePolicy::OffByOne,
     })
 }
@@ -223,6 +223,7 @@ pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u
     let half_payload = payload_len >> 1;
     let mut buf = Vec::with_capacity(HEADER_LEN + half_payload);
     append_hotline_header(&mut buf, header);
+    buf.extend_from_slice(&[0u8; 8]); // reserved
     buf.extend_from_slice(&vec![0xcc; half_payload]);
     buf
 }
@@ -320,8 +321,8 @@ enum TotalSizePolicy {
 
 impl TotalSizePolicy {
     /// Calculate the declared frame length for the fixture's validation scenario.
-    fn total_size(self, declared_payload_size: usize) -> u32 {
-        let total_size = declared_payload_size.saturating_add(HEADER_LEN);
+    fn total_size(self, data_size: usize) -> u32 {
+        let total_size = data_size.saturating_add(HEADER_LEN);
         let total_size = match self {
             Self::Matching => total_size,
             Self::OffByOne => total_size.saturating_add(1),
@@ -332,7 +333,7 @@ impl TotalSizePolicy {
 
 /// A payload and the header contract it deliberately presents to the decoder.
 ///
-/// The declared payload size is independent from `payload` so malformed
+/// The declared data size is independent from `payload` so malformed
 /// fixtures can exercise framing validation without exposing raw header fields
 /// throughout the fixture API.
 #[derive(Debug, Clone, Copy)]
@@ -342,7 +343,7 @@ struct HotlineWireFixture<'a> {
     /// The correlation metadata encoded with this frame.
     transaction_id: TransactionId,
     /// The payload length reported in the header for decoder validation.
-    declared_payload_size: usize,
+    data_size: usize,
     /// The validity rule governing the header's total-size field.
     total_size_policy: TotalSizePolicy,
 }
@@ -351,10 +352,8 @@ impl HotlineWireFixture<'_> {
     /// Materialise the header while retaining the fixture's deliberate size policy.
     fn header(&self) -> HotlineHeader {
         HotlineHeader {
-            data_size: u32_from_usize(self.declared_payload_size),
-            total_size: self
-                .total_size_policy
-                .total_size(self.declared_payload_size),
+            data_size: u32_from_usize(self.data_size),
+            total_size: self.total_size_policy.total_size(self.data_size),
             transaction_id: self.transaction_id,
         }
     }
