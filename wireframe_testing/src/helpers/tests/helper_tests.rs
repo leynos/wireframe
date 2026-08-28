@@ -4,13 +4,35 @@
 use std::{io, sync::Arc};
 
 use futures::future::BoxFuture;
+use tokio::io::DuplexStream;
 use wireframe::{
     app::{Envelope, WireframeApp},
     prelude::Serializer,
     serializer::BincodeSerializer,
 };
 
+use super::super::drive::drive_internal;
 use crate::helpers::{MAX_CAPACITY, decode_frames, drive_with_payloads, run_app};
+
+/// Convert synchronous server-factory panics into the documented I/O error.
+#[tokio::test]
+async fn drive_internal_converts_synchronous_server_panics_to_io_errors() {
+    let result = drive_internal(
+        |_: DuplexStream| -> std::future::Ready<io::Result<()>> {
+            panic!("synchronous server factory panic")
+        },
+        Vec::new(),
+        64,
+    )
+    .await;
+
+    let error = result.expect_err("synchronous server panic should become an I/O error");
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert!(
+        error.to_string().starts_with("server task failed"),
+        "unexpected panic conversion: {error}"
+    );
+}
 
 #[tokio::test]
 async fn run_app_rejects_zero_capacity() {

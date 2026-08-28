@@ -11,10 +11,10 @@ from typing import cast
 
 import yaml
 
-WORKFLOW_PATH = (
+WORKFLOW_PATH: Path = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows" / "coverage-main.yml"
 )
-CODESCENE_USES_RE = re.compile(
+CODESCENE_USES_RE: re.Pattern[str] = re.compile(
     r"^leynos/shared-actions/\.github/actions/upload-codescene-coverage@"
     r"[0-9a-f]{40}$"
 )
@@ -64,11 +64,17 @@ def test_codescene_upload_uses_wireframe_project_and_repository() -> None:
     """Upload main coverage to the project and repository used by PR checks."""
     steps = _load_steps()
     checkout = steps[0]
-    assert checkout.get("uses") == "actions/checkout@v7", (
+    assert checkout.get("uses") == (
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+    ), (
         "the coverage workflow must start from Wireframe's checkout"
     )
-    assert checkout.get("with") == {"repository": "leynos/wireframe"}, (
-        "the checkout origin must identify github.com/leynos/wireframe"
+    assert checkout.get("with") == {
+        "repository": "leynos/wireframe",
+        "persist-credentials": False,
+    }, (
+        "the checkout origin must identify github.com/leynos/wireframe without "
+        "persisting credentials"
     )
 
     upload = _find_step(steps, "Upload coverage data to CodeScene")

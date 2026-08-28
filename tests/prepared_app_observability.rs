@@ -43,7 +43,7 @@ fn prepared_application_metrics_record_outcome_duration_and_use() -> TestResult<
         .assert_counter(PREPARED_CONNECTION_USES, [], 2)
         .map_err(|error| format!("prepared-connection use metric missing: {error}"))?;
     observability
-        .assert_histogram_recorded(APPLICATION_PREPARATION_DURATION, [])
+        .assert_histogram_recorded(APPLICATION_PREPARATION_DURATION, [("outcome", "success")])
         .map_err(|error| format!("preparation duration metric missing: {error}"))?;
     Ok(())
 }

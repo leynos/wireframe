@@ -354,7 +354,7 @@ where
     let encoded = encode_payloads_with_codec(codec, serialized_envelopes)?;
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
     let raw = drive_chunked_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         chunk_size,
         DEFAULT_CAPACITY,
