@@ -24,9 +24,10 @@ jobs:
     steps:
       # CodeScene derives github.com/leynos/wireframe from this checkout's
       # origin.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: leynos/wireframe
+          persist-credentials: false
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@910880eb4d30eeaa304df09ceacfc30681cd0e5e
       - name: Test and Measure Coverage
