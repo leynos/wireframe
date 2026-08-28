@@ -58,7 +58,7 @@ where
     }
 
     drive_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         frames,
         capacity,
     )

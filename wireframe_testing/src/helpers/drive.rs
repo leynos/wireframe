@@ -16,14 +16,17 @@ use super::{DEFAULT_CAPACITY, TestSerializer};
 /// The server function receives the server half of a `tokio::io::duplex`
 /// connection. Every provided frame is written to the client side in order and
 /// the collected output is returned once the server task completes. If the
-/// server panics, the panic message is surfaced as an `io::Error` beginning
-/// with `"server task failed"`.
+/// Server I/O failures are propagated to the caller. If the server panics, the
+/// panic message is surfaced as an `io::Error` beginning with
+/// `"server task failed"`.
 ///
 /// ```rust
 /// use tokio::io::{AsyncWriteExt, DuplexStream};
 /// use wireframe_testing::helpers::drive::drive_internal;
 ///
-/// async fn echo(mut server: DuplexStream) { let _ = server.write_all(&[1, 2]).await; }
+/// async fn echo(mut server: DuplexStream) -> std::io::Result<()> {
+///     server.write_all(&[1, 2]).await
+/// }
 ///
 /// # async fn demo() -> std::io::Result<()> {
 /// let bytes = drive_internal(echo, vec![vec![0]], 64).await?;
@@ -38,7 +41,7 @@ pub(super) async fn drive_internal<F, Fut>(
 ) -> io::Result<Vec<u8>>
 where
     F: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = io::Result<()>> + Send,
 {
     let (mut client, server) = duplex(capacity);
 
@@ -48,7 +51,7 @@ where
             .catch_unwind()
             .await;
         match result {
-            Ok(()) => Ok(()),
+            Ok(result) => result,
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
                 Err(io::Error::other(format!("server task failed: {panic_msg}")))
@@ -229,7 +232,7 @@ where
     E: Packet,
 {
     drive_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         frames,
         capacity,
     )
@@ -280,7 +283,7 @@ where
     F: FrameCodec,
 {
     drive_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         frames,
         DEFAULT_CAPACITY,
     )
@@ -366,7 +369,7 @@ where
     E: Packet,
 {
     drive_internal(
-        |server| async { app.handle_connection(server).await },
+        |server| async { app.handle_connection_result(server).await },
         frames,
         capacity,
     )

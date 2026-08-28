@@ -15,8 +15,10 @@
 //! println!("{}", handle.render());
 //! ```
 
+use std::time::Duration;
+
 #[cfg(feature = "metrics")]
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 
 /// Name of the gauge tracking active connections.
 pub const CONNECTIONS_ACTIVE: &str = "wireframe_connections_active";
@@ -51,6 +53,18 @@ pub const POOL_BOOKKEEPING_POISON_RECOVERIES: &str =
 /// wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
 /// ```
 pub const CODEC_ERRORS: &str = "wireframe_codec_errors_total";
+
+/// Name of the counter tracking application preparation outcomes.
+///
+/// The bounded `outcome` label is either `"success"` or `"failure"`.
+pub const APPLICATION_PREPARATIONS: &str = "wireframe_application_preparations_total";
+
+/// Name of the counter tracking connections handled by prepared applications.
+pub const PREPARED_CONNECTION_USES: &str = "wireframe_prepared_connection_uses_total";
+
+/// Name of the histogram recording application preparation duration in seconds.
+pub const APPLICATION_PREPARATION_DURATION: &str =
+    "wireframe_application_preparation_duration_seconds";
 
 /// Name of the counter tracking server-supervisor cancellation requests.
 ///
@@ -92,6 +106,25 @@ impl ServerCancellationReason {
         match self {
             Self::Graceful => "graceful",
             Self::Dropped => "dropped",
+        }
+    }
+}
+
+/// Bounded outcomes for application preparation metrics.
+#[derive(Clone, Copy)]
+pub(crate) enum PreparationOutcome {
+    /// Preparation completed and produced an immutable application template.
+    Success,
+    /// Preparation failed before exposing an application template.
+    Failure,
+}
+
+impl PreparationOutcome {
+    /// Return the stable metric label value for this preparation outcome.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Failure => "failure",
         }
     }
 }
@@ -238,6 +271,29 @@ pub fn inc_codec_error(error_type: &'static str, recovery_policy: &'static str) 
 /// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_codec_error(_error_type: &'static str, _recovery_policy: &'static str) {}
+
+/// Record an application preparation outcome and its elapsed duration.
+#[cfg(feature = "metrics")]
+pub(crate) fn record_application_preparation(outcome: PreparationOutcome, elapsed: Duration) {
+    counter!(APPLICATION_PREPARATIONS, "outcome" => outcome.as_str()).increment(1);
+    histogram!(APPLICATION_PREPARATION_DURATION).record(elapsed.as_secs_f64());
+}
+
+/// Record an application preparation outcome and its elapsed duration.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(not(feature = "metrics"))]
+pub(crate) fn record_application_preparation(_outcome: PreparationOutcome, _elapsed: Duration) {}
+
+/// Record a connection handled by an immutable prepared application.
+#[cfg(feature = "metrics")]
+pub(crate) fn inc_prepared_connection_uses() { counter!(PREPARED_CONNECTION_USES).increment(1); }
+
+/// Record a connection handled by an immutable prepared application.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(not(feature = "metrics"))]
+pub(crate) fn inc_prepared_connection_uses() {}
 
 /// Record a server-supervisor cancellation request with a bounded reason.
 #[cfg(feature = "metrics")]

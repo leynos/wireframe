@@ -118,7 +118,7 @@ async fn drive_fragments_internal<F, H, Fut>(
 where
     F: FrameCodec,
     H: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = io::Result<()>> + Send,
 {
     let serialized_envelopes =
         fragment_and_encode(request.fragmenter, request.payload, request.route_id)?;
@@ -205,7 +205,7 @@ where
     F: FrameCodec,
 {
     let frames = drive_fragments_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         FragmentRequest::new(fragmenter, payload).with_capacity(capacity),
     )
@@ -251,7 +251,7 @@ where
     F: FrameCodec,
 {
     let frames = drive_fragments_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         FragmentRequest::new(fragmenter, payload),
     )
@@ -301,7 +301,7 @@ where
     F: FrameCodec,
 {
     drive_fragments_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         FragmentRequest::new(fragmenter, payload),
     )

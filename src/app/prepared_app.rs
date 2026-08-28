@@ -1,6 +1,6 @@
 //! Immutable application data prepared for connection handling.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use tokio::{
     io::{self, AsyncRead, AsyncWrite},
@@ -22,6 +22,7 @@ use crate::{
     hooks::WireframeProtocol,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
+    metrics::{self, PreparationOutcome},
     middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
 };
@@ -90,7 +91,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use wireframe::app::{PreparedApp, WireframeApp};
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -104,6 +105,19 @@ where
     ///
     /// Returns [`PrepareError`] if a future fallible preparation step fails.
     pub async fn prepare(self) -> Result<PreparedApp<S, C, E, F>, PrepareError> {
+        let started_at = Instant::now();
+        let result = self.build_prepared().await;
+        let outcome = if result.is_ok() {
+            PreparationOutcome::Success
+        } else {
+            PreparationOutcome::Failure
+        };
+        metrics::record_application_preparation(outcome, started_at.elapsed());
+        result
+    }
+
+    /// Build the prepared representation before publishing it to the caller.
+    async fn build_prepared(self) -> Result<PreparedApp<S, C, E, F>, PrepareError> {
         let routes = build_route_chains(&self.handlers, &self.middleware).await;
 
         Ok(PreparedApp {
@@ -135,7 +149,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use tokio::io::duplex;
     /// use wireframe::app::{PreparedApp, WireframeApp};
     ///
@@ -155,6 +169,7 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
+        metrics::inc_prepared_connection_uses();
         process_connection(
             stream,
             ConnectionProcessingContext {
@@ -176,7 +191,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use tokio::io::duplex;
     /// use wireframe::app::{PreparedApp, WireframeApp};
     ///
