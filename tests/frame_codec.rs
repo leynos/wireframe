@@ -11,7 +11,7 @@ use std::{
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
@@ -19,6 +19,7 @@ use wireframe::{
     correlation::CorrelatableFrame,
     serializer::{BincodeSerializer, Serializer},
 };
+use wireframe_testing::drive_prepared_with_frames;
 
 #[derive(Clone, Debug)]
 struct TaggedFrame {
@@ -137,20 +138,12 @@ impl FrameCodec for TaggedFrameCodec {
 }
 
 #[tokio::test]
-#[expect(deprecated, reason = "test covers the legacy builder connection API")]
 async fn custom_codec_round_trips_frames() {
     let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
         .expect("build app")
         .with_codec(TaggedFrameCodec::new(64))
         .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))
         .expect("route configured");
-
-    let (mut client, server) = tokio::io::duplex(256);
-    let server_task = tokio::spawn(async move {
-        app.handle_connection_result(server)
-            .await
-            .expect("server should exit cleanly");
-    });
 
     let request = Envelope::new(1, None, b"ping".to_vec());
     let payload = BincodeSerializer
@@ -163,16 +156,10 @@ async fn custom_codec_round_trips_frames() {
         .encode(TaggedFrame { tag: 7, payload }, &mut buf)
         .expect("encode request");
 
-    client.write_all(&buf).await.expect("write request");
-    client.shutdown().await.expect("shutdown client");
-
-    let mut output = Vec::new();
-    client
-        .read_to_end(&mut output)
+    let prepared = app.prepare().await.expect("prepare app");
+    let output = drive_prepared_with_frames(&prepared, vec![buf.to_vec()])
         .await
-        .expect("read response");
-
-    server_task.await.expect("join server task");
+        .expect("drive prepared app");
 
     let mut decoder = TaggedAdapter::new(64);
     let mut response_buf = BytesMut::from(&output[..]);
