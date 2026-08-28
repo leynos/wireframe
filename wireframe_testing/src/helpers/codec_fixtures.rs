@@ -349,7 +349,7 @@ struct HotlineWireFixture<'a> {
 }
 
 impl HotlineWireFixture<'_> {
-    /// Materialise the header while retaining the fixture's deliberate size policy.
+    /// Materialize the header while retaining the fixture's deliberate size policy.
     fn header(&self) -> HotlineHeader {
         HotlineHeader {
             data_size: u32_from_usize(self.data_size),
