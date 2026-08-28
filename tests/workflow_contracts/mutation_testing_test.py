@@ -23,8 +23,7 @@ import yaml
 WORKFLOW_PATH = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows" / "mutation-testing.yml"
 )
-
-USES_RE = re.compile(
+MUTATION_USES_RE = re.compile(
     r"^leynos/shared-actions/\.github/workflows/mutation-cargo\.yml@[0-9a-f]{40}$"
 )
 
@@ -64,13 +63,12 @@ def _mutation_job(workflow: dict[str, object]) -> dict[str, object]:
     return jobs["mutation"]
 
 
-def test_uses_reference_is_pinned_to_a_commit_sha() -> None:
-    """The job must call mutation-cargo.yml pinned to a 40-hex commit SHA."""
+def test_uses_reference_has_the_expected_pinned_shape() -> None:
+    """The job calls mutation-cargo.yml through an immutable full-SHA reference."""
     uses = _mutation_job(_load()).get("uses")
-    assert uses is not None, "jobs.mutation.uses is missing"
-    assert USES_RE.match(uses), (
-        f"jobs.mutation.uses must reference mutation-cargo.yml pinned to a "
-        f"40-character lowercase hex commit SHA, not a branch or tag: {uses!r}"
+    assert isinstance(uses, str) and MUTATION_USES_RE.fullmatch(uses), (
+        "jobs.mutation.uses must reference mutation-cargo.yml pinned to a "
+        "40-character lowercase hex commit SHA, not a branch or tag"
     )
 
 

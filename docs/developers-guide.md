@@ -282,29 +282,31 @@ its rationale). Key points for contributors:
 
 ### Workflow contract tests
 
-Because the caller is configuration rather than code, a contract test pins
-the shape it must uphold, failing the pull request when the caller drifts —
+Because the caller is configuration rather than code, a contract test pins the
+shape it must uphold, failing the pull request when the caller drifts —
 repointing the pin at a branch, widening the token scope, or dropping a
 configuration input — rather than letting the breakage surface only in a
-scheduled run. The test lives at
-`tests/workflow_contracts/mutation_testing_test.py` and parses
-`.github/workflows/mutation-testing.yml` with PyYAML. Run it locally with
-`make test-workflow-contracts`. The test validates:
+scheduled run. The tests live in
+`tests/workflow_contracts/mutation_testing_test.py` and
+`tests/workflow_contracts/shared_actions_test.py`, and parse the workflows
+with PyYAML. Run them locally with `make test-workflow-contracts`. They
+validate:
 
-- the `uses:` reference targets `mutation-cargo.yml` pinned to a full
-  40-character lowercase hex commit SHA — the value itself is not asserted,
-  so Dependabot bumps it freely (see [Workflow pins and
-  Dependabot](#workflow-pins-and-dependabot));
+- every `leynos/shared-actions` invocation across the repository workflows
+  targets an approved action or reusable workflow path, uses a full
+  40-character lowercase hex commit SHA, and shares the same version — the
+  value itself is not asserted, so Dependabot bumps it freely (see
+  [Workflow pins and Dependabot](#workflow-pins-and-dependabot));
 - job permissions are exactly least-privilege (`contents: read`,
   `id-token: write`);
 - the workflow-level default token scope is empty (`permissions: {}`);
-- `concurrency` serializes runs per ref (`mutation-testing-${{ github.ref
-  }}`) without cancelling one in progress; and
+- `concurrency` serializes runs per ref (`mutation-testing-${{ github.ref }}`)
+  without cancelling one in progress; and
 - the triggers keep the daily schedule and a plain `workflow_dispatch` with
   no legacy branch input.
 
-A sixth test pins the `with:` block itself: `extra-args: "--all-features"`
-(so feature-gated tests run against mutants, matching the CI baseline),
+A further test pins the `with:` block itself: `extra-args: "--all-features"` (so
+feature-gated tests run against mutants, matching the CI baseline),
 `shard-count: 8`, and the `exclude-globs` scaffolding list
 (`src/test_helpers.rs`, `src/test_helpers/**`, `src/connection/test_support.rs`,
 `src/codec/examples.rs`, and `src/**/tests.rs`). It also asserts that
@@ -324,9 +326,11 @@ manual chore.
 Contract tests may still verify the *shape* of a reusable-workflow caller. They
 must not verify the specific SHA value.
 
-- Do assert the workflow references the correct reusable workflow path.
-- Do assert the ref is pinned to a full 40-character commit SHA, not a
+- Do assert every `leynos/shared-actions` invocation has an approved action or
+  reusable-workflow path and is pinned to a full 40-character commit SHA, not a
   mutable branch such as `main` or `rolling`.
+- Do assert all `leynos/shared-actions` invocations across all workflows use
+  the same commit SHA.
 - Do assert the expected `on:` triggers, least-privilege `permissions:`, and
   the inputs the caller relies on.
 - Do not hard-code the current SHA value as an expected string. Match it with

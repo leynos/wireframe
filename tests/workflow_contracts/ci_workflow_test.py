@@ -5,6 +5,7 @@ Run these workflow contract tests with ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import cast
 
@@ -12,6 +13,10 @@ import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
+CODESCENE_USES_RE = re.compile(
+    r"^leynos/shared-actions/\.github/actions/upload-codescene-coverage@"
+    r"[0-9a-f]{40}$"
+)
 
 
 def _load_steps() -> list[dict[str, object]]:
@@ -112,10 +117,11 @@ def test_codescene_check_uses_the_guarded_project_contract() -> None:
     assert check.get("if") == (
         "env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'"
     ), "the CodeScene check must skip pull requests without the secret"
-    assert check.get("uses") == (
-        "leynos/shared-actions/.github/actions/upload-codescene-coverage@"
-        "4977418856133491c6aa7407d40668744df21818"
-    ), "the CodeScene check must use the reviewed shared-action pin"
+    uses = check.get("uses")
+    assert isinstance(uses, str) and CODESCENE_USES_RE.fullmatch(uses), (
+        "the CodeScene check must invoke upload-codescene-coverage at a full "
+        "commit SHA"
+    )
     assert check.get("with") == {
         "format": "lcov",
         "mode": "check",
