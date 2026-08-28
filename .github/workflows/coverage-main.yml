@@ -22,7 +22,11 @@ jobs:
       CARGO_TERM_COLOR: always
       BUILD_PROFILE: debug
     steps:
+      # CodeScene derives github.com/leynos/wireframe from this checkout's
+      # origin.
       - uses: actions/checkout@v7
+        with:
+          repository: leynos/wireframe
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
       - name: Test and Measure Coverage
@@ -38,5 +42,8 @@ jobs:
         uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
         with:
           format: lcov
+          mode: upload
+          # Keep this project identity aligned with ci.yml's PR gate.
+          project-url: https://api.codescene.io/v2/projects/68308
           access-token: ${{ env.CS_ACCESS_TOKEN }}
           installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
