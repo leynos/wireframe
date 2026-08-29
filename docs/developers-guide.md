@@ -248,6 +248,24 @@ Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
 
+
+### CodeScene coverage baseline
+
+The `Coverage (main)` workflow in
+`.github/workflows/coverage-main.yml` runs on pushes to `main`. After the test
+suite succeeds, it generates a ratcheted LCOV report and uploads that report to
+CodeScene. The workflow checks out `leynos/wireframe`, so CodeScene records the
+coverage under the repository identity `github.com/leynos/wireframe`, and
+targets project `68308` explicitly.
+
+The upload reads `CS_ACCESS_TOKEN` from the repository secret and passes it to
+the upload action through the job environment; do not put the token in a
+workflow argument or log it. The pull-request workflow's CodeScene coverage
+check uses the same project and repository identity. It consumes the report
+published for `main` as the baseline for its changed-line gate, so the main
+workflow must publish successfully before that gate can evaluate a pull
+request.
+
 ## Mutation testing
 
 Scheduled mutation testing runs in CI via
