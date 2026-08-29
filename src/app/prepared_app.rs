@@ -50,10 +50,11 @@ pub struct PreparedApp<
     pub(in crate::app) serializer: S,
     /// Codec template used to configure each connection's framed transport.
     pub(in crate::app) codec: F,
+    // Retain this template-owned state until the connection-local runtime in
+    // https://github.com/leynos/wireframe/issues/643 consumes it.
     #[expect(
         dead_code,
-        reason = "connection-local request extraction will consume application data in the next \
-                  runtime slice"
+        reason = "tracked by issue #643: ConnectionRuntime will consume application data"
     )]
     /// Type-erased application state retained for the connection-runtime slice.
     pub(in crate::app) app_data: AppDataStore,
@@ -66,10 +67,11 @@ pub struct PreparedApp<
         Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional assembler for protocol messages spread across several frames.
     pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    // Retain this template-owned configuration until the connection-local
+    // runtime in https://github.com/leynos/wireframe/issues/643 consumes it.
     #[expect(
         dead_code,
-        reason = "connection runtime ownership will consume the push dead-letter queue in a \
-                  follow-up slice"
+        reason = "tracked by issue #643: ConnectionRuntime will consume the push DLQ"
     )]
     /// Optional dead-letter sink for pushes that cannot be delivered.
     pub(in crate::app) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
@@ -97,6 +99,29 @@ trait PreparationTimeSource {
 struct SystemPreparationTimeSource;
 
 impl PreparationTimeSource for SystemPreparationTimeSource {
+    type StartedAt = Instant;
+
+    fn start(&self) -> Self::StartedAt { Instant::now() }
+
+    fn elapsed(&self, started_at: Self::StartedAt) -> Duration { started_at.elapsed() }
+}
+
+/// Supplies elapsed durations for prepared-connection instrumentation.
+trait ConnectionTimeSource {
+    /// Opaque point captured at the beginning of prepared connection handling.
+    type StartedAt;
+
+    /// Capture a point from which connection duration is measured.
+    fn start(&self) -> Self::StartedAt;
+
+    /// Return the elapsed duration since a captured connection point.
+    fn elapsed(&self, started_at: Self::StartedAt) -> Duration;
+}
+
+/// Production time source backed by the monotonic standard-library clock.
+struct SystemConnectionTimeSource;
+
+impl ConnectionTimeSource for SystemConnectionTimeSource {
     type StartedAt = Instant;
 
     fn start(&self) -> Self::StartedAt { Instant::now() }
@@ -209,8 +234,22 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
+        self.handle_connection_with_time_source(stream, &SystemConnectionTimeSource)
+            .await
+    }
+
+    /// Handle a connection with an injectable instrumentation time source.
+    async fn handle_connection_with_time_source<W, T>(
+        &self,
+        stream: W,
+        time_source: &T,
+    ) -> io::Result<()>
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+        T: ConnectionTimeSource,
+    {
         metrics::inc_prepared_connection_uses();
-        let started_at = Instant::now();
+        let started_at = time_source.start();
         let span = tracing::info_span!(
             "prepared_connection",
             outcome = tracing::field::Empty,
@@ -233,7 +272,8 @@ where
         .instrument(span.clone())
         .await;
         span.record("outcome", if result.is_ok() { "success" } else { "error" });
-        let elapsed_ms = u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let elapsed_ms =
+            u64::try_from(time_source.elapsed(started_at).as_millis()).unwrap_or(u64::MAX);
         span.record("elapsed_ms", elapsed_ms);
         result
     }
@@ -336,45 +376,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    //! Tests for prepared-application instrumentation seams.
-
-    use std::cell::Cell;
-
-    use super::*;
-
-    /// Deterministic preparation time source that records the calls it serves.
-    struct FixedPreparationTimeSource {
-        starts: Cell<usize>,
-        elapsed: Cell<usize>,
-    }
-
-    impl PreparationTimeSource for FixedPreparationTimeSource {
-        type StartedAt = ();
-
-        fn start(&self) -> Self::StartedAt { self.starts.set(self.starts.get() + 1); }
-
-        fn elapsed(&self, _started_at: Self::StartedAt) -> Duration {
-            self.elapsed.set(self.elapsed.get() + 1);
-            Duration::from_millis(1)
-        }
-    }
-
-    /// Preparation records timing through the injected source exactly once.
-    #[tokio::test]
-    async fn prepare_uses_injected_time_source() {
-        let app: WireframeApp = WireframeApp::new().expect("app should initialize");
-        let time_source = FixedPreparationTimeSource {
-            starts: Cell::new(0),
-            elapsed: Cell::new(0),
-        };
-
-        let _prepared = app
-            .prepare_with_time_source(&time_source)
-            .await
-            .expect("preparation should succeed");
-
-        assert_eq!(time_source.starts.get(), 1);
-        assert_eq!(time_source.elapsed.get(), 1);
-    }
-}
+#[path = "prepared_app_tests.rs"]
+mod tests;
