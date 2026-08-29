@@ -99,56 +99,26 @@ transformation or reuse prepared route services.
 The prepared-application transition is independent of the zero-copy byte
 migration. The v0.4 byte-facing APIs use `bytes::Bytes` (or the `PayloadBytes`
 wrapper) for read-only hand-offs and an explicit edit-on-demand operation for
-mutation. The following examples show the required shape of the migration. The
-editor method names are illustrative until roadmap item 12.1.2 finalizes the
-public editing API; the compatibility helper names are defined by
+mutation. Middleware and hook editor APIs are not yet finalized; their
+migration is deferred to roadmap items 12.1.2 and 12.2.1. The compatibility
+helper names described below are defined by
 [ADR 009](adr-009-vec-u8-migration-rollout.md).
 
 ### Middleware
 
-Replace direct mutable access to a request or response `Vec<u8>` with an
-explicit edit. Read-only middleware should keep the shared bytes and avoid an
-edit altogether.
-
-```text
-# Before: the middleware owns and mutates a Vec<u8> directly.
-async fn tag(mut request, next) {
-    request.frame_mut().extend_from_slice(b"tag");
-    next.call(request).await
-}
-
-# After: request bytes are read-only until an edit is requested.
-async fn tag(mut request, next) {
-    request.edit_frame(|editor| editor.extend_from_slice(b"tag"));
-    next.call(request).await
-}
-```
-
-Likewise, replace `response.frame_mut()` and `response.into_inner()` with the
-response editor and its final byte hand-off. Do not retain a `&mut Vec<u8>` in
-middleware state; this would reintroduce the allocation-heavy compatibility
-path that the new API is intended to remove.
+The public edit-on-demand API for middleware requests and responses is not yet
+finalized. Continue using the current `frame_mut()` and `into_inner()`
+compatibility methods while this migration is tracked by roadmap item 12.1.2.
+Do not assume a response-editor method or introduce an editor method until that
+API is implemented and documented. Read-only middleware should avoid editing
+the frame altogether.
 
 ### Protocol and client hooks
 
-Hooks that only inspect bytes should borrow the shared representation. Hooks
-that edit bytes should use the same edit-on-demand operation as middleware.
-Existing mutation closures can cross the migration boundary for one release
-through the deliberately narrow adapter:
-
-```text
-# Before: the hook contract is tied directly to Vec<u8>.
-client.before_send(|bytes: &mut Vec<u8>| bytes.extend_from_slice(b"tag"));
-
-# Transitional adapter: keep the old closure while migrating its owner.
-let hook = BeforeSendHook::from_vec_fn(|bytes: &mut Vec<u8>| {
-    bytes.extend_from_slice(b"tag");
-});
-```
-
-Prefer the new hook editor for new code, and remove the adapter once the hook
-has no downstream `Vec<u8>` callers. Client preamble leftovers intentionally
-remain `Vec<u8>` in this release; see the compatibility policy in ADR 009.
+The hook editor API is also deferred to roadmap item 12.2.1. Keep existing
+`Vec<u8>` hook implementations until that API is finalized; client preamble
+leftovers intentionally remain `Vec<u8>` in this release. The compatibility
+policy is defined in [ADR 009](adr-009-vec-u8-migration-rollout.md).
 
 ### Serializers
 
@@ -181,25 +151,25 @@ already `Bytes`, so only the frame type and extraction methods need changing:
 
 ```rust
 // Before: a custom frame owns a Vec<u8> payload.
-struct MyFrame {
+struct MyEnvelope {
     payload: Vec<u8>,
 }
 
 // After: the frame shares its payload buffer with the codec driver.
 use bytes::Bytes;
 
-struct MyFrame {
+struct MyEnvelope {
     payload: Bytes,
 }
 
 impl FrameCodec for MyCodec {
-    type Frame = MyFrame;
+    type Frame = MyEnvelope;
 
-    fn frame_payload(frame: &MyFrame) -> &[u8] { &frame.payload }
+    fn frame_payload(frame: &MyEnvelope) -> &[u8] { &frame.payload }
 
-    fn frame_payload_bytes(frame: &MyFrame) -> Bytes { frame.payload.clone() }
+    fn frame_payload_bytes(frame: &MyEnvelope) -> Bytes { frame.payload.clone() }
 
-    fn wrap_payload(&self, payload: Bytes) -> MyFrame { MyFrame { payload } }
+    fn wrap_payload(&self, payload: Bytes) -> MyEnvelope { MyEnvelope { payload } }
 }
 ```
 
