@@ -86,13 +86,13 @@ their implementation epic.
 
 ### Server supervisor lifecycle
 
-`WireframeServer::run_with_shutdown` owns the server's `CancellationToken` and
-`TaskTracker` while it supervises the worker accept loops. A named
-`drop_guard_ref()` guard cancels the token when the supervisor future is
-dropped, including when its `JoinHandle` is aborted. The accept loops then stop
-accepting and release their listener references. This release is eventual
-rather than synchronous because the loops must be scheduled to observe the
-cancellation.
+`WireframeServer::run_with_shutdown` owns the server's
+`CancellationToken` and `TaskTracker` while it supervises the worker accept
+loops. A named `drop_guard_ref()` guard cancels the token when the supervisor
+future is dropped, including when its `JoinHandle` is aborted. The accept loops
+then stop accepting and release their listener references. This release is
+eventual rather than synchronous because the loops must be scheduled to observe
+the cancellation.
 
 When the supplied shutdown future resolves, the existing graceful path still
 cancels the accept loops and waits for tracked work. The drop guard does not
@@ -104,8 +104,8 @@ terminal outcome: `Graceful` when the shutdown future resolves, `Dropped` when
 the supervisor frame is abandoned, or `Finished` when tracked work ends before
 either cancellation path. Cloned lifecycle handles pass the recorded
 cancellation reason to each accept loop, which records its own exit after it
-observes cancellation. The supervisor cancellation counter and accept-loop exit
-counter (`wireframe_server_supervisor_cancellations_total` and
+observes cancellation. The supervisor cancellation counter and accept-loop
+exit counter (`wireframe_server_supervisor_cancellations_total` and
 `wireframe_server_accept_loops_exited_total`) use only the bounded `reason`
 values `"graceful"` and `"dropped"`; direct future drops and
 `JoinHandle::abort()` therefore have the same `"dropped"` reason. The
@@ -320,8 +320,9 @@ repointing the pin at a branch, widening the token scope, or dropping a
 configuration input — rather than letting the breakage surface only in a
 scheduled run. The tests live in
 `tests/workflow_contracts/mutation_testing_test.py` and
-`tests/workflow_contracts/shared_actions_test.py`, and parse the workflows with
-PyYAML. Run them locally with `make test-workflow-contracts`. They validate:
+`tests/workflow_contracts/shared_actions_test.py`, and parse the workflows
+with PyYAML. Run them locally with `make test-workflow-contracts`. They
+validate:
 
 - every `leynos/shared-actions` invocation across the repository workflows
   targets an approved action or reusable workflow path, uses a full
@@ -336,8 +337,8 @@ PyYAML. Run them locally with `make test-workflow-contracts`. They validate:
 - the triggers keep the daily schedule and a plain `workflow_dispatch` with
   no legacy branch input.
 
-A further test pins the `with:` block itself: `extra-args: "--all-features"`
-(so feature-gated tests run against mutants, matching the CI baseline),
+A further test pins the `with:` block itself: `extra-args: "--all-features"` (so
+feature-gated tests run against mutants, matching the CI baseline),
 `shard-count: 8`, and the `exclude-globs` scaffolding list
 (`src/test_helpers.rs`, `src/test_helpers/**`, `src/connection/test_support.rs`,
 `src/codec/examples.rs`, and `src/**/tests.rs`). It also asserts that
