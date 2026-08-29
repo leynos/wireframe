@@ -2571,6 +2571,23 @@ helpers become no-ops when the feature is disabled so instrumentation can stay
 in place.[^33] `PreparedApp::handle_connection`, the connection actor, and the
 panic wrapper call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
 
+Prepared application lifecycle metrics are also emitted when the `metrics`
+feature is enabled:
+
+- `wireframe_application_preparations_total` counts each preparation attempt.
+  Its bounded `outcome` label is `"success"` when an immutable `PreparedApp` is
+  produced and `"failure"` when preparation returns an error.
+- `wireframe_application_preparation_duration_seconds` records the duration of
+  each preparation attempt, using the same `outcome` label values.
+- `wireframe_prepared_connection_uses_total` counts each connection handled by
+  `PreparedApp::handle_connection_result` or its logging wrapper. It has no
+  labels.
+
+These metrics are emitted around preparation and prepared-application
+connection handling, so repeated connections show reuse of the already-built
+route services without repeating middleware transforms. All three helpers are
+no-ops when the `metrics` feature is disabled.
+
 ## Mutation testing
 
 Wireframe's test suite is continuously assessed with mutation testing: small
