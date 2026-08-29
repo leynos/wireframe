@@ -9,6 +9,7 @@ import re
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+import pytest
 import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
@@ -20,22 +21,14 @@ SHARED_ACTION_USES_RE = re.compile(
 
 
 def _workflow_paths() -> Iterator[Path]:
-    """Yield supported workflow paths in deterministic order.
-
-    For example, ``.yaml`` and ``.yml`` files are yielded, while other
-    directory entries are skipped.
-    """
+    """Yield supported workflow paths in deterministic order."""
     for workflow_path in sorted(WORKFLOWS_DIR.iterdir()):
         if workflow_path.suffix in WORKFLOW_SUFFIXES:
             yield workflow_path
 
 
 def _shared_action_use(mapping: dict[str, object]) -> str | None:
-    """Return a shared-actions invocation from a workflow mapping.
-
-    For example, ``leynos/shared-actions/...`` is returned, whereas an
-    unrelated or non-string ``uses`` value produces ``None``.
-    """
+    """Return a shared-actions invocation from a workflow mapping."""
     uses = mapping.get("uses")
     if isinstance(uses, str) and uses.startswith("leynos/shared-actions/"):
         return uses
@@ -88,6 +81,36 @@ def _shared_action_versions() -> list[tuple[Path, str]]:
         )
         versions.append((workflow_path, match["version"]))
     return versions
+
+
+def test_workflow_paths_filter_supported_suffixes_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Workflow path discovery keeps supported files in lexical order."""
+    for filename in ("zebra.yml", "notes.txt", "alpha.yaml"):
+        (tmp_path / filename).touch()
+    monkeypatch.setitem(_workflow_paths.__globals__, "WORKFLOWS_DIR", tmp_path)
+
+    assert [path.name for path in _workflow_paths()] == ["alpha.yaml", "zebra.yml"]
+
+
+@pytest.mark.parametrize(
+    ("mapping", "expected"),
+    [
+        (
+            {"uses": "leynos/shared-actions/.github/actions/check"},
+            "leynos/shared-actions/.github/actions/check",
+        ),
+        ({"uses": "actions/checkout@v4"}, None),
+        ({}, None),
+        ({"uses": 42}, None),
+    ],
+)
+def test_shared_action_use_filters_workflow_mappings(
+    mapping: dict[str, object], expected: str | None
+) -> None:
+    """Shared-action filtering accepts only the expected string prefix."""
+    assert _shared_action_use(mapping) == expected
 
 
 def test_shared_action_invocations_have_expected_shape() -> None:
