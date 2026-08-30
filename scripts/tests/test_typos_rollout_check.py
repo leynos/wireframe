@@ -86,11 +86,7 @@ class TestPhrasePolicyChecker:
         ("filename", "table_name", "field_name"), SPELLING_POLICY_PATTERNS
     )
     def test_spelling_policies_do_not_mask_every_inline_code_span(
-        self,
-        checker: types.ModuleType,
-        filename: str,
-        table_name: str,
-        field_name: str,
+        self, filename: str, table_name: str, field_name: str
     ) -> None:
         """Reject the retired repository-wide inline-code spelling exemption."""
         with (REPOSITORY / filename).open("rb") as stream:
@@ -104,7 +100,16 @@ class TestPhrasePolicyChecker:
             f"the {filename} spelling policy masks every inline-code span"
         )
 
-        policy = checker.load_policy(REPOSITORY)
+    def test_effective_spelling_policy_does_not_mask_every_inline_code_span(
+        self, checker: types.ModuleType, tmp_path: Path
+    ) -> None:
+        """Reject the exemption after loading an isolated repository policy."""
+        for filename in ("typos.toml", "typos.local.toml"):
+            source = REPOSITORY / filename
+            (tmp_path / filename).write_bytes(source.read_bytes())
+        (tmp_path / ".typos-oxendict-base.toml").write_text("[phrases.corrections]\n")
+
+        policy = checker.load_policy(tmp_path)
         assert INLINE_CODE_EXCLUSION not in policy.ignore_patterns, (
             "the effective spelling policy masks every inline-code span"
         )

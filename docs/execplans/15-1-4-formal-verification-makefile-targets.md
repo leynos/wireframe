@@ -33,7 +33,7 @@ model and roughly twenty test items. The three tool-driven targets (`kani`,
 `kani-full`, `verus`) are **explicit stubs** until the later roadmap items that
 own them land their harnesses and proofs.
 
-You can observe success three ways:
+Success can be observed in three ways:
 
 1. `mbake validate Makefile` reports `Valid syntax` and exits `0`.
 2. Each of the six targets exits `0` on a clean tree. The three stub targets
