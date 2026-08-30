@@ -86,7 +86,11 @@ class TestPhrasePolicyChecker:
         ("filename", "table_name", "field_name"), SPELLING_POLICY_PATTERNS
     )
     def test_spelling_policies_do_not_mask_every_inline_code_span(
-        self, filename: str, table_name: str, field_name: str
+        self,
+        checker: types.ModuleType,
+        filename: str,
+        table_name: str,
+        field_name: str,
     ) -> None:
         """Reject the retired repository-wide inline-code spelling exemption."""
         with (REPOSITORY / filename).open("rb") as stream:
@@ -98,6 +102,11 @@ class TestPhrasePolicyChecker:
         )
         assert INLINE_CODE_EXCLUSION not in patterns[field_name], (
             f"the {filename} spelling policy masks every inline-code span"
+        )
+
+        policy = checker.load_policy(REPOSITORY)
+        assert INLINE_CODE_EXCLUSION not in policy.ignore_patterns, (
+            "the effective spelling policy masks every inline-code span"
         )
 
     def test_checker_preserves_boundaries_masking_and_exclusions(

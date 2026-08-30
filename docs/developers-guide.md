@@ -290,10 +290,10 @@ Reach for `--workspace` when a task is explicitly meant to cover every current
 workspace member, for example repository-wide validation in CI or when a change
 also touches `crates/wireframe-verification` or `wireframe_testing`.
 
-Use `cargo test -p wireframe-verification` to exercise the Stateright crate in
-isolation. The existing `Makefile` targets still focus on the root `wireframe`
-crate because the dedicated formal-verification targets belong to later roadmap
-items.
+Use `make test-verification` to run `cargo test -p wireframe-verification`.
+`make kani`, `make kani-full`, and `make verus` are tool-free placeholders until
+their named roadmap work activates them. Ordinary root-level Cargo commands
+still target the root package because `default-members = ["."]`.
 
 Use `cargo test -p wireframe_testing` when changing shared test fixtures,
 observability helpers, codec drivers, or other support APIs exported by the
