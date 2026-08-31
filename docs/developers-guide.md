@@ -378,7 +378,7 @@ library.
 
 ### Workspace-wide validation and private-item documentation
 
-The standard Makefile gates cover every workspace member and target:
+The standard Makefile gates cover all supported workspace members and targets:
 
 - `make test` runs:
 

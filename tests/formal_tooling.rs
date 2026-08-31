@@ -173,6 +173,60 @@ fn run_verus_target_passes_configured_proof_file() -> TestResult {
 }
 
 #[rstest]
+fn workspace_validation_targets_retain_required_cargo_scope() -> TestResult {
+    let makefile_str = makefile()?;
+    let makefile = MakefileContent(&makefile_str);
+    let test_recipe = makefile
+        .target_recipe("test")
+        .ok_or_else(|| "expected `test` target in Makefile".to_owned())?;
+    let test_doc_recipe = makefile
+        .target_recipe("test-doc")
+        .ok_or_else(|| "expected `test-doc` target in Makefile".to_owned())?;
+    let typecheck_recipe = makefile
+        .target_recipe("typecheck")
+        .ok_or_else(|| "expected `typecheck` target in Makefile".to_owned())?;
+    let lint_recipe = makefile
+        .target_recipe("lint")
+        .ok_or_else(|| "expected `lint` target in Makefile".to_owned())?;
+
+    for (target, recipe) in [
+        ("test", &test_recipe),
+        ("test-doc", &test_doc_recipe),
+        ("typecheck", &typecheck_recipe),
+    ] {
+        ensure(
+            recipe.contains("--workspace"),
+            format!("`{target}` should validate the supported workspace members"),
+        )?;
+    }
+    ensure(
+        test_recipe.contains("--all-targets --all-features"),
+        "`test` should retain all-target and all-feature coverage",
+    )?;
+    ensure(
+        test_doc_recipe.contains("--exclude wireframe_testing --doc --all-features"),
+        "`test-doc` should retain the tracked wireframe_testing doctest exclusion",
+    )?;
+    ensure(
+        typecheck_recipe.contains("--all-targets --all-features"),
+        "`typecheck` should retain all-target and all-feature coverage",
+    )?;
+    ensure(
+        lint_recipe.contains("$(CARGO) doc --workspace --no-deps"),
+        "`lint` should retain workspace rustdoc coverage",
+    )?;
+    ensure(
+        lint_recipe.contains("$(CARGO) clippy $(CLIPPY_FLAGS)"),
+        "`lint` should invoke the configured Clippy policy",
+    )?;
+    ensure(
+        makefile_str
+            .contains("CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings"),
+        "the shared Clippy policy should retain workspace-wide deny-warnings coverage",
+    )
+}
+
+#[rstest]
 #[case::install_kani("install-kani", "prover-tools kani install")]
 #[case::check_kani_version("check-kani-version", "prover-tools kani check-version")]
 #[case::install_verus("install-verus", "prover-tools verus install")]
