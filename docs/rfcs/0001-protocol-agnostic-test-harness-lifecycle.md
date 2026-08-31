@@ -169,13 +169,13 @@ pub async fn spawn_wireframe_server_on<F, T, Ser, Ctx, E, Codec>(
 The omitted generic bounds are those already required by `WireframeServer`'s
 `run_with_shutdown`:
 
-- `F: AppFactory<Serializer, Ctx, E, Codec>`;
+- `F: AppFactory<Ser, Ctx, E, Codec>`;
 - `T: Preamble`;
-- `Serializer: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static`;
+- `Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static`;
 - `Ctx: Send + 'static`;
 - `E: Packet`;
 - `Codec: FrameCodec`; and
-- `Envelope: DecodeWith<Serializer> + EncodeWith<Serializer>`.
+- `Envelope: DecodeWith<Ser> + EncodeWith<Ser>`.
 
 Because the helper drives `run_with_shutdown` inside `tokio::spawn`, the
 spawned future must also be `Send + 'static`. That is the one requirement not

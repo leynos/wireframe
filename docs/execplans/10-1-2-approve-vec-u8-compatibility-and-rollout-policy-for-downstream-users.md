@@ -269,8 +269,8 @@ Use timestamps when ticking items to make rate-of-progress visible.
   this milestone. The post-turn gate runs nixie repo-wide, so the baseline had
   to be fixed for the gate to pass. Root cause: merman-cli (the parser nixie
   uses) cannot lex comma-separated type parameters inside Mermaid generic
-  brackets — `class AppFactory~Serializer, Ctx, E, Codec~` (diagram 1, offset
-  843) and
+  brackets — `class AppFactory~Serializer, Ctx, E, Codec~`
+  (diagram 1, offset 843) and
   `class TypedResponseStream~S, Mapper, P, Item~` (diagram 3, offset 654).
   Evidence: bisected with minimal `merman-cli` repros; single-param `~Codec~`
   parses, comma forms fail. Fix: render the multi-parameter generic in a

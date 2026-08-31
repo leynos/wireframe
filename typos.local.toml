@@ -36,6 +36,12 @@ ignore = [
   "\\|\\|\\ \"fragment\\ series\\ not\\ initialised\"\\.into\\(\\)\\)",
   # Migration documentation records the immutable former public method name.
   "BackoffConfig::normalised",
+  # RFC generic-bound examples use the declared `Ser` parameter only in these
+  # exact type fragments, without accepting the bare word elsewhere.
+  "AppFactory<Ser,",
+  "Ser: Serializer",
+  "DecodeWith<Ser>",
+  "EncodeWith<Ser>",
   # Documentation preserves GitHub's product spelling in this literal phrase.
   "ask\\ items\\ with\\ a\\ GitHub\\ Flavored",
   "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",

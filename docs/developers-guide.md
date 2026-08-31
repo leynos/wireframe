@@ -569,7 +569,7 @@ favour of `handwritten`. `make markdownlint` depends on the same spelling gate.
 The tracked `typos.toml` is generated from the shared Oxford dictionary and the
 repository-specific `typos.local.toml` overlay. The generator is the focused
 `typos-config-builder` command pinned to commit
-`b604f198797fdd36a567dd0f8f07b13f9539b241`. It refreshes the untracked
+`4b8c7f8ba36e7ecf91a5e762010dcf12820c3634`. It refreshes the untracked
 `.typos-oxendict-base.toml` cache only when the authority is newer than the
 local copy; `.typos-oxendict-base.json` records refresh metadata.
 
@@ -583,10 +583,10 @@ The local overlay must never mask every Markdown inline-code span. When adding
 an exception, use one exact, documented pattern rather than disabling a whole
 syntax class. The current exceptions are limited to the `PoolServerBehavior`
 test-server fixture, the former `BackoffConfig::normalised` public method,
-immutable en-GB diagnostic fixtures, Tokio test attributes and the literal
-GitHub product phrase. Add a new pattern only when a narrower correction or
-wording change would alter a public API, external-tool key, formal name, or
-deliberately fixed diagnostic.
+exact generic-bound fragments in RFC 0001, immutable en-GB diagnostic
+fixtures, Tokio test attributes and the literal GitHub product phrase. Add a
+new pattern only when a narrower correction or wording change would alter a
+public API, external-tool key, formal name, or deliberately fixed diagnostic.
 
 The standalone phrase helper and its tests require Python 3.13 or later and pin
 Pathspec 1.1.1 and Hypothesis 6.156.6; Ruff targets Python 3.13 compatibility.

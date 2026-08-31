@@ -4,6 +4,8 @@
 //! `rust-prover-tools` metadata and exposes concise Makefile targets that
 //! delegate to `prover-tools` rather than carrying bespoke installer logic.
 
+use std::process::Command;
+
 #[path = "common/formal_tooling_support.rs"]
 mod formal_tooling_support;
 
@@ -240,6 +242,24 @@ fn direct_recipe_targets_have_expected_content(
     ensure(
         recipe.contains(expected_content),
         format!("`{target}` should contain `{expected_content}`"),
+    )
+}
+
+#[rstest]
+fn test_verification_executes_the_configured_cargo_command() -> TestResult {
+    let output = Command::new("make")
+        .args(["test-verification", "CARGO=echo"])
+        .current_dir(repo_access::repo_root()?)
+        .output()?;
+    let stdout = String::from_utf8(output.stdout)?;
+
+    ensure(
+        output.status.success(),
+        "`make test-verification` should execute the configured Cargo command",
+    )?;
+    ensure(
+        stdout.contains("test -p wireframe-verification"),
+        "`make test-verification` should pass `test -p wireframe-verification` to Cargo",
     )
 }
 

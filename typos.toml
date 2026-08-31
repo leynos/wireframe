@@ -31,7 +31,11 @@ extend-exclude = [
 locale = "en-gb"
 extend-ignore-re = [
     "(?s)```.*?```",
+    "AppFactory<Ser,",
     "BackoffConfig::normalised",
+    "DecodeWith<Ser>",
+    "EncodeWith<Ser>",
+    "Ser: Serializer",
     "\\ \\ \\ \\ PoolServerBehavior,",
     "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
     "\\ \\ \\ \\ \\ \\ \\ Self::start_with_behavior\\(PoolServerBehavior::Ech",
