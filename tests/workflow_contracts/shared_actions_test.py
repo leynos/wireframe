@@ -20,9 +20,9 @@ SHARED_ACTION_USES_RE = re.compile(
 )
 
 
-def _workflow_paths() -> Iterator[Path]:
+def _workflow_paths(entries: Iterable[Path]) -> Iterator[Path]:
     """Yield supported workflow paths in deterministic order."""
-    for workflow_path in sorted(WORKFLOWS_DIR.iterdir()):
+    for workflow_path in sorted(entries):
         if workflow_path.suffix in WORKFLOW_SUFFIXES:
             yield workflow_path
 
@@ -58,7 +58,13 @@ def _mappings_in_values(values: Iterable[object]) -> Iterator[dict[str, object]]
 def _shared_action_invocations() -> list[tuple[Path, str]]:
     """Return each shared-action invocation and its containing workflow."""
     invocations = []
-    for workflow_path in _workflow_paths():
+    try:
+        workflow_entries = WORKFLOWS_DIR.iterdir()
+    except OSError as error:
+        raise AssertionError(
+            f"workflow directory {WORKFLOWS_DIR} entries could not be read: {error}"
+        ) from error
+    for workflow_path in _workflow_paths(workflow_entries):
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
         assert isinstance(workflow, dict), f"{workflow_path.name} must be a mapping"
         for mapping in _workflow_mappings(workflow):
@@ -83,15 +89,35 @@ def _shared_action_versions() -> list[tuple[Path, str]]:
     return versions
 
 
-def test_workflow_paths_filter_supported_suffixes_in_order(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_workflow_paths_filter_supported_suffixes_in_order(tmp_path: Path) -> None:
     """Workflow path discovery keeps supported files in lexical order."""
     for filename in ("zebra.yml", "notes.txt", "alpha.yaml"):
         (tmp_path / filename).touch()
-    monkeypatch.setitem(_workflow_paths.__globals__, "WORKFLOWS_DIR", tmp_path)
 
-    assert [path.name for path in _workflow_paths()] == ["alpha.yaml", "zebra.yml"]
+    assert [path.name for path in _workflow_paths(tmp_path.iterdir())] == [
+        "alpha.yaml",
+        "zebra.yml",
+    ]
+
+
+def test_shared_action_invocations_explain_unreadable_workflow_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workflow scanning reports an unreadable workflow directory clearly."""
+
+    def unreadable_directory_entries(_: Path) -> Iterator[Path]:
+        raise OSError("access denied")
+
+    monkeypatch.setattr(Path, "iterdir", unreadable_directory_entries)
+
+    with pytest.raises(
+        AssertionError,
+        match=(
+            rf"workflow directory {re.escape(str(WORKFLOWS_DIR))} "
+            r"entries could not be read: access denied"
+        ),
+    ):
+        _shared_action_invocations()
 
 
 @pytest.mark.parametrize(
