@@ -132,8 +132,11 @@ pub trait Packet: CorrelatableFrame + Send + Sync + 'static {
 /// Component values extracted from or used to build a [`Packet`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacketParts {
+    /// Message identifier used by dispatch and response routing.
     id: u32,
+    /// Optional request/response correlation metadata.
     correlation_id: Option<u64>,
+    /// Serialized application payload, excluding routing metadata.
     payload: Vec<u8>,
 }
 
@@ -144,8 +147,11 @@ pub struct PacketParts {
 /// message identifier and raw payload bytes.
 #[derive(bincode::Decode, bincode::Encode, Debug, Clone, PartialEq, Eq)]
 pub struct Envelope {
+    /// Message identifier used to select the handler chain.
     pub(crate) id: u32,
+    /// Optional identifier copied between request and response frames.
     pub(crate) correlation_id: Option<u64>,
+    /// Wire payload handed to the serializer or fragment assembler.
     pub(crate) payload: Vec<u8>,
 }
 
@@ -282,6 +288,7 @@ impl PacketParts {
         self
     }
 
+    /// Resolve inherited correlation metadata and flag conflicting identifiers.
     #[inline]
     fn select_correlation(current: Option<u64>, source: Option<u64>) -> (Option<u64>, bool) {
         match (current, source) {

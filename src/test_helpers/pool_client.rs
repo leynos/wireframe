@@ -26,7 +26,9 @@ pub struct ClientHello {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+/// Internal server response used to complete the preamble handshake.
 struct ServerAck {
+    /// Whether the fixture accepts the client's preamble.
     accepted: bool,
 }
 
@@ -55,15 +57,24 @@ pub enum PoolServerBehavior {
 pub struct PoolTestServer {
     /// Socket address the test server is listening on.
     pub addr: SocketAddr,
+    /// Count of client preambles decoded by `read_preamble`, regardless of
+    /// whether the subsequent `write_preamble` acknowledgement succeeds.
     preamble_count: Arc<AtomicUsize>,
+    /// Count of physical TCP connections accepted by the fixture.
     connection_count: Arc<AtomicUsize>,
+    /// Background accept loop; aborting it makes dropping the fixture bounded.
     handle: JoinHandle<()>,
 }
 
+/// Per-server state shared with each spawned connection task.
 struct PoolServerState {
+    /// Shared successful-handshake counter.
     preamble_count: Arc<AtomicUsize>,
+    /// Shared accepted-connection counter.
     connection_count: Arc<AtomicUsize>,
+    /// One-shot flag controlling malformed-response coverage.
     malformed_response_sent: Arc<AtomicBool>,
+    /// Response mode selected by the test case.
     behavior: PoolServerBehavior,
 }
 
@@ -170,6 +181,7 @@ pub async fn acquire_and_record(
     Ok(())
 }
 
+/// Accept connections until the listener is closed or its task is aborted.
 async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState) {
     loop {
         let accept_result = listener.accept().await;
@@ -186,6 +198,7 @@ async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState
     }
 }
 
+/// Perform one fixture handshake and echo length-delimited ping frames.
 async fn handle_pool_test_connection(mut stream: tokio::net::TcpStream, state: PoolServerState) {
     state.connection_count.fetch_add(1, Ordering::SeqCst);
     let preamble = read_preamble::<_, ClientHello>(&mut stream).await;
@@ -229,6 +242,7 @@ async fn handle_pool_test_connection(mut stream: tokio::net::TcpStream, state: P
     }
 }
 
+/// Decode the fixture's handshake response and return any buffered bytes.
 async fn read_server_ack(stream: &mut tokio::net::TcpStream) -> std::io::Result<Vec<u8>> {
     let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
         .await

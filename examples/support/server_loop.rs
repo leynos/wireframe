@@ -6,6 +6,7 @@ use tokio::{
 };
 use tracing::{error, info};
 
+/// Report either a signal-wait failure or the normal shutdown message.
 #[expect(
     clippy::cognitive_complexity,
     reason = "This helper only logs the two shutdown outcomes; tracing macros inflate the lint \

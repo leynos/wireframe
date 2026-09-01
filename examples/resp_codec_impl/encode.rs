@@ -15,6 +15,9 @@ const MAX_RECURSION_DEPTH: usize = 64;
 /// Compute the encoded length of a RESP frame.
 pub fn encoded_len(frame: &RespFrame) -> Result<usize, io::Error> { encoded_len_at(frame, 0) }
 
+/// Measure a frame recursively while enforcing the nesting safety limit.
+/// Checked arithmetic turns a size overflow into an input error before the
+/// encoder reserves or writes any destination capacity.
 fn encoded_len_at(frame: &RespFrame, depth: usize) -> Result<usize, io::Error> {
     if depth > MAX_RECURSION_DEPTH {
         return Err(io::Error::new(
@@ -53,6 +56,9 @@ pub fn encode_frame(frame: &RespFrame, dst: &mut BytesMut) -> Result<(), io::Err
     encode_frame_at(frame, dst, 0)
 }
 
+/// Append one frame and its nested children using RESP wire ordering.
+/// The depth guard matches [`encoded_len_at`] so length validation and actual
+/// emission reject the same recursively constructed input.
 fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Result<(), io::Error> {
     if depth > MAX_RECURSION_DEPTH {
         return Err(io::Error::new(
@@ -104,6 +110,7 @@ fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Resul
     Ok(())
 }
 
+/// Count decimal digits without allocating a temporary representation.
 fn digits_len_usize(mut value: usize) -> usize {
     let mut digits = 1;
     while value >= 10 {
@@ -113,6 +120,7 @@ fn digits_len_usize(mut value: usize) -> usize {
     digits
 }
 
+/// Count digits in a signed integer, including its possible minus sign.
 fn digits_len_i64(value: i64) -> usize {
     let mut digits = 1;
     let mut cursor = value;
@@ -123,6 +131,7 @@ fn digits_len_i64(value: i64) -> usize {
     if value < 0 { digits + 1 } else { digits }
 }
 
+/// Add encoded-size components and report overflow as a frame-size error.
 fn checked_add(lhs: usize, rhs: usize) -> Result<usize, io::Error> {
     lhs.checked_add(rhs)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))

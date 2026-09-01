@@ -4,9 +4,13 @@ use std::time::Duration;
 
 use super::policy::PoolFairnessPolicy;
 
+/// Default number of physical connection slots available for on-demand use.
 const DEFAULT_POOL_SIZE: usize = 4;
+/// Default serial admission per physical socket.
 const DEFAULT_MAX_IN_FLIGHT_PER_SOCKET: usize = 1;
+/// Default idle lifetime before a socket is recycled.
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
+/// Duration form of [`DEFAULT_IDLE_TIMEOUT_SECS`].
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS);
 
 /// Configuration for a pooled wireframe client.
@@ -30,9 +34,13 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_IDLE_TIMEOUT_
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClientPoolConfig {
+    /// Number of physical connection slots available for on-demand creation.
     pool_size: usize,
+    /// Maximum concurrent leases admitted by each socket.
     max_in_flight_per_socket: usize,
+    /// Idle duration after which a returned socket is refreshed.
     idle_timeout: Duration,
+    /// Queue policy applied to blocked logical-session handles.
     fairness_policy: PoolFairnessPolicy,
 }
 
@@ -48,7 +56,8 @@ impl Default for ClientPoolConfig {
 }
 
 impl ClientPoolConfig {
-    /// Set the number of physical sockets maintained by the pool.
+    /// Set the number of physical connection slots available for on-demand
+    /// creation.
     ///
     /// Values below `1` are clamped to `1`.
     #[must_use]

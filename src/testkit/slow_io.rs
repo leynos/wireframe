@@ -114,6 +114,7 @@ impl SlowIoConfig {
     }
 }
 
+/// Ensure pacing chunks cannot exceed the duplex buffer capacity.
 fn validate_pacing_chunk_size(
     pacing: Option<SlowIoPacing>,
     direction: &str,
@@ -134,12 +135,14 @@ fn validate_pacing_chunk_size(
     Ok(())
 }
 
+/// Delay only between chunks, never before the first transfer.
 async fn pause_between_chunks(delay: Duration, should_pause: bool) {
     if should_pause && !delay.is_zero() {
         sleep(delay).await;
     }
 }
 
+/// Write all bytes either at once or in paced chunks.
 async fn write_with_optional_pacing<W>(
     writer: &mut W,
     bytes: &[u8],
@@ -168,6 +171,7 @@ where
     }
 }
 
+/// Read until EOF either at once or with deterministic pacing delays.
 async fn read_with_optional_pacing<R>(
     reader: &mut R,
     pacing: Option<SlowIoPacing>,
@@ -233,6 +237,7 @@ where
     .await
 }
 
+/// Encode payloads into contiguous length-delimited wire bytes for tests.
 fn encode_length_delimited_payloads(payloads: Vec<Vec<u8>>) -> io::Result<Vec<u8>> {
     let codec = LengthDelimitedFrameCodec::new(DEFAULT_CAPACITY);
     let frames = encode_payloads_with_codec(&codec, payloads)?;

@@ -54,6 +54,7 @@ pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
     });
 }
 
+/// Complete the preamble handshake before handing bytes to the application.
 async fn process_stream<F, T, Ser, Ctx, E, Codec>(
     mut stream: TcpStream,
     peer_addr: Option<SocketAddr>,
@@ -88,6 +89,7 @@ async fn process_stream<F, T, Ser, Ctx, E, Codec>(
     handle_app_connection(&factory, stream).await;
 }
 
+/// Build an application and run it on the already-handshaken stream.
 async fn handle_app_connection<F, Ser, Ctx, E, Codec>(factory: &F, stream: RewindStream<TcpStream>)
 where
     F: AppFactory<Ser, Ctx, E, Codec>,
@@ -109,6 +111,7 @@ where
     }
 }
 
+/// Construct the decode error used when a preamble read exceeds its deadline.
 fn timeout_error() -> bincode::error::DecodeError {
     bincode::error::DecodeError::Io {
         inner: io::Error::new(io::ErrorKind::TimedOut, "preamble read timed out"),
@@ -116,6 +119,7 @@ fn timeout_error() -> bincode::error::DecodeError {
     }
 }
 
+/// Read a preamble, applying the configured timeout without leaking the stream.
 async fn read_preamble_with_timeout<T: Preamble>(
     stream: &mut TcpStream,
     preamble_timeout: Option<Duration>,
@@ -129,6 +133,7 @@ async fn read_preamble_with_timeout<T: Preamble>(
     }
 }
 
+/// Invoke the success callback while the stream remains exclusively borrowed.
 async fn run_preamble_success<T: Preamble>(
     handler: Option<&PreambleHandler<T>>,
     preamble: &T,
@@ -142,6 +147,7 @@ async fn run_preamble_success<T: Preamble>(
     }
 }
 
+/// Invoke the failure callback and preserve diagnostics for rejected peers.
 async fn run_preamble_failure(
     handler: Option<&PreambleFailure>,
     err: bincode::error::DecodeError,

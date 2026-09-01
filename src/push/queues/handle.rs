@@ -43,13 +43,21 @@ use super::{FrameLike, PushError, PushPolicy, PushPriority};
 /// - `limiter` – optional rate-limiter enforcing global push throughput.
 /// - `dlq_tx` – optional dead-letter queue for discarded frames.
 pub(crate) struct PushHandleInner<F> {
+    /// Sender for urgent frames, preserving priority at the actor boundary.
     pub(crate) high_prio_tx: mpsc::Sender<F>,
+    /// Sender for best-effort frames.
     pub(crate) low_prio_tx: mpsc::Sender<F>,
+    /// Shared limiter that bounds aggregate producer throughput.
     pub(crate) limiter: Option<RateLimiter>,
+    /// Optional sink for frames discarded by non-blocking push policies.
     pub(crate) dlq_tx: Option<mpsc::Sender<F>>,
+    /// Number of drops since the last diagnostic reset.
     pub(crate) dlq_drops: AtomicUsize,
+    /// Timestamp used for interval-based drop logging.
     pub(crate) dlq_last_log: Mutex<Instant>,
+    /// Count interval used for drop diagnostics.
     pub(crate) dlq_log_every_n: usize,
+    /// Time interval used for drop diagnostics.
     pub(crate) dlq_log_interval: Duration,
 }
 
@@ -71,6 +79,7 @@ impl<F> PushHandleProbe<F> {
 }
 
 impl<F: FrameLike> PushHandle<F> {
+    /// Wrap shared queue state while retaining cloneable producer ownership.
     pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
 
     /// Returns a probe for inspecting internal state during loom verification.
@@ -214,6 +223,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// quickly while remaining negligible relative to the 1s refill window.
     const PERMIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+    /// Poll permits without registering a parked waiter that could starve pushes.
     async fn wait_for_permit(&self, limiter: &RateLimiter) {
         loop {
             if limiter.try_acquire(1) {
@@ -226,6 +236,7 @@ impl<F: FrameLike> PushHandle<F> {
         }
     }
 
+    /// Emit a throttled diagnostic and reset the drop counter when due.
     fn log_dlq_drop(&self, frame: &F, dropped: usize, last_log: &mut Instant)
     where
         F: std::fmt::Debug,

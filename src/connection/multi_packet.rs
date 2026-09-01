@@ -30,6 +30,7 @@ pub(super) enum MultiPacketTerminationReason {
 }
 
 impl MultiPacketTerminationReason {
+    /// Provide a stable low-cardinality label for logs and metrics.
     pub(super) const fn as_str(self) -> &'static str {
         match self {
             Self::Drained => "drained",
@@ -45,11 +46,16 @@ impl fmt::Display for MultiPacketTerminationReason {
 
 /// Multi-packet channel state tracking the active receiver and stamping config.
 pub(super) struct MultiPacketContext<F> {
+    /// Receiver owned by the actor only while this output is active. Calling
+    /// `set_multi_packet_with_correlation(None, ...)` may clear or replace it
+    /// before channel closure or shutdown.
     channel: Option<mpsc::Receiver<F>>,
+    /// Correlation metadata applied to frames emitted from the receiver.
     stamp: MultiPacketStamp,
 }
 
 impl<F> MultiPacketContext<F> {
+    /// Start with no receiver so stamping cannot occur accidentally.
     pub(super) const fn new() -> Self {
         Self {
             channel: None,
@@ -75,6 +81,7 @@ impl<F> MultiPacketContext<F> {
         self.stamp = stamp;
     }
 
+    /// Borrow the receiver without transferring actor ownership.
     pub(super) fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
 
     /// Returns `true` if correlation stamping is enabled.
@@ -82,6 +89,7 @@ impl<F> MultiPacketContext<F> {
         matches!(self.stamp, MultiPacketStamp::Enabled(_))
     }
 
+    /// Return the identifier to stamp on frames, if stamping is enabled.
     pub(super) fn correlation_id(&self) -> Option<u64> {
         match self.stamp {
             MultiPacketStamp::Enabled(value) => value,

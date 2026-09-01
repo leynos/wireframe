@@ -32,20 +32,34 @@ pub struct WireframeApp<
     E: Packet = Envelope,
     F: FrameCodec = LengthDelimitedFrameCodec,
 > {
+    /// Handler factories keyed by the protocol message identifier.
     pub(in crate::app) handlers: HashMap<u32, Handler<E>>,
+    /// Lazily built middleware chains, shared after the first connection uses them.
     pub(in crate::app) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
+    /// Middleware applied in registration order around each handler.
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
+    /// Serializer retained by every connection built from this application.
     pub(in crate::app) serializer: S,
+    /// Type-erased application state available to handlers and hooks.
     pub(in crate::app) app_data: AppDataStore,
+    /// Optional asynchronous hook that creates per-connection state.
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
+    /// Optional asynchronous hook that releases state after clean processing.
     pub(in crate::app) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
+    /// Optional protocol hook used to customize frame-level processing.
     pub(in crate::app) protocol:
         Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// Optional dead-letter sink for pushes that cannot be delivered.
     pub(in crate::app) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
+    /// Frame codec used by all connections from this application.
     pub(in crate::app) codec: F,
+    /// Maximum interval to wait for the next inbound frame.
     pub(in crate::app) read_timeout_ms: u64,
+    /// Optional limits and timeout for transparent frame fragmentation.
     pub(in crate::app) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    /// Optional assembler for protocol messages spread across several frames.
     pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    /// Optional byte caps protecting message and connection memory usage.
     pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
 }
 
@@ -122,11 +136,17 @@ where
 /// and memory budgets into a single value to keep the rebuild signature
 /// concise.
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
+    /// Serializer to carry into the rebuilt application type.
     pub(super) serializer: S2,
+    /// Codec to carry into the rebuilt application type.
     pub(super) codec: F2,
+    /// Protocol hook whose frame type matches the replacement codec.
     pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
+    /// Fragmentation settings retained across a type transition.
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    /// Message assembler retained across a type transition.
     pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    /// Memory limits retained across a type transition.
     pub(super) memory_budgets: Option<MemoryBudgets>,
 }
 

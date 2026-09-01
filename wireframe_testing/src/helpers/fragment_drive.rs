@@ -124,7 +124,7 @@ where
         fragment_and_encode(request.fragmenter, request.payload, request.route_id)?;
     let encoded = encode_payloads_with_codec(codec, serialized_envelopes)?;
     let raw = drive_internal(handler, encoded, request.capacity).await?;
-    decode_frames_with_codec(codec, raw)
+    decode_frames_with_codec(codec, &raw)
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +356,6 @@ where
         DEFAULT_CAPACITY,
     )
     .await?;
-    let frames = decode_frames_with_codec(codec, raw)?;
+    let frames = decode_frames_with_codec(codec, &raw)?;
     Ok(extract_payloads::<F>(&frames))
 }

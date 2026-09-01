@@ -42,7 +42,7 @@ where
 {
     let encoded = encode_payloads_with_codec(codec, payloads)?;
     let raw = drive_internal(handler, encoded, capacity).await?;
-    decode_frames_with_codec(codec, raw)
+    decode_frames_with_codec(codec, &raw)
 }
 
 // ---------------------------------------------------------------------------

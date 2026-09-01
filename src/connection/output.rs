@@ -39,9 +39,13 @@ pub(super) struct MultiPacketCloseResult {
 )]
 #[derive(Clone, Copy)]
 pub(super) struct EventAvailability {
+    /// Whether an urgent queue can currently be polled.
     pub(super) high: bool,
+    /// Whether a best-effort queue can currently be polled.
     pub(super) low: bool,
+    /// Whether the active multi-packet source can be polled.
     pub(super) multi_packet: bool,
+    /// Whether the active streaming response can be polled.
     pub(super) response: bool,
 }
 

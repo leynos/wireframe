@@ -61,12 +61,16 @@ fn decimal_digits(mut value: usize) -> usize {
 /// Encapsulates buffer context for RESP frame parsing.
 #[derive(Clone, Copy)]
 struct ParseContext<'a> {
+    /// Borrowed receive buffer; parsing never consumes it directly.
     buf: &'a BytesMut,
+    /// Offset of the current frame, used to report bytes consumed precisely.
     start: usize,
+    /// Per-frame byte budget applied to line and payload parsing.
     max_frame_length: usize,
 }
 
 impl<'a> ParseContext<'a> {
+    /// Capture the immutable buffer view and limits for one parser operation.
     fn new(buf: &'a BytesMut, start: usize, max_frame_length: usize) -> Self {
         Self {
             buf,
@@ -83,7 +87,6 @@ pub fn parse_frame(
 ) -> Result<Option<(RespFrame, usize)>, io::Error> {
     parse_frame_at(buf, 0, max_frame_length, 0)
 }
-
 /// Parse a line and convert to UTF-8.
 fn parse_text_line<'a>(
     ctx: ParseContext<'a>,
@@ -96,7 +99,6 @@ fn parse_text_line<'a>(
         str::from_utf8(line).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, error_msg))?;
     Ok(Some((text, next)))
 }
-
 /// Parse a text-based RESP frame (simple string or error).
 fn parse_text_frame<F>(
     ctx: ParseContext<'_>,
@@ -113,7 +115,7 @@ where
     let frame = constructor(text.to_string());
     Ok(Some((frame, next - start)))
 }
-
+/// Decode a `+` frame without consuming incomplete input.
 fn parse_simple_string(
     buf: &BytesMut,
     start: usize,
@@ -125,7 +127,7 @@ fn parse_simple_string(
         RespFrame::SimpleString,
     )
 }
-
+/// Decode a `-` frame and classify malformed or non-UTF-8 text as input data.
 fn parse_error(
     buf: &BytesMut,
     start: usize,
@@ -137,7 +139,7 @@ fn parse_error(
         RespFrame::Error,
     )
 }
-
+/// Decode a `:` frame as a signed 64-bit value without consuming partial input.
 fn parse_integer(
     buf: &BytesMut,
     start: usize,
@@ -153,19 +155,28 @@ fn parse_integer(
     Ok(Some((RespFrame::Integer(value), next - start)))
 }
 
+/// Describes whether a bulk header carries a payload or RESP's null marker.
 enum BulkLength {
+    /// The `-1` header denotes an absent payload rather than zero bytes.
     Null,
+    /// A non-negative length whose payload and trailing CRLF must follow.
     Sized(usize),
 }
 
+/// Captures the offsets and byte budget needed to validate one bulk payload.
 #[derive(Clone, Copy, Debug)]
 struct BulkPayloadSpec {
+    /// Start of the complete bulk frame, used for the consumed-byte count.
     start: usize,
+    /// First byte of payload data, immediately after the header CRLF.
     payload_start: usize,
+    /// Number of payload bytes promised by the header.
     len: usize,
+    /// Maximum complete-frame size accepted by the transport.
     max_frame_length: usize,
 }
 
+/// Parse a bulk header and, when present, validate and copy its payload.
 fn parse_bulk_string(
     buf: &BytesMut,
     start: usize,
@@ -188,6 +199,7 @@ fn parse_bulk_string(
     }
 }
 
+/// Parse the signed length header, accepting only `-1` or non-negative sizes.
 fn parse_bulk_length(
     buf: &BytesMut,
     start: usize,
@@ -216,6 +228,7 @@ fn parse_bulk_length(
     Ok(Some((BulkLength::Sized(len), next)))
 }
 
+/// Validate a bulk payload without consuming incomplete input.
 fn parse_bulk_payload(
     buf: &BytesMut,
     spec: BulkPayloadSpec,
@@ -250,6 +263,7 @@ fn parse_bulk_payload(
     )))
 }
 
+/// Require the CRLF delimiter that terminates every non-null bulk payload.
 fn validate_bulk_terminator(buf: &BytesMut, cursor: usize) -> Result<(), io::Error> {
     let cr = buf
         .get(cursor)
@@ -268,6 +282,7 @@ fn validate_bulk_terminator(buf: &BytesMut, cursor: usize) -> Result<(), io::Err
     Ok(())
 }
 
+/// Decode an array while bounding element count, depth, and bytes.
 fn parse_array(
     buf: &BytesMut,
     start: usize,
@@ -326,6 +341,7 @@ fn parse_array(
     Ok(Some((RespFrame::Array(Some(frames)), consumed)))
 }
 
+/// Dispatch one complete frame while bounding attacker-controlled nesting.
 fn parse_frame_at(
     buf: &BytesMut,
     start: usize,
@@ -354,6 +370,7 @@ fn parse_frame_at(
     }
 }
 
+/// Find a bounded CRLF line without consuming partial input.
 fn parse_line(
     buf: &BytesMut,
     start: usize,

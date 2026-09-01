@@ -12,8 +12,11 @@ use super::{FragmentError, FragmentHeader, FragmentIndex, FragmentStatus, Messag
 /// fragment adapter without additional allocations.
 #[derive(Clone, Debug)]
 pub struct FragmentSeries {
+    /// Message identity all accepted fragments must share.
     message_id: MessageId,
+    /// Next index accepted without treating the frame as a duplicate or gap.
     next_index: FragmentIndex,
+    /// Whether a final fragment has already closed the series.
     complete: bool,
 }
 

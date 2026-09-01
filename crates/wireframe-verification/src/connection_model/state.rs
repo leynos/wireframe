@@ -17,28 +17,56 @@ pub enum ActiveOutput {
 pub struct ConnectionState {
     /// Number of transitions taken so far; bounded by `PlaceholderConnectionModel::max_steps`.
     pub(crate) steps: u8,
-    /// A high-priority output request is waiting to be emitted.
-    pub(crate) high_priority_queued: bool,
-    /// A low-priority output request is waiting to be emitted.
-    pub(crate) low_priority_queued: bool,
-    /// Fairness policy currently permits a low-priority emission.
-    pub(crate) fairness_allows_low: bool,
+    /// Queued-output state that governs priority selection and fairness.
+    pub(super) pending_outputs: PendingOutputs,
     /// Output stream currently held by the connection.
     pub(crate) active_output: ActiveOutput,
-    /// Shutdown has been requested for this connection.
-    pub(crate) shutdown_requested: bool,
-    /// At least one high-priority frame has been emitted.
-    pub(crate) emitted_high_priority: bool,
-    /// At least one low-priority frame has been emitted.
-    pub(crate) emitted_low_priority: bool,
-    /// A response output stream has been completed.
-    pub(crate) response_completed: bool,
-    /// A multi-packet output stream has been completed.
-    pub(crate) multi_packet_completed: bool,
-    /// Shutdown was requested or applied while an output was active.
-    pub(crate) shutdown_during_output: bool,
+    /// Shutdown request and its interaction with the active output.
+    pub(super) shutdown: ShutdownState,
+    /// Observable progress markers for priority emissions.
+    pub(super) emissions: EmissionEvidence,
+    /// Completion markers retained as liveness witnesses for both stream kinds.
+    pub(super) completed_outputs: CompletedOutputs,
     /// Number of terminator frames appended to multi-packet streams.
     pub(crate) multi_packet_terminal_count: u8,
+}
+
+/// Queue facts kept together because fairness interprets them as one decision.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(super) struct PendingOutputs {
+    /// Records that a high-priority item must be selected before ordinary work.
+    pub(super) high_priority_queued: bool,
+    /// Records that an ordinary item remains eligible once fairness permits it.
+    pub(super) low_priority_queued: bool,
+    /// Grants one low-priority turn after high-priority traffic has progressed.
+    pub(super) fairness_allows_low: bool,
+}
+
+/// Shutdown facts retained so the checker can witness cancellation races.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(super) struct ShutdownState {
+    /// Prevents installation of new output after connection teardown begins.
+    pub(super) requested: bool,
+    /// Captures that teardown overlapped an already-active output stream.
+    pub(super) during_output: bool,
+}
+
+/// Emission witnesses used only to prove that each priority can make progress.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(super) struct EmissionEvidence {
+    /// Shows the high-priority path reached an emission transition.
+    pub(super) high_priority: bool,
+    /// Shows the low-priority path reached an emission transition.
+    pub(super) low_priority: bool,
+}
+
+/// Completion witnesses used to keep response and multi-packet liveness distinct.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(super) struct CompletedOutputs {
+    /// Shows a response stream returned ownership of the active-output slot.
+    pub(super) response: bool,
+    /// Shows a multi-packet stream returned ownership of the active-output slot.
+    pub(super) multi_packet: bool,
 }
 
 impl ConnectionState {
@@ -48,20 +76,25 @@ impl ConnectionState {
     /// Returns `true` when a new output stream may be installed (output idle and no shutdown
     /// pending).
     pub(crate) fn can_install_output(&self) -> bool {
-        !self.shutdown_requested && self.is_output_idle()
+        !self.shutdown.requested && self.is_output_idle()
     }
 
     /// Returns `true` when the fairness policy permits emitting the queued low-priority output.
     pub(crate) fn can_emit_low_priority(&self) -> bool {
-        self.low_priority_queued && (!self.high_priority_queued || self.fairness_allows_low)
+        self.pending_outputs.low_priority_queued
+            && (!self.pending_outputs.high_priority_queued
+                || self.pending_outputs.fairness_allows_low)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    //! State tests verify idle, output-admission, and fairness decisions that
+    //! constrain the model's legal connection transitions.
+
     use rstest::rstest;
 
-    use super::{ActiveOutput, ConnectionState};
+    use super::{ActiveOutput, ConnectionState, PendingOutputs, ShutdownState};
 
     #[rstest]
     #[case(ActiveOutput::Idle, true)]
@@ -87,7 +120,10 @@ mod tests {
         #[case] expected: bool,
     ) {
         let state = ConnectionState {
-            shutdown_requested: shutdown,
+            shutdown: ShutdownState {
+                requested: shutdown,
+                ..Default::default()
+            },
             active_output: active,
             ..Default::default()
         };
@@ -108,9 +144,11 @@ mod tests {
         #[case] expected: bool,
     ) {
         let state = ConnectionState {
-            low_priority_queued: low,
-            high_priority_queued: high,
-            fairness_allows_low: fairness,
+            pending_outputs: PendingOutputs {
+                low_priority_queued: low,
+                high_priority_queued: high,
+                fairness_allows_low: fairness,
+            },
             ..Default::default()
         };
 

@@ -44,11 +44,14 @@ impl MessageAssembler for TestAssembler {
 }
 
 #[derive(Clone, Copy, Debug)]
+/// Bit flags encoded in the test protocol's frame header.
 struct FrameFlags(u8);
 
 impl FrameFlags {
+    /// Whether this frame terminates the logical message.
     fn is_last(self) -> bool { self.0 & 0b1 == 0b1 }
 
+    /// Whether the header carries its optional length/sequence value.
     fn has_optional_field(self) -> bool { self.0 & 0b10 == 0b10 }
 }
 
@@ -75,6 +78,7 @@ pub fn parse_frame_header(payload: &[u8]) -> Result<ParsedFrameHeader, io::Error
     Ok(ParsedFrameHeader::new(header, header_len))
 }
 
+/// Parse the first-frame fields after the common header prefix.
 fn parse_first_frame_header(
     buf: &mut &[u8],
     flags: FrameFlags,
@@ -93,6 +97,7 @@ fn parse_first_frame_header(
     }))
 }
 
+/// Parse continuation-frame fields after the common header prefix.
 fn parse_continuation_frame_header(
     buf: &mut &[u8],
     flags: FrameFlags,
@@ -109,10 +114,12 @@ fn parse_continuation_frame_header(
     }))
 }
 
+/// Read a u32 length and convert it to the platform's `usize`.
 fn take_usize_u32(buf: &mut &[u8], message: &'static str) -> Result<usize, io::Error> {
     usize::try_from(take_u32(buf)?).map_err(|_| invalid_data(message))
 }
 
+/// Read an optional u32 length when the header flag advertises one.
 fn take_optional_usize_u32(
     buf: &mut &[u8],
     flags: FrameFlags,
@@ -125,6 +132,7 @@ fn take_optional_usize_u32(
     take_usize_u32(buf, message).map(Some)
 }
 
+/// Read an optional continuation sequence when its flag is present.
 fn take_optional_sequence(
     buf: &mut &[u8],
     flags: FrameFlags,
@@ -136,26 +144,31 @@ fn take_optional_sequence(
     Ok(Some(FrameSequence::from(take_u32(buf)?)))
 }
 
+/// Read one byte after checking that the header buffer is long enough.
 fn take_u8(buf: &mut &[u8]) -> Result<u8, io::Error> {
     ensure_remaining(buf, 1)?;
     Ok(buf.get_u8())
 }
 
+/// Read a big-endian u16 after checking header bounds.
 fn take_u16(buf: &mut &[u8]) -> Result<u16, io::Error> {
     ensure_remaining(buf, 2)?;
     Ok(buf.get_u16())
 }
 
+/// Read a big-endian u32 after checking header bounds.
 fn take_u32(buf: &mut &[u8]) -> Result<u32, io::Error> {
     ensure_remaining(buf, 4)?;
     Ok(buf.get_u32())
 }
 
+/// Read a big-endian u64 after checking header bounds.
 fn take_u64(buf: &mut &[u8]) -> Result<u64, io::Error> {
     ensure_remaining(buf, 8)?;
     Ok(buf.get_u64())
 }
 
+/// Reject a header read that would consume beyond the available bytes.
 fn ensure_remaining(buf: &mut &[u8], needed: usize) -> Result<(), io::Error> {
     if buf.remaining() < needed {
         return Err(invalid_data("header too short"));
@@ -163,6 +176,7 @@ fn ensure_remaining(buf: &mut &[u8], needed: usize) -> Result<(), io::Error> {
     Ok(())
 }
 
+/// Build the consistent invalid-data error returned by header parsing.
 fn invalid_data(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }

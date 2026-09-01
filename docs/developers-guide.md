@@ -364,26 +364,70 @@ default member:
 - `members = [".", "crates/wireframe-verification", "wireframe_testing"]`
 - `default-members = ["."]`
 
-That means ordinary root-level commands such as `cargo build`, `cargo check`,
-`cargo test`, and `cargo clippy` retain their existing ergonomics and continue
-to target the main `wireframe` package by default.
-
-Use plain root-level Cargo commands for day-to-day work on the main crate.
-Reach for `--workspace` when a task is explicitly meant to cover every current
-workspace member, for example repository-wide validation in CI or when a change
-also touches `crates/wireframe-verification` or `wireframe_testing`.
+Plain root-level commands such as `cargo build`, `cargo check`, `cargo test`,
+and `cargo clippy` retain their existing ergonomics and continue to target the
+main `wireframe` package by default. The Makefile validation targets are the
+workspace-wide exception: they pass `--workspace` so the root, verification,
+and testing helper crates are checked together.
 
 Use `cargo test -p wireframe-verification` to exercise the Stateright crate in
-isolation. The existing `Makefile` targets still focus on the root `wireframe`
-crate because the dedicated formal-verification targets belong to later roadmap
-items.
+isolation. Use `cargo test -p wireframe_testing` when changing shared test
+fixtures, observability helpers, codec drivers, or other support APIs. Use
+`cargo test -p wireframe` when a change should stay limited to the published
+library.
 
-Use `cargo test -p wireframe_testing` when changing shared test fixtures,
-observability helpers, codec drivers, or other support APIs exported by the
-testing helper crate. Use `cargo test -p wireframe` for the root crate when a
-change should stay limited to the published library. Plain root-level commands
-keep their day-to-day ergonomics because `default-members = ["."]` leaves the
-main `wireframe` package as the only default member.
+### Workspace-wide validation and private-item documentation
+
+The standard Makefile gates cover all supported workspace members and targets:
+
+- `make test` runs:
+
+  ```text
+  RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features
+  ```
+
+- `make test-doc` runs:
+
+  ```text
+  RUSTFLAGS="-D warnings" cargo test --workspace --exclude wireframe_testing \
+    --doc --all-features
+  ```
+
+  The testing helper's standalone doctests require generic application types
+  that snippets cannot infer; [issue #578][issue-578] tracks their repair.
+  Remove the exclusion when that issue is resolved.
+
+  [issue-578]: https://github.com/leynos/wireframe/issues/578
+
+- `make typecheck` runs:
+
+  ```text
+  RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --all-features
+  ```
+
+- `make lint` runs these workspace-wide checks:
+
+  ```text
+  RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo doc --workspace --no-deps
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  whitaker --all -- --all-targets --all-features
+  ```
+
+The shared `[workspace.lints.clippy]`, `[workspace.lints.rust]`, and
+`[workspace.lints.rustdoc]` tables are inherited by each member through
+`[lints] workspace = true`. In particular, Clippy's
+`missing_docs_in_private_items = "deny"` gate covers private implementation
+items in every crate and target, while Rust's `missing_docs = "deny"` continues
+to cover the public surface. Add `//!` module documentation and `///` item
+documentation that explains the relevant contract, invariant, or test purpose.
+If generated or macro-expanded code leaves a genuinely unavoidable gap, use an
+item-scoped `#[expect(clippy::missing_docs_in_private_items, reason = "...")]`
+with the concrete technical limitation; do not add blanket allows.
+
+Plain root-level commands keep their day-to-day ergonomics because
+`default-members = ["."]` leaves the main `wireframe` package as the only
+default member; use the Makefile gates or explicit `--workspace` flags for
+repository-wide validation.
 
 ### Workspace manifest test support
 

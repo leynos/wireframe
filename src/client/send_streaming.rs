@@ -40,7 +40,9 @@ use crate::serializer::Serializer;
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SendStreamingConfig {
+    /// Optional upper bound for body bytes placed in one frame.
     chunk_size: Option<usize>,
+    /// Optional deadline covering reads, writes, and flushes.
     timeout: Option<Duration>,
 }
 
@@ -111,6 +113,7 @@ impl SendStreamingConfig {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SendStreamingOutcome {
+    /// Number of complete frames written before the operation returned.
     frames_sent: u64,
 }
 

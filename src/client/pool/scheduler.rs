@@ -19,16 +19,21 @@ use super::{
 };
 use crate::{client::ClientError, serializer::Serializer};
 
+/// One-shot completion channel for a queued logical-session acquisition.
 type WaiterSender<S, P, C> = oneshot::Sender<Result<PooledClientLease<S, P, C>, ClientError>>;
 
+/// Policy-specific waiter queues protected by the scheduler mutex.
 struct SchedulerState<S, P, C>
 where
     S: Serializer + Clone + Send + Sync + 'static,
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Global arrival order used by FIFO admission.
     fifo_queue: VecDeque<(u64, WaiterSender<S, P, C>)>,
+    /// Rotating handle identities used to provide per-session turns.
     round_robin_order: VecDeque<u64>,
+    /// Per-handle queues preserving request order within a session.
     handle_waiters: HashMap<u64, VecDeque<WaiterSender<S, P, C>>>,
 }
 
@@ -38,6 +43,7 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Start with empty queues and no registered logical sessions.
     fn new() -> Self {
         Self {
             fifo_queue: VecDeque::new(),
@@ -46,11 +52,13 @@ where
         }
     }
 
+    /// Add a handle to both identity tracking and round-robin rotation.
     fn register_handle(&mut self, handle_id: u64) {
         self.handle_waiters.insert(handle_id, VecDeque::new());
         self.round_robin_order.push_back(handle_id);
     }
 
+    /// Remove a handle and all queued requests so dropped callers cannot win capacity.
     fn deregister_handle(&mut self, handle_id: u64) {
         self.handle_waiters.remove(&handle_id);
         self.round_robin_order
@@ -97,10 +105,12 @@ where
         }
     }
 
+    /// Report whether any policy queue still contains a request.
     fn has_waiters(&self) -> bool {
         !self.fifo_queue.is_empty() || self.handle_waiters.values().any(|queue| !queue.is_empty())
     }
 
+    /// Select one waiter according to the configured ordering policy.
     fn take_next_waiter(&mut self, policy: PoolFairnessPolicy) -> Option<WaiterSender<S, P, C>> {
         match policy {
             PoolFairnessPolicy::RoundRobin => self.take_next_round_robin_waiter(),
@@ -108,6 +118,7 @@ where
         }
     }
 
+    /// Pop FIFO arrivals, skipping requests from handles already dropped.
     fn take_next_fifo_waiter(&mut self) -> Option<WaiterSender<S, P, C>> {
         while let Some((handle_id, sender)) = self.fifo_queue.pop_front() {
             if self.handle_waiters.contains_key(&handle_id) {
@@ -117,6 +128,7 @@ where
         None
     }
 
+    /// Visit each registered handle once and pop its oldest pending request.
     fn take_next_round_robin_waiter(&mut self) -> Option<WaiterSender<S, P, C>> {
         let len = self.round_robin_order.len();
         for _ in 0..len {
@@ -139,9 +151,13 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Policy chosen for all blocked acquisitions in this pool.
     fairness_policy: PoolFairnessPolicy,
+    /// Monotonic source of logical-session identities.
     next_handle_id: AtomicU64,
+    /// Single-service guard preventing duplicate scheduler tasks.
     is_servicing: AtomicBool,
+    /// Mutex-protected queues shared by acquisition and release paths.
     state: Mutex<SchedulerState<S, P, C>>,
 }
 
@@ -151,6 +167,7 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Create a scheduler with no active handles or waiters.
     pub(crate) fn new(fairness_policy: PoolFairnessPolicy) -> Self {
         Self {
             fairness_policy,
@@ -160,16 +177,19 @@ where
         }
     }
 
+    /// Allocate and register a stable identity for one logical session.
     pub(crate) fn register_handle(&self) -> u64 {
         let handle_id = self.next_handle_id.fetch_add(1, Ordering::Relaxed);
         lock_or_recover(&self.state).register_handle(handle_id);
         handle_id
     }
 
+    /// Remove a session and cancel its queued requests by dropping senders.
     pub(crate) fn deregister_handle(&self, handle_id: u64) {
         lock_or_recover(&self.state).deregister_handle(handle_id);
     }
 
+    /// Queue an acquisition, taking an immediate lease when capacity permits.
     pub(crate) async fn acquire_for_handle(
         self: &Arc<Self>,
         inner: Arc<ClientPoolInner<S, P, C>>,
@@ -206,6 +226,7 @@ where
         receiver.await.map_err(|_| ClientError::disconnected())?
     }
 
+    /// Complete every queued waiter with a disconnected error.
     pub(crate) fn notify_shutdown(&self) {
         let mut state = lock_or_recover(&self.state);
         while let Some(waiter) = state.take_next_waiter(self.fairness_policy) {
@@ -213,6 +234,7 @@ where
         }
     }
 
+    /// Restart service when a released lease may satisfy a waiter.
     pub(crate) fn notify_capacity_available(
         self: &Arc<Self>,
         inner: Arc<ClientPoolInner<S, P, C>>,
@@ -220,6 +242,7 @@ where
         self.kick(inner);
     }
 
+    /// Spawn at most one worker to drain waiters as capacity appears.
     fn kick(self: &Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
         if self
             .is_servicing
@@ -233,6 +256,7 @@ where
         }
     }
 
+    /// Re-arm the worker if a race left requests after it stopped.
     fn restart_if_waiters(&self) -> bool {
         if !lock_or_recover(&self.state).has_waiters() {
             return false;
@@ -243,6 +267,7 @@ where
             .is_ok()
     }
 
+    /// Dequeue a waiter, closing the worker only after queues are empty.
     fn take_next_waiter_or_stop(&self) -> Option<WaiterSender<S, P, C>> {
         loop {
             if let Some(sender) =
@@ -258,12 +283,14 @@ where
         }
     }
 
+    /// Serially service waiters so fairness order is deterministic.
     async fn service_waiters(self: Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
         while let Some(sender) = self.take_next_waiter_or_stop() {
             self.service_one_waiter(sender, Arc::clone(&inner)).await;
         }
     }
 
+    /// Race slot capacity against shutdown for one selected waiter.
     #[expect(
         clippy::integer_division_remainder_used,
         reason = "tokio::select! macro internally uses % for random branch selection"

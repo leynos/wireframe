@@ -46,6 +46,22 @@ pub(crate) fn verification_package_id() -> WorkspaceManifestResult<String> {
     cargo_package_id("wireframe-verification")
 }
 
-pub(crate) fn has_manifest_line(manifest: &str, expected: &str) -> bool {
+/// Report whether the manifest contains a declared TOML table.
+pub(crate) fn has_manifest_table(manifest: &str, expected: &str) -> bool {
     manifest.lines().any(|line| line.trim() == expected)
+}
+
+/// Report whether a setting appears within the requested TOML table.
+pub(crate) fn has_manifest_line(manifest: &str, table: &str, expected: &str) -> bool {
+    let mut current_table = None;
+
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') && line.ends_with(']') {
+            current_table = Some(line);
+        } else if current_table == Some(table) && line == expected {
+            return true;
+        }
+    }
+
+    false
 }

@@ -3,7 +3,7 @@
 //!
 //! These helpers spawn the application on a `tokio::io::duplex` stream and
 //! return all bytes written by the app for easy assertions. They work with any
-//! message implementing [`serde::Serialize`]. The payload is encoded with
+//! message implementing `serde::Serialize`. The payload is encoded with
 //! [`bincode::encode_to_vec`] using [`bincode::config::standard()`], which means
 //! little-endian byte order, variable-length integer encoding and no byte limit
 //! are applied. The example uses a simple `u8` value so no generics are

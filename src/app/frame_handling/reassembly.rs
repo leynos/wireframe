@@ -26,6 +26,10 @@ pub(crate) fn reassemble_if_needed(
     handle_reassembly_result(state.reassemble(env), &mut failures, correlation_id)
 }
 
+/// Convert fragment-processing errors into counted connection failures.
+///
+/// Recoverable errors are recorded and return `Ok(None)` while the tracker
+/// permits recovery; only its terminal `io::Error` is propagated.
 fn handle_reassembly_result(
     result: Result<Option<Envelope>, FragmentProcessError>,
     failures: &mut DeserFailureTracker<'_>,

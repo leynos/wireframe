@@ -10,6 +10,9 @@ keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe_testing"
 
+[lints]
+workspace = true
+
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt", "io-util", "net", "sync", "time"] }
 wireframe = { version = "0.3.0", path = "..", features = ["testkit"] }

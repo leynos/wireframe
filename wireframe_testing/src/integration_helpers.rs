@@ -326,6 +326,9 @@ pub fn echo_app_factory(
 
 #[cfg(test)]
 mod tests {
+    //! Integration-helper tests verify that shared fixtures build usable
+    //! envelopes, applications, and loopback listeners for crate consumers.
+
     use wireframe::{app::Packet, correlation::CorrelatableFrame};
 
     use super::{CommonTestEnvelope, factory, unused_listener};
@@ -371,10 +374,9 @@ mod tests {
     }
 
     #[test]
-    fn factory_builds_default_app() -> super::TestResult {
+    fn factory_builds_default_app() {
         let build = factory();
         let app = build();
         let _codec = app.length_codec();
-        Ok(())
     }
 }

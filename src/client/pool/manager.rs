@@ -14,11 +14,14 @@ use crate::{
 /// Connection manager for one pooled wireframe socket.
 #[derive(Clone)]
 pub(crate) struct WireframeConnectionManager<S, P, C> {
+    /// Remote endpoint used for each replacement connection.
     addr: SocketAddr,
+    /// Cloneable construction recipe shared by reconnect attempts.
     parts: ClientBuildParts<S, P, C>,
 }
 
 impl<S, P, C> WireframeConnectionManager<S, P, C> {
+    /// Capture the endpoint and recipe for one pool slot.
     pub(crate) fn new(addr: SocketAddr, parts: ClientBuildParts<S, P, C>) -> Self {
         Self { addr, parts }
     }

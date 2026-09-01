@@ -7,6 +7,7 @@ use crate::workspace_manifest_support::{
     WorkspaceManifestResult as FixtureResult,
     cargo_metadata,
     has_manifest_line,
+    has_manifest_table,
     helper_package_id,
     root_manifest,
     root_package_id,
@@ -127,13 +128,15 @@ impl WorkspaceManifestWorld {
     /// clause.
     pub fn verify_staged_hybrid_workspace_manifest(&self) -> TestResult {
         let manifest = self.manifest()?;
+        if !has_manifest_table(manifest, "[workspace]") {
+            return Err("expected `[workspace]` in root Cargo.toml".into());
+        }
         for expected in [
-            "[workspace]",
             "members = [\".\", \"crates/wireframe-verification\", \"wireframe_testing\"]",
             "default-members = [\".\"]",
             "resolver = \"3\"",
         ] {
-            if !has_manifest_line(manifest, expected) {
+            if !has_manifest_line(manifest, "[workspace]", expected) {
                 return Err(format!("expected `{expected}` in root Cargo.toml").into());
             }
         }

@@ -25,7 +25,9 @@ pub struct TestFrame {
 /// Codec implementation that wraps payloads with a tagged test frame.
 #[derive(Clone, Debug)]
 pub struct TestCodec {
+    /// Decoder/encoder limit used to exercise oversized-payload errors.
     max_frame_length: usize,
+    /// Shared count used by tests to observe encode activity.
     counter: Arc<AtomicUsize>,
 }
 
@@ -47,6 +49,7 @@ impl TestCodec {
 /// Adapter implementing the codec's encoder/decoder pair.
 #[derive(Clone, Debug)]
 pub struct TestAdapter {
+    /// Maximum payload accepted by the framed test transport.
     max_frame_length: usize,
 }
 

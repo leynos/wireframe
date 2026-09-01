@@ -23,8 +23,11 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Slot whose physical connection is checked out for each operation.
     slot: Arc<PoolSlot<S, P, C>>,
+    /// Admission token held for the lifetime of this lease.
     _permit: OwnedSemaphorePermit,
+    /// Scheduler state to notify when this lease releases capacity.
     release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
 }
 
@@ -34,6 +37,7 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
+    /// Construct a lease while retaining the permit until drop.
     pub(crate) fn new(
         slot: Arc<PoolSlot<S, P, C>>,
         permit: OwnedSemaphorePermit,
@@ -46,8 +50,10 @@ where
         }
     }
 
+    /// Classify transport errors that make a pooled connection unsafe to reuse.
     fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
 
+    /// Run one operation against a checked-out connection and mark bad sockets.
     async fn dispatch_on_connection<R>(
         &self,
         operation: impl AsyncFnOnce(&mut ManagedClientConnection<S, C>) -> Result<R, ClientError>,
